@@ -1,0 +1,43 @@
+{
+  "id": "feishu",
+  "name": "Feishu",
+  "version": "0.1.0",
+  "description": "Feishu/Lark channel plugin — bridges Feishu messaging, bitable, calendar, and document tools.",
+  "author": "FastClaw",
+
+  "channels": ["feishu"],
+
+  "skills": [
+    "skills/feishu-bitable",
+    "skills/feishu-calendar",
+    "skills/feishu-channel-rules",
+    "skills/feishu-create-doc",
+    "skills/feishu-fetch-doc",
+    "skills/feishu-im-read",
+    "skills/feishu-task",
+    "skills/feishu-troubleshoot",
+    "skills/feishu-update-doc"
+  ],
+
+  "tools": [
+    "feishu_send_message",
+    "feishu_reply_message",
+    "feishu_get_chat_messages"
+  ],
+
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "app_id": { "type": "string", "description": "Feishu app ID" },
+      "app_secret": { "type": "string", "description": "Feishu app secret" },
+      "verification_token": { "type": "string", "description": "Webhook verification token" },
+      "encrypt_key": { "type": "string", "description": "Webhook encrypt key" },
+      "connection_mode": { "type": "string", "enum": ["webhook", "websocket"], "default": "websocket" },
+      "reply_mode": { "type": "string", "enum": ["always", "mention_only", "never"], "default": "mention_only" },
+      "domain": { "type": "string", "default": "https://open.feishu.cn" }
+    },
+    "required": ["app_id", "app_secret"]
+  },
+
+  "enabledByDefault": true
+}

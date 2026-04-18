@@ -1,0 +1,10 @@
+target/
+.git/
+.gitignore
+*.md
+openclaw/
+.cursor/
+.env
+.env.*
+data/
+logs/

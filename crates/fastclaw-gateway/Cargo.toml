@@ -1,0 +1,58 @@
+[package]
+name = "fastclaw-gateway"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-agent = { path = "../fastclaw-agent", features = ["browser"] }
+fastclaw-session = { path = "../fastclaw-session" }
+fastclaw-security = { path = "../fastclaw-security" }
+fastclaw-memory = { path = "../fastclaw-memory" }
+fastclaw-evolution = { path = "../fastclaw-evolution" }
+fastclaw-context = { path = "../fastclaw-context" }
+fastclaw-dag = { path = "../fastclaw-dag" }
+fastclaw-self-iter = { path = "../fastclaw-self-iter" }
+fastclaw-plugin = { path = "../fastclaw-plugin" }
+fastclaw-observe = { path = "../fastclaw-observe" }
+fastclaw-cron = { path = "../fastclaw-cron" }
+fastclaw-collab = { path = "../fastclaw-collab" }
+fastclaw-feishu = { path = "../../extensions/feishu" }
+fastclaw-telegram = { path = "../../extensions/telegram" }
+fastclaw-discord = { path = "../../extensions/discord" }
+fastclaw-slack = { path = "../../extensions/slack" }
+fastclaw-whatsapp = { path = "../../extensions/whatsapp" }
+fastclaw-matrix = { path = "../../extensions/matrix" }
+fastclaw-msteams = { path = "../../extensions/msteams" }
+fastclaw-model-router = { path = "../fastclaw-model-router" }
+tokio.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dashmap.workspace = true
+uuid.workspace = true
+dirs.workspace = true
+json5.workspace = true
+futures.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+async-stream = "0.3"
+async-trait.workspace = true
+tokio-util = "0.7.18"
+notify.workspace = true
+reqwest.workspace = true
+url = "2"
+
+[features]
+test-helpers = []
+
+[dev-dependencies]
+fastclaw-gateway = { path = ".", features = ["test-helpers"] }
+http-body-util = "0.1"
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio-tungstenite = "0.24"
+reqwest = { workspace = true }
+tempfile = "3"

@@ -1,0 +1,25 @@
+[package]
+name = "fastclaw-plugin"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+wasmtime.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+constant_time_eq.workspace = true
+notify.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

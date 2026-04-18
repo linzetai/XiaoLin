@@ -1,0 +1,12 @@
+{
+  "id": "tool-001",
+  "category": "info_retrieval",
+  "description": "Web search for external facts",
+  "userMessages": ["Use web search to find what people discuss about Rust agent evaluation."],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "web_search" },
+    { "type": "responseContains", "text": "Rust" }
+  ],
+  "maxTurns": 10,
+  "timeoutSecs": 120
+}

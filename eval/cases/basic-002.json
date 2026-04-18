@@ -1,0 +1,12 @@
+{
+  "id": "basic-002",
+  "category": "tool_use",
+  "description": "Ask for factual current UTC time",
+  "userMessages": ["What is the current UTC time on the gateway host?"],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "get_current_time" },
+    { "type": "responseContains", "text": "utc" }
+  ],
+  "maxTurns": 5,
+  "timeoutSecs": 30
+}

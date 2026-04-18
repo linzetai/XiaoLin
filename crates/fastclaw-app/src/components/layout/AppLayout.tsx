@@ -1,0 +1,71 @@
+import { useGatewayStore } from "../../lib/store";
+import { useAgentStore } from "../../lib/agent-store";
+import { AgentList } from "../agent-list/AgentList";
+import { AgentDetail } from "../agent-detail/AgentDetail";
+import { MessageStream } from "../message-stream/MessageStream";
+import { TitleBar } from "./TitleBar";
+import { ClawIcon } from "./ClawIcon";
+
+function Loading({ error }: { error: string | null }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center" style={{ background: "var(--bg-primary)" }}>
+      <div style={{ animation: "scale-in 0.4s ease-out" }} className="text-center">
+        <div className="mx-auto mb-5">
+          <ClawIcon size={64} />
+        </div>
+        <p className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>FastClaw</p>
+        <p className="mt-1 text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
+          {error ? `连接失败: ${error}` : "正在启动..."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function AppLayout() {
+  const { mode, error } = useGatewayStore();
+  const connected = useGatewayStore((s) => s.connected);
+
+  const activeAgentId = useAgentStore((s) => s.activeAgentId);
+  const agents = useAgentStore((s) => s.agents);
+  const detailOpen = useAgentStore((s) => s.detailOpen);
+  const toggleDetail = useAgentStore((s) => s.toggleDetail);
+  const closeDetail = useAgentStore((s) => s.closeDetail);
+
+  const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+
+  if (mode === "connecting" || !activeAgent) return <Loading error={error} />;
+
+  return (
+    <div className="flex h-full flex-col" style={{ background: "var(--bg-primary)" }}>
+      <TitleBar />
+      <div className="flex min-h-0 flex-1">
+        <AgentList />
+        <main className="relative flex min-w-0 flex-1 flex-col">
+          <MessageStream onToggleDetail={toggleDetail} detailOpen={detailOpen} />
+          {!connected && mode !== "browser" && (
+            <div
+              className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5"
+              style={{
+                background: "rgba(var(--bg-primary-rgb, 0, 0, 0), 0.85)",
+                backdropFilter: "blur(8px)",
+                animation: "fade-in 0.3s",
+              }}
+            >
+              <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+                连接已断开，正在重连...
+              </span>
+            </div>
+          )}
+        </main>
+        <AgentDetail
+          open={detailOpen}
+          onClose={closeDetail}
+          agentName={activeAgent.name}
+          agentInitial={activeAgent.initial}
+          agentColor={activeAgent.color}
+        />
+      </div>
+    </div>
+  );
+}

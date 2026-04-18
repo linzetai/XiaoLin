@@ -1,0 +1,206 @@
+{
+  "$schema": "./schema/fastclaw-config.schema.json",
+  "meta": {
+    "lastTouchedVersion": "0.1.0",
+    "lastTouchedAt": ""
+  },
+
+  "gateway": {
+    "port": 18888,
+    "tls": {
+      "cert": "",
+      "key": ""
+    },
+    "maxConnections": 1024,
+    "corsOrigins": ["*"],
+    "rateLimit": {
+      "requestsPerSecond": 100,
+      "burst": 200
+    }
+  },
+
+  "logging": {
+    "level": "info",
+    "format": "pretty"
+  },
+
+  "metrics": {
+    "enabled": true,
+    "endpoint": "/metrics"
+  },
+
+  "agents": {
+    "defaults": {
+      "model": "dashscope/qwen3.5-plus"
+    },
+    "list": [
+      {
+        "id": "main",
+        "name": "FastClaw 助手",
+        "default": true
+      }
+    ]
+  },
+
+  "bindings": [
+    {
+      "agentId": "main",
+      "match": { "channel": "feishu" }
+    }
+  ],
+
+  "session": {
+    "dbPath": "data/sessions.db",
+    "ttlHours": 168,
+    "dmScope": "per-channel-peer",
+    "maxMessagesPerSession": 10000,
+    "compressionThresholdTokens": 4000
+  },
+
+  "memory": {
+    "enabled": true,
+    "vectorIndexPath": "data/memory/vectors.usearch",
+    "vectorDimensions": 384,
+    "knowledgeGraphPath": "data/memory/knowledge.db",
+    "forgetting": {
+      "enabled": true,
+      "maxEntries": 100000,
+      "decayHalfLifeDays": 30
+    },
+
+    // 向量嵌入配置 — 用于记忆的语义检索
+    "embedding": {
+      // "local" = 纯 Rust 本地推理（hypembed，默认）
+      // "remote" = OpenAI 兼容 API（需 baseUrl + apiKey）
+      // "none" = 禁用向量检索，仅用关键词搜索
+      "provider": "local",
+
+      // 本地模型：HuggingFace 模型 ID，首次使用自动下载到 ~/.fastclaw/models/
+      // 推荐：
+      //   "sentence-transformers/all-MiniLM-L6-v2" — 384维，22MB，英文通用（默认）
+      //   "sentence-transformers/all-MiniLM-L12-v2" — 384维，更高精度
+      //   "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" — 多语言
+      // 远端模型：API 模型名，如 "text-embedding-3-small"、"text-embedding-ada-002"
+      "model": "sentence-transformers/all-MiniLM-L6-v2"
+
+      // 远端 API 配置（provider 为 "remote" 时使用）
+      // "baseUrl": "https://api.openai.com/v1",
+      // "apiKey": "sk-...",    // 也可省略，自动从 credentials.openai.apiKey 读取
+      // "dimensions": 1536     // 远端模型的向量维度
+    }
+  },
+
+  "credentials": {
+    "openai": { "apiKey": "", "baseUrl": "https://api.openai.com/v1" },
+    "anthropic": { "apiKey": "", "baseUrl": "https://api.anthropic.com" },
+    "dashscope": { "apiKey": "", "baseUrl": "https://coding.dashscope.aliyuncs.com/v1" },
+    "deepseek": { "apiKey": "", "baseUrl": "https://api.deepseek.com/v1" }
+  },
+
+  "models": {
+    "openai": {
+      "providerType": "openai_compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "defaultModel": "gpt-4o",
+      "contextWindow": 128000,
+      "supportsVision": true,
+      "supportsToolCalling": true,
+      "supportsReasoning": false,
+      "costPer1kInput": 0.0025,
+      "costPer1kOutput": 0.01,
+      "maxConcurrent": 10,
+      "timeoutSecs": 120
+    },
+    "anthropic": {
+      "providerType": "anthropic",
+      "baseUrl": "https://api.anthropic.com",
+      "defaultModel": "claude-sonnet-4-20250514",
+      "contextWindow": 200000,
+      "supportsVision": true,
+      "supportsToolCalling": true,
+      "supportsReasoning": true,
+      "costPer1kInput": 0.003,
+      "costPer1kOutput": 0.015,
+      "maxConcurrent": 5,
+      "timeoutSecs": 120
+    },
+    "dashscope": {
+      "providerType": "openai_compatible",
+      "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
+      "defaultModel": "qwen3.5-plus",
+      "contextWindow": 131072,
+      "supportsVision": true,
+      "supportsToolCalling": true,
+      "supportsReasoning": true,
+      "costPer1kInput": 0.002,
+      "costPer1kOutput": 0.006,
+      "maxConcurrent": 10,
+      "timeoutSecs": 120
+    }
+  },
+
+  "modelRouter": {
+    "enabled": false,
+    "defaultTier": "medium",
+    "tierMapping": {
+      "tiny": "models.local",
+      "small": "models.dashscope",
+      "medium": "models.dashscope",
+      "large": "models.anthropic",
+      "frontier": "models.anthropic"
+    }
+  },
+
+  "plugins": {
+    "directory": "plugins",
+    "hotReload": true,
+    "defaults": {
+      "maxMemoryMb": 64,
+      "maxExecutionTimeSecs": 30,
+      "maxFuel": 1000000000
+    }
+  },
+
+  "dag": {
+    "maxParallelNodes": 16,
+    "checkpointEnabled": true,
+    "checkpointDbPath": "data/dag_checkpoints.db",
+    "defaultNodeTimeoutSecs": 60
+  },
+
+  "evolution": {
+    "enabled": false,
+    "evalThreshold": 50,
+    "autoActivate": false
+  },
+
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "connectionMode": "websocket",
+      "replyMode": "mention_only",
+      "domain": "https://open.feishu.cn"
+    }
+  },
+
+  "security": {
+    "promptInjectionDetection": true,
+    "apiKeys": []
+  },
+
+  "skills": {
+    "promptMode": "full",
+    "allow": [],
+    "deny": []
+  },
+
+  // 自定义路径覆盖（全部可选，留空使用默认值）
+  "paths": {
+    // "stateDir": "~/.fastclaw",
+    // "configDir": "~/.fastclaw/config",
+    // "pluginsDir": "plugins",
+    // "extensionsDir": "extensions",
+    // "skillsDir": "skills",
+    // "agentsDir": "config/agents"
+  }
+}

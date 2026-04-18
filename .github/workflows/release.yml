@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: fastclaw
+            archive: fastclaw-x86_64-linux.tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: fastclaw
+            archive: fastclaw-aarch64-linux.tar.gz
+            cross: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: fastclaw
+            archive: fastclaw-aarch64-macos.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: fastclaw
+            archive: fastclaw-x86_64-macos.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: fastclaw.exe
+            archive: fastclaw-x86_64-windows.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --bin fastclaw --target ${{ matrix.target }}
+          else
+            cargo build --release --bin fastclaw --target ${{ matrix.target }}
+          fi
+        shell: bash
+
+      - name: Fetch bundled rust-analyzer
+        run: |
+          bash .github/scripts/fetch-rust-analyzer.sh \
+            "${{ matrix.target }}" \
+            "target/${{ matrix.target }}/release/lsp"
+        shell: bash
+
+      - name: Strip binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact }} || true
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} staging/
+          cp -r target/${{ matrix.target }}/release/lsp staging/
+          cp README.md LICENSE* config/default.json staging/ 2>/dev/null || true
+          cd staging && tar czf ../${{ matrix.archive }} *
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.artifact }}" staging/
+          Copy-Item "target/${{ matrix.target }}/release/lsp" staging/ -Recurse -Force
+          Copy-Item README.md staging/ -ErrorAction SilentlyContinue
+          Copy-Item config/default.json staging/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.archive }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          for dir in */; do
+            cp "$dir"* . 2>/dev/null || true
+          done
+          find . -maxdepth 1 -type d -not -name '.' -exec rm -rf {} +
+          sha256sum *.tar.gz *.zip > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums-sha256.txt
+
+  publish-docker:
+    name: Publish Docker Image
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

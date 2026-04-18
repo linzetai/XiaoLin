@@ -1,0 +1,14 @@
+{
+  "id": "error-001",
+  "category": "debugging",
+  "description": "Graceful handling of a missing file path",
+  "userMessages": [
+    "Try to read this path and report the error clearly without hallucinating file contents: eval/does-not-exist-9f3a.json"
+  ],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "read_file" },
+    { "type": "responseContains", "text": "ENOENT" }
+  ],
+  "maxTurns": 6,
+  "timeoutSecs": 60
+}

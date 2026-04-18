@@ -1,0 +1,19 @@
+[package]
+name = "fastclaw-matrix"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../../crates/fastclaw-core" }
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+uuid.workspace = true
+url = "2"
+
+[dev-dependencies]
+axum.workspace = true

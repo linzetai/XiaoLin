@@ -1,0 +1,22 @@
+[package]
+name = "fastclaw-collab"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+tokio.workspace = true
+dashmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+axum.workspace = true

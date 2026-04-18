@@ -1,0 +1,32 @@
+[package]
+name = "fastclaw-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "fastclaw"
+path = "src/main.rs"
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-gateway = { path = "../fastclaw-gateway" }
+fastclaw-observe = { path = "../fastclaw-observe" }
+fastclaw-session = { path = "../fastclaw-session" }
+fastclaw-agent = { path = "../fastclaw-agent" }
+fastclaw-collab = { path = "../fastclaw-collab" }
+
+clap.workspace = true
+clap_complete.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+reqwest.workspace = true
+futures.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+tokio-tungstenite.workspace = true
+chrono.workspace = true

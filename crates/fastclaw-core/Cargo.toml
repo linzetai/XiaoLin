@@ -1,0 +1,29 @@
+[package]
+name = "fastclaw-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+json5.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dirs.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+constant_time_eq.workspace = true
+reqwest.workspace = true
+regex = "1"
+serde_yaml_ng = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

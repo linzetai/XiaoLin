@@ -1,0 +1,16 @@
+[package]
+name = "fastclaw-context"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-memory = { path = "../fastclaw-memory" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+regex.workspace = true

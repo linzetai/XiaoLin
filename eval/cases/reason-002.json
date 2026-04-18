@@ -1,0 +1,14 @@
+{
+  "id": "reason-002",
+  "category": "code_edit",
+  "description": "Read a small manifest and explain the package name",
+  "userMessages": [
+    "Open crates/fastclaw-eval/Cargo.toml, read it, and tell me the package name declared there."
+  ],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "read_file" },
+    { "type": "responseContains", "text": "fastclaw-eval" }
+  ],
+  "maxTurns": 8,
+  "timeoutSecs": 60
+}

@@ -1,0 +1,34 @@
+[package]
+name = "fastclaw-agent"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+browser = ["dep:headless_chrome"]
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-evolution = { path = "../fastclaw-evolution" }
+fastclaw-session = { path = "../fastclaw-session" }
+fastclaw-self-iter = { path = "../fastclaw-self-iter" }
+fastclaw-memory = { path = "../fastclaw-memory", default-features = false }
+fastclaw-security = { path = "../fastclaw-security" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+futures.workspace = true
+regex.workspace = true
+rand = "0.8"
+url = "2"
+headless_chrome = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

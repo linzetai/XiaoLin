@@ -1,0 +1,23 @@
+{
+  "agentId": "main",
+  "name": "FastClaw 助手",
+  "description": "通用型 AI 助手，具备飞书 IM 工具调用能力",
+
+  "model": {
+    "provider": "dashscope",
+    "model": "qwen3.5-plus",
+    "temperature": 0.7,
+    "maxTokens": 4096
+  },
+
+  "tools": [
+    { "id": "feishu_send_message" },
+    { "id": "feishu_reply_message" },
+    { "id": "feishu_get_chat_messages" }
+  ],
+
+  "behavior": {
+    "maxToolCallsPerTurn": 50,
+    "maxConsecutiveErrors": 3
+  }
+}

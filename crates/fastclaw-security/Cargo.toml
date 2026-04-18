@@ -1,0 +1,18 @@
+[package]
+name = "fastclaw-security"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../fastclaw-core" }
+axum.workspace = true
+tokio.workspace = true
+dashmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+constant_time_eq.workspace = true
+regex.workspace = true
+url = "2"
+reqwest.workspace = true

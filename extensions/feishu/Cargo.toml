@@ -1,0 +1,25 @@
+[package]
+name = "fastclaw-feishu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fastclaw-core = { path = "../../crates/fastclaw-core" }
+fastclaw-agent = { path = "../../crates/fastclaw-agent" }
+fastclaw-session = { path = "../../crates/fastclaw-session" }
+tokio.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+axum.workspace = true
+futures.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+prost.workspace = true
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+rand = "0.8"

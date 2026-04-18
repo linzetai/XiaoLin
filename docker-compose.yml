@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  fastclaw:
+    build: .
+    container_name: fastclaw
+    ports:
+      - "18789:18789"
+    volumes:
+      - fastclaw-data:/app/data
+      - ./config:/app/config:ro
+    environment:
+      - RUST_LOG=info
+      # LLM API keys — set via .env file or environment
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      # Gateway auth
+      - FASTCLAW_API_KEYS=${FASTCLAW_API_KEYS:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "fastclaw", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  fastclaw-data:

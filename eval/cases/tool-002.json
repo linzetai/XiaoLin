@@ -1,0 +1,16 @@
+{
+  "id": "tool-002",
+  "category": "tool_use",
+  "description": "Store a preference then recall it from memory",
+  "userMessages": [
+    "Remember as a fact: my UI accent color preference is blue.",
+    "What did I say my UI accent color preference was?"
+  ],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "memory_store" },
+    { "type": "usesTool", "tool": "memory_search" },
+    { "type": "responseContains", "text": "blue" }
+  ],
+  "maxTurns": 12,
+  "timeoutSecs": 120
+}

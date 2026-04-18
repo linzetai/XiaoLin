@@ -1,0 +1,12 @@
+{
+  "id": "basic-003",
+  "category": "tool_use",
+  "description": "Read workspace manifest",
+  "userMessages": ["Read the repo root Cargo.toml and say whether this is a Cargo workspace."],
+  "expectedBehaviors": [
+    { "type": "usesTool", "tool": "read_file" },
+    { "type": "responseContains", "text": "workspace" }
+  ],
+  "maxTurns": 8,
+  "timeoutSecs": 60
+}

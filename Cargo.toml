@@ -1,0 +1,112 @@
+[workspace]
+members = [
+    "crates/fastclaw-cli",
+    "crates/fastclaw-core",
+    "crates/fastclaw-gateway",
+    "crates/fastclaw-agent",
+    "crates/fastclaw-session",
+    "crates/fastclaw-dag",
+    "crates/fastclaw-memory",
+    "crates/fastclaw-plugin",
+    "crates/fastclaw-evolution",
+    "crates/fastclaw-observe",
+    "crates/fastclaw-security",
+    "crates/fastclaw-collab",
+    "crates/fastclaw-model-router",
+    "crates/fastclaw-context",
+    "crates/fastclaw-self-iter",
+    "crates/fastclaw-eval",
+    "crates/fastclaw-cron",
+    "extensions/feishu",
+    "extensions/telegram",
+    "extensions/discord",
+    "extensions/slack",
+    "extensions/whatsapp",
+    "extensions/matrix",
+    "extensions/msteams",
+    "crates/fastclaw-app/src-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/example/fastclaw"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP / WebSocket
+axum = { version = "0.7", features = ["ws", "json"] }
+axum-extra = "0.9"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "compression-gzip"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+json5 = "0.4"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+
+# Logging / Metrics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# Graph
+petgraph = "0.6"
+
+# Vector search — usearch requires C++17 & GCC 12+
+# On old compilers, build without the `usearch-backend` feature in fastclaw-memory
+usearch = { version = "2", default-features = false }
+
+# WASM
+wasmtime = { version = "19", features = ["component-model"] }
+
+# Crypto
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+constant_time_eq = "0.3"
+
+# Embedding (local — hypembed is pure Rust, no ML runtime needed)
+hypembed = "0.2"
+
+# Concurrency
+dashmap = "5"
+
+# Utils
+anyhow = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+futures = "0.3"
+notify = "6"
+dirs = "5"
+regex = "1"
+cron = "0.12"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+tokio-tungstenite = "0.24"
+
+# Protobuf
+prost = "0.13"
+
+# Testing
+insta = "1"
+proptest = "1"
+criterion = { version = "0.5", features = ["async_tokio"] }
+

@@ -1,0 +1,76 @@
+# ─── User-specified ignores ───────────────────────────────────────────
+openclaw/
+docs/prd/
+docs/reports/
+docs/test/
+docs/design/
+screenshots/
+test-screenshots/
+
+# ─── Generated docs / audit artifacts ─────────────────────────────────
+docs/**/*.html
+docs/*-audit-*.md
+docs/**/*-report-*.md
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*.heapsnapshot
+*.heapsnapshot
+
+# ─── Rust / Cargo ─────────────────────────────────────────────────────
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# ─── Build artifacts ──────────────────────────────────────────────────
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# ─── IDE / Editor ─────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.cursor/
+
+# ─── Environment / Secrets ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Data / Runtime ───────────────────────────────────────────────────
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+data/
+logs/
+
+# ─── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Desktop.ini
+ehthumbs.db
+
+# ─── Frontend / Node ──────────────────────────────────────────────────
+node_modules/
+dist/
+.turbo/
+.next/
+
+# ─── Tauri ────────────────────────────────────────────────────────────
+**/src-tauri/gen/
+
+# ─── Misc ─────────────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.log
