@@ -1,10 +1,8 @@
+# 仅用于手动试打 Tauri 包。正式发布安装包请打 git 标签 v*，由 release.yml 构建 deb/dmg/NSIS。
 name: Tauri Release
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "app-v*"
 
 permissions:
   contents: write
