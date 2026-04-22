@@ -258,7 +258,7 @@ export interface AgentChannelConfig {
 export interface BackendAgent {
   agentId: string;
   name: string;
-  model: AgentModelConfig;
+  model: AgentModelConfig | string;
   systemPrompt?: string;
   tools?: Array<{ id: string }>;
   behavior?: AgentBehaviorConfig;
@@ -291,16 +291,30 @@ export async function updateAgent(agentId: string, updates: Partial<BackendAgent
   }
 }
 
-export async function createAgent(agent: { name: string; model?: string; systemPrompt?: string }): Promise<BackendAgent | null> {
+export async function createAgent(agent: { name: string; model?: string; provider?: string; systemPrompt?: string }): Promise<BackendAgent | null> {
   try {
+    const agentId = agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `agent-${Date.now()}`;
+    const config: Record<string, unknown> = {
+      agentId,
+      name: agent.name,
+      model: {
+        provider: agent.provider || "openai_compatible",
+        model: agent.model || "gpt-4o",
+      },
+      systemPrompt: agent.systemPrompt || null,
+      tools: [],
+      behavior: {},
+      mcpServers: [],
+      channels: {},
+    };
     if (transport.isTauri) {
-      const resp = await transport.createAgentIpc(agent as Record<string, unknown>);
+      const resp = await transport.createAgentIpc(config);
       if (resp.ok && resp.agentId) {
         return await getAgent(resp.agentId);
       }
       return null;
     }
-    return await httpPost<BackendAgent>("/api/v1/agents", agent);
+    return await httpPost<BackendAgent>("/api/v1/agents", config);
   } catch (e) {
     console.warn("[api] createAgent error:", e);
     return null;

@@ -50,6 +50,16 @@ export async function invokeWithRetry<T>(
   throw new Error(`IPC ${cmd} failed after ${maxRetries} retries`);
 }
 
+// ─── Model connection test ───
+
+export async function testModelConnection(baseUrl: string, apiKey: string, model?: string): Promise<void> {
+  await tauriInvoke<{ ok: boolean }>("test_model_connection", {
+    baseUrl,
+    apiKey,
+    model: model || null,
+  });
+}
+
 // ─── Agents ───
 
 export interface AgentSummary {

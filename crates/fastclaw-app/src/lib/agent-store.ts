@@ -437,12 +437,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         .map((s) => ({
           id: s.id,
           localKey: s.id,
-          title: s.title || s.id.slice(0, 8),
+          title: s.title || "未命名会话",
           workDir: s.workDir ?? null,
           stream: [],
           createdAt: new Date(s.createdAt),
           messageCount: s.messageCount,
-          open: persistedOpen.has(s.id),
+          open: persistedOpen.has(s.id) && s.messageCount > 0,
         }));
       const mergedList = [...updatedExisting, ...newChats];
 
@@ -452,7 +452,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const target = mergedList.find((c) => c.id === persistedActive);
         if (target) target.open = true;
       } else if (sessions.length > 0) {
-        const mostRecent = sessions[0];
+        const withMessages = sessions.filter((s) => s.messageCount > 0);
+        const mostRecent = withMessages[0] ?? sessions[0];
         activeChatId = mostRecent.id;
         const target = mergedList.find((c) => c.id === mostRecent.id);
         if (target) target.open = true;
@@ -561,6 +562,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     });
   },
 }));
+
 
 useAgentStore.subscribe((state, prev) => {
   if (

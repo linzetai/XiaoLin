@@ -8,6 +8,48 @@ use fastclaw_gateway::AppState;
 use serde_json::json;
 use tauri::Emitter;
 
+fn collect_available_models(app: &AppState) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+
+    let live = app
+        .config_live
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| serde_json::to_value(&*app.config).unwrap_or_else(|_| json!({})));
+
+    if let Some(models_obj) = live.get("models").and_then(|v| v.as_object()) {
+        for (key, cfg) in models_obj {
+            let model = cfg
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if model.is_empty() {
+                continue;
+            }
+            // Use the config key (e.g. "dashscope") as provider — it matches
+            // credential lookup keys and is recognized by create_provider_chain.
+            let provider = key.clone();
+            let dedupe_key = format!("{provider}::{model}");
+            if !seen.insert(dedupe_key) {
+                continue;
+            }
+            out.push(json!({
+                "agentId": key,
+                "model": model,
+                "provider": provider,
+                "contextWindow": cfg.get("contextWindow").cloned().unwrap_or(serde_json::Value::Null),
+                "costPer1kInput": cfg.get("costPer1kInput").cloned().unwrap_or(serde_json::Value::Null),
+                "costPer1kOutput": cfg.get("costPer1kOutput").cloned().unwrap_or(serde_json::Value::Null),
+                "supportsReasoning": cfg.get("supportsReasoning").cloned().unwrap_or(serde_json::Value::Null),
+            }));
+        }
+    }
+
+    out
+}
+
 fn get_state(gw: &Option<crate::embedded::EmbeddedGateway>) -> Result<&AppState, String> {
     gw.as_ref()
         .map(|g| g.app_state())
@@ -38,6 +80,73 @@ fn validate_agent_id(agent_id: &str) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+// ─── Model connection test ───
+
+#[tauri::command]
+pub async fn test_model_connection(
+    base_url: String,
+    api_key: String,
+    model: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let base = base_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    // Try /models first; fall back to a lightweight chat completion probe.
+    let models_url = format!("{base}/models");
+    let models_resp = client
+        .get(&models_url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await;
+
+    if let Ok(resp) = models_resp {
+        if resp.status().is_success() {
+            return Ok(json!({ "ok": true, "method": "models" }));
+        }
+        // 401/403 means auth failure — report immediately.
+        let status = resp.status().as_u16();
+        if status == 401 || status == 403 {
+            let body = resp.text().await.unwrap_or_default();
+            let snippet = if body.len() > 150 { &body[..150] } else { &body };
+            return Err(format!("认证失败 (HTTP {status}): {snippet}"));
+        }
+    }
+
+    // Fallback: lightweight chat completion with max_tokens=1 and a tiny prompt.
+    let chat_url = format!("{base}/chat/completions");
+    let model_name = model.unwrap_or_else(|| "gpt-3.5-turbo".to_string());
+    let payload = json!({
+        "model": model_name,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": false,
+    });
+    let chat_resp = client
+        .post(&chat_url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+
+    let status = chat_resp.status().as_u16();
+    if chat_resp.status().is_success() {
+        Ok(json!({ "ok": true, "method": "chat" }))
+    } else if status == 401 || status == 403 {
+        let body = chat_resp.text().await.unwrap_or_default();
+        let snippet = if body.len() > 150 { &body[..150] } else { &body };
+        Err(format!("认证失败 (HTTP {status}): {snippet}"))
+    } else {
+        let body = chat_resp.text().await.unwrap_or_default();
+        let snippet = if body.len() > 150 { &body[..150] } else { &body };
+        Err(format!("HTTP {status}: {snippet}"))
+    }
 }
 
 // ─── Gateway info & health ───
@@ -229,24 +338,7 @@ pub async fn list_models(
 ) -> Result<serde_json::Value, String> {
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
-    let models: Vec<_> = app
-        .router
-        .read()
-        .await
-        .list_agents()
-        .iter()
-        .map(|a| {
-            json!({
-                "agentId": a.agent_id,
-                "model": a.model.model,
-                "provider": a.model.provider,
-                "contextWindow": a.model.context_window,
-                "costPer1kInput": a.model.cost_per_1k_input,
-                "costPer1kOutput": a.model.cost_per_1k_output,
-                "supportsReasoning": a.model.supports_reasoning,
-            })
-        })
-        .collect();
+    let models = collect_available_models(app);
     Ok(json!({"models": models}))
 }
 

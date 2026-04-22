@@ -1247,18 +1247,39 @@ async fn handle_models_list(
     state: &AppState,
     req_id: Option<String>,
 ) {
-    let models: Vec<_> = state
-        .router
+    let mut models: Vec<serde_json::Value> = Vec::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    let live = state
+        .config_live
         .read()
-        .await
-        .list_agents()
-        .iter()
-        .map(|a| json!({
-        "agentId": a.agent_id, "model": a.model.model, "provider": a.model.provider,
-        "contextWindow": a.model.context_window,
-        "costPer1kInput": a.model.cost_per_1k_input, "costPer1kOutput": a.model.cost_per_1k_output,
-        "supportsReasoning": a.model.supports_reasoning,
-    })).collect();
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| serde_json::to_value(&*state.config).unwrap_or_else(|_| json!({})));
+    if let Some(models_obj) = live.get("models").and_then(|v| v.as_object()) {
+        for (key, cfg) in models_obj {
+            let model = cfg
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if model.is_empty() {
+                continue;
+            }
+            let provider = key.clone();
+            let dedupe_key = format!("{provider}::{model}");
+            if !seen.insert(dedupe_key) {
+                continue;
+            }
+            models.push(json!({
+                "agentId": key,
+                "model": model,
+                "provider": provider,
+                "contextWindow": cfg.get("contextWindow").cloned().unwrap_or(serde_json::Value::Null),
+                "costPer1kInput": cfg.get("costPer1kInput").cloned().unwrap_or(serde_json::Value::Null),
+                "costPer1kOutput": cfg.get("costPer1kOutput").cloned().unwrap_or(serde_json::Value::Null),
+                "supportsReasoning": cfg.get("supportsReasoning").cloned().unwrap_or(serde_json::Value::Null),
+            }));
+        }
+    }
     send_resp(
         sender,
         &WsResponse {

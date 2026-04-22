@@ -163,6 +163,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::test_model_connection,
             commands::get_gateway_info,
             commands::health_check,
             commands::list_agents,

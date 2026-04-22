@@ -648,22 +648,44 @@ function ConfigTab() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaveMsg("");
-    const modelConfig: api.AgentModelConfig = backendAgent?.model
-      ? { ...backendAgent.model, model: selectedModel }
-      : { provider: "openai_compatible", model: selectedModel, temperature: 0 };
-    const ok = await api.updateAgent(activeAgentId, {
-      ...backendAgent!,
-      name: name || undefined,
+    const currentModel = backendAgent?.model;
+    const currentModelObj =
+      currentModel && typeof currentModel === "object" ? currentModel : null;
+    const selectedModelMeta = models.find((m) => m.model === selectedModel);
+    const modelConfig: api.AgentModelConfig = {
+      provider:
+        selectedModelMeta?.provider ??
+        currentModelObj?.provider ??
+        "openai_compatible",
+      model: selectedModel,
+      temperature: currentModelObj?.temperature ?? 0,
+      maxTokens: currentModelObj?.maxTokens,
+      contextWindow: currentModelObj?.contextWindow,
+      costPer1kInput: currentModelObj?.costPer1kInput,
+      costPer1kOutput: currentModelObj?.costPer1kOutput,
+      supportsReasoning: currentModelObj?.supportsReasoning,
+      fallbacks: currentModelObj?.fallbacks,
+      maxConcurrentRequests: currentModelObj?.maxConcurrentRequests,
+    };
+    const payload: api.BackendAgent = {
+      agentId: activeAgentId,
+      ...(backendAgent ?? {}),
+      name: name || activeAgentId,
       model: modelConfig,
       behavior: {
         ...(backendAgent?.behavior ?? {}),
         fileAccess: fileAccessMode,
       },
-    });
+    };
+    const ok = await api.updateAgent(activeAgentId, payload);
+    if (ok && !backendAgent) {
+      const refreshed = await api.getAgent(activeAgentId).catch(() => null);
+      if (refreshed) setBackendAgent(refreshed);
+    }
     setSaving(false);
     setSaveMsg(ok ? "已保存" : "保存失败");
     setTimeout(() => setSaveMsg(""), 2000);
-  }, [activeAgentId, name, selectedModel, backendAgent, fileAccessMode]);
+  }, [activeAgentId, name, selectedModel, backendAgent, fileAccessMode, models]);
 
   const handleToolToggle = useCallback(async (toolId: string, newEnabled: boolean) => {
     setTogglingTool(toolId);

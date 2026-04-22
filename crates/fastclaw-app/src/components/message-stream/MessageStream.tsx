@@ -12,6 +12,7 @@ import {
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { ClawIcon } from "../layout/ClawIcon";
+import { open as tauriOpenDialog } from "@tauri-apps/plugin-dialog";
 
 function ts(d: Date) {
   return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -896,17 +897,6 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleMentionSend = useCallback(
-    (txt: string, _mentions: InlineMention[]) => {
-      if (!txt.trim() || streaming) return;
-      mentionInputRef.current?.clear();
-      setAttachedFiles([]);
-      sendWithContent(txt.trim(), _mentions);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [streaming],
-  );
-
   const sendWithContent = async (txt: string, mentions: InlineMention[]) => {
     const mentionDesc = mentions.length > 0
       ? `\n\n[引用: ${mentions.map((m) => `@${m.label} (${m.type})`).join(", ")}]`
@@ -915,8 +905,11 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       ? `\n\n[附件: ${attachedFiles.map((f) => f.name).join(", ")}]`
       : "";
 
-    const capturedAgentId = activeAgentId;
-    const capturedChatId = activeChat?.id ?? "temp";
+    const currentState = useAgentStore.getState();
+    const capturedAgentId = currentState.activeAgentId;
+    const currentAc = currentState.agentChats[capturedAgentId];
+    const currentActiveChat = currentAc?.chatList.find((c) => c.id === currentAc.activeChatId);
+    const capturedChatId = currentActiveChat?.id ?? "temp";
 
     addMessage(capturedAgentId, { role: "user", content: txt + mentionDesc + fileDesc, timestamp: new Date() }, capturedChatId);
     atBottomRef.current = true;
@@ -954,7 +947,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
         messages: [{ role: "user", content: txt + mentionDesc + fileDesc }],
         agentId: capturedAgentId,
         sessionId: capturedChatId,
-        workDir: workDir ?? undefined,
+        workDir: currentActiveChat?.workDir ?? undefined,
       },
       (event) => {
         switch (event.type) {
@@ -1110,6 +1103,21 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       cleanup();
     });
   };
+
+  const sendRef = useRef(sendWithContent);
+  sendRef.current = sendWithContent;
+  const streamingRef = useRef(streaming);
+  streamingRef.current = streaming;
+
+  const handleMentionSend = useCallback(
+    (txt: string, _mentions: InlineMention[]) => {
+      if (!txt.trim() || streamingRef.current) return;
+      mentionInputRef.current?.clear();
+      setAttachedFiles([]);
+      sendRef.current(txt.trim(), _mentions);
+    },
+    [],
+  );
 
   const stopStream = useCallback(() => {
     if (cleanupRef.current) {
@@ -1471,7 +1479,6 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                 className="px-8 transition-colors duration-200"
                 style={{
                   background: isCurrent ? "var(--tint-bg)" : isMatch ? "var(--tint-subtle)" : "transparent",
-                  borderLeft: isCurrent ? `3px solid var(--tint)` : "3px solid transparent",
                 }}
               >
                 {m.role === "user" ? <UserBubble msg={m} /> :
@@ -1550,8 +1557,9 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                 <Paperclip size={16} strokeWidth={1.5} />
               </button>
               <button
+                onClick={onToggleDetail}
                 className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-                style={{ color: "var(--fill-tertiary)" }}
+                style={{ color: detailOpen ? "var(--fill-secondary)" : "var(--fill-tertiary)" }}
                 title="工具"
               >
                 <Settings2 size={14} strokeWidth={1.5} />
@@ -1563,19 +1571,20 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               {/* WorkDir selector */}
               <button
                 onClick={async () => {
+                  const currentState = useAgentStore.getState();
+                  const curAgentId = currentState.activeAgentId;
+                  const curAc = currentState.agentChats[curAgentId];
+                  const curChat = curAc?.chatList.find((c) => c.id === curAc.activeChatId);
+                  if (!curChat) return;
+                  let selected: string | null = null;
                   try {
-                    const isTauri = typeof window !== "undefined" && ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
-                    if (isTauri) {
-                      const { open } = await import("@tauri-apps/plugin-dialog");
-                      const selected = await open({ directory: true, multiple: false, defaultPath: workDir ?? undefined });
-                      if (activeChat && typeof selected === "string") {
-                        setWorkDir(activeAgentId, activeChat.id, selected);
-                      }
-                    } else {
-                      const newDir = prompt("输入工作目录路径:", workDir ?? "");
-                      if (activeChat) setWorkDir(activeAgentId, activeChat.id, newDir || null);
-                    }
-                  } catch { /* user cancelled */ }
+                    selected = await tauriOpenDialog({ directory: true, multiple: false, defaultPath: curChat.workDir ?? undefined }) as string | null;
+                  } catch {
+                    selected = prompt("输入工作目录路径:", curChat.workDir ?? "");
+                  }
+                  if (typeof selected === "string" && selected) {
+                    setWorkDir(curAgentId, curChat.id, selected);
+                  }
                 }}
                 className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"
                 style={{ color: workDir ? "var(--fill-secondary)" : "var(--fill-quaternary)" }}

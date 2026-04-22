@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useAgentStore } from "../../lib/agent-store";
 import { useGatewayStore } from "../../lib/store";
 import { Search, Plus, ChevronDown, Check, Camera, X } from "lucide-react";
@@ -21,20 +22,31 @@ export function AgentList() {
   const [newAvatarPath, setNewAvatarPath] = useState<string | null>(null);
   const [newAvatarPreview, setNewAvatarPreview] = useState<string | null>(null);
   const [models, setModels] = useState<api.ModelInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (showNewForm) {
       newInputRef.current?.focus();
-      if (gatewayReady && models.length === 0) {
+      if (gatewayReady) {
+        setModelsLoading(true);
         api.listModels().then((m) => {
           setModels(m);
-          if (m.length > 0 && !newModel) setNewModel(m[0].model);
-        }).catch(() => {});
+          setNewModel((prev) => {
+            if (m.length === 0) return "";
+            if (!prev || !m.some((item) => item.model === prev)) return m[0].model;
+            return prev;
+          });
+        }).catch(() => {
+          setModels([]);
+          setNewModel("");
+        }).finally(() => {
+          setModelsLoading(false);
+        });
       }
     }
-  }, [showNewForm, gatewayReady, models.length, newModel]);
+  }, [showNewForm, gatewayReady]);
 
   const pickAvatar = useCallback(async () => {
     if (!transport.isTauri) return;
@@ -58,7 +70,12 @@ export function AgentList() {
     const trimmed = newName.trim();
     if (!trimmed) return;
     setCreating(true);
-    const agent = await api.createAgent({ name: trimmed, model: newModel || undefined });
+    const selectedModelMeta = models.find((m) => m.model === newModel);
+    const agent = await api.createAgent({
+      name: trimmed,
+      model: newModel || undefined,
+      provider: selectedModelMeta?.provider,
+    });
     if (agent) {
       if (newAvatarPath) {
         await api.uploadAgentAvatar(agent.agentId, newAvatarPath);
@@ -73,7 +90,7 @@ export function AgentList() {
     setNewModel("");
     setNewAvatarPath(null);
     setNewAvatarPreview(null);
-  }, [agents, syncAgents, newName, newModel, newAvatarPath, setActiveAgent]);
+  }, [agents, syncAgents, newName, newModel, newAvatarPath, setActiveAgent, models]);
 
   const handleQuickCreateDefault = useCallback(async () => {
     setOnboardingError(null);
@@ -96,6 +113,7 @@ export function AgentList() {
     const created = await api.createAgent({
       name: defaultName,
       model: availableModels[0].model,
+      provider: availableModels[0].provider,
     });
     if (!created) {
       setOnboardingError("创建默认 Agent 失败，请稍后重试。");
@@ -265,8 +283,8 @@ export function AgentList() {
         </button>
       </div>
 
-      {/* New Agent Modal */}
-      {showNewForm && (
+      {/* New Agent Modal — portaled to body to escape vibrancy containing block */}
+      {showNewForm && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in 0.15s ease-out" }}>
           <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={cancelNew} />
           <div
@@ -334,9 +352,10 @@ export function AgentList() {
                     onChange={(e) => setNewModel(e.target.value)}
                     className="w-full cursor-pointer rounded-[var(--radius-xs)] px-3 py-2 pr-8 text-[13px] outline-none transition-colors focus:ring-1 focus:ring-[var(--fill-quaternary)]"
                     style={{ background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)", WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
-                    disabled={creating || models.length === 0}
+                    disabled={creating || modelsLoading || models.length === 0}
                   >
-                    {models.length === 0 && <option value="">加载中...</option>}
+                    {modelsLoading && <option value="">加载中...</option>}
+                    {!modelsLoading && models.length === 0 && <option value="">暂无可用模型</option>}
                     {models.map((m) => (
                       <option key={`${m.provider}/${m.model}`} value={m.model}>{m.model}</option>
                     ))}
@@ -366,7 +385,8 @@ export function AgentList() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </aside>
   );

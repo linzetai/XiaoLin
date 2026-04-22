@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useThemeStore, type ThemeMode } from "../../lib/theme";
 import { useGatewayStore } from "../../lib/store";
-import { Settings2, Box, Wrench, Server, Info, ChevronDown, Plus, Pencil, Globe, User, X, RefreshCw, Upload, FolderOpen, FileText, Plug, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Settings2, Box, Wrench, Server, Info, ChevronDown, Plus, Pencil, Globe, User, X, RefreshCw, Upload, FolderOpen, FileText, Plug, Trash2, ToggleLeft, ToggleRight, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { ClawIcon } from "../layout/ClawIcon";
 import * as api from "../../lib/api";
+import * as transport from "../../lib/transport";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -149,7 +150,9 @@ const EMPTY_MODEL: Omit<ModelConfigEntry, "key"> = {
   timeoutSecs: 120,
 };
 
-function ModelForm({
+type TestStatus = "idle" | "testing" | "success" | "error";
+
+function ModelFormModal({
   entry,
   credential,
   isNew,
@@ -168,141 +171,206 @@ function ModelForm({
 }) {
   const [form, setForm] = useState(entry);
   const [cred, setCred] = useState(credential);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
+  const [testMsg, setTestMsg] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const patch = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
-  const inputStyle = { background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)" };
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); onCancel(); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onCancel]);
+
+  const handleTest = async () => {
+    const baseUrl = (form.baseUrl || cred.baseUrl || "").replace(/\/+$/, "");
+    const apiKey = cred.apiKey;
+    if (!baseUrl) { setTestStatus("error"); setTestMsg("请先填写 Base URL"); return; }
+    if (!apiKey || apiKey.startsWith("***")) { setTestStatus("error"); setTestMsg("请先填写有效的 API Key"); return; }
+    setTestStatus("testing");
+    setTestMsg("");
+    try {
+      if (transport.isTauri) {
+        await transport.testModelConnection(baseUrl, apiKey, form.model || undefined);
+        setTestStatus("success");
+        setTestMsg("连接成功");
+      } else {
+        const resp = await fetch(`${baseUrl}/models`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (resp.ok) {
+          setTestStatus("success");
+          setTestMsg("连接成功");
+        } else {
+          const body = await resp.text().catch(() => "");
+          setTestStatus("error");
+          setTestMsg(`HTTP ${resp.status}${body ? `: ${body.slice(0, 80)}` : ""}`);
+        }
+      }
+    } catch (err: unknown) {
+      setTestStatus("error");
+      const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "连接失败";
+      setTestMsg(msg.length > 120 ? msg.slice(0, 120) + "…" : msg);
+    }
+  };
+
+  const inputCls = "w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-all focus:ring-2 focus:ring-[var(--tint)]";
+  const inputStyle: React.CSSProperties = { background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)" };
+  const labelCls = "mb-1.5 block text-[11px] font-medium";
+  const labelStyle: React.CSSProperties = { color: "var(--fill-tertiary)" };
 
   return (
-    <div className="space-y-3 rounded-[var(--radius-xs)] p-4" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)", boxShadow: "var(--shadow-sm)" }}>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>名称 (key)</label>
-          <input
-            value={form.key}
-            onChange={(e) => patch("key", e.target.value)}
-            disabled={!isNew}
-            placeholder="例: dashscope"
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={{ ...inputStyle, opacity: isNew ? 1 : 0.7 }}
-          />
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onCancel}>
+      <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.25)" }} />
+      <div
+        className="relative w-full max-w-[480px] overflow-hidden rounded-[var(--radius-lg)]"
+        style={{ background: "var(--bg-elevated)", boxShadow: "var(--shadow-lg)", border: "0.5px solid var(--separator-opaque)", animation: "scale-in 0.15s ease-out" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "0.5px solid var(--separator)" }}>
+          <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+            {isNew ? "新增模型" : `编辑 · ${entry.key}`}
+          </h3>
+          <button onClick={onCancel} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-tertiary)" }}>
+            <X size={14} strokeWidth={1.5} />
+          </button>
         </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Provider</label>
-          <div className="relative">
-            <select
-              value={form.provider}
-              onChange={(e) => patch("provider", e.target.value)}
-              className="w-full cursor-pointer rounded-[6px] px-3 py-2 pr-8 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-              style={{ ...inputStyle, appearance: "none" }}
+        <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls} style={labelStyle}>名称 (key)</label>
+              <input value={form.key} onChange={(e) => patch("key", e.target.value)} disabled={!isNew} placeholder="例: dashscope" className={inputCls} style={{ ...inputStyle, opacity: isNew ? 1 : 0.6 }} />
+            </div>
+            <div>
+              <label className={labelCls} style={labelStyle}>Provider</label>
+              <div className="relative">
+                <select value={form.provider} onChange={(e) => patch("provider", e.target.value)} className={`${inputCls} cursor-pointer pr-8`} style={{ ...inputStyle, appearance: "none" }}>
+                  <option value="openai_compatible">OpenAI Compatible</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                </select>
+                <ChevronDown size={10} strokeWidth={2} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" style={{ color: "var(--fill-tertiary)" }} />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls} style={labelStyle}>模型名称</label>
+              <input value={form.model} onChange={(e) => patch("model", e.target.value)} placeholder="例: gpt-4o" className={inputCls} style={inputStyle} />
+            </div>
+            <div>
+              <label className={labelCls} style={labelStyle}>Base URL</label>
+              <input value={form.baseUrl} onChange={(e) => patch("baseUrl", e.target.value)} placeholder="https://api.openai.com/v1" className={inputCls} style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls} style={labelStyle}>API Key</label>
+            <div className="relative">
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={cred.apiKey}
+                onChange={(e) => { setCred((c) => ({ ...c, apiKey: e.target.value })); if (testStatus !== "idle") setTestStatus("idle"); }}
+                placeholder="sk-..."
+                className={`${inputCls} pr-20 font-mono`}
+                style={inputStyle}
+              />
+              <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey((v) => !v)}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[4px] transition-colors hover:bg-[var(--bg-hover)]"
+                  title={showApiKey ? "隐藏密钥" : "显示密钥"}
+                >
+                  {showApiKey
+                    ? <EyeOff size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
+                    : <Eye size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTest}
+                  disabled={testStatus === "testing"}
+                  className="flex h-7 cursor-pointer items-center gap-1 rounded-[4px] px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                  style={{ color: testStatus === "success" ? "var(--green)" : testStatus === "error" ? "var(--red)" : "var(--tint)" }}
+                  title="测试连接"
+                >
+                  {testStatus === "testing" ? <Loader2 size={13} strokeWidth={1.5} className="animate-spin" />
+                    : testStatus === "success" ? <CheckCircle size={13} strokeWidth={1.5} />
+                    : testStatus === "error" ? <XCircle size={13} strokeWidth={1.5} />
+                    : <Zap size={13} strokeWidth={1.5} />
+                  }
+                  {testStatus === "idle" && "测试"}
+                </button>
+              </div>
+            </div>
+            {testMsg && (
+              <p className="mt-1.5 text-[11px]" style={{ color: testStatus === "success" ? "var(--green)" : "var(--red)" }}>
+                {testMsg}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium transition-colors hover:opacity-80"
+              style={{ color: "var(--fill-tertiary)" }}
             >
-              <option value="openai_compatible">OpenAI Compatible</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-            <ChevronDown size={10} strokeWidth={2} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" style={{ color: "var(--fill-tertiary)" }} />
+              <ChevronDown size={10} strokeWidth={2} style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }} />
+              高级设置
+            </button>
+            {showAdvanced && (
+              <div className="mt-3 grid grid-cols-3 gap-3">
+                <div>
+                  <label className={labelCls} style={labelStyle}>温度</label>
+                  <input type="number" step="0.1" min="0" max="2" value={form.temperature} onChange={(e) => patch("temperature", parseFloat(e.target.value) || 0)} className={inputCls} style={inputStyle} />
+                </div>
+                <div>
+                  <label className={labelCls} style={labelStyle}>并发数</label>
+                  <input type="number" min="1" value={form.maxConcurrent} onChange={(e) => patch("maxConcurrent", parseInt(e.target.value) || 1)} className={inputCls} style={inputStyle} />
+                </div>
+                <div>
+                  <label className={labelCls} style={labelStyle}>超时 (秒)</label>
+                  <input type="number" min="10" value={form.timeoutSecs} onChange={(e) => patch("timeoutSecs", parseInt(e.target.value) || 60)} className={inputCls} style={inputStyle} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>模型名称</label>
-          <input
-            value={form.model}
-            onChange={(e) => patch("model", e.target.value)}
-            placeholder="例: gpt-4o"
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Base URL</label>
-          <input
-            value={form.baseUrl}
-            onChange={(e) => patch("baseUrl", e.target.value)}
-            placeholder="https://api.openai.com/v1"
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={inputStyle}
-          />
-        </div>
-      </div>
-      <div>
-        <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>API Key</label>
-        <input
-          type="password"
-          value={cred.apiKey}
-          onChange={(e) => setCred((c) => ({ ...c, apiKey: e.target.value }))}
-          placeholder="sk-..."
-          className="w-full rounded-[6px] px-3 py-2 text-[13px] font-mono outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-          style={inputStyle}
-        />
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>温度</label>
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            max="2"
-            value={form.temperature}
-            onChange={(e) => patch("temperature", parseFloat(e.target.value) || 0)}
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>并发数</label>
-          <input
-            type="number"
-            min="1"
-            value={form.maxConcurrent}
-            onChange={(e) => patch("maxConcurrent", parseInt(e.target.value) || 1)}
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>超时 (秒)</label>
-          <input
-            type="number"
-            min="10"
-            value={form.timeoutSecs}
-            onChange={(e) => patch("timeoutSecs", parseInt(e.target.value) || 60)}
-            className="w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-[var(--tint)]"
-            style={inputStyle}
-          />
-        </div>
-      </div>
-      <div className="flex items-center justify-between pt-1">
-        <div>
-          {!isNew && onDelete && (
-            <button
-              onClick={onDelete}
-              disabled={saving}
-              className="rounded-[6px] px-3 py-1.5 text-[12px] font-medium transition-colors hover:opacity-80"
-              style={{ color: "var(--red)" }}
-            >
-              删除
+
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: "0.5px solid var(--separator)", background: "var(--bg-secondary)" }}>
+          <div>
+            {!isNew && onDelete && (
+              <button
+                onClick={onDelete}
+                disabled={saving}
+                className="flex cursor-pointer items-center gap-1 rounded-[6px] px-3 py-1.5 text-[12px] font-medium transition-colors hover:opacity-80"
+                style={{ color: "var(--red)" }}
+              >
+                <Trash2 size={12} strokeWidth={1.5} />
+                删除
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onCancel} disabled={saving} className="cursor-pointer rounded-[6px] px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-secondary)" }}>
+              取消
             </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="rounded-[6px] px-3 py-1.5 text-[12px] font-medium transition-colors"
-            style={{ color: "var(--fill-secondary)" }}
-          >
-            取消
-          </button>
-          <button
-            onClick={() => onSave(form, cred)}
-            disabled={saving || !form.key || !form.model}
-            className="rounded-[6px] px-4 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-            style={{ background: "var(--tint)" }}
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
+            <button
+              onClick={() => onSave(form, cred)}
+              disabled={saving || !form.key || !form.model}
+              className="rounded-[6px] px-4 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "var(--tint)", cursor: saving || !form.key || !form.model ? "not-allowed" : "pointer" }}
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -316,6 +384,12 @@ function ModelsTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+
+  const showToast = useCallback((msg: string, type: "ok" | "err") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  }, []);
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -377,8 +451,9 @@ function ModelsTab() {
       setEditing(null);
       setAdding(false);
       loadData();
+      showToast("模型配置已保存", "ok");
     } catch {
-      /* silent */
+      showToast("保存失败", "err");
     } finally {
       setSaving(false);
     }
@@ -392,8 +467,9 @@ function ModelsTab() {
       await api.setConfig("models", newModels);
       setEditing(null);
       loadData();
+      showToast(`已删除「${key}」`, "ok");
     } catch {
-      /* silent */
+      showToast("删除失败", "err");
     } finally {
       setSaving(false);
     }
@@ -409,80 +485,67 @@ function ModelsTab() {
 
   return (
     <div className="space-y-4">
+      {toast && (
+        <div
+          className="flex items-center gap-2 rounded-[var(--radius-xs)] px-3 py-2 text-[12px] font-medium"
+          style={{
+            background: toast.type === "ok" ? "color-mix(in srgb, var(--green) 15%, transparent)" : "color-mix(in srgb, var(--red) 15%, transparent)",
+            color: toast.type === "ok" ? "var(--green)" : "var(--red)",
+            animation: "fade-in 0.15s ease-out",
+          }}
+        >
+          {toast.type === "ok" ? <CheckCircle size={13} strokeWidth={1.5} /> : <XCircle size={13} strokeWidth={1.5} />}
+          {toast.msg}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <SectionTitle>已配置模型 ({entries.length})</SectionTitle>
-        {!adding && (
-          <button
-            onClick={() => { setAdding(true); setEditing(null); }}
-            className="flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
-            style={{ color: "var(--tint)" }}
-          >
-            <Plus size={12} strokeWidth={2} />
-            新增模型
-          </button>
-        )}
+        <button
+          onClick={() => { setAdding(true); setEditing(null); }}
+          className="flex cursor-pointer items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
+          style={{ color: "var(--tint)" }}
+        >
+          <Plus size={12} strokeWidth={2} />
+          新增模型
+        </button>
       </div>
-
-      {adding && (
-        <ModelForm
-          entry={{ key: "", ...EMPTY_MODEL }}
-          credential={{ apiKey: "", baseUrl: "" }}
-          isNew
-          onSave={handleSave}
-          onCancel={() => setAdding(false)}
-          saving={saving}
-        />
-      )}
 
       <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
-        {entries.map((entry, idx) =>
-          editing === entry.key ? (
-            <ModelForm
-              key={entry.key}
-              entry={entry}
-              credential={credentials[entry.key] ?? { apiKey: "", baseUrl: "" }}
-              isNew={false}
-              onSave={handleSave}
-              onCancel={() => setEditing(null)}
-              onDelete={() => handleDelete(entry.key)}
-              saving={saving}
-            />
-          ) : (
-            <div
-              key={entry.key}
-              className="group cursor-pointer px-4 py-3 transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-              style={idx < entries.length - 1 ? { borderBottom: "0.5px solid var(--separator)" } : undefined}
-              onClick={() => { setEditing(entry.key); setAdding(false); }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }} title={entry.key}>
-                      {entry.key}
-                    </span>
-                    <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "var(--bg-tertiary)", color: "var(--fill-secondary)" }}>
-                      {entry.model}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-3 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-                    <span>{entry.provider}</span>
-                    {entry.baseUrl && <><span>·</span><span className="max-w-[200px] truncate">{entry.baseUrl}</span></>}
-                  </div>
-                  {credentials[entry.key]?.apiKey && (
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                      <span className="inline-block h-[6px] w-[6px] rounded-full" style={{ background: "var(--green)" }} />
-                      <span style={{ color: "var(--fill-tertiary)" }}>已配置密钥</span>
-                    </div>
-                  )}
+        {entries.map((entry, idx) => (
+          <div
+            key={entry.key}
+            className="group cursor-pointer px-4 py-3 transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+            style={idx < entries.length - 1 ? { borderBottom: "0.5px solid var(--separator)" } : undefined}
+            onClick={() => { setEditing(entry.key); setAdding(false); }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }} title={entry.key}>
+                    {entry.key}
+                  </span>
+                  <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "var(--bg-tertiary)", color: "var(--fill-secondary)" }}>
+                    {entry.model}
+                  </span>
                 </div>
-                <Pencil size={14} strokeWidth={1.5} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: "var(--fill-quaternary)" }} />
+                <div className="mt-1 flex items-center gap-3 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+                  <span>{entry.provider}</span>
+                  {entry.baseUrl && <><span>·</span><span className="max-w-[200px] truncate">{entry.baseUrl}</span></>}
+                </div>
+                {credentials[entry.key]?.apiKey && (
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                    <span className="inline-block h-[6px] w-[6px] rounded-full" style={{ background: "var(--green)" }} />
+                    <span style={{ color: "var(--fill-tertiary)" }}>已配置密钥</span>
+                  </div>
+                )}
               </div>
+              <Pencil size={14} strokeWidth={1.5} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: "var(--fill-quaternary)" }} />
             </div>
-          )
-        )}
+          </div>
+        ))}
       </div>
 
-      {entries.length === 0 && !adding && (
+      {entries.length === 0 && (
         <div className="py-8 text-center">
           <p className="text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
             暂无已配置模型，点击上方"新增模型"添加
@@ -493,6 +556,18 @@ function ModelsTab() {
       <p className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
         点击模型卡片即可编辑，修改会持久化到 ~/.fastclaw/config/default.json（部分配置重启后生效）
       </p>
+
+      {(editing || adding) && (
+        <ModelFormModal
+          entry={editing ? entries.find((e) => e.key === editing)! : { key: "", ...EMPTY_MODEL }}
+          credential={editing ? (credentials[editing] ?? { apiKey: "", baseUrl: "" }) : { apiKey: "", baseUrl: "" }}
+          isNew={adding}
+          onSave={handleSave}
+          onCancel={() => { setEditing(null); setAdding(false); }}
+          onDelete={editing ? () => handleDelete(editing) : undefined}
+          saving={saving}
+        />
+      )}
     </div>
   );
 }
@@ -1137,6 +1212,15 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [tab, setTab] = useState<SettingsTab>("general");
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [open, onClose]);
 
   if (!open) return null;
 

@@ -708,12 +708,14 @@ impl CredentialsConfig {
         self.providers
             .get(provider)
             .and_then(|c| c.api_key.as_deref())
+            .filter(|s| !s.is_empty())
     }
 
     pub fn get_base_url(&self, provider: &str) -> Option<&str> {
         self.providers
             .get(provider)
             .and_then(|c| c.base_url.as_deref())
+            .filter(|s| !s.is_empty())
     }
 }
 
