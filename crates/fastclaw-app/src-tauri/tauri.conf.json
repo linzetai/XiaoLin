@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/dev/crates/tauri-schema-generator/schemas/config.schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "FastClaw",
   "version": "0.1.0",
   "identifier": "com.fastclaw.app",
@@ -29,7 +29,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "dmg", "nsis"],
     "resources": [
       "resources/lsp/*"
     ],
