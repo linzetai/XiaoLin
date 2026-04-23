@@ -362,7 +362,7 @@ async fn e2e_memory_lifecycle() {
 
     // Store a fact via the upsert endpoint (agent_id is a query param)
     let fact: Value = client
-        .post(srv.url("/api/v1/memory/facts?agent_id=default"))
+        .post(srv.url("/api/v1/memory/facts?agent_id=main"))
         .json(&json!({
             "id": "fact-001",
             "category": "technology",
@@ -384,7 +384,7 @@ async fn e2e_memory_lifecycle() {
 
     // List facts
     let facts: Value = client
-        .get(srv.url("/api/v1/memory/facts?agent_id=default"))
+        .get(srv.url("/api/v1/memory/facts?agent_id=main"))
         .send()
         .await
         .unwrap()
@@ -401,7 +401,7 @@ async fn e2e_memory_lifecycle() {
 
     // Search facts
     let search: Value = client
-        .get(srv.url("/api/v1/memory/facts/search?agent_id=default&q=Rust"))
+        .get(srv.url("/api/v1/memory/facts/search?agent_id=main&q=Rust"))
         .send()
         .await
         .unwrap()
@@ -436,7 +436,7 @@ async fn e2e_memory_lifecycle() {
     // List episodes — they may or may not be auto-recorded depending on content
     // length thresholds, but the endpoint should be functional.
     let episodes_resp = client
-        .get(srv.url("/api/v1/memory/episodes?agent_id=default"))
+        .get(srv.url("/api/v1/memory/episodes?agent_id=main"))
         .send()
         .await
         .unwrap();
@@ -449,7 +449,7 @@ async fn e2e_memory_lifecycle() {
 
     // Search episodes endpoint should also work
     let search_resp = client
-        .get(srv.url("/api/v1/memory/episodes/search?agent_id=default&q=memory"))
+        .get(srv.url("/api/v1/memory/episodes/search?agent_id=main&q=memory"))
         .send()
         .await
         .unwrap();
@@ -469,7 +469,7 @@ async fn e2e_evolution_feedback_loop() {
     let fb_resp = client
         .post(srv.url("/api/v1/evolution/feedback"))
         .json(&json!({
-            "agent_id": "default",
+            "agent_id": "main",
             "session_id": "test-session-1",
             "kind": "thumbs_up",
             "comment": "Great answer about Rust!"
@@ -483,7 +483,7 @@ async fn e2e_evolution_feedback_loop() {
     let fb_resp = client
         .post(srv.url("/api/v1/evolution/feedback"))
         .json(&json!({
-            "agent_id": "default",
+            "agent_id": "main",
             "session_id": "test-session-2",
             "kind": "thumbs_down",
             "comment": "Inaccurate response"
@@ -495,7 +495,7 @@ async fn e2e_evolution_feedback_loop() {
 
     // Retrieve feedback for agent
     let fb_list: Value = client
-        .get(srv.url("/api/v1/evolution/feedback/default"))
+        .get(srv.url("/api/v1/evolution/feedback/main"))
         .send()
         .await
         .unwrap()
@@ -514,7 +514,7 @@ async fn e2e_evolution_feedback_loop() {
 
     // Evaluate agent performance
     let eval: Value = client
-        .get(srv.url("/api/v1/evolution/evaluate/default"))
+        .get(srv.url("/api/v1/evolution/evaluate/main"))
         .send()
         .await
         .unwrap()
@@ -528,7 +528,7 @@ async fn e2e_evolution_feedback_loop() {
 
     // Trigger prompt distillation
     let distill: Value = client
-        .post(srv.url("/api/v1/evolution/distill/default"))
+        .post(srv.url("/api/v1/evolution/distill/main"))
         .json(&json!({}))
         .send()
         .await
@@ -543,7 +543,7 @@ async fn e2e_evolution_feedback_loop() {
 
     // List candidates
     let candidates: Value = client
-        .get(srv.url("/api/v1/evolution/candidates/default"))
+        .get(srv.url("/api/v1/evolution/candidates/main"))
         .send()
         .await
         .unwrap()
@@ -934,7 +934,7 @@ async fn e2e_agent_tools_registry() {
         .unwrap();
     let agent_list = agents["agents"].as_array().unwrap();
     assert!(!agent_list.is_empty(), "should have at least one agent");
-    assert_eq!(agent_list[0]["agentId"], "default");
+    assert_eq!(agent_list[0]["agentId"], "main");
 
     let tools: Value = client
         .get(srv.url("/api/v1/tools"))
@@ -991,7 +991,7 @@ async fn e2e_dynamic_routes_lifecycle() {
     let created: Value = client
         .post(srv.url("/api/v1/routes"))
         .json(&json!({
-            "agentId": "default",
+            "agentId": "main",
             "match": {"channel": "slack"}
         }))
         .send()
@@ -1006,7 +1006,7 @@ async fn e2e_dynamic_routes_lifecycle() {
     let updated: Value = client
         .put(srv.url(&format!("/api/v1/routes/{route_id}")))
         .json(&json!({
-            "agentId": "default",
+            "agentId": "main",
             "match": {"channel": "telegram"}
         }))
         .send()
@@ -1072,7 +1072,7 @@ async fn memory_episode_record_and_keyword_search() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     let search: Value = client
-        .get(srv.url("/api/v1/memory/episodes/search?agent_id=default&q=dark%20mode"))
+        .get(srv.url("/api/v1/memory/episodes/search?agent_id=main&q=dark%20mode"))
         .send()
         .await
         .unwrap()
@@ -1093,7 +1093,7 @@ async fn memory_fact_crud_cycle() {
     let client = reqwest::Client::new();
 
     let upsert: Value = client
-        .post(srv.url("/api/v1/memory/facts?agent_id=default"))
+        .post(srv.url("/api/v1/memory/facts?agent_id=main"))
         .json(&json!({
             "id": "fact-crud-test",
             "category": "preference",
@@ -1111,7 +1111,7 @@ async fn memory_fact_crud_cycle() {
     assert!(upsert.get("ok").is_some(), "fact upsert: {upsert}");
 
     let search: Value = client
-        .get(srv.url("/api/v1/memory/facts/search?agent_id=default&q=TypeScript"))
+        .get(srv.url("/api/v1/memory/facts/search?agent_id=main&q=TypeScript"))
         .send()
         .await
         .unwrap()
@@ -1125,7 +1125,7 @@ async fn memory_fact_crud_cycle() {
     );
 
     let del: Value = client
-        .delete(srv.url("/api/v1/memory/facts/fact-crud-test?agent_id=default"))
+        .delete(srv.url("/api/v1/memory/facts/fact-crud-test?agent_id=main"))
         .send()
         .await
         .unwrap()
@@ -1135,7 +1135,7 @@ async fn memory_fact_crud_cycle() {
     assert!(del.get("ok").is_some() || del.get("deleted").is_some(), "fact delete: {del}");
 
     let search_after: Value = client
-        .get(srv.url("/api/v1/memory/facts/search?agent_id=default&q=TypeScript"))
+        .get(srv.url("/api/v1/memory/facts/search?agent_id=main&q=TypeScript"))
         .send()
         .await
         .unwrap()
@@ -1159,7 +1159,7 @@ async fn memory_auto_episode_from_chat() {
     let client = reqwest::Client::new();
 
     let episodes_before: Value = client
-        .get(srv.url("/api/v1/memory/episodes?agent_id=default"))
+        .get(srv.url("/api/v1/memory/episodes?agent_id=main"))
         .send()
         .await
         .unwrap()
@@ -1186,7 +1186,7 @@ async fn memory_auto_episode_from_chat() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     let episodes_after: Value = client
-        .get(srv.url("/api/v1/memory/episodes?agent_id=default"))
+        .get(srv.url("/api/v1/memory/episodes?agent_id=main"))
         .send()
         .await
         .unwrap()
@@ -1212,7 +1212,7 @@ async fn memory_recall_injects_relevant_memories() {
     let client = reqwest::Client::new();
 
     let _: Value = client
-        .post(srv.url("/api/v1/memory/facts?agent_id=default"))
+        .post(srv.url("/api/v1/memory/facts?agent_id=main"))
         .json(&json!({
             "id": "recall-test-fact",
             "category": "technology",
@@ -1233,7 +1233,7 @@ async fn memory_recall_injects_relevant_memories() {
         .json(&json!({
             "messages": [{"role": "user", "content": "What database does FastClaw use for storage?"}],
             "stream": false,
-            "agent_id": "default"
+            "agent_id": "main"
         }))
         .send()
         .await
@@ -1282,7 +1282,7 @@ async fn memory_multi_turn_episode_accumulation() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     let episodes: Value = client
-        .get(srv.url("/api/v1/memory/episodes?agent_id=default"))
+        .get(srv.url("/api/v1/memory/episodes?agent_id=main"))
         .send()
         .await
         .unwrap()

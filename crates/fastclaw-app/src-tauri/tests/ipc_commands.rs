@@ -109,8 +109,8 @@ async fn list_agents_returns_default_agent() {
         .map(|a| json!({"agentId": a.agent_id, "name": a.name, "model": a.model.model}))
         .collect();
     assert!(!agents.is_empty(), "should have at least one agent");
-    let default = agents.iter().find(|a| a["agentId"] == "default");
-    assert!(default.is_some(), "should have 'default' agent");
+    let default = agents.iter().find(|a| a["agentId"] == "main");
+    assert!(default.is_some(), "should have 'main' agent");
 }
 
 #[tokio::test]
@@ -333,8 +333,8 @@ async fn list_models_returns_agent_models() {
         })
         .collect();
     assert!(!models.is_empty(), "should have at least one model entry");
-    let default = models.iter().find(|m| m["agentId"] == "default");
-    assert!(default.is_some(), "should have model for 'default' agent");
+    let default = models.iter().find(|m| m["agentId"] == "main");
+    assert!(default.is_some(), "should have model for 'main' agent");
 }
 
 #[tokio::test]
@@ -399,7 +399,7 @@ async fn stream_chat_produces_events() {
         stream: true,
         max_tokens: None,
         temperature: None,
-        agent_id: Some("default".into()),
+        agent_id: Some("main".into()),
         session_id: None,
         tools: None,
         slash_intent: None,
@@ -477,7 +477,7 @@ async fn stream_chat_delta_content_accumulates() {
         stream: true,
         max_tokens: None,
         temperature: None,
-        agent_id: Some("default".into()),
+        agent_id: Some("main".into()),
         session_id: None,
         tools: None,
         slash_intent: None,
@@ -578,7 +578,7 @@ async fn router_resolves_main_agent() {
         stream: false,
         max_tokens: None,
         temperature: None,
-        agent_id: Some("default".into()),
+        agent_id: Some("main".into()),
         session_id: None,
         tools: None,
         slash_intent: None,
@@ -586,8 +586,8 @@ async fn router_resolves_main_agent() {
     };
     let router = state.router.read().await;
     let config = router.resolve(&request);
-    assert!(config.is_ok(), "should resolve 'default' agent");
-    assert_eq!(config.unwrap().agent_id, "default");
+    assert!(config.is_ok(), "should resolve 'main' agent");
+    assert_eq!(config.unwrap().agent_id, "main");
 }
 
 #[tokio::test]

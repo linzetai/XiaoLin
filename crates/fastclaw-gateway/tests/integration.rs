@@ -240,7 +240,7 @@ async fn http_agents_and_tools() {
         .unwrap();
     let agents = resp["agents"].as_array().unwrap();
     assert!(!agents.is_empty());
-    assert_eq!(agents[0]["agentId"], "default");
+    assert_eq!(agents[0]["agentId"], "main");
 
     let resp: Value = client
         .get(srv.http_url("/api/v1/tools"))
@@ -271,7 +271,7 @@ async fn http_runtime_routes_crud() {
     let created: Value = client
         .post(srv.http_url("/api/v1/routes"))
         .json(&json!({
-            "agentId": "default",
+            "agentId": "main",
             "match": { "channel": "telegram" }
         }))
         .send()
@@ -281,7 +281,7 @@ async fn http_runtime_routes_crud() {
         .await
         .unwrap();
     let id = created["id"].as_str().unwrap().to_string();
-    assert_eq!(created["agentId"], "default");
+    assert_eq!(created["agentId"], "main");
 
     let list1: Value = client
         .get(srv.http_url("/api/v1/routes"))
@@ -296,7 +296,7 @@ async fn http_runtime_routes_crud() {
     let updated: Value = client
         .put(srv.http_url(&format!("/api/v1/routes/{id}")))
         .json(&json!({
-            "agentId": "default",
+            "agentId": "main",
             "match": { "channel": "discord" }
         }))
         .send()
