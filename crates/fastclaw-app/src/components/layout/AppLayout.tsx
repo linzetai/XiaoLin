@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { useGatewayStore } from "../../lib/store";
 import { useAgentStore } from "../../lib/agent-store";
 import { AgentList } from "../agent-list/AgentList";
@@ -5,6 +6,8 @@ import { AgentDetail } from "../agent-detail/AgentDetail";
 import { MessageStream } from "../message-stream/MessageStream";
 import { TitleBar } from "./TitleBar";
 import { ClawIcon } from "./ClawIcon";
+import { OnboardingWizard } from "../onboarding/OnboardingWizard";
+import * as api from "../../lib/api";
 
 function Loading({ error }: { error: string | null }) {
   return (
@@ -34,7 +37,47 @@ export function AppLayout() {
 
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
 
-  if (mode === "connecting" || !activeAgent) return <Loading error={error} />;
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+
+  useEffect(() => {
+    if (mode === "connecting" || (!connected && mode !== "tauri")) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cfg = (await api.getConfig("onboarding")) as { value?: { completed?: boolean }; completed?: boolean } | null;
+        const val = cfg?.value ?? cfg;
+        if (val && typeof val === "object" && (val as Record<string, unknown>).completed) {
+          if (!cancelled) { setShowOnboarding(false); setOnboardingChecked(true); }
+          return;
+        }
+        const models = await api.listModels();
+        if (!cancelled) {
+          setShowOnboarding(models.length === 0);
+          setOnboardingChecked(true);
+        }
+      } catch {
+        if (!cancelled) { setShowOnboarding(false); setOnboardingChecked(true); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, connected]);
+
+  const handleOnboardingComplete = useCallback(async () => {
+    try { await api.setConfig("onboarding", { completed: true }); } catch { /* best-effort */ }
+    setShowOnboarding(false);
+  }, []);
+
+  if (mode === "connecting" || !activeAgent || !onboardingChecked) return <Loading error={error} />;
+
+  if (showOnboarding) {
+    return (
+      <div className="flex h-full flex-col" style={{ background: "var(--bg-primary)" }}>
+        <TitleBar />
+        <OnboardingWizard onComplete={handleOnboardingComplete} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--bg-primary)" }}>
