@@ -18,6 +18,8 @@ export function AgentList() {
   const [creating, setCreating] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newAgentId, setNewAgentId] = useState("");
+  const [agentIdTouched, setAgentIdTouched] = useState(false);
   const [newModel, setNewModel] = useState("");
   const [newAvatarPath, setNewAvatarPath] = useState<string | null>(null);
   const [newAvatarPreview, setNewAvatarPreview] = useState<string | null>(null);
@@ -85,8 +87,10 @@ export function AgentList() {
     if (!trimmed) return;
     setCreating(true);
     const selectedModelMeta = models.find((m) => m.model === newModel);
+    const explicitId = newAgentId.trim() || undefined;
     const agent = await api.createAgent({
       name: trimmed,
+      agentId: explicitId,
       model: newModel || undefined,
       provider: selectedModelMeta?.provider,
     });
@@ -148,6 +152,8 @@ export function AgentList() {
   const cancelNew = useCallback(() => {
     setShowNewForm(false);
     setNewName("");
+    setNewAgentId("");
+    setAgentIdTouched(false);
     setNewModel("");
     setNewAvatarPath(null);
     setNewAvatarPreview(null);
@@ -355,6 +361,32 @@ export function AgentList() {
                     disabled={creating}
                   />
                 </div>
+              </div>
+
+              {/* Agent ID */}
+              <div>
+                <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Agent ID</label>
+                <input
+                  type="text"
+                  value={agentIdTouched ? newAgentId : (newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))}
+                  onChange={(e) => {
+                    setAgentIdTouched(true);
+                    setNewAgentId(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ""));
+                  }}
+                  onFocus={() => {
+                    if (!agentIdTouched) {
+                      setNewAgentId(newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+                      setAgentIdTouched(true);
+                    }
+                  }}
+                  placeholder="自动生成，或手动输入"
+                  className="w-full rounded-[var(--radius-xs)] px-3 py-2 text-[13px] outline-none transition-colors focus:ring-1 focus:ring-[var(--fill-quaternary)]"
+                  style={{ background: "var(--bg-base)", color: "var(--fill-secondary)", border: "0.5px solid var(--separator-opaque)", fontFamily: "var(--font-mono, monospace)" }}
+                  disabled={creating}
+                />
+                <span className="mt-0.5 block text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+                  用于工作目录和文件标识，仅限小写字母、数字、连字符
+                </span>
               </div>
 
               {/* Model */}

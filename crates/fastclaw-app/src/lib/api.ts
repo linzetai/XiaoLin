@@ -291,9 +291,9 @@ export async function updateAgent(agentId: string, updates: Partial<BackendAgent
   }
 }
 
-export async function createAgent(agent: { name: string; model?: string; provider?: string; systemPrompt?: string }): Promise<BackendAgent | null> {
+export async function createAgent(agent: { name: string; agentId?: string; model?: string; provider?: string; systemPrompt?: string }): Promise<BackendAgent | null> {
   try {
-    const agentId = agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `agent-${Date.now()}`;
+    const agentId = agent.agentId?.trim() || agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `agent-${Date.now()}`;
     const config: Record<string, unknown> = {
       agentId,
       name: agent.name,
