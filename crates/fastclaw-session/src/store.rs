@@ -289,8 +289,9 @@ impl SessionStore {
     }
 
     /// Upsert a partial assistant message for crash recovery during streaming.
-    /// If a partial assistant row already exists (the last message with role=assistant),
-    /// update its content; otherwise insert a new one.
+    /// Only updates an assistant row if it is the very last message in the session
+    /// (i.e. a partial row we previously inserted). If the last message is not an
+    /// assistant row (e.g. the user message that started this turn), inserts a new one.
     pub async fn save_partial_assistant(
         &self,
         session_id: &str,
@@ -299,7 +300,8 @@ impl SessionStore {
         let content_json = serde_json::to_string(&serde_json::Value::String(content.to_string()))?;
         let updated = sqlx::query(
             "UPDATE messages SET content = ?
-             WHERE id = (SELECT MAX(id) FROM messages WHERE session_id = ? AND role = 'assistant')",
+             WHERE id = (SELECT MAX(id) FROM messages WHERE session_id = ?)
+               AND role = 'assistant'",
         )
         .bind(&content_json)
         .bind(session_id)
@@ -320,10 +322,14 @@ impl SessionStore {
         Ok(())
     }
 
-    /// Remove the last partial assistant message (called before inserting the final one).
+    /// Remove the partial assistant message (called before inserting the final one).
+    /// Only deletes if the last message in the session is an assistant row, protecting
+    /// finalized assistant messages from prior turns.
     pub async fn remove_partial_assistant(&self, session_id: &str) -> anyhow::Result<()> {
         let deleted = sqlx::query(
-            "DELETE FROM messages WHERE id = (SELECT MAX(id) FROM messages WHERE session_id = ? AND role = 'assistant')",
+            "DELETE FROM messages
+             WHERE id = (SELECT MAX(id) FROM messages WHERE session_id = ?)
+               AND role = 'assistant'",
         )
         .bind(session_id)
         .execute(&self.pool)
