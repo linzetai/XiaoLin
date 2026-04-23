@@ -91,18 +91,30 @@ jobs:
         run: pnpm exec -- tauri build ${{ matrix.args }}
 
       # ✅ 收集产物（跨平台）
+      # When --target is used (e.g. universal-apple-darwin), bundles go to
+      # target/<triple>/release/bundle instead of target/release/bundle.
       - name: Collect artifacts (Linux/macOS)
         if: matrix.platform != 'windows-latest'
         run: |
           mkdir -p upload
-          find target/release/bundle -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.deb" \) -exec cp {} upload/ \;
+          for dir in target/release/bundle target/*/release/bundle; do
+            [ -d "$dir" ] && find "$dir" -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.deb" \) -exec cp {} upload/ \;
+          done
+          ls -la upload/
 
       - name: Collect artifacts (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path upload
-          Get-ChildItem -Recurse target/release/bundle -Include *.exe,*.msi | Copy-Item -Destination upload
+          $dirs = @("target\release\bundle")
+          $dirs += Get-ChildItem -Path target -Directory | ForEach-Object { Join-Path $_.FullName "release\bundle" }
+          foreach ($d in $dirs) {
+            if (Test-Path $d) {
+              Get-ChildItem -Recurse $d -Include *.exe,*.msi | Copy-Item -Destination upload
+            }
+          }
+          Get-ChildItem upload
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
