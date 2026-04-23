@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { useThemeStore, type ThemeMode } from "../../lib/theme";
+import { useThemeStore, ACCENT_PRESETS, type ThemeMode } from "../../lib/theme";
 import { useGatewayStore } from "../../lib/store";
-import { Settings2, Box, Wrench, Server, Info, ChevronDown, Plus, Pencil, Globe, User, X, RefreshCw, Upload, FolderOpen, FileText, Plug, Trash2, ToggleLeft, ToggleRight, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Search } from "lucide-react";
+import { Settings2, Box, Wrench, Server, Info, ChevronDown, Plus, Pencil, Globe, User, X, RefreshCw, Upload, FolderOpen, FileText, Plug, Trash2, ToggleLeft, ToggleRight, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Search, Check } from "lucide-react";
 import { ClawIcon } from "../layout/ClawIcon";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
@@ -57,8 +57,93 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
 
 /* ━━━ General Tab ━━━ */
 
+function ThemeCard({ preset, selected, resolved, onClick }: {
+  preset: typeof ACCENT_PRESETS[number];
+  selected: boolean;
+  resolved: "light" | "dark";
+  onClick: () => void;
+}) {
+  const p = resolved === "dark" ? preset.preview.dark : preset.preview.light;
+
+  return (
+    <button
+      onClick={onClick}
+      className="group relative flex cursor-pointer flex-col items-center gap-2 outline-none focus-visible:outline-2 focus-visible:outline-offset-4"
+      style={{ outlineColor: selected ? p.accent : "var(--tint)" } as React.CSSProperties}
+      title={preset.label}
+    >
+      <div
+        className="relative overflow-hidden rounded-[12px] transition-all duration-200 ease-out group-hover:scale-[1.04] group-active:scale-[0.98]"
+        style={{
+          width: 108,
+          height: 72,
+          background: p.bg,
+          border: selected
+            ? `2.5px solid ${p.accent}`
+            : "1.5px solid var(--separator-opaque)",
+          boxShadow: selected
+            ? `0 0 0 2px ${p.accent}30, 0 4px 12px ${p.accent}25`
+            : "0 1px 3px rgba(0,0,0,0.08)",
+          transform: selected ? "scale(1.03)" : undefined,
+        }}
+      >
+        {/* Sidebar */}
+        <div
+          className="absolute top-0 left-0 bottom-0"
+          style={{ width: 26, background: p.sidebar, borderRight: `0.5px solid ${p.accent}18` }}
+        />
+        {/* Sidebar dots */}
+        {[14, 24, 34].map((top) => (
+          <div key={top} className="absolute left-[7px]" style={{ top, width: 12, height: 3, borderRadius: 1.5, background: p.text, opacity: 0.3 }} />
+        ))}
+        {/* Active sidebar item */}
+        <div className="absolute left-[4px]" style={{ top: 8, width: 18, height: 3, borderRadius: 1.5, background: p.accent, opacity: 0.8 }} />
+
+        {/* Header bar */}
+        <div className="absolute top-0 left-[26px] right-0" style={{ height: 14, background: p.sidebar, borderBottom: `0.5px solid ${p.accent}18` }} />
+        <div className="absolute top-[5px] left-[32px]" style={{ width: 24, height: 3, borderRadius: 1.5, background: p.text, opacity: 0.5 }} />
+
+        {/* Content lines */}
+        <div className="absolute top-[20px] left-[32px] right-[8px]" style={{ height: 3, borderRadius: 1.5, background: p.text, opacity: 0.2 }} />
+        <div className="absolute top-[27px] left-[32px]" style={{ width: 38, height: 3, borderRadius: 1.5, background: p.text, opacity: 0.15 }} />
+
+        {/* Chat bubble */}
+        <div className="absolute right-[6px]" style={{ top: 36, width: 34, height: 10, borderRadius: 5, background: p.accent, opacity: 0.9 }} />
+        <div className="absolute left-[32px]" style={{ top: 50, width: 40, height: 10, borderRadius: 5, background: p.sidebar }} />
+
+        {/* Input area */}
+        <div className="absolute bottom-[4px] left-[30px] right-[4px]" style={{ height: 10, borderRadius: 4, background: p.sidebar, border: `0.5px solid ${p.accent}25` }} />
+
+        {/* Selected check badge */}
+        {selected && (
+          <div
+            className="absolute top-[3px] right-[3px] flex items-center justify-center rounded-full"
+            style={{
+              width: 16, height: 16,
+              background: p.accent,
+              boxShadow: `0 1px 3px ${p.accent}60`,
+              animation: "pop 0.2s ease-out",
+            }}
+          >
+            <Check size={9} strokeWidth={3} color="#fff" />
+          </div>
+        )}
+      </div>
+      <span
+        className="text-[11px] font-medium transition-colors duration-150"
+        style={{
+          color: selected ? "var(--fill-primary)" : "var(--fill-tertiary)",
+          fontWeight: selected ? 600 : 500,
+        }}
+      >
+        {preset.label}
+      </span>
+    </button>
+  );
+}
+
 function GeneralTab() {
-  const { mode, setMode } = useThemeStore();
+  const { mode, setMode, accent, setAccent, resolved } = useThemeStore();
   const [notifications, setNotifications] = useState(true);
   const [sounds, setSounds] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -94,7 +179,7 @@ function GeneralTab() {
             <button
               key={opt.value}
               onClick={() => setMode(opt.value)}
-              className="flex-1 rounded-[4px] py-1.5 text-center text-[12px] font-medium transition-all duration-200"
+              className="flex-1 cursor-pointer rounded-[4px] py-1.5 text-center text-[12px] font-medium transition-all duration-200"
               style={{
                 background: mode === opt.value ? "var(--bg-elevated)" : "transparent",
                 color: mode === opt.value ? "var(--fill-primary)" : "var(--fill-tertiary)",
@@ -106,6 +191,30 @@ function GeneralTab() {
           ))}
         </div>
       </div>
+
+      <div>
+        <SectionTitle>主题</SectionTitle>
+        <div
+          className="overflow-hidden rounded-[var(--radius-sm)] px-5 py-5"
+          style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
+        >
+          <div className="grid grid-cols-4 gap-x-3 gap-y-4 justify-items-center">
+            {ACCENT_PRESETS.map((preset) => (
+              <ThemeCard
+                key={preset.id}
+                preset={preset}
+                selected={accent === preset.id}
+                resolved={resolved}
+                onClick={() => setAccent(preset.id)}
+              />
+            ))}
+          </div>
+        </div>
+        <p className="mt-2 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+          每个主题完整定义背景、文字、强调色，支持浅色与深色模式
+        </p>
+      </div>
+
       <div>
         <SectionTitle>行为</SectionTitle>
         <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>

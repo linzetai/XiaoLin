@@ -92,9 +92,134 @@
   --orange: #636366;
 }
 
+/* ━━━ Full Immersive Theme Overrides ━━━
+   Each [data-accent] redefines the ENTIRE palette for a fresh visual identity.
+   Combined with [data-theme] for light vs dark variants.
+*/
+
+/* — Ocean — */
+[data-accent="ocean"] {
+  --bg-primary: #F0F7FF; --bg-secondary: #E1EFFE; --bg-tertiary: #C7DEF8;
+  --bg-grouped: #E6F0FC; --bg-sidebar: rgba(225,239,254,0.85);
+  --bg-hover: rgba(37,99,235,0.06); --bg-active: rgba(37,99,235,0.1);
+  --bg-elevated: #FAFCFF; --bg-base: #F0F7FF;
+  --fill-primary: #0F2B4A; --fill-secondary: #3B6B9E; --fill-tertiary: #7BA3CC;
+  --fill-quaternary: #A8C8E8; --fill-inverse: #F0F7FF;
+  --tint: #2563EB; --tint-bg: rgba(37,99,235,0.1); --tint-subtle: rgba(37,99,235,0.05);
+  --separator: rgba(37,99,235,0.12); --separator-opaque: #B3D1F0;
+  --shadow-sm: 0 0.5px 2px rgba(15,43,74,0.06);
+  --shadow-md: 0 2px 8px rgba(15,43,74,0.08), 0 0.5px 1px rgba(15,43,74,0.04);
+  --shadow-lg: 0 4px 16px rgba(15,43,74,0.1), 0 1px 4px rgba(15,43,74,0.05);
+  --bubble-user: #2563EB; --bubble-user-text: #ffffff;
+  --bubble-them: #DAE8FA; --bubble-them-text: #0F2B4A;
+  --green: #059669; --red: #DC2626; --orange: #D97706;
+  --code-bg: #E8F0FC; --code-header-bg: #DCEAFB; --code-inline-bg: #DCEAFB;
+  --code-inline-fg: #0F2B4A; --md-link: #2563EB;
+}
+[data-accent="ocean"][data-theme="dark"] {
+  --bg-primary: #0A1628; --bg-secondary: #0F1F35; --bg-tertiary: #162B45;
+  --bg-grouped: #0F1F35; --bg-sidebar: rgba(15,31,53,0.85);
+  --bg-hover: rgba(59,130,246,0.1); --bg-active: rgba(59,130,246,0.15);
+  --bg-elevated: #132640; --bg-base: #0A1628;
+  --fill-primary: #E2EDFA; --fill-secondary: #7BA3CC; --fill-tertiary: #4A7AAA;
+  --fill-quaternary: #2D5580; --fill-inverse: #0A1628;
+  --tint: #3B82F6; --tint-bg: rgba(59,130,246,0.15); --tint-subtle: rgba(59,130,246,0.07);
+  --separator: rgba(59,130,246,0.2); --separator-opaque: #1E3A5F;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --bubble-user: #3B82F6; --bubble-user-text: #ffffff;
+  --bubble-them: #162B45; --bubble-them-text: #E2EDFA;
+  --green: #10B981; --red: #EF4444; --orange: #F59E0B;
+  --code-bg: #0D1A2E; --code-header-bg: #101E32; --code-inline-bg: #132640;
+  --code-inline-fg: #E2EDFA; --md-link: #60A5FA;
+}
+
+/* — Sunset — */
+[data-accent="sunset"] {
+  --bg-primary: #FFFBF5; --bg-secondary: #FFF3E5; --bg-tertiary: #FFE8CC;
+  --bg-grouped: #FFF0E0; --bg-sidebar: rgba(255,243,229,0.85);
+  --bg-hover: rgba(234,88,12,0.06); --bg-active: rgba(234,88,12,0.1);
+  --bg-elevated: #FFFDF9; --bg-base: #FFFBF5;
+  --fill-primary: #431407; --fill-secondary: #9A3412; --fill-tertiary: #C2652E;
+  --fill-quaternary: #E09962; --fill-inverse: #FFFBF5;
+  --tint: #EA580C; --tint-bg: rgba(234,88,12,0.1); --tint-subtle: rgba(234,88,12,0.05);
+  --separator: rgba(234,88,12,0.12); --separator-opaque: #F0C8A0;
+  --shadow-sm: 0 0.5px 2px rgba(67,20,7,0.06);
+  --shadow-md: 0 2px 8px rgba(67,20,7,0.08), 0 0.5px 1px rgba(67,20,7,0.04);
+  --shadow-lg: 0 4px 16px rgba(67,20,7,0.1), 0 1px 4px rgba(67,20,7,0.05);
+  --bubble-user: #EA580C; --bubble-user-text: #ffffff;
+  --bubble-them: #FDDDB5; --bubble-them-text: #431407;
+  --green: #059669; --red: #DC2626; --orange: #EA580C;
+  --code-bg: #FFF0DB; --code-header-bg: #FFE8C8; --code-inline-bg: #FFE8C8;
+  --code-inline-fg: #431407; --md-link: #C2410C;
+}
+[data-accent="sunset"][data-theme="dark"] {
+  --bg-primary: #1A0F05; --bg-secondary: #261A0E; --bg-tertiary: #33221A;
+  --bg-grouped: #261A0E; --bg-sidebar: rgba(38,26,14,0.85);
+  --bg-hover: rgba(251,146,60,0.1); --bg-active: rgba(251,146,60,0.15);
+  --bg-elevated: #2E1E12; --bg-base: #1A0F05;
+  --fill-primary: #FEF3C7; --fill-secondary: #FBBF24; --fill-tertiary: #B8860B;
+  --fill-quaternary: #7C5A1C; --fill-inverse: #1A0F05;
+  --tint: #FB923C; --tint-bg: rgba(251,146,60,0.15); --tint-subtle: rgba(251,146,60,0.07);
+  --separator: rgba(251,146,60,0.2); --separator-opaque: #3D2A16;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --bubble-user: #FB923C; --bubble-user-text: #000000;
+  --bubble-them: #33221A; --bubble-them-text: #FEF3C7;
+  --green: #10B981; --red: #EF4444; --orange: #FB923C;
+  --code-bg: #1E1408; --code-header-bg: #241A0E; --code-inline-bg: #2E1E12;
+  --code-inline-fg: #FEF3C7; --md-link: #FBBF24;
+}
+
+/* — Midnight — deep navy premium */
+[data-accent="midnight"] {
+  --bg-primary: #F8FAFC; --bg-secondary: #F1F5F9; --bg-tertiary: #E2E8F0;
+  --bg-grouped: #EEF2F7; --bg-sidebar: rgba(241,245,249,0.85);
+  --bg-hover: rgba(59,130,246,0.06); --bg-active: rgba(59,130,246,0.1);
+  --bg-elevated: #FFFFFF; --bg-base: #F8FAFC;
+  --fill-primary: #0F172A; --fill-secondary: #334155; --fill-tertiary: #64748B;
+  --fill-quaternary: #94A3B8; --fill-inverse: #F8FAFC;
+  --tint: #3B82F6; --tint-bg: rgba(59,130,246,0.08); --tint-subtle: rgba(59,130,246,0.04);
+  --separator: rgba(15,23,42,0.1); --separator-opaque: #CBD5E1;
+  --shadow-sm: 0 0.5px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 2px 8px rgba(15,23,42,0.08), 0 0.5px 1px rgba(15,23,42,0.04);
+  --shadow-lg: 0 4px 16px rgba(15,23,42,0.1), 0 1px 4px rgba(15,23,42,0.05);
+  --bubble-user: #1E40AF; --bubble-user-text: #ffffff;
+  --bubble-them: #E2E8F0; --bubble-them-text: #0F172A;
+  --green: #059669; --red: #DC2626; --orange: #D97706;
+  --code-bg: #E8EEF4; --code-header-bg: #DCE4EC; --code-inline-bg: #DCE4EC;
+  --code-inline-fg: #1E293B; --md-link: #2563EB;
+}
+[data-accent="midnight"][data-theme="dark"] {
+  --bg-primary: #020617; --bg-secondary: #0F172A; --bg-tertiary: #1E293B;
+  --bg-grouped: #0F172A; --bg-sidebar: rgba(15,23,42,0.9);
+  --bg-hover: rgba(96,165,250,0.08); --bg-active: rgba(96,165,250,0.12);
+  --bg-elevated: #0F172A; --bg-base: #020617;
+  --fill-primary: #F1F5F9; --fill-secondary: #94A3B8; --fill-tertiary: #64748B;
+  --fill-quaternary: #475569; --fill-inverse: #020617;
+  --tint: #60A5FA; --tint-bg: rgba(96,165,250,0.12); --tint-subtle: rgba(96,165,250,0.06);
+  --separator: rgba(148,163,184,0.15); --separator-opaque: #1E293B;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 10px rgba(0,0,0,0.5);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.6);
+  --bubble-user: #3B82F6; --bubble-user-text: #ffffff;
+  --bubble-them: #1E293B; --bubble-them-text: #F1F5F9;
+  --green: #10B981; --red: #EF4444; --orange: #F59E0B;
+  --code-bg: #0B1120; --code-header-bg: #0F1828; --code-inline-bg: #162030;
+  --code-inline-fg: #E2E8F0; --md-link: #93C5FD;
+}
+
 /* ━━━ Base styles (in Tailwind base layer to avoid cascade conflicts) ━━━ */
 @layer base {
   html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+
+  html {
+    transition:
+      background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+      color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
   body {
     background: var(--bg-primary);
@@ -107,6 +232,23 @@
     font-size: 14px;
     line-height: 1.5;
     letter-spacing: -0.016em;
+    transition:
+      background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+      color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-property: background-color, border-color, box-shadow, color, fill, stroke;
+    transition-duration: 0.3s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  input, textarea, select, button {
+    transition-property: background-color, border-color, box-shadow, color, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 }
 
@@ -126,7 +268,7 @@
   }
 }
 
-/* ━━━ Scrollbar (pseudo-elements, no Tailwind conflict) ━━━ */
+/* ━━━ Scrollbar / Selection / Focus ━━━ */
 @layer base {
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -138,11 +280,15 @@
   }
   ::-webkit-scrollbar-thumb:hover { background: var(--fill-tertiary); background-clip: content-box; }
 
-  ::selection { background: var(--tint-bg); }
+  ::selection {
+    background: var(--tint);
+    color: var(--fill-inverse);
+    -webkit-text-fill-color: var(--fill-inverse);
+  }
 
   :focus-visible {
-    outline: 3px solid var(--tint);
-    outline-offset: 1px;
+    outline: 2px solid var(--tint);
+    outline-offset: 2px;
     border-radius: var(--radius-xs);
   }
 }
