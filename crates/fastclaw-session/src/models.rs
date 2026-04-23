@@ -16,6 +16,12 @@ pub struct Session {
     pub created_at: String,
     pub updated_at: String,
     pub message_count: i64,
+    #[serde(default)]
+    pub total_prompt_tokens: i64,
+    #[serde(default)]
+    pub total_completion_tokens: i64,
+    #[serde(default)]
+    pub total_elapsed_ms: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -39,4 +45,10 @@ pub struct SessionSummary {
     pub message_count: i64,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub total_prompt_tokens: i64,
+    #[serde(default)]
+    pub total_completion_tokens: i64,
+    #[serde(default)]
+    pub total_elapsed_ms: i64,
 }

@@ -578,6 +578,9 @@ impl AgentRuntime {
         let mut failure_streak_traces: Vec<ToolCallTrace> = Vec::new();
         let mut self_iter_recovery_used: u32 = 0;
         let mut error_limit_reached = false;
+        let stream_start = std::time::Instant::now();
+        let mut acc_prompt_tokens: u32 = 0;
+        let mut acc_completion_tokens: u32 = 0;
 
         loop {
             if error_limit_reached {
@@ -687,6 +690,11 @@ impl AgentRuntime {
                         }
                     }
 
+                    if let Some(ref u) = delta.usage {
+                        acc_prompt_tokens += u.prompt_tokens;
+                        acc_completion_tokens += u.completion_tokens;
+                    }
+
                     if tool_call_accum.is_empty() {
                         let _ = send_stream_event(&tx, StreamEvent::Delta(delta), true).await;
                     }
@@ -711,6 +719,19 @@ impl AgentRuntime {
             let has_valid_tool_calls = tool_call_accum.iter().any(|a| !a.name.is_empty());
 
             // Same as non-streaming: never treat finish_reason "stop" as canceling a valid tool stream.
+            let build_done_usage = || -> Option<fastclaw_core::types::Usage> {
+                let total = acc_prompt_tokens + acc_completion_tokens;
+                if total > 0 {
+                    Some(fastclaw_core::types::Usage {
+                        prompt_tokens: acc_prompt_tokens,
+                        completion_tokens: acc_completion_tokens,
+                        total_tokens: total,
+                    })
+                } else {
+                    None
+                }
+            };
+
             if !has_valid_tool_calls {
                 let _ = send_stream_event(
                     &tx,
@@ -719,6 +740,8 @@ impl AgentRuntime {
                         tool_calls_made: total_tool_calls,
                         iterations: iteration,
                         final_tool_calls: None,
+                        usage: build_done_usage(),
+                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
                     },
                     false,
                 )
@@ -747,6 +770,8 @@ impl AgentRuntime {
                         tool_calls_made: total_tool_calls,
                         iterations: iteration,
                         final_tool_calls: if final_tc.is_empty() { None } else { Some(final_tc) },
+                        usage: build_done_usage(),
+                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
                     },
                     false,
                 )
@@ -772,6 +797,8 @@ impl AgentRuntime {
                         tool_calls_made: total_tool_calls,
                         iterations: iteration,
                         final_tool_calls: None,
+                        usage: build_done_usage(),
+                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
                     },
                     false,
                 )
@@ -1377,6 +1404,7 @@ mod stream_resume_tests {
                 },
                 finish_reason: None,
             }],
+            usage: None,
         }
     }
 
@@ -1395,6 +1423,7 @@ mod stream_resume_tests {
                 },
                 finish_reason: Some("stop".into()),
             }],
+            usage: None,
         }
     }
 

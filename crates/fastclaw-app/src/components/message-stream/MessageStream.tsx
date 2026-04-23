@@ -1,13 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { useAgentStore, type ChatMessage } from "../../lib/agent-store";
+import { useAgentStore, type ChatMessage, type ChatUsage } from "../../lib/agent-store";
 import { MarkdownContent } from "./MarkdownContent";
 import { ToolCallCard, type ToolCall } from "./ToolCallCard";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption } from "./MentionInput";
 import {
   Image as ImageIcon, FileText, Paperclip, File, Folder, Sparkles,
   X, ChevronUp, ChevronDown, Settings2, FolderOpen, ArrowUp,
-  MessageSquare, Upload, Search, Square,
+  MessageSquare, Upload, Search, Square, Clock, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
@@ -403,7 +403,7 @@ function UserBubble({ msg }: { msg: ChatMessage }) {
 }
 
 /* ─── AI Message ─── */
-function AiMessage({ msg }: { msg: ChatMessage }) {
+function AiMessage({ msg, usage }: { msg: ChatMessage; usage?: ChatUsage }) {
   const toolCalls = msg.toolCalls;
   return (
     <div className="pb-7" style={{ animation: "slide-left 0.2s ease-out", maxWidth: "75%" }}>
@@ -418,9 +418,25 @@ function AiMessage({ msg }: { msg: ChatMessage }) {
         </div>
       )}
       <MarkdownContent content={msg.content} />
-      <span className="mt-1 inline-block text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-        {ts(msg.timestamp)}
-      </span>
+      <div className="mt-1 flex items-center gap-2.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+        <span>{ts(msg.timestamp)}</span>
+        {usage && (
+          <>
+            <span className="flex items-center gap-0.5" title="耗时">
+              <Clock size={9} strokeWidth={1.5} />
+              {formatElapsed(usage.elapsedMs)}
+            </span>
+            <span className="flex items-center gap-0.5" title="上行 Token">
+              <ArrowUpRight size={9} strokeWidth={1.5} />
+              {formatTokens(usage.promptTokens)}
+            </span>
+            <span className="flex items-center gap-0.5" title="下行 Token">
+              <ArrowDownRight size={9} strokeWidth={1.5} />
+              {formatTokens(usage.completionTokens)}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -623,6 +639,21 @@ function QuestionPanel({
   );
 }
 
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const secs = ms / 1000;
+  if (secs < 60) return `${secs.toFixed(1)}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = Math.round(secs % 60);
+  return `${mins}m ${remSecs}s`;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
 function Typing() {
   return (
     <div className="pb-6 flex items-center gap-1" style={{ animation: "fade-in 0.15s" }}>
@@ -657,6 +688,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
 
   const loadChatStream = useAgentStore((s) => s.loadChatStream);
   const updateChatBackendId = useAgentStore((s) => s.updateChatBackendId);
+  const updateChatUsage = useAgentStore((s) => s.updateChatUsage);
 
   const agent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
   const ac = agentChats[activeAgentId];
@@ -1096,6 +1128,19 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
 
             if (sid && capturedChatId !== sid) {
               updateChatBackendId(capturedAgentId, capturedChatId, sid);
+            }
+
+            // Track usage metrics (after ID remap so usage lands on the final chat ID)
+            const usageData = event.data?.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
+            const elapsedMs = (event.data?.elapsedMs as number) ?? 0;
+            if (usageData || elapsedMs) {
+              const resolvedChatId = sid ?? capturedChatId;
+              updateChatUsage(capturedAgentId, resolvedChatId, {
+                promptTokens: usageData?.promptTokens ?? 0,
+                completionTokens: usageData?.completionTokens ?? 0,
+                totalTokens: usageData?.totalTokens ?? 0,
+                elapsedMs,
+              });
             }
 
             if (isActive() && atBottomRef.current) {
@@ -1576,7 +1621,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               >
                 {m.role === "user" ? <UserBubble msg={m} /> :
                  m.role === "system" ? <SystemMsg msg={m} /> :
-                 <AiMessage msg={m} />}
+                 <AiMessage msg={m} usage={!streaming && idx === visibleStream.length - 1 && m.role === "assistant" ? activeChat?.usage : undefined} />}
               </div>
             );
           }}

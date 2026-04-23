@@ -38,6 +38,15 @@ impl BrowserTool {
             .unwrap_or(false)
     }
 
+    fn profile_dir() -> std::path::PathBuf {
+        if let Ok(dir) = std::env::var("FASTCLAW_BROWSER_PROFILE") {
+            return std::path::PathBuf::from(dir);
+        }
+        let base = dirs::data_local_dir()
+            .unwrap_or_else(|| std::env::temp_dir().join("fastclaw"));
+        base.join("fastclaw").join("browser-profile")
+    }
+
     fn ensure_browser(inner: &Mutex<Option<BrowserState>>) -> Result<(), String> {
         let mut guard = inner.lock().map_err(|e| {
             format!(
@@ -47,10 +56,13 @@ impl BrowserTool {
         })?;
         if guard.is_none() {
             let headless = Self::is_headless();
+            let profile = Self::profile_dir();
+            std::fs::create_dir_all(&profile).ok();
             let launch_options = headless_chrome::LaunchOptions::default_builder()
                 .headless(headless)
                 .sandbox(false)
                 .window_size(Some((1280, 900)))
+                .user_data_dir(Some(profile))
                 .build()
                 .map_err(|e| {
                     format!(

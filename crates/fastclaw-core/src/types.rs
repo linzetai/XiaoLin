@@ -151,6 +151,8 @@ pub struct StreamDelta {
     pub created: u64,
     pub model: String,
     pub choices: Vec<StreamChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +250,10 @@ pub enum StreamEvent {
         /// Accumulated tool calls from the final assistant turn (if any).
         /// Allows the gateway to persist tool_calls alongside the assistant message.
         final_tool_calls: Option<Vec<ToolCall>>,
+        /// Accumulated token usage across all LLM iterations.
+        usage: Option<Usage>,
+        /// Wall-clock elapsed time for the entire streaming run (ms).
+        elapsed_ms: u64,
     },
     Error(String),
 }

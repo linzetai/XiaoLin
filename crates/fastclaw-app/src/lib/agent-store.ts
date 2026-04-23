@@ -38,6 +38,13 @@ export interface ChatMessage {
 
 export type StreamItem = { type: "message"; data: ChatMessage };
 
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  elapsedMs: number;
+}
+
 export interface Chat {
   id: string;
   localKey: string;
@@ -47,6 +54,7 @@ export interface Chat {
   createdAt: Date;
   messageCount: number;
   open: boolean;
+  usage?: ChatUsage;
 }
 
 export interface AgentChats {
@@ -80,6 +88,7 @@ interface AgentState {
   loadChatStream: (agentId: string, chatId: string, messages: BackendMessage[]) => void;
   updateChatBackendId: (agentId: string, localChatId: string, backendSessionId: string) => void;
   appendStreamDelta: (agentId: string, chatId: string, delta: string) => void;
+  updateChatUsage: (agentId: string, chatId: string, usage: ChatUsage) => void;
   removeAgent: (agentId: string) => void;
 }
 
@@ -91,6 +100,9 @@ export interface BackendSession {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+  totalPromptTokens?: number;
+  totalCompletionTokens?: number;
+  totalElapsedMs?: number;
 }
 
 export interface BackendMessage {
@@ -454,6 +466,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           createdAt: new Date(s.createdAt),
           messageCount: s.messageCount,
           open: persistedOpen.has(s.id) && s.messageCount > 0,
+          usage: (s.totalPromptTokens || s.totalCompletionTokens || s.totalElapsedMs) ? {
+            promptTokens: s.totalPromptTokens ?? 0,
+            completionTokens: s.totalCompletionTokens ?? 0,
+            totalTokens: (s.totalPromptTokens ?? 0) + (s.totalCompletionTokens ?? 0),
+            elapsedMs: s.totalElapsedMs ?? 0,
+          } : undefined,
         }));
       const mergedList = [...updatedExisting, ...newChats];
 
@@ -553,6 +571,34 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             ...ac,
             chatList: ac.chatList.map((c) => (c.id === localChatId ? { ...c, id: backendSessionId } : c)),
             activeChatId: ac.activeChatId === localChatId ? backendSessionId : ac.activeChatId,
+          },
+        },
+      };
+    });
+  },
+
+  updateChatUsage: (agentId, chatId, incoming) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: {
+          ...state.agentChats,
+          [agentId]: {
+            ...ac,
+            chatList: ac.chatList.map((c) => {
+              if (c.id !== chatId) return c;
+              const prev = c.usage;
+              return {
+                ...c,
+                usage: {
+                  promptTokens: (prev?.promptTokens ?? 0) + incoming.promptTokens,
+                  completionTokens: (prev?.completionTokens ?? 0) + incoming.completionTokens,
+                  totalTokens: (prev?.totalTokens ?? 0) + incoming.totalTokens,
+                  elapsedMs: (prev?.elapsedMs ?? 0) + incoming.elapsedMs,
+                },
+              };
+            }),
           },
         },
       };

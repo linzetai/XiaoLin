@@ -863,18 +863,22 @@ fn event_to_response(event: &StreamEvent, req_id: &Option<String>, state: &AppSt
             session_id,
             tool_calls_made,
             iterations,
+            usage,
+            elapsed_ms,
             ..
         } => {
             let _ = state.ws_broadcast.send(
                 json!({"type":"event","event":"sessions.changed","data":{"sessionId":session_id}})
                     .to_string(),
             );
+            let mut data = json!({"sessionId": session_id, "toolCallsMade": tool_calls_made, "iterations": iterations, "elapsedMs": elapsed_ms});
+            if let Some(ref u) = usage {
+                data["usage"] = json!({"promptTokens": u.prompt_tokens, "completionTokens": u.completion_tokens, "totalTokens": u.total_tokens});
+            }
             WsResponse {
                 id: req_id.clone(),
                 msg_type: "chat.complete".into(),
-                data: Some(
-                    json!({"sessionId": session_id, "toolCallsMade": tool_calls_made, "iterations": iterations}),
-                ),
+                data: Some(data),
                 error: None,
             }
         }
@@ -952,6 +956,9 @@ async fn handle_sessions_list(
             let data: Vec<_> = sessions.iter().map(|s| json!({
                 "id": s.id, "agentId": s.agent_id, "title": s.title,
                 "messageCount": s.message_count, "createdAt": s.created_at, "updatedAt": s.updated_at,
+                "totalPromptTokens": s.total_prompt_tokens,
+                "totalCompletionTokens": s.total_completion_tokens,
+                "totalElapsedMs": s.total_elapsed_ms,
             })).collect();
             send_resp(
                 sender,
@@ -1005,6 +1012,9 @@ async fn handle_sessions_get(
                 data: Some(json!({
                     "id": s.id, "agentId": s.agent_id, "title": s.title,
                     "messageCount": s.message_count, "createdAt": s.created_at, "updatedAt": s.updated_at,
+                    "totalPromptTokens": s.total_prompt_tokens,
+                    "totalCompletionTokens": s.total_completion_tokens,
+                    "totalElapsedMs": s.total_elapsed_ms,
                 })), error: None,
             }).await;
         }

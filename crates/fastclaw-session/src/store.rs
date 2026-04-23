@@ -116,6 +116,27 @@ impl SessionStore {
             tracing::info!("migrated sessions table: added work_dir column");
         }
 
+        // Migration: add usage tracking columns if missing
+        let has_usage: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'total_prompt_tokens'"
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_usage {
+            sqlx::query("ALTER TABLE sessions ADD COLUMN total_prompt_tokens INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE sessions ADD COLUMN total_completion_tokens INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE sessions ADD COLUMN total_elapsed_ms INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            tracing::info!("migrated sessions table: added usage tracking columns");
+        }
+
         Ok(())
     }
 
@@ -182,7 +203,9 @@ impl SessionStore {
     /// Get a session by ID, or None if it doesn't exist.
     pub async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<Session>> {
         let session = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count FROM sessions WHERE id = ?",
+            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count,
+                    total_prompt_tokens, total_completion_tokens, total_elapsed_ms
+             FROM sessions WHERE id = ?",
         )
         .bind(session_id)
         .fetch_optional(&self.pool)
@@ -198,7 +221,8 @@ impl SessionStore {
         offset: i64,
     ) -> anyhow::Result<Vec<SessionSummary>> {
         let rows = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count
+            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count,
+                    total_prompt_tokens, total_completion_tokens, total_elapsed_ms
              FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         )
         .bind(limit)
@@ -216,6 +240,9 @@ impl SessionStore {
                 message_count: s.message_count,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
+                total_prompt_tokens: s.total_prompt_tokens,
+                total_completion_tokens: s.total_completion_tokens,
+                total_elapsed_ms: s.total_elapsed_ms,
             })
             .collect())
     }
@@ -423,6 +450,31 @@ impl SessionStore {
             .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Accumulate token usage and elapsed time for a session (additive).
+    pub async fn accumulate_usage(
+        &self,
+        session_id: &str,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        elapsed_ms: u64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE sessions SET
+                total_prompt_tokens = total_prompt_tokens + ?,
+                total_completion_tokens = total_completion_tokens + ?,
+                total_elapsed_ms = total_elapsed_ms + ?,
+                updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(prompt_tokens as i64)
+        .bind(completion_tokens as i64)
+        .bind(elapsed_ms as i64)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Delete sessions that haven't been updated within the given TTL (in hours).

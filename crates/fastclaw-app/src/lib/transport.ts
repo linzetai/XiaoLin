@@ -89,6 +89,9 @@ export interface SessionSummary {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+  totalPromptTokens?: number;
+  totalCompletionTokens?: number;
+  totalElapsedMs?: number;
 }
 
 export async function listSessions(
