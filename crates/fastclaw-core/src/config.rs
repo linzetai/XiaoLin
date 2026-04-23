@@ -162,7 +162,7 @@ pub enum SkillPromptMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSearchConfig {
-    /// Backend: "duckduckgo" (default, no API key), "tavily", "searxng".
+    /// Backend: "tavily", "searxng", "builtin", or "" (unconfigured).
     #[serde(default = "default_search_backend")]
     pub backend: String,
     /// API key for Tavily backend. Also checked in credentials.tavily.apiKey.
@@ -171,10 +171,14 @@ pub struct WebSearchConfig {
     /// Base URL for SearXNG instance.
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Enabled built-in engine IDs (e.g. ["google", "baidu", "bing", "sogou", "360"]).
+    /// Only used when backend = "builtin".
+    #[serde(default)]
+    pub engines: Option<Vec<String>>,
 }
 
 fn default_search_backend() -> String {
-    "duckduckgo".to_string()
+    String::new()
 }
 
 /// Model router configuration for intelligent model selection.
@@ -266,6 +270,7 @@ impl Default for WebSearchConfig {
             backend: default_search_backend(),
             api_key: None,
             base_url: None,
+            engines: None,
         }
     }
 }

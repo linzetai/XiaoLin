@@ -1152,11 +1152,11 @@ impl AppState {
                     .unwrap_or_default();
                 if key.is_empty() {
                     tracing::warn!(
-                        "tavily backend selected but no API key, falling back to duckduckgo"
+                        "tavily backend selected but no API key — web_search will be unavailable until configured"
                     );
-                    fastclaw_agent::WebSearchBackend::DuckDuckGo
+                    None
                 } else {
-                    fastclaw_agent::WebSearchBackend::Tavily { api_key: key }
+                    Some(fastclaw_agent::WebSearchBackend::Tavily { api_key: key })
                 }
             }
             "searxng" => {
@@ -1164,11 +1164,23 @@ impl AppState {
                     .base_url
                     .clone()
                     .unwrap_or_else(|| "http://localhost:8888".to_string());
-                fastclaw_agent::WebSearchBackend::SearXNG { base_url: base }
+                Some(fastclaw_agent::WebSearchBackend::SearXNG { base_url: base })
             }
-            _ => fastclaw_agent::WebSearchBackend::DuckDuckGo,
+            "builtin" => {
+                let engine_ids = ws_cfg.engines.clone().unwrap_or_else(|| {
+                    fastclaw_agent::BUILTIN_ENGINE_IDS.iter().map(|s| s.to_string()).collect()
+                });
+                tracing::info!(engines = ?engine_ids, "using built-in meta search engine");
+                Some(fastclaw_agent::WebSearchBackend::Builtin { engines: engine_ids })
+            }
+            _ => {
+                tracing::info!("web_search backend not configured — web_search tool will prompt user to configure");
+                None
+            }
         };
-        fastclaw_agent::builtin_tools::register_web_tools(&tool_registry, search_backend);
+        if let Some(backend) = search_backend {
+            fastclaw_agent::builtin_tools::register_web_tools(&tool_registry, backend);
+        }
 
         fastclaw_agent::builtin_tools::register_browser_tool(&tool_registry);
         tracing::info!("registered browser tool (headless Chrome)");

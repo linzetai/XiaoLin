@@ -130,6 +130,7 @@ impl Tool for HttpFetchTool {
 
 // --- Pluggable Search Engine Architecture ---
 
+#[derive(Debug, Clone)]
 pub struct SearchResult {
     pub title: String,
     pub url: String,
@@ -303,73 +304,284 @@ impl SearchEngine for SearxngEngine {
     }
 }
 
-/// DuckDuckGo HTML scraping fallback engine.
-pub struct DuckDuckGoEngine {
+// --- Built-in HTML Scraper Engines ---
+
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+fn build_scraper_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(BROWSER_UA)
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()
+        .unwrap_or_default()
+}
+
+/// Google web search scraper.
+pub struct GoogleEngine {
     client: reqwest::Client,
 }
 
-impl DuckDuckGoEngine {
+impl GoogleEngine {
     pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .user_agent("FastClaw/0.1.0")
-                .build()
-                .unwrap_or_default(),
-        }
+        Self { client: build_scraper_client() }
     }
 }
 
 #[async_trait]
-impl SearchEngine for DuckDuckGoEngine {
-    fn id(&self) -> &str { "duckduckgo" }
-    fn display_name(&self) -> &str { "DuckDuckGo" }
+impl SearchEngine for GoogleEngine {
+    fn id(&self) -> &str { "google" }
+    fn display_name(&self) -> &str { "Google" }
     fn requires_api_key(&self) -> bool { false }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self
-            .client
-            .get("https://html.duckduckgo.com/html/")
-            .query(&[("q", query)])
-            .send()
-            .await
-            .map_err(|e| {
-                format!(
-                    "DuckDuckGo HTML endpoint request failed: {e}. \
-                     Network may block automated access—configure Tavily or SearXNG for more reliable web_search."
-                )
-            })?;
-
-        let html = resp.text().await.map_err(|e| {
-            format!(
-                "DuckDuckGo response body could not be read: {e}. \
-                 Retry later or switch to another web_search backend."
-            )
-        })?;
+        let resp = self.client
+            .get("https://www.google.com/search")
+            .query(&[("q", query), ("num", &max_results.to_string()), ("hl", "en")])
+            .send().await
+            .map_err(|e| format!("Google request failed: {e}"))?;
+        let html = resp.text().await.map_err(|e| format!("Google body read failed: {e}"))?;
         let mut results = Vec::new();
 
-        for (i, chunk) in html.split("class=\"result__a\"").skip(1).enumerate() {
-            if i >= max_results {
-                break;
-            }
+        for chunk in html.split("<div class=\"g\"").skip(1) {
+            if results.len() >= max_results { break; }
+            let url = chunk.split("href=\"").nth(1)
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("")
+                .to_string();
+            if url.is_empty() || url.starts_with('#') || url.starts_with('/') { continue; }
 
-            let url = chunk
-                .split("href=\"")
+            let title = chunk.split("<h3").nth(1)
+                .and_then(|s| s.split('>').nth(1))
+                .and_then(|s| s.split("</").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            let snippet = chunk.split("data-sncf=\"")
                 .nth(1)
+                .or_else(|| chunk.split("<span class=\"").nth(2))
+                .and_then(|s| s.split('>').nth(1).or_else(|| s.split('>').next()))
+                .and_then(|s| s.split("</").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            if !title.is_empty() || !url.is_empty() {
+                results.push(SearchResult { title, url, snippet });
+            }
+        }
+
+        // Fallback: try <a href="..."> pattern if class="g" didn't match
+        if results.is_empty() {
+            for chunk in html.split("<a href=\"/url?q=").skip(1) {
+                if results.len() >= max_results { break; }
+                let url = chunk.split('&').next()
+                    .or_else(|| chunk.split('"').next())
+                    .unwrap_or("")
+                    .to_string();
+                if url.is_empty() || url.contains("google.com") { continue; }
+
+                let title = chunk.split('>').nth(1)
+                    .and_then(|s| s.split('<').next())
+                    .map(|s| strip_html_tags(s))
+                    .unwrap_or_default();
+
+                if !title.is_empty() {
+                    results.push(SearchResult { title, url, snippet: String::new() });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+/// Baidu (百度) web search scraper.
+pub struct BaiduEngine {
+    client: reqwest::Client,
+}
+
+impl BaiduEngine {
+    pub fn new() -> Self {
+        Self { client: build_scraper_client() }
+    }
+}
+
+#[async_trait]
+impl SearchEngine for BaiduEngine {
+    fn id(&self) -> &str { "baidu" }
+    fn display_name(&self) -> &str { "百度" }
+    fn requires_api_key(&self) -> bool { false }
+
+    async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        let resp = self.client
+            .get("https://www.baidu.com/s")
+            .query(&[("wd", query), ("rn", &max_results.to_string())])
+            .send().await
+            .map_err(|e| format!("Baidu request failed: {e}"))?;
+        let html = resp.text().await.map_err(|e| format!("Baidu body read failed: {e}"))?;
+        let mut results = Vec::new();
+
+        for chunk in html.split("class=\"result c-container").skip(1) {
+            if results.len() >= max_results { break; }
+
+            let url = chunk.split("href=\"").nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let title = chunk
-                .split('>')
+            let title = chunk.split("class=\"t\"").nth(1)
+                .or_else(|| chunk.split("<h3").nth(1))
+                .and_then(|s| {
+                    let after_tag = s.split('>').skip(1).next()?;
+                    // May have an <a> inside
+                    if after_tag.starts_with("<a") {
+                        after_tag.split('>').nth(1)?.split("</").next()
+                    } else {
+                        after_tag.split("</").next()
+                    }
+                })
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            let snippet = chunk.split("class=\"c-abstract\"")
                 .nth(1)
-                .and_then(|s| s.split('<').next())
+                .or_else(|| chunk.split("class=\"content-right_").nth(1))
+                .and_then(|s| s.split('>').nth(1))
+                .and_then(|s| s.split("</div").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            if !title.is_empty() || !url.is_empty() {
+                results.push(SearchResult { title, url, snippet });
+            }
+        }
+
+        // Fallback: simpler h3 > a pattern
+        if results.is_empty() {
+            for chunk in html.split("<h3").skip(1) {
+                if results.len() >= max_results { break; }
+                let url = chunk.split("href=\"").nth(1)
+                    .and_then(|s| s.split('"').next())
+                    .unwrap_or("")
+                    .to_string();
+                let title = chunk.split('>').nth(2)
+                    .and_then(|s| s.split('<').next())
+                    .map(|s| strip_html_tags(s))
+                    .unwrap_or_default();
+                if !title.is_empty() && !url.is_empty() {
+                    results.push(SearchResult { title, url, snippet: String::new() });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+/// Bing web search scraper.
+pub struct BingEngine {
+    client: reqwest::Client,
+}
+
+impl BingEngine {
+    pub fn new() -> Self {
+        Self { client: build_scraper_client() }
+    }
+}
+
+#[async_trait]
+impl SearchEngine for BingEngine {
+    fn id(&self) -> &str { "bing" }
+    fn display_name(&self) -> &str { "Bing" }
+    fn requires_api_key(&self) -> bool { false }
+
+    async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        let resp = self.client
+            .get("https://www.bing.com/search")
+            .query(&[("q", query), ("count", &max_results.to_string())])
+            .send().await
+            .map_err(|e| format!("Bing request failed: {e}"))?;
+        let html = resp.text().await.map_err(|e| format!("Bing body read failed: {e}"))?;
+        let mut results = Vec::new();
+
+        for chunk in html.split("<li class=\"b_algo\"").skip(1) {
+            if results.len() >= max_results { break; }
+
+            let url = chunk.split("href=\"").nth(1)
+                .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let snippet = chunk
-                .split("class=\"result__snippet\"")
+            let title = chunk.split("<h2").nth(1)
+                .and_then(|s| s.split('>').nth(1).or_else(|| s.split('>').nth(2)))
+                .and_then(|s| s.split("</").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            let snippet = chunk.split("<p").nth(1)
+                .and_then(|s| s.split('>').nth(1))
+                .and_then(|s| s.split("</p").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            if !title.is_empty() || !url.is_empty() {
+                results.push(SearchResult { title, url, snippet });
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+/// Sogou (搜狗) web search scraper.
+pub struct SogouEngine {
+    client: reqwest::Client,
+}
+
+impl SogouEngine {
+    pub fn new() -> Self {
+        Self { client: build_scraper_client() }
+    }
+}
+
+#[async_trait]
+impl SearchEngine for SogouEngine {
+    fn id(&self) -> &str { "sogou" }
+    fn display_name(&self) -> &str { "搜狗" }
+    fn requires_api_key(&self) -> bool { false }
+
+    async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        let resp = self.client
+            .get("https://www.sogou.com/web")
+            .query(&[("query", query)])
+            .send().await
+            .map_err(|e| format!("Sogou request failed: {e}"))?;
+        let html = resp.text().await.map_err(|e| format!("Sogou body read failed: {e}"))?;
+        let mut results = Vec::new();
+
+        for chunk in html.split("class=\"vrwrap\"").chain(html.split("class=\"rb\"")).skip(1) {
+            if results.len() >= max_results { break; }
+
+            let url = chunk.split("href=\"").nth(1)
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("")
+                .to_string();
+
+            let title = chunk.split("<h3").nth(1)
+                .and_then(|s| {
+                    let after = s.split('>').skip(1).next()?;
+                    if after.starts_with("<a") {
+                        after.split('>').nth(1)?.split("</").next()
+                    } else {
+                        after.split("</").next()
+                    }
+                })
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            let snippet = chunk.split("class=\"space-txt\"")
                 .nth(1)
+                .or_else(|| chunk.split("class=\"star-wiki\"").nth(1))
                 .and_then(|s| s.split('>').nth(1))
                 .and_then(|s| s.split("</").next())
                 .map(|s| strip_html_tags(s))
@@ -384,13 +596,186 @@ impl SearchEngine for DuckDuckGoEngine {
     }
 }
 
+/// 360 Search (好搜) web search scraper.
+pub struct Search360Engine {
+    client: reqwest::Client,
+}
+
+impl Search360Engine {
+    pub fn new() -> Self {
+        Self { client: build_scraper_client() }
+    }
+}
+
+#[async_trait]
+impl SearchEngine for Search360Engine {
+    fn id(&self) -> &str { "360" }
+    fn display_name(&self) -> &str { "360搜索" }
+    fn requires_api_key(&self) -> bool { false }
+
+    async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        let resp = self.client
+            .get("https://www.so.com/s")
+            .query(&[("q", query)])
+            .send().await
+            .map_err(|e| format!("360 Search request failed: {e}"))?;
+        let html = resp.text().await.map_err(|e| format!("360 Search body read failed: {e}"))?;
+        let mut results = Vec::new();
+
+        for chunk in html.split("class=\"res-list\"").chain(html.split("class=\"result\"")).skip(1) {
+            if results.len() >= max_results { break; }
+
+            let url = chunk.split("href=\"").nth(1)
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("")
+                .to_string();
+
+            let title = chunk.split("<h3").nth(1)
+                .and_then(|s| {
+                    let after = s.split('>').skip(1).next()?;
+                    if after.starts_with("<a") {
+                        after.split('>').nth(1)?.split("</").next()
+                    } else {
+                        after.split("</").next()
+                    }
+                })
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            let snippet = chunk.split("class=\"res-desc\"")
+                .nth(1)
+                .or_else(|| chunk.split("class=\"res-rich\"").nth(1))
+                .and_then(|s| s.split('>').nth(1))
+                .and_then(|s| s.split("</").next())
+                .map(|s| strip_html_tags(s))
+                .unwrap_or_default();
+
+            if !title.is_empty() || !url.is_empty() {
+                results.push(SearchResult { title, url, snippet });
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+// --- Built-in Meta Engine (aggregates multiple scrapers in parallel) ---
+
+/// Resolve an engine ID string to a concrete SearchEngine instance.
+pub fn engine_by_id(id: &str) -> Option<Arc<dyn SearchEngine>> {
+    match id {
+        "google" => Some(Arc::new(GoogleEngine::new())),
+        "baidu" => Some(Arc::new(BaiduEngine::new())),
+        "bing" => Some(Arc::new(BingEngine::new())),
+        "sogou" => Some(Arc::new(SogouEngine::new())),
+        "360" => Some(Arc::new(Search360Engine::new())),
+        _ => None,
+    }
+}
+
+/// All available built-in engine IDs.
+pub const BUILTIN_ENGINE_IDS: &[&str] = &["google", "baidu", "bing", "sogou", "360"];
+
+/// Meta search engine that queries multiple built-in scrapers in parallel and
+/// merges their results, deduplicating by URL.
+pub struct BuiltinMetaEngine {
+    engines: Vec<Arc<dyn SearchEngine>>,
+}
+
+impl BuiltinMetaEngine {
+    pub fn new(engine_ids: &[String]) -> Self {
+        let engines: Vec<Arc<dyn SearchEngine>> = engine_ids
+            .iter()
+            .filter_map(|id| engine_by_id(id))
+            .collect();
+        Self { engines }
+    }
+
+    pub fn all() -> Self {
+        Self::new(&BUILTIN_ENGINE_IDS.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+}
+
+#[async_trait]
+impl SearchEngine for BuiltinMetaEngine {
+    fn id(&self) -> &str { "builtin" }
+    fn display_name(&self) -> &str { "Built-in Meta Search" }
+    fn requires_api_key(&self) -> bool { false }
+
+    async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        if self.engines.is_empty() {
+            return Err("No built-in search engines are enabled. Open Settings → 联网搜索 and enable at least one engine.".to_string());
+        }
+
+        let futs: Vec<_> = self.engines.iter().map(|engine| {
+            let engine = engine.clone();
+            let query = query.to_string();
+            async move {
+                let id = engine.id().to_string();
+                match engine.search(&query, max_results).await {
+                    Ok(results) => {
+                        tracing::debug!(engine = %id, count = results.len(), "built-in engine returned results");
+                        results
+                    }
+                    Err(e) => {
+                        tracing::warn!(engine = %id, error = %e, "built-in engine failed, skipping");
+                        Vec::new()
+                    }
+                }
+            }
+        }).collect();
+
+        let all_results = futures::future::join_all(futs).await;
+
+        let mut seen_urls = std::collections::HashSet::new();
+        let mut merged = Vec::new();
+        for batch in all_results {
+            for result in batch {
+                let key = result.url.trim().to_lowercase();
+                if key.is_empty() || seen_urls.contains(&key) {
+                    continue;
+                }
+                seen_urls.insert(key);
+                merged.push(result);
+                if merged.len() >= max_results {
+                    break;
+                }
+            }
+            if merged.len() >= max_results {
+                break;
+            }
+        }
+
+        if merged.is_empty() {
+            return Err("All built-in search engines failed to return results. Check your network connection.".to_string());
+        }
+
+        Ok(merged)
+    }
+}
+
+/// Placeholder engine returned when no search backend is configured.
+struct UnconfiguredSearchEngine;
+
+#[async_trait]
+impl SearchEngine for UnconfiguredSearchEngine {
+    fn id(&self) -> &str { "unconfigured" }
+    fn display_name(&self) -> &str { "Unconfigured" }
+    fn requires_api_key(&self) -> bool { false }
+    async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
+        Err(
+            "web_search is not configured. Open Settings → 联网搜索 and set up Tavily, SearXNG, or enable built-in search engines.".to_string()
+        )
+    }
+}
+
 // --- Backward-compatible WebSearchBackend enum (wraps the trait) ---
 
 #[derive(Clone)]
 pub enum WebSearchBackend {
     Tavily { api_key: String },
     SearXNG { base_url: String },
-    DuckDuckGo,
+    Builtin { engines: Vec<String> },
 }
 
 impl WebSearchBackend {
@@ -398,7 +783,7 @@ impl WebSearchBackend {
         match self {
             Self::Tavily { api_key } => Arc::new(TavilyEngine::new(api_key)),
             Self::SearXNG { base_url } => Arc::new(SearxngEngine::new(base_url)),
-            Self::DuckDuckGo => Arc::new(DuckDuckGoEngine::new()),
+            Self::Builtin { engines } => Arc::new(BuiltinMetaEngine::new(&engines)),
         }
     }
 }
@@ -418,8 +803,8 @@ impl WebSearchTool {
         Self { engine }
     }
 
-    pub fn with_defaults() -> Self {
-        Self::new(WebSearchBackend::DuckDuckGo)
+    pub fn unconfigured() -> Self {
+        Self { engine: Arc::new(UnconfiguredSearchEngine) }
     }
 }
 
@@ -430,7 +815,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the public web and return ranked hits {title, url, snippet}. Backend is deployment-specific: Tavily (API key), SearXNG (instance URL), or DuckDuckGo HTML scraping as a fragile fallback that may rate-limit or break when markup changes—treat DDG as best-effort. \
+        "Search the public web and return ranked hits {title, url, snippet}. Backend is deployment-specific: Tavily (API key required) or SearXNG (self-hosted instance URL). Configure in Settings → 联网搜索. \
          Use web_search when facts may be outdated, you need discoverable URLs, or you must narrow sources before web_fetch/http_fetch. For code and configs in this workspace, use read_file, list_directory, and shell_exec+rg—web_search cannot read local files. \
          Optional max_results defaults to 5 and caps at 10; snippets are short summaries—follow 1–3 primary URLs with web_fetch for authoritative text, tables, or API fields. \
          Anti-pattern: treating snippets as full specifications; anti-pattern: web_search for symbols you could rg locally. \
@@ -771,24 +1156,26 @@ pub(crate) fn strip_html_tags(html: &str) -> String {
         }
 
         if ch == '&' {
-            let entity_end = html[i..].find(';').map(|p| i + p + 1);
-            if let Some(end) = entity_end {
-                if end - i <= 8 {
-                    let entity = &html[i..end];
-                    let decoded = match entity {
-                        "&amp;" => "&",
-                        "&lt;" => "<",
-                        "&gt;" => ">",
-                        "&quot;" => "\"",
-                        "&apos;" | "&#39;" => "'",
-                        "&nbsp;" => " ",
-                        _ => entity,
-                    };
-                    result.push_str(decoded);
-                    last_was_whitespace = decoded.ends_with(' ');
-                    i = end;
-                    continue;
-                }
+            // Scan ahead in char slice for ';' to decode HTML entities
+            let mut semi = i + 1;
+            while semi < chars.len() && semi - i <= 8 && chars[semi] != ';' {
+                semi += 1;
+            }
+            if semi < chars.len() && chars[semi] == ';' && semi - i <= 8 {
+                let entity: String = chars[i..=semi].iter().collect();
+                let decoded = match entity.as_str() {
+                    "&amp;" => "&",
+                    "&lt;" => "<",
+                    "&gt;" => ">",
+                    "&quot;" => "\"",
+                    "&apos;" | "&#39;" => "'",
+                    "&nbsp;" => " ",
+                    _ => &entity,
+                };
+                result.push_str(decoded);
+                last_was_whitespace = decoded.ends_with(' ');
+                i = semi + 1;
+                continue;
             }
         }
 
@@ -839,14 +1226,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn duckduckgo_engine_metadata() {
-        let engine = DuckDuckGoEngine::new();
-        assert_eq!(engine.id(), "duckduckgo");
-        assert_eq!(engine.display_name(), "DuckDuckGo");
-        assert!(!engine.requires_api_key());
-    }
-
-    #[test]
     fn tavily_engine_metadata() {
         let engine = TavilyEngine::new("test-key".to_string());
         assert_eq!(engine.id(), "tavily");
@@ -863,12 +1242,6 @@ mod tests {
     }
 
     #[test]
-    fn backend_enum_to_engine_duckduckgo() {
-        let engine = WebSearchBackend::DuckDuckGo.into_engine();
-        assert_eq!(engine.id(), "duckduckgo");
-    }
-
-    #[test]
     fn backend_enum_to_engine_tavily() {
         let engine = WebSearchBackend::Tavily { api_key: "key".into() }.into_engine();
         assert_eq!(engine.id(), "tavily");
@@ -882,14 +1255,14 @@ mod tests {
 
     #[test]
     fn web_search_tool_from_engine() {
-        let engine: Arc<dyn SearchEngine> = Arc::new(DuckDuckGoEngine::new());
+        let engine: Arc<dyn SearchEngine> = Arc::new(MockSearchEngine);
         let tool = WebSearchTool::from_engine(engine);
         assert_eq!(tool.name(), "web_search");
     }
 
     #[test]
     fn web_search_tool_metadata() {
-        let tool = WebSearchTool::with_defaults();
+        let tool = WebSearchTool::unconfigured();
         assert_eq!(tool.name(), "web_search");
         let schema = tool.parameters_schema();
         assert!(schema.properties.contains_key("query"));
@@ -899,7 +1272,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_search_rejects_missing_query() {
-        let tool = WebSearchTool::with_defaults();
+        let tool = WebSearchTool::unconfigured();
         let result = tool.execute(r#"{"max_results": 3}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("missing"));
@@ -907,14 +1280,14 @@ mod tests {
 
     #[tokio::test]
     async fn web_search_rejects_empty_query() {
-        let tool = WebSearchTool::with_defaults();
+        let tool = WebSearchTool::unconfigured();
         let result = tool.execute(r#"{"query": ""}"#).await;
         assert!(!result.success);
     }
 
     #[tokio::test]
     async fn web_search_rejects_bad_json() {
-        let tool = WebSearchTool::with_defaults();
+        let tool = WebSearchTool::unconfigured();
         let result = tool.execute("not json").await;
         assert!(!result.success);
         assert!(result.output.contains("not valid JSON"));
@@ -1024,5 +1397,252 @@ mod tests {
         let result = tool.execute(r#"{"query": "test"}"#).await;
         assert!(result.success);
         assert!(result.output.contains("Mock result"));
+    }
+
+    // --- Built-in scraper engine tests ---
+
+    #[test]
+    fn google_engine_metadata() {
+        let engine = GoogleEngine::new();
+        assert_eq!(engine.id(), "google");
+        assert_eq!(engine.display_name(), "Google");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn baidu_engine_metadata() {
+        let engine = BaiduEngine::new();
+        assert_eq!(engine.id(), "baidu");
+        assert_eq!(engine.display_name(), "百度");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn bing_engine_metadata() {
+        let engine = BingEngine::new();
+        assert_eq!(engine.id(), "bing");
+        assert_eq!(engine.display_name(), "Bing");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn sogou_engine_metadata() {
+        let engine = SogouEngine::new();
+        assert_eq!(engine.id(), "sogou");
+        assert_eq!(engine.display_name(), "搜狗");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn search360_engine_metadata() {
+        let engine = Search360Engine::new();
+        assert_eq!(engine.id(), "360");
+        assert_eq!(engine.display_name(), "360搜索");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn engine_by_id_resolves_all() {
+        for id in BUILTIN_ENGINE_IDS {
+            assert!(engine_by_id(id).is_some(), "engine_by_id should resolve '{id}'");
+        }
+        assert!(engine_by_id("nonexistent").is_none());
+    }
+
+    #[test]
+    fn engine_by_id_returns_correct_ids() {
+        for id in BUILTIN_ENGINE_IDS {
+            let engine = engine_by_id(id).unwrap();
+            assert_eq!(engine.id(), *id);
+        }
+    }
+
+    #[test]
+    fn builtin_engine_ids_has_five() {
+        assert_eq!(BUILTIN_ENGINE_IDS.len(), 5);
+        assert!(BUILTIN_ENGINE_IDS.contains(&"google"));
+        assert!(BUILTIN_ENGINE_IDS.contains(&"baidu"));
+        assert!(BUILTIN_ENGINE_IDS.contains(&"bing"));
+        assert!(BUILTIN_ENGINE_IDS.contains(&"sogou"));
+        assert!(BUILTIN_ENGINE_IDS.contains(&"360"));
+    }
+
+    // --- BuiltinMetaEngine tests ---
+
+    #[test]
+    fn builtin_meta_engine_metadata() {
+        let engine = BuiltinMetaEngine::all();
+        assert_eq!(engine.id(), "builtin");
+        assert_eq!(engine.display_name(), "Built-in Meta Search");
+        assert!(!engine.requires_api_key());
+    }
+
+    #[test]
+    fn builtin_meta_engine_selects_subset() {
+        let engine = BuiltinMetaEngine::new(&["google".to_string(), "bing".to_string()]);
+        assert_eq!(engine.engines.len(), 2);
+    }
+
+    #[test]
+    fn builtin_meta_engine_skips_unknown() {
+        let engine = BuiltinMetaEngine::new(&["google".to_string(), "invalid_xyz".to_string()]);
+        assert_eq!(engine.engines.len(), 1);
+    }
+
+    #[test]
+    fn builtin_meta_engine_empty_if_all_unknown() {
+        let engine = BuiltinMetaEngine::new(&["fake1".to_string(), "fake2".to_string()]);
+        assert_eq!(engine.engines.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn builtin_meta_engine_errors_when_empty() {
+        let engine = BuiltinMetaEngine::new(&[]);
+        let result = engine.search("test", 5).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No built-in search engines are enabled"));
+    }
+
+    #[test]
+    fn backend_enum_to_engine_builtin() {
+        let engine = WebSearchBackend::Builtin {
+            engines: vec!["bing".to_string(), "sogou".to_string()],
+        }.into_engine();
+        assert_eq!(engine.id(), "builtin");
+    }
+
+    #[test]
+    fn backend_enum_builtin_all() {
+        let engine = WebSearchBackend::Builtin {
+            engines: BUILTIN_ENGINE_IDS.iter().map(|s| s.to_string()).collect(),
+        }.into_engine();
+        assert_eq!(engine.id(), "builtin");
+    }
+
+    // --- Meta engine dedup/merge via mock ---
+
+    struct FixedResultEngine {
+        engine_id: String,
+        results: Vec<SearchResult>,
+    }
+
+    #[async_trait]
+    impl SearchEngine for FixedResultEngine {
+        fn id(&self) -> &str { &self.engine_id }
+        fn display_name(&self) -> &str { &self.engine_id }
+        fn requires_api_key(&self) -> bool { false }
+        async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
+            Ok(self.results.clone())
+        }
+    }
+
+    struct FailingEngine;
+
+    #[async_trait]
+    impl SearchEngine for FailingEngine {
+        fn id(&self) -> &str { "failing" }
+        fn display_name(&self) -> &str { "Failing" }
+        fn requires_api_key(&self) -> bool { false }
+        async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
+            Err("simulated failure".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn meta_engine_merges_results() {
+        let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "e1".to_string(),
+            results: vec![
+                SearchResult { title: "A".into(), url: "https://a.com".into(), snippet: "aa".into() },
+                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
+            ],
+        });
+        let e2: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "e2".to_string(),
+            results: vec![
+                SearchResult { title: "C".into(), url: "https://c.com".into(), snippet: "cc".into() },
+            ],
+        });
+        let meta = BuiltinMetaEngine { engines: vec![e1, e2] };
+        let results = meta.search("test", 10).await.unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn meta_engine_deduplicates_by_url() {
+        let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "e1".to_string(),
+            results: vec![
+                SearchResult { title: "A from e1".into(), url: "https://same.com".into(), snippet: "s1".into() },
+            ],
+        });
+        let e2: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "e2".to_string(),
+            results: vec![
+                SearchResult { title: "A from e2".into(), url: "https://same.com".into(), snippet: "s2".into() },
+                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
+            ],
+        });
+        let meta = BuiltinMetaEngine { engines: vec![e1, e2] };
+        let results = meta.search("test", 10).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "A from e1"); // first occurrence wins
+    }
+
+    #[tokio::test]
+    async fn meta_engine_respects_max_results() {
+        let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "e1".to_string(),
+            results: vec![
+                SearchResult { title: "A".into(), url: "https://a.com".into(), snippet: "aa".into() },
+                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
+                SearchResult { title: "C".into(), url: "https://c.com".into(), snippet: "cc".into() },
+            ],
+        });
+        let meta = BuiltinMetaEngine { engines: vec![e1] };
+        let results = meta.search("test", 2).await.unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn meta_engine_tolerates_partial_failure() {
+        let ok_engine: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
+            engine_id: "ok".to_string(),
+            results: vec![
+                SearchResult { title: "Works".into(), url: "https://ok.com".into(), snippet: "good".into() },
+            ],
+        });
+        let fail_engine: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
+        let meta = BuiltinMetaEngine { engines: vec![fail_engine, ok_engine] };
+        let results = meta.search("test", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Works");
+    }
+
+    #[tokio::test]
+    async fn meta_engine_errors_when_all_fail() {
+        let f1: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
+        let f2: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
+        let meta = BuiltinMetaEngine { engines: vec![f1, f2] };
+        let result = meta.search("test", 5).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("All built-in search engines failed"));
+    }
+
+    #[test]
+    fn strip_html_handles_multibyte_entities() {
+        let html = "<p>中文&amp;测试</p>";
+        let text = strip_html_tags(html);
+        assert!(text.contains("中文"));
+        assert!(text.contains("&"));
+        assert!(text.contains("测试"));
+    }
+
+    #[test]
+    fn strip_html_handles_unicode_heavy() {
+        let html = "2022年12月 — 从Tauri官网的宣传语可以看出";
+        let text = strip_html_tags(html);
+        assert!(text.contains("2022年12月"));
+        assert!(text.contains("Tauri"));
     }
 }

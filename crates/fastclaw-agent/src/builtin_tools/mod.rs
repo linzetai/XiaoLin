@@ -31,8 +31,10 @@ pub use hub::{HubInstallTool, HubSearchTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool};
 pub use network::{
-    DuckDuckGoEngine, HttpFetchTool, SearchEngine, SearchResult, SearxngEngine, TavilyEngine,
+    HttpFetchTool, SearchEngine, SearchResult, SearxngEngine, TavilyEngine,
     WebFetchTool, WebSearchBackend, WebSearchTool,
+    GoogleEngine, BaiduEngine, BingEngine, SogouEngine, Search360Engine,
+    BuiltinMetaEngine, engine_by_id, BUILTIN_ENGINE_IDS,
 };
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
 pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool};
@@ -55,7 +57,7 @@ pub fn register_builtin_tools_with_sandbox(registry: &ToolRegistry, sandboxed: b
     registry.register(Arc::new(CurrentTimeTool));
     registry.register(Arc::new(CalculatorTool));
     registry.register(Arc::new(HttpFetchTool::new()));
-    registry.register(Arc::new(WebSearchTool::with_defaults()));
+    registry.register(Arc::new(WebSearchTool::unconfigured()));
     registry.register(Arc::new(WebFetchTool::with_defaults()));
     if sandboxed {
         registry.register(Arc::new(SandboxedShellTool::new(
