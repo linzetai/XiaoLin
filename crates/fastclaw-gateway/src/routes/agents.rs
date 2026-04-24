@@ -219,10 +219,10 @@ pub(super) async fn list_agent_tools(
     let tools: Vec<_> = state
         .tool_registry
         .definitions()
-        .into_iter()
+        .iter()
         .map(|td| {
-            let name = td.function.name.clone();
-            let enabled = tool_effective_enabled(&agent, &name);
+            let name = &td.function.name;
+            let enabled = tool_effective_enabled(&agent, name);
             json!({
                 "id": name,
                 "enabled": enabled,
@@ -263,8 +263,8 @@ pub(super) async fn put_agent_tools(
     let registry_names: Vec<String> = state
         .tool_registry
         .definitions()
-        .into_iter()
-        .map(|td| td.function.name)
+        .iter()
+        .map(|td| td.function.name.clone())
         .collect();
 
     let toggles: Vec<(String, bool)> = body

@@ -25,7 +25,7 @@ pub use common::{
 };
 pub(crate) use dag::CronDagHandler;
 pub use memory::auto_record_episode;
-pub use session::resolve_session_context;
+pub use session::{resolve_session_context, ResolvedSession};
 
 pub fn api_routes() -> Router<AppState> {
     Router::new()

@@ -10,7 +10,7 @@ use crate::error::AppError;
 use crate::routes::{
     apply_model_router_for_chat, auto_record_episode, filtered_tool_definitions,
     map_router_resolve_err, record_chat_budget_actual, record_chat_budget_stream_estimate,
-    resolve_session_context, try_reserve_budget,
+    resolve_session_context, try_reserve_budget, ResolvedSession,
 };
 use crate::state::AppState;
 
@@ -74,8 +74,10 @@ pub async fn setup_chat(
     request: &ChatRequest,
     options: SetupChatOptions,
 ) -> Result<ChatSetup, AppError> {
+    let setup_t0 = std::time::Instant::now();
     let user_messages = request.messages.clone();
 
+    let t0 = std::time::Instant::now();
     let agent_config = {
         let router = state.router.read().await;
         router
@@ -84,6 +86,8 @@ pub async fn setup_chat(
             .map_err(map_router_resolve_err)?
     };
     let agent_id = agent_config.agent_id.clone();
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: resolve_agent");
+
     let resolve_reason: &'static str = if request.agent_id.is_some() {
         "explicit"
     } else {
@@ -94,13 +98,13 @@ pub async fn setup_chat(
         fastclaw_observe::record_chat_request(&agent_id, options.chat_stream);
     }
 
-    let (session_id, mut context_messages) =
-        resolve_session_context(state, request.session_id.as_deref(), &agent_id).await?;
-
-    let needs_title = matches!(
-        state.session_store.get_session(&session_id).await,
-        Ok(Some(s)) if s.title.is_none()
-    );
+    let t0 = std::time::Instant::now();
+    let ResolvedSession {
+        session_id,
+        messages: mut context_messages,
+        needs_title,
+    } = resolve_session_context(state, request.session_id.as_deref(), &agent_id).await?;
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: resolve_session_context");
     let user_text_for_title = if needs_title {
         user_messages
             .iter()
@@ -138,6 +142,7 @@ pub async fn setup_chat(
         session_id: session_id.clone(),
         user_id: None,
     };
+    let t0 = std::time::Instant::now();
     if options.propagate_context_ingest_errors {
         state
             .context_engine
@@ -149,20 +154,26 @@ pub async fn setup_chat(
             .ingest(&ingest_input, &mut context_messages)
             .await;
     }
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: context_ingest");
 
     context_messages.extend_from_slice(&user_messages);
 
     let mut enriched_request = request.clone();
     enriched_request.messages = context_messages;
+    let t0 = std::time::Instant::now();
     state
         .context_engine
         .process(&mut enriched_request.messages)
         .await?;
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: context_process");
+
+    let t0 = std::time::Instant::now();
     let slash_meta = inject_slash_intent_context(state, request, &agent_id, &mut enriched_request.messages);
     let prompt_route_meta = apply_prompt_router(state, request, &agent_id, &mut enriched_request.messages);
     inject_skills_prompt(state, &agent_id, &mut enriched_request.messages);
     inject_runtime_paths_prompt(state, &agent_id, request.work_dir.as_deref(), &mut enriched_request.messages);
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: prompt_injections");
 
     // BUG-003: If the caller used an agent ID as the `model` field, clear it so the agent's
     // configured model is used instead of forwarding the alias string to the upstream LLM.
@@ -182,8 +193,10 @@ pub async fn setup_chat(
         enriched_request.session_id = Some(session_id.clone());
     }
 
+    let t0 = std::time::Instant::now();
     let tool_definition_count =
         filtered_tool_definitions(&state.tool_registry, &agent_config).map_or(0, |d| d.len());
+    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_definition_count, "perf: filtered_tool_definitions");
     let llm_override = apply_model_router_for_chat(
         state,
         &agent_config,
@@ -250,6 +263,37 @@ pub async fn setup_chat(
         input_estimate,
         tool_definition_count,
     )?;
+
+    {
+        let msgs = &enriched_request.messages;
+        let system_count = msgs.iter().filter(|m| m.role == Role::System).count();
+        let user_count = msgs.iter().filter(|m| m.role == Role::User).count();
+        let assistant_count = msgs.iter().filter(|m| m.role == Role::Assistant).count();
+        let tool_msg_count = msgs.iter().filter(|m| m.role == Role::Tool).count();
+        let system_tokens: usize = msgs.iter()
+            .filter(|m| m.role == Role::System)
+            .map(|m| fastclaw_context::estimate_messages_tokens(std::slice::from_ref(m)))
+            .sum();
+        let history_tokens: usize = msgs.iter()
+            .filter(|m| m.role != Role::System)
+            .map(|m| fastclaw_context::estimate_messages_tokens(std::slice::from_ref(m)))
+            .sum();
+        let est_tokens = context_tokens_estimate.map(|(t, _)| t).unwrap_or(0);
+        tracing::info!(
+            elapsed_ms = setup_t0.elapsed().as_millis() as u64,
+            agent_id = %agent_id,
+            tool_count = tool_definition_count,
+            total_messages = msgs.len(),
+            system_msgs = system_count,
+            user_msgs = user_count,
+            assistant_msgs = assistant_count,
+            tool_msgs = tool_msg_count,
+            system_tokens,
+            history_tokens,
+            est_total_tokens = est_tokens,
+            "perf: setup_chat total"
+        );
+    }
 
     Ok(ChatSetup {
         agent_config,
@@ -491,14 +535,9 @@ Guidance:\n\
 }
 
 fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
-    let tool_defs = state.tool_registry.definitions();
-    let mcp_tools: Vec<_> = tool_defs
-        .iter()
-        .filter(|td| td.function.name.starts_with("mcp_"))
-        .collect();
+    let mcp_tools = state.tool_registry.mcp_definitions();
 
     tracing::debug!(
-        total_tools = tool_defs.len(),
         mcp_tools = mcp_tools.len(),
         global_mcp_configured = state.config.mcp_servers.len(),
         "inject_mcp_tools_prompt check"

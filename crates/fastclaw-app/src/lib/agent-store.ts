@@ -34,6 +34,7 @@ export interface ChatMessage {
   chatId: string;
   toolCalls?: ChatMessageToolCall[];
   images?: ChatMessageImage[];
+  usage?: ChatUsage;
 }
 
 export type StreamItem = { type: "message"; data: ChatMessage };
@@ -591,8 +592,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             chatList: ac.chatList.map((c) => {
               if (c.id !== chatId) return c;
               const prev = c.usage;
+              const updatedStream = [...c.stream];
+              for (let i = updatedStream.length - 1; i >= 0; i--) {
+                const item = updatedStream[i];
+                if (item.type === "message" && item.data.role === "assistant") {
+                  updatedStream[i] = {
+                    ...item,
+                    data: { ...item.data, usage: incoming },
+                  };
+                  break;
+                }
+              }
               return {
                 ...c,
+                stream: updatedStream,
                 usage: {
                   promptTokens: (prev?.promptTokens ?? 0) + incoming.promptTokens,
                   completionTokens: (prev?.completionTokens ?? 0) + incoming.completionTokens,

@@ -33,6 +33,7 @@ export interface MentionInputHandle {
   focus: () => void;
   clear: () => void;
   getText: () => string;
+  setText: (value: string) => void;
   getMentions: () => InlineMention[];
 }
 
@@ -204,6 +205,10 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         if (taRef.current) taRef.current.style.height = "auto";
       },
       getText: () => text,
+      setText: (value: string) => {
+        setText(value);
+        setMentions([]);
+      },
       getMentions: () => mentions,
     }));
 

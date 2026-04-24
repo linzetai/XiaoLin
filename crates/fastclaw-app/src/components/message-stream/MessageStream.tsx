@@ -5,7 +5,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ToolCallCard, type ToolCall } from "./ToolCallCard";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption } from "./MentionInput";
 import {
-  Image as ImageIcon, FileText, Paperclip, File, Folder, Sparkles,
+  Image as ImageIcon, FileText, Paperclip, Sparkles,
   X, ChevronUp, ChevronDown, Settings2, FolderOpen, ArrowUp,
   MessageSquare, Upload, Search, Square, Clock, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
@@ -107,7 +107,7 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
 
 /* ─── (MentionInput is now in ./MentionInput.tsx) ─── */
 
-const isMacPlatform = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+const isMacPlatform = /Mac|iPhone|iPad/.test((navigator as any).userAgentData?.platform ?? navigator.platform ?? "");
 const MOD_KEY = isMacPlatform ? "⌘" : "Ctrl+";
 const MOD_LABEL = isMacPlatform ? "⌘" : "Ctrl";
 
@@ -879,12 +879,31 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
     return `${activeAgentId}:${stableKey}`;
   }, [ac?.chatList, activeAgentId]);
 
+  // Per-session input draft storage
+  const drafts = useRef<Record<string, string>>({});
+
   // Detach / reattach streams on chat switch
   const prevChatIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const prevId = prevChatIdRef.current;
     const newId = activeChat?.id;
     prevChatIdRef.current = newId;
+
+    // Save draft from previous session
+    if (prevId && prevId !== newId && mentionInputRef.current) {
+      const currentText = mentionInputRef.current.getText();
+      if (currentText.trim()) {
+        drafts.current[prevId] = currentText;
+      } else {
+        delete drafts.current[prevId];
+      }
+    }
+
+    // Restore draft for new session
+    if (newId && mentionInputRef.current) {
+      const saved = drafts.current[newId] ?? "";
+      mentionInputRef.current.setText(saved);
+    }
 
     if (prevId && prevId !== newId && streaming) {
       // Detach: save current streaming state to the registry
@@ -1744,7 +1763,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               >
                 {m.role === "user" ? <UserBubble msg={m} /> :
                  m.role === "system" ? <SystemMsg msg={m} /> :
-                 <AiMessage msg={m} usage={!streaming && idx === visibleStream.length - 1 && m.role === "assistant" ? activeChat?.usage : undefined} />}
+                 <AiMessage msg={m} usage={m.usage} />}
               </div>
             );
           }}

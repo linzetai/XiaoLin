@@ -232,7 +232,11 @@ impl AgentRuntime {
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
+        let t0 = std::time::Instant::now();
         let mut messages = self.build_messages(config, &request.messages);
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages");
+
+        let t0 = std::time::Instant::now();
         let mut injected_skill_ids: Vec<String> = Vec::new();
         if let Err(e) = self
             .inject_relevant_skills(&mut messages, request, &mut injected_skill_ids)
@@ -240,7 +244,10 @@ impl AgentRuntime {
         {
             tracing::warn!(error = %e, "skill injection skipped");
         }
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: inject_relevant_skills");
+
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
+        let t0 = std::time::Instant::now();
         let all_tool_defs = tool_registry.definitions();
         let tool_defs: Vec<_> = all_tool_defs
             .iter()
@@ -263,6 +270,7 @@ impl AgentRuntime {
             })
             .cloned()
             .collect();
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions");
         let tools_for_llm = if tool_defs.is_empty() {
             None
         } else {
@@ -531,7 +539,11 @@ impl AgentRuntime {
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
+        let t0 = std::time::Instant::now();
         let mut messages = self.build_messages(config, &request.messages);
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages (stream)");
+
+        let t0 = std::time::Instant::now();
         let mut injected_skill_ids: Vec<String> = Vec::new();
         if let Err(e) = self
             .inject_relevant_skills(&mut messages, request, &mut injected_skill_ids)
@@ -539,7 +551,10 @@ impl AgentRuntime {
         {
             tracing::warn!(error = %e, "skill injection skipped (stream)");
         }
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: inject_relevant_skills (stream)");
+
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
+        let t0 = std::time::Instant::now();
         let all_tool_defs = tool_registry.definitions();
         let tool_defs: Vec<_> = all_tool_defs
             .iter()
@@ -562,6 +577,7 @@ impl AgentRuntime {
             })
             .cloned()
             .collect();
+        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions (stream)");
         let tools_for_llm = if tool_defs.is_empty() {
             None
         } else {
@@ -641,10 +657,17 @@ impl AgentRuntime {
                     tools: tools_for_llm,
                 };
 
+                let llm_call_t0 = std::time::Instant::now();
                 let mut stream = provider.chat_completion_stream(&params).await?;
+                tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: stream_connect");
 
+                let mut first_chunk = true;
                 let mut should_resume = false;
                 while let Some(result) = stream.next().await {
+                    if first_chunk {
+                        tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: time_to_first_chunk");
+                        first_chunk = false;
+                    }
                     let delta = match result {
                         Ok(d) => d,
                         Err(e) => {
@@ -1175,7 +1198,12 @@ impl AgentRuntime {
             return Ok(());
         };
         let task = last_user_turn_text(&request.messages);
-        if task.trim().is_empty() {
+        let trimmed = task.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        if trimmed.split_whitespace().count() < 3 && trimmed.len() < 12 {
+            tracing::debug!(task = trimmed, "inject_relevant_skills: skipping trivial query");
             return Ok(());
         }
         let skills = store.find_similar(&task, 16).await?;

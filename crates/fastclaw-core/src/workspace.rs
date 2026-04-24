@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 fn validate_skill_id(skill_id: &str) -> anyhow::Result<()> {
     if skill_id.is_empty() {
@@ -326,7 +328,13 @@ fn prompts_dir_candidates() -> Vec<PathBuf> {
     out
 }
 
-/// Try to read [`PROMPTS_REPO_SYSTEM_BASE`] and [`PROMPTS_REPO_TOOL_USAGE_GUIDE`] from `FASTCLAW_PROMPTS_DIR` or `./prompts` (cwd).
+static CACHED_BASE_PROMPTS: OnceLock<Option<String>> = OnceLock::new();
+static CACHED_ROLE_PROMPTS: OnceLock<RwLock<HashMap<String, Option<String>>>> = OnceLock::new();
+
+fn role_prompt_cache() -> &'static RwLock<HashMap<String, Option<String>>> {
+    CACHED_ROLE_PROMPTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
 fn try_load_prompts_from_filesystem() -> Option<(String, String)> {
     fn read_pair(dir: &Path) -> Option<(String, String)> {
         let base = std::fs::read_to_string(dir.join(PROMPTS_REPO_SYSTEM_BASE)).ok()?;
@@ -394,26 +402,41 @@ fn embedded_agent_role_prompt(agent_id: &str) -> Option<&'static str> {
 }
 
 /// Optional role layer from `prompts/agents/<agent_id>.md` (filesystem first, else embedded for known ids).
+/// Result is cached per agent_id after first load.
 pub fn resolve_agent_role_prompt(agent_id: &str) -> Option<String> {
-    try_load_agent_role_prompt_from_filesystem(agent_id)
-        .or_else(|| embedded_agent_role_prompt(agent_id).map(str::to_string))
+    let cache = role_prompt_cache();
+    if let Ok(guard) = cache.read() {
+        if let Some(cached) = guard.get(agent_id) {
+            return cached.clone();
+        }
+    }
+    let result = try_load_agent_role_prompt_from_filesystem(agent_id)
+        .or_else(|| embedded_agent_role_prompt(agent_id).map(str::to_string));
+    if let Ok(mut guard) = cache.write() {
+        guard.insert(agent_id.to_string(), result.clone());
+    }
+    result
 }
 
 /// Default system message when an agent has no `systemPrompt` in config: base + tool guide.
-/// Prefers live files from `FASTCLAW_PROMPTS_DIR` or `./prompts`, else embedded copies from the build.
+/// Cached after first load to avoid repeated filesystem reads.
 pub fn default_runtime_system_prompt() -> String {
-    if let Some((base, tools)) = try_load_prompts_from_filesystem() {
-        format!("{}\n\n{}", base.trim_end(), tools.trim_end())
-    } else {
-        format!(
+    let cached = CACHED_BASE_PROMPTS.get_or_init(|| {
+        try_load_prompts_from_filesystem()
+            .map(|(base, tools)| format!("{}\n\n{}", base.trim_end(), tools.trim_end()))
+    });
+    match cached {
+        Some(s) => s.clone(),
+        None => format!(
             "{}\n\n{}",
             EMBEDDED_SYSTEM_BASE_PROMPT.trim_end(),
             EMBEDDED_TOOL_USAGE_GUIDE.trim_end()
-        )
+        ),
     }
 }
 
 /// Same as [`default_runtime_system_prompt`] plus optional `prompts/agents/<agent_id>.md` role layer.
+/// Role prompts are cached per agent_id after first load.
 pub fn default_runtime_system_prompt_for_agent(agent_id: &str) -> String {
     let mut body = default_runtime_system_prompt();
     if let Some(role) = resolve_agent_role_prompt(agent_id) {
@@ -424,6 +447,13 @@ pub fn default_runtime_system_prompt_for_agent(agent_id: &str) -> String {
         }
     }
     body
+}
+
+/// Invalidate cached prompts so they are re-read from disk on next access.
+pub fn invalidate_prompt_cache() {
+    if let Ok(mut guard) = role_prompt_cache().write() {
+        guard.clear();
+    }
 }
 
 /// Resolve the workspace root for a given agent.

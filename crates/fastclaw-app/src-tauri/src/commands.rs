@@ -646,11 +646,11 @@ pub async fn list_agent_tools(
     let tools: Vec<serde_json::Value> = app
         .tool_registry
         .definitions()
-        .into_iter()
+        .iter()
         .map(|td| {
-            let name = td.function.name.clone();
+            let name = &td.function.name;
             let enabled =
-                fastclaw_gateway::routes::agents::tool_effective_enabled(&agent, &name);
+                fastclaw_gateway::routes::agents::tool_effective_enabled(&agent, name);
             json!({
                 "id": name,
                 "enabled": enabled,
@@ -700,8 +700,8 @@ pub async fn update_agent_tools(
     let registry_names: Vec<String> = app
         .tool_registry
         .definitions()
-        .into_iter()
-        .map(|td| td.function.name)
+        .iter()
+        .map(|td| td.function.name.clone())
         .collect();
 
     let toggles: Vec<(String, bool)> = tools

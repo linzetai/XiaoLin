@@ -80,18 +80,29 @@ pub(super) async fn get_session_messages(
     Ok(Json(json!({ "messages": messages })))
 }
 
-/// Resolve or create a session. Returns (session_id, context_messages).
-/// Compaction and assemble-phase hooks run in [`crate::chat_pipeline::setup_chat`] once the
-/// inbound user turn is merged into the outbound message list.
+/// Resolved session metadata.
+pub struct ResolvedSession {
+    pub session_id: String,
+    pub messages: Vec<ChatMessage>,
+    /// `true` when this session has no title yet (needs auto-titling).
+    pub needs_title: bool,
+}
+
+/// Resolve or create a session. Returns session ID, context messages, and whether
+/// the session still needs a title — avoiding a separate `get_session` call later.
 pub async fn resolve_session_context(
     state: &AppState,
     session_id: Option<&str>,
     agent_id: &str,
-) -> anyhow::Result<(String, Vec<ChatMessage>)> {
+) -> anyhow::Result<ResolvedSession> {
     if let Some(sid) = session_id {
-        if let Some(_session) = state.session_store.get_session(sid).await? {
+        if let Some(session) = state.session_store.get_session(sid).await? {
             let history = state.session_store.load_chat_messages(sid).await?;
-            return Ok((sid.to_string(), history));
+            return Ok(ResolvedSession {
+                session_id: sid.to_string(),
+                messages: history,
+                needs_title: session.title.is_none(),
+            });
         }
     }
 
@@ -113,7 +124,11 @@ pub async fn resolve_session_context(
         .context_engine
         .bootstrap(&mut messages, agent_id)
         .await?;
-    Ok((new_id, messages))
+    Ok(ResolvedSession {
+        session_id: new_id,
+        messages,
+        needs_title: true,
+    })
 }
 
 #[cfg(test)]

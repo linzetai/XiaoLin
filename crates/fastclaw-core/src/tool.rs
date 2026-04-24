@@ -96,15 +96,23 @@ pub trait Tool: Send + Sync {
 ///
 /// Uses interior `RwLock` so tools can be dynamically registered/unregistered
 /// through a shared `Arc<ToolRegistry>` without external mutability.
+///
+/// Tool definitions are cached and only rebuilt when the registry changes (version bump).
 pub struct ToolRegistry {
     tools: std::sync::RwLock<HashMap<String, Arc<dyn Tool>>>,
+    version: std::sync::atomic::AtomicU64,
+    def_cache: std::sync::RwLock<(u64, Arc<Vec<ToolDefinition>>)>,
 }
 
 impl Clone for ToolRegistry {
     fn clone(&self) -> Self {
         let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
+        let cache = self.def_cache.read().expect("def_cache poisoned");
         Self {
             tools: std::sync::RwLock::new(guard.clone()),
+            version: std::sync::atomic::AtomicU64::new(ver),
+            def_cache: std::sync::RwLock::new(cache.clone()),
         }
     }
 }
@@ -113,7 +121,14 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: std::sync::RwLock::new(HashMap::new()),
+            version: std::sync::atomic::AtomicU64::new(0),
+            def_cache: std::sync::RwLock::new((u64::MAX, Arc::new(Vec::new()))),
         }
+    }
+
+    fn bump_version(&self) {
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn register(&self, tool: Arc<dyn Tool>) {
@@ -123,6 +138,8 @@ impl ToolRegistry {
             tracing::warn!(tool = %name, "duplicate tool name – overwriting previous registration");
         }
         guard.insert(name, tool);
+        drop(guard);
+        self.bump_version();
     }
 
     /// Remove all tools whose name starts with `prefix`. Returns the number removed.
@@ -130,7 +147,12 @@ impl ToolRegistry {
         let mut guard = self.tools.write().expect("ToolRegistry poisoned");
         let before = guard.len();
         guard.retain(|name, _| !name.starts_with(prefix));
-        before - guard.len()
+        let removed = before - guard.len();
+        drop(guard);
+        if removed > 0 {
+            self.bump_version();
+        }
+        removed
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -138,9 +160,31 @@ impl ToolRegistry {
         guard.get(name).cloned()
     }
 
-    pub fn definitions(&self) -> Vec<ToolDefinition> {
+    /// Returns cached tool definitions. Rebuilt only when tools are registered/unregistered.
+    pub fn definitions(&self) -> Arc<Vec<ToolDefinition>> {
+        let current_ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
+        {
+            let cache = self.def_cache.read().expect("def_cache poisoned");
+            if cache.0 == current_ver {
+                return cache.1.clone();
+            }
+        }
         let guard = self.tools.read().expect("ToolRegistry poisoned");
-        guard.values().map(|t| t.to_definition()).collect()
+        let defs: Vec<ToolDefinition> = guard.values().map(|t| t.to_definition()).collect();
+        let arc = Arc::new(defs);
+        if let Ok(mut cache) = self.def_cache.write() {
+            *cache = (current_ver, arc.clone());
+        }
+        arc
+    }
+
+    /// Returns only definitions whose name starts with `mcp_`, using the cached definitions.
+    pub fn mcp_definitions(&self) -> Vec<ToolDefinition> {
+        let all = self.definitions();
+        all.iter()
+            .filter(|td| td.function.name.starts_with("mcp_"))
+            .cloned()
+            .collect()
     }
 
     pub fn is_empty(&self) -> bool {

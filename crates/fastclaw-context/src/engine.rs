@@ -2,6 +2,15 @@ use async_trait::async_trait;
 use fastclaw_core::types::{ChatMessage, Role};
 use std::sync::Arc;
 
+/// Whitespace-split word count below which memory retrieval is skipped.
+/// Trivial inputs like "hi", "ok", "thanks" don't benefit from embedding + search.
+const MEMORY_SKIP_WORD_THRESHOLD: usize = 3;
+
+fn query_too_trivial(text: &str) -> bool {
+    let word_count = text.split_whitespace().count();
+    word_count < MEMORY_SKIP_WORD_THRESHOLD && text.len() < 12
+}
+
 /// Context produced by the engine, ready to send to the LLM.
 #[derive(Debug, Clone)]
 pub struct AssembledContext {
@@ -667,6 +676,11 @@ impl ContextHook for MemoryIngestHook {
             _ => return Ok(()),
         };
 
+        if query_too_trivial(query) {
+            tracing::debug!(query, "memory_ingest: skipping trivial query");
+            return Ok(());
+        }
+
         let query_vec = if let Some(ref ep) = self.embedder {
             ep.embed(query).await.ok()
         } else {
@@ -864,6 +878,12 @@ impl ContextHook for AgentMemoryIngestHook {
             Some(q) if !q.is_empty() => q,
             _ => return Ok(()),
         };
+
+        if query_too_trivial(query) {
+            tracing::debug!(query, "agent_memory_ingest: skipping trivial query");
+            return Ok(());
+        }
+
         let query_vec = if let Some(ref ep) = self.embedder {
             ep.embed(query).await.ok()
         } else {

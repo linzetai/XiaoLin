@@ -131,8 +131,8 @@ function doConnect(url: string, token?: string): Promise<void> {
 
       // Broadcast events carry `type:"event"` plus an `event` field for routing.
       // Re-emit by the event name so listeners registered by event name fire correctly.
-      if (msg.type === "event" && typeof (msg as Record<string, unknown>)["event"] === "string") {
-        emit((msg as Record<string, unknown>)["event"] as string, msg);
+      if (msg.type === "event" && typeof (msg as unknown as Record<string, unknown>)["event"] === "string") {
+        emit((msg as unknown as Record<string, unknown>)["event"] as string, msg);
       } else {
         emit(msg.type, msg);
       }

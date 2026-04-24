@@ -780,7 +780,7 @@ pub fn create_fastclaw_mcp_server(
 ) -> McpServer {
     let mut server = McpServer::new("FastClaw", env!("CARGO_PKG_VERSION"));
 
-    for def in tool_registry.definitions() {
+    for def in tool_registry.definitions().iter() {
         let tool_name = def.function.name.clone();
         let mcp_tool = McpTool {
             name: tool_name.clone(),

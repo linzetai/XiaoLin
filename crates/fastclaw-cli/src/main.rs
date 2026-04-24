@@ -1162,7 +1162,7 @@ fn cmd_tools(action: ToolAction, as_json: bool) -> anyhow::Result<()> {
             } else {
                 println!("{:<25} {}", "Name", "Description");
                 println!("{}", "-".repeat(70));
-                for t in &tools {
+                for t in tools.iter() {
                     println!("{:<25} {}", t.function.name, t.function.description);
                 }
                 println!("\n{} tool(s)", tools.len());

@@ -30,7 +30,7 @@ pub fn filtered_tool_definitions(
 ) -> Option<Vec<ToolDefinition>> {
     let all_tool_defs = tool_registry.definitions();
     let tool_defs: Vec<_> = all_tool_defs
-        .into_iter()
+        .iter()
         .filter(|td| {
             let name = &td.function.name;
             if !memory_scoped_tool_visible_for_agent(name, &agent_config.agent_id) {
@@ -38,6 +38,7 @@ pub fn filtered_tool_definitions(
             }
             agent_config.behavior.is_tool_allowed(name)
         })
+        .cloned()
         .collect();
     if tool_defs.is_empty() {
         None
