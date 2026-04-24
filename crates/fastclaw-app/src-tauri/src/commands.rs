@@ -439,6 +439,15 @@ pub async fn set_config(
                 );
             }
         }
+        if top_key == "webSearch" || top_key == "credentials" {
+            if let Err(e) = app.reload_web_search() {
+                tracing::warn!(
+                    key = key.as_str(),
+                    error = %e,
+                    "config.set: failed to hot-reload web search"
+                );
+            }
+        }
         if top_key == "security" {
             if let Ok(parsed) = serde_json::from_value::<fastclaw_core::config::FastClawConfig>(
                 app.config_live.read().map(|g| g.clone()).unwrap_or_default(),

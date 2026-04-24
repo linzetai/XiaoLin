@@ -1610,6 +1610,11 @@ async fn handle_config_set(
                         "config.set: hot-reloaded security settings"
                     );
                 }
+                if top_key == "webSearch" || top_key == "credentials" {
+                    if let Err(e) = state.reload_web_search() {
+                        tracing::warn!(key, error = %e, "config.set: failed to hot-reload web search");
+                    }
+                }
             }
             send_resp(
                 sender,

@@ -1699,6 +1699,56 @@ impl AppState {
         self.apply_validated_agent_reload(agents).await
     }
 
+    /// Hot-reload web search tools from the live config without restarting.
+    pub fn reload_web_search(&self) -> anyhow::Result<()> {
+        let live_cfg = self
+            .config_live
+            .read()
+            .map_err(|e| anyhow::anyhow!("config_live lock poisoned: {e}"))?;
+        let parsed: fastclaw_core::config::FastClawConfig =
+            serde_json::from_value(live_cfg.clone())?;
+        let ws_cfg = &parsed.web_search;
+        let creds = &parsed.credentials;
+        let search_backend = match ws_cfg.backend.as_str() {
+            "tavily" => {
+                let key = ws_cfg
+                    .api_key
+                    .clone()
+                    .or_else(|| creds.get_api_key("tavily").map(String::from))
+                    .unwrap_or_default();
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(fastclaw_agent::WebSearchBackend::Tavily { api_key: key })
+                }
+            }
+            "searxng" => {
+                let base = ws_cfg
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "http://localhost:8888".to_string());
+                Some(fastclaw_agent::WebSearchBackend::SearXNG { base_url: base })
+            }
+            "builtin" => {
+                let engine_ids = ws_cfg.engines.clone().unwrap_or_else(|| {
+                    fastclaw_agent::BUILTIN_ENGINE_IDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                });
+                Some(fastclaw_agent::WebSearchBackend::Builtin { engines: engine_ids })
+            }
+            _ => None,
+        };
+        if let Some(backend) = search_backend {
+            fastclaw_agent::builtin_tools::register_web_tools(&self.tool_registry, backend);
+            tracing::info!(backend = ws_cfg.backend.as_str(), "web_search tools hot-reloaded");
+        } else {
+            tracing::info!("web_search backend unconfigured after reload");
+        }
+        Ok(())
+    }
+
     /// Apply a candidate agent list: validate, then swap [`Self::router`] and refresh
     /// [`Self::last_good_agents`] in one logical step (router swap is a single write).
     pub async fn apply_validated_agent_reload(

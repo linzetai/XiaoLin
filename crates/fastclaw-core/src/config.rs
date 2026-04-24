@@ -180,7 +180,7 @@ pub struct WebSearchConfig {
 }
 
 fn default_search_backend() -> String {
-    String::new()
+    "builtin".to_string()
 }
 
 /// Model router configuration for intelligent model selection.
