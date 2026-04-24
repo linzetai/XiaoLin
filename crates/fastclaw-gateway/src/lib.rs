@@ -3,6 +3,7 @@ pub mod error;
 pub mod extract;
 pub mod chat_pipeline;
 pub mod cron_tool;
+pub mod channel_tool;
 pub mod mcp_tool;
 mod memory_scope;
 pub mod notification_store;

@@ -34,6 +34,14 @@ pub struct SessionMessage {
     pub tool_calls_json: Option<String>,
     pub tool_call_id: Option<String>,
     pub created_at: String,
+    #[serde(default)]
+    pub prompt_tokens: i64,
+    #[serde(default)]
+    pub completion_tokens: i64,
+    #[serde(default)]
+    pub total_tokens: i64,
+    #[serde(default)]
+    pub elapsed_ms: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

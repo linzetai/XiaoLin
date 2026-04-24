@@ -95,6 +95,27 @@ pub fn set_nested_key(
     Err(())
 }
 
+/// Persist a single config key to the user's `~/.fastclaw/config/default.json`.
+pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
+    let cfg_path = home.join(".fastclaw/config/default.json");
+    let mut cfg_value: serde_json::Value = if cfg_path.exists() {
+        let text = std::fs::read_to_string(&cfg_path)?;
+        json5::from_str(&text).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+
+    set_nested_key(&mut cfg_value, key, value.clone())
+        .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
+
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&cfg_path, serde_json::to_string_pretty(&cfg_value)?)?;
+    Ok(())
+}
+
 fn masked_secret(s: &str) -> serde_json::Value {
     let char_count = s.chars().count();
     if char_count > 8 {

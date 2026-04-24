@@ -350,6 +350,14 @@ async fn handle_stream(
                         )
                         .await;
                     }
+                    // Persist per-message and session-level usage
+                    if let Some(ref sid) = session_id {
+                        let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
+                        let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+                        let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                        let _ = state_for_persist.session_store.accumulate_usage(sid, pt, ct, elapsed_ms).await;
+                        let _ = state_for_persist.session_store.stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms).await;
+                    }
                     let mut done_ev = json!({
                         "type": "done",
                         "sessionId": session_id,

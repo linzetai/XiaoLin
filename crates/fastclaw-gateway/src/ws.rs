@@ -20,7 +20,7 @@ use crate::chat_pipeline::{
 use crate::state::AppState;
 use fastclaw_core::config_access::{
     CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS, filter_config_for_read, navigate_config,
-    set_nested_key,
+    persist_config_key, set_nested_key,
 };
 use fastclaw_core::types::{ChatMessage, ChatRequest, StreamEvent};
 use fastclaw_security::ApiKeyAuth;
@@ -799,6 +799,16 @@ async fn spawn_chat(
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
+            // Persist per-message and session-level usage on Done
+            if let StreamEvent::Done { ref usage, ref elapsed_ms, .. } = event {
+                let wall_ms = chat_start.elapsed().as_millis() as u64;
+                let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
+                let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+                let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                let ems = if wall_ms > 0 { wall_ms } else { *elapsed_ms };
+                let _ = state.session_store.accumulate_usage(&session_id, pt, ct, ems).await;
+                let _ = state.session_store.stamp_last_assistant_usage(&session_id, pt, ct, tt, ems).await;
+            }
             let mut resp = event_to_response(&event, &rid, &state, setup.context_tokens_estimate);
             if is_done {
                 if let Some(data) = resp.data.as_mut().and_then(|d| d.as_object_mut()) {
@@ -1143,12 +1153,20 @@ async fn handle_sessions_messages(
             let data: Vec<_> = messages
                 .iter()
                 .map(|m| {
-                    json!({
+                    let mut obj = json!({
                         "id": m.id,
                         "role": m.role,
                         "content": m.content.as_ref().and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok()),
                         "name": m.name, "toolCallId": m.tool_call_id, "createdAt": m.created_at,
-                    })
+                        "toolCallsJson": m.tool_calls_json.as_ref().and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()),
+                    });
+                    if m.prompt_tokens > 0 || m.completion_tokens > 0 || m.elapsed_ms > 0 {
+                        obj["promptTokens"] = json!(m.prompt_tokens);
+                        obj["completionTokens"] = json!(m.completion_tokens);
+                        obj["totalTokens"] = json!(m.total_tokens);
+                        obj["elapsedMs"] = json!(m.elapsed_ms);
+                    }
+                    obj
                 })
                 .collect();
             send_resp(
@@ -1649,26 +1667,6 @@ async fn handle_config_set(
             .await;
         }
     }
-}
-
-fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Result<()> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
-    let cfg_path = home.join(".fastclaw/config/default.json");
-    let mut cfg_value: serde_json::Value = if cfg_path.exists() {
-        let text = std::fs::read_to_string(&cfg_path)?;
-        json5::from_str(&text).unwrap_or_else(|_| json!({}))
-    } else {
-        json!({})
-    };
-
-    set_nested_key(&mut cfg_value, key, value.clone())
-        .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
-
-    if let Some(parent) = cfg_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&cfg_path, serde_json::to_string_pretty(&cfg_value)?)?;
-    Ok(())
 }
 
 // ─── MCP WS handlers ───

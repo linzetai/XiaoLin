@@ -116,6 +116,10 @@ export interface BackendMessage {
   toolCallId: string | null;
   toolCallsJson?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null;
   createdAt: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  elapsedMs?: number;
 }
 
 let nextId = 1;
@@ -535,6 +539,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           } else {
             content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
           }
+          const usage: ChatUsage | undefined =
+            (m.promptTokens || m.completionTokens || m.elapsedMs)
+              ? {
+                  promptTokens: m.promptTokens ?? 0,
+                  completionTokens: m.completionTokens ?? 0,
+                  totalTokens: m.totalTokens ?? 0,
+                  elapsedMs: m.elapsedMs ?? 0,
+                }
+              : undefined;
           return {
             type: "message" as const,
             data: {
@@ -545,6 +558,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               chatId,
               toolCalls,
               images,
+              usage,
             },
           };
         });

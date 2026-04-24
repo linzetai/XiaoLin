@@ -123,3 +123,4 @@ pub fn register_session_tools(
     )));
     registry.register(Arc::new(SessionsSendTool::new(sessions, bus)));
 }
+

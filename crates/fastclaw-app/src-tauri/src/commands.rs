@@ -2,7 +2,7 @@ use crate::embedded::GatewayInfo;
 use crate::AppData;
 use fastclaw_core::config_access::{
     CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS, filter_config_for_read, navigate_config,
-    set_nested_key,
+    persist_config_key, set_nested_key,
 };
 use fastclaw_gateway::AppState;
 use serde_json::json;
@@ -276,7 +276,7 @@ pub async fn get_session_messages(
     let data: Vec<_> = messages
         .iter()
         .map(|m| {
-            json!({
+            let mut obj = json!({
                 "id": m.id,
                 "role": m.role,
                 "content": m.content.as_ref().and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok()),
@@ -284,7 +284,14 @@ pub async fn get_session_messages(
                 "toolCallId": m.tool_call_id,
                 "toolCallsJson": m.tool_calls_json.as_ref().and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()),
                 "createdAt": m.created_at,
-            })
+            });
+            if m.prompt_tokens > 0 || m.completion_tokens > 0 || m.elapsed_ms > 0 {
+                obj["promptTokens"] = json!(m.prompt_tokens);
+                obj["completionTokens"] = json!(m.completion_tokens);
+                obj["totalTokens"] = json!(m.total_tokens);
+                obj["elapsedMs"] = json!(m.elapsed_ms);
+            }
+            obj
         })
         .collect();
     Ok(json!({"messages": data}))
@@ -1405,11 +1412,13 @@ pub async fn chat_stream(
                     "data": complete_data,
                 }));
 
-                // Persist usage metrics
+                // Persist usage metrics (session totals + per-message)
                 if let Some(ref sid_str) = sid {
                     let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
                     let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+                    let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
                     let _ = app.session_store.accumulate_usage(sid_str, pt, ct, *elapsed_ms).await;
+                    let _ = app.session_store.stamp_last_assistant_usage(sid_str, pt, ct, tt, *elapsed_ms).await;
                 }
 
                 // Emit Tauri event for session change
@@ -1570,27 +1579,6 @@ pub async fn submit_tool_answer(
     } else {
         Ok(json!({ "ok": false, "reason": "request not found or already answered" }))
     }
-}
-
-fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Result<()> {
-    let home =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
-    let cfg_path = home.join(".fastclaw/config/default.json");
-    let mut cfg_value: serde_json::Value = if cfg_path.exists() {
-        let text = std::fs::read_to_string(&cfg_path)?;
-        json5::from_str(&text).unwrap_or_else(|_| json!({}))
-    } else {
-        json!({})
-    };
-
-    set_nested_key(&mut cfg_value, key, value.clone())
-        .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
-
-    if let Some(parent) = cfg_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&cfg_path, serde_json::to_string_pretty(&cfg_value)?)?;
-    Ok(())
 }
 
 // ─── MCP server management ───

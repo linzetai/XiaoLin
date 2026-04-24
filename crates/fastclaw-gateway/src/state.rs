@@ -80,6 +80,7 @@ struct BuildPhase3 {
 struct BuildPhase4 {
     phase3: BuildPhase3,
     channel_registry: ChannelRegistry,
+    channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
     inbound_rx: tokio::sync::mpsc::UnboundedReceiver<fastclaw_core::channel::InboundMessage>,
     base_skill_registry: Arc<SkillRegistry>,
     stream_event_tx: Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>>,
@@ -322,7 +323,7 @@ impl StateBuilder {
         )
         .await?;
 
-        let (channel_registry, _inbound_tx, inbound_rx) =
+        let (channel_registry, channel_inbound_tx, inbound_rx) =
             AppState::build_channels(config, &p3.tool_registry).await?;
 
         let base_skill_registry = Arc::new(p3.base_skill_registry.filtered(
@@ -385,6 +386,7 @@ impl StateBuilder {
         Ok(BuildPhase4 {
             phase3: p3,
             channel_registry,
+            channel_inbound_tx,
             inbound_rx,
             base_skill_registry,
             stream_event_tx,
@@ -670,6 +672,7 @@ impl StateBuilder {
                 pg.set_enabled(prompt_injection_enabled);
                 Arc::new(pg)
             },
+            channel_inbound_tx: p5.phase2.phase4.channel_inbound_tx,
         };
 
         state.tool_registry.register(Arc::new(crate::mcp_tool::ManageMcpServerTool::new(
@@ -685,6 +688,11 @@ impl StateBuilder {
             state.cron_wake.clone(),
         )));
         tracing::info!("registered manage_cron tool");
+
+        state.tool_registry.register(Arc::new(crate::channel_tool::ListChannelsTool::new(state.clone())));
+        state.tool_registry.register(Arc::new(crate::channel_tool::AddChannelTool::new(state.clone())));
+        state.tool_registry.register(Arc::new(crate::channel_tool::RemoveChannelTool::new(state.clone())));
+        tracing::info!("registered channel management tools");
 
         state.spawn_skill_evolution_tasks();
 
@@ -833,6 +841,8 @@ pub struct AppState {
     /// Handles to running MCP client processes, keyed by server id.
     pub mcp_handles: Arc<tokio::sync::Mutex<std::collections::HashMap<String, fastclaw_collab::mcp::SharedMcpClient>>>,
     pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
+    /// Sender for channel inbound messages — kept for hot-reloading new channels.
+    pub channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
 }
 
 impl AppState {
@@ -1749,6 +1759,92 @@ impl AppState {
         Ok(())
     }
 
+    /// Hot-reload a single channel from the live config. Starts the plugin if config is
+    /// valid and not already running.
+    pub async fn reload_channel(&self, channel_id: &str) -> anyhow::Result<()> {
+        let parsed: FastClawConfig = {
+            let live = self.config_live.read()
+                .map_err(|e| anyhow::anyhow!("config lock: {e}"))?;
+            serde_json::from_value(live.clone())?
+        };
+        let ch = parsed.channels.get(channel_id)
+            .ok_or_else(|| anyhow::anyhow!("channel '{channel_id}' not in config"))?;
+        if ch.enabled == Some(false) {
+            return Err(anyhow::anyhow!("channel '{channel_id}' is disabled"));
+        }
+
+        {
+            let reg = self.channel_registry.read().await;
+            if reg.get(channel_id).is_some() {
+                tracing::info!(channel = channel_id, "channel already running, skipping reload");
+                return Ok(());
+            }
+        }
+
+        let tx = self.channel_inbound_tx.clone();
+        match channel_id {
+            "feishu" => {
+                if let Some(cfg) = fastclaw_feishu::FeishuPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_feishu::FeishuPlugin::new(cfg));
+                    for t in plugin.tools() { self.tool_registry.register(t); }
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("feishu channel hot-reloaded");
+                }
+            }
+            "telegram" => {
+                if let Some(cfg) = fastclaw_telegram::TelegramPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_telegram::TelegramPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("telegram channel hot-reloaded");
+                }
+            }
+            "discord" => {
+                if let Some(cfg) = fastclaw_discord::DiscordPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_discord::DiscordPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("discord channel hot-reloaded");
+                }
+            }
+            "slack" => {
+                if let Some(cfg) = fastclaw_slack::SlackPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_slack::SlackPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("slack channel hot-reloaded");
+                }
+            }
+            "whatsapp" => {
+                if let Some(cfg) = fastclaw_whatsapp::WhatsAppPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_whatsapp::WhatsAppPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("whatsapp channel hot-reloaded");
+                }
+            }
+            "matrix" => {
+                if let Some(cfg) = fastclaw_matrix::MatrixPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_matrix::MatrixPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("matrix channel hot-reloaded");
+                }
+            }
+            "msteams" => {
+                if let Some(cfg) = fastclaw_msteams::TeamsPluginConfig::from_channel_config(ch) {
+                    let plugin = Arc::new(fastclaw_msteams::TeamsPlugin::new(cfg));
+                    plugin.start(tx).await?;
+                    self.channel_registry.write().await.register(plugin);
+                    tracing::info!("msteams channel hot-reloaded");
+                }
+            }
+            other => return Err(anyhow::anyhow!("unknown channel type: {other}")),
+        }
+        Ok(())
+    }
+
     /// Apply a candidate agent list: validate, then swap [`Self::router`] and refresh
     /// [`Self::last_good_agents`] in one logical step (router swap is a single write).
     pub async fn apply_validated_agent_reload(
@@ -2156,6 +2252,10 @@ impl AppState {
             mcp_status: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             mcp_handles: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             prompt_guard: Arc::new(fastclaw_security::PromptGuard::new()),
+            channel_inbound_tx: {
+                let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+                tx
+            },
         })
     }
 }

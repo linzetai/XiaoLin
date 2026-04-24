@@ -151,6 +151,30 @@ impl SessionStore {
             tracing::info!("migrated sessions table: added usage tracking columns");
         }
 
+        // Migration: add per-message usage columns if missing
+        let has_msg_usage: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'prompt_tokens'"
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_msg_usage {
+            sqlx::query("ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE messages ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE messages ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0")
+                .execute(&self.pool)
+                .await?;
+            tracing::info!("migrated messages table: added per-message usage columns");
+        }
+
         Ok(())
     }
 
@@ -406,7 +430,8 @@ impl SessionStore {
     /// Load all messages for a session, ordered by insertion order.
     pub async fn load_messages(&self, session_id: &str) -> anyhow::Result<Vec<SessionMessage>> {
         let messages = sqlx::query_as::<_, SessionMessage>(
-            "SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at
+            "SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
+                    prompt_tokens, completion_tokens, total_tokens, elapsed_ms
              FROM messages WHERE session_id = ? ORDER BY id ASC",
         )
         .bind(session_id)
@@ -517,6 +542,30 @@ impl SessionStore {
         }
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Stamp the most recent assistant message in a session with per-message usage.
+    pub async fn stamp_last_assistant_usage(
+        &self,
+        session_id: &str,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        total_tokens: u32,
+        elapsed_ms: u64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE messages SET
+                prompt_tokens = ?, completion_tokens = ?, total_tokens = ?, elapsed_ms = ?
+             WHERE id = (SELECT MAX(id) FROM messages WHERE session_id = ? AND role = 'assistant')",
+        )
+        .bind(prompt_tokens as i64)
+        .bind(completion_tokens as i64)
+        .bind(total_tokens as i64)
+        .bind(elapsed_ms as i64)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Accumulate token usage and elapsed time for a session (additive).

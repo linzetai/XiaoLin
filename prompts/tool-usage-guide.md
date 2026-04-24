@@ -65,9 +65,28 @@ Persistent long-term memory. Use actively.
 
 Install workflow: `shell_exec` to install package → `manage_mcp_server(action:"add")` to register.
 
+## Channel Integrations
+
+**list_channels** / **add_channel** / **remove_channel**: Manage IM channel connections.
+
+Supported channels and required credentials:
+
+| Channel   | Required                            | Optional                                   |
+|-----------|-------------------------------------|-------------------------------------------|
+| feishu    | appId, appSecret                    | connectionMode (websocket/webhook), domain, replyMode, userAccessToken |
+| slack     | appSecret (xoxb-... Bot Token)      | verificationToken (Signing Secret), appId  |
+| discord   | appSecret (Bot Token), appId        |                                            |
+| telegram  | appSecret (Bot Token from BotFather)|                                            |
+| whatsapp  | appId (Phone Number ID), appSecret (Token) | verificationToken (Webhook Verify Token) |
+| matrix    | domain (Homeserver URL), appId (User ID), appSecret (Access Token) |          |
+| msteams   | appId (Bot App ID), appSecret (Password) |                                     |
+
+Workflow: `list_channels` → ask user which channel → collect credentials one by one via `ask_question` → `add_channel`. Never guess credentials; always ask the user. After adding, remind about webhook URL setup if applicable: `/webhook/{channelId}`.
+
 ## Quick Reference
 
 1. Context-dependent task? → `memory_search` first
 2. Known file? → `read_file` · Find file/symbol? → `search_in_files` / `workspace_symbols`
 3. External info? → `web_search` · Run commands? → `shell_exec`
 4. Learned something? → `memory_store` immediately
+5. Connect IM channel? → `list_channels` → `add_channel` with user-provided credentials
