@@ -420,11 +420,21 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
       ],
     );
 
+    const MAX_HEIGHT = 160;
+
     const autoGrow = useCallback(() => {
       const el = taRef.current;
       if (!el) return;
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+      const clamped = Math.min(el.scrollHeight, MAX_HEIGHT);
+      el.style.height = clamped + "px";
+      el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+    }, []);
+
+    const syncOverlayScroll = useCallback(() => {
+      const ta = taRef.current;
+      const overlay = ta?.parentElement?.querySelector<HTMLElement>(".mention-highlight-overlay");
+      if (ta && overlay) overlay.scrollTop = ta.scrollTop;
     }, []);
 
     useEffect(() => {
@@ -465,6 +475,7 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             onInput={autoGrow}
+            onScroll={syncOverlayScroll}
             onPaste={(e) => {
               const items = e.clipboardData?.items;
               if (!items || !onPasteFiles) return;
