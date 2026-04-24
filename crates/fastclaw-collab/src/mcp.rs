@@ -420,6 +420,8 @@ impl McpClient {
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             for (k, v) in extra_env {
                 cmd.env(k, v);
             }
@@ -441,7 +443,8 @@ impl McpClient {
                 cmd.args(&shell_args)
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
+                    .stderr(std::process::Stdio::piped())
+                    .creation_flags(0x08000000); // CREATE_NO_WINDOW
                 for (k, v) in extra_env {
                     cmd.env(k, v);
                 }

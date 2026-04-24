@@ -276,6 +276,11 @@ fn cmd_daemon_start(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
             cmd.arg("--profile");
             cmd.arg(p);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
         cmd.stdin(Stdio::null());
         let log_path = daemon_log_path(dev, profile);
         if let Some(dir) = log_path.parent() {
@@ -744,11 +749,16 @@ async fn cmd_doctor(dev: bool, profile: Option<&str>, as_json: bool) -> anyhow::
     ));
 
     // Docker available
-    let docker_ok = std::process::Command::new("docker")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let docker_ok = {
+        let mut docker_cmd = std::process::Command::new("docker");
+        docker_cmd.arg("--version");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            docker_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        docker_cmd.output().map(|o| o.status.success()).unwrap_or(false)
+    };
     checks.push((
         "docker",
         docker_ok,
