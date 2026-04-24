@@ -63,7 +63,7 @@ impl BrowserTool {
             let headless = Self::is_headless();
             let profile = Self::profile_dir();
             std::fs::create_dir_all(&profile).ok();
-            Self::remove_stale_lock(&profile);
+            Self::cleanup_profile(&profile);
             let launch_options = headless_chrome::LaunchOptions::default_builder()
                 .headless(headless)
                 .sandbox(false)
@@ -104,14 +104,59 @@ impl BrowserTool {
         Ok(())
     }
 
-    fn remove_stale_lock(profile: &std::path::Path) {
-        let lock = profile.join("SingletonLock");
-        if lock.exists() {
-            std::fs::remove_file(&lock).ok();
+    fn cleanup_profile(profile: &std::path::Path) {
+        for name in &[
+            "SingletonLock",
+            "SingletonSocket",
+            "SingletonCookie",
+            "lockfile",
+        ] {
+            let p = profile.join(name);
+            if p.exists() {
+                std::fs::remove_file(&p).ok();
+            }
         }
-        let lock_socket = profile.join("SingletonSocket");
-        if lock_socket.exists() {
-            std::fs::remove_file(&lock_socket).ok();
+        let default_lock = profile.join("Default").join("LOCK");
+        if default_lock.exists() {
+            std::fs::remove_file(&default_lock).ok();
+        }
+
+        Self::kill_orphan_chrome(profile);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn kill_orphan_chrome(profile: &std::path::Path) {
+        let profile_str = profile.to_string_lossy().replace('/', "\\");
+        let output = std::process::Command::new("wmic")
+            .args(["process", "where", &format!("commandline like '%{profile_str}%' and name='chrome.exe'"), "get", "processid"])
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_orphan_chrome(profile: &std::path::Path) {
+        let profile_str = profile.to_string_lossy();
+        let output = std::process::Command::new("pgrep")
+            .args(["-f", &format!("chrome.*{profile_str}")])
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                if let Ok(pid) = line.trim().parse::<i32>() {
+                    let _ = std::process::Command::new("kill")
+                        .args(["-9", &pid.to_string()])
+                        .output();
+                }
+            }
         }
     }
 
