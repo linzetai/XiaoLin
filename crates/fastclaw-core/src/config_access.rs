@@ -18,7 +18,8 @@ pub const CONFIG_READABLE_KEYS: &[&str] = &[
     "modelRouter",
     "evolution",
     "mcpServers",
-    "onboarding",
+"onboarding",
+    "security",
 ];
 
 /// Keys that may be written through remote/interactive APIs.
@@ -35,7 +36,8 @@ pub const CONFIG_WRITABLE_KEYS: &[&str] = &[
     "channels",
     "bindings",
     "mcpServers",
-    "onboarding",
+"onboarding",
+    "security",
 ];
 
 pub fn filter_config_for_read(full: &serde_json::Value) -> serde_json::Value {
@@ -43,7 +45,7 @@ pub fn filter_config_for_read(full: &serde_json::Value) -> serde_json::Value {
     if let Some(obj) = full.as_object() {
         for key in CONFIG_READABLE_KEYS {
             if let Some(v) = obj.get(*key) {
-                let masked = if *key == "credentials" || *key == "models" {
+                let masked = if *key == "credentials" || *key == "models" || *key == "security" {
                     mask_secret_values(v)
                 } else {
                     v.clone()

@@ -36,17 +36,7 @@ pub fn filtered_tool_definitions(
             if !memory_scoped_tool_visible_for_agent(name, &agent_config.agent_id) {
                 return false;
             }
-            if !agent_config.behavior.tools_deny.is_empty()
-                && agent_config.behavior.tools_deny.iter().any(|d| d == name)
-            {
-                return false;
-            }
-            if !agent_config.behavior.tools_allow.is_empty()
-                && !agent_config.behavior.tools_allow.iter().any(|a| a == name)
-            {
-                return false;
-            }
-            true
+            agent_config.behavior.is_tool_allowed(name)
         })
         .collect();
     if tool_defs.is_empty() {

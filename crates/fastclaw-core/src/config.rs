@@ -679,6 +679,24 @@ impl Default for EmbeddingConfig {
     }
 }
 
+/// Policy for destructive / dangerous operations (file deletion, dangerous shell commands, etc.).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DangerousOpsPolicy {
+    /// Block all dangerous operations outright.
+    Deny,
+    /// Allow without any confirmation.
+    Allow,
+    /// Pause and ask the user for confirmation before executing.
+    Confirm,
+}
+
+impl Default for DangerousOpsPolicy {
+    fn default() -> Self {
+        Self::Confirm
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SecurityConfig {
@@ -686,6 +704,33 @@ pub struct SecurityConfig {
     pub prompt_injection_detection: bool,
     #[serde(default)]
     pub api_keys: Vec<String>,
+    /// Hostnames (and optional :port) that bypass SSRF private-IP checks.
+    /// Useful for local SearXNG, internal APIs, or MCP servers on localhost.
+    /// Example: `["localhost:8888", "searxng.internal", "127.0.0.1:3000"]`
+    #[serde(default)]
+    pub ssrf_allowed_hosts: Vec<String>,
+    /// How to handle destructive operations (rm, rmdir, chmod, etc.).
+    /// `deny` = block outright, `allow` = let through, `confirm` = ask user first.
+    #[serde(default)]
+    pub dangerous_ops_policy: DangerousOpsPolicy,
+    /// Regex patterns for shell commands considered "dangerous" (checked in `confirm`/`deny` modes).
+    /// Defaults to patterns matching rm, rmdir, chmod, chown, mkfs, dd, etc.
+    #[serde(default = "default_dangerous_patterns")]
+    pub dangerous_patterns: Vec<String>,
+}
+
+fn default_dangerous_patterns() -> Vec<String> {
+    vec![
+        r"\brm\s".to_string(),
+        r"\brm$".to_string(),
+        r"\brmdir\b".to_string(),
+        r"\bchmod\b".to_string(),
+        r"\bchown\b".to_string(),
+        r"\bmkfs\b".to_string(),
+        r"\bdd\b".to_string(),
+        r"\bshred\b".to_string(),
+        r">\s*/dev/".to_string(),
+    ]
 }
 
 /// Directory path overrides. All fields are optional;
@@ -755,7 +800,30 @@ pub fn load_config(dev: bool, profile: Option<&str>) -> FastClawResult<FastClawC
         }
         tracing::info!(path = %path.display(), "loading config");
         let text = std::fs::read_to_string(path)?;
-        let raw: serde_json::Value = json5::from_str(&text).map_err(FastClawError::json5)?;
+        let raw: serde_json::Value = match json5::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "config parse failed, attempting auto-repair");
+                match try_repair_config(path) {
+                    Ok(repaired) => {
+                        let val: serde_json::Value = json5::from_str(&repaired)
+                            .map_err(FastClawError::json5)?;
+                        let pretty = serde_json::to_string_pretty(&val).unwrap_or(repaired);
+                        let backup = path.with_extension("json.bak");
+                        let _ = std::fs::copy(path, &backup);
+                        if std::fs::write(path, &pretty).is_ok() {
+                            tracing::info!(
+                                path = %path.display(),
+                                backup = %backup.display(),
+                                "auto-repaired config (backup saved)"
+                            );
+                        }
+                        val
+                    }
+                    Err(_) => return Err(FastClawError::json5(e)),
+                }
+            }
+        };
         let strict_includes = raw
             .get("strictIncludes")
             .and_then(|v| v.as_bool())
@@ -805,6 +873,78 @@ pub fn load_config(dev: bool, profile: Option<&str>) -> FastClawResult<FastClawC
 
     tracing::info!("no config file found, using built-in defaults");
     Ok(FastClawConfig::default())
+}
+
+/// Attempt to repair a config file with common issues.
+/// Returns `Ok(repaired_text)` if fixable, `Err` if not salvageable.
+pub fn try_repair_config(path: &std::path::Path) -> Result<String, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+
+    if json5::from_str::<serde_json::Value>(&text).is_ok() {
+        return Err("config already valid, no repair needed".into());
+    }
+
+    let mut repaired = text.clone();
+
+    // Strip BOM
+    repaired = repaired.strip_prefix('\u{feff}').unwrap_or(&repaired).to_string();
+
+    // Remove trailing commas before closing braces/brackets: ,\s*} or ,\s*]
+    let trailing_comma_re = regex::Regex::new(r",(\s*[}\]])").unwrap();
+    repaired = trailing_comma_re.replace_all(&repaired, "$1").to_string();
+
+    // Try to fix unquoted keys by converting to strict JSON then back
+    // (json5 is lenient about keys; this handles cases where the file is
+    // almost-JSON but has issues json5 can't parse)
+    if json5::from_str::<serde_json::Value>(&repaired).is_ok() {
+        return Ok(repaired);
+    }
+
+    // Try wrapping bare content in braces if it looks like key-value pairs
+    if !repaired.trim_start().starts_with('{') {
+        let wrapped = format!("{{{repaired}}}");
+        if json5::from_str::<serde_json::Value>(&wrapped).is_ok() {
+            return Ok(wrapped);
+        }
+    }
+
+    // Last resort: try serde_json strict parse after trailing-comma fix
+    if serde_json::from_str::<serde_json::Value>(&repaired).is_ok() {
+        return Ok(repaired);
+    }
+
+    Err(format!(
+        "cannot auto-repair config at {}; manual editing required",
+        path.display()
+    ))
+}
+
+/// Attempt to repair and rewrite a config file in place.
+/// Returns a description of what was fixed, or an error.
+pub fn repair_config_file(path: &std::path::Path) -> Result<String, String> {
+    let repaired = try_repair_config(path)?;
+
+    // Validate the repaired content parses into a valid config
+    let val: serde_json::Value = json5::from_str(&repaired)
+        .map_err(|e| format!("repaired text still invalid: {e}"))?;
+
+    // Re-serialize as pretty JSON for clean output
+    let pretty = serde_json::to_string_pretty(&val)
+        .map_err(|e| format!("failed to re-serialize: {e}"))?;
+
+    // Back up the original
+    let backup = path.with_extension("json.bak");
+    let _ = std::fs::copy(path, &backup);
+
+    std::fs::write(path, &pretty)
+        .map_err(|e| format!("failed to write repaired config: {e}"))?;
+
+    Ok(format!(
+        "Config repaired and written to {}. Backup saved to {}.",
+        path.display(),
+        backup.display()
+    ))
 }
 
 /// Known serde alias pairs: (canonical, alias). When both exist in a merged

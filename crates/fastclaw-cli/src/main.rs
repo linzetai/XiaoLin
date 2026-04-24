@@ -98,6 +98,8 @@ enum ConfigAction {
     File,
     /// Print the config file path
     Path,
+    /// Attempt to auto-repair a broken config file
+    Fix,
 }
 
 #[derive(Subcommand)]
@@ -398,16 +400,32 @@ async fn main() -> anyhow::Result<()> {
             token,
             session,
         } => {
-            // If the user did not supply --url, substitute a URL built from the
-            // configured gateway port (so the TUI always targets the right port).
+            let config = fastclaw_core::config::load_config(cli.dev, cli.profile.as_deref())
+                .unwrap_or_default();
             let effective_url = if url == "ws://127.0.0.1:18789/ws" {
-                let config = fastclaw_core::config::load_config(cli.dev, cli.profile.as_deref())
-                    .unwrap_or_default();
                 format!("ws://127.0.0.1:{}/ws", config.gateway.port)
             } else {
                 url
             };
-            tui::run_tui(&effective_url, token.as_deref(), session.as_deref()).await?;
+
+            let sd = state_dir(cli.dev, cli.profile.as_deref());
+            let ws_root = fastclaw_core::workspace::resolve_workspace_root(
+                &sd,
+                "main",
+                config.workspace.as_deref().map(std::path::Path::new),
+            );
+            let _ = std::fs::create_dir_all(&ws_root);
+            let work_dir = ws_root.to_string_lossy().to_string();
+
+            tui::run_tui(
+                &effective_url,
+                token.as_deref(),
+                session.as_deref(),
+                Some(work_dir),
+                cli.dev,
+                cli.profile.clone(),
+            )
+            .await?;
         }
         Commands::McpServer => {
             cmd_mcp_server().await?;
@@ -521,6 +539,20 @@ fn cmd_config(
             }
             std::fs::write(&path, serde_json::to_string_pretty(&config_value)?)?;
             println!("set {key} in {}", path.display());
+        }
+        ConfigAction::Fix => {
+            let path = config_file_path(dev, profile);
+            if !path.exists() {
+                eprintln!("No config file at {}", path.display());
+                std::process::exit(1);
+            }
+            match fastclaw_core::config::repair_config_file(&path) {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
         }
     }
     Ok(())

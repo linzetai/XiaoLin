@@ -424,6 +424,24 @@ pub async fn set_config(
                 );
             }
         }
+        if top_key == "security" {
+            if let Ok(parsed) = serde_json::from_value::<fastclaw_core::config::FastClawConfig>(
+                app.config_live.read().map(|g| g.clone()).unwrap_or_default(),
+            ) {
+                fastclaw_security::ssrf::set_ssrf_allowed_hosts(
+                    parsed.security.ssrf_allowed_hosts.clone(),
+                );
+                fastclaw_security::dangerous_ops::set_dangerous_ops_config(
+                    parsed.security.dangerous_ops_policy,
+                    &parsed.security.dangerous_patterns,
+                );
+                tracing::info!(
+                    hosts = ?parsed.security.ssrf_allowed_hosts,
+                    dangerous_ops_policy = ?parsed.security.dangerous_ops_policy,
+                    "config.set: hot-reloaded security settings"
+                );
+            }
+        }
     }
 
     Ok(json!({
@@ -1221,12 +1239,13 @@ pub async fn chat_stream(
     let stream_context_key_for_task = stream_context_key.clone();
     let stream_request_id_for_task = stream_request_id.clone();
     let stream_cancel_map_for_task = state.stream_cancels.clone();
+    let confirm_pending_for_task = app.ask_question_pending.clone();
 
     let task = tokio::spawn(async move {
         let result = tokio::select! {
             result = fastclaw_agent::builtin_tools::with_stream_context(
                 stream_context_key_for_task.clone(),
-                runtime.execute_stream(&agent_config, &enriched, &tool_reg, tx, llm_override),
+                runtime.execute_stream_with_confirm(&agent_config, &enriched, &tool_reg, tx, llm_override, confirm_pending_for_task),
             ) => result,
             _ = &mut cancel_rx => Err(anyhow::anyhow!("cancelled")),
         };
@@ -2011,7 +2030,7 @@ mod tests {
     #[test]
     fn readable_keys_include_expected_entries() {
         for expected in ["gateway", "logging", "session", "memory", "models",
-                         "credentials", "modelRouter", "evolution", "webSearch"] {
+                         "credentials", "modelRouter", "evolution", "webSearch", "security"] {
             assert!(CONFIG_READABLE_KEYS.contains(&expected), "missing readable key: {expected}");
         }
     }
@@ -2019,7 +2038,7 @@ mod tests {
     #[test]
     fn writable_keys_include_expected_entries() {
         for expected in ["logging", "session", "memory", "credentials", "models",
-                         "modelRouter", "evolution", "webSearch"] {
+                         "modelRouter", "evolution", "webSearch", "security"] {
             assert!(CONFIG_WRITABLE_KEYS.contains(&expected), "missing writable key: {expected}");
         }
     }
@@ -2033,9 +2052,9 @@ mod tests {
     }
 
     #[test]
-    fn security_is_not_exposed() {
-        assert!(!CONFIG_READABLE_KEYS.contains(&"security"));
-        assert!(!CONFIG_WRITABLE_KEYS.contains(&"security"));
+    fn security_is_readable_and_writable() {
+        assert!(CONFIG_READABLE_KEYS.contains(&"security"));
+        assert!(CONFIG_WRITABLE_KEYS.contains(&"security"));
     }
 
     // ═══════════════════════════════════════════════════════════════════

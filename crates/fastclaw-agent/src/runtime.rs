@@ -77,15 +77,7 @@ fn memory_tool_visible_for_agent(name: &str, agent_id: &str) -> bool {
 }
 
 fn is_tool_allowed(tool_name: &str, behavior: &fastclaw_core::agent_config::BehaviorConfig) -> bool {
-    if !behavior.tools_deny.is_empty() && behavior.tools_deny.iter().any(|d| d == tool_name) {
-        return false;
-    }
-    if !behavior.tools_allow.is_empty()
-        && !behavior.tools_allow.iter().any(|a| a == tool_name)
-    {
-        return false;
-    }
-    true
+    behavior.is_tool_allowed(tool_name)
 }
 
 async fn send_stream_event(
@@ -524,6 +516,34 @@ impl AgentRuntime {
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<(u32, u32)> {
+        self.execute_stream_inner(config, request, tool_registry, tx, llm_override, None)
+            .await
+    }
+
+    /// Same as `execute_stream` but accepts an optional `confirm_pending` map so the runtime
+    /// can automatically present user-confirmation dialogs when tools return `needs_confirmation`.
+    pub async fn execute_stream_with_confirm(
+        &self,
+        config: &AgentConfig,
+        request: &ChatRequest,
+        tool_registry: &ToolRegistry,
+        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+        llm_override: Option<Arc<dyn LlmProvider>>,
+        confirm_pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    ) -> anyhow::Result<(u32, u32)> {
+        self.execute_stream_inner(config, request, tool_registry, tx, llm_override, Some(confirm_pending))
+            .await
+    }
+
+    async fn execute_stream_inner(
+        &self,
+        config: &AgentConfig,
+        request: &ChatRequest,
+        tool_registry: &ToolRegistry,
+        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+        llm_override: Option<Arc<dyn LlmProvider>>,
+        confirm_pending: Option<Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>>,
+    ) -> anyhow::Result<(u32, u32)> {
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
@@ -861,7 +881,7 @@ impl AgentRuntime {
                     continue;
                 }
 
-                let result = match tool_registry.get(&tc.function.name) {
+                let mut result = match tool_registry.get(&tc.function.name) {
                     Some(tool) => {
                         let r = with_file_access_mode(
                             config.behavior.file_access,
@@ -894,6 +914,78 @@ impl AgentRuntime {
                         fastclaw_core::tool::ToolResult::err(msg)
                     }
                 };
+
+                // ── Runtime-driven confirmation flow ──
+                // When a tool returns needs_confirmation=true and we have a confirm_pending
+                // map, we automatically present a confirmation dialog to the user. If approved,
+                // the tool is re-executed with "confirmed":true injected into its arguments.
+                if result.needs_confirmation {
+                    if let Some(ref pending_map) = confirm_pending {
+                        use fastclaw_core::types::AskQuestionOption;
+
+                        let confirm_request_id = uuid::Uuid::new_v4().to_string();
+                        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
+                        {
+                            let mut guard = pending_map.lock().await;
+                            guard.insert(confirm_request_id.clone(), answer_tx);
+                        }
+
+                        let _ = send_stream_event(
+                            &tx,
+                            StreamEvent::AskQuestion {
+                                request_id: confirm_request_id.clone(),
+                                question: result.output.clone(),
+                                options: vec![
+                                    AskQuestionOption { id: "allow".into(), label: "Allow".into() },
+                                    AskQuestionOption { id: "deny".into(), label: "Deny".into() },
+                                ],
+                                timeout_secs: 60,
+                                allow_multiple: false,
+                            },
+                            true,
+                        )
+                        .await;
+
+                        let user_answer = tokio::time::timeout(
+                            Duration::from_secs(60),
+                            answer_rx,
+                        )
+                        .await;
+
+                        {
+                            let mut guard = pending_map.lock().await;
+                            guard.remove(&confirm_request_id);
+                        }
+
+                        let approved = matches!(user_answer, Ok(Ok(ref a)) if a == "allow");
+
+                        if approved {
+                            // Re-execute with "confirmed":true injected
+                            let mut args: serde_json::Value =
+                                serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                            if let Some(obj) = args.as_object_mut() {
+                                obj.insert("confirmed".into(), serde_json::Value::Bool(true));
+                            }
+                            let confirmed_args = serde_json::to_string(&args).unwrap_or_default();
+
+                            if let Some(tool) = tool_registry.get(&tc.function.name) {
+                                result = with_file_access_mode(
+                                    config.behavior.file_access,
+                                    tool.execute(&confirmed_args),
+                                )
+                                .await;
+                                if result.success {
+                                    consecutive_errors = 0;
+                                    failure_streak_traces.clear();
+                                }
+                            }
+                        } else {
+                            result = fastclaw_core::tool::ToolResult::err(
+                                "User denied the operation."
+                            );
+                        }
+                    }
+                }
 
                 let out = truncate_tool_result_output(&result.output);
                 let _ = send_stream_event(

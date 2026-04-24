@@ -192,6 +192,41 @@ impl Default for BehaviorConfig {
     }
 }
 
+/// Check if a tool name matches a pattern from `tools_allow`/`tools_deny`.
+/// Supports exact match, trailing `*` prefix glob (e.g. `mcp_*`, `mcp_chrome_*`),
+/// and `!` negation prefix (e.g. `!shell_exec`).
+pub fn tool_pattern_matches(pattern: &str, tool_name: &str) -> bool {
+    let (negated, pat) = if let Some(rest) = pattern.strip_prefix('!') {
+        (true, rest)
+    } else {
+        (false, pattern)
+    };
+    let base_match = if let Some(prefix) = pat.strip_suffix('*') {
+        tool_name.starts_with(prefix)
+    } else {
+        tool_name == pat
+    };
+    if negated { !base_match } else { base_match }
+}
+
+impl BehaviorConfig {
+    /// Check whether a tool is allowed by this agent's allow/deny policy.
+    /// Supports glob patterns (`mcp_*`) and negation (`!shell_exec`).
+    pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
+        if !self.tools_deny.is_empty()
+            && self.tools_deny.iter().any(|d| tool_pattern_matches(d, tool_name))
+        {
+            return false;
+        }
+        if !self.tools_allow.is_empty()
+            && !self.tools_allow.iter().any(|a| tool_pattern_matches(a, tool_name))
+        {
+            return false;
+        }
+        true
+    }
+}
+
 /// Load agent configs from a directory of JSON files
 pub fn load_agent_configs(dir: &std::path::Path) -> anyhow::Result<Vec<AgentConfig>> {
     let mut agents = Vec::new();
@@ -218,4 +253,91 @@ pub fn load_agent_configs(dir: &std::path::Path) -> anyhow::Result<Vec<AgentConf
     }
 
     Ok(agents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pattern_exact_match() {
+        assert!(tool_pattern_matches("shell_exec", "shell_exec"));
+        assert!(!tool_pattern_matches("shell_exec", "shell_exec_sandbox"));
+        assert!(!tool_pattern_matches("shell_exec", "http_fetch"));
+    }
+
+    #[test]
+    fn pattern_glob_prefix() {
+        assert!(tool_pattern_matches("mcp_*", "mcp_chrome_screenshot"));
+        assert!(tool_pattern_matches("mcp_*", "mcp_relay_feedback"));
+        assert!(!tool_pattern_matches("mcp_*", "http_fetch"));
+        assert!(tool_pattern_matches("mcp_chrome_*", "mcp_chrome_screenshot"));
+        assert!(!tool_pattern_matches("mcp_chrome_*", "mcp_relay_feedback"));
+    }
+
+    #[test]
+    fn pattern_negation() {
+        assert!(!tool_pattern_matches("!shell_exec", "shell_exec"));
+        assert!(tool_pattern_matches("!shell_exec", "http_fetch"));
+        assert!(!tool_pattern_matches("!mcp_*", "mcp_chrome_screenshot"));
+        assert!(tool_pattern_matches("!mcp_*", "http_fetch"));
+    }
+
+    #[test]
+    fn behavior_empty_allows_all() {
+        let b = BehaviorConfig::default();
+        assert!(b.is_tool_allowed("http_fetch"));
+        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(b.is_tool_allowed("shell_exec"));
+    }
+
+    #[test]
+    fn behavior_deny_exact() {
+        let b = BehaviorConfig {
+            tools_deny: vec!["shell_exec".into()],
+            ..Default::default()
+        };
+        assert!(!b.is_tool_allowed("shell_exec"));
+        assert!(b.is_tool_allowed("http_fetch"));
+    }
+
+    #[test]
+    fn behavior_deny_glob() {
+        let b = BehaviorConfig {
+            tools_deny: vec!["mcp_*".into()],
+            ..Default::default()
+        };
+        assert!(!b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(!b.is_tool_allowed("mcp_relay_feedback"));
+        assert!(b.is_tool_allowed("http_fetch"));
+        assert!(b.is_tool_allowed("shell_exec"));
+    }
+
+    #[test]
+    fn behavior_allow_glob_includes_mcp() {
+        let b = BehaviorConfig {
+            tools_allow: vec![
+                "http_fetch".into(),
+                "web_search".into(),
+                "mcp_*".into(),
+            ],
+            ..Default::default()
+        };
+        assert!(b.is_tool_allowed("http_fetch"));
+        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(!b.is_tool_allowed("shell_exec"));
+    }
+
+    #[test]
+    fn behavior_allow_with_deny_glob() {
+        let b = BehaviorConfig {
+            tools_allow: vec!["mcp_*".into(), "web_search".into()],
+            tools_deny: vec!["mcp_dangerous_*".into()],
+            ..Default::default()
+        };
+        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(!b.is_tool_allowed("mcp_dangerous_tool"));
+        assert!(b.is_tool_allowed("web_search"));
+        assert!(!b.is_tool_allowed("shell_exec"));
+    }
 }

@@ -378,7 +378,13 @@ impl StateBuilder {
                 ask_question_pending.clone(),
             ),
         ));
-        tracing::info!("registered ask_question tool");
+        p3.tool_registry.register(Arc::new(
+            fastclaw_agent::builtin_tools::ConfirmTool::new(
+                stream_event_tx.clone(),
+                ask_question_pending.clone(),
+            ),
+        ));
+        tracing::info!("registered ask_question + confirm tools");
 
         Ok(BuildPhase4 {
             phase3: p3,
@@ -527,6 +533,26 @@ impl StateBuilder {
 
     /// Run all phases in dependency order and produce a ready [`AppState`].
     async fn build(config: FastClawConfig) -> anyhow::Result<AppState> {
+        if !config.security.ssrf_allowed_hosts.is_empty() {
+            tracing::info!(
+                hosts = ?config.security.ssrf_allowed_hosts,
+                "SSRF: registering allowed hosts that bypass private-IP checks"
+            );
+            fastclaw_security::ssrf::set_ssrf_allowed_hosts(
+                config.security.ssrf_allowed_hosts.clone(),
+            );
+        }
+
+        tracing::info!(
+            policy = ?config.security.dangerous_ops_policy,
+            pattern_count = config.security.dangerous_patterns.len(),
+            "Dangerous-ops: initializing policy"
+        );
+        fastclaw_security::dangerous_ops::set_dangerous_ops_config(
+            config.security.dangerous_ops_policy,
+            &config.security.dangerous_patterns,
+        );
+
         let p1 = Self::phase1_config_session(&config).await?;
         let p3 = Self::phase3_agent_runtime_tools(&config, p1).await?;
         let p4 = Self::phase4_channels_mcp(&config, p3).await?;

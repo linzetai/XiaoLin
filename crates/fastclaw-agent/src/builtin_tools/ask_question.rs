@@ -6,7 +6,7 @@ use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use fastclaw_core::types::{AskQuestionOption, StreamEvent};
 
 tokio::task_local! {
-    static ASK_QUESTION_STREAM_KEY: String;
+    pub(crate) static ASK_QUESTION_STREAM_KEY: String;
 }
 
 pub async fn with_stream_context<F, T>(stream_key: String, fut: F) -> T

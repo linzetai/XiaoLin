@@ -71,6 +71,28 @@ impl Tool for ShellTool {
             ),
         };
 
+        let user_confirmed = args
+            .get("confirmed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !user_confirmed {
+            match fastclaw_security::dangerous_ops::check_dangerous_command(command) {
+                Ok(()) => {}
+                Err(fastclaw_security::dangerous_ops::CheckResult::Denied(msg)) => {
+                    return ToolResult::err(format!(
+                        "BLOCKED by dangerous-ops policy (deny): {msg}. \
+                         Change the command or ask an admin to adjust security.dangerousOpsPolicy."
+                    ));
+                }
+                Err(fastclaw_security::dangerous_ops::CheckResult::NeedsConfirmation(msg)) => {
+                    return ToolResult::needs_confirm(format!(
+                        "This command requires user confirmation: {msg}"
+                    ));
+                }
+            }
+        }
+
         #[cfg(windows)]
         let mut cmd = {
             use std::os::windows::process::CommandExt;
@@ -156,8 +178,11 @@ pub struct ShellSandboxConfig {
     pub denied_commands: Vec<String>,
     /// If non-empty, only these commands are allowed (whitelist mode).
     pub allowed_commands: Vec<String>,
-    /// Deny patterns matched against the full command string (regex-like substring).
+    /// Deny patterns: each is a regex applied to the full command string.
+    /// Use `\b` word boundaries to avoid false positives like `eval ` matching `evaluate`.
     pub denied_patterns: Vec<String>,
+    /// Compiled deny-pattern regexes (built from `denied_patterns`).
+    denied_regexes: Vec<(regex::Regex, String)>,
     /// Allowed working directories. If empty, any directory is allowed.
     pub allowed_dirs: Vec<String>,
     /// Environment variables to strip before execution.
@@ -168,14 +193,49 @@ pub struct ShellSandboxConfig {
     pub readonly_paths: Vec<String>,
 }
 
+impl ShellSandboxConfig {
+    fn compile_denied_regexes(patterns: &[String]) -> Vec<(regex::Regex, String)> {
+        patterns
+            .iter()
+            .filter_map(|p| {
+                regex::Regex::new(p)
+                    .map(|re| (re, p.clone()))
+                    .map_err(|e| {
+                        tracing::warn!(
+                            pattern = %p,
+                            error = %e,
+                            "sandbox: skipped invalid denied_pattern regex"
+                        );
+                    })
+                    .ok()
+            })
+            .collect()
+    }
+}
+
+fn default_denied_patterns() -> Vec<String> {
+    vec![
+        r"> /dev/".into(),
+        r"\| /dev/".into(),
+        r":\(\)\{ :\|:& \};:".into(),
+        r"\beval\b".into(),
+        r"/etc/shadow".into(),
+        r"/etc/passwd".into(),
+        r"~/\.ssh\b".into(),
+        r"\.ssh/".into(),
+    ]
+}
+
 impl Default for ShellSandboxConfig {
     fn default() -> Self {
+        let patterns = default_denied_patterns();
+        let denied_regexes = Self::compile_denied_regexes(&patterns);
         Self {
             timeout_secs: 30,
             max_output_bytes: 65536,
             denied_commands: vec![
-                "rm".into(),
-                "rmdir".into(),
+                // rm, rmdir, chmod, chown, chgrp are handled by the dangerous_ops policy
+                // (deny/confirm/allow) rather than hard-blocked here.
                 "mkfs".into(),
                 "dd".into(),
                 "shutdown".into(),
@@ -185,9 +245,6 @@ impl Default for ShellSandboxConfig {
                 "kill".into(),
                 "killall".into(),
                 "pkill".into(),
-                "chmod".into(),
-                "chown".into(),
-                "chgrp".into(),
                 "mount".into(),
                 "umount".into(),
                 "iptables".into(),
@@ -205,16 +262,8 @@ impl Default for ShellSandboxConfig {
                 "socat".into(),
             ],
             allowed_commands: Vec::new(),
-            denied_patterns: vec![
-                "> /dev/".into(),
-                "| /dev/".into(),
-                ":(){ :|:& };:".into(),
-                "eval ".into(),
-                "/etc/shadow".into(),
-                "/etc/passwd".into(),
-                "~/.ssh".into(),
-                ".ssh/".into(),
-            ],
+            denied_patterns: patterns,
+            denied_regexes,
             allowed_dirs: Vec::new(),
             strip_env_vars: vec![
                 "AWS_SECRET_ACCESS_KEY".into(),
@@ -237,7 +286,11 @@ pub struct SandboxedShellTool {
 }
 
 impl SandboxedShellTool {
-    pub fn new(config: ShellSandboxConfig) -> Self {
+    pub fn new(mut config: ShellSandboxConfig) -> Self {
+        if config.denied_regexes.is_empty() && !config.denied_patterns.is_empty() {
+            config.denied_regexes =
+                ShellSandboxConfig::compile_denied_regexes(&config.denied_patterns);
+        }
         Self { config }
     }
 
@@ -272,10 +325,10 @@ impl SandboxedShellTool {
             ));
         }
 
-        for pattern in &self.config.denied_patterns {
-            if trimmed.contains(pattern.as_str()) {
+        for (re, pattern) in &self.config.denied_regexes {
+            if re.is_match(trimmed) {
                 return Err(format!(
-                    "Sandbox denied_pattern matched substring '{pattern}' in the command text. \
+                    "Sandbox denied_pattern matched regex '{pattern}' in the command text. \
                      Remove that construct (often sensitive paths or shell tricks) and use approved tools; if this is a false positive, ask the operator to tune denied_patterns."
                 ));
             }
@@ -340,7 +393,7 @@ impl Tool for SandboxedShellTool {
 
     fn description(&self) -> &str {
         "Same contract as shell_exec—JSON {command, working_dir?} in, JSON {exit_code, stdout, stderr, sandboxed: true} out—but every command is validated before spawn: risky base binaries and each && / || / ; segment must pass allow/deny rules. \
-         Typical enforcement: blocklists (rm, sudo, chmod, …), pattern denials (sensitive paths, fork bombs), optional command allowlists, optional cwd confined to allowed_dirs, secret env vars stripped, optional Linux namespace isolation via unshare when enabled. \
+         Typical enforcement: blocklists (sudo, mkfs, dd, …), pattern denials (sensitive paths, fork bombs), optional command allowlists, optional cwd confined to allowed_dirs, secret env vars stripped, optional Linux namespace isolation via unshare when enabled. File-destructive commands (rm, chmod, chown) are governed by the dangerous_ops security policy (deny/confirm/allow). \
          Prefer read_file, write_file, list_directory for plain file work; use sandboxed shell_exec when operators require bounded automation (git, cargo, npm, rg) instead of arbitrary shell. \
          stdout+stderr share one max_output_bytes ceiling; timeouts still kill hung work; stdin stays non-interactive. \
          SANDBOX BLOCKED means zero execution—adjust the command, cwd, or policy; resubmitting the same blocked command will never succeed. \
@@ -394,6 +447,28 @@ impl Tool for SandboxedShellTool {
                 "SANDBOX BLOCKED: {reason} \
                  Adjust the command to comply, or use non-shell tools (read_file, write_file, web_fetch) where appropriate."
             ));
+        }
+
+        let user_confirmed = args
+            .get("confirmed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !user_confirmed {
+            match fastclaw_security::dangerous_ops::check_dangerous_command(command) {
+                Ok(()) => {}
+                Err(fastclaw_security::dangerous_ops::CheckResult::Denied(msg)) => {
+                    return ToolResult::err(format!(
+                        "BLOCKED by dangerous-ops policy (deny): {msg}. \
+                         Change the command or ask an admin to adjust security.dangerousOpsPolicy."
+                    ));
+                }
+                Err(fastclaw_security::dangerous_ops::CheckResult::NeedsConfirmation(msg)) => {
+                    return ToolResult::needs_confirm(format!(
+                        "This command requires user confirmation: {msg}"
+                    ));
+                }
+            }
         }
 
         if let Some(dir) = args.get("working_dir").and_then(|v| v.as_str()) {
@@ -493,9 +568,10 @@ mod sandbox_tests {
     }
 
     #[test]
-    fn blocks_rm() {
+    fn rm_not_blocked_by_sandbox() {
+        // rm is now handled by dangerous_ops policy, not the sandbox
         let tool = default_sandbox();
-        assert!(tool.validate_command("rm -rf /").is_err());
+        assert!(tool.validate_command("rm -rf /").is_ok());
     }
 
     #[test]
@@ -507,7 +583,8 @@ mod sandbox_tests {
     #[test]
     fn blocks_chained_dangerous() {
         let tool = default_sandbox();
-        assert!(tool.validate_command("echo hello && rm file.txt").is_err());
+        // rm is no longer blocked; kill still is
+        assert!(tool.validate_command("echo hello && rm file.txt").is_ok());
         assert!(tool.validate_command("ls; kill -9 1234").is_err());
     }
 
@@ -565,10 +642,39 @@ mod sandbox_tests {
     }
 
     #[tokio::test]
-    async fn rejects_dangerous_at_execute() {
+    async fn rejects_mkfs_at_execute() {
         let tool = default_sandbox();
-        let result = tool.execute(r#"{"command": "rm -rf /"}"#).await;
+        let result = tool.execute(r#"{"command": "mkfs /dev/sda"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("SANDBOX BLOCKED"));
+    }
+
+    #[test]
+    fn eval_regex_blocks_eval_command() {
+        let tool = default_sandbox();
+        assert!(tool.validate_command("eval $(cat script.sh)").is_err());
+        assert!(tool.validate_command(r#"bash -c "eval something""#).is_err());
+    }
+
+    #[test]
+    fn eval_regex_allows_evaluate_and_similar() {
+        let tool = default_sandbox();
+        assert!(tool.validate_command("python3 evaluate_model.py").is_ok());
+        assert!(tool.validate_command("cargo test -- test_evaluate").is_ok());
+        assert!(tool.validate_command("echo 'retrieval system'").is_ok());
+        assert!(tool.validate_command("node evaluation.js").is_ok());
+    }
+
+    #[test]
+    fn ssh_regex_blocks_actual_ssh_paths() {
+        let tool = default_sandbox();
+        assert!(tool.validate_command("cat ~/.ssh/id_rsa").is_err());
+        assert!(tool.validate_command("ls .ssh/config").is_err());
+    }
+
+    #[test]
+    fn ssh_regex_allows_non_ssh_paths() {
+        let tool = default_sandbox();
+        assert!(tool.validate_command("cat docs/openssh-guide.md").is_ok());
     }
 }

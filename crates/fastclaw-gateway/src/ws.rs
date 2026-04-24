@@ -118,8 +118,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                 "protocol": "fastclaw-ws/1",
                 "methods": ["ping", "chat", "agents", "auth",
                             "sessions.list", "sessions.get", "sessions.messages", "sessions.delete",
-                            "sessions.new", "sessions.update_title",
-                            "chat.cancel", "models.list", "config.get", "config.set",
+                            "sessions.new", "sessions.claim", "sessions.update_title",
+                            "chat.cancel", "chat.answer", "models.list", "config.get", "config.set",
+                            "mcp.status", "mcp.reload", "mcp.add", "mcp.remove",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -307,11 +308,15 @@ async fn dispatch(
         "chat.cancel" => {
             handle_chat_cancel(sender, id, req.params, active_chat_cancels.clone()).await
         }
+        "chat.answer" => {
+            handle_chat_answer(sender, state, id, req.params).await
+        }
         "sessions.list" => handle_sessions_list(sender, state, id, req.params).await,
         "sessions.get" => handle_session_scoped(sender, state, owned_sessions, id, req.params, "get").await,
         "sessions.messages" => handle_session_scoped(sender, state, owned_sessions, id, req.params, "messages").await,
         "sessions.delete" => handle_session_scoped(sender, state, owned_sessions, id, req.params, "delete").await,
         "sessions.new" => handle_sessions_new(sender, state, owned_sessions, id, req.params).await,
+        "sessions.claim" => handle_sessions_claim(sender, state, owned_sessions, id, req.params).await,
         "sessions.update_title" => handle_session_scoped(sender, state, owned_sessions, id, req.params, "update_title").await,
         "models.list" => handle_models_list(sender, state, id).await,
         "config.get" => handle_config_get(sender, state, id, req.params).await,
@@ -421,6 +426,57 @@ async fn handle_chat_cancel(
     .await;
 }
 
+/// Delivers a user answer to a pending `ask_question` / `confirm` request.
+async fn handle_chat_answer(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    params: serde_json::Value,
+) {
+    let Some(request_id) = params.get("requestId").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "requestId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+
+    let answer = params
+        .get("answer")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let tx = {
+        let mut pending = state.ask_question_pending.lock().await;
+        pending.remove(request_id)
+    };
+
+    let ok = if let Some(tx) = tx {
+        let _ = tx.send(answer);
+        true
+    } else {
+        false
+    };
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: "chat.answer".into(),
+            data: Some(json!({"requestId": request_id, "ok": ok})),
+            error: None,
+        },
+    )
+    .await;
+}
+
 /// Routes session-scoped operations through an ownership check.
 async fn handle_session_scoped(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
@@ -473,6 +529,7 @@ async fn spawn_chat(
     req_id: Option<String>,
     params: serde_json::Value,
 ) {
+    let chat_start = Instant::now();
     if let Some(sid) = params.get("sessionId").and_then(|v| v.as_str()) {
         if !owned_sessions.contains(sid) {
             let _ = bg_tx
@@ -661,12 +718,13 @@ async fn spawn_chat(
         }
         let stream_context_key_for_task = stream_context_key.clone();
         let stream_event_map_for_task = state.stream_event_tx.clone();
+        let confirm_pending_for_task = state.ask_question_pending.clone();
 
         let task = tokio::spawn(async move {
             tokio::select! {
                 result = fastclaw_agent::builtin_tools::with_stream_context(
                     stream_context_key_for_task.clone(),
-                    runtime.execute_stream(&cfg, &enriched, &tool_reg, tx, llm_for_task),
+                    runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task),
                 ) => result,
                 _ = cancel2.cancelled() => Err(anyhow::anyhow!("cancelled")),
             }
@@ -741,7 +799,16 @@ async fn spawn_chat(
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
-            let resp = event_to_response(&event, &rid, &state);
+            let mut resp = event_to_response(&event, &rid, &state);
+            if is_done {
+                if let Some(data) = resp.data.as_mut().and_then(|d| d.as_object_mut()) {
+                    let elapsed_ms = chat_start.elapsed().as_millis() as u64;
+                    data.insert("elapsedMs".into(), json!(elapsed_ms));
+                    data.insert("inputTokensEstimate".into(), json!(input_estimate));
+                    let output_estimate = assistant_content.len() / 4;
+                    data.insert("outputTokensEstimate".into(), json!(output_estimate));
+                }
+            }
             if bg_tx.send(resp).await.is_err() {
                 break;
             }
@@ -1186,6 +1253,69 @@ async fn handle_sessions_new(
     }
 }
 
+/// Claim an existing session so this connection can access it (resume flow).
+/// Verifies the session exists in the DB before granting ownership.
+async fn handle_sessions_claim(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    owned_sessions: &mut HashSet<String>,
+    req_id: Option<String>,
+    params: serde_json::Value,
+) {
+    let Some(sid) = params.get("sessionId").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "sessionId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+    match state.session_store.get_session(sid).await {
+        Ok(Some(_)) => {
+            owned_sessions.insert(sid.to_string());
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "sessions.claim".into(),
+                    data: Some(json!({"sessionId": sid, "claimed": true})),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Ok(None) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": 404, "message": "session not found"})),
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"message": format!("{e}")})),
+                },
+            )
+            .await;
+        }
+    }
+}
+
 async fn handle_sessions_update_title(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
@@ -1435,7 +1565,7 @@ async fn handle_config_set(
     }
 
     match serde_json::from_value::<fastclaw_core::config::FastClawConfig>(cfg_value.clone()) {
-        Ok(_new_config) => {
+        Ok(new_config) => {
             let persisted = persist_config_key(key, &value);
             let applied = persisted.is_ok();
             if let Err(ref e) = persisted {
@@ -1444,6 +1574,20 @@ async fn handle_config_set(
                 tracing::info!(key, "config.set persisted to user config");
                 if let Ok(mut live) = state.config_live.write() {
                     *live = cfg_value;
+                }
+                if top_key == "security" {
+                    fastclaw_security::ssrf::set_ssrf_allowed_hosts(
+                        new_config.security.ssrf_allowed_hosts.clone(),
+                    );
+                    fastclaw_security::dangerous_ops::set_dangerous_ops_config(
+                        new_config.security.dangerous_ops_policy,
+                        &new_config.security.dangerous_patterns,
+                    );
+                    tracing::info!(
+                        hosts = ?new_config.security.ssrf_allowed_hosts,
+                        dangerous_ops_policy = ?new_config.security.dangerous_ops_policy,
+                        "config.set: hot-reloaded security settings"
+                    );
                 }
             }
             send_resp(
@@ -1769,5 +1913,77 @@ mod tests {
         assert!(CONFIG_READABLE_KEYS.contains(&"webSearch"));
         assert!(CONFIG_READABLE_KEYS.contains(&"credentials"));
         assert!(CONFIG_READABLE_KEYS.contains(&"modelRouter"));
+    }
+
+    #[test]
+    fn event_to_response_ask_question_format() {
+        use fastclaw_core::types::AskQuestionOption;
+        let event = StreamEvent::AskQuestion {
+            request_id: "q1".into(),
+            question: "Pick one".into(),
+            options: vec![
+                AskQuestionOption { id: "a".into(), label: "Option A".into() },
+                AskQuestionOption { id: "b".into(), label: "Option B".into() },
+            ],
+            timeout_secs: 30,
+            allow_multiple: false,
+        };
+        let state = {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let tmp = tempfile::tempdir().unwrap();
+            rt.block_on(async { AppState::for_test(Box::new(NullProvider), tmp.path()).await.unwrap() })
+        };
+        let resp = event_to_response(&event, &Some("r1".into()), &state);
+        assert_eq!(resp.msg_type, "chat.ask_question");
+        let data = resp.data.unwrap();
+        assert_eq!(data["requestId"], "q1");
+        assert_eq!(data["question"], "Pick one");
+        assert_eq!(data["options"].as_array().unwrap().len(), 2);
+        assert_eq!(data["timeoutSecs"], 30);
+    }
+
+    #[test]
+    fn event_to_response_done_includes_session_id() {
+        let event = StreamEvent::Done {
+            session_id: Some("sess-123".into()),
+            tool_calls_made: 2,
+            iterations: 1,
+            final_tool_calls: None,
+        };
+        let state = {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let tmp = tempfile::tempdir().unwrap();
+            rt.block_on(async { AppState::for_test(Box::new(NullProvider), tmp.path()).await.unwrap() })
+        };
+        let resp = event_to_response(&event, &Some("r2".into()), &state);
+        assert_eq!(resp.msg_type, "chat.complete");
+        let data = resp.data.unwrap();
+        assert_eq!(data["sessionId"], "sess-123");
+        assert_eq!(data["toolCallsMade"], 2);
+        assert_eq!(data["iterations"], 1);
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl fastclaw_agent::LlmProvider for NullProvider {
+        async fn chat_completion(
+            &self,
+            _params: &fastclaw_agent::CompletionParams<'_>,
+        ) -> anyhow::Result<fastclaw_core::types::ChatResponse> {
+            Ok(fastclaw_core::types::ChatResponse {
+                id: "null".into(),
+                object: "chat.completion".into(),
+                created: 0,
+                model: "null".into(),
+                choices: vec![],
+                usage: None,
+            })
+        }
+        async fn chat_completion_stream(
+            &self,
+            _params: &fastclaw_agent::CompletionParams<'_>,
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<fastclaw_core::types::StreamDelta>>> {
+            Ok(Box::pin(futures::stream::empty()))
+        }
     }
 }

@@ -1,5 +1,5 @@
 use std::io::IsTerminal;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use futures::{SinkExt, StreamExt};
@@ -24,7 +24,15 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/resume", "Resume session: /resume <id>"),
     ("/clear", "Clear message view"),
     ("/model", "Show current model info"),
+    ("/models", "List all available models"),
+    ("/stats", "Show session token/time stats"),
+    ("/doctor", "Run env diagnostics"),
+    ("/cancel", "Cancel current streaming"),
+    ("/ping", "Ping gateway for latency"),
+    ("/mcp", "Show MCP server status"),
+    ("/export", "Export session to stdout"),
     ("/quit", "Exit TUI"),
+    ("/exit", "Exit TUI"),
 ];
 
 // ── Data types ──────────────────────────────────────────────────────
@@ -64,6 +72,26 @@ pub struct TuiApp {
     tab_index: usize,
     tab_prefix: String,
     show_popup: Option<PopupKind>,
+
+    // Per-message and cumulative usage stats
+    chat_start_time: Option<Instant>,
+    last_elapsed_ms: Option<u64>,
+    last_input_tokens: Option<u64>,
+    last_output_tokens: Option<u64>,
+    total_input_tokens: u64,
+    total_output_tokens: u64,
+    total_messages: u32,
+    total_elapsed_ms: u64,
+
+    // Workdir for chat context
+    work_dir: Option<String>,
+
+    // Active request ID for chat.cancel support
+    last_request_id: Option<String>,
+
+    // Config profile for preflight checks
+    config_dev: bool,
+    config_profile: Option<String>,
 }
 
 #[derive(Clone)]
@@ -71,6 +99,11 @@ enum PopupKind {
     Help,
     Agents,
     Sessions(Vec<Value>),
+    AskQuestion {
+        request_id: String,
+        question: String,
+        options: Vec<(String, String)>,
+    },
 }
 
 impl TuiApp {
@@ -97,6 +130,18 @@ impl TuiApp {
             tab_index: 0,
             tab_prefix: String::new(),
             show_popup: None,
+            chat_start_time: None,
+            last_elapsed_ms: None,
+            last_input_tokens: None,
+            last_output_tokens: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_messages: 0,
+            total_elapsed_ms: 0,
+            work_dir: None,
+            last_request_id: None,
+            config_dev: false,
+            config_profile: None,
         }
     }
 
@@ -134,20 +179,84 @@ fn now_hms() -> String {
     chrono::Local::now().format("%H:%M:%S").to_string()
 }
 
+fn format_elapsed(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms}ms")
+    } else if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else {
+        let secs = ms / 1000;
+        format!("{}m{}s", secs / 60, secs % 60)
+    }
+}
+
+/// Lightweight env checks on TUI startup — surfaces warnings without blocking.
+fn run_preflight_checks(app: &mut TuiApp) {
+    let mut warnings: Vec<String> = Vec::new();
+
+    if app.agents.is_empty() {
+        warnings.push("No agents found. Configure agents in config/agents/.".into());
+    }
+
+    match fastclaw_core::config::load_config(app.config_dev, app.config_profile.as_deref()) {
+        Ok(config) => {
+            let has_creds = !config.credentials.providers.is_empty()
+                && config
+                    .credentials
+                    .providers
+                    .values()
+                    .any(|c| c.api_key.is_some());
+            if !has_creds {
+                warnings.push(
+                    "No LLM API keys configured. Run `fastclaw setup` or `fastclaw config set`.".into(),
+                );
+            }
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("json") || msg.contains("parse") || msg.contains("JSON") {
+                warnings.push(format!("Config syntax error (try `fastclaw config fix`): {msg}"));
+            } else {
+                warnings.push(format!("Config error: {msg}"));
+            }
+        }
+    }
+
+    if let Some(wd) = &app.work_dir {
+        if !std::path::Path::new(wd).exists() {
+            warnings.push(format!("Workspace dir not accessible: {wd}"));
+        }
+    }
+
+    if !warnings.is_empty() {
+        app.push_system(format!(
+            "Preflight: {} issue{}",
+            warnings.len(),
+            if warnings.len() == 1 { "" } else { "s" }
+        ));
+        for w in warnings {
+            app.push_system(format!("  - {w}"));
+        }
+    }
+}
+
 // ── Entry point ─────────────────────────────────────────────────────
 
-pub async fn run_tui(url: &str, token: Option<&str>, session: Option<&str>) -> anyhow::Result<()> {
+pub async fn run_tui(
+    url: &str,
+    token: Option<&str>,
+    session: Option<&str>,
+    work_dir: Option<String>,
+    config_dev: bool,
+    config_profile: Option<String>,
+) -> anyhow::Result<()> {
     if !std::io::stdout().is_terminal() {
         anyhow::bail!("TUI requires an interactive terminal (TTY). Use --help for options.");
     }
 
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    crossterm::execute!(
-        stdout,
-        crossterm::terminal::EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
-    )?;
+    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
 
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
@@ -157,6 +266,9 @@ pub async fn run_tui(url: &str, token: Option<&str>, session: Option<&str>) -> a
         token.map(String::from),
         session.map(String::from),
     );
+    app.work_dir = work_dir;
+    app.config_dev = config_dev;
+    app.config_profile = config_profile;
 
     let ws_url = {
         let mut u = app.ws_url.clone();
@@ -205,15 +317,12 @@ pub async fn run_tui(url: &str, token: Option<&str>, session: Option<&str>) -> a
     }
 
     app.push_system("Welcome to FastClaw TUI! Type /help for commands.".into());
+    run_preflight_checks(&mut app);
 
     let result = run_event_loop(&mut terminal, &mut app, &mut ws_tx, &mut ws_rx).await;
 
     crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::LeaveAlternateScreen,
-        crossterm::event::DisableMouseCapture
-    )?;
+    crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     result
@@ -282,8 +391,44 @@ async fn poll_crossterm_event() -> bool {
 // ── Key handling ────────────────────────────────────────────────────
 
 async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: KeyEvent) {
-    // Popup dismissal
+    // Popup handling
     if app.show_popup.is_some() {
+        // Extract AskQuestion data before mutating app
+        let ask_data = if let Some(PopupKind::AskQuestion { ref request_id, ref options, .. }) = app.show_popup {
+            Some((request_id.clone(), options.clone()))
+        } else {
+            None
+        };
+
+        if let Some((request_id, options)) = ask_data {
+            if let KeyCode::Char(c) = key.code {
+                if let Some(digit) = c.to_digit(10) {
+                    let idx = (digit as usize).wrapping_sub(1);
+                    if idx < options.len() {
+                        let answer_id = options[idx].0.clone();
+                        let answer_label = options[idx].1.clone();
+                        let id = app.next_id();
+                        let req = json!({
+                            "id": id,
+                            "method": "chat.answer",
+                            "params": {"requestId": request_id, "answer": answer_id}
+                        });
+                        let _ = ws_tx.send(Message::Text(req.to_string().into())).await;
+                        app.push_system(format!("Answered: {answer_label}"));
+                        app.show_popup = None;
+                        app.status = "Streaming...".into();
+                        return;
+                    }
+                }
+            }
+            if matches!(key.code, KeyCode::Esc) {
+                app.show_popup = None;
+                app.status = "Question dismissed".into();
+            }
+            return;
+        }
+
+        // Non-AskQuestion popups
         if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
             app.show_popup = None;
         }
@@ -370,6 +515,11 @@ async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: KeyEvent) {
             app.scroll_offset = 0;
         }
         (_, KeyCode::Esc) if app.streaming => {
+            if let Some(rid) = app.last_request_id.take() {
+                let cancel_id = app.next_id();
+                let cancel_req = json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
+                let _ = ws_tx.send(Message::Text(cancel_req.to_string().into())).await;
+            }
             app.streaming = false;
             app.status = "Cancelled".into();
         }
@@ -427,6 +577,97 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
                 app.push_system(format!("Agent: {} ({})\nModel: {}", a.id, a.name, a.model));
             }
         }
+        "/stats" => {
+            if app.total_messages == 0 {
+                app.push_system("No messages in this session yet.".into());
+            } else {
+                app.push_system(format!(
+                    "Session stats: {} message(s), {} total, ↑{} ↓{} tokens ({}+{} = {} total tok)",
+                    app.total_messages,
+                    format_elapsed(app.total_elapsed_ms),
+                    app.total_input_tokens,
+                    app.total_output_tokens,
+                    app.total_input_tokens,
+                    app.total_output_tokens,
+                    app.total_input_tokens + app.total_output_tokens,
+                ));
+                if let (Some(ms), Some(i), Some(o)) =
+                    (app.last_elapsed_ms, app.last_input_tokens, app.last_output_tokens)
+                {
+                    app.push_system(format!(
+                        "Last message: {} | ↑{} ↓{} tokens",
+                        format_elapsed(ms), i, o,
+                    ));
+                }
+            }
+        }
+        "/doctor" => {
+            run_preflight_checks(app);
+            if app.messages.last().map_or(true, |m| m.role != "system") {
+                app.push_system("All checks passed.".into());
+            }
+        }
+        "/cancel" => {
+            if app.streaming {
+                if let Some(rid) = app.last_request_id.take() {
+                    let cancel_id = app.next_id();
+                    let cancel_req = json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
+                    let _ = ws_tx.send(Message::Text(cancel_req.to_string().into())).await;
+                }
+                app.streaming = false;
+                app.status = "Cancelled".into();
+            } else {
+                app.push_system("Nothing to cancel.".into());
+            }
+        }
+        "/ping" => {
+            let id = app.next_id();
+            let ping_start = Instant::now();
+            let req = json!({"id": id, "method": "ping"});
+            let _ = ws_tx.send(Message::Text(req.to_string().into())).await;
+            // Latency will be estimated by the TUI (pong handled elsewhere)
+            app.push_system(format!(
+                "Ping sent... (local send took {}μs)",
+                ping_start.elapsed().as_micros()
+            ));
+        }
+        "/models" => {
+            let id = app.next_id();
+            let req = json!({"id": id, "method": "models.list"});
+            let _ = ws_tx.send(Message::Text(req.to_string().into())).await;
+            app.status = "Loading models...".into();
+        }
+        "/mcp" => {
+            let id = app.next_id();
+            let req = json!({"id": id, "method": "mcp.status"});
+            let _ = ws_tx.send(Message::Text(req.to_string().into())).await;
+            app.status = "Loading MCP status...".into();
+        }
+        "/export" => {
+            if app.messages.is_empty() {
+                app.push_system("No messages to export.".into());
+            } else {
+                let mut export = String::new();
+                for msg in &app.messages {
+                    export.push_str(&format!(
+                        "[{}] {}: {}\n",
+                        msg.timestamp, msg.role, msg.content
+                    ));
+                }
+                let sid = app
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("unsaved")
+                    .chars()
+                    .take(12)
+                    .collect::<String>();
+                let filename = format!("fastclaw-session-{sid}.txt");
+                match std::fs::write(&filename, &export) {
+                    Ok(_) => app.push_system(format!("Exported {} messages to {filename}", app.messages.len())),
+                    Err(e) => app.push_system(format!("Export failed: {e}")),
+                }
+            }
+        }
         "/sessions" => {
             let id = app.next_id();
             let req = json!({"id": id, "method": "sessions.list", "params": {"limit": 10}});
@@ -437,6 +678,12 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
             app.session_id = Some(arg.to_string());
             app.messages.clear();
             app.scroll_offset = 0;
+
+            // Claim session ownership first, then load messages
+            let claim_id = app.next_id();
+            let claim_req =
+                json!({"id": claim_id, "method": "sessions.claim", "params": {"sessionId": arg}});
+            let _ = ws_tx.send(Message::Text(claim_req.to_string().into())).await;
 
             let id = app.next_id();
             let req =
@@ -559,10 +806,15 @@ async fn send_chat(app: &mut TuiApp, ws_tx: &mut WsTx) {
     if let Some(sid) = &app.session_id {
         params["sessionId"] = json!(sid);
     }
+    if let Some(wd) = &app.work_dir {
+        params["workDir"] = json!(wd);
+    }
 
     let req = json!({"id": id, "method": "chat", "params": params});
     let _ = ws_tx.send(Message::Text(req.to_string().into())).await;
 
+    app.last_request_id = Some(id);
+    app.chat_start_time = Some(Instant::now());
     app.streaming = true;
     app.status = "Thinking...".into();
     app.scroll_offset = 0;
@@ -611,8 +863,35 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
         }
         "chat.complete" => {
             app.streaming = false;
+
+            let elapsed_ms = msg["data"]["elapsedMs"].as_u64()
+                .or_else(|| app.chat_start_time.map(|t| t.elapsed().as_millis() as u64));
+            let input_tokens = msg["data"]["inputTokensEstimate"].as_u64();
+            let output_tokens = msg["data"]["outputTokensEstimate"].as_u64();
+
+            app.last_elapsed_ms = elapsed_ms;
+            app.last_input_tokens = input_tokens;
+            app.last_output_tokens = output_tokens;
+            if let Some(ms) = elapsed_ms {
+                app.total_elapsed_ms += ms;
+            }
+            if let Some(t) = input_tokens {
+                app.total_input_tokens += t;
+            }
+            if let Some(t) = output_tokens {
+                app.total_output_tokens += t;
+            }
+            app.total_messages += 1;
+            app.chat_start_time = None;
+
             let sid = app.session_id.as_deref().unwrap_or("none");
-            app.status = format!("Ready | session: {}", &sid[..sid.len().min(8)]);
+            let time_str = format_elapsed(elapsed_ms.unwrap_or(0));
+            let in_tok = input_tokens.unwrap_or(0);
+            let out_tok = output_tokens.unwrap_or(0);
+            app.status = format!(
+                "Ready | {time_str} | ↑{in_tok} ↓{out_tok} tok | session: {}",
+                &sid[..sid.len().min(8)]
+            );
         }
         "chat.error" => {
             app.streaming = false;
@@ -630,14 +909,60 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 app.status = "Ready".into();
             }
         }
+        "models.list" => {
+            if let Some(models) = msg["data"]["models"].as_array() {
+                app.push_system(format!("Available models ({}):", models.len()));
+                for m in models {
+                    let provider = m["provider"].as_str().unwrap_or("?");
+                    let model = m["model"].as_str().unwrap_or("?");
+                    app.push_system(format!("  {provider}/{model}"));
+                }
+            }
+            app.status = "Ready".into();
+        }
+        "mcp.status" => {
+            if let Some(servers) = msg["data"]["servers"].as_array() {
+                if servers.is_empty() {
+                    app.push_system("No MCP servers configured.".into());
+                } else {
+                    app.push_system(format!("MCP servers ({}):", servers.len()));
+                    for s in servers {
+                        let id = s["id"].as_str().unwrap_or("?");
+                        let status = s["status"].as_str().unwrap_or("unknown");
+                        app.push_system(format!("  {id}: {status}"));
+                    }
+                }
+            }
+            app.status = "Ready".into();
+        }
+        "sessions.claim" => {
+            // Silently acknowledged -- session is now owned by this connection
+        }
         "sessions.messages" => {
             if let Some(messages) = msg["data"]["messages"].as_array() {
                 for m in messages {
                     let role = m["role"].as_str().unwrap_or("unknown").to_string();
-                    let content = m["content"].as_str().unwrap_or("").to_string();
-                    let ts = m["created_at"]
+                    let content = match &m["content"] {
+                        Value::String(s) => s.clone(),
+                        Value::Null => String::new(),
+                        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+                    };
+                    let ts = m["createdAt"]
                         .as_str()
-                        .map(|s| s.split(' ').last().unwrap_or(s).to_string())
+                        .or_else(|| m["created_at"].as_str())
+                        .map(|s| {
+                            // Extract HH:MM:SS from ISO or space-separated timestamps
+                            s.split('T')
+                                .last()
+                                .unwrap_or(s)
+                                .split(' ')
+                                .last()
+                                .unwrap_or(s)
+                                .split('.')
+                                .next()
+                                .unwrap_or(s)
+                                .to_string()
+                        })
                         .unwrap_or_default();
                     app.messages.push(ChatMsg {
                         role,
@@ -647,6 +972,63 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 }
                 app.scroll_offset = 0;
             }
+        }
+        "chat.ask_question" => {
+            let request_id = msg["data"]["requestId"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let question = msg["data"]["question"]
+                .as_str()
+                .unwrap_or("Agent is asking a question")
+                .to_string();
+            let options: Vec<(String, String)> = msg["data"]["options"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .enumerate()
+                        .map(|(i, opt)| {
+                            let id = opt["id"]
+                                .as_str()
+                                .unwrap_or(&format!("{}", i + 1))
+                                .to_string();
+                            let label = opt["label"]
+                                .as_str()
+                                .or_else(|| opt.as_str())
+                                .unwrap_or(&id)
+                                .to_string();
+                            (id, label)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            app.show_popup = Some(PopupKind::AskQuestion {
+                request_id,
+                question,
+                options,
+            });
+            app.status = "Agent is waiting for your answer...".into();
+        }
+        "chat.cancel" => {
+            let cancelled = msg["data"]["cancelled"].as_bool().unwrap_or(false);
+            if cancelled {
+                app.streaming = false;
+                app.status = "Cancelled (server confirmed)".into();
+            }
+        }
+        "error" => {
+            let err_msg = msg["error"]["message"]
+                .as_str()
+                .unwrap_or("unknown error");
+            let code = msg["error"]["code"].as_i64();
+            let status = match code {
+                Some(401) => format!("Auth error: {err_msg}"),
+                Some(403) => format!("Access denied: {err_msg}"),
+                Some(404) => format!("Not found: {err_msg}"),
+                _ => format!("Error: {err_msg}"),
+            };
+            app.push_system(format!("[Error] {status}"));
+            app.status = status;
         }
         "heartbeat" | "pong" => {}
         _ => {}
@@ -1000,12 +1382,28 @@ fn draw_input(f: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 fn draw_status_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let cumulative = if app.total_messages > 0 {
+        format!(
+            "  [Σ {}msg {}  ↑{} ↓{}]",
+            app.total_messages,
+            format_elapsed(app.total_elapsed_ms),
+            app.total_input_tokens,
+            app.total_output_tokens,
+        )
+    } else {
+        String::new()
+    };
+
     let status = Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(&app.status, Style::default().fg(Color::White)),
+        Span::styled(
+            cumulative,
+            Style::default().fg(Color::Rgb(100, 100, 140)),
+        ),
         Span::raw("  "),
         Span::styled(
-            "Ctrl+C:quit  Shift+↑↓:scroll  /help:commands  Tab:complete",
+            "Ctrl+C:quit  Shift+↑↓:scroll  /help:commands",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -1111,6 +1509,46 @@ fn draw_popup(f: &mut Frame, popup: &PopupKind, agents: &[AgentInfo]) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan))
                 .title(" Agents ");
+            f.render_widget(
+                Paragraph::new(lines)
+                    .block(block)
+                    .wrap(Wrap { trim: false }),
+                popup_area,
+            );
+        }
+        PopupKind::AskQuestion {
+            question, options, ..
+        } => {
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    "Agent Question",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::default(),
+                Line::from(Span::raw(format!("  {question}"))),
+                Line::default(),
+            ];
+            for (i, (_, label)) in options.iter().enumerate() {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  {}. ", i + 1),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(label.clone()),
+                ]));
+            }
+            lines.push(Line::default());
+            lines.push(Line::from(Span::styled(
+                " Press number to answer, Esc to dismiss ",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .title(" Question ");
             f.render_widget(
                 Paragraph::new(lines)
                     .block(block)

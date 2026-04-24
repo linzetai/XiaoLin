@@ -36,6 +36,9 @@ pub struct FunctionDefinition {
 pub struct ToolResult {
     pub success: bool,
     pub output: String,
+    /// When `true`, the runtime should pause and ask the user for confirmation
+    /// before retrying this tool call. Used by the dangerous-ops-policy `confirm` mode.
+    pub needs_confirmation: bool,
 }
 
 impl ToolResult {
@@ -43,6 +46,7 @@ impl ToolResult {
         Self {
             success: true,
             output: output.into(),
+            needs_confirmation: false,
         }
     }
 
@@ -50,6 +54,19 @@ impl ToolResult {
         Self {
             success: false,
             output: error.into(),
+            needs_confirmation: false,
+        }
+    }
+
+    /// A dangerous operation was detected and requires user confirmation before proceeding.
+    /// The runtime will automatically present a confirmation dialog to the user.
+    /// If approved, the tool is re-executed with `"confirmed": true` injected.
+    pub fn needs_confirm(description: impl Into<String>) -> Self {
+        let desc = description.into();
+        Self {
+            success: false,
+            output: format!("⚠️ Dangerous operation — awaiting user confirmation.\n{desc}"),
+            needs_confirmation: true,
         }
     }
 }

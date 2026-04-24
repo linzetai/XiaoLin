@@ -1,4 +1,5 @@
 mod ask_question;
+mod confirm;
 mod code_intel;
 mod filesystem;
 mod hub;
@@ -41,6 +42,7 @@ pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool};
 pub use identity::{GetIdentityTool, SetIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, WriteSkillTool};
 pub use ask_question::{AskQuestionTool, with_stream_context};
+pub use confirm::ConfirmTool;
 pub use code_intel::{FindReferencesTool, GoToDefinitionTool, WorkspaceSymbolsTool};
 pub use utility::{CalculatorTool, CurrentTimeTool};
 
