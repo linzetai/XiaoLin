@@ -4,7 +4,7 @@ mod runtime;
 pub mod subagent;
 
 pub use builtin_tools::{
-    HubInstallTool, HubSearchTool, ImageGenerateTool, MemorySearchTool,
+    ImageGenerateTool, MemorySearchTool,
     MemoryStoreTool, SearchEngine, SearxngEngine, TavilyEngine, TtsTool, WebFetchTool,
     WebSearchBackend, WebSearchTool,
     GoogleEngine, BaiduEngine, BingEngine, SogouEngine, Search360Engine,

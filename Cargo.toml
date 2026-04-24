@@ -110,3 +110,27 @@ insta = "1"
 proptest = "1"
 criterion = { version = "0.5", features = ["async_tokio"] }
 
+# ─── Build profiles ──────────────────────────────────────────────────────────
+# Dev: our crate code compiles unoptimized (fastest rebuilds), but all external
+# dependencies are compiled at opt-level = 1.  This gives much better runtime
+# performance during development without a full release-mode build, and
+# significantly reduces link time because debug sections stay small.
+[profile.dev]
+opt-level = 0
+debug = 1               # partial debug info — faster link, still debuggable
+split-debuginfo = "unpacked"  # Linux: parallel debug-info extraction, speeds up linking
+
+[profile.dev.package."*"]
+opt-level = 1           # slightly optimise third-party crates in dev mode
+
+# Proc-macro crates are always compiled for the host and benefit from more opt.
+[profile.dev.build-override]
+opt-level = 1
+
+# Release: full optimisation + thin-LTO + strip debug symbols.
+[profile.release]
+opt-level = 3
+lto = "thin"            # cross-crate inlining without full LTO overhead
+codegen-units = 1       # single CGU for maximum inlining
+strip = "debuginfo"     # smaller binary, no debug info leak in distributed app
+

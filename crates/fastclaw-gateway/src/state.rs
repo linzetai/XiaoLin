@@ -106,6 +106,7 @@ struct BuildPhase5 {
     phase2: BuildPhase2Memory,
     dag_checkpoint_store: Arc<dyn CheckpointStore>,
     cron_store: CronJobStore,
+    notification_store: crate::notification_store::NotificationStore,
     budget_tracker: BudgetTracker,
     model_router: Option<Arc<fastclaw_model_router::ModelRouter>>,
     ws_broadcast: tokio::sync::broadcast::Sender<String>,
@@ -324,11 +325,6 @@ impl StateBuilder {
         let (channel_registry, _inbound_tx, inbound_rx) =
             AppState::build_channels(config, &p3.tool_registry).await?;
 
-        let hub_client = fastclaw_core::hub::HubClient::with_defaults();
-        let hub = Arc::new(tokio::sync::Mutex::new(hub_client));
-        fastclaw_agent::builtin_tools::register_hub_tools(&p3.tool_registry, hub);
-        tracing::info!("registered hub_search and hub_install tools");
-
         let base_skill_registry = Arc::new(p3.base_skill_registry.filtered(
             &config.skills.allow,
             &config.skills.deny,
@@ -439,6 +435,7 @@ impl StateBuilder {
         context_engine.add_hook(Arc::new(fastclaw_context::CompactionHook::new(
             fastclaw_context::CompactionStrategy::default(),
         )));
+        context_engine.add_hook(Arc::new(fastclaw_context::ContentFilterHook::default()));
         context_engine.add_hook(Arc::new(fastclaw_context::SystemReminderHook::default()));
         let mut personality_hook = fastclaw_context::AgentPersonalityHook::new();
         for (agent_id, workspace) in &p4.phase3.workspaces {
@@ -531,7 +528,9 @@ impl StateBuilder {
         );
 
         let cron_pool = open_memory_pool_named(&p2.phase4.phase3.phase1.db_path, "cron.db").await?;
-        let cron_store = CronJobStore::open(cron_pool).await?;
+        let cron_store = CronJobStore::open(cron_pool.clone()).await?;
+        let notification_store =
+            crate::notification_store::NotificationStore::open(cron_pool).await?;
 
         let budget_tracker = BudgetTracker::new(config.model_router.daily_budget);
 
@@ -566,6 +565,7 @@ impl StateBuilder {
             phase2: p2,
             dag_checkpoint_store,
             cron_store,
+            notification_store,
             budget_tracker,
             model_router,
             ws_broadcast,
@@ -653,6 +653,7 @@ impl StateBuilder {
             context_engine: Arc::new(p5.phase2.context_engine),
             cron_store: Arc::new(p5.cron_store),
             cron_wake: Arc::new(tokio::sync::Notify::new()),
+            notification_store: Arc::new(p5.notification_store),
             budget_tracker: Arc::new(p5.budget_tracker),
             model_router: p5.model_router,
             ws_broadcast: p5.ws_broadcast,
@@ -808,6 +809,7 @@ pub struct AppState {
     pub context_engine: Arc<fastclaw_context::ContextEngine>,
     pub cron_store: Arc<CronJobStore>,
     pub cron_wake: Arc<tokio::sync::Notify>,
+    pub notification_store: Arc<crate::notification_store::NotificationStore>,
     pub budget_tracker: Arc<BudgetTracker>,
     pub model_router: Option<Arc<fastclaw_model_router::ModelRouter>>,
     pub ws_broadcast: tokio::sync::broadcast::Sender<String>,
@@ -2053,7 +2055,9 @@ impl AppState {
                 .connect_with(opts)
                 .await?
         };
-        let cron_store = CronJobStore::open(cron_pool).await?;
+        let cron_store = CronJobStore::open(cron_pool.clone()).await?;
+        let notification_store =
+            crate::notification_store::NotificationStore::open(cron_pool).await?;
 
         let budget_tracker = BudgetTracker::new(None);
 
@@ -2083,6 +2087,7 @@ impl AppState {
             context_engine: Arc::new(context_engine),
             cron_store: Arc::new(cron_store),
             cron_wake: Arc::new(tokio::sync::Notify::new()),
+            notification_store: Arc::new(notification_store),
             budget_tracker: Arc::new(budget_tracker),
             model_router: None,
             ws_broadcast,

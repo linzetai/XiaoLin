@@ -30,6 +30,18 @@ pub trait JobTrigger: Send + Sync + 'static {
         method: Option<&str>,
         body: Option<&serde_json::Value>,
     ) -> anyhow::Result<()>;
+
+    /// Called after a job finishes successfully. Override to send in-app notifications.
+    async fn on_job_completed(
+        &self,
+        _job_id: &str,
+        _job_name: &str,
+        _output: Option<&str>,
+    ) {
+    }
+
+    /// Called after a job fails. Override to send in-app notifications.
+    async fn on_job_failed(&self, _job_id: &str, _job_name: &str, _error: &str) {}
 }
 
 pub struct CronScheduler {
@@ -163,6 +175,9 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
             if run_id >= 0 {
                 let _ = store.complete_run(run_id, output.as_deref()).await;
             }
+            trigger
+                .on_job_completed(&job_id, &job.name, output.as_deref())
+                .await;
         }
         Err(e) => {
             let err_msg = e.to_string();
@@ -172,6 +187,7 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
             if run_id >= 0 {
                 let _ = store.fail_run(run_id, &safe_msg).await;
             }
+            trigger.on_job_failed(&job_id, &job.name, &safe_msg).await;
         }
     }
 
@@ -180,10 +196,18 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
     }
 }
 
+/// Compute the next scheduled run time after `now`.
+///
+/// Cron expressions are interpreted in the **system's local timezone** so that
+/// `"0 9 * * *"` means "9 AM on the machine running FastClaw", regardless of the
+/// UTC offset of the server.  The returned RFC3339 string is **normalized to UTC**
+/// (offset `+00:00`) so all `next_run` values in the database are directly comparable
+/// with `Utc::now()` via SQLite text collation.
 fn compute_next_run(schedule_str: &str) -> Option<String> {
     let schedule = Schedule::from_str(schedule_str).ok()?;
-    let next = schedule.upcoming(Utc).next()?;
-    Some(next.to_rfc3339())
+    let next_local = schedule.upcoming(chrono::Local).next()?;
+    // Normalize to UTC so SQLite text comparison with Utc::now().to_rfc3339() is correct.
+    Some(next_local.with_timezone(&Utc).to_rfc3339())
 }
 
 #[cfg(test)]

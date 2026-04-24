@@ -5,6 +5,7 @@ pub mod chat_pipeline;
 pub mod cron_tool;
 pub mod mcp_tool;
 mod memory_scope;
+pub mod notification_store;
 pub mod routes;
 mod scoped_tool;
 mod state;
@@ -377,6 +378,70 @@ fn spawn_cron_scheduler(state: AppState) {
                 anyhow::bail!("webhook returned {}", resp.status());
             }
             Ok(())
+        }
+
+        async fn on_job_completed(
+            &self,
+            _job_id: &str,
+            job_name: &str,
+            output: Option<&str>,
+        ) {
+            let preview: String = output
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect();
+
+            let nid = uuid::Uuid::new_v4().to_string();
+            let body = if preview.is_empty() { "执行完成".to_string() } else { format!("完成：{preview}") };
+            if let Err(e) = self.state.notification_store
+                .insert(&nid, "cron", job_name, &body, None)
+                .await
+            {
+                tracing::warn!(error = %e, "failed to persist cron completion notification");
+            }
+
+            let unread = self.state.notification_store.unread_count().await.unwrap_or(0);
+            let event = serde_json::json!({
+                "type": "event",
+                "event": "notification.new",
+                "data": {
+                    "id": nid,
+                    "category": "cron",
+                    "title": job_name,
+                    "body": body,
+                    "isRead": false,
+                    "unreadCount": unread,
+                }
+            });
+            let _ = self.state.ws_broadcast.send(event.to_string());
+        }
+
+        async fn on_job_failed(&self, job_id: &str, job_name: &str, error: &str) {
+            let nid = uuid::Uuid::new_v4().to_string();
+            let body = format!("失败：{error}");
+            let detail = Some(format!("Job ID: {job_id}\nError: {error}"));
+            if let Err(e) = self.state.notification_store
+                .insert(&nid, "cron", job_name, &body, detail.as_deref())
+                .await
+            {
+                tracing::warn!(error = %e, "failed to persist cron failure notification");
+            }
+
+            let unread = self.state.notification_store.unread_count().await.unwrap_or(0);
+            let event = serde_json::json!({
+                "type": "event",
+                "event": "notification.new",
+                "data": {
+                    "id": nid,
+                    "category": "cron",
+                    "title": job_name,
+                    "body": body,
+                    "isRead": false,
+                    "unreadCount": unread,
+                }
+            });
+            let _ = self.state.ws_broadcast.send(event.to_string());
         }
     }
 

@@ -2,7 +2,6 @@ mod ask_question;
 mod confirm;
 mod code_intel;
 mod filesystem;
-mod hub;
 mod identity;
 mod lsp_manager;
 mod media;
@@ -28,7 +27,6 @@ pub use filesystem::{
     ApplyPatchTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
 };
 pub use filesystem::{with_file_access_mode, with_work_dir};
-pub use hub::{HubInstallTool, HubSearchTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool};
 pub use network::{
@@ -106,15 +104,6 @@ pub fn register_skill_tools_full(
     registry.register(Arc::new(ListSkillsTool::new(skill_registry.clone())));
     registry.register(Arc::new(ReadSkillTool::new(skill_registry)));
     registry.register(Arc::new(WriteSkillTool::new(workspace)));
-}
-
-/// Register ClawHub marketplace tools.
-pub fn register_hub_tools(
-    registry: &ToolRegistry,
-    hub: Arc<tokio::sync::Mutex<fastclaw_core::hub::HubClient>>,
-) {
-    registry.register(Arc::new(HubSearchTool::new(hub.clone())));
-    registry.register(Arc::new(HubInstallTool::new(hub)));
 }
 
 /// Register identity tools (get_identity, set_identity) for reading/writing SOUL.md, USER.md, AGENTS.md.

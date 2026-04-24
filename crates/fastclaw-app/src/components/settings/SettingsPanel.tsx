@@ -490,11 +490,70 @@ function ModelFormModal({
             </button>
             {showAdvanced && (
               <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className={labelCls} style={labelStyle}>温度</label>
-                    <input type="number" step="0.1" min="0" max="2" value={form.temperature} onChange={(e) => patch("temperature", parseFloat(e.target.value) || 0)} className={inputCls} style={inputStyle} />
+                {/* Temperature preset selector */}
+                <div>
+                  <label className={labelCls} style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 4 }}>
+                    温度
+                    <span style={{ color: "var(--fill-quaternary)", fontWeight: 400 }}>
+                      ({form.temperature})
+                    </span>
+                  </label>
+                  {(() => {
+                    const TIERS: Array<{ label: string; value: number; desc: string }> = [
+                      { label: "精确", value: 0, desc: "确定性强，适合代码和分析" },
+                      { label: "均衡", value: 0.7, desc: "通用场景的最佳默认值" },
+                      { label: "创意", value: 1.0, desc: "更有创意，适合写作" },
+                      { label: "自由", value: 1.5, desc: "高随机性，充满惊喜" },
+                    ];
+                    const activeIdx = TIERS.findIndex((t) => Math.abs(t.value - form.temperature) < 0.05);
+                    return (
+                      <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                        {TIERS.map((tier, i) => {
+                          const isActive = i === activeIdx;
+                          return (
+                            <button
+                              key={tier.value}
+                              type="button"
+                              title={`${tier.desc}（temperature = ${tier.value}）`}
+                              onClick={() => patch("temperature", tier.value)}
+                              style={{
+                                flex: 1,
+                                padding: "5px 0",
+                                borderRadius: 6,
+                                border: `0.5px solid ${isActive ? "var(--tint)" : "var(--separator)"}`,
+                                background: isActive ? "var(--tint)" : "var(--bg-secondary)",
+                                color: isActive ? "#fff" : "var(--fill-secondary)",
+                                fontSize: 11,
+                                fontWeight: isActive ? 600 : 400,
+                                cursor: "pointer",
+                                transition: "all 0.15s",
+                                lineHeight: 1.3,
+                              }}
+                            >
+                              <div>{tier.label}</div>
+                              <div style={{ fontSize: 9, opacity: 0.75, marginTop: 1 }}>{tier.value}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                  {/* Custom value input for power users */}
+                  <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "var(--fill-quaternary)" }}>自定义：</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="2"
+                      value={form.temperature}
+                      onChange={(e) => patch("temperature", Math.min(2, Math.max(0, parseFloat(e.target.value) || 0)))}
+                      className={inputCls}
+                      style={{ ...inputStyle, width: 72, fontSize: 11, padding: "3px 7px" }}
+                    />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls} style={labelStyle}>并发数</label>
                     <input type="number" min="1" value={form.maxConcurrent} onChange={(e) => patch("maxConcurrent", parseInt(e.target.value) || 1)} className={inputCls} style={inputStyle} />

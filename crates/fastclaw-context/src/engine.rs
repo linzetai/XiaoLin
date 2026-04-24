@@ -1022,6 +1022,99 @@ impl ContextEngine {
     }
 }
 
+// ─── ContentFilterHook ───────────────────────────────────────────────────────
+
+/// Default max chars retained in a single tool-result (`Role::Tool`) message.
+///
+/// Tool outputs like shell commands or file reads can be megabytes long. Anything
+/// beyond this limit is replaced with a short truncation notice.
+pub const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 2000;
+
+/// Hook that runs on `on_assemble` to strip low-value content before the message list
+/// is sent to the LLM.
+///
+/// What it does (in order):
+/// 1. **Tool-result truncation** — `Role::Tool` messages whose content exceeds
+///    `max_tool_result_chars` are trimmed; a `…(N chars truncated)` notice is appended.
+/// 2. **Empty-message removal** — messages with no `content` text and no `tool_calls`
+///    are dropped (e.g., stray empty assistant frames).
+/// 3. **System-message dedup** — if two consecutive `Role::System` messages have
+///    identical text, the earlier duplicate is removed.
+pub struct ContentFilterHook {
+    pub max_tool_result_chars: usize,
+}
+
+impl Default for ContentFilterHook {
+    fn default() -> Self {
+        Self {
+            max_tool_result_chars: DEFAULT_MAX_TOOL_RESULT_CHARS,
+        }
+    }
+}
+
+impl ContentFilterHook {
+    pub fn new(max_tool_result_chars: usize) -> Self {
+        Self {
+            max_tool_result_chars,
+        }
+    }
+}
+
+#[async_trait]
+impl ContextHook for ContentFilterHook {
+    fn name(&self) -> &str {
+        "content_filter"
+    }
+
+    async fn on_assemble(&self, messages: &mut Vec<ChatMessage>) -> anyhow::Result<()> {
+        let max = self.max_tool_result_chars;
+
+        // Step 1: truncate oversized tool results and remove empty messages.
+        messages.retain_mut(|msg| {
+            // Remove messages that carry no payload.
+            let has_tool_calls = msg.tool_calls.as_ref().is_some_and(|t| !t.is_empty());
+            let has_tool_call_id = msg.tool_call_id.is_some();
+            let text = msg.text_content();
+            let has_text = text.as_deref().map_or(false, |s| !s.trim().is_empty());
+
+            if !has_text && !has_tool_calls && !has_tool_call_id {
+                return false; // drop empty message
+            }
+
+            // Truncate tool-result content.
+            if matches!(msg.role, Role::Tool) {
+                if let Some(ref t) = text {
+                    if t.chars().count() > max {
+                        let truncated: String = t.chars().take(max).collect();
+                        let removed = t.chars().count() - max;
+                        let new_content = format!("{truncated}\n…({removed} chars truncated)");
+                        msg.content = Some(serde_json::Value::String(new_content));
+                    }
+                }
+            }
+
+            true
+        });
+
+        // Step 2: deduplicate consecutive identical system messages.
+        let mut i = 0usize;
+        while i + 1 < messages.len() {
+            if matches!(messages[i].role, Role::System)
+                && matches!(messages[i + 1].role, Role::System)
+                && messages[i].content == messages[i + 1].content
+            {
+                messages.remove(i); // remove the earlier duplicate, keep later
+            } else {
+                i += 1;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Build a ContextEngine with sensible defaults.
 pub fn build_default_engine(
     strategy: crate::compressor::CompactionStrategy,
@@ -1177,5 +1270,106 @@ mod tests {
             .messages
             .iter()
             .any(|m| m.text_content().as_deref() == Some("now")));
+    }
+
+    // ─── ContentFilterHook tests ─────────────────────────────────────────────
+
+    fn tool_result(content: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Tool,
+            content: Some(content.to_string().into()),
+            name: None,
+            tool_calls: None,
+            tool_call_id: Some("id-1".to_string()),
+        }
+    }
+
+    fn sys(text: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::System,
+            content: Some(text.to_string().into()),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn content_filter_truncates_long_tool_result() {
+        let hook = ContentFilterHook::new(10);
+        let big = "x".repeat(200);
+        let mut msgs = vec![tool_result(&big)];
+        hook.on_assemble(&mut msgs).await.unwrap();
+        assert_eq!(msgs.len(), 1);
+        let text = msgs[0].text_content().unwrap();
+        assert!(text.starts_with("xxxxxxxxxx"));
+        assert!(text.contains("truncated"));
+        assert!(text.chars().count() < 60);
+    }
+
+    #[tokio::test]
+    async fn content_filter_keeps_short_tool_result() {
+        let hook = ContentFilterHook::new(100);
+        let mut msgs = vec![tool_result("hello")];
+        hook.on_assemble(&mut msgs).await.unwrap();
+        assert_eq!(msgs[0].text_content().as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn content_filter_removes_empty_messages() {
+        let hook = ContentFilterHook::default();
+        let empty = ChatMessage {
+            role: Role::Assistant,
+            content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        };
+        let mut msgs = vec![user("hi"), empty, assistant("bye")];
+        hook.on_assemble(&mut msgs).await.unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].text_content().as_deref(), Some("hi"));
+        assert_eq!(msgs[1].text_content().as_deref(), Some("bye"));
+    }
+
+    #[tokio::test]
+    async fn content_filter_deduplicates_consecutive_system() {
+        let hook = ContentFilterHook::default();
+        let mut msgs = vec![
+            sys("reminder A"),
+            sys("reminder A"), // duplicate
+            sys("reminder B"),
+            user("q"),
+        ];
+        hook.on_assemble(&mut msgs).await.unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].text_content().as_deref(), Some("reminder A"));
+        assert_eq!(msgs[1].text_content().as_deref(), Some("reminder B"));
+    }
+
+    #[tokio::test]
+    async fn content_filter_keeps_tool_call_messages() {
+        use fastclaw_core::types::{FunctionCall, ToolCall};
+        let hook = ContentFilterHook::default();
+        let asst_with_tool = ChatMessage {
+            role: Role::Assistant,
+            content: None,
+            name: None,
+            tool_calls: Some(vec![ToolCall {
+                id: "tc1".into(),
+                call_type: "function".into(),
+                function: FunctionCall {
+                    name: "shell_exec".into(),
+                    arguments: "{}".into(),
+                },
+                output: None,
+                success: None,
+                duration_ms: None,
+            }]),
+            tool_call_id: None,
+        };
+        let mut msgs = vec![user("run it"), asst_with_tool];
+        hook.on_assemble(&mut msgs).await.unwrap();
+        assert_eq!(msgs.len(), 2, "assistant with tool_calls must not be dropped");
     }
 }

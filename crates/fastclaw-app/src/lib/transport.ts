@@ -685,10 +685,85 @@ export async function cronListRuns(
   throw new Error("cron IPC only available in Tauri mode");
 }
 
+// ─── Notification center ───
+
+export interface AppNotification {
+  id: string;
+  category: string;
+  title: string;
+  body: string;
+  detail?: string | null;
+  isRead: boolean;
+  createdAt: string;
+  readAt?: string | null;
+}
+
+export async function notificationList(
+  limit?: number,
+  offset?: number,
+  unreadOnly?: boolean,
+): Promise<{ notifications: AppNotification[]; count: number; unreadCount: number }> {
+  if (isTauri) {
+    return tauriInvoke("notification_list", {
+      limit: limit ?? null,
+      offset: offset ?? null,
+      unreadOnly: unreadOnly ?? null,
+    });
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationGet(id: string): Promise<AppNotification> {
+  if (isTauri) {
+    return tauriInvoke("notification_get", { id });
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationMarkRead(
+  id: string,
+): Promise<{ ok: boolean; unreadCount: number }> {
+  if (isTauri) {
+    return tauriInvoke("notification_mark_read", { id });
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationMarkAllRead(): Promise<{ ok: boolean; unreadCount: number }> {
+  if (isTauri) {
+    return tauriInvoke("notification_mark_all_read", {});
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationUnreadCount(): Promise<{ count: number }> {
+  if (isTauri) {
+    return tauriInvoke("notification_unread_count", {});
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationDelete(id: string): Promise<{ ok: boolean }> {
+  if (isTauri) {
+    return tauriInvoke("notification_delete", { id });
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
+export async function notificationClearRead(): Promise<{ ok: boolean; cleared: number }> {
+  if (isTauri) {
+    return tauriInvoke("notification_clear_read", {});
+  }
+  throw new Error("notification IPC only available in Tauri mode");
+}
+
 // ─── WebSocket passthrough (browser mode only) ───
 
 export function connectWs(url: string, token?: string): Promise<void> {
-  return wsClient.connect(url, token);
+  return wsClient.connect(url, token).then(() => {
+    // Subscribe to push events that should be delivered to this client.
+    wsClient.send("subscribe", { events: ["cron.job.complete", "cron.job.failed", "notification.new", "notification.read"] }).catch(() => {});
+  });
 }
 
 export function disconnectWs(): void {

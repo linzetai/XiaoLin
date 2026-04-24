@@ -29,7 +29,7 @@ impl Tool for ListSkillsTool {
          Call list_skills before read_skill whenever procedures might live outside the base prompt, or when the user references a workflow by nickname and you need the exact id. \
          Disabled entries are hidden; layering (project vs global) is already merged by the host—treat this output as authoritative for ids. \
          Metadata only—always follow with read_skill to fetch full Markdown and tool hooks. \
-         Anti-pattern: inventing ids; anti-pattern: assuming skills exist when count is zero (author with write_skill or hub_install first). \
+         Anti-pattern: inventing ids; anti-pattern: assuming skills exist when count is zero (author with write_skill first). \
          No parameters—pass {}."
     }
 

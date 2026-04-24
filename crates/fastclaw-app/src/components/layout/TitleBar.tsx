@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback, type MouseEvent as RME } from "react"
 import { useThemeStore, type ThemeMode } from "../../lib/theme";
 import { useGatewayStore } from "../../lib/store";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import { NotificationCenter } from "../notification/NotificationCenter";
+import { NotificationDetailPanel } from "../notification/NotificationDetailPanel";
 import { Sun, Moon, Monitor, Settings, Minus, Square, Maximize2, X } from "lucide-react";
 import { ClawIcon } from "./ClawIcon";
+import type { AppNotification } from "../../lib/transport";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -133,10 +136,17 @@ function ConnectionDot() {
 
 export function TitleBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
 
   return (
     <>
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {detailNotification && (
+        <NotificationDetailPanel
+          notification={detailNotification}
+          onClose={() => setDetailNotification(null)}
+        />
+      )}
       <header
         className="relative z-30 flex shrink-0 select-none items-stretch"
         style={{
@@ -160,6 +170,7 @@ export function TitleBar() {
         </div>
 
         <ConnectionDot />
+        <NotificationCenter onDetailOpen={setDetailNotification} />
         <button
           onClick={() => setSettingsOpen(true)}
           className="flex w-11 items-center justify-center transition-colors duration-100 hover:bg-[var(--bg-hover)]"

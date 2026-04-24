@@ -35,7 +35,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
     let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
 
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().cloned().unwrap_or_else(|| {
             tauri::image::Image::new(&[], 0, 0)
         }))
@@ -124,6 +124,71 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 match EmbeddedGateway::start(false, None).await {
                     Ok(gw) => {
+                        // Subscribe to gateway broadcast events and re-emit as Tauri events.
+                        // This bridges cron notifications (and other push events) to the
+                        // frontend in embedded (non-WS) mode.
+                        let mut broadcast_rx = gw.app_state().ws_broadcast.subscribe();
+                        let handle_for_broadcast = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            loop {
+                                match broadcast_rx.recv().await {
+                                    Ok(event_json) => {
+                                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&event_json) {
+                                            let event_name = val.get("event")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            if event_name.is_empty() { continue; }
+
+                                            let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
+                                            let tauri_name = event_name.replace('.', "-");
+                                            let _ = handle_for_broadcast.emit(tauri_name.as_str(), data.clone());
+
+                                            // For new notifications: fire OS notification + update tray
+                                            if event_name == "notification.new" {
+                                                let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("FastClaw");
+                                                let body = data.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                                                {
+                                                    use tauri_plugin_notification::NotificationExt;
+                                                    let _ = handle_for_broadcast.notification()
+                                                        .builder()
+                                                        .title(title)
+                                                        .body(body)
+                                                        .show();
+                                                }
+                                                // Update tray tooltip with unread count
+                                                if let Some(uc) = data.get("unreadCount").and_then(|v| v.as_i64()) {
+                                                    if let Some(tray) = handle_for_broadcast.tray_by_id("main-tray") {
+                                                        let tooltip = if uc > 0 {
+                                                            format!("FastClaw ({uc} 条未读)")
+                                                        } else {
+                                                            "FastClaw".to_string()
+                                                        };
+                                                        let _ = tray.set_tooltip(Some(&tooltip));
+                                                    }
+                                                }
+                                            }
+
+                                            // On read events, update tray tooltip too
+                                            if event_name == "notification.read" {
+                                                if let Some(uc) = data.get("unreadCount").and_then(|v| v.as_i64()) {
+                                                    if let Some(tray) = handle_for_broadcast.tray_by_id("main-tray") {
+                                                        let tooltip = if uc > 0 {
+                                                            format!("FastClaw ({uc} 条未读)")
+                                                        } else {
+                                                            "FastClaw".to_string()
+                                                        };
+                                                        let _ = tray.set_tooltip(Some(&tooltip));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                }
+                            }
+                        });
+
                         let state = handle.state::<AppData>();
                         let mut lock = state.gateway.lock().await;
                         let info = gw.info().clone();
@@ -214,6 +279,13 @@ pub fn run() {
             commands::cron_upsert_job,
             commands::cron_delete_job,
             commands::cron_list_runs,
+            commands::notification_list,
+            commands::notification_get,
+            commands::notification_mark_read,
+            commands::notification_mark_all_read,
+            commands::notification_unread_count,
+            commands::notification_delete,
+            commands::notification_clear_read,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastClaw app");

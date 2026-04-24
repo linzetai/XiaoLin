@@ -13,10 +13,10 @@ pub use compressor::{
 };
 pub use engine::{
     assemble_context, build_default_engine, AgentMemoryIngestHook, AgentPersonalityHook,
-    AssembledContext, CompactionHook, ContextBudget, ContextEngine, ContextHook, ContextLayers,
-    IngestInput, LayerTokenLimits, MemoryIngestHook, PersonalityHook, SystemReminderHook,
-    DEFAULT_COMPACTION_THRESHOLD, DEFAULT_SYSTEM_REMINDER_INTERVAL_USER_TURNS,
-    DEFAULT_SYSTEM_REMINDER_TEXT,
+    AssembledContext, CompactionHook, ContentFilterHook, ContextBudget, ContextEngine, ContextHook,
+    ContextLayers, IngestInput, LayerTokenLimits, MemoryIngestHook, PersonalityHook,
+    SystemReminderHook, DEFAULT_COMPACTION_THRESHOLD, DEFAULT_MAX_TOOL_RESULT_CHARS,
+    DEFAULT_SYSTEM_REMINDER_INTERVAL_USER_TURNS, DEFAULT_SYSTEM_REMINDER_TEXT,
 };
 pub use keyword_interceptor::MemoryKeywordInterceptor;
 pub use manager::ContextManager;
