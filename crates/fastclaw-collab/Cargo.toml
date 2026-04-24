@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-agent = { path = "../fastclaw-agent" }
 tokio.workspace = true
 dashmap.workspace = true
 serde.workspace = true

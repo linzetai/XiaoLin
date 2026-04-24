@@ -24,6 +24,10 @@ pub struct DelegationResult {
     pub output: serde_json::Value,
 }
 
+#[deprecated(
+    since = "0.1.0",
+    note = "Use SubAgentDelegation::delegate() for streaming, lifecycle management, and typed sub-agents"
+)]
 pub async fn delegate_task(
     bus: Arc<MessageBus>,
     req: DelegationRequest,

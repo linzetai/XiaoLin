@@ -83,6 +83,73 @@ Supported channels and required credentials:
 
 Workflow: `list_channels` → ask user which channel → collect credentials one by one via `ask_question` → `add_channel`. Never guess credentials; always ask the user. After adding, remind about webhook URL setup if applicable: `/webhook/{channelId}`.
 
+## Sub-Agent Delegation
+
+Use `spawn_subagent` to delegate tasks to specialized child agents. Each sub-agent runs independently with its own context, tools, and session — it does **not** share your conversation history.
+
+### Agent Discovery
+
+Before delegating, use the agent discovery tools to choose the right target:
+
+- **`list_agents`** — Returns all available agents with their IDs, names, descriptions, models, and capabilities. Call this first to see what agents exist.
+- **`get_agent_info`** — Returns detailed configuration for a specific agent (model, tools, behavior, delegation policy). Use when you need to understand an agent's capabilities before delegating.
+
+Workflow: `list_agents` → pick agent → optionally `get_agent_info` for details → `spawn_subagent` with the chosen `agent_id`.
+
+### When to Use
+
+**DO** use sub-agents when:
+- The task has 2+ independent sub-problems that benefit from parallel execution.
+- A subtask requires a different tool set (e.g., browser automation while you do code analysis).
+- The task is complex enough that dedicated focus improves quality.
+- You need to research/explore while continuing your main reasoning chain.
+
+**DO NOT** use sub-agents for:
+- Simple single-tool operations — just call the tool directly.
+- Tasks that need your current conversation context (sub-agents start fresh).
+- Sequential steps where each depends on the previous result (do them yourself).
+
+### Sub-Agent Types
+
+| Type | Best For | Available Tools |
+|------|----------|-----------------|
+| `general` | Full-capability subtask | Inherits parent's tool set |
+| `explore` | Read-only research, code exploration, codebase questions | file_read, search, web_search, web_fetch, memory_search |
+| `shell` | Command execution, builds, tests, git operations | shell_exec, file_read, file_write |
+| `browser` | Web interaction, UI testing, scraping | browser_*, web_fetch |
+
+### Parameters
+
+```json
+{
+  "task": "Clear, self-contained description of what the sub-agent should accomplish",
+  "agent_id": "main",
+  "subagent_type": "explore",
+  "context": "Optional: key facts/data the sub-agent needs but cannot discover on its own"
+}
+```
+
+**Important**: Always use a valid `agent_id` from the `list_agents` results. If unsure which agent to use, call `list_agents` first.
+
+### Writing Good Task Descriptions
+
+1. **Self-contained** — include all context needed. The sub-agent cannot see your conversation.
+2. **Specific outcome** — state exactly what to return (e.g., "Return the file path and function name").
+3. **Bounded scope** — one clear objective per sub-agent.
+4. **Include constraints** — mention language, framework, or files to focus on when relevant.
+
+### Parallel Execution
+
+Batch multiple `spawn_subagent` calls in **one response** for parallel execution:
+
+```
+Thought: I need to research the auth module AND run the test suite simultaneously.
+→ spawn_subagent(type=explore, task="Find all authentication middleware in src/...")
+  AND spawn_subagent(type=shell, task="Run `cargo test` and report failures...")
+```
+
+The runtime executes them concurrently and returns all results before your next reasoning step.
+
 ## Quick Reference
 
 1. Context-dependent task? → `memory_search` first

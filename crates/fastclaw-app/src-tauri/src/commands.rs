@@ -1264,6 +1264,17 @@ pub async fn chat_stream(
         slot.insert(stream_context_key.clone(), tx.clone());
     }
 
+    let subagent_prompt = {
+        let policy = &agent_config.behavior.subagent;
+        let available = app.subagent_manager.agent_descriptions();
+        let ctx = fastclaw_agent::SubAgentPromptContext {
+            policy,
+            available_agents: &available,
+            current_depth: 0,
+        };
+        fastclaw_agent::build_subagent_prompt_block(&ctx)
+    };
+
     let runtime = app.runtime.clone();
     let tool_reg = app.tool_registry.clone();
     let llm_override = setup.llm_override.clone();
@@ -1277,7 +1288,7 @@ pub async fn chat_stream(
         let result = tokio::select! {
             result = fastclaw_agent::builtin_tools::with_stream_context(
                 stream_context_key_for_task.clone(),
-                runtime.execute_stream_with_confirm(&agent_config, &enriched, &tool_reg, tx, llm_override, confirm_pending_for_task),
+                runtime.execute_stream_with_confirm(&agent_config, &enriched, &tool_reg, tx, llm_override, confirm_pending_for_task, subagent_prompt),
             ) => result,
             _ = &mut cancel_rx => Err(anyhow::anyhow!("cancelled")),
         };
@@ -1470,6 +1481,45 @@ pub async fn chat_stream(
                 let _ = channel.send(json!({
                     "type": "chat.error",
                     "error": {"message": e.to_string()}
+                }));
+            }
+
+            // ── Sub-agent streaming events (Tauri IPC) ──────────────
+            StreamEvent::SubAgentStart { run_id, agent_id, subagent_type, task, depth } => {
+                let _ = channel.send(json!({
+                    "type": "chat.subagent.start",
+                    "data": {"runId": run_id, "agentId": agent_id, "subagentType": subagent_type, "task": task, "depth": depth}
+                }));
+            }
+            StreamEvent::SubAgentDelta { run_id, content } => {
+                let _ = channel.send(json!({
+                    "type": "chat.subagent.delta",
+                    "data": {"runId": run_id, "content": content}
+                }));
+            }
+            StreamEvent::SubAgentToolExecuting { run_id, tool_name, call_id, args } => {
+                let _ = channel.send(json!({
+                    "type": "chat.subagent.tool.start",
+                    "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "args": args}
+                }));
+            }
+            StreamEvent::SubAgentToolResult { run_id, tool_name, call_id, output, success } => {
+                let _ = channel.send(json!({
+                    "type": "chat.subagent.tool.done",
+                    "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "output": output, "success": success}
+                }));
+            }
+            StreamEvent::SubAgentComplete { run_id, status, result, tool_calls_made, iterations, usage, elapsed_ms } => {
+                let mut data = json!({
+                    "runId": run_id, "status": status, "result": result,
+                    "toolCallsMade": tool_calls_made, "iterations": iterations, "elapsedMs": elapsed_ms,
+                });
+                if let Some(ref u) = usage {
+                    data["usage"] = json!({"promptTokens": u.prompt_tokens, "completionTokens": u.completion_tokens, "totalTokens": u.total_tokens});
+                }
+                let _ = channel.send(json!({
+                    "type": "chat.subagent.complete",
+                    "data": data,
                 }));
             }
         }

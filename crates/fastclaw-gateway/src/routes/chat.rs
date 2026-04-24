@@ -3,6 +3,8 @@ use std::time::Duration;
 use axum::{body::Body, extract::{Query, State}, http::header, response::IntoResponse, Json};
 use serde_json::json;
 
+use fastclaw_agent::{SubAgentPromptContext, build_subagent_prompt_block};
+use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::types::ChatRequest;
 
 use crate::chat_pipeline::{
@@ -13,6 +15,17 @@ use crate::state::AppState;
 
 use super::common::{record_chat_budget_actual, record_chat_budget_stream_estimate};
 use super::error::AppError;
+
+fn build_subagent_prompt_for_agent(state: &AppState, config: &AgentConfig) -> Option<String> {
+    let policy = &config.behavior.subagent;
+    let available = state.subagent_manager.agent_descriptions();
+    let ctx = SubAgentPromptContext {
+        policy,
+        available_agents: &available,
+        current_depth: 0,
+    };
+    build_subagent_prompt_block(&ctx)
+}
 
 pub(super) async fn list_agents(State(state): State<AppState>) -> impl IntoResponse {
     let agents: Vec<_> = {
@@ -98,13 +111,15 @@ async fn handle_non_stream(
     )
     .await?;
 
+    let subagent_prompt = build_subagent_prompt_for_agent(&state, &setup.agent_config);
     let result = match state
         .runtime
-        .execute(
+        .execute_with_subagent_prompt(
             &setup.agent_config,
             &setup.enriched_request,
             &state.tool_registry,
             setup.llm_override.clone(),
+            subagent_prompt,
         )
         .await
     {
@@ -257,15 +272,17 @@ async fn handle_stream(
     let agent_id_for_hook = setup.agent_id.clone();
     let session_id_for_hook = session_id.clone();
 
+    let subagent_prompt = build_subagent_prompt_for_agent(&state, &agent_config);
     tokio::spawn(async move {
         let result = state_for_task
             .runtime
-            .execute_stream(
+            .execute_stream_with_subagent_prompt(
                 &config_for_task,
                 &enriched,
                 &state_for_task.tool_registry,
                 tx.clone(),
                 llm_for_task,
+                subagent_prompt,
             )
             .await;
 
@@ -442,6 +459,51 @@ async fn handle_stream(
                     yield Ok(format!("data: {ev}\n\n"));
                     yield Ok("data: [DONE]\n\n".to_string());
                     break;
+                }
+
+                // ── Sub-agent streaming events (SSE) ────────────────
+                StreamEvent::SubAgentStart { run_id, agent_id, subagent_type, task, depth } => {
+                    let ev = json!({
+                        "type": "subagent_start", "runId": run_id,
+                        "agentId": agent_id, "subagentType": subagent_type,
+                        "task": task, "depth": depth,
+                    });
+                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
+                }
+                StreamEvent::SubAgentDelta { run_id, content } => {
+                    let ev = json!({"type": "subagent_delta", "runId": run_id, "content": content});
+                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
+                }
+                StreamEvent::SubAgentToolExecuting { run_id, tool_name, call_id, args } => {
+                    let ev = json!({
+                        "type": "subagent_tool_executing", "runId": run_id,
+                        "tool": tool_name, "callId": call_id, "args": args,
+                    });
+                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
+                }
+                StreamEvent::SubAgentToolResult { run_id, tool_name, call_id, output, success } => {
+                    let ev = json!({
+                        "type": "subagent_tool_result", "runId": run_id,
+                        "tool": tool_name, "callId": call_id,
+                        "output": output, "success": success,
+                    });
+                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
+                }
+                StreamEvent::SubAgentComplete { run_id, status, result, tool_calls_made, iterations, usage, elapsed_ms } => {
+                    let mut ev = json!({
+                        "type": "subagent_complete", "runId": run_id,
+                        "status": status, "result": result,
+                        "toolCallsMade": tool_calls_made, "iterations": iterations,
+                        "elapsedMs": elapsed_ms,
+                    });
+                    if let Some(ref u) = usage {
+                        ev["usage"] = json!({
+                            "promptTokens": u.prompt_tokens,
+                            "completionTokens": u.completion_tokens,
+                            "totalTokens": u.total_tokens,
+                        });
+                    }
+                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
                 }
             }
         }

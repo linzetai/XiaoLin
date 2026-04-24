@@ -167,6 +167,59 @@ pub struct BehaviorConfig {
     pub tools_deny: Vec<String>,
     #[serde(default)]
     pub file_access: FileAccessMode,
+    #[serde(default)]
+    pub subagent: SubAgentPolicy,
+}
+
+/// Policy governing sub-agent delegation for an agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentPolicy {
+    /// Whether this agent is allowed to use sub-agents.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Maximum nesting depth for sub-agent chains (default 3).
+    #[serde(default = "default_subagent_max_depth")]
+    pub max_depth: u32,
+    /// Maximum number of sub-agents that can run in parallel (default 5).
+    #[serde(default = "default_subagent_max_parallel")]
+    pub max_parallel: u32,
+    /// Timeout in seconds for a single sub-agent run (default 300).
+    #[serde(default = "default_subagent_timeout")]
+    pub timeout_seconds: u64,
+    /// Optional token budget cap for sub-agent runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<u64>,
+    /// Allowed sub-agent types (empty = all types allowed).
+    #[serde(default)]
+    pub allowed_types: Vec<String>,
+    /// Allowed child agent IDs to delegate to (empty = all agents allowed).
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+}
+
+fn default_subagent_max_depth() -> u32 {
+    3
+}
+fn default_subagent_max_parallel() -> u32 {
+    5
+}
+fn default_subagent_timeout() -> u64 {
+    300
+}
+
+impl Default for SubAgentPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_depth: default_subagent_max_depth(),
+            max_parallel: default_subagent_max_parallel(),
+            timeout_seconds: default_subagent_timeout(),
+            token_budget: None,
+            allowed_types: Vec::new(),
+            allowed_agents: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -199,6 +252,7 @@ impl Default for BehaviorConfig {
             tools_allow: Vec::new(),
             tools_deny: Vec::new(),
             file_access: FileAccessMode::default(),
+            subagent: SubAgentPolicy::default(),
         }
     }
 }

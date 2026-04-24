@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { useAgentStore, type ChatMessage, type ChatUsage } from "../../lib/agent-store";
+import { useAgentStore, type ChatMessage, type ChatUsage, type SubAgentRunUI } from "../../lib/agent-store";
 import { MarkdownContent } from "./MarkdownContent";
 import { ToolCallCard, type ToolCall } from "./ToolCallCard";
+import { SubAgentCard } from "./SubAgentCard";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption } from "./MentionInput";
 import {
   Image as ImageIcon, FileText, Paperclip, Sparkles,
@@ -807,6 +808,11 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
   const loadChatStream = useAgentStore((s) => s.loadChatStream);
   const updateChatBackendId = useAgentStore((s) => s.updateChatBackendId);
   const updateChatUsage = useAgentStore((s) => s.updateChatUsage);
+  const subAgentStart = useAgentStore((s) => s.subAgentStart);
+  const subAgentDelta = useAgentStore((s) => s.subAgentDelta);
+  const subAgentToolStart = useAgentStore((s) => s.subAgentToolStart);
+  const subAgentToolDone = useAgentStore((s) => s.subAgentToolDone);
+  const subAgentComplete = useAgentStore((s) => s.subAgentComplete);
 
   const agent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
   const ac = agentChats[activeAgentId];
@@ -1347,6 +1353,68 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
             }
             break;
           }
+          case "chat.subagent.start": {
+            const d = event.data;
+            if (!d?.runId) break;
+            const run: SubAgentRunUI = {
+              runId: d.runId as string,
+              agentId: (d.agentId ?? "default") as string,
+              subagentType: (d.subagentType ?? "general") as string,
+              task: (d.task ?? "") as string,
+              depth: (d.depth as number) ?? 1,
+              status: "running",
+              content: "",
+              toolCalls: [],
+              toolCallsMade: 0,
+              iterations: 0,
+            };
+            subAgentStart(capturedAgentId, capturedChatId, run);
+            break;
+          }
+          case "chat.subagent.delta": {
+            const d = event.data;
+            if (d?.runId && d?.content) {
+              subAgentDelta(capturedAgentId, capturedChatId, d.runId as string, d.content as string);
+            }
+            break;
+          }
+          case "chat.subagent.tool.start": {
+            const d = event.data;
+            if (d?.runId && d?.tool) {
+              subAgentToolStart(capturedAgentId, capturedChatId, d.runId as string, {
+                id: (d.callId ?? d.tool) as string,
+                name: d.tool as string,
+                status: "running",
+                args: d.args as string | undefined,
+              });
+            }
+            break;
+          }
+          case "chat.subagent.tool.done": {
+            const d = event.data;
+            if (d?.runId && d?.callId) {
+              subAgentToolDone(
+                capturedAgentId, capturedChatId,
+                d.runId as string, d.callId as string,
+                (d.output ?? "") as string, d.success as boolean,
+              );
+            }
+            break;
+          }
+          case "chat.subagent.complete": {
+            const d = event.data;
+            if (d?.runId) {
+              subAgentComplete(
+                capturedAgentId, capturedChatId,
+                d.runId as string, (d.status ?? "completed") as string,
+                d.result as string | undefined,
+                d.toolCallsMade as number | undefined,
+                d.iterations as number | undefined,
+                d.elapsedMs as number | undefined,
+              );
+            }
+            break;
+          }
           case "chat.error": {
             const e = event.error?.message ?? "未知错误";
             if (isActive()) {
@@ -1719,9 +1787,11 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               const hasContent = streamSegments.length > 0;
               const lastSeg = streamSegments[streamSegments.length - 1];
               const lastIsText = lastSeg?.type === "text";
+              const subRuns = activeChat?.subAgentRuns ?? {};
+              const activeSubRuns = Object.values(subRuns);
               return (
                 <div className="px-8 pb-4">
-                  {!hasContent && <Typing />}
+                  {!hasContent && activeSubRuns.length === 0 && <Typing />}
                   {streamSegments.map((seg, si) => {
                     if (seg.type === "text" && seg.content) {
                       const isLast = si === streamSegments.length - 1;
@@ -1742,7 +1812,14 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                     }
                     return null;
                   })}
-                  {hasContent && !lastIsText && (
+                  {activeSubRuns.length > 0 && (
+                    <div className="mt-1">
+                      {activeSubRuns.map((run) => (
+                        <SubAgentCard key={run.runId} run={run} />
+                      ))}
+                    </div>
+                  )}
+                  {hasContent && !lastIsText && activeSubRuns.length === 0 && (
                     <div className="mt-1"><Typing /></div>
                   )}
                   <div ref={bottomRef} />

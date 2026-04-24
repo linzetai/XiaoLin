@@ -14,7 +14,27 @@ summary: 委托、流水线、辩证、委员会模式与 CollabHub 能力概述
 - `task`：语义化任务名（如 `pipeline_stage`）。
 - `context`：任意 JSON 负载。
 
-`delegate_task` 通过主题 `fastclaw.delegation` 发送请求并等待 `DelegationResult`（`success` + `output`）。
+### 推荐：SubAgentDelegation（新）
+
+`SubAgentDelegation` 通过 `SubAgentManager` 执行委托，支持：
+
+- **实时流式输出** — 通过 `delegate_with_stream()` 传入 `mpsc::Sender<StreamEvent>` 接收子 Agent 进度
+- **类型化工具注册表** — 根据 `context.subagent_type` 自动筛选子 Agent 可用工具（explore 只读、shell 命令、browser 浏览器）
+- **生命周期管理** — 并发控制、超时取消、状态持久化
+- **策略控制** — 通过 `SubAgentPolicy` 配置深度限制、并行数、Token 预算
+
+```rust
+use fastclaw_collab::SubAgentDelegation;
+
+let bridge = SubAgentDelegation::new(manager, tool_registry, policy);
+let result = bridge.delegate(req, Duration::from_secs(60)).await?;
+```
+
+### 旧版：delegate_task（已弃用）
+
+~~`delegate_task` 通过主题 `fastclaw.delegation` 发送请求并等待 `DelegationResult`（`success` + `output`）。~~
+
+> **已弃用**：`delegate_task` 仅提供无流式的总线请求/应答。请迁移至 `SubAgentDelegation::delegate()`。
 
 ## 流水线模式（Pipeline）
 

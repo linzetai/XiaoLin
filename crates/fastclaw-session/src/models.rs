@@ -44,6 +44,27 @@ pub struct SessionMessage {
     pub elapsed_ms: i64,
 }
 
+/// A persisted sub-agent run record.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentRunRow {
+    pub run_id: String,
+    pub parent_session_id: String,
+    pub parent_message_id: String,
+    pub agent_id: String,
+    pub subagent_type: String,
+    pub task: String,
+    pub status: String,
+    pub result: Option<String>,
+    pub tool_calls_made: i64,
+    pub iterations: i64,
+    pub token_usage_json: Option<String>,
+    pub depth: i64,
+    pub elapsed_ms: Option<i64>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub id: String,

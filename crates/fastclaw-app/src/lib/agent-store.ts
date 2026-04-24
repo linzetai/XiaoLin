@@ -37,6 +37,31 @@ export interface ChatMessage {
   usage?: ChatUsage;
 }
 
+// ── Sub-agent UI types ─────────────────────────────────────────────
+
+export interface SubAgentToolCall {
+  id: string;
+  name: string;
+  status: "running" | "success" | "error";
+  args?: string;
+  result?: string;
+}
+
+export interface SubAgentRunUI {
+  runId: string;
+  agentId: string;
+  subagentType: string;
+  task: string;
+  depth: number;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  content: string;
+  toolCalls: SubAgentToolCall[];
+  result?: string;
+  toolCallsMade: number;
+  iterations: number;
+  elapsedMs?: number;
+}
+
 export type StreamItem = { type: "message"; data: ChatMessage };
 
 export interface ChatUsage {
@@ -58,6 +83,7 @@ export interface Chat {
   messageCount: number;
   open: boolean;
   usage?: ChatUsage;
+  subAgentRuns: Record<string, SubAgentRunUI>;
 }
 
 export interface AgentChats {
@@ -93,6 +119,13 @@ interface AgentState {
   appendStreamDelta: (agentId: string, chatId: string, delta: string) => void;
   updateChatUsage: (agentId: string, chatId: string, usage: ChatUsage) => void;
   removeAgent: (agentId: string) => void;
+
+  // Sub-agent actions
+  subAgentStart: (agentId: string, chatId: string, run: SubAgentRunUI) => void;
+  subAgentDelta: (agentId: string, chatId: string, runId: string, content: string) => void;
+  subAgentToolStart: (agentId: string, chatId: string, runId: string, toolCall: SubAgentToolCall) => void;
+  subAgentToolDone: (agentId: string, chatId: string, runId: string, callId: string, output: string, success: boolean) => void;
+  subAgentComplete: (agentId: string, chatId: string, runId: string, status: string, result?: string, toolCallsMade?: number, iterations?: number, elapsedMs?: number) => void;
 }
 
 export interface BackendSession {
@@ -182,6 +215,7 @@ function createChat(workDir?: string): Chat {
     createdAt: new Date(),
     messageCount: 0,
     open: true,
+    subAgentRuns: {},
   };
 }
 
@@ -478,6 +512,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           createdAt: new Date(s.createdAt),
           messageCount: s.messageCount,
           open: persistedOpen.has(s.id) && s.messageCount > 0,
+          subAgentRuns: {},
           usage: (s.totalPromptTokens || s.totalCompletionTokens || s.totalElapsedMs) ? {
             promptTokens: s.totalPromptTokens ?? 0,
             completionTokens: s.totalCompletionTokens ?? 0,
@@ -648,6 +683,88 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const { [agentId]: _, ...remainChats } = state.agentChats;
       const newActive = state.activeAgentId === agentId ? filtered[0].id : state.activeAgentId;
       return { agents: filtered, activeAgentId: newActive, agentChats: remainChats };
+    });
+  },
+
+  subAgentStart: (agentId, chatId, run) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: { ...state.agentChats, [agentId]: { ...ac, chatList: ac.chatList.map((c) =>
+          c.id !== chatId ? c : { ...c, subAgentRuns: { ...c.subAgentRuns, [run.runId]: run } },
+        ) } },
+      };
+    });
+  },
+
+  subAgentDelta: (agentId, chatId, runId, content) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: { ...state.agentChats, [agentId]: { ...ac, chatList: ac.chatList.map((c) => {
+          if (c.id !== chatId) return c;
+          const run = c.subAgentRuns[runId];
+          if (!run) return c;
+          return { ...c, subAgentRuns: { ...c.subAgentRuns, [runId]: { ...run, content: run.content + content } } };
+        }) } },
+      };
+    });
+  },
+
+  subAgentToolStart: (agentId, chatId, runId, toolCall) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: { ...state.agentChats, [agentId]: { ...ac, chatList: ac.chatList.map((c) => {
+          if (c.id !== chatId) return c;
+          const run = c.subAgentRuns[runId];
+          if (!run) return c;
+          return { ...c, subAgentRuns: { ...c.subAgentRuns, [runId]: { ...run, toolCalls: [...run.toolCalls, toolCall] } } };
+        }) } },
+      };
+    });
+  },
+
+  subAgentToolDone: (agentId, chatId, runId, callId, output, success) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: { ...state.agentChats, [agentId]: { ...ac, chatList: ac.chatList.map((c) => {
+          if (c.id !== chatId) return c;
+          const run = c.subAgentRuns[runId];
+          if (!run) return c;
+          const toolCalls = run.toolCalls.map((tc) =>
+            tc.id === callId ? { ...tc, result: output, status: (success ? "success" : "error") as "success" | "error" } : tc,
+          );
+          return { ...c, subAgentRuns: { ...c.subAgentRuns, [runId]: { ...run, toolCalls } } };
+        }) } },
+      };
+    });
+  },
+
+  subAgentComplete: (agentId, chatId, runId, status, result, toolCallsMade, iterations, elapsedMs) => {
+    set((state) => {
+      const ac = state.agentChats[agentId];
+      if (!ac) return state;
+      return {
+        agentChats: { ...state.agentChats, [agentId]: { ...ac, chatList: ac.chatList.map((c) => {
+          if (c.id !== chatId) return c;
+          const run = c.subAgentRuns[runId];
+          if (!run) return c;
+          return { ...c, subAgentRuns: { ...c.subAgentRuns, [runId]: {
+            ...run,
+            status: status as SubAgentRunUI["status"],
+            result: result ?? run.result,
+            toolCallsMade: toolCallsMade ?? run.toolCallsMade,
+            iterations: iterations ?? run.iterations,
+            elapsedMs: elapsedMs ?? run.elapsedMs,
+          } } };
+        }) } },
+      };
     });
   },
 

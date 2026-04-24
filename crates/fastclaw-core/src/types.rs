@@ -266,6 +266,87 @@ pub struct StreamFunctionDelta {
     pub arguments: Option<String>,
 }
 
+// ── Sub-Agent types ──────────────────────────────────────────────────
+
+/// The kind of sub-agent to spawn, determining its tool set and behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubAgentType {
+    /// Full-capability child agent inheriting the parent's tool set.
+    General,
+    /// Read-only exploration agent (file_read, search, web, memory).
+    Explore,
+    /// Command execution specialist (shell, file read/write).
+    Shell,
+    /// Browser automation agent (browser_*, web_fetch).
+    Browser,
+    /// User-defined type with custom tool filtering.
+    Custom(String),
+}
+
+impl std::fmt::Display for SubAgentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::General => f.write_str("general"),
+            Self::Explore => f.write_str("explore"),
+            Self::Shell => f.write_str("shell"),
+            Self::Browser => f.write_str("browser"),
+            Self::Custom(name) => write!(f, "custom:{name}"),
+        }
+    }
+}
+
+impl Default for SubAgentType {
+    fn default() -> Self {
+        Self::General
+    }
+}
+
+/// Lifecycle status of a sub-agent run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubAgentStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed(String),
+    Cancelled,
+}
+
+impl SubAgentStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Failed(_) | Self::Cancelled)
+    }
+}
+
+/// Tracks a single sub-agent execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentRun {
+    pub run_id: String,
+    pub parent_session_id: String,
+    pub parent_message_id: String,
+    pub agent_id: AgentId,
+    pub subagent_type: SubAgentType,
+    pub task: String,
+    pub status: SubAgentStatus,
+    pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(default)]
+    pub tool_calls_made: u32,
+    #[serde(default)]
+    pub iterations: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<Usage>,
+    #[serde(default)]
+    pub depth: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+}
+
 /// Status of an MCP server connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -335,6 +416,47 @@ pub enum StreamEvent {
         context_window: Option<u32>,
     },
     Error(String),
+
+    // ── Sub-agent streaming events ──────────────────────────────────
+
+    /// A sub-agent has been spawned and is starting execution.
+    SubAgentStart {
+        run_id: String,
+        agent_id: String,
+        subagent_type: String,
+        task: String,
+        depth: u32,
+    },
+    /// Incremental text output from a running sub-agent.
+    SubAgentDelta {
+        run_id: String,
+        content: String,
+    },
+    /// A sub-agent is executing a tool.
+    SubAgentToolExecuting {
+        run_id: String,
+        tool_name: String,
+        call_id: String,
+        args: Option<String>,
+    },
+    /// A sub-agent tool call has completed.
+    SubAgentToolResult {
+        run_id: String,
+        tool_name: String,
+        call_id: String,
+        output: String,
+        success: bool,
+    },
+    /// A sub-agent run has finished (completed, failed, or cancelled).
+    SubAgentComplete {
+        run_id: String,
+        status: String,
+        result: Option<String>,
+        tool_calls_made: u32,
+        iterations: u32,
+        usage: Option<Usage>,
+        elapsed_ms: u64,
+    },
 }
 
 // ---------------------------------------------------------------------------

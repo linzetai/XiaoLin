@@ -12,6 +12,7 @@ mod health;
 mod memory;
 mod plugin;
 mod session;
+mod subagent;
 mod traces;
 
 use axum::routing::{delete, get, post, put};
@@ -134,5 +135,14 @@ pub fn api_routes() -> Router<AppState> {
         .route(
             "/api/v1/traces/:trace_id",
             delete(traces::delete_trace),
+        )
+        .route(
+            "/api/v1/subagents/runs",
+            get(subagent::list_subagent_runs),
+        )
+        .route(
+            "/api/v1/subagents/runs/:run_id",
+            get(subagent::get_subagent_run)
+                .delete(subagent::cancel_subagent_run),
         )
 }

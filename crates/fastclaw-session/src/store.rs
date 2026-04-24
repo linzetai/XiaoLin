@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use fastclaw_core::types::ChatMessage;
 
-use crate::models::{Session, SessionCreateOutcome, SessionMessage, SessionSummary};
+use crate::models::{Session, SessionCreateOutcome, SessionMessage, SessionSummary, SubAgentRunRow};
 
 const MSG_CACHE_MAX_SESSIONS: usize = 32;
 
@@ -195,6 +195,35 @@ impl SessionStore {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_traces_session ON conversation_traces(session_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Migration: add subagent_runs table if missing
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS subagent_runs (
+                run_id TEXT PRIMARY KEY,
+                parent_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                parent_message_id TEXT NOT NULL DEFAULT '',
+                agent_id TEXT NOT NULL,
+                subagent_type TEXT NOT NULL DEFAULT 'general',
+                task TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                result TEXT,
+                tool_calls_made INTEGER NOT NULL DEFAULT 0,
+                iterations INTEGER NOT NULL DEFAULT 0,
+                token_usage_json TEXT,
+                depth INTEGER NOT NULL DEFAULT 1,
+                elapsed_ms INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                completed_at TEXT
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_subagent_runs_session ON subagent_runs(parent_session_id, created_at DESC)"
         )
         .execute(&self.pool)
         .await?;
@@ -707,6 +736,79 @@ impl SessionStore {
             .await?;
         Ok(result.rows_affected() > 0)
     }
+
+    // ── Sub-agent run persistence ────────────────────────────────────
+
+    /// Save a sub-agent run snapshot (insert or update).
+    pub async fn save_subagent_run(&self, run: &SubAgentRunRow) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO subagent_runs (
+                run_id, parent_session_id, parent_message_id, agent_id,
+                subagent_type, task, status, result,
+                tool_calls_made, iterations, token_usage_json,
+                depth, elapsed_ms, created_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                status = excluded.status,
+                result = excluded.result,
+                tool_calls_made = excluded.tool_calls_made,
+                iterations = excluded.iterations,
+                token_usage_json = excluded.token_usage_json,
+                elapsed_ms = excluded.elapsed_ms,
+                completed_at = excluded.completed_at",
+        )
+        .bind(&run.run_id)
+        .bind(&run.parent_session_id)
+        .bind(&run.parent_message_id)
+        .bind(&run.agent_id)
+        .bind(&run.subagent_type)
+        .bind(&run.task)
+        .bind(&run.status)
+        .bind(&run.result)
+        .bind(run.tool_calls_made)
+        .bind(run.iterations)
+        .bind(&run.token_usage_json)
+        .bind(run.depth)
+        .bind(run.elapsed_ms)
+        .bind(&run.created_at)
+        .bind(&run.completed_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get a single sub-agent run by its run_id.
+    pub async fn get_subagent_run(&self, run_id: &str) -> anyhow::Result<Option<SubAgentRunRow>> {
+        let row = sqlx::query_as::<_, SubAgentRunRow>(
+            "SELECT * FROM subagent_runs WHERE run_id = ?"
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// List sub-agent runs for a parent session, ordered by creation time (newest first).
+    pub async fn list_subagent_runs(&self, parent_session_id: &str) -> anyhow::Result<Vec<SubAgentRunRow>> {
+        let rows = sqlx::query_as::<_, SubAgentRunRow>(
+            "SELECT * FROM subagent_runs WHERE parent_session_id = ? ORDER BY created_at DESC"
+        )
+        .bind(parent_session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Delete sub-agent runs that are terminal and older than `max_age_hours`.
+    pub async fn cleanup_subagent_runs(&self, max_age_hours: u64) -> anyhow::Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM subagent_runs WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < datetime('now', ?)"
+        )
+        .bind(format!("-{max_age_hours} hours"))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
 }
 
 fn row_to_trace(
@@ -931,5 +1033,85 @@ mod tests {
     async fn get_nonexistent_trace() {
         let store = SessionStore::open_memory().await.unwrap();
         assert!(store.get_trace("nope").await.unwrap().is_none());
+    }
+
+    fn make_subagent_row(run_id: &str, session_id: &str, status: &str) -> SubAgentRunRow {
+        SubAgentRunRow {
+            run_id: run_id.into(),
+            parent_session_id: session_id.into(),
+            parent_message_id: "msg1".into(),
+            agent_id: "agent1".into(),
+            subagent_type: "general".into(),
+            task: "test task".into(),
+            status: status.into(),
+            result: Some("done".into()),
+            tool_calls_made: 3,
+            iterations: 2,
+            token_usage_json: None,
+            depth: 0,
+            elapsed_ms: Some(1500),
+            created_at: "2025-01-01T00:00:00Z".into(),
+            completed_at: Some("2025-01-01T00:00:01Z".into()),
+        }
+    }
+
+    async fn setup_store_with_sessions(session_ids: &[&str]) -> SessionStore {
+        let store = SessionStore::open_memory().await.unwrap();
+        for &sid in session_ids {
+            store.create_session(sid, "agent", None).await.unwrap();
+        }
+        store
+    }
+
+    #[tokio::test]
+    async fn save_and_get_subagent_run() {
+        let store = setup_store_with_sessions(&["s1"]).await;
+        let row = make_subagent_row("run1", "s1", "completed");
+
+        store.save_subagent_run(&row).await.unwrap();
+        let loaded = store.get_subagent_run("run1").await.unwrap().unwrap();
+        assert_eq!(loaded.run_id, "run1");
+        assert_eq!(loaded.status, "completed");
+        assert_eq!(loaded.tool_calls_made, 3);
+        assert_eq!(loaded.task, "test task");
+    }
+
+    #[tokio::test]
+    async fn save_subagent_run_upserts_on_conflict() {
+        let store = setup_store_with_sessions(&["s1"]).await;
+        let mut row = make_subagent_row("run1", "s1", "running");
+        row.result = None;
+        store.save_subagent_run(&row).await.unwrap();
+
+        row.status = "completed".into();
+        row.result = Some("final result".into());
+        row.tool_calls_made = 5;
+        store.save_subagent_run(&row).await.unwrap();
+
+        let loaded = store.get_subagent_run("run1").await.unwrap().unwrap();
+        assert_eq!(loaded.status, "completed");
+        assert_eq!(loaded.result.as_deref(), Some("final result"));
+        assert_eq!(loaded.tool_calls_made, 5);
+    }
+
+    #[tokio::test]
+    async fn list_subagent_runs_filters_by_session() {
+        let store = setup_store_with_sessions(&["s1", "s2"]).await;
+        store.save_subagent_run(&make_subagent_row("r1", "s1", "completed")).await.unwrap();
+        store.save_subagent_run(&make_subagent_row("r2", "s1", "failed")).await.unwrap();
+        store.save_subagent_run(&make_subagent_row("r3", "s2", "completed")).await.unwrap();
+
+        let s1_runs = store.list_subagent_runs("s1").await.unwrap();
+        assert_eq!(s1_runs.len(), 2);
+        assert!(s1_runs.iter().all(|r| r.parent_session_id == "s1"));
+
+        let s2_runs = store.list_subagent_runs("s2").await.unwrap();
+        assert_eq!(s2_runs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_subagent_run_returns_none_for_unknown() {
+        let store = SessionStore::open_memory().await.unwrap();
+        assert!(store.get_subagent_run("nonexistent").await.unwrap().is_none());
     }
 }

@@ -631,6 +631,7 @@ impl StateBuilder {
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
+        let runtime_for_subagent = p5.phase2.phase4.phase3.runtime.clone();
         let state = AppState {
             config: Arc::new(config),
             config_live: Arc::new(std::sync::RwLock::new(config_live_val)),
@@ -662,7 +663,7 @@ impl StateBuilder {
             ws_broadcast: p5.ws_broadcast,
             workspaces: Arc::new(p5.phase2.phase4.phase3.workspaces),
             runtime_route_bindings: Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            last_good_agents: Arc::new(tokio::sync::RwLock::new(initial_agents)),
+            last_good_agents: Arc::new(tokio::sync::RwLock::new(initial_agents.clone())),
             stream_event_tx: p5.phase2.phase4.stream_event_tx,
             ask_question_pending: p5.phase2.phase4.ask_question_pending,
             mcp_status: Arc::new(std::sync::RwLock::new(p5.phase2.phase4.mcp_status_init)),
@@ -674,6 +675,11 @@ impl StateBuilder {
             },
             channel_inbound_tx: p5.phase2.phase4.channel_inbound_tx,
             metrics_collector: Arc::new(fastclaw_observe::MetricsCollector::new()),
+            subagent_manager: Arc::new(fastclaw_agent::SubAgentManager::new(
+                runtime_for_subagent,
+                initial_agents.clone(),
+                fastclaw_core::agent_config::SubAgentPolicy::default(),
+            )),
         };
 
         state.tool_registry.register(Arc::new(crate::mcp_tool::ManageMcpServerTool::new(
@@ -694,6 +700,19 @@ impl StateBuilder {
         state.tool_registry.register(Arc::new(crate::channel_tool::AddChannelTool::new(state.clone())));
         state.tool_registry.register(Arc::new(crate::channel_tool::RemoveChannelTool::new(state.clone())));
         tracing::info!("registered channel management tools");
+
+        state.tool_registry.register(Arc::new(fastclaw_agent::SubAgentTool::new(
+            state.subagent_manager.clone(),
+            state.tool_registry.clone(),
+            fastclaw_core::agent_config::SubAgentPolicy::default(),
+        )));
+        state.tool_registry.register(Arc::new(fastclaw_agent::ListAgentsTool::new(
+            state.subagent_manager.clone(),
+        )));
+        state.tool_registry.register(Arc::new(fastclaw_agent::GetAgentInfoTool::new(
+            state.subagent_manager.clone(),
+        )));
+        tracing::info!("registered sub-agent tools (spawn_subagent, list_agents, get_agent_info)");
 
         state.spawn_skill_evolution_tasks();
 
@@ -845,6 +864,7 @@ pub struct AppState {
     /// Sender for channel inbound messages — kept for hot-reloading new channels.
     pub channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
     pub metrics_collector: Arc<fastclaw_observe::MetricsCollector>,
+    pub subagent_manager: Arc<fastclaw_agent::SubAgentManager>,
 }
 
 impl AppState {
@@ -1430,13 +1450,6 @@ impl AppState {
                 "MCP servers registered"
             );
         }
-
-        let subagent_tool = fastclaw_agent::SubAgentTool::new(
-            runtime.clone(),
-            Arc::new(tool_registry.clone()),
-            agents.to_vec(),
-        );
-        tool_registry.register(Arc::new(subagent_tool));
 
         Ok((status_map, handles_map))
     }
@@ -2146,12 +2159,19 @@ impl AppState {
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
 
-        let subagent_tool = fastclaw_agent::SubAgentTool::new(
+        let subagent_manager = Arc::new(fastclaw_agent::SubAgentManager::new(
             runtime.clone(),
-            Arc::new(tool_registry.clone()),
             agents,
+            fastclaw_core::agent_config::SubAgentPolicy::default(),
+        ));
+        let subagent_tool = fastclaw_agent::SubAgentTool::new(
+            subagent_manager.clone(),
+            Arc::new(tool_registry.clone()),
+            fastclaw_core::agent_config::SubAgentPolicy::default(),
         );
         tool_registry.register(Arc::new(subagent_tool));
+        tool_registry.register(Arc::new(fastclaw_agent::ListAgentsTool::new(subagent_manager.clone())));
+        tool_registry.register(Arc::new(fastclaw_agent::GetAgentInfoTool::new(subagent_manager.clone())));
 
         let db_path = tmp.join("sessions.db");
         let session_store = Arc::new(SessionStore::open(&db_path).await?);
@@ -2261,6 +2281,7 @@ impl AppState {
                 tx
             },
             metrics_collector: Arc::new(fastclaw_observe::MetricsCollector::new()),
+            subagent_manager: subagent_manager,
         })
     }
 }
