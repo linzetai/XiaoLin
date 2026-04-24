@@ -138,12 +138,10 @@ impl NotificationStore {
     }
 
     pub async fn get(&self, id: &str) -> anyhow::Result<Option<Notification>> {
-        let row = sqlx::query_as::<_, NotificationRow>(
-            "SELECT * FROM notifications WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, NotificationRow>("SELECT * FROM notifications WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(row.map(Notification::from))
     }
@@ -163,21 +161,19 @@ impl NotificationStore {
 
     pub async fn mark_all_read(&self) -> anyhow::Result<u64> {
         let now = Utc::now().to_rfc3339();
-        let result = sqlx::query(
-            "UPDATE notifications SET is_read = 1, read_at = ? WHERE is_read = 0",
-        )
-        .bind(&now)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE notifications SET is_read = 1, read_at = ? WHERE is_read = 0")
+                .bind(&now)
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected())
     }
 
     pub async fn unread_count(&self) -> anyhow::Result<i64> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE is_read = 0")
-                .fetch_one(&self.pool)
-                .await?;
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE is_read = 0")
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(row.0)
     }
@@ -235,7 +231,10 @@ mod tests {
         let pool = test_pool().await;
         let store = NotificationStore::open(pool).await.unwrap();
 
-        let n = store.insert("n1", "cron", "Job Done", "completed", None).await.unwrap();
+        let n = store
+            .insert("n1", "cron", "Job Done", "completed", None)
+            .await
+            .unwrap();
         assert_eq!(n.id, "n1");
         assert_eq!(n.category, "cron");
         assert!(!n.is_read);
@@ -252,7 +251,13 @@ mod tests {
         let store = NotificationStore::open(pool).await.unwrap();
 
         let n = store
-            .insert("n1", "system", "Update", "v2.0 available", Some("Full changelog here..."))
+            .insert(
+                "n1",
+                "system",
+                "Update",
+                "v2.0 available",
+                Some("Full changelog here..."),
+            )
             .await
             .unwrap();
         assert_eq!(n.detail.as_deref(), Some("Full changelog here..."));

@@ -36,15 +36,15 @@ pub fn api_routes() -> Router<AppState> {
         .route("/health", get(health::health))
         .route("/ready", get(health::readiness))
         .route("/metrics", get(health::metrics_endpoint))
-        .route(
-            "/api/v1/metrics",
-            get(health::structured_metrics_v1),
-        )
+        .route("/api/v1/metrics", get(health::structured_metrics_v1))
         .route("/api/v1/auth/status", get(health::auth_status))
         .route("/ws", get(crate::ws::ws_handler))
         .route("/api/v1/chat", post(chat::chat_completions))
         .route("/api/v1/chat/completions", post(chat::chat_completions))
-        .route("/api/v1/agents", get(chat::list_agents).post(agents::post_agent))
+        .route(
+            "/api/v1/agents",
+            get(chat::list_agents).post(agents::post_agent),
+        )
         .route("/api/v1/skills", get(chat::list_skills))
         .route(
             "/api/v1/agents/:agent_id/tools",
@@ -123,26 +123,16 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/channels", get(channel::list_channels))
         .route("/api/v1/routes", get(dynamic_routes::list_routes))
         .route("/api/v1/routes", post(dynamic_routes::add_route))
-        .route(
-            "/api/v1/routes/:id",
-            delete(dynamic_routes::delete_route),
-        )
+        .route("/api/v1/routes/:id", delete(dynamic_routes::delete_route))
         .route("/api/v1/routes/:id", put(dynamic_routes::update_route))
         .route("/webhook/:channel_id", post(channel::channel_webhook))
         .route("/api/v1/openapi.json", get(health::openapi_spec))
         .route("/api/v1/traces", get(traces::list_traces))
         .route("/api/v1/traces/:trace_id", get(traces::get_trace))
-        .route(
-            "/api/v1/traces/:trace_id",
-            delete(traces::delete_trace),
-        )
-        .route(
-            "/api/v1/subagents/runs",
-            get(subagent::list_subagent_runs),
-        )
+        .route("/api/v1/traces/:trace_id", delete(traces::delete_trace))
+        .route("/api/v1/subagents/runs", get(subagent::list_subagent_runs))
         .route(
             "/api/v1/subagents/runs/:run_id",
-            get(subagent::get_subagent_run)
-                .delete(subagent::cancel_subagent_run),
+            get(subagent::get_subagent_run).delete(subagent::cancel_subagent_run),
         )
 }

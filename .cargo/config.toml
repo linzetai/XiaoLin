@@ -1,0 +1,5 @@
+# Workspace-wide Cargo configuration.
+
+# Uncomment to enable sccache for faster incremental builds:
+# [build]
+# rustc-wrapper = "sccache"

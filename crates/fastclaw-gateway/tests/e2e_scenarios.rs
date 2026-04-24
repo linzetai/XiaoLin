@@ -57,7 +57,10 @@ impl LlmProvider for ScriptedProvider {
             )
         } else {
             // Extra calls (e.g. session title generation) get a benign fallback.
-            (Some(serde_json::Value::String("(fallback)".to_string())), None)
+            (
+                Some(serde_json::Value::String("(fallback)".to_string())),
+                None,
+            )
         };
 
         Ok(ChatResponse {
@@ -346,10 +349,7 @@ async fn e2e_session_continuity() {
         messages.len()
     );
 
-    let user_msgs: Vec<_> = messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .collect();
+    let user_msgs: Vec<_> = messages.iter().filter(|m| m["role"] == "user").collect();
     assert_eq!(user_msgs.len(), 3, "should have 3 user messages");
 }
 
@@ -379,10 +379,7 @@ async fn e2e_memory_lifecycle() {
         .json()
         .await
         .unwrap();
-    assert!(
-        fact.get("ok").is_some(),
-        "fact should be created: {fact}"
-    );
+    assert!(fact.get("ok").is_some(), "fact should be created: {fact}");
 
     // List facts
     let facts: Value = client
@@ -410,13 +407,8 @@ async fn e2e_memory_lifecycle() {
         .json()
         .await
         .unwrap();
-    let status = search
-        .as_object()
-        .expect("search should return an object");
-    assert!(
-        !status.is_empty(),
-        "fact search should return results"
-    );
+    let status = search.as_object().expect("search should return an object");
+    assert!(!status.is_empty(), "fact search should return results");
 
     // Chat to potentially generate an episode (auto_record_episode is fire-and-forget)
     let _: Value = client
@@ -721,27 +713,15 @@ async fn e2e_ws_multi_turn_streaming() {
     assert_eq!(welcome["type"], "connected");
 
     // Turn 1
-    let (session_id, events1) = ws_chat_to_completion(
-        &mut tx,
-        &mut rx,
-        "t1",
-        "Hello WebSocket!",
-        None,
-    )
-    .await;
+    let (session_id, events1) =
+        ws_chat_to_completion(&mut tx, &mut rx, "t1", "Hello WebSocket!", None).await;
     assert!(!session_id.is_empty(), "should receive a session ID");
     assert!(events1.contains(&"chat.start".to_string()));
     assert!(events1.contains(&"chat.complete".to_string()));
 
     // Turn 2: continue same session
-    let (sid2, events2) = ws_chat_to_completion(
-        &mut tx,
-        &mut rx,
-        "t2",
-        "Continue please",
-        Some(&session_id),
-    )
-    .await;
+    let (sid2, events2) =
+        ws_chat_to_completion(&mut tx, &mut rx, "t2", "Continue please", Some(&session_id)).await;
     assert_eq!(sid2, session_id, "should reuse same session");
     assert!(events2.contains(&"chat.start".to_string()));
 
@@ -797,19 +777,11 @@ async fn e2e_observability_endpoints() {
     assert_eq!(ready["status"], "ready");
 
     // Metrics (Prometheus text format) — endpoint should return 200
-    let metrics_resp = client
-        .get(srv.url("/metrics"))
-        .send()
-        .await
-        .unwrap();
+    let metrics_resp = client.get(srv.url("/metrics")).send().await.unwrap();
     assert_eq!(metrics_resp.status(), 200);
 
     // Structured metrics (may be Prometheus text or JSON)
-    let structured_resp = client
-        .get(srv.url("/api/v1/metrics"))
-        .send()
-        .await
-        .unwrap();
+    let structured_resp = client.get(srv.url("/api/v1/metrics")).send().await.unwrap();
     assert_eq!(structured_resp.status(), 200);
     let body = structured_resp.text().await.unwrap();
     assert!(
@@ -1134,7 +1106,10 @@ async fn memory_fact_crud_cycle() {
         .json()
         .await
         .unwrap();
-    assert!(del.get("ok").is_some() || del.get("deleted").is_some(), "fact delete: {del}");
+    assert!(
+        del.get("ok").is_some() || del.get("deleted").is_some(),
+        "fact delete: {del}"
+    );
 
     let search_after: Value = client
         .get(srv.url("/api/v1/memory/facts/search?agent_id=main&q=TypeScript"))
@@ -1147,10 +1122,11 @@ async fn memory_fact_crud_cycle() {
     let remaining = search_after["facts"]
         .as_array()
         .or(search_after["results"].as_array());
-    let has_deleted = remaining.map_or(false, |r| {
-        r.iter().any(|f| f["id"] == "fact-crud-test")
-    });
-    assert!(!has_deleted, "deleted fact should not appear in search: {search_after}");
+    let has_deleted = remaining.map_or(false, |r| r.iter().any(|f| f["id"] == "fact-crud-test"));
+    assert!(
+        !has_deleted,
+        "deleted fact should not appear in search: {search_after}"
+    );
 }
 
 /// Verify that auto_record_episode creates an episode after a chat turn.
@@ -1195,9 +1171,7 @@ async fn memory_auto_episode_from_chat() {
         .json()
         .await
         .unwrap();
-    let count_after = episodes_after["episodes"]
-        .as_array()
-        .map_or(0, |e| e.len());
+    let count_after = episodes_after["episodes"].as_array().map_or(0, |e| e.len());
 
     assert!(
         count_after > count_before,
@@ -1254,9 +1228,18 @@ async fn memory_recall_injects_relevant_memories() {
 #[tokio::test]
 async fn memory_multi_turn_episode_accumulation() {
     let provider = ScriptedProvider::new(vec![
-        ScriptedResponse { content: Some("Python is great for data science.".into()), tool_calls: None },
-        ScriptedResponse { content: Some("Rust is excellent for systems programming.".into()), tool_calls: None },
-        ScriptedResponse { content: Some("Go is popular for cloud-native development.".into()), tool_calls: None },
+        ScriptedResponse {
+            content: Some("Python is great for data science.".into()),
+            tool_calls: None,
+        },
+        ScriptedResponse {
+            content: Some("Rust is excellent for systems programming.".into()),
+            tool_calls: None,
+        },
+        ScriptedResponse {
+            content: Some("Go is popular for cloud-native development.".into()),
+            tool_calls: None,
+        },
     ]);
     let srv = E2eServer::start(Box::new(provider)).await;
     let client = reqwest::Client::new();
@@ -1458,7 +1441,10 @@ async fn e2e_chat_cancel_via_ws() {
     .await;
     let resp = ws_recv_json(&mut rx).await;
     assert_eq!(resp["type"], "chat.cancel");
-    assert_eq!(resp["data"]["cancelled"], false, "non-existent request should not cancel");
+    assert_eq!(
+        resp["data"]["cancelled"], false,
+        "non-existent request should not cancel"
+    );
 
     // Cancel without requestId
     ws_send_json(
@@ -1595,10 +1581,8 @@ async fn e2e_unknown_ws_method_returns_error() {
     .await;
     let resp = ws_recv_json(&mut rx).await;
     assert_eq!(resp["type"], "error");
-    assert!(
-        resp["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("unknown method"),
-    );
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unknown method"),);
 }

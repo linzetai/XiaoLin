@@ -37,7 +37,7 @@ struct RouteListResponse {
 
 pub(super) async fn list_routes(State(state): State<AppState>) -> impl IntoResponse {
     let rows = {
-        let rt = state.runtime_route_bindings.read().await;
+        let rt = state.cfg.runtime_route_bindings.read().await;
         rt.iter()
             .map(|r| RouteRow {
                 id: r.id.clone(),
@@ -67,7 +67,7 @@ pub(super) async fn add_route(
         agent_id: entry.binding.agent_id.clone(),
         match_rule: entry.binding.match_rule.clone(),
     };
-    let mut rt = state.runtime_route_bindings.write().await;
+    let mut rt = state.cfg.runtime_route_bindings.write().await;
     rt.push(entry);
     Ok(Json(row))
 }
@@ -76,7 +76,7 @@ pub(super) async fn delete_route(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let mut rt = state.runtime_route_bindings.write().await;
+    let mut rt = state.cfg.runtime_route_bindings.write().await;
     let pos = rt
         .iter()
         .position(|r| r.id == id)
@@ -90,7 +90,7 @@ pub(super) async fn update_route(
     Path(id): Path<String>,
     AppJson(body): AppJson<UpsertRouteBody>,
 ) -> Result<impl IntoResponse, AppError> {
-    let mut rt = state.runtime_route_bindings.write().await;
+    let mut rt = state.cfg.runtime_route_bindings.write().await;
     let entry = rt
         .iter_mut()
         .find(|r| r.id == id)

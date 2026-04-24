@@ -46,6 +46,7 @@ pub(super) async fn submit_feedback(
     };
 
     let id = state
+        .store
         .feedback_store
         .record_feedback(
             &body.session_id,
@@ -56,6 +57,7 @@ pub(super) async fn submit_feedback(
         .await?;
 
     if let Err(e) = state
+        .store
         .skill_store
         .apply_feedback(&body.session_id, &kind)
         .await
@@ -71,7 +73,7 @@ pub(super) async fn get_feedback(
     Path(agent_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let feedback = state.feedback_store.recent(&agent_id, params.limit).await?;
+    let feedback = state.store.feedback_store.recent(&agent_id, params.limit).await?;
     Ok(Json(json!({ "feedback": feedback })))
 }
 
@@ -79,7 +81,7 @@ pub(super) async fn evaluate_agent(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let eval = fastclaw_evolution::StrategyEvaluator::new(&state.feedback_store);
+    let eval = fastclaw_evolution::StrategyEvaluator::new(&state.store.feedback_store);
     let report = eval.evaluate(&agent_id).await?;
     Ok(Json(json!({ "report": report })))
 }
@@ -94,9 +96,10 @@ pub(super) async fn distill_prompt(
     Path(agent_id): Path<String>,
     AppJson(body): AppJson<DistillBody>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let eval = fastclaw_evolution::StrategyEvaluator::new(&state.feedback_store);
+    let eval = fastclaw_evolution::StrategyEvaluator::new(&state.store.feedback_store);
     let report = eval.evaluate(&agent_id).await?;
     let candidate = state
+        .store
         .prompt_distiller
         .distill(&agent_id, &body.current_prompt, &report)
         .await?;
@@ -108,7 +111,7 @@ pub(super) async fn list_candidates(
     Path(agent_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let candidates = state.prompt_distiller.list(&agent_id, params.limit).await?;
+    let candidates = state.store.prompt_distiller.list(&agent_id, params.limit).await?;
     Ok(Json(json!({ "candidates": candidates })))
 }
 
@@ -116,7 +119,7 @@ pub(super) async fn accept_candidate(
     State(state): State<AppState>,
     Path(candidate_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let ok = state.prompt_distiller.accept(&candidate_id).await?;
+    let ok = state.store.prompt_distiller.accept(&candidate_id).await?;
     Ok(Json(json!({ "accepted": ok })))
 }
 
@@ -124,6 +127,6 @@ pub(super) async fn reject_candidate(
     State(state): State<AppState>,
     Path(candidate_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let ok = state.prompt_distiller.reject(&candidate_id).await?;
+    let ok = state.store.prompt_distiller.reject(&candidate_id).await?;
     Ok(Json(json!({ "rejected": ok })))
 }

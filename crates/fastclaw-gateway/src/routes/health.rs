@@ -22,10 +22,10 @@ pub(super) async fn health() -> impl IntoResponse {
 pub(super) async fn readiness(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> impl IntoResponse {
-    let agent_count = state.router.read().await.list_agents().len();
+    let agent_count = state.rt.router.read().await.list_agents().len();
 
     let db_ok = {
-        let pool = state.session_store.pool();
+        let pool = state.store.session_store.pool();
         sqlx::query_scalar::<_, i32>("SELECT 1")
             .fetch_one(&pool)
             .await
@@ -56,7 +56,7 @@ pub(super) async fn readiness(
 pub(super) async fn auth_status(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> impl IntoResponse {
-    let auth_required = !state.config.security.api_keys.is_empty();
+    let auth_required = !state.cfg.config.security.api_keys.is_empty();
     Json(json!({ "authRequired": auth_required }))
 }
 
@@ -120,50 +120,182 @@ fn fastclaw_openapi_spec() -> serde_json::Value {
     let mut paths = Map::new();
 
     let routes: &[(&str, serde_json::Value)] = &[
-        ("/health",       json!({ "get": ep("Health check", "health", "Health") })),
-        ("/ready",        json!({ "get": ep("Readiness probe", "readiness", "Health") })),
-        ("/metrics",      json!({ "get": ep("Prometheus metrics", "metrics", "Observability") })),
-        ("/api/v1/metrics", json!({ "get": ep("Structured metrics", "structuredMetrics", "Observability") })),
-        ("/api/v1/auth/status", json!({ "get": ep("Auth status", "authStatus", "Auth") })),
-        ("/api/v1/chat",  json!({ "post": ep_body("Chat completion", "chatCompletions", "Chat", "ChatRequest") })),
-        ("/api/v1/chat/completions", json!({ "post": ep_body("Chat completion (alias)", "chatCompletionsAlias", "Chat", "ChatRequest") })),
-        ("/api/v1/agents", json!({ "get": ep("List agents", "listAgents", "Agents"), "post": ep_body("Create agent", "postAgent", "Agents", "AgentConfig") })),
-        ("/api/v1/agents/{agent_id}", json!({ "get": ep_param("Get agent", "getAgent", "Agents", "agent_id"), "put": ep_param("Update agent", "putAgent", "Agents", "agent_id"), "delete": ep_param("Delete agent", "deleteAgent", "Agents", "agent_id") })),
-        ("/api/v1/agents/{agent_id}/tools", json!({ "get": ep_param("List agent tools", "listAgentTools", "Agents", "agent_id"), "put": ep_param("Set agent tools", "putAgentTools", "Agents", "agent_id") })),
-        ("/api/v1/skills", json!({ "get": ep("List skills", "listSkills", "Agents") })),
-        ("/api/v1/tools",  json!({ "get": ep("List tools", "listTools", "Tools") })),
-        ("/api/v1/sessions", json!({ "get": ep("List sessions", "listSessions", "Sessions") })),
-        ("/api/v1/sessions/{session_id}", json!({ "get": ep_param("Get session", "getSession", "Sessions", "session_id"), "delete": ep_param("Delete session", "deleteSession", "Sessions", "session_id") })),
-        ("/api/v1/sessions/{session_id}/messages", json!({ "get": ep_param("Get messages", "getSessionMessages", "Sessions", "session_id") })),
-        ("/api/v1/memory/episodes", json!({ "get": ep("List episodes", "listEpisodes", "Memory") })),
-        ("/api/v1/memory/episodes/search", json!({ "get": ep("Search episodes", "searchEpisodes", "Memory") })),
-        ("/api/v1/memory/facts", json!({ "get": ep("List facts", "listFacts", "Memory"), "post": ep_body("Upsert fact", "upsertFact", "Memory", "Fact") })),
-        ("/api/v1/memory/facts/search", json!({ "get": ep("Search facts", "searchFacts", "Memory") })),
-        ("/api/v1/memory/facts/{fact_id}", json!({ "delete": ep_param("Delete fact", "deleteFact", "Memory", "fact_id") })),
-        ("/api/v1/bus/agents",  json!({ "get": ep("List bus agents", "busListAgents", "AgentBus") })),
-        ("/api/v1/bus/send",    json!({ "post": ep("Send message", "busSend", "AgentBus") })),
-        ("/api/v1/bus/request", json!({ "post": ep("Request-reply", "busRequest", "AgentBus") })),
-        ("/api/v1/evolution/feedback", json!({ "post": ep("Submit feedback", "submitFeedback", "Evolution") })),
-        ("/api/v1/evolution/feedback/{agent_id}", json!({ "get": ep_param("Get feedback", "getFeedback", "Evolution", "agent_id") })),
-        ("/api/v1/evolution/evaluate/{agent_id}", json!({ "get": ep_param("Evaluate agent", "evaluateAgent", "Evolution", "agent_id") })),
-        ("/api/v1/evolution/distill/{agent_id}", json!({ "post": ep_param("Distill prompt", "distillPrompt", "Evolution", "agent_id") })),
-        ("/api/v1/evolution/candidates/{agent_id}", json!({ "get": ep_param("List candidates", "listCandidates", "Evolution", "agent_id") })),
-        ("/api/v1/evolution/candidates/{candidate_id}/accept", json!({ "post": ep_param("Accept candidate", "acceptCandidate", "Evolution", "candidate_id") })),
-        ("/api/v1/evolution/candidates/{candidate_id}/reject", json!({ "post": ep_param("Reject candidate", "rejectCandidate", "Evolution", "candidate_id") })),
-        ("/api/v1/dag/workflows", json!({ "get": ep("List DAG workflows", "dagListWorkflows", "DAG") })),
-        ("/api/v1/dag/validate",  json!({ "post": ep("Validate DAG", "dagValidate", "DAG") })),
-        ("/api/v1/dag/execute",   json!({ "post": ep("Execute DAG", "dagExecute", "DAG") })),
-        ("/api/v1/cron/jobs", json!({ "get": ep("List cron jobs", "listCronJobs", "Cron"), "post": ep_body("Upsert cron job", "upsertCronJob", "Cron", "CronJob") })),
-        ("/api/v1/cron/jobs/{job_id}", json!({ "get": ep_param("Get cron job", "getCronJob", "Cron", "job_id"), "delete": ep_param("Delete cron job", "deleteCronJob", "Cron", "job_id") })),
-        ("/api/v1/plugins", json!({ "get": ep("List plugins", "listPlugins", "Plugins") })),
-        ("/api/v1/plugins/{plugin_id}/invoke/{capability}", json!({ "post": ep("Invoke plugin", "invokePlugin", "Plugins") })),
-        ("/api/v1/channels", json!({ "get": ep("List channels", "listChannels", "Channels") })),
-        ("/webhook/{channel_id}", json!({ "post": ep_param("Channel webhook", "channelWebhook", "Channels", "channel_id") })),
-        ("/api/v1/routes", json!({ "get": ep("List routes", "listRoutes", "DynamicRoutes"), "post": ep("Add route", "addRoute", "DynamicRoutes") })),
-        ("/api/v1/routes/{id}", json!({ "put": ep_param("Update route", "updateRoute", "DynamicRoutes", "id"), "delete": ep_param("Delete route", "deleteRoute", "DynamicRoutes", "id") })),
-        ("/api/v1/traces", json!({ "get": ep("List traces", "listTraces", "Traces") })),
-        ("/api/v1/traces/{trace_id}", json!({ "get": ep_param("Get trace", "getTrace", "Traces", "trace_id"), "delete": ep_param("Delete trace", "deleteTrace", "Traces", "trace_id") })),
-        ("/api/v1/openapi.json", json!({ "get": ep("OpenAPI spec", "openapiSpec", "Meta") })),
+        (
+            "/health",
+            json!({ "get": ep("Health check", "health", "Health") }),
+        ),
+        (
+            "/ready",
+            json!({ "get": ep("Readiness probe", "readiness", "Health") }),
+        ),
+        (
+            "/metrics",
+            json!({ "get": ep("Prometheus metrics", "metrics", "Observability") }),
+        ),
+        (
+            "/api/v1/metrics",
+            json!({ "get": ep("Structured metrics", "structuredMetrics", "Observability") }),
+        ),
+        (
+            "/api/v1/auth/status",
+            json!({ "get": ep("Auth status", "authStatus", "Auth") }),
+        ),
+        (
+            "/api/v1/chat",
+            json!({ "post": ep_body("Chat completion", "chatCompletions", "Chat", "ChatRequest") }),
+        ),
+        (
+            "/api/v1/chat/completions",
+            json!({ "post": ep_body("Chat completion (alias)", "chatCompletionsAlias", "Chat", "ChatRequest") }),
+        ),
+        (
+            "/api/v1/agents",
+            json!({ "get": ep("List agents", "listAgents", "Agents"), "post": ep_body("Create agent", "postAgent", "Agents", "AgentConfig") }),
+        ),
+        (
+            "/api/v1/agents/{agent_id}",
+            json!({ "get": ep_param("Get agent", "getAgent", "Agents", "agent_id"), "put": ep_param("Update agent", "putAgent", "Agents", "agent_id"), "delete": ep_param("Delete agent", "deleteAgent", "Agents", "agent_id") }),
+        ),
+        (
+            "/api/v1/agents/{agent_id}/tools",
+            json!({ "get": ep_param("List agent tools", "listAgentTools", "Agents", "agent_id"), "put": ep_param("Set agent tools", "putAgentTools", "Agents", "agent_id") }),
+        ),
+        (
+            "/api/v1/skills",
+            json!({ "get": ep("List skills", "listSkills", "Agents") }),
+        ),
+        (
+            "/api/v1/tools",
+            json!({ "get": ep("List tools", "listTools", "Tools") }),
+        ),
+        (
+            "/api/v1/sessions",
+            json!({ "get": ep("List sessions", "listSessions", "Sessions") }),
+        ),
+        (
+            "/api/v1/sessions/{session_id}",
+            json!({ "get": ep_param("Get session", "getSession", "Sessions", "session_id"), "delete": ep_param("Delete session", "deleteSession", "Sessions", "session_id") }),
+        ),
+        (
+            "/api/v1/sessions/{session_id}/messages",
+            json!({ "get": ep_param("Get messages", "getSessionMessages", "Sessions", "session_id") }),
+        ),
+        (
+            "/api/v1/memory/episodes",
+            json!({ "get": ep("List episodes", "listEpisodes", "Memory") }),
+        ),
+        (
+            "/api/v1/memory/episodes/search",
+            json!({ "get": ep("Search episodes", "searchEpisodes", "Memory") }),
+        ),
+        (
+            "/api/v1/memory/facts",
+            json!({ "get": ep("List facts", "listFacts", "Memory"), "post": ep_body("Upsert fact", "upsertFact", "Memory", "Fact") }),
+        ),
+        (
+            "/api/v1/memory/facts/search",
+            json!({ "get": ep("Search facts", "searchFacts", "Memory") }),
+        ),
+        (
+            "/api/v1/memory/facts/{fact_id}",
+            json!({ "delete": ep_param("Delete fact", "deleteFact", "Memory", "fact_id") }),
+        ),
+        (
+            "/api/v1/bus/agents",
+            json!({ "get": ep("List bus agents", "busListAgents", "AgentBus") }),
+        ),
+        (
+            "/api/v1/bus/send",
+            json!({ "post": ep("Send message", "busSend", "AgentBus") }),
+        ),
+        (
+            "/api/v1/bus/request",
+            json!({ "post": ep("Request-reply", "busRequest", "AgentBus") }),
+        ),
+        (
+            "/api/v1/evolution/feedback",
+            json!({ "post": ep("Submit feedback", "submitFeedback", "Evolution") }),
+        ),
+        (
+            "/api/v1/evolution/feedback/{agent_id}",
+            json!({ "get": ep_param("Get feedback", "getFeedback", "Evolution", "agent_id") }),
+        ),
+        (
+            "/api/v1/evolution/evaluate/{agent_id}",
+            json!({ "get": ep_param("Evaluate agent", "evaluateAgent", "Evolution", "agent_id") }),
+        ),
+        (
+            "/api/v1/evolution/distill/{agent_id}",
+            json!({ "post": ep_param("Distill prompt", "distillPrompt", "Evolution", "agent_id") }),
+        ),
+        (
+            "/api/v1/evolution/candidates/{agent_id}",
+            json!({ "get": ep_param("List candidates", "listCandidates", "Evolution", "agent_id") }),
+        ),
+        (
+            "/api/v1/evolution/candidates/{candidate_id}/accept",
+            json!({ "post": ep_param("Accept candidate", "acceptCandidate", "Evolution", "candidate_id") }),
+        ),
+        (
+            "/api/v1/evolution/candidates/{candidate_id}/reject",
+            json!({ "post": ep_param("Reject candidate", "rejectCandidate", "Evolution", "candidate_id") }),
+        ),
+        (
+            "/api/v1/dag/workflows",
+            json!({ "get": ep("List DAG workflows", "dagListWorkflows", "DAG") }),
+        ),
+        (
+            "/api/v1/dag/validate",
+            json!({ "post": ep("Validate DAG", "dagValidate", "DAG") }),
+        ),
+        (
+            "/api/v1/dag/execute",
+            json!({ "post": ep("Execute DAG", "dagExecute", "DAG") }),
+        ),
+        (
+            "/api/v1/cron/jobs",
+            json!({ "get": ep("List cron jobs", "listCronJobs", "Cron"), "post": ep_body("Upsert cron job", "upsertCronJob", "Cron", "CronJob") }),
+        ),
+        (
+            "/api/v1/cron/jobs/{job_id}",
+            json!({ "get": ep_param("Get cron job", "getCronJob", "Cron", "job_id"), "delete": ep_param("Delete cron job", "deleteCronJob", "Cron", "job_id") }),
+        ),
+        (
+            "/api/v1/plugins",
+            json!({ "get": ep("List plugins", "listPlugins", "Plugins") }),
+        ),
+        (
+            "/api/v1/plugins/{plugin_id}/invoke/{capability}",
+            json!({ "post": ep("Invoke plugin", "invokePlugin", "Plugins") }),
+        ),
+        (
+            "/api/v1/channels",
+            json!({ "get": ep("List channels", "listChannels", "Channels") }),
+        ),
+        (
+            "/webhook/{channel_id}",
+            json!({ "post": ep_param("Channel webhook", "channelWebhook", "Channels", "channel_id") }),
+        ),
+        (
+            "/api/v1/routes",
+            json!({ "get": ep("List routes", "listRoutes", "DynamicRoutes"), "post": ep("Add route", "addRoute", "DynamicRoutes") }),
+        ),
+        (
+            "/api/v1/routes/{id}",
+            json!({ "put": ep_param("Update route", "updateRoute", "DynamicRoutes", "id"), "delete": ep_param("Delete route", "deleteRoute", "DynamicRoutes", "id") }),
+        ),
+        (
+            "/api/v1/traces",
+            json!({ "get": ep("List traces", "listTraces", "Traces") }),
+        ),
+        (
+            "/api/v1/traces/{trace_id}",
+            json!({ "get": ep_param("Get trace", "getTrace", "Traces", "trace_id"), "delete": ep_param("Delete trace", "deleteTrace", "Traces", "trace_id") }),
+        ),
+        (
+            "/api/v1/openapi.json",
+            json!({ "get": ep("OpenAPI spec", "openapiSpec", "Meta") }),
+        ),
     ];
 
     for (path, ops) in routes {
@@ -205,7 +337,9 @@ mod tests {
             }
         }
 
-        for tag in &["Health", "Chat", "Agents", "Sessions", "Memory", "Traces", "Cron", "DAG"] {
+        for tag in &[
+            "Health", "Chat", "Agents", "Sessions", "Memory", "Traces", "Cron", "DAG",
+        ] {
             assert!(all_tags.contains(*tag), "missing tag: {tag}");
         }
     }

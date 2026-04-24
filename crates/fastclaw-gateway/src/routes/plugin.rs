@@ -10,7 +10,7 @@ use super::error::AppError;
 pub(super) async fn list_plugins(
     State(state): State<AppState>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let registry = state.plugin_registry.read().await;
+    let registry = state.ext.plugin_registry.read().await;
     let plugins: Vec<_> = registry
         .list_plugins()
         .into_iter()
@@ -40,7 +40,7 @@ pub(super) async fn invoke_plugin(
     Path((plugin_id, capability)): Path<(String, String)>,
     AppJson(input): AppJson<serde_json::Value>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let registry = state.plugin_registry.read().await;
+    let registry = state.ext.plugin_registry.read().await;
     let invoke_key = format!("{plugin_id}::{capability}");
     let input_str =
         serde_json::to_string(&input).map_err(|e| anyhow::anyhow!("invalid input JSON: {e}"))?;

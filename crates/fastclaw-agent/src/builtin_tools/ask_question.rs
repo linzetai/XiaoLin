@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use fastclaw_core::types::{AskQuestionOption, StreamEvent};
 
@@ -16,10 +17,8 @@ where
     ASK_QUESTION_STREAM_KEY.scope(stream_key, fut).await
 }
 
-type StreamEventTxMap =
-    Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>>;
-type PendingAnswers =
-    Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>;
+type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>;
+type PendingAnswers = Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>;
 
 pub struct AskQuestionTool {
     stream_event_txs: StreamEventTxMap,
@@ -136,15 +135,13 @@ impl Tool for AskQuestionTool {
         };
 
         let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-        {
-            let mut pending = self.pending.lock().await;
-            pending.insert(request_id.clone(), answer_tx);
-        }
+        self.pending
+            .insert(request_id.clone(), answer_tx);
 
-        let stream_tx = {
-            let txs = self.stream_event_txs.lock().await;
-            txs.get(&stream_key).cloned()
-        };
+        let stream_tx = self
+            .stream_event_txs
+            .get(&stream_key)
+            .map(|r| r.value().clone());
 
         {
             if let Some(tx) = stream_tx {
@@ -166,10 +163,7 @@ impl Tool for AskQuestionTool {
         )
         .await;
 
-        {
-            let mut pending = self.pending.lock().await;
-            pending.remove(&request_id);
-        }
+        self.pending.remove(&request_id);
 
         match result {
             Ok(Ok(answer)) => ToolResult::ok(

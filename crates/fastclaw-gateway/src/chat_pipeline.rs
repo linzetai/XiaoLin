@@ -79,14 +79,17 @@ pub async fn setup_chat(
 
     let t0 = std::time::Instant::now();
     let agent_config = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router
             .resolve(request)
             .map(|c| c.clone())
             .map_err(map_router_resolve_err)?
     };
     let agent_id = agent_config.agent_id.clone();
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: resolve_agent");
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        "perf: resolve_agent"
+    );
 
     let resolve_reason: &'static str = if request.agent_id.is_some() {
         "explicit"
@@ -104,7 +107,10 @@ pub async fn setup_chat(
         messages: mut context_messages,
         needs_title,
     } = resolve_session_context(state, request.session_id.as_deref(), &agent_id).await?;
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: resolve_session_context");
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        "perf: resolve_session_context"
+    );
     let user_text_for_title = if needs_title {
         user_messages
             .iter()
@@ -117,7 +123,7 @@ pub async fn setup_chat(
     for msg in &user_messages {
         if msg.role == Role::User {
             if let Some(text) = msg.text_content() {
-                let result = state.prompt_guard.is_suspicious(&text);
+                let result = state.rt.prompt_guard.is_suspicious(&text);
                 if result.is_suspicious {
                     tracing::warn!(
                         agent_id = %agent_id,
@@ -145,16 +151,21 @@ pub async fn setup_chat(
     let t0 = std::time::Instant::now();
     if options.propagate_context_ingest_errors {
         state
+            .store
             .context_engine
             .ingest(&ingest_input, &mut context_messages)
             .await?;
     } else {
         let _ = state
+            .store
             .context_engine
             .ingest(&ingest_input, &mut context_messages)
             .await;
     }
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: context_ingest");
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        "perf: context_ingest"
+    );
 
     context_messages.extend_from_slice(&user_messages);
 
@@ -162,23 +173,37 @@ pub async fn setup_chat(
     enriched_request.messages = context_messages;
     let t0 = std::time::Instant::now();
     state
+        .store
         .context_engine
         .process(&mut enriched_request.messages)
         .await?;
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: context_process");
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        "perf: context_process"
+    );
 
     let t0 = std::time::Instant::now();
-    let slash_meta = inject_slash_intent_context(state, request, &agent_id, &mut enriched_request.messages);
-    let prompt_route_meta = apply_prompt_router(state, request, &agent_id, &mut enriched_request.messages);
+    let slash_meta =
+        inject_slash_intent_context(state, request, &agent_id, &mut enriched_request.messages);
+    let prompt_route_meta =
+        apply_prompt_router(state, request, &agent_id, &mut enriched_request.messages);
     inject_skills_prompt(state, &agent_id, &mut enriched_request.messages);
-    inject_runtime_paths_prompt(state, &agent_id, request.work_dir.as_deref(), &mut enriched_request.messages);
+    inject_runtime_paths_prompt(
+        state,
+        &agent_id,
+        request.work_dir.as_deref(),
+        &mut enriched_request.messages,
+    );
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: prompt_injections");
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        "perf: prompt_injections"
+    );
 
     // BUG-003: If the caller used an agent ID as the `model` field, clear it so the agent's
     // configured model is used instead of forwarding the alias string to the upstream LLM.
     {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         if enriched_request
             .model
             .as_deref()
@@ -195,8 +220,12 @@ pub async fn setup_chat(
 
     let t0 = std::time::Instant::now();
     let tool_definition_count =
-        filtered_tool_definitions(&state.tool_registry, &agent_config).map_or(0, |d| d.len());
-    tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_definition_count, "perf: filtered_tool_definitions");
+        filtered_tool_definitions(&state.rt.tool_registry, &agent_config).map_or(0, |d| d.len());
+    tracing::info!(
+        elapsed_ms = t0.elapsed().as_millis() as u64,
+        count = tool_definition_count,
+        "perf: filtered_tool_definitions"
+    );
     let llm_override = apply_model_router_for_chat(
         state,
         &agent_config,
@@ -211,31 +240,31 @@ pub async fn setup_chat(
 
     // Resolve effective context window: model config (live) > model router > agent fallback
     let effective_context_window: Option<u32> = {
-        let model_ctx_from_config = state
-            .config_live
-            .read()
-            .ok()
-            .and_then(|live| {
-                live.get("models")
-                    .and_then(|m| m.as_object())
-                    .and_then(|models| {
-                        models.values().find_map(|cfg| {
-                            let m = cfg
-                                .get("model")
-                                .or_else(|| cfg.get("defaultModel"))
-                                .and_then(|v| v.as_str())?;
-                            if m == model_for_budget {
-                                cfg.get("contextWindow").and_then(|v| v.as_u64()).map(|v| v as u32)
-                            } else {
-                                None
-                            }
-                        })
+        let model_ctx_from_config = {
+            let live = state.cfg.config_live.load();
+            live.get("models")
+                .and_then(|m| m.as_object())
+                .and_then(|models| {
+                    models.values().find_map(|cfg| {
+                        let m = cfg
+                            .get("model")
+                            .or_else(|| cfg.get("defaultModel"))
+                            .and_then(|v| v.as_str())?;
+                        if m == model_for_budget {
+                            cfg.get("contextWindow")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as u32)
+                        } else {
+                            None
+                        }
                     })
-            });
+                })
+        };
         model_ctx_from_config
             .or(agent_config.model.context_window)
             .or_else(|| {
                 state
+                    .obs
                     .model_router
                     .as_ref()
                     .and_then(|mr| mr.max_context_for_model(&model_for_budget))
@@ -270,11 +299,13 @@ pub async fn setup_chat(
         let user_count = msgs.iter().filter(|m| m.role == Role::User).count();
         let assistant_count = msgs.iter().filter(|m| m.role == Role::Assistant).count();
         let tool_msg_count = msgs.iter().filter(|m| m.role == Role::Tool).count();
-        let system_tokens: usize = msgs.iter()
+        let system_tokens: usize = msgs
+            .iter()
             .filter(|m| m.role == Role::System)
             .map(|m| fastclaw_context::estimate_messages_tokens(std::slice::from_ref(m)))
             .sum();
-        let history_tokens: usize = msgs.iter()
+        let history_tokens: usize = msgs
+            .iter()
             .filter(|m| m.role != Role::System)
             .map(|m| fastclaw_context::estimate_messages_tokens(std::slice::from_ref(m)))
             .sum();
@@ -401,7 +432,7 @@ fn apply_prompt_router(
     agent_id: &str,
     messages: &mut Vec<ChatMessage>,
 ) -> Option<PromptRouteMeta> {
-    let cfg = &state.config.prompt_router;
+    let cfg = &state.cfg.config.prompt_router;
     if !cfg.enabled {
         return None;
     }
@@ -443,11 +474,17 @@ fn apply_prompt_router(
         .profiles
         .get(&selected_profile)
         .map(|p| p.role_prompt_id.as_str())
-        .or_else(|| cfg.profiles.get(&cfg.default_profile).map(|p| p.role_prompt_id.as_str()))
+        .or_else(|| {
+            cfg.profiles
+                .get(&cfg.default_profile)
+                .map(|p| p.role_prompt_id.as_str())
+        })
         .unwrap_or("main");
 
     if role_prompt_id != agent_id {
-        if let Some(role_prompt) = fastclaw_core::workspace::resolve_agent_role_prompt(role_prompt_id) {
+        if let Some(role_prompt) =
+            fastclaw_core::workspace::resolve_agent_role_prompt(role_prompt_id)
+        {
             let dynamic = format!(
                 "[Dynamic Role Prompt]\nintent: {selected_profile}\nrolePromptId: {role_prompt_id}\n\n{}",
                 role_prompt.trim()
@@ -476,7 +513,7 @@ fn apply_prompt_router(
 
 fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<ChatMessage>) {
     let agent_skill_reg = state.skill_registry_for(agent_id);
-    let skills_prompt = agent_skill_reg.format_for_prompt_mode(&state.config.skills.prompt_mode);
+    let skills_prompt = agent_skill_reg.format_for_prompt_mode(&state.cfg.config.skills.prompt_mode);
     if skills_prompt.is_empty() {
         return;
     }
@@ -492,13 +529,21 @@ fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<Cha
     );
 }
 
-fn inject_runtime_paths_prompt(state: &AppState, agent_id: &str, user_work_dir: Option<&str>, messages: &mut Vec<ChatMessage>) {
-    let state_dir = fastclaw_core::paths::resolve_state_dir_from(Some(&state.config.paths));
+fn inject_runtime_paths_prompt(
+    state: &AppState,
+    agent_id: &str,
+    user_work_dir: Option<&str>,
+    messages: &mut Vec<ChatMessage>,
+) {
+    let state_dir = fastclaw_core::paths::resolve_state_dir_from(Some(&state.cfg.config.paths));
     let agent_workspace = state
+        .rt
         .workspaces
         .get(agent_id)
         .map(|ws| ws.root.clone())
-        .unwrap_or_else(|| fastclaw_core::workspace::resolve_workspace_root(&state_dir, agent_id, None));
+        .unwrap_or_else(|| {
+            fastclaw_core::workspace::resolve_workspace_root(&state_dir, agent_id, None)
+        });
     let process_cwd = std::env::current_dir().unwrap_or_else(|_| state_dir.clone());
 
     let effective_workdir = user_work_dir
@@ -535,18 +580,18 @@ Guidance:\n\
 }
 
 fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
-    let mcp_tools = state.tool_registry.mcp_definitions();
+    let mcp_tools = state.rt.tool_registry.mcp_definitions();
 
     tracing::debug!(
         mcp_tools = mcp_tools.len(),
-        global_mcp_configured = state.config.mcp_servers.len(),
+        global_mcp_configured = state.cfg.config.mcp_servers.len(),
         "inject_mcp_tools_prompt check"
     );
 
     if mcp_tools.is_empty() {
-        if !state.config.mcp_servers.is_empty() {
+        if !state.cfg.config.mcp_servers.is_empty() {
             tracing::warn!(
-                configured = state.config.mcp_servers.len(),
+                configured = state.cfg.config.mcp_servers.len(),
                 "MCP servers configured but no mcp_* tools in registry (connection may have failed at startup)"
             );
         }
@@ -572,7 +617,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
     let mut prompt = String::from("[MCP Extensions]\nThe following MCP (Model Context Protocol) servers are connected, providing additional tools.\n\n");
 
     for (server_id, tools) in &servers {
-        let cfg_match = state.config.mcp_servers.iter().find(|c| c.id == *server_id);
+        let cfg_match = state.cfg.config.mcp_servers.iter().find(|c| c.id == *server_id);
         let cmd_info = cfg_match
             .map(|c| format!("{} {}", c.command, c.args.join(" ")))
             .unwrap_or_default();
@@ -620,6 +665,7 @@ pub async fn after_chat(
     with_smart_title: bool,
 ) -> Result<(), AppError> {
     state
+        .store
         .session_store
         .append_message(&setup.session_id, assistant)
         .await?;
@@ -638,7 +684,7 @@ pub async fn after_chat(
         );
     }
 
-    if state.config.tracing.conversation_trace {
+    if state.cfg.config.tracing.conversation_trace {
         spawn_trace_write(state, setup, assistant);
     }
 
@@ -646,11 +692,9 @@ pub async fn after_chat(
 }
 
 fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessage) {
-    use fastclaw_core::types::{
-        ConversationTrace, TraceLlmRequest, TraceLlmResponse, TraceTurn,
-    };
+    use fastclaw_core::types::{ConversationTrace, TraceLlmRequest, TraceLlmResponse, TraceTurn};
 
-    let store = state.session_store.clone();
+    let store = state.store.session_store.clone();
     let session_id = setup.session_id.clone();
     let agent_id = setup.agent_id.clone();
     let model = setup.model_for_budget.clone();
@@ -698,7 +742,11 @@ fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessag
             session_id,
             agent_id,
             model,
-            context_window: if ctx_window > 0 { Some(ctx_window) } else { None },
+            context_window: if ctx_window > 0 {
+                Some(ctx_window)
+            } else {
+                None
+            },
             started_at: now.clone(),
             finished_at: Some(now),
             turns: vec![turn],
@@ -778,7 +826,7 @@ pub async fn generate_smart_title(
         tools: None,
     };
 
-    let title = match state.runtime.provider().chat_completion(&params).await {
+    let title = match state.rt.runtime.provider().chat_completion(&params).await {
         Ok(resp) => {
             record_chat_budget_actual(state, model, resp.usage.as_ref());
             if resp.usage.is_none() {
@@ -811,6 +859,7 @@ pub async fn generate_smart_title(
 
     if !final_title.is_empty() {
         state
+            .store
             .session_store
             .update_title(session_id, &final_title)
             .await?;

@@ -38,7 +38,7 @@ pub(super) async fn channel_webhook(
 ) -> Result<impl IntoResponse, AppError> {
     use fastclaw_core::channel::WebhookResult;
 
-    let registry = state.channel_registry.read().await;
+    let registry = state.ext.channel_registry.read().await;
     let channel = registry
         .get(&channel_id)
         .cloned()
@@ -107,7 +107,7 @@ async fn handle_slash_command(
         let bindings = state.merged_route_bindings().await;
         let route = fastclaw_core::routing::resolve_route(
             &bindings,
-            &state.config.agents,
+            &state.cfg.config.agents,
             channel_id,
             None,
             None,
@@ -181,7 +181,7 @@ pub(crate) async fn handle_channel_message(
     let bindings = state.merged_route_bindings().await;
     let route = resolve_route(
         &bindings,
-        &state.config.agents,
+        &state.cfg.config.agents,
         channel_id,
         None,
         None,
@@ -189,7 +189,7 @@ pub(crate) async fn handle_channel_message(
     );
     let agent_id = route.agent_id.as_str();
 
-    if let Some(agent_entry) = state.config.agents.list.iter().find(|a| a.id == agent_id) {
+    if let Some(agent_entry) = state.cfg.config.agents.list.iter().find(|a| a.id == agent_id) {
         if let Some(ref gc) = agent_entry.group_chat {
             if gc.require_mention == Some(true) {
                 let mentioned = gc
@@ -205,6 +205,7 @@ pub(crate) async fn handle_channel_message(
     }
 
     let dm_scope = state
+        .cfg
         .config
         .session
         .dm_scope
@@ -213,23 +214,27 @@ pub(crate) async fn handle_channel_message(
     let session_key = build_session_key(&dm_scope, agent_id, channel_id, None, chat_id, "p2p");
 
     if state
+        .store
         .session_store
         .get_session(&session_key)
         .await?
         .is_none()
     {
         state
+            .store
             .session_store
             .create_session(&session_key, agent_id, None)
             .await?;
     }
     let session = state
+        .store
         .session_store
         .get_session(&session_key)
         .await?
         .ok_or_else(|| anyhow::anyhow!("failed to create session"))?;
 
     state
+        .store
         .session_store
         .append_message(
             &session.id,
@@ -243,10 +248,10 @@ pub(crate) async fn handle_channel_message(
         )
         .await?;
 
-    let mut messages = state.session_store.load_chat_messages(&session.id).await?;
+    let mut messages = state.store.session_store.load_chat_messages(&session.id).await?;
 
     let mut system_context = String::new();
-    if let Some(workspace) = state.workspaces.get(agent_id) {
+    if let Some(workspace) = state.rt.workspaces.get(agent_id) {
         let bootstrap = workspace.load_bootstrap();
         let bs_prompt = bootstrap.format_for_prompt();
         if !bs_prompt.is_empty() {
@@ -254,7 +259,7 @@ pub(crate) async fn handle_channel_message(
         }
     }
     let agent_skill_reg = state.skill_registry_for(agent_id);
-    let skills_prompt = agent_skill_reg.format_for_prompt_mode(&state.config.skills.prompt_mode);
+    let skills_prompt = agent_skill_reg.format_for_prompt_mode(&state.cfg.config.skills.prompt_mode);
     if !skills_prompt.is_empty() {
         system_context.push_str(&skills_prompt);
     }
@@ -273,7 +278,7 @@ pub(crate) async fn handle_channel_message(
 
     let use_streaming = channel.capabilities().streaming;
 
-    let router = state.router.read().await;
+    let router = state.rt.router.read().await;
     let agent_config = router
         .resolve(&ChatRequest {
             messages: messages.clone(),
@@ -291,7 +296,7 @@ pub(crate) async fn handle_channel_message(
         .map_err(|e| anyhow::anyhow!("agent resolve: {}", e))?;
     drop(router);
 
-    let tools = filtered_tool_definitions(&state.tool_registry, &agent_config);
+    let tools = filtered_tool_definitions(&state.rt.tool_registry, &agent_config);
     let tool_definition_count = tools.as_ref().map_or(0, |t| t.len());
 
     let mut request = ChatRequest {
@@ -321,6 +326,7 @@ pub(crate) async fn handle_channel_message(
         )
         .await?;
         state
+            .store
             .session_store
             .append_message(
                 &session.id,
@@ -335,8 +341,9 @@ pub(crate) async fn handle_channel_message(
             .await?;
     } else {
         let result = state
+            .rt
             .runtime
-            .execute(&agent_config, &request, &state.tool_registry, llm_override)
+            .execute(&agent_config, &request, &state.rt.tool_registry, llm_override)
             .await?;
         let charged_model = result.response.model.clone();
         record_chat_budget_actual(
@@ -355,11 +362,13 @@ pub(crate) async fn handle_channel_message(
 
         if let Some(choice) = result.response.choices.first() {
             state
+                .store
                 .session_store
                 .append_message(&session.id, &choice.message)
                 .await?;
         } else {
             state
+                .store
                 .session_store
                 .append_message(
                     &session.id,
@@ -417,8 +426,9 @@ async fn handle_channel_streaming(
     if reply_msg_id.is_empty() {
         tracing::warn!("streaming: could not extract reply message_id from placeholder response, falling back to non-streaming");
         let result = state
+            .rt
             .runtime
-            .execute(agent_config, request, &state.tool_registry, llm_override)
+            .execute(agent_config, request, &state.rt.tool_registry, llm_override)
             .await?;
         let charged_model = result.response.model.clone();
         record_chat_budget_actual(
@@ -449,8 +459,8 @@ async fn handle_channel_streaming(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(1024);
 
-    let runtime = state.runtime.clone();
-    let tool_reg = state.tool_registry.clone();
+    let runtime = state.rt.runtime.clone();
+    let tool_reg = state.rt.tool_registry.clone();
     let config = agent_config.clone();
     let req = request.clone();
     let llm_spawn = llm_override.clone();
@@ -540,7 +550,7 @@ async fn handle_channel_streaming(
 }
 
 pub(super) async fn list_channels(State(state): State<AppState>) -> impl IntoResponse {
-    let registry = state.channel_registry.read().await;
+    let registry = state.ext.channel_registry.read().await;
     let channels: Vec<_> = registry
         .list()
         .into_iter()

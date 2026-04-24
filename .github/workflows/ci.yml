@@ -3,51 +3,106 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - "crates/fastclaw-app/**"
-      - ".github/workflows/**"
   pull_request:
 
-jobs:
-  check:
-    runs-on: ubuntu-latest
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
+jobs:
+  # ── Formatting ──────────────────────────────────────────────────────────────
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # ── Tests (multi-platform) ─────────────────────────────────────────────────
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace --no-fail-fast
+
+  # ── Security audit ─────────────────────────────────────────────────────────
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Dependency policy ──────────────────────────────────────────────────────
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # ── Frontend (Tauri app) ───────────────────────────────────────────────────
+  app:
+    name: Frontend
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # pnpm
       - uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      # node + cache
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
           cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
 
-      # rust
       - uses: dtolnay/rust-toolchain@stable
 
-      # rust cache
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             crates/fastclaw-app/src-tauri
 
-      # install deps
-      - name: Install deps
+      - name: Install frontend deps
         working-directory: crates/fastclaw-app
         run: pnpm install --frozen-lockfile
 
-      # 前端构建（验证）
       - name: Build frontend
         working-directory: crates/fastclaw-app
         run: pnpm build
 
-      # Rust 只做 check（快很多）
-      - name: Cargo check
+      - name: Test frontend
+        working-directory: crates/fastclaw-app
+        run: pnpm test
+
+      - name: Cargo check (Tauri)
         working-directory: crates/fastclaw-app/src-tauri
         run: cargo check

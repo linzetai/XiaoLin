@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use fastclaw_core::config_access::{navigate_config, persist_config_key, set_nested_key};
@@ -42,19 +43,19 @@ impl Tool for ListChannelsTool {
     }
 
     async fn execute(&self, _arguments: &str) -> ToolResult {
-        let live = match self.state.config_live.read() {
-            Ok(g) => g.clone(),
-            Err(_) => return ToolResult::err("failed to read config".to_string()),
-        };
+        let live: serde_json::Value = (**self.state.cfg.config_live.load()).clone();
 
         let channels = navigate_config(&live, "channels");
         let bindings = navigate_config(&live, "bindings");
 
-        let registry = self.state.channel_registry.read().await;
+        let registry = self.state.ext.channel_registry.read().await;
         let mut result = Vec::new();
         if let Some(obj) = channels.as_object() {
             for (id, cfg) in obj {
-                let enabled = cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                let enabled = cfg
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let has_creds = cfg.get("appId").and_then(|v| v.as_str()).is_some()
                     || cfg.get("appSecret").and_then(|v| v.as_str()).is_some();
                 let mode = cfg
@@ -85,10 +86,13 @@ impl Tool for ListChannelsTool {
                 "hint": "No channels configured. Supported: feishu, slack, discord, telegram, whatsapp, matrix, msteams. Use add_channel to set one up."
             }).to_string())
         } else {
-            ToolResult::ok(json!({
-                "channels": result,
-                "bindings": bindings,
-            }).to_string())
+            ToolResult::ok(
+                json!({
+                    "channels": result,
+                    "bindings": bindings,
+                })
+                .to_string(),
+            )
         }
     }
 }
@@ -183,13 +187,14 @@ impl Tool for AddChannelTool {
         // 1. Save channel config
         let ch_key = format!("channels.{channel}");
         {
-            let mut live = match self.state.config_live.write() {
-                Ok(g) => g,
-                Err(_) => return ToolResult::err("failed to acquire config lock".to_string()),
-            };
+            let mut live: serde_json::Value = (**self.state.cfg.config_live.load()).clone();
             if set_nested_key(&mut live, &ch_key, config.clone()).is_err() {
                 return ToolResult::err("failed to update config".to_string());
             }
+            self.state
+                .cfg
+                .config_live
+                .store(Arc::new(live));
         }
         if let Err(e) = persist_config_key(&ch_key, &config) {
             tracing::warn!(channel = %channel, error = %e, "add_channel: failed to persist channel config");
@@ -205,7 +210,9 @@ impl Tool for AddChannelTool {
                 status_parts.push("Plugin started successfully.".to_string());
             }
             Err(e) => {
-                status_parts.push(format!("Plugin start failed: {e}. A restart may be needed."));
+                status_parts.push(format!(
+                    "Plugin start failed: {e}. A restart may be needed."
+                ));
             }
         }
         status_parts.push(format!("Webhook URL: /webhook/{channel}"));
@@ -217,12 +224,11 @@ impl Tool for AddChannelTool {
 
 impl AddChannelTool {
     async fn ensure_binding(&self, channel: &str, agent_id: &str) {
-        let mut live = match self.state.config_live.write() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-
-        let bindings = live.get("bindings").cloned().unwrap_or(json!([]));
+        let live_snapshot = self.state.cfg.config_live.load();
+        let bindings = live_snapshot
+            .get("bindings")
+            .cloned()
+            .unwrap_or(json!([]));
         if let Some(arr) = bindings.as_array() {
             let already = arr.iter().any(|b| {
                 b.get("match")
@@ -235,19 +241,20 @@ impl AddChannelTool {
             }
         }
 
+        let mut live: serde_json::Value = (**self.state.cfg.config_live.load()).clone();
         let binding = json!({
             "agentId": agent_id,
             "match": { "channel": channel }
         });
-        let mut new_bindings = bindings
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let mut new_bindings = bindings.as_array().cloned().unwrap_or_default();
         new_bindings.push(binding);
         let bindings_val = serde_json::Value::Array(new_bindings);
 
         if set_nested_key(&mut live, "bindings", bindings_val.clone()).is_ok() {
-            drop(live);
+            self.state
+                .cfg
+                .config_live
+                .store(Arc::new(live));
             let _ = persist_config_key("bindings", &bindings_val);
             tracing::info!(channel, agent_id, "auto-created binding for channel");
         }
@@ -307,13 +314,14 @@ impl Tool for RemoveChannelTool {
         let key = format!("channels.{channel}");
 
         {
-            let mut live = match self.state.config_live.write() {
-                Ok(g) => g,
-                Err(_) => return ToolResult::err("failed to acquire config lock".to_string()),
-            };
+            let mut live: serde_json::Value = (**self.state.cfg.config_live.load()).clone();
             if set_nested_key(&mut live, &key, disabled.clone()).is_err() {
                 return ToolResult::err("failed to update config".to_string());
             }
+            self.state
+                .cfg
+                .config_live
+                .store(Arc::new(live));
         }
 
         if let Err(e) = persist_config_key(&key, &disabled) {

@@ -25,7 +25,13 @@ impl std::fmt::Display for AuditAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuditAction::Custom(s) => write!(f, "custom:{s}"),
-            other => write!(f, "{}", serde_json::to_string(other).unwrap_or_default().trim_matches('"')),
+            other => write!(
+                f,
+                "{}",
+                serde_json::to_string(other)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+            ),
         }
     }
 }
@@ -100,7 +106,17 @@ impl AuditLog {
 
     /// List recent audit events.
     pub async fn list(&self, limit: u32, offset: u32) -> anyhow::Result<Vec<AuditEvent>> {
-        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, String)>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+            ),
+        >(
             "SELECT id, action, actor, target, detail, timestamp
              FROM audit_log ORDER BY timestamp DESC LIMIT ?1 OFFSET ?2",
         )
@@ -139,9 +155,20 @@ mod tests {
     async fn record_and_list() {
         let pool = mem_pool().await;
         let log = AuditLog::new(pool).await.unwrap();
-        log.record(AuditAction::AgentCreated, "user-1", Some("agent-a"), Some("created")).await.unwrap();
-        log.record(AuditAction::AgentDeleted, "user-1", Some("agent-b"), None).await.unwrap();
-        log.record(AuditAction::AuthFailure, "unknown", None, Some("bad key")).await.unwrap();
+        log.record(
+            AuditAction::AgentCreated,
+            "user-1",
+            Some("agent-a"),
+            Some("created"),
+        )
+        .await
+        .unwrap();
+        log.record(AuditAction::AgentDeleted, "user-1", Some("agent-b"), None)
+            .await
+            .unwrap();
+        log.record(AuditAction::AuthFailure, "unknown", None, Some("bad key"))
+            .await
+            .unwrap();
 
         let events = log.list(10, 0).await.unwrap();
         assert_eq!(events.len(), 3);
@@ -153,7 +180,9 @@ mod tests {
         let pool = mem_pool().await;
         let log = AuditLog::new(pool).await.unwrap();
         for i in 0..5 {
-            log.record(AuditAction::ToolInvoked, &format!("u{i}"), None, None).await.unwrap();
+            log.record(AuditAction::ToolInvoked, &format!("u{i}"), None, None)
+                .await
+                .unwrap();
         }
         let page1 = log.list(2, 0).await.unwrap();
         assert_eq!(page1.len(), 2);
@@ -171,7 +200,9 @@ mod tests {
     async fn optional_fields() {
         let pool = mem_pool().await;
         let log = AuditLog::new(pool).await.unwrap();
-        log.record(AuditAction::ConfigChanged, "admin", None, None).await.unwrap();
+        log.record(AuditAction::ConfigChanged, "admin", None, None)
+            .await
+            .unwrap();
         let events = log.list(1, 0).await.unwrap();
         assert!(events[0].target.is_none());
         assert!(events[0].detail.is_none());

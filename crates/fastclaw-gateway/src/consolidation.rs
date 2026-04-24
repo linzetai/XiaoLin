@@ -282,7 +282,10 @@ FACT: user | prefers_theme | dark mode";
         let (summary, facts) = parse_consolidation_reply(reply);
         assert!(summary.contains("Postgres"));
         assert_eq!(facts.len(), 2);
-        assert_eq!(facts[0], ("user".into(), "prefers_db".into(), "Postgres".into()));
+        assert_eq!(
+            facts[0],
+            ("user".into(), "prefers_db".into(), "Postgres".into())
+        );
         assert_eq!(
             facts[1],
             ("user".into(), "prefers_theme".into(), "dark mode".into())

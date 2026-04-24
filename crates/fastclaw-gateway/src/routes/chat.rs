@@ -1,9 +1,15 @@
 use std::time::Duration;
 
-use axum::{body::Body, extract::{Query, State}, http::header, response::IntoResponse, Json};
+use axum::{
+    body::Body,
+    extract::{Query, State},
+    http::header,
+    response::IntoResponse,
+    Json,
+};
 use serde_json::json;
 
-use fastclaw_agent::{SubAgentPromptContext, build_subagent_prompt_block};
+use fastclaw_agent::{build_subagent_prompt_block, SubAgentPromptContext};
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::types::ChatRequest;
 
@@ -18,7 +24,7 @@ use super::error::AppError;
 
 fn build_subagent_prompt_for_agent(state: &AppState, config: &AgentConfig) -> Option<String> {
     let policy = &config.behavior.subagent;
-    let available = state.subagent_manager.agent_descriptions();
+    let available = state.strm.subagent_manager.agent_descriptions();
     let ctx = SubAgentPromptContext {
         policy,
         available_agents: &available,
@@ -29,7 +35,7 @@ fn build_subagent_prompt_for_agent(state: &AppState, config: &AgentConfig) -> Op
 
 pub(super) async fn list_agents(State(state): State<AppState>) -> impl IntoResponse {
     let agents: Vec<_> = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router
             .list_agents()
             .into_iter()
@@ -47,7 +53,7 @@ pub(super) async fn list_agents(State(state): State<AppState>) -> impl IntoRespo
 }
 
 pub(super) async fn list_tools(State(state): State<AppState>) -> impl IntoResponse {
-    let tools = state.tool_registry.definitions();
+    let tools = state.rt.tool_registry.definitions();
     Json(json!({ "tools": tools }))
 }
 
@@ -113,11 +119,12 @@ async fn handle_non_stream(
 
     let subagent_prompt = build_subagent_prompt_for_agent(&state, &setup.agent_config);
     let result = match state
+        .rt
         .runtime
         .execute_with_subagent_prompt(
             &setup.agent_config,
             &setup.enriched_request,
-            &state.tool_registry,
+            &state.rt.tool_registry,
             setup.llm_override.clone(),
             subagent_prompt,
         )
@@ -127,6 +134,7 @@ async fn handle_non_stream(
         Err(e) => {
             if setup.reserved_cost > 0.0 {
                 let _ = state
+                    .obs
                     .budget_tracker
                     .release_reservation(setup.reserved_cost);
             }
@@ -142,13 +150,18 @@ async fn handle_non_stream(
     );
 
     for msg in &setup.user_messages {
-        state.session_store.append_message(&setup.session_id, msg).await?;
+        state
+            .store
+            .session_store
+            .append_message(&setup.session_id, msg)
+            .await?;
     }
     if let Some(choice) = result.response.choices.first() {
         after_chat(&state, &setup, &choice.message, false).await?;
     }
 
     state
+        .store
         .context_engine
         .after_turn(
             &setup.enriched_request.messages,
@@ -169,12 +182,21 @@ async fn handle_non_stream(
     fastclaw_observe::record_chat_latency(&setup.agent_id, request_start);
 
     let elapsed_ms = request_start.elapsed().as_millis() as f64;
-    state.metrics_collector.record_request(&setup.agent_id, "http");
-    state.metrics_collector.record_latency_ms("/api/v1/chat", elapsed_ms);
+    state
+        .obs
+        .metrics_collector
+        .record_request(&setup.agent_id, "http");
+    state
+        .obs
+        .metrics_collector
+        .record_latency_ms("/api/v1/chat", elapsed_ms);
     if let Some(usage) = result.response.usage.as_ref() {
         let total = usage.total_tokens as u64;
         if total > 0 {
-            state.metrics_collector.record_tokens(&result.response.model, total);
+            state
+                .obs
+                .metrics_collector
+                .record_tokens(&result.response.model, total);
         }
     }
 
@@ -185,7 +207,7 @@ async fn handle_non_stream(
             "sessionId": &setup.session_id,
             "toolCallsMade": result.tool_calls_made,
             "iterations": result.iterations,
-            "memoryInjected": state.config.memory.enabled,
+            "memoryInjected": state.cfg.config.memory.enabled,
             "resolvedAgent": &setup.agent_id,
             "resolveReason": setup.resolve_reason,
         });
@@ -253,7 +275,7 @@ async fn handle_stream(
     let agent_config = setup.agent_config.clone();
 
     for msg in &setup.user_messages {
-        if let Err(e) = state.session_store.append_message(&session_id, msg).await {
+        if let Err(e) = state.store.session_store.append_message(&session_id, msg).await {
             tracing::error!(
                 session_id = %session_id,
                 error = %e,
@@ -275,11 +297,12 @@ async fn handle_stream(
     let subagent_prompt = build_subagent_prompt_for_agent(&state, &agent_config);
     tokio::spawn(async move {
         let result = state_for_task
+            .rt
             .runtime
             .execute_stream_with_subagent_prompt(
                 &config_for_task,
                 &enriched,
-                &state_for_task.tool_registry,
+                &state_for_task.rt.tool_registry,
                 tx.clone(),
                 llm_for_task,
                 subagent_prompt,
@@ -288,6 +311,7 @@ async fn handle_stream(
 
         // Run after_turn hooks (matching non-stream path behavior)
         let _ = state_for_task
+            .store
             .context_engine
             .after_turn(&enriched.messages, &agent_id_for_hook, &session_id_for_hook)
             .await;
@@ -356,12 +380,12 @@ async fn handle_stream(
                         input_estimate,
                         streamed_chars,
                     );
-                    state_budget.metrics_collector.record_request(&setup_for_persist.agent_id, "http-stream");
-                    state_budget.metrics_collector.record_latency_ms("/api/v1/chat", elapsed_ms as f64);
+                    state_budget.obs.metrics_collector.record_request(&setup_for_persist.agent_id, "http-stream");
+                    state_budget.obs.metrics_collector.record_latency_ms("/api/v1/chat", elapsed_ms as f64);
                     if let Some(ref u) = usage {
                         let total = u.total_tokens as u64;
                         if total > 0 {
-                            state_budget.metrics_collector.record_tokens(model_for_budget.as_str(), total);
+                            state_budget.obs.metrics_collector.record_tokens(model_for_budget.as_str(), total);
                         }
                     }
                     // Persist assistant message (matching non-stream + WS path behavior)
@@ -390,8 +414,8 @@ async fn handle_stream(
                         let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
                         let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
                         let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                        let _ = state_for_persist.session_store.accumulate_usage(sid, pt, ct, elapsed_ms).await;
-                        let _ = state_for_persist.session_store.stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms).await;
+                        let _ = state_for_persist.store.session_store.accumulate_usage(sid, pt, ct, elapsed_ms).await;
+                        let _ = state_for_persist.store.session_store.stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms).await;
                     }
                     let mut done_ev = json!({
                         "type": "done",
@@ -437,7 +461,7 @@ async fn handle_stream(
                 }
                 StreamEvent::Error(e) => {
                     if reserved > 0.0 {
-                        let _ = state_budget.budget_tracker.release_reservation(reserved);
+                        let _ = state_budget.obs.budget_tracker.release_reservation(reserved);
                     }
                     if !assistant_content.is_empty() {
                         let assistant_msg = fastclaw_core::types::ChatMessage {

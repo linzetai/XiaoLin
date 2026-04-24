@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use fastclaw_core::agent_config::McpServerConfig;
-use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult, ToolRegistry};
+use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 use fastclaw_core::types::{McpServerStatus, McpStatus};
 
-type ConfigLive = Arc<std::sync::RwLock<serde_json::Value>>;
-type McpStatusMap = Arc<std::sync::RwLock<HashMap<String, McpServerStatus>>>;
+type ConfigLive = Arc<ArcSwap<serde_json::Value>>;
+type McpStatusMap = Arc<ArcSwap<HashMap<String, McpServerStatus>>>;
 type McpHandles = Arc<tokio::sync::Mutex<HashMap<String, fastclaw_collab::mcp::SharedMcpClient>>>;
 
 /// Built-in tool allowing the LLM agent to manage MCP servers at runtime:
@@ -26,7 +27,12 @@ impl ManageMcpServerTool {
         mcp_handles: McpHandles,
         tool_registry: Arc<ToolRegistry>,
     ) -> Self {
-        Self { config_live, mcp_status, mcp_handles, tool_registry }
+        Self {
+            config_live,
+            mcp_status,
+            mcp_handles,
+            tool_registry,
+        }
     }
 }
 
@@ -124,14 +130,29 @@ impl Tool for ManageMcpServerTool {
                     Some(s) => s.to_string(),
                     None => return ToolResult::err("'add' requires 'id' field".to_string()),
                 };
-                let transport = args.get("transport").and_then(|v| v.as_str()).unwrap_or("stdio").to_string();
-                let url = args.get("url").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let transport = args
+                    .get("transport")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("stdio")
+                    .to_string();
+                let url = args
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let command = args
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if transport == "sse" && url.is_none() {
-                    return ToolResult::err("'add' with transport='sse' requires 'url' field".to_string());
+                    return ToolResult::err(
+                        "'add' with transport='sse' requires 'url' field".to_string(),
+                    );
                 }
                 if transport == "stdio" && command.is_empty() {
-                    return ToolResult::err("'add' with transport='stdio' requires 'command' field".to_string());
+                    return ToolResult::err(
+                        "'add' with transport='stdio' requires 'command' field".to_string(),
+                    );
                 }
                 let cmd_args: Vec<String> = args
                     .get("args")
@@ -155,11 +176,8 @@ impl Tool for ManageMcpServerTool {
 
 impl ManageMcpServerTool {
     async fn list_servers(&self) -> ToolResult {
-        let status_map = self
-            .mcp_status
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_default();
+        let status_map: HashMap<String, McpServerStatus> =
+            (**self.mcp_status.load()).clone();
 
         if status_map.is_empty() {
             return ToolResult::ok("No MCP servers configured.");
@@ -187,8 +205,11 @@ impl ManageMcpServerTool {
 
     async fn do_reload(&self) -> Result<(), String> {
         let desired: Vec<McpServerConfig> = {
-            let live = self.config_live.read().map_err(|e| e.to_string())?;
-            let mcp_val = live.get("mcpServers").cloned().unwrap_or(serde_json::json!([]));
+            let live = self.config_live.load();
+            let mcp_val = live
+                .get("mcpServers")
+                .cloned()
+                .unwrap_or(serde_json::json!([]));
             serde_json::from_value(mcp_val).unwrap_or_default()
         };
 
@@ -215,10 +236,16 @@ impl ManageMcpServerTool {
                     self.tool_registry.unregister_by_prefix(&prefix);
                     handles.remove(&cfg.id);
                 }
-                new_status.insert(cfg.id.clone(), McpServerStatus {
-                    id: cfg.id.clone(), status: McpStatus::Disabled,
-                    error: None, tool_count: 0, connected_at: None,
-                });
+                new_status.insert(
+                    cfg.id.clone(),
+                    McpServerStatus {
+                        id: cfg.id.clone(),
+                        status: McpStatus::Disabled,
+                        error: None,
+                        tool_count: 0,
+                        connected_at: None,
+                    },
+                );
                 continue;
             }
 
@@ -232,26 +259,46 @@ impl ManageMcpServerTool {
             let tc_before = self.tool_registry.len();
             let connect_result = if cfg.transport == "sse" {
                 let url = cfg.url.as_deref().unwrap_or("");
-                fastclaw_collab::mcp::register_mcp_tools_sse(url, &self.tool_registry, &prefix).await
+                fastclaw_collab::mcp::register_mcp_tools_sse(url, &self.tool_registry, &prefix)
+                    .await
             } else {
                 let args_ref: Vec<&str> = cfg.args.iter().map(|s| s.as_str()).collect();
-                fastclaw_collab::mcp::register_mcp_tools(&cfg.command, &args_ref, &self.tool_registry, &prefix, &cfg.env).await
+                fastclaw_collab::mcp::register_mcp_tools(
+                    &cfg.command,
+                    &args_ref,
+                    &self.tool_registry,
+                    &prefix,
+                    &cfg.env,
+                )
+                .await
             };
             match connect_result {
                 Ok(handle) => {
                     let tool_count = self.tool_registry.len() - tc_before;
                     let now = chrono::Utc::now().to_rfc3339();
-                    new_status.insert(cfg.id.clone(), McpServerStatus {
-                        id: cfg.id.clone(), status: McpStatus::Connected,
-                        error: None, tool_count, connected_at: Some(now),
-                    });
+                    new_status.insert(
+                        cfg.id.clone(),
+                        McpServerStatus {
+                            id: cfg.id.clone(),
+                            status: McpStatus::Connected,
+                            error: None,
+                            tool_count,
+                            connected_at: Some(now),
+                        },
+                    );
                     handles.insert(cfg.id.clone(), handle);
                 }
                 Err(e) => {
-                    new_status.insert(cfg.id.clone(), McpServerStatus {
-                        id: cfg.id.clone(), status: McpStatus::Failed,
-                        error: Some(e.to_string()), tool_count: 0, connected_at: None,
-                    });
+                    new_status.insert(
+                        cfg.id.clone(),
+                        McpServerStatus {
+                            id: cfg.id.clone(),
+                            status: McpStatus::Failed,
+                            error: Some(e.to_string()),
+                            tool_count: 0,
+                            connected_at: None,
+                        },
+                    );
                 }
             }
         }
@@ -260,19 +307,23 @@ impl ManageMcpServerTool {
             new_status.remove(id);
         }
 
-        {
-            let mut status = self.mcp_status.write().map_err(|e| e.to_string())?;
-            *status = new_status;
-        }
+        self.mcp_status.store(Arc::new(new_status));
         Ok(())
     }
 
     async fn reload(&self) -> ToolResult {
         match self.do_reload().await {
             Ok(()) => {
-                let status = self.mcp_status.read().map(|g| g.clone()).unwrap_or_default();
-                let connected = status.values().filter(|s| s.status == McpStatus::Connected).count();
-                let failed = status.values().filter(|s| s.status == McpStatus::Failed).count();
+                let status: HashMap<String, McpServerStatus> =
+                    (**self.mcp_status.load()).clone();
+                let connected = status
+                    .values()
+                    .filter(|s| s.status == McpStatus::Connected)
+                    .count();
+                let failed = status
+                    .values()
+                    .filter(|s| s.status == McpStatus::Failed)
+                    .count();
                 ToolResult::ok(format!(
                     "MCP servers reloaded: {connected} connected, {failed} failed, {} total.",
                     status.len()
@@ -282,18 +333,27 @@ impl ManageMcpServerTool {
         }
     }
 
-    async fn add_server(&self, id: String, command: String, args: Vec<String>, transport: String, url: Option<String>) -> ToolResult {
+    async fn add_server(
+        &self,
+        id: String,
+        command: String,
+        args: Vec<String>,
+        transport: String,
+        url: Option<String>,
+    ) -> ToolResult {
         let cmd_name = command.clone();
         let new_server = McpServerConfig {
-            id: id.clone(), command, args, enabled: Some(true),
-            env: Default::default(), url, transport,
+            id: id.clone(),
+            command,
+            args,
+            enabled: Some(true),
+            env: Default::default(),
+            url,
+            transport,
         };
 
         {
-            let mut live = match self.config_live.write() {
-                Ok(g) => g,
-                Err(e) => return ToolResult::err(format!("config lock error: {e}")),
-            };
+            let mut live: serde_json::Value = (**self.config_live.load()).clone();
             let server_val = serde_json::to_value(&new_server).unwrap_or_default();
             if let Some(arr) = live.get_mut("mcpServers").and_then(|v| v.as_array_mut()) {
                 arr.retain(|v| v.get("id").and_then(|i| i.as_str()) != Some(&id));
@@ -301,13 +361,14 @@ impl ManageMcpServerTool {
             } else {
                 live["mcpServers"] = serde_json::json!([server_val]);
             }
+            self.config_live.store(Arc::new(live));
         }
 
         self.persist_mcp_servers();
 
         match self.do_reload().await {
             Ok(()) => {
-                let st = self.mcp_status.read().ok().and_then(|g| g.get(&id).cloned());
+                let st = self.mcp_status.load().get(&id).cloned();
                 match st.as_ref().map(|s| s.status) {
                     Some(McpStatus::Connected) => {
                         let tc = st.map(|s| s.tool_count).unwrap_or(0);
@@ -339,13 +400,11 @@ impl ManageMcpServerTool {
 
     async fn remove_server(&self, id: String) -> ToolResult {
         {
-            let mut live = match self.config_live.write() {
-                Ok(g) => g,
-                Err(e) => return ToolResult::err(format!("config lock error: {e}")),
-            };
+            let mut live: serde_json::Value = (**self.config_live.load()).clone();
             if let Some(arr) = live.get_mut("mcpServers").and_then(|v| v.as_array_mut()) {
                 arr.retain(|v| v.get("id").and_then(|i| i.as_str()) != Some(&id));
             }
+            self.config_live.store(Arc::new(live));
         }
 
         self.persist_mcp_servers();
@@ -357,8 +416,12 @@ impl ManageMcpServerTool {
     }
 
     fn persist_mcp_servers(&self) {
-        if let Ok(live) = self.config_live.read() {
-            let mcp_val = live.get("mcpServers").cloned().unwrap_or(serde_json::json!([]));
+        {
+            let live = self.config_live.load();
+            let mcp_val = live
+                .get("mcpServers")
+                .cloned()
+                .unwrap_or(serde_json::json!([]));
             let home = match dirs::home_dir() {
                 Some(h) => h,
                 None => return,

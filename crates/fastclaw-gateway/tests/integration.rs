@@ -160,7 +160,10 @@ async fn http_chat_invalid_json_returns_400_app_error_shape() {
         .get("error")
         .and_then(|v| v.as_object())
         .expect("error object");
-    assert_eq!(err.get("type").and_then(|v| v.as_str()), Some("bad_request"));
+    assert_eq!(
+        err.get("type").and_then(|v| v.as_str()),
+        Some("bad_request")
+    );
     let msg = err
         .get("message")
         .and_then(|v| v.as_str())
@@ -991,7 +994,10 @@ async fn feishu_plugin_rejects_bad_token() {
     let raw_body = serde_json::to_vec(&payload).unwrap();
     let headers = BTreeMap::new();
     let result = plugin.verify_webhook(&headers, &raw_body).await;
-    assert!(result.is_err(), "wrong token should be rejected by verify_webhook");
+    assert!(
+        result.is_err(),
+        "wrong token should be rejected by verify_webhook"
+    );
 }
 
 #[tokio::test]

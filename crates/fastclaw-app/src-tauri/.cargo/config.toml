@@ -1,0 +1,5 @@
+# Redirect Tauri build artifacts into the workspace-root target directory.
+# This avoids duplicating dependency compilation between the root workspace
+# and the Tauri sub-workspace, saving disk space and CI cache size.
+[build]
+target-dir = "../../../target/tauri"

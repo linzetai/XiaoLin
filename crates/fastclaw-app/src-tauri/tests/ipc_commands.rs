@@ -103,6 +103,7 @@ async fn test_state() -> (AppState, tempfile::TempDir) {
 async fn list_agents_returns_default_agent() {
     let (state, _tmp) = test_state().await;
     let agents: Vec<_> = state
+        .rt
         .router
         .read()
         .await
@@ -118,7 +119,7 @@ async fn list_agents_returns_default_agent() {
 #[tokio::test]
 async fn list_agents_contains_model_field() {
     let (state, _tmp) = test_state().await;
-    let guard = state.router.read().await;
+    let guard = state.rt.router.read().await;
     let agents = guard.list_agents();
     for agent in agents {
         assert!(!agent.model.model.is_empty(), "model field should not be empty");
@@ -134,12 +135,14 @@ async fn create_session_and_get() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
     state
+        .store
         .session_store
         .create_session(&sid, "main", None)
         .await
         .expect("create session");
 
     let session = state
+        .store
         .session_store
         .get_session(&sid)
         .await
@@ -156,10 +159,10 @@ async fn list_sessions_includes_created() {
 
     let sid1 = uuid::Uuid::new_v4().to_string();
     let sid2 = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid1, "main", None).await.unwrap();
-    state.session_store.create_session(&sid2, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid1, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid2, "main", None).await.unwrap();
 
-    let sessions = state.session_store.list_sessions(50, 0).await.unwrap();
+    let sessions = state.store.session_store.list_sessions(50, 0).await.unwrap();
     assert!(sessions.len() >= 2, "should list at least 2 sessions");
 
     let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
@@ -172,10 +175,10 @@ async fn list_sessions_respects_limit() {
     let (state, _tmp) = test_state().await;
     for _ in 0..5 {
         let sid = uuid::Uuid::new_v4().to_string();
-        state.session_store.create_session(&sid, "main", None).await.unwrap();
+        state.store.session_store.create_session(&sid, "main", None).await.unwrap();
     }
 
-    let sessions = state.session_store.list_sessions(2, 0).await.unwrap();
+    let sessions = state.store.session_store.list_sessions(2, 0).await.unwrap();
     assert!(sessions.len() <= 2, "limit should cap results to 2, got {}", sessions.len());
 }
 
@@ -184,11 +187,11 @@ async fn list_sessions_respects_offset() {
     let (state, _tmp) = test_state().await;
     for _ in 0..5 {
         let sid = uuid::Uuid::new_v4().to_string();
-        state.session_store.create_session(&sid, "main", None).await.unwrap();
+        state.store.session_store.create_session(&sid, "main", None).await.unwrap();
     }
 
-    let all = state.session_store.list_sessions(50, 0).await.unwrap();
-    let offset_2 = state.session_store.list_sessions(50, 2).await.unwrap();
+    let all = state.store.session_store.list_sessions(50, 0).await.unwrap();
+    let offset_2 = state.store.session_store.list_sessions(50, 2).await.unwrap();
     assert_eq!(offset_2.len(), all.len().saturating_sub(2));
 }
 
@@ -196,15 +199,16 @@ async fn list_sessions_respects_offset() {
 async fn update_session_title() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
     state
+        .store
         .session_store
         .update_title(&sid, "Test Title")
         .await
         .expect("update title");
 
-    let session = state.session_store.get_session(&sid).await.unwrap().unwrap();
+    let session = state.store.session_store.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(session.title.as_deref(), Some("Test Title"));
 }
 
@@ -212,12 +216,12 @@ async fn update_session_title() {
 async fn update_session_title_overwrites() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
-    state.session_store.update_title(&sid, "First").await.unwrap();
-    state.session_store.update_title(&sid, "Second").await.unwrap();
+    state.store.session_store.update_title(&sid, "First").await.unwrap();
+    state.store.session_store.update_title(&sid, "Second").await.unwrap();
 
-    let session = state.session_store.get_session(&sid).await.unwrap().unwrap();
+    let session = state.store.session_store.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(session.title.as_deref(), Some("Second"));
 }
 
@@ -225,26 +229,26 @@ async fn update_session_title_overwrites() {
 async fn delete_session_removes_it() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
-    let deleted = state.session_store.delete_session(&sid).await.unwrap();
+    let deleted = state.store.session_store.delete_session(&sid).await.unwrap();
     assert!(deleted, "should return true");
 
-    let session = state.session_store.get_session(&sid).await.unwrap();
+    let session = state.store.session_store.get_session(&sid).await.unwrap();
     assert!(session.is_none(), "session should be gone after delete");
 }
 
 #[tokio::test]
 async fn delete_nonexistent_session() {
     let (state, _tmp) = test_state().await;
-    let result = state.session_store.delete_session("nonexistent").await;
+    let result = state.store.session_store.delete_session("nonexistent").await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn get_nonexistent_session_returns_none() {
     let (state, _tmp) = test_state().await;
-    let session = state.session_store.get_session("no-such-id").await.unwrap();
+    let session = state.store.session_store.get_session("no-such-id").await.unwrap();
     assert!(session.is_none());
 }
 
@@ -256,7 +260,7 @@ async fn get_nonexistent_session_returns_none() {
 async fn append_and_load_messages() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
     let user_msg = ChatMessage {
         role: Role::User,
@@ -265,7 +269,7 @@ async fn append_and_load_messages() {
         tool_calls: None,
         tool_call_id: None,
     };
-    state.session_store.append_message(&sid, &user_msg).await.unwrap();
+    state.store.session_store.append_message(&sid, &user_msg).await.unwrap();
 
     let assistant_msg = ChatMessage {
         role: Role::Assistant,
@@ -274,9 +278,9 @@ async fn append_and_load_messages() {
         tool_calls: None,
         tool_call_id: None,
     };
-    state.session_store.append_message(&sid, &assistant_msg).await.unwrap();
+    state.store.session_store.append_message(&sid, &assistant_msg).await.unwrap();
 
-    let messages = state.session_store.load_messages(&sid).await.unwrap();
+    let messages = state.store.session_store.load_messages(&sid).await.unwrap();
     assert_eq!(messages.len(), 2, "should have 2 messages");
     assert_eq!(messages[0].role, "user");
     assert_eq!(messages[1].role, "assistant");
@@ -286,9 +290,9 @@ async fn append_and_load_messages() {
 async fn load_messages_empty_session() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
-    let messages = state.session_store.load_messages(&sid).await.unwrap();
+    let messages = state.store.session_store.load_messages(&sid).await.unwrap();
     assert!(messages.is_empty(), "new session should have no messages");
 }
 
@@ -296,7 +300,7 @@ async fn load_messages_empty_session() {
 async fn load_messages_preserves_content() {
     let (state, _tmp) = test_state().await;
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
     let msg = ChatMessage {
         role: Role::User,
@@ -305,9 +309,9 @@ async fn load_messages_preserves_content() {
         tool_calls: None,
         tool_call_id: None,
     };
-    state.session_store.append_message(&sid, &msg).await.unwrap();
+    state.store.session_store.append_message(&sid, &msg).await.unwrap();
 
-    let loaded = state.session_store.load_messages(&sid).await.unwrap();
+    let loaded = state.store.session_store.load_messages(&sid).await.unwrap();
     assert_eq!(loaded.len(), 1);
     let content = loaded[0].content.as_deref().unwrap();
     assert!(content.contains("émojis 🎉"), "Unicode content should be preserved");
@@ -321,6 +325,7 @@ async fn load_messages_preserves_content() {
 async fn list_models_returns_agent_models() {
     let (state, _tmp) = test_state().await;
     let models: Vec<_> = state
+        .rt
         .router
         .read()
         .await
@@ -342,7 +347,7 @@ async fn list_models_returns_agent_models() {
 #[tokio::test]
 async fn list_models_has_required_fields() {
     let (state, _tmp) = test_state().await;
-    let guard = state.router.read().await;
+    let guard = state.rt.router.read().await;
     let agents = guard.list_agents();
     for a in agents {
         assert!(!a.agent_id.is_empty());
@@ -358,7 +363,7 @@ async fn list_models_has_required_fields() {
 #[tokio::test]
 async fn config_get_full() {
     let (state, _tmp) = test_state().await;
-    let full = serde_json::to_value(&*state.config).unwrap();
+    let full = serde_json::to_value(&*state.cfg.config).unwrap();
     assert!(full.is_object());
     assert!(full.get("gateway").is_some());
 }
@@ -366,7 +371,7 @@ async fn config_get_full() {
 #[tokio::test]
 async fn config_get_specific_key() {
     let (state, _tmp) = test_state().await;
-    let full = serde_json::to_value(&*state.config).unwrap();
+    let full = serde_json::to_value(&*state.cfg.config).unwrap();
     let gateway = full.get("gateway");
     assert!(gateway.is_some(), "config should have gateway section");
 }
@@ -374,7 +379,7 @@ async fn config_get_specific_key() {
 #[tokio::test]
 async fn config_serialization_roundtrip() {
     let (state, _tmp) = test_state().await;
-    let json_val = serde_json::to_value(&*state.config).unwrap();
+    let json_val = serde_json::to_value(&*state.cfg.config).unwrap();
     let _parsed: fastclaw_core::config::FastClawConfig =
         serde_json::from_value(json_val).expect("config should deserialize back");
 }
@@ -409,14 +414,14 @@ async fn stream_chat_produces_events() {
     };
 
     let agent_config = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router.resolve(&request).unwrap().clone()
     };
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
 
-    let runtime = state.runtime.clone();
-    let tool_reg = state.tool_registry.clone();
+    let runtime = state.rt.runtime.clone();
+    let tool_reg = state.rt.tool_registry.clone();
     let cfg = agent_config;
 
     let task = tokio::spawn(async move {
@@ -487,14 +492,14 @@ async fn stream_chat_delta_content_accumulates() {
     };
 
     let agent_config = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router.resolve(&request).unwrap().clone()
     };
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
 
-    let runtime = state.runtime.clone();
-    let tool_reg = state.tool_registry.clone();
+    let runtime = state.rt.runtime.clone();
+    let tool_reg = state.rt.tool_registry.clone();
 
     tokio::spawn(async move {
         runtime
@@ -521,10 +526,10 @@ async fn full_session_lifecycle() {
 
     // 1. Create session
     let sid = uuid::Uuid::new_v4().to_string();
-    state.session_store.create_session(&sid, "main", None).await.unwrap();
+    state.store.session_store.create_session(&sid, "main", None).await.unwrap();
 
     // 2. Verify empty
-    let msgs = state.session_store.load_messages(&sid).await.unwrap();
+    let msgs = state.store.session_store.load_messages(&sid).await.unwrap();
     assert!(msgs.is_empty());
 
     // 3. Add messages
@@ -535,7 +540,7 @@ async fn full_session_lifecycle() {
         tool_calls: None,
         tool_call_id: None,
     };
-    state.session_store.append_message(&sid, &user_msg).await.unwrap();
+    state.store.session_store.append_message(&sid, &user_msg).await.unwrap();
 
     let asst_msg = ChatMessage {
         role: Role::Assistant,
@@ -544,26 +549,26 @@ async fn full_session_lifecycle() {
         tool_calls: None,
         tool_call_id: None,
     };
-    state.session_store.append_message(&sid, &asst_msg).await.unwrap();
+    state.store.session_store.append_message(&sid, &asst_msg).await.unwrap();
 
     // 4. Verify messages
-    let msgs = state.session_store.load_messages(&sid).await.unwrap();
+    let msgs = state.store.session_store.load_messages(&sid).await.unwrap();
     assert_eq!(msgs.len(), 2);
 
     // 5. Update title
-    state.session_store.update_title(&sid, "Math Question").await.unwrap();
-    let s = state.session_store.get_session(&sid).await.unwrap().unwrap();
+    state.store.session_store.update_title(&sid, "Math Question").await.unwrap();
+    let s = state.store.session_store.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(s.title.as_deref(), Some("Math Question"));
 
     // 6. Session appears in list
-    let all = state.session_store.list_sessions(100, 0).await.unwrap();
+    let all = state.store.session_store.list_sessions(100, 0).await.unwrap();
     assert!(all.iter().any(|s| s.id == sid));
 
     // 7. Delete
-    state.session_store.delete_session(&sid).await.unwrap();
+    state.store.session_store.delete_session(&sid).await.unwrap();
 
     // 8. Gone
-    let gone = state.session_store.get_session(&sid).await.unwrap();
+    let gone = state.store.session_store.get_session(&sid).await.unwrap();
     assert!(gone.is_none());
 }
 
@@ -586,7 +591,7 @@ async fn router_resolves_main_agent() {
         slash_intent: None,
         work_dir: None,
     };
-    let router = state.router.read().await;
+    let router = state.rt.router.read().await;
     let config = router.resolve(&request);
     assert!(config.is_ok(), "should resolve 'main' agent");
     assert_eq!(config.unwrap().agent_id, "main");
@@ -607,7 +612,7 @@ async fn router_resolve_nonexistent_agent_fails() {
         slash_intent: None,
         work_dir: None,
     };
-    let router = state.router.read().await;
+    let router = state.rt.router.read().await;
     let result = router.resolve(&request);
     assert!(result.is_err(), "nonexistent agent should fail to resolve");
 }
@@ -619,10 +624,10 @@ async fn router_resolve_nonexistent_agent_fails() {
 #[tokio::test]
 async fn ws_broadcast_delivers_to_subscriber() {
     let (state, _tmp) = test_state().await;
-    let mut rx = state.ws_broadcast.subscribe();
+    let mut rx = state.strm.ws_broadcast.subscribe();
 
     let payload = json!({"type":"event","event":"sessions.changed","data":{"sessionId":"test-123"}}).to_string();
-    state.ws_broadcast.send(payload.clone()).unwrap();
+    state.strm.ws_broadcast.send(payload.clone()).unwrap();
 
     let received = rx.recv().await.unwrap();
     assert_eq!(received, payload);
@@ -631,11 +636,11 @@ async fn ws_broadcast_delivers_to_subscriber() {
 #[tokio::test]
 async fn ws_broadcast_multiple_subscribers() {
     let (state, _tmp) = test_state().await;
-    let mut rx1 = state.ws_broadcast.subscribe();
-    let mut rx2 = state.ws_broadcast.subscribe();
+    let mut rx1 = state.strm.ws_broadcast.subscribe();
+    let mut rx2 = state.strm.ws_broadcast.subscribe();
 
     let payload = json!({"event":"test"}).to_string();
-    state.ws_broadcast.send(payload.clone()).unwrap();
+    state.strm.ws_broadcast.send(payload.clone()).unwrap();
 
     assert_eq!(rx1.recv().await.unwrap(), payload);
     assert_eq!(rx2.recv().await.unwrap(), payload);

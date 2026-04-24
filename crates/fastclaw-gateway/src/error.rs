@@ -1,11 +1,6 @@
 //! HTTP-layer errors with stable JSON bodies and correct status codes.
 
-use axum::{
-    extract::rejection::JsonRejection,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::rejection::JsonRejection, http::StatusCode, response::IntoResponse, Json};
 use serde_json::json;
 
 #[derive(Debug)]

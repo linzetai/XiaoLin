@@ -60,15 +60,15 @@ pub(super) async fn dag_execute(
         fastclaw_dag::DagGraph::build(&def).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let handler = std::sync::Arc::new(DagNodeHandler {
-        tool_registry: state.tool_registry.clone(),
-        runtime: state.runtime.clone(),
-        router: state.router.clone(),
+        tool_registry: state.rt.tool_registry.clone(),
+        runtime: state.rt.runtime.clone(),
+        router: state.rt.router.clone(),
     });
     let dag_run_id = uuid::Uuid::new_v4().to_string();
     let executor = fastclaw_dag::DagExecutor::with_checkpoint_store(
         graph,
         handler,
-        state.dag_checkpoint_store.clone(),
+        state.store.dag_checkpoint_store.clone(),
         dag_run_id,
     );
 

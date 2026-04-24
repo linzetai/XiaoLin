@@ -1,10 +1,10 @@
 pub mod audit;
+pub mod channel_tool;
+pub mod chat_pipeline;
 pub mod consolidation;
+pub mod cron_tool;
 pub mod error;
 pub mod extract;
-pub mod chat_pipeline;
-pub mod cron_tool;
-pub mod channel_tool;
 pub mod mcp_tool;
 mod memory_scope;
 pub mod notification_store;
@@ -85,13 +85,13 @@ fn build_cors(config: &FastClawConfig) -> CorsLayer {
 /// Exposed publicly so integration tests can reuse the same stack.
 pub fn build_app(state: AppState, auth: ApiKeyAuth) -> Router {
     let rl_cfg = RateLimitConfig {
-        enabled: state.config.gateway.rate_limit.enabled,
-        max_requests: state.config.gateway.rate_limit.max_requests,
-        window_secs: state.config.gateway.rate_limit.window_secs,
-        trusted_proxies: state.config.gateway.rate_limit.trusted_proxies.clone(),
+        enabled: state.cfg.config.gateway.rate_limit.enabled,
+        max_requests: state.cfg.config.gateway.rate_limit.max_requests,
+        window_secs: state.cfg.config.gateway.rate_limit.window_secs,
+        trusted_proxies: state.cfg.config.gateway.rate_limit.trusted_proxies.clone(),
     };
     let rate_limiter = RateLimiter::new(&rl_cfg);
-    let cors = build_cors(&state.config);
+    let cors = build_cors(&state.cfg.config);
 
     Router::new()
         .merge(routes::api_routes())
@@ -112,17 +112,17 @@ pub fn build_app(state: AppState, auth: ApiKeyAuth) -> Router {
 pub async fn run(config: FastClawConfig) -> anyhow::Result<()> {
     ensure_auth_for_exposed_bind(&config)?;
     let state = AppState::new(config).await?;
-    let bind_addr = state.config.gateway.bind_addr();
+    let bind_addr = state.cfg.config.gateway.bind_addr();
 
     let auth_config = fastclaw_security::AuthConfig {
-        enabled: !state.config.security.api_keys.is_empty(),
-        api_keys: state.config.security.api_keys.clone(),
+        enabled: !state.cfg.config.security.api_keys.is_empty(),
+        api_keys: state.cfg.config.security.api_keys.clone(),
     };
     let auth = ApiKeyAuth::new(&auth_config);
-    if state.config.gateway.rate_limit.enabled {
+    if state.cfg.config.gateway.rate_limit.enabled {
         tracing::info!(
-            max_requests = state.config.gateway.rate_limit.max_requests,
-            window_secs = state.config.gateway.rate_limit.window_secs,
+            max_requests = state.cfg.config.gateway.rate_limit.max_requests,
+            window_secs = state.cfg.config.gateway.rate_limit.window_secs,
             "rate limiting enabled"
         );
     }
@@ -182,10 +182,10 @@ pub async fn serve_with_state(
     listener: tokio::net::TcpListener,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
-    ensure_auth_for_exposed_bind(&state.config)?;
+    ensure_auth_for_exposed_bind(&state.cfg.config)?;
     let auth_config = fastclaw_security::AuthConfig {
-        enabled: !state.config.security.api_keys.is_empty(),
-        api_keys: state.config.security.api_keys.clone(),
+        enabled: !state.cfg.config.security.api_keys.is_empty(),
+        api_keys: state.cfg.config.security.api_keys.clone(),
     };
     let auth = ApiKeyAuth::new(&auth_config);
 
@@ -254,6 +254,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let title = format!("[定时] {title_preview}");
             let _ = self
                 .state
+                .store
                 .session_store
                 .create_session(&sid, agent_id, Some(&title))
                 .await;
@@ -265,7 +266,12 @@ fn spawn_cron_scheduler(state: AppState) {
                 tool_calls: None,
                 tool_call_id: None,
             };
-            let _ = self.state.session_store.append_message(&sid, &user_msg).await;
+            let _ = self
+                .state
+                .store
+                .session_store
+                .append_message(&sid, &user_msg)
+                .await;
 
             let mut request = fastclaw_core::types::ChatRequest {
                 agent_id: Some(agent_id.into()),
@@ -280,11 +286,11 @@ fn spawn_cron_scheduler(state: AppState) {
                 work_dir: None,
             };
             let agent_config = {
-                let router = self.state.router.read().await;
+                let router = self.state.rt.router.read().await;
                 router.resolve(&request)?.clone()
             };
             let tool_definition_count =
-                crate::routes::filtered_tool_definitions(&self.state.tool_registry, &agent_config)
+                crate::routes::filtered_tool_definitions(&self.state.rt.tool_registry, &agent_config)
                     .map_or(0, |d| d.len());
             let llm_override = crate::routes::apply_model_router_for_chat(
                 &self.state,
@@ -294,11 +300,12 @@ fn spawn_cron_scheduler(state: AppState) {
             );
             let result = self
                 .state
+                .rt
                 .runtime
                 .execute(
                     &agent_config,
                     &request,
-                    &self.state.tool_registry,
+                    &self.state.rt.tool_registry,
                     llm_override,
                 )
                 .await?;
@@ -322,7 +329,12 @@ fn spawn_cron_scheduler(state: AppState) {
                 tool_calls: None,
                 tool_call_id: None,
             };
-            let _ = self.state.session_store.append_message(&sid, &assistant_msg).await;
+            let _ = self
+                .state
+                .store
+                .session_store
+                .append_message(&sid, &assistant_msg)
+                .await;
 
             Ok(reply)
         }
@@ -336,15 +348,15 @@ fn spawn_cron_scheduler(state: AppState) {
             let def = fastclaw_dag::DagDefinition::from_json(&dag_json)?;
             let graph = fastclaw_dag::DagGraph::build(&def)?;
             let handler = Arc::new(routes::CronDagHandler {
-                tool_registry: self.state.tool_registry.clone(),
-                runtime: self.state.runtime.clone(),
-                router: self.state.router.clone(),
+                tool_registry: self.state.rt.tool_registry.clone(),
+                runtime: self.state.rt.runtime.clone(),
+                router: self.state.rt.router.clone(),
             });
             let dag_run_id = uuid::Uuid::new_v4().to_string();
             let executor = fastclaw_dag::DagExecutor::with_checkpoint_store(
                 graph,
                 handler,
-                self.state.dag_checkpoint_store.clone(),
+                self.state.store.dag_checkpoint_store.clone(),
                 dag_run_id,
             );
             let ctx = if let Some(inp) = input {
@@ -382,28 +394,32 @@ fn spawn_cron_scheduler(state: AppState) {
             Ok(())
         }
 
-        async fn on_job_completed(
-            &self,
-            _job_id: &str,
-            job_name: &str,
-            output: Option<&str>,
-        ) {
-            let preview: String = output
-                .unwrap_or("")
-                .chars()
-                .take(120)
-                .collect();
+        async fn on_job_completed(&self, _job_id: &str, job_name: &str, output: Option<&str>) {
+            let preview: String = output.unwrap_or("").chars().take(120).collect();
 
             let nid = uuid::Uuid::new_v4().to_string();
-            let body = if preview.is_empty() { "执行完成".to_string() } else { format!("完成：{preview}") };
-            if let Err(e) = self.state.notification_store
+            let body = if preview.is_empty() {
+                "执行完成".to_string()
+            } else {
+                format!("完成：{preview}")
+            };
+            if let Err(e) = self
+                .state
+                .store
+                .notification_store
                 .insert(&nid, "cron", job_name, &body, None)
                 .await
             {
                 tracing::warn!(error = %e, "failed to persist cron completion notification");
             }
 
-            let unread = self.state.notification_store.unread_count().await.unwrap_or(0);
+            let unread = self
+                .state
+                .store
+                .notification_store
+                .unread_count()
+                .await
+                .unwrap_or(0);
             let event = serde_json::json!({
                 "type": "event",
                 "event": "notification.new",
@@ -416,21 +432,30 @@ fn spawn_cron_scheduler(state: AppState) {
                     "unreadCount": unread,
                 }
             });
-            let _ = self.state.ws_broadcast.send(event.to_string());
+            let _ = self.state.strm.ws_broadcast.send(event.to_string());
         }
 
         async fn on_job_failed(&self, job_id: &str, job_name: &str, error: &str) {
             let nid = uuid::Uuid::new_v4().to_string();
             let body = format!("失败：{error}");
             let detail = Some(format!("Job ID: {job_id}\nError: {error}"));
-            if let Err(e) = self.state.notification_store
+            if let Err(e) = self
+                .state
+                .store
+                .notification_store
                 .insert(&nid, "cron", job_name, &body, detail.as_deref())
                 .await
             {
                 tracing::warn!(error = %e, "failed to persist cron failure notification");
             }
 
-            let unread = self.state.notification_store.unread_count().await.unwrap_or(0);
+            let unread = self
+                .state
+                .store
+                .notification_store
+                .unread_count()
+                .await
+                .unwrap_or(0);
             let event = serde_json::json!({
                 "type": "event",
                 "event": "notification.new",
@@ -443,16 +468,16 @@ fn spawn_cron_scheduler(state: AppState) {
                     "unreadCount": unread,
                 }
             });
-            let _ = self.state.ws_broadcast.send(event.to_string());
+            let _ = self.state.strm.ws_broadcast.send(event.to_string());
         }
     }
 
     let trigger = Arc::new(GatewayCronTrigger {
         state: state.clone(),
     });
-    let wake = state.cron_wake.clone();
+    let wake = state.store.cron_wake.clone();
     let scheduler =
-        fastclaw_cron::CronScheduler::with_wake(state.cron_store.clone(), trigger, wake);
+        fastclaw_cron::CronScheduler::with_wake(state.store.cron_store.clone(), trigger, wake);
 
     tokio::spawn(async move {
         if let Err(e) = scheduler.run().await {
@@ -468,8 +493,7 @@ fn spawn_cron_scheduler(state: AppState) {
 fn spawn_config_watcher(state: AppState) {
     use notify::{RecursiveMode, Watcher};
 
-    let agents_dir =
-        fastclaw_core::paths::resolve_agents_dir_from(Some(&state.config.paths));
+    let agents_dir = fastclaw_core::paths::resolve_agents_dir_from(Some(&state.cfg.config.paths));
     let (reload_tx, mut reload_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     #[cfg(unix)]

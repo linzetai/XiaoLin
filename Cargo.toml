@@ -84,6 +84,7 @@ hypembed = "0.2"
 
 # Concurrency
 dashmap = "5"
+arc-swap = "1"
 
 # Utils
 anyhow = "1"
@@ -112,6 +113,36 @@ utoipa = { version = "5", features = ["axum_extras"] }
 insta = "1"
 proptest = "1"
 criterion = { version = "0.5", features = ["async_tokio"] }
+
+# ─── Workspace lints ─────────────────────────────────────────────────────────
+# Shared lint configuration inherited by all workspace members via
+# `[lints] workspace = true` in their Cargo.toml.
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Allow common patterns that pedantic flags but are fine in practice:
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+too_many_lines = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_lossless = "allow"
+struct_excessive_bools = "allow"
+fn_params_excessive_bools = "allow"
+wildcard_imports = "allow"
+# These will be tightened over time:
+similar_names = "allow"
+single_match_else = "allow"
+match_same_arms = "allow"
+redundant_closure_for_method_calls = "allow"
+items_after_statements = "allow"
+doc_markdown = "allow"
 
 # ─── Build profiles ──────────────────────────────────────────────────────────
 # Dev: our crate code compiles unoptimized (fastest rebuilds), but all external

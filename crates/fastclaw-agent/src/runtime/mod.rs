@@ -1,240 +1,50 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
+use dashmap::DashMap;
+use fastclaw_core::agent_config::AgentConfig;
+use fastclaw_core::tool::ToolRegistry;
+use fastclaw_core::types::{
+    ChatMessage, ChatRequest, ChatResponse, Role, StreamEvent, ToolCall,
+};
+use fastclaw_core::workspace::default_runtime_system_prompt_for_agent;
 use fastclaw_evolution::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, infer_task_type, SkillStatus,
     SkillStore, Trajectory, TrajectoryOutcome, TrajectoryStep, TrajectoryStore,
 };
-use fastclaw_core::agent_config::{AgentConfig, SubAgentPolicy};
-use fastclaw_core::agent_config::BehaviorConfig;
-use fastclaw_core::tool::{ToolDefinition, ToolRegistry};
-use fastclaw_core::workspace::default_runtime_system_prompt_for_agent;
-use fastclaw_core::types::{
-    ChatMessage, ChatRequest, ChatResponse, FunctionCall, Role, StreamEvent, ToolCall,
-};
 use fastclaw_self_iter::{SelfIterEngine, ToolCallTrace};
 use futures::StreamExt;
 
-use crate::llm::{CompletionParams, LlmProvider};
 use crate::builtin_tools::{with_file_access_mode, with_work_dir};
+use crate::llm::{CompletionParams, LlmProvider};
 
-/// Max characters of tool output embedded in chat history (per tool message).
-pub const MAX_TOOL_RESULT_CHARS: usize = 8000;
+mod accumulator;
+mod prompt_builder;
+mod stream_engine;
+mod tool_executor;
+mod trajectory;
 
-fn truncate_tool_result_output(output: &str) -> String {
-    let total = output.chars().count();
-    if total <= MAX_TOOL_RESULT_CHARS {
-        return output.to_string();
-    }
-    let head: String = output.chars().take(MAX_TOOL_RESULT_CHARS).collect();
-    format!("{head}\n... (truncated, showing first {MAX_TOOL_RESULT_CHARS} of {total} chars)")
-}
+pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
 
-fn memory_tool_suffix(agent_id: &str) -> String {
-    agent_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-/// Per-agent visibility for scoped memory tools (`memory_search__{agent}` style).
-/// Append plain text to a message `content`, preserving prior text via [`ChatMessage::text_content`].
-fn append_text_to_chat_content(content: &mut Option<serde_json::Value>, block: &str) {
-    let tmp = ChatMessage {
-        role: Role::System,
-        content: content.clone(),
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-    };
-    let mut s = tmp.text_content().unwrap_or_default();
-    s.push_str(block);
-    *content = if s.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::String(s))
-    };
-}
-
-fn append_subagent_prompt_to_system(messages: &mut [ChatMessage], block: &str) {
-    if let Some(sys) = messages.first_mut().filter(|m| m.role == Role::System) {
-        append_text_to_chat_content(&mut sys.content, block);
-    }
-}
-
-fn scoped_tool_visible_for_agent(name: &str, agent_id: &str) -> bool {
-    let sfx = memory_tool_suffix(agent_id);
-    for prefix in &[
-        "memory_search__",
-        "memory_store__",
-        "get_identity__",
-        "set_identity__",
-    ] {
-        if let Some(rest) = name.strip_prefix(prefix) {
-            return rest == sfx;
-        }
-    }
-    true
-}
-
-fn is_tool_allowed(tool_name: &str, behavior: &fastclaw_core::agent_config::BehaviorConfig) -> bool {
-    behavior.is_tool_allowed(tool_name)
-}
-
-async fn send_stream_event(
-    tx: &tokio::sync::mpsc::Sender<StreamEvent>,
-    ev: StreamEvent,
-    lossy: bool,
-) -> bool {
-    let dur = if lossy {
-        Duration::from_millis(200)
-    } else {
-        Duration::from_secs(30)
-    };
-    match tokio::time::timeout(dur, tx.send(ev)).await {
-        Ok(Ok(())) => true,
-        Ok(Err(_)) => false,
-        Err(_) => {
-            if lossy {
-                tracing::warn!("stream sink slow: dropped a token delta (backpressure)");
-            } else {
-                tracing::warn!("stream sink slow: timed out sending control event");
-            }
-            false
-        }
-    }
-}
+use accumulator::{accumulate_tool_call, ToolCallAccumulator};
+use prompt_builder::append_subagent_prompt_to_system;
+use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
+use stream_engine::LoopState;
+use stream_engine::send_stream_event;
+use tool_executor::execute_tool_batch;
+use tool_executor::filter_tool_definitions;
+use tool_executor::truncate_tool_result_output;
+use trajectory::append_text_to_chat_content;
+use trajectory::last_user_turn_text;
+use trajectory::truncate_for_trajectory;
 
 /// Execution result containing the final response and tool-call trace.
 pub struct ExecutionResult {
     pub response: ChatResponse,
     pub tool_calls_made: u32,
     pub iterations: u32,
-}
-
-/// Filter tool definitions by agent visibility and allow/deny policy.
-fn filter_tool_definitions(
-    all_defs: &[ToolDefinition],
-    config: &AgentConfig,
-) -> Vec<ToolDefinition> {
-    all_defs
-        .iter()
-        .filter(|td| {
-            let name = &td.function.name;
-            if !scoped_tool_visible_for_agent(name, &config.agent_id) {
-                return false;
-            }
-            if !config.behavior.tools_deny.is_empty()
-                && config.behavior.tools_deny.iter().any(|d| d == name)
-            {
-                return false;
-            }
-            if !config.behavior.tools_allow.is_empty()
-                && !config.behavior.tools_allow.iter().any(|a| a == name)
-            {
-                return false;
-            }
-            true
-        })
-        .cloned()
-        .collect()
-}
-
-/// Mutable state tracked across iterations of the tool-calling loop.
-struct LoopState {
-    total_tool_calls: u32,
-    consecutive_errors: u32,
-    iteration: u32,
-    failure_streak_traces: Vec<ToolCallTrace>,
-    self_iter_recovery_used: u32,
-    error_limit_reached: bool,
-}
-
-impl LoopState {
-    fn new() -> Self {
-        Self {
-            total_tool_calls: 0,
-            consecutive_errors: 0,
-            iteration: 0,
-            failure_streak_traces: Vec::new(),
-            self_iter_recovery_used: 0,
-            error_limit_reached: false,
-        }
-    }
-
-    fn record_tool_error(&mut self, tool_name: &str, error_output: &str) {
-        self.consecutive_errors += 1;
-        self.failure_streak_traces.push(ToolCallTrace {
-            tool_name: tool_name.to_string(),
-            success: false,
-            latency_ms: 0,
-            error: Some(error_output.to_string()),
-        });
-    }
-
-    fn clear_error_streak(&mut self) {
-        self.consecutive_errors = 0;
-        self.failure_streak_traces.clear();
-    }
-}
-
-type ToolExecResult = (String, String, String, fastclaw_core::tool::ToolResult);
-
-/// Execute a batch of tool calls in parallel (fork-join).
-async fn execute_tool_batch(
-    tool_calls: &[ToolCall],
-    tool_registry: &Arc<ToolRegistry>,
-    behavior: &BehaviorConfig,
-    work_dir: &Option<String>,
-    log_suffix: &str,
-) -> Vec<ToolExecResult> {
-    let shared_registry = Arc::clone(tool_registry);
-    let shared_behavior = Arc::new(behavior.clone());
-    let futures: Vec<_> = tool_calls
-        .iter()
-        .map(|tc| {
-            let tool_name = tc.function.name.clone();
-            let call_id = tc.id.clone();
-            let arguments = tc.function.arguments.clone();
-            let registry = Arc::clone(&shared_registry);
-            let behavior = Arc::clone(&shared_behavior);
-            let work_dir = work_dir.clone();
-            async move {
-                if !is_tool_allowed(&tool_name, &behavior) {
-                    tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy{log_suffix}");
-                    let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
-                    return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(msg));
-                }
-                let result = match registry.get(&tool_name) {
-                    Some(tool) => {
-                        let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
-                        with_file_access_mode(
-                            behavior.file_access,
-                            with_work_dir(work_dir_path, tool.execute(&arguments)),
-                        )
-                        .await
-                    }
-                    None => {
-                        let msg = format!("tool not found: {}", tool_name);
-                        fastclaw_core::tool::ToolResult::err(msg)
-                    }
-                };
-                tracing::info!(
-                    tool = %tool_name, success = result.success,
-                    output_len = result.output.len(), "tool result{log_suffix}"
-                );
-                (tool_name, call_id, arguments, result)
-            }
-        })
-        .collect();
-    futures::future::join_all(futures).await
 }
 
 /// Shared parameters for both streaming and non-streaming execution paths.
@@ -251,49 +61,41 @@ pub struct ExecutionParams<'a> {
 /// Additional parameters specific to the streaming execution path.
 pub struct StreamParams {
     pub tx: tokio::sync::mpsc::Sender<StreamEvent>,
-    pub confirm_pending: Option<Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>>,
+    pub confirm_pending: Option<Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>>,
 }
 
 /// Manages the execution of a single agent invocation, including
 /// the tool-calling loop: LLM → tool_calls → execute → inject result → repeat.
 pub struct AgentRuntime {
     default_provider: Arc<dyn LlmProvider>,
-    agent_providers: std::sync::RwLock<HashMap<String, Arc<dyn LlmProvider>>>,
+    agent_providers: ArcSwap<HashMap<String, Arc<dyn LlmProvider>>>,
     self_iter_engine: Option<Arc<SelfIterEngine>>,
     self_iter_max_recovery_attempts: u32,
-    skill_store: RwLock<Option<Arc<SkillStore>>>,
-    trajectory_store: RwLock<Option<Arc<TrajectoryStore>>>,
+    skill_store: ArcSwap<Option<Arc<SkillStore>>>,
+    trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
 }
 
 impl AgentRuntime {
     pub fn new(provider: Arc<dyn LlmProvider>) -> Self {
         Self {
             default_provider: provider,
-            agent_providers: std::sync::RwLock::new(HashMap::new()),
+            agent_providers: ArcSwap::new(Arc::new(HashMap::new())),
             self_iter_engine: None,
             self_iter_max_recovery_attempts: 3,
-            skill_store: RwLock::new(None),
-            trajectory_store: RwLock::new(None),
+            skill_store: ArcSwap::new(Arc::new(None)),
+            trajectory_store: ArcSwap::new(Arc::new(None)),
         }
     }
 
     /// Optional Hermes-style skill store: matching **active** skills are injected into the system prompt.
     pub fn with_skill_store(self, store: Arc<SkillStore>) -> Self {
-        if let Ok(mut g) = self.skill_store.write() {
-            *g = Some(store);
-        } else {
-            tracing::error!("skill_store RwLock poisoned during with_skill_store");
-        }
+        self.skill_store.store(Arc::new(Some(store)));
         self
     }
 
     /// Optional trajectory store: successful runs append [`Trajectory`] rows for evolution.
     pub fn with_trajectory_store(self, store: Arc<TrajectoryStore>) -> Self {
-        if let Ok(mut g) = self.trajectory_store.write() {
-            *g = Some(store);
-        } else {
-            tracing::error!("trajectory_store RwLock poisoned during with_trajectory_store");
-        }
+        self.trajectory_store.store(Arc::new(Some(store)));
         self
     }
 
@@ -301,16 +103,8 @@ impl AgentRuntime {
     ///
     /// Equivalent to calling [`Self::with_skill_store`] and [`Self::with_trajectory_store`] before wrapping.
     pub fn attach_evolution_stores(&self, skill: Arc<SkillStore>, trajectory: Arc<TrajectoryStore>) {
-        if let Ok(mut g) = self.skill_store.write() {
-            *g = Some(skill);
-        } else {
-            tracing::error!("skill_store RwLock poisoned during attach_evolution_stores");
-        }
-        if let Ok(mut g) = self.trajectory_store.write() {
-            *g = Some(trajectory);
-        } else {
-            tracing::error!("trajectory_store RwLock poisoned during attach_evolution_stores");
-        }
+        self.skill_store.store(Arc::new(Some(skill)));
+        self.trajectory_store.store(Arc::new(Some(trajectory)));
     }
 
     /// Attach the self-iteration / diagnosis engine for automatic tool-failure recovery hints.
@@ -335,11 +129,9 @@ impl AgentRuntime {
     }
 
     pub fn register_provider(&self, agent_id: &str, provider: Arc<dyn LlmProvider>) {
-        let mut guard = self
-            .agent_providers
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.insert(agent_id.to_string(), provider);
+        let mut m = self.agent_providers.load().as_ref().clone();
+        m.insert(agent_id.to_string(), provider);
+        self.agent_providers.store(Arc::new(m));
     }
 
     /// Drop all per-agent provider overrides.
@@ -347,18 +139,11 @@ impl AgentRuntime {
     /// The runtime-level default provider remains unchanged and is still used as
     /// fallback when an agent has no dedicated provider entry.
     pub fn clear_registered_providers(&self) {
-        let mut guard = self
-            .agent_providers
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.clear();
+        self.agent_providers.store(Arc::new(HashMap::new()));
     }
 
     fn resolve_provider(&self, agent_id: &str) -> anyhow::Result<Arc<dyn LlmProvider>> {
-        let guard = self
-            .agent_providers
-            .read()
-            .map_err(|e| anyhow::anyhow!("RwLock poisoned: {e}"))?;
+        let guard = self.agent_providers.load();
         Ok(guard
             .get(agent_id)
             .cloned()
@@ -643,7 +428,7 @@ impl AgentRuntime {
         tool_registry: &Arc<ToolRegistry>,
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
-        confirm_pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+        confirm_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<(u32, u32)> {
         let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt };
@@ -991,10 +776,7 @@ impl AgentRuntime {
 
                         let confirm_request_id = uuid::Uuid::new_v4().to_string();
                         let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-                        {
-                            let mut guard = pending_map.lock().await;
-                            guard.insert(confirm_request_id.clone(), answer_tx);
-                        }
+                        pending_map.insert(confirm_request_id.clone(), answer_tx);
 
                         let _ = send_stream_event(
                             &tx,
@@ -1018,10 +800,7 @@ impl AgentRuntime {
                         )
                         .await;
 
-                        {
-                            let mut guard = pending_map.lock().await;
-                            guard.remove(&confirm_request_id);
-                        }
+                        pending_map.remove(&confirm_request_id);
 
                         let approved = matches!(user_answer, Ok(Ok(ref a)) if a == "allow");
 
@@ -1183,15 +962,9 @@ impl AgentRuntime {
     }
 
     async fn finalize_injected_skills(&self, injected_skill_ids: &[String], success: bool) {
-        let store = match self.skill_store.read() {
-            Ok(g) => g.clone(),
-            Err(e) => {
-                tracing::warn!(error = %e, "skill_store lock poisoned in finalize_injected_skills");
-                return;
-            }
-        };
-        let Some(store) = store else {
-            return;
+        let store: Arc<SkillStore> = match (*self.skill_store.load()).as_ref() {
+            Some(s) => s.clone(),
+            None => return,
         };
         for id in injected_skill_ids {
             if let Err(e) = store.record_usage(id, success).await {
@@ -1210,15 +983,9 @@ impl AgentRuntime {
         if !run_succeeded {
             return;
         }
-        let store = match self.trajectory_store.read() {
-            Ok(g) => g.clone(),
-            Err(e) => {
-                tracing::warn!(error = %e, "trajectory_store lock poisoned");
-                return;
-            }
-        };
-        let Some(store) = store else {
-            return;
+        let store: Arc<TrajectoryStore> = match (*self.trajectory_store.load()).as_ref() {
+            Some(s) => s.clone(),
+            None => return,
         };
 
         let session_id = request
@@ -1247,12 +1014,9 @@ impl AgentRuntime {
         request: &ChatRequest,
         injected_skill_ids: &mut Vec<String>,
     ) -> anyhow::Result<()> {
-        let store = match self.skill_store.read() {
-            Ok(g) => g.clone(),
-            Err(e) => anyhow::bail!("skill_store lock poisoned: {e}"),
-        };
-        let Some(store) = store else {
-            return Ok(());
+        let store: Arc<SkillStore> = match (*self.skill_store.load()).as_ref() {
+            Some(s) => s.clone(),
+            None => return Ok(()),
         };
         let task = last_user_turn_text(&request.messages);
         let trimmed = task.trim();
@@ -1375,231 +1139,6 @@ impl AgentRuntime {
     }
 }
 
-// ── Sub-agent prompt context ─────────────────────────────────────────
-
-/// Information needed to dynamically inject sub-agent guidance into the system prompt.
-pub struct SubAgentPromptContext<'a> {
-    pub policy: &'a SubAgentPolicy,
-    pub available_agents: &'a [(String, Option<String>)],
-    pub current_depth: u32,
-}
-
-/// Build the dynamic sub-agent guidance block appended to the system message.
-/// Returns `None` if sub-agents are disabled or depth budget is exhausted.
-pub fn build_subagent_prompt_block(ctx: &SubAgentPromptContext<'_>) -> Option<String> {
-    if !ctx.policy.enabled {
-        return None;
-    }
-    let remaining = ctx.policy.max_depth.saturating_sub(ctx.current_depth);
-    if remaining == 0 {
-        return None;
-    }
-
-    if ctx.current_depth > 0 {
-        return Some(build_child_agent_block(ctx, remaining));
-    }
-
-    let mut block = String::with_capacity(1024);
-    block.push_str("\n\n[Sub-Agent Delegation]\n");
-    block.push_str(&format!(
-        "You can delegate tasks to independent sub-agents via `spawn_subagent`. \
-         Depth budget: {remaining}. Max parallel: {}.\n\n",
-        ctx.policy.max_parallel,
-    ));
-
-    block.push_str("\
-WHEN TO DELEGATE (use sub-agents):
-- 2+ independent sub-problems that benefit from parallel execution
-- A subtask needs a different tool set (e.g. browser + code analysis simultaneously)
-- Deep research or exploration while you continue reasoning
-- Task complexity warrants dedicated focus in a separate context
-
-WHEN NOT TO DELEGATE (use tools directly):
-- Simple single-tool operations (just call the tool)
-- Tasks needing your current conversation context (sub-agents start fresh)
-- Sequential steps where each depends on the previous result
-- When only 1 tool call would suffice
-
-");
-    block.push_str(
-        "WORKFLOW: `list_agents` → pick agent_id → `spawn_subagent`. \
-         Batch multiple spawn calls in one response for parallel execution.\n\n",
-    );
-
-    if !ctx.policy.allowed_types.is_empty() {
-        block.push_str(&format!(
-            "Allowed types: {}.\n",
-            ctx.policy.allowed_types.join(", "),
-        ));
-    } else {
-        block.push_str("\
-Types: general (full tools), explore (read-only research), shell (commands/builds), browser (web interaction).\n");
-    }
-
-    let delegatable: Vec<_> = ctx.available_agents.iter()
-        .filter(|(id, _)| {
-            ctx.policy.allowed_agents.is_empty()
-                || ctx.policy.allowed_agents.iter().any(|a| a == id)
-        })
-        .collect();
-
-    if !delegatable.is_empty() {
-        block.push_str("Agents:\n");
-        for (id, desc) in &delegatable {
-            let d = desc.as_deref().unwrap_or("(no description)");
-            block.push_str(&format!("- `{id}`: {d}\n"));
-        }
-    }
-
-    block.push_str("\n\
-TASK DESCRIPTION RULES:
-- Self-contained: include all needed context (sub-agent cannot see your conversation)
-- Specific outcome: state exactly what to return
-- One clear objective per sub-agent
-");
-
-    if let Some(budget) = ctx.policy.token_budget {
-        block.push_str(&format!("\nToken budget per sub-agent: {budget}.\n"));
-    }
-
-    Some(block)
-}
-
-fn build_child_agent_block(ctx: &SubAgentPromptContext<'_>, remaining: u32) -> String {
-    let mut block = String::with_capacity(256);
-    block.push_str("\n\n[Sub-Agent Context]\n");
-    block.push_str(
-        "You are running as a sub-agent. Rules:\n\
-         - Focus exclusively on your assigned task\n\
-         - Return a concise, actionable result\n\
-         - Do not engage in pleasantries or ask follow-up questions\n\
-         - If you cannot complete the task, explain why clearly\n",
-    );
-    if remaining > 0 {
-        block.push_str(&format!(
-            "You may further delegate via `spawn_subagent` (remaining depth: {remaining}).\n",
-        ));
-    }
-    if let Some(budget) = ctx.policy.token_budget {
-        block.push_str(&format!("Token budget: {budget}.\n"));
-    }
-    block
-}
-
-const SKILL_MANAGEMENT_GUIDANCE: &str = "\n\n\
-[Skill Management]\n\
-When you successfully complete a complex, multi-step task:\n\
-1. Consider if the approach could be reused. If so, use `write_skill` to save it as a reusable skill.\n\
-2. If an existing skill was helpful but could be improved, use `read_skill` + `write_skill` to refine it.\n\
-3. Good skill candidates: tasks with 3+ tool calls, recurring patterns, domain-specific workflows.\n\
-4. Keep skills concise: task pattern, key steps, tool sequence, and any gotchas.\n\
-Do NOT create skills for trivial single-step tasks or pure conversation.\n";
-
-fn last_user_turn_text(messages: &[ChatMessage]) -> String {
-    messages
-        .iter()
-        .rev()
-        .filter(|m| matches!(m.role, Role::User))
-        .find_map(|m| m.text_content())
-        .unwrap_or_default()
-}
-
-fn truncate_for_trajectory(s: &str) -> String {
-    const MAX_CHARS: usize = 400;
-    let mut iter = s.chars();
-    let chunk: String = iter.by_ref().take(MAX_CHARS).collect();
-    if iter.next().is_some() {
-        format!("{chunk}…")
-    } else {
-        chunk
-    }
-}
-
-/// Accumulates streaming tool call deltas into a complete tool call.
-struct ToolCallAccumulator {
-    id: String,
-    name: String,
-    arguments: String,
-}
-
-impl ToolCallAccumulator {
-    fn to_tool_call(&self) -> ToolCall {
-        ToolCall {
-            id: self.id.clone(),
-            call_type: "function".to_string(),
-            function: FunctionCall {
-                name: self.name.clone(),
-                arguments: self.arguments.clone(),
-            },
-            output: None,
-            success: None,
-            duration_ms: None,
-        }
-    }
-}
-
-fn accumulate_tool_call(
-    accum: &mut Vec<ToolCallAccumulator>,
-    delta: &fastclaw_core::types::StreamToolCallDelta,
-) {
-    let idx = delta.index as usize;
-
-    while accum.len() <= idx {
-        accum.push(ToolCallAccumulator {
-            id: String::new(),
-            name: String::new(),
-            arguments: String::new(),
-        });
-    }
-
-    let entry = &mut accum[idx];
-
-    if let Some(ref id) = delta.id {
-        if !id.is_empty() {
-            entry.id = id.clone();
-        }
-    }
-
-    if let Some(ref func) = delta.function {
-        if let Some(ref name) = func.name {
-            if !name.is_empty() {
-                entry.name = name.clone();
-            }
-        }
-        if let Some(ref args) = func.arguments {
-            entry.arguments.push_str(args);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tool_result_truncation_tests {
-    use super::{truncate_tool_result_output, MAX_TOOL_RESULT_CHARS};
-
-    #[test]
-    fn no_truncation_at_or_below_char_limit() {
-        let s = "a".repeat(MAX_TOOL_RESULT_CHARS);
-        let out = truncate_tool_result_output(&s);
-        assert_eq!(out, s);
-        assert!(!out.contains("truncated"));
-    }
-
-    #[test]
-    fn truncates_long_output_and_suffix_reports_total_chars() {
-        let total = MAX_TOOL_RESULT_CHARS + 999;
-        let s = "a".repeat(total);
-        let out = truncate_tool_result_output(&s);
-        let expected_suffix = format!(
-            "\n... (truncated, showing first {MAX_TOOL_RESULT_CHARS} of {total} chars)"
-        );
-        assert!(out.ends_with(&expected_suffix), "got len {}", out.len());
-        assert_eq!(
-            out.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
-            "a".repeat(MAX_TOOL_RESULT_CHARS)
-        );
-    }
-}
-
 #[cfg(test)]
 mod stream_resume_tests {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -1610,7 +1149,7 @@ mod stream_resume_tests {
     use fastclaw_core::agent_config::{AgentConfig, AgentModelConfig, BehaviorConfig};
     use fastclaw_core::tool::ToolRegistry;
     use fastclaw_core::types::{
-        ChatMessage, ChatRequest, DeltaContent, Role, StreamChoice, StreamDelta,
+        ChatMessage, ChatRequest, ChatResponse, DeltaContent, Role, StreamChoice, StreamDelta,
     };
     use futures::stream::{self, StreamExt};
 

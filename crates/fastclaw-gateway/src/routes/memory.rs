@@ -17,8 +17,8 @@ fn get_agent_memory<'a>(
     &'a std::sync::Arc<fastclaw_memory::SemanticMemory>,
 )> {
     let aid = agent_id.unwrap_or("main");
-    let ep = state.agent_episodic.get(aid)?;
-    let sem = state.agent_semantic.get(aid)?;
+    let ep = state.mem.agent_episodic.get(aid)?;
+    let sem = state.mem.agent_semantic.get(aid)?;
     Some((ep, sem))
 }
 
@@ -178,7 +178,7 @@ pub async fn auto_record_episode(
     agent_id: &str,
     content: &str,
 ) {
-    if !state.config.memory.enabled {
+    if !state.cfg.config.memory.enabled {
         return;
     }
     let summary = if content.len() > 200 {
@@ -206,7 +206,7 @@ pub async fn auto_record_episode(
         dreamed_at: None,
     };
 
-    if let Some(ep) = state.agent_episodic.get(agent_id) {
+    if let Some(ep) = state.mem.agent_episodic.get(agent_id) {
         if let Err(e) = ep.record(&episode).await {
             tracing::warn!(error = %e, "failed to auto-record episode");
         }

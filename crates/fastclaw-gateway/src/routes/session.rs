@@ -34,6 +34,7 @@ pub(super) async fn list_sessions(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     ensure_session_http_auth(&auth)?;
     let sessions = state
+        .store
         .session_store
         .list_sessions(params.limit, params.offset)
         .await?;
@@ -47,6 +48,7 @@ pub(super) async fn get_session(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     ensure_session_http_auth(&auth)?;
     let session = state
+        .store
         .session_store
         .get_session(&session_id)
         .await?
@@ -60,7 +62,7 @@ pub(super) async fn delete_session(
     Path(session_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     ensure_session_http_auth(&auth)?;
-    let deleted = state.session_store.delete_session(&session_id).await?;
+    let deleted = state.store.session_store.delete_session(&session_id).await?;
     if deleted {
         Ok(Json(json!({ "deleted": true })))
     } else {
@@ -76,7 +78,7 @@ pub(super) async fn get_session_messages(
     Path(session_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     ensure_session_http_auth(&auth)?;
-    let messages = state.session_store.load_messages(&session_id).await?;
+    let messages = state.store.session_store.load_messages(&session_id).await?;
     Ok(Json(json!({ "messages": messages })))
 }
 
@@ -96,8 +98,8 @@ pub async fn resolve_session_context(
     agent_id: &str,
 ) -> anyhow::Result<ResolvedSession> {
     if let Some(sid) = session_id {
-        if let Some(session) = state.session_store.get_session(sid).await? {
-            let history = state.session_store.load_chat_messages(sid).await?;
+        if let Some(session) = state.store.session_store.get_session(sid).await? {
+            let history = state.store.session_store.load_chat_messages(sid).await?;
             return Ok(ResolvedSession {
                 session_id: sid.to_string(),
                 messages: history,
@@ -111,16 +113,19 @@ pub async fn resolve_session_context(
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let work_dir = state
+        .rt
         .workspaces
         .get(agent_id)
         .map(|ws| ws.root.to_string_lossy().to_string());
     state
+        .store
         .session_store
         .create_session_with_work_dir(&new_id, agent_id, None, work_dir.as_deref())
         .await?;
 
     let mut messages = Vec::new();
     state
+        .store
         .context_engine
         .bootstrap(&mut messages, agent_id)
         .await?;

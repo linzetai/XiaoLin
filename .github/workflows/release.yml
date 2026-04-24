@@ -76,6 +76,10 @@ jobs:
         working-directory: crates/fastclaw-app
         run: pnpm install --frozen-lockfile
 
+      # Lint workspace before building release artifacts
+      - name: Clippy (release)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       # ✅ 构建前端
       - name: Build frontend
         working-directory: crates/fastclaw-app

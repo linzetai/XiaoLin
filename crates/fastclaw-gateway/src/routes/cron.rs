@@ -10,7 +10,7 @@ use super::error::AppError;
 pub(super) async fn list_cron_jobs(
     State(state): State<AppState>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let jobs = state.cron_store.list().await?;
+    let jobs = state.store.cron_store.list().await?;
     Ok(Json(json!({ "jobs": jobs, "count": jobs.len() })))
 }
 
@@ -19,6 +19,7 @@ pub(super) async fn get_cron_job(
     Path(job_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let job = state
+        .store
         .cron_store
         .get(&job_id)
         .await?
@@ -46,7 +47,7 @@ pub(super) async fn upsert_cron_job(
             .map_err(|e| AppError::BadRequest(format!("webhook URL rejected: {e}")))?;
     }
 
-    state.cron_store.upsert(&job).await?;
+    state.store.cron_store.upsert(&job).await?;
     Ok(Json(json!({ "id": job.id, "ok": true })))
 }
 
@@ -54,6 +55,6 @@ pub(super) async fn delete_cron_job(
     State(state): State<AppState>,
     Path(job_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let deleted = state.cron_store.delete(&job_id).await?;
+    let deleted = state.store.cron_store.delete(&job_id).await?;
     Ok(Json(json!({ "deleted": deleted })))
 }

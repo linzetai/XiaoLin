@@ -2,15 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use fastclaw_core::types::{AskQuestionOption, StreamEvent};
 
 pub(crate) use super::ask_question::ASK_QUESTION_STREAM_KEY;
 
-type StreamEventTxMap =
-    Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>>;
-type PendingAnswers =
-    Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>;
+type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>;
+type PendingAnswers = Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>;
 
 /// Lightweight yes/no confirmation tool. Presents a message to the user
 /// and waits for them to Allow or Deny. Reuses the same streaming
@@ -90,15 +89,12 @@ impl Tool for ConfirmTool {
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-        {
-            let mut pending = self.pending.lock().await;
-            pending.insert(request_id.clone(), answer_tx);
-        }
+        self.pending.insert(request_id.clone(), answer_tx);
 
-        let stream_tx = {
-            let txs = self.stream_event_txs.lock().await;
-            txs.get(&stream_key).cloned()
-        };
+        let stream_tx = self
+            .stream_event_txs
+            .get(&stream_key)
+            .map(|r| r.value().clone());
 
         if let Some(tx) = stream_tx {
             let _ = tx
@@ -127,10 +123,7 @@ impl Tool for ConfirmTool {
         )
         .await;
 
-        {
-            let mut pending = self.pending.lock().await;
-            pending.remove(&request_id);
-        }
+        self.pending.remove(&request_id);
 
         match result {
             Ok(Ok(answer)) => {
@@ -164,14 +157,14 @@ mod tests {
 
     async fn make_tool() -> (
         ConfirmTool,
-        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>>,
-        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>,
+        Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
         tokio::sync::mpsc::Receiver<StreamEvent>,
     ) {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
-        let txs: StreamEventTxMap = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-        let pending: PendingAnswers = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-        txs.lock().await.insert("test-stream".to_string(), tx);
+        let txs: StreamEventTxMap = Arc::new(DashMap::new());
+        let pending: PendingAnswers = Arc::new(DashMap::new());
+        txs.insert("test-stream".to_string(), tx);
         let tool = ConfirmTool::new(txs.clone(), pending.clone());
         (tool, txs, pending, rx)
     }
@@ -214,7 +207,10 @@ mod tests {
             assert_eq!(options[1].id, "deny");
             assert!(!allow_multiple);
 
-            let tx = pending.lock().await.remove(&request_id).unwrap();
+            let tx = pending
+                .remove(&request_id)
+                .map(|(_k, v)| v)
+                .unwrap();
             tx.send("allow".to_string()).unwrap();
         } else {
             panic!("expected AskQuestion event");
@@ -241,7 +237,10 @@ mod tests {
 
         let event = rx.recv().await.unwrap();
         if let StreamEvent::AskQuestion { request_id, .. } = event {
-            let tx = pending.lock().await.remove(&request_id).unwrap();
+            let tx = pending
+                .remove(&request_id)
+                .map(|(_k, v)| v)
+                .unwrap();
             tx.send("deny".to_string()).unwrap();
         }
 

@@ -216,9 +216,7 @@ impl ManageCronTool {
                 let url = match args.get("url").and_then(|v| v.as_str()) {
                     Some(u) => u.to_string(),
                     None => {
-                        return ToolResult::err(
-                            "'url' is required for webhook action".to_string(),
-                        );
+                        return ToolResult::err("'url' is required for webhook action".to_string());
                     }
                 };
                 if let Err(e) = fastclaw_security::ssrf::ssrf_check_url(&url) {

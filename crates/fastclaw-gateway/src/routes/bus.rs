@@ -9,7 +9,7 @@ use super::error::AppError;
 pub(super) async fn bus_list_agents(
     State(state): State<AppState>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let agents = state.message_bus.registered_agents().await;
+    let agents = state.ext.message_bus.registered_agents().await;
     Ok(Json(json!({
         "registered_agents": agents,
         "count": agents.len(),
@@ -21,6 +21,7 @@ pub(super) async fn bus_send_message(
     AppJson(msg): AppJson<fastclaw_core::bus::AgentMessage>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     state
+        .ext
         .message_bus
         .send(msg)
         .await
@@ -45,6 +46,7 @@ pub(super) async fn bus_request_reply(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let timeout = std::time::Duration::from_millis(body.timeout_ms);
     let reply = state
+        .ext
         .message_bus
         .request(body.message, timeout)
         .await

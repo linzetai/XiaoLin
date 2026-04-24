@@ -15,7 +15,7 @@ use super::common::memory_scoped_tool_visible_for_agent;
 use super::error::AppError;
 
 fn agents_dir(state: &AppState) -> PathBuf {
-    fastclaw_core::paths::resolve_agents_dir_from(Some(&state.config.paths))
+    fastclaw_core::paths::resolve_agents_dir_from(Some(&state.cfg.config.paths))
 }
 
 fn agent_json_path(state: &AppState, agent_id: &str) -> PathBuf {
@@ -47,11 +47,7 @@ pub fn tool_effective_enabled(agent: &AgentConfig, tool_name: &str) -> bool {
         return false;
     }
     if !agent.behavior.tools_allow.is_empty()
-        && !agent
-            .behavior
-            .tools_allow
-            .iter()
-            .any(|a| a == tool_name)
+        && !agent.behavior.tools_allow.iter().any(|a| a == tool_name)
     {
         return false;
     }
@@ -126,7 +122,7 @@ pub(super) async fn get_agent(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     validate_agent_id_param(&agent_id)?;
     let cfg = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router
             .agent_by_id(&agent_id)
             .cloned()
@@ -183,7 +179,7 @@ pub(super) async fn delete_agent(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     validate_agent_id_param(&agent_id)?;
     let count_before = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router.agent_count()
     };
     if count_before <= 1 {
@@ -201,7 +197,9 @@ pub(super) async fn delete_agent(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("remove {}: {e}", path.display())))?;
     let count = state.reload_agents().await?;
-    Ok(Json(json!({ "ok": true, "deleted": agent_id, "reloaded": count })))
+    Ok(Json(
+        json!({ "ok": true, "deleted": agent_id, "reloaded": count }),
+    ))
 }
 
 pub(super) async fn list_agent_tools(
@@ -210,13 +208,14 @@ pub(super) async fn list_agent_tools(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     validate_agent_id_param(&agent_id)?;
     let agent = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router
             .agent_by_id(&agent_id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("agent not found: {agent_id}")))?
     };
     let tools: Vec<_> = state
+        .rt
         .tool_registry
         .definitions()
         .iter()
@@ -253,7 +252,7 @@ pub(super) async fn put_agent_tools(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     validate_agent_id_param(&agent_id)?;
     let mut agent = {
-        let router = state.router.read().await;
+        let router = state.rt.router.read().await;
         router
             .agent_by_id(&agent_id)
             .cloned()
@@ -261,20 +260,19 @@ pub(super) async fn put_agent_tools(
     };
 
     let registry_names: Vec<String> = state
+        .rt
         .tool_registry
         .definitions()
         .iter()
         .map(|td| td.function.name.clone())
         .collect();
 
-    let toggles: Vec<(String, bool)> = body
-        .tools
-        .into_iter()
-        .map(|t| (t.id, t.enabled))
-        .collect();
+    let toggles: Vec<(String, bool)> = body.tools.into_iter().map(|t| (t.id, t.enabled)).collect();
 
     rebuild_behavior_tool_lists(&mut agent, &registry_names, &toggles);
     write_agent_config_file(&state, &agent).await?;
     let count = state.reload_agents().await?;
-    Ok(Json(json!({ "ok": true, "agentId": agent_id, "reloaded": count })))
+    Ok(Json(
+        json!({ "ok": true, "agentId": agent_id, "reloaded": count }),
+    ))
 }

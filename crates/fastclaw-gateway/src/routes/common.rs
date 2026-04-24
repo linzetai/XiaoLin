@@ -62,7 +62,7 @@ pub fn apply_model_router_for_chat(
     request: &mut ChatRequest,
     tool_definition_count: usize,
 ) -> Option<Arc<dyn fastclaw_agent::LlmProvider>> {
-    let router = state.model_router.as_ref()?;
+    let router = state.obs.model_router.as_ref()?;
     if request.model.is_some() {
         return None;
     }
@@ -70,12 +70,11 @@ pub fn apply_model_router_for_chat(
         &request.messages,
         tool_definition_count,
     );
-    let estimated = fastclaw_model_router::estimate_complexity_tier(
-        fastclaw_model_router::TierEstimateInput {
+    let estimated =
+        fastclaw_model_router::estimate_complexity_tier(fastclaw_model_router::TierEstimateInput {
             messages: &request.messages,
             tool_definition_count,
-        },
-    );
+        });
     let tier_constraints = fastclaw_model_router::RouteTierConstraints {
         estimated,
         agent_min_tier: agent_config.min_tier,
@@ -106,7 +105,7 @@ pub fn apply_model_router_for_chat(
         &sel.provider,
         None,
         None,
-        Some(&state.config.credentials),
+        Some(&state.cfg.config.credentials),
         None,
     ) {
         Ok(p) => {
@@ -136,6 +135,7 @@ pub fn try_reserve_budget(
 ) -> Result<(f64, bool), AppError> {
     let estimated_output = (input_tokens / 3).max(100);
     let cost = state
+        .obs
         .model_router
         .as_ref()
         .map(|r| r.usage_charge_for_tokens(model, input_tokens, estimated_output))
@@ -144,7 +144,7 @@ pub fn try_reserve_budget(
         });
     if tool_count > 0 {
         let cost = cost * 1.5;
-        match state.budget_tracker.try_reserve(cost) {
+        match state.obs.budget_tracker.try_reserve(cost) {
             Ok(true) => return Ok((cost, false)),
             Ok(false) => {
                 return Err(AppError::BadRequest(
@@ -157,7 +157,7 @@ pub fn try_reserve_budget(
             }
         }
     }
-    match state.budget_tracker.try_reserve(cost) {
+    match state.obs.budget_tracker.try_reserve(cost) {
         Ok(true) => {
             tracing::debug!(
                 model = %model,
@@ -168,7 +168,7 @@ pub fn try_reserve_budget(
             Ok((cost, false))
         }
         Ok(false) => {
-            if let Ok(summary) = state.budget_tracker.summary() {
+            if let Ok(summary) = state.obs.budget_tracker.summary() {
                 tracing::warn!(
                     model = %model,
                     estimated_cost = format!("{cost:.6}"),
@@ -199,19 +199,24 @@ pub fn record_chat_budget_actual(state: &AppState, model: &str, usage: Option<&U
         return;
     };
     let cost = state
+        .obs
         .model_router
         .as_ref()
         .map(|r| r.usage_charge_for_tokens(model, u.prompt_tokens, u.completion_tokens))
         .unwrap_or_else(|| {
             fastclaw_model_router::default_usage_charge(model, u.prompt_tokens, u.completion_tokens)
         });
-    if let Err(e) = state.budget_tracker.record(&fastclaw_model_router::UsageRecord {
-        model: model.to_string(),
-        input_tokens: u.prompt_tokens,
-        output_tokens: u.completion_tokens,
-        cost,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    }) {
+    if let Err(e) = state
+        .obs
+        .budget_tracker
+        .record(&fastclaw_model_router::UsageRecord {
+            model: model.to_string(),
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            cost,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    {
         tracing::warn!(error = %e, "budget tracker: failed to record usage");
     }
 }
@@ -224,19 +229,24 @@ pub fn record_chat_budget_stream_estimate(
 ) {
     let out_toks = ((assistant_text_char_len as u32).saturating_add(3)) / 4;
     let cost = state
+        .obs
         .model_router
         .as_ref()
         .map(|r| r.usage_charge_for_tokens(model, input_tokens, out_toks))
         .unwrap_or_else(|| {
             fastclaw_model_router::default_usage_charge(model, input_tokens, out_toks)
         });
-    if let Err(e) = state.budget_tracker.record(&fastclaw_model_router::UsageRecord {
-        model: model.to_string(),
-        input_tokens,
-        output_tokens: out_toks,
-        cost,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    }) {
+    if let Err(e) = state
+        .obs
+        .budget_tracker
+        .record(&fastclaw_model_router::UsageRecord {
+            model: model.to_string(),
+            input_tokens,
+            output_tokens: out_toks,
+            cost,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    {
         tracing::warn!(error = %e, "budget tracker: failed to record stream estimate");
     }
 }

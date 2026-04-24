@@ -28,6 +28,7 @@ pub(super) async fn list_traces(
     Query(params): Query<TracePagination>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let traces = state
+        .store
         .session_store
         .list_traces(params.limit, params.offset)
         .await?;
@@ -39,7 +40,7 @@ pub(super) async fn get_trace(
     Extension(_auth): Extension<ApiKeyAuth>,
     Path(trace_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let trace = state.session_store.get_trace(&trace_id).await?;
+    let trace = state.store.session_store.get_trace(&trace_id).await?;
     match trace {
         Some(t) => Ok(Json(json!(t))),
         None => Err(AppError::NotFound(format!("trace {trace_id} not found"))),
@@ -51,6 +52,6 @@ pub(super) async fn delete_trace(
     Extension(_auth): Extension<ApiKeyAuth>,
     Path(trace_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let deleted = state.session_store.delete_trace(&trace_id).await?;
+    let deleted = state.store.session_store.delete_trace(&trace_id).await?;
     Ok(Json(json!({ "deleted": deleted })))
 }

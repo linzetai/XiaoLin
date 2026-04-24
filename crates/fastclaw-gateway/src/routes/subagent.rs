@@ -75,12 +75,12 @@ pub async fn list_subagent_runs(
     axum::extract::Query(params): axum::extract::Query<ListRunsParams>,
 ) -> Result<Json<Vec<SubAgentRunResponse>>, axum::http::StatusCode> {
     if let Some(session_id) = &params.session_id {
-        match state.session_store.list_subagent_runs(session_id).await {
+        match state.store.session_store.list_subagent_runs(session_id).await {
             Ok(rows) => Ok(Json(rows.into_iter().map(Into::into).collect())),
             Err(_) => Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
         }
     } else {
-        let runs = state.subagent_manager.list_runs(None);
+        let runs = state.strm.subagent_manager.list_runs(None);
         Ok(Json(runs.into_iter().map(Into::into).collect()))
     }
 }
@@ -96,11 +96,11 @@ pub async fn get_subagent_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<Json<SubAgentRunResponse>, axum::http::StatusCode> {
-    if let Some(run) = state.subagent_manager.get_run(&run_id) {
+    if let Some(run) = state.strm.subagent_manager.get_run(&run_id) {
         return Ok(Json(run.into()));
     }
 
-    match state.session_store.get_subagent_run(&run_id).await {
+    match state.store.session_store.get_subagent_run(&run_id).await {
         Ok(Some(row)) => Ok(Json(row.into())),
         Ok(None) => Err(axum::http::StatusCode::NOT_FOUND),
         Err(_) => Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
@@ -112,7 +112,7 @@ pub async fn cancel_subagent_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> axum::http::StatusCode {
-    if state.subagent_manager.cancel(&run_id) {
+    if state.strm.subagent_manager.cancel(&run_id) {
         axum::http::StatusCode::OK
     } else {
         axum::http::StatusCode::NOT_FOUND
