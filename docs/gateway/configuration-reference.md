@@ -113,6 +113,7 @@ summary: FastClawConfig 及主要子结构的字段说明与注意事项。
 | `baseUrl` | OpenAI 兼容端点 |
 | `apiKey` | 可内联；推荐放 `credentials` |
 | `temperature` / `maxTokens` | 采样与长度 |
+| `contextWindow` | 模型最大上下文窗口（token 数）。设置后网关在 LLM 调用前自动裁剪消息使总 token 不超限。未设置时回退到 `ModelRouter` 内置的 `max_context` 定价表 |
 | 其他键 | 保留在 `extra`（如 `maxConcurrent`、`timeoutSecs`）供运行时读取 |
 
 ---
@@ -120,6 +121,8 @@ summary: FastClawConfig 及主要子结构的字段说明与注意事项。
 ## AgentsConfig / AgentEntry
 
 见 [Agent 概念](../concepts/agents.md)。核心字段：`agents.list[].id`、`default`、`model`、`tools`、`skills`、`workspace`、`groupChat`、`identity`。
+
+Agent 级模型配置（`AgentModelConfig`）支持 `contextWindow`（`Option<u32>`）覆盖全局模型配置的上下文窗口大小。优先级：Agent `contextWindow` > 全局 `models.*.contextWindow` > `ModelRouter::max_context_for_model`。
 
 ---
 

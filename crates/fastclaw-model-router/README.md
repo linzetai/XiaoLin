@@ -9,6 +9,7 @@
 - **Token 估算** — `TokenEstimate` 预估输入/输出 token 数
 - **成本估算** — `CostEstimator` 按模型定价估算调用成本
 - **预算追踪** — `BudgetTracker` 原子级预算预留/释放
+- **上下文窗口查询** — `ModelRouter::max_context_for_model` 从内置定价表返回模型的 `max_context`，作为配置未指定时的兜底上下文窗口值，供 `chat_pipeline` 驱动裁剪
 
 ## 关键导出
 
@@ -17,4 +18,5 @@ pub use router::{ModelRouter, RouteResult};
 pub use budget::BudgetTracker;
 pub use cost::CostEstimator;
 pub use token::TokenEstimate;
+// ModelRouter::max_context_for_model(&self, model: &str) -> Option<u32>
 ```

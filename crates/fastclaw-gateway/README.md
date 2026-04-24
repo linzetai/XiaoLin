@@ -9,7 +9,7 @@
 - **Webhook** — 渠道入站（`POST /webhook/:channel_id`）
 - **配置热重载** — 文件监听 + SIGHUP 信号驱动，校验失败原子回滚
 - **嵌入式运行** — `serve_with_state` 支持 Tauri 桌面应用进程内启动
-- **chat_pipeline** — 聊天处理管线，串联路由、Agent 运行时、流式响应
+- **chat_pipeline** — 聊天处理管线，串联路由、Agent 运行时、**上下文窗口裁剪**（`fit_to_context_window`）、流式响应（含 `contextTokens` / `contextWindow`）
 - **记忆巩固** — `MemoryConsolidationHook` 在每轮对话后自动 LLM 摘要，提取事实并存储到长期记忆
 
 ## 关键导出

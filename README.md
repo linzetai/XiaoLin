@@ -22,8 +22,8 @@
 - 🤖 **Broad LLM coverage** — OpenAI, Anthropic, DeepSeek, Gemini, DashScope, and Ollama with **per-provider concurrency semaphores** and **stream resume**.  
   *多厂商 LLM、按提供商并发闸门、流式断点恢复。*
 
-- 🎚️ **Model router** — **Five** strategies (fixed, cost, quality, latency, fallback), **Tiny → Frontier** complexity tiers, and **budget tracking**.  
-  *五种路由策略、复杂度分层、预算追踪。*
+- 🎚️ **Model router** — **Five** strategies (fixed, cost, quality, latency, fallback), **Tiny → Frontier** complexity tiers, **budget tracking**, and **`max_context_for_model`** lookup used as a fallback context window when no explicit override is set.  
+  *五种路由策略、复杂度分层、预算追踪、按模型名查询最大上下文窗口作为兜底值。*
 
 - 🧠 **Three-layer memory + auto-capture** — LRU **working** set, **episodic** store with vector recall, **semantic** graph (**petgraph**); **dreaming** pipeline with fact extraction and embedding backfill; **keyword interception** (bilingual); **LLM-based session consolidation**; **importance scoring** (5 weighted signals).  
   *工作/情景/语义三层记忆、做梦管线（事实抽取+嵌入回填）、关键词自动捕获（中英文）、LLM 会话摘要巩固、五维重要性评分。*
@@ -73,8 +73,8 @@
 - 🔁 **Self-iteration** — Execution diagnosis, sandbox verification, and **auto-fix** loops.  
   *执行诊断、沙箱校验、自动修复闭环。*
 
-- 🧩 **Context assembly** — **Six-layer** prompt assembly, rolling compression, and **user profile** integration.  
-  *六层上下文拼装、滚动压缩与用户画像。*
+- 🧩 **Context assembly & window management** — **Six-layer** prompt assembly, rolling compression, **user profile** integration, and **per-model context window enforcement** with automatic compaction (importance-based → sliding-window fallback) before the LLM call. Context usage (`ctx 10.2k / 128k`) streams to clients in real time.  
+  *六层上下文拼装、滚动压缩、用户画像、按模型上下文窗口自动裁剪（重要性优先 → 滑动窗口兜底），上下文用量实时推送至客户端。*
 
 - ✅ **Quality bar** — **448** workspace tests, **zero** `cargo` warnings in CI-clean builds.  
   *工作区 448 项测试、干净构建零告警。*
@@ -333,8 +333,8 @@ FastClaw/
 │   ├── fastclaw-observe/      # Prometheus renderers, tracing helpers
 │   ├── fastclaw-security/     # API keys, rate limit, prompt guard
 │   ├── fastclaw-collab/       # Delegation, MCP client/server
-│   ├── fastclaw-model-router/ # Strategies, tiers, budgets
-│   ├── fastclaw-context/      # Six-layer context, rolling compression, profile
+│   ├── fastclaw-model-router/ # Strategies, tiers, budgets, max_context lookup
+│   ├── fastclaw-context/      # Six-layer context, rolling compression, profile, context window enforcement
 │   ├── fastclaw-self-iter/    # Diagnosis engine, auto-recovery guidance (integrated)
 │   └── fastclaw-cron/         # Cron persistence + recovery
 ├── Dockerfile
@@ -424,6 +424,9 @@ Webhook ingress uses `POST /webhook/:channel_id` (per channel registration).
   *记忆优化：关键词自动捕获（中英文）、五维重要性评分、LLM 会话摘要巩固、做梦管线增强（事实抽取+嵌入回填+重评分）、提示词强化。*
 
 **Up next / 下一步：**
+
+- ✅ **Context window management** — Per-model context window enforcement with automatic compaction before LLM calls; real-time `contextTokens / contextWindow` usage in streaming events; configurable at agent and model level.  
+  *按模型上下文窗口自动裁剪、流式事件实时回传上下文用量、Agent 与模型级可配置。*
 
 - **Code (L2–L4)** — Semantic edits (rename, code_action), diagnostics verification loop, context assembler with budget trimming.  
   *语义编辑、诊断验证闭环、上下文编排与预算裁剪。*

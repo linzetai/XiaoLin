@@ -31,6 +31,7 @@ fastclaw-app/
 - **人机交互** — `ask_question` 工具回环，Agent 可向用户征求结构化决策
 - **技能管理** — 查看、启用/禁用、上传技能（文件夹或 zip）
 - **Agent CRUD** — 创建、编辑、删除 Agent，per-agent 工具 allow/deny
+- **上下文用量指示器** — 聊天流末尾显示 `ctx 10.2k / 128k` 实时用量（绿/黄/红三色编码：<50% / 50–80% / >80%），可在 Agent 设置与全局模型设置中编辑 `contextWindow`
 - **配置安全** — 通过 `config_access` ACL 过滤敏感信息
 
 ## 开发

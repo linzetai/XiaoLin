@@ -31,6 +31,11 @@ summary: FastClaw 网关 HTTP API 路径、方法与常见请求体说明。
 - `messages`：OpenAI 风格消息数组。
 - `stream`：`true` 时响应 **`Content-Type: text/event-stream`**（SSE）；`false` 时返回完整 JSON。
 
+流式完成事件（`chat.complete`）包含上下文窗口用量字段：
+
+- `contextTokens`：本次请求消耗的输入 token 数（API 返回的实际值，若无则为启发式估算）。
+- `contextWindow`：模型的上下文窗口大小（token 数）；`0` 表示未配置。
+
 ## Agent 与工具
 
 | 方法 | 路径 | 说明 |
