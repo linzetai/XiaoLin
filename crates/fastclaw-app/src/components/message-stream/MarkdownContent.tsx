@@ -55,12 +55,13 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 hover:bg-[rgba(255,255,255,0.08)]"
+      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 hover:bg-[var(--bg-hover)]"
       style={{
-        color: copied ? "var(--green, #68D391)" : "var(--fill-tertiary)",
-        background: copied ? "rgba(104, 211, 145, 0.1)" : "transparent",
+        color: copied ? "var(--green)" : "var(--fill-tertiary)",
+        background: copied ? "color-mix(in srgb, var(--green) 10%, transparent)" : "transparent",
       }}
       title={copied ? "已复制" : "复制代码"}
+      aria-label={copied ? "已复制" : "复制代码"}
     >
       {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.5} />}
       <span>{copied ? "已复制" : "复制"}</span>

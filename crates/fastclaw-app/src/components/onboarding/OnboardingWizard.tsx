@@ -185,8 +185,8 @@ function ModelStep({ onNext }: { onNext: () => void }) {
   if (saved) {
     return (
       <div className="flex flex-col items-center text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "rgba(52, 199, 89, 0.12)" }}>
-          <CheckCircle size={32} strokeWidth={1.5} style={{ color: "#34c759" }} />
+        <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "color-mix(in srgb, var(--green) 12%, transparent)" }}>
+          <CheckCircle size={32} strokeWidth={1.5} style={{ color: "var(--green)" }} />
         </div>
         <h2 className="mt-5 text-[22px] font-bold" style={{ color: "var(--fill-primary)" }}>
           模型配置完成
@@ -224,13 +224,13 @@ function ModelStep({ onNext }: { onNext: () => void }) {
         <div className="space-y-3.5 p-5">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls} style={labelStyle}>名称</label>
-              <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="如 dashscope" className={inputCls} style={inputStyle} />
+              <label htmlFor="ob-key" className={labelCls} style={labelStyle}>名称</label>
+              <input id="ob-key" value={key} onChange={(e) => setKey(e.target.value)} placeholder="如 dashscope" className={inputCls} style={inputStyle} />
             </div>
             <div>
-              <label className={labelCls} style={labelStyle}>Provider</label>
+              <label htmlFor="ob-provider" className={labelCls} style={labelStyle}>Provider</label>
               <div className="relative">
-                <select value={provider} onChange={(e) => setProvider(e.target.value)} className={`${inputCls} cursor-pointer pr-8`} style={{ ...inputStyle, appearance: "none" }}>
+                <select id="ob-provider" value={provider} onChange={(e) => setProvider(e.target.value)} className={`${inputCls} cursor-pointer pr-8`} style={{ ...inputStyle, appearance: "none" }}>
                   <option value="openai_compatible">OpenAI Compatible</option>
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
@@ -241,19 +241,20 @@ function ModelStep({ onNext }: { onNext: () => void }) {
           </div>
 
           <div>
-            <label className={labelCls} style={labelStyle}>模型名称</label>
-            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 qwen-plus / gpt-4o / claude-sonnet-4-20250514" className={inputCls} style={inputStyle} />
+            <label htmlFor="ob-model" className={labelCls} style={labelStyle}>模型名称</label>
+            <input id="ob-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 qwen-plus / gpt-4o / claude-sonnet-4-20250514" className={inputCls} style={inputStyle} />
           </div>
 
           <div>
-            <label className={labelCls} style={labelStyle}>Base URL</label>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1" className={inputCls} style={inputStyle} />
+            <label htmlFor="ob-baseurl" className={labelCls} style={labelStyle}>Base URL</label>
+            <input id="ob-baseurl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1" className={inputCls} style={inputStyle} />
           </div>
 
           <div>
-            <label className={labelCls} style={labelStyle}>API Key</label>
+            <label htmlFor="ob-apikey" className={labelCls} style={labelStyle}>API Key</label>
             <div className="relative">
               <input
+                id="ob-apikey"
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -273,7 +274,7 @@ function ModelStep({ onNext }: { onNext: () => void }) {
                   onClick={handleTest}
                   disabled={testStatus === "testing"}
                   className="flex h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
-                  style={{ color: testStatus === "success" ? "#34c759" : testStatus === "error" ? "#ff3b30" : "var(--fill-secondary)" }}
+                  style={{ color: testStatus === "success" ? "var(--green)" : testStatus === "error" ? "var(--red)" : "var(--fill-secondary)" }}
                 >
                   {testStatus === "testing" ? (
                     <Zap size={11} className="animate-pulse" />
@@ -289,7 +290,7 @@ function ModelStep({ onNext }: { onNext: () => void }) {
               </div>
             </div>
             {testMsg && (
-              <p className="mt-1.5 text-[11px]" style={{ color: testStatus === "success" ? "#34c759" : "#ff3b30" }}>
+              <p className="mt-1.5 text-[11px]" style={{ color: testStatus === "success" ? "var(--green)" : "var(--red)" }}>
                 {testMsg}
               </p>
             )}
@@ -340,37 +341,37 @@ const FEATURES = [
     icon: Bot,
     title: "多 Agent 管理",
     desc: "创建多个 Agent，每个拥有独立身份、模型和工具配置。在左侧边栏切换。",
-    color: "#007aff",
+    cssColor: "var(--tint)",
   },
   {
     icon: MessageSquare,
     title: "智能对话",
     desc: "流式输出，支持工具调用和多轮推理。Agent 可以读写文件、执行命令、搜索网络。",
-    color: "#34c759",
+    cssColor: "var(--green)",
   },
   {
     icon: Wrench,
     title: "工具 & Skills",
     desc: "内置文件操作、Shell 执行、代码分析等工具。可上传自定义 Skill 扩展能力。",
-    color: "#ff9500",
+    cssColor: "var(--orange)",
   },
   {
     icon: Clock,
     title: "定时任务",
     desc: "为每个 Agent 配置 Cron 定时任务，定期执行对话或发送 Webhook。",
-    color: "#af52de",
+    cssColor: "var(--accent, #af52de)",
   },
   {
     icon: Search,
     title: "联网搜索",
     desc: "内置 Google、百度、Bing 等多引擎搜索。也支持 Tavily API 和自建 SearXNG。",
-    color: "#ff3b30",
+    cssColor: "var(--red)",
   },
   {
     icon: Settings,
     title: "设置中心",
     desc: "点击右上角齿轮图标管理模型、搜索引擎、MCP 服务器和更多配置。",
-    color: "#636366",
+    cssColor: "var(--fill-tertiary)",
   },
 ];
 
@@ -395,9 +396,9 @@ function FeaturesStep({ onNext }: { onNext: () => void }) {
           >
             <div
               className="mb-3 flex h-9 w-9 items-center justify-center rounded-[8px]"
-              style={{ background: `${f.color}14` }}
+              style={{ background: `color-mix(in srgb, ${f.cssColor} 10%, transparent)` }}
             >
-              <f.icon size={18} strokeWidth={1.5} style={{ color: f.color }} />
+              <f.icon size={18} strokeWidth={1.5} style={{ color: f.cssColor }} />
             </div>
             <h3 className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>
               {f.title}
@@ -435,9 +436,9 @@ function DoneStep({ onComplete }: { onComplete: () => void }) {
     <div className="flex flex-col items-center text-center">
       <div
         className="flex h-16 w-16 items-center justify-center rounded-full"
-        style={{ background: "rgba(52, 199, 89, 0.12)", animation: "scale-in 0.4s ease-out" }}
+        style={{ background: "color-mix(in srgb, var(--green) 12%, transparent)", animation: "scale-in 0.4s ease-out" }}
       >
-        <Sparkles size={32} strokeWidth={1.5} style={{ color: "#34c759" }} />
+        <Sparkles size={32} strokeWidth={1.5} style={{ color: "var(--green)" }} />
       </div>
       <h2 className="mt-5 text-[22px] font-bold" style={{ color: "var(--fill-primary)" }}>
         一切就绪

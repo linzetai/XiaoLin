@@ -130,17 +130,19 @@ function ImageViewer({ src }: { src: string }) {
         >
           <button
             onClick={handleCopy}
-            className="flex h-7 w-7 items-center justify-center rounded-md backdrop-blur-sm transition-colors"
-            style={{ background: "rgba(0,0,0,0.5)", color: copied ? "#68D391" : "#fff" }}
+            className="flex h-7 w-7 items-center justify-center rounded-md backdrop-blur-sm transition-colors hover:brightness-125"
+            style={{ background: "rgba(0,0,0,0.55)", color: copied ? "var(--green)" : "#fff" }}
             title={copied ? "已复制" : "复制图片"}
+            aria-label={copied ? "已复制" : "复制图片"}
           >
             {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.5} />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
-            className="flex h-7 w-7 items-center justify-center rounded-md backdrop-blur-sm transition-colors"
-            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+            className="flex h-7 w-7 items-center justify-center rounded-md backdrop-blur-sm transition-colors hover:brightness-125"
+            style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
             title="查看大图"
+            aria-label="查看大图"
           >
             <Maximize2 size={14} strokeWidth={1.5} />
           </button>
@@ -152,20 +154,28 @@ function ImageViewer({ src }: { src: string }) {
           className="fixed inset-0 z-[9999] flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.85)" }}
           onClick={() => setLightbox(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setLightbox(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="图片预览"
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
         >
           <div className="absolute right-4 top-4 flex gap-2">
             <button
               onClick={handleCopy}
-              className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium transition-colors"
-              style={{ background: "rgba(255,255,255,0.15)", color: copied ? "#68D391" : "#fff" }}
+              className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium transition-colors hover:brightness-125"
+              style={{ background: "rgba(255,255,255,0.15)", color: copied ? "var(--green)" : "#fff" }}
+              aria-label={copied ? "已复制" : "复制图片"}
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? "已复制" : "复制"}
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
-              className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:brightness-125"
               style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}
+              aria-label="关闭预览"
             >
               <XIcon size={18} strokeWidth={2} />
             </button>
@@ -217,7 +227,7 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
             className="overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2.5 text-[11.5px] leading-[1.55]"
             style={{
               background: "var(--bg-primary)",
-              color: error ? "#DC2626" : "var(--fill-secondary)",
+              color: error ? "var(--red)" : "var(--fill-secondary)",
               border: `0.5px solid var(--separator)`,
               fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace',
               maxHeight: expanded ? "none" : "280px",
@@ -259,8 +269,8 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
     <div
       className="my-1.5 overflow-hidden rounded-lg"
       style={{
-        border: `0.5px solid ${isError ? "rgba(220,38,38,0.3)" : "var(--separator)"}`,
-        background: isError ? "rgba(220,38,38,0.04)" : "var(--bg-secondary)",
+        border: `0.5px solid ${isError ? "color-mix(in srgb, var(--red) 30%, transparent)" : "var(--separator)"}`,
+        background: isError ? "color-mix(in srgb, var(--red) 4%, transparent)" : "var(--bg-secondary)",
         animation: "slide-up 0.15s ease-out",
         maxWidth: "min(100%, 600px)",
       }}
@@ -270,6 +280,7 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
         onClick={() => hasDetails && setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100"
         style={{ cursor: hasDetails ? "pointer" : "default" }}
+        aria-expanded={hasDetails ? expanded : undefined}
       >
         {/* Status icon */}
         <span className="flex h-4 w-4 shrink-0 items-center justify-center">
@@ -282,7 +293,7 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
               }}
             />
           ) : isError ? (
-            <XIcon size={12} strokeWidth={2} style={{ color: "#DC2626" }} />
+            <XIcon size={12} strokeWidth={2} style={{ color: "var(--red)" }} />
           ) : (
             <Check size={12} strokeWidth={2} style={{ color: "var(--fill-tertiary)" }} />
           )}
@@ -291,7 +302,7 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
         {/* Tool icon + label + key info */}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
           <span className="shrink-0" style={{ color: "var(--fill-tertiary)" }}>{meta.icon}</span>
-          <span className="shrink-0 font-medium" style={{ color: isError ? "#DC2626" : "var(--fill-primary)" }}>
+          <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-primary)" }}>
             {label}
           </span>
           {keyInfo && (

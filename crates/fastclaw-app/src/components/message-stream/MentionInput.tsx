@@ -48,9 +48,9 @@ interface MentionInputProps {
 }
 
 const MENTION_TYPE_META: Record<MentionType, { text: string; icon: React.ReactNode; color: string }> = {
-  file: { text: "文件", icon: <File size={12} strokeWidth={1.5} />, color: "#2563EB" },
-  dir: { text: "目录", icon: <Folder size={12} strokeWidth={1.5} />, color: "#7C3AED" },
-  skill: { text: "Skill", icon: <Sparkles size={12} strokeWidth={1.5} />, color: "#D97706" },
+  file: { text: "文件", icon: <File size={12} strokeWidth={1.5} />, color: "var(--tint)" },
+  dir: { text: "目录", icon: <Folder size={12} strokeWidth={1.5} />, color: "var(--orange)" },
+  skill: { text: "Skill", icon: <Sparkles size={12} strokeWidth={1.5} />, color: "var(--green)" },
 };
 
 /* ─── Mention Popup ─── */
@@ -115,7 +115,7 @@ function MentionPopup({
               >
                 <span
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[12px]"
-                  style={{ background: `${meta.color}10`, color: meta.color }}
+                  style={{ background: `color-mix(in srgb, ${meta.color} 8%, transparent)`, color: meta.color }}
                 >
                   {meta.icon}
                 </span>
@@ -161,9 +161,9 @@ function HighlightOverlay({ text, mentions }: { text: string; mentions: InlineMe
         key={`m-${m.start}`}
         className="mention-chip"
         style={{
-          background: `${meta.color}12`,
+          background: `color-mix(in srgb, ${meta.color} 8%, transparent)`,
           color: meta.color,
-          borderColor: `${meta.color}30`,
+          borderColor: `color-mix(in srgb, ${meta.color} 20%, transparent)`,
         }}
       >
         @{m.label}

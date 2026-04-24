@@ -244,14 +244,14 @@
   *,
   *::before,
   *::after {
-    transition-property: background-color, border-color, box-shadow, color, fill, stroke;
-    transition-duration: 0.3s;
+    transition-property: background-color, border-color, box-shadow, color, fill, stroke, opacity;
+    transition-duration: 0.2s;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   input, textarea, select, button {
     transition-property: background-color, border-color, box-shadow, color, opacity;
-    transition-duration: 0.2s;
+    transition-duration: 0.15s;
     transition-timing-function: ease;
   }
 

@@ -113,8 +113,15 @@ function FormModal({ open, onClose, title, children }: {
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in 0.15s ease-out" }}>
-      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={onClose} />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ animation: "fade-in 0.15s ease-out" }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={onClose} role="presentation" />
       <div
         className="relative w-full max-w-[420px] overflow-hidden rounded-[var(--radius-md)]"
         style={{
