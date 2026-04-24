@@ -1,8 +1,6 @@
 pub mod compressor;
 pub mod engine;
 pub mod keyword_interceptor;
-pub mod manager;
-pub mod user_profile;
 
 pub use compressor::{
     estimate_messages_tokens, CompactionResult, CompactionStrategy, CompressorConfig,
@@ -19,5 +17,3 @@ pub use engine::{
     DEFAULT_SYSTEM_REMINDER_TEXT,
 };
 pub use keyword_interceptor::MemoryKeywordInterceptor;
-pub use manager::ContextManager;
-pub use user_profile::{CommunicationStyle, UserProfile};

@@ -110,6 +110,28 @@ pub async fn setup_chat(
         None
     };
 
+    for msg in &user_messages {
+        if msg.role == Role::User {
+            if let Some(text) = msg.text_content() {
+                let result = state.prompt_guard.is_suspicious(&text);
+                if result.is_suspicious {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        risk = ?result.risk_level,
+                        patterns = ?result.matched_patterns,
+                        "prompt injection detected in user message"
+                    );
+                    if result.risk_level == fastclaw_security::RiskLevel::High {
+                        return Err(AppError::BadRequest(format!(
+                            "Message rejected: high-risk prompt injection patterns detected ({})",
+                            result.matched_patterns.join(", ")
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     let ingest_input = fastclaw_context::IngestInput {
         messages: user_messages.clone(),
         agent_id: agent_id.clone(),

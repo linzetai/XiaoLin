@@ -69,6 +69,7 @@ pub trait EventSink: Send + Sync {
 }
 
 /// No-op [`EventSink`] when events are not needed.
+#[allow(dead_code)]
 pub struct NullSink;
 
 #[async_trait::async_trait]

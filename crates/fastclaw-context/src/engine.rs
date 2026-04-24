@@ -85,7 +85,7 @@ pub struct LayerTokenLimits {
 pub struct ContextLayers {
     /// Layer 1 — fixed agent system prompt (+ optional static workspace system text).
     pub system_prompt: String,
-    /// Layer 2 — user profile text (typically from [`crate::user_profile::UserProfile::to_prompt_text`]).
+    /// Layer 2 — user profile text (e.g. inferred preferences, communication style).
     pub profile_text: String,
     /// Layer 3 — compressed session / history summary.
     pub session_summary: String,

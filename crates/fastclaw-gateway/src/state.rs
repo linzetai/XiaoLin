@@ -627,6 +627,7 @@ impl StateBuilder {
             .runtime
             .attach_evolution_stores(skill_store.clone(), trajectory_store.clone());
 
+        let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let state = AppState {
             config: Arc::new(config),
@@ -663,6 +664,11 @@ impl StateBuilder {
             ask_question_pending: p5.phase2.phase4.ask_question_pending,
             mcp_status: Arc::new(std::sync::RwLock::new(p5.phase2.phase4.mcp_status_init)),
             mcp_handles: Arc::new(tokio::sync::Mutex::new(p5.phase2.phase4.mcp_handles_init)),
+            prompt_guard: {
+                let mut pg = fastclaw_security::PromptGuard::new();
+                pg.set_enabled(prompt_injection_enabled);
+                Arc::new(pg)
+            },
         };
 
         state.tool_registry.register(Arc::new(crate::mcp_tool::ManageMcpServerTool::new(
@@ -824,6 +830,7 @@ pub struct AppState {
     pub mcp_status: Arc<std::sync::RwLock<std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>>>,
     /// Handles to running MCP client processes, keyed by server id.
     pub mcp_handles: Arc<tokio::sync::Mutex<std::collections::HashMap<String, fastclaw_collab::mcp::SharedMcpClient>>>,
+    pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
 }
 
 impl AppState {
@@ -2093,6 +2100,7 @@ impl AppState {
             ask_question_pending: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             mcp_status: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             mcp_handles: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            prompt_guard: Arc::new(fastclaw_security::PromptGuard::new()),
         })
     }
 }
