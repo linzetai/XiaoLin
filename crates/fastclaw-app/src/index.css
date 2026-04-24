@@ -40,9 +40,10 @@
   --bubble-them: #f0f0f2;
   --bubble-them-text: #1d1d1f;
 
-  --green: #6e6e73;
-  --red: #aeaeb2;
-  --orange: #98989d;
+  --green: #34C759;
+  --red: #FF3B30;
+  --orange: #FF9500;
+  --yellow: #FFCC00;
 
   --radius-xs: 6px;
   --radius-sm: 10px;
@@ -89,9 +90,10 @@
   --bubble-them: #2c2c2e;
   --bubble-them-text: #f5f5f7;
 
-  --green: #98989d;
-  --red: #636366;
-  --orange: #636366;
+  --green: #30D158;
+  --red: #FF453A;
+  --orange: #FF9F0A;
+  --yellow: #FFD60A;
 }
 
 /* ━━━ Full Immersive Theme Overrides ━━━
@@ -251,6 +253,10 @@
     transition-property: background-color, border-color, box-shadow, color, opacity;
     transition-duration: 0.2s;
     transition-timing-function: ease;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
   }
 }
 
@@ -632,6 +638,10 @@
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
 }
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.97); }
+}
 @keyframes typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30% { transform: translateY(-4px); opacity: 1; }
@@ -661,6 +671,15 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ━━━ Accessibility ━━━ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ━━━ Responsive ━━━ */

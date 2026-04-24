@@ -44,13 +44,13 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
   return (
     <button
       onClick={onChange}
-      className="flex h-[22px] w-[40px] shrink-0 items-center rounded-full px-0.5 transition-colors duration-200"
+      className="relative flex h-[22px] w-[40px] cursor-pointer shrink-0 items-center rounded-full px-0.5 transition-colors duration-200"
       style={{
-        background: enabled ? "var(--green)" : "var(--fill-quaternary)",
+        background: enabled ? "var(--tint)" : "var(--fill-quaternary)",
         justifyContent: enabled ? "flex-end" : "flex-start",
       }}
     >
-      <div className="h-[18px] w-[18px] rounded-full bg-white shadow-sm" />
+      <div className="h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200" />
     </button>
   );
 }

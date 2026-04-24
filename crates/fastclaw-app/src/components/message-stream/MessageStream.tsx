@@ -107,11 +107,12 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
 
 /* ─── (MentionInput is now in ./MentionInput.tsx) ─── */
 
+const isMacPlatform = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+const MOD_KEY = isMacPlatform ? "⌘" : "Ctrl+";
+const MOD_LABEL = isMacPlatform ? "⌘" : "Ctrl";
+
 /* ─── Keyboard Shortcuts Hint ─── */
 function ShortcutsHint() {
-  const isMac = navigator.platform.includes("Mac");
-  const mod = isMac ? "⌘" : "Ctrl";
-
   return (
     <div
       className="flex items-center gap-3 text-[11px]"
@@ -119,7 +120,7 @@ function ShortcutsHint() {
     >
       <span><kbd className="font-mono text-[10px]">Enter</kbd> 发送</span>
       <span><kbd className="font-mono text-[10px]">Shift+Enter</kbd> 换行</span>
-      <span><kbd className="font-mono text-[10px]">{mod}+K</kbd> 新话题</span>
+      <span><kbd className="font-mono text-[10px]">{MOD_LABEL}+K</kbd> 新话题</span>
     </div>
   );
 }
@@ -287,38 +288,43 @@ function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, onClose,
 /* ─── Empty State ─── */
 function EmptyState({ onPick }: { onPick: (t: string) => void }) {
   const suggestions = [
-    { text: "帮我分析一段代码", icon: <FileText size={14} strokeWidth={1.5} /> },
-    { text: "写一个 API 设计方案", icon: <Sparkles size={14} strokeWidth={1.5} /> },
-    { text: "排查一个 Bug", icon: <File size={14} strokeWidth={1.5} /> },
-    { text: "优化系统性能", icon: <Folder size={14} strokeWidth={1.5} /> },
+    { text: "帮我分析一段代码", icon: <FileText size={15} strokeWidth={1.5} />, color: "var(--tint, #2563EB)" },
+    { text: "写一个 API 设计方案", icon: <Sparkles size={15} strokeWidth={1.5} />, color: "var(--orange, #FF9500)" },
+    { text: "排查一个 Bug", icon: <Search size={15} strokeWidth={1.5} />, color: "var(--red, #FF3B30)" },
+    { text: "优化系统性能", icon: <Settings2 size={15} strokeWidth={1.5} />, color: "var(--green, #34C759)" },
   ];
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8" style={{ animation: "scale-in 0.35s ease-out" }}>
-      <div className="mb-8">
+      <div className="mb-6" style={{ animation: "scale-in 0.5s ease-out" }}>
         <ClawIcon size={56} />
       </div>
-      <h2 className="mb-2 text-[17px] font-semibold tracking-[-0.02em]" style={{ color: "var(--fill-primary)" }}>
+      <h2 className="mb-2 text-[18px] font-semibold tracking-[-0.02em]" style={{ color: "var(--fill-primary)" }}>
         开始新的对话
       </h2>
-      <p className="mb-10 text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
-        描述你的任务，或选择一个话题
+      <p className="mb-8 text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
+        描述你的任务，或选择一个话题快速开始
       </p>
-      <div className="grid grid-cols-2 gap-2.5" style={{ maxWidth: 380 }}>
+      <div className="grid grid-cols-2 gap-3" style={{ maxWidth: 400 }}>
         {suggestions.map((s, i) => (
           <button
             key={s.text}
             onClick={() => onPick(s.text)}
-            className="flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-4 py-3 text-left text-[13px] transition-all duration-150 hover:bg-[var(--bg-tertiary)]"
+            className="group flex cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-4 py-3.5 text-left text-[13px] transition-all duration-200 hover:shadow-[var(--shadow-sm)]"
             style={{
               background: "var(--bg-secondary)",
               border: "0.5px solid var(--separator)",
               color: "var(--fill-secondary)",
-              animation: `slide-up 0.3s ease-out ${0.06 + i * 0.05}s backwards`,
+              animation: `slide-up 0.3s ease-out ${0.06 + i * 0.06}s backwards`,
             }}
           >
-            <span className="shrink-0" style={{ color: "var(--fill-tertiary)" }}>{s.icon}</span>
-            <span className="min-w-0 truncate">{s.text}</span>
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-110"
+              style={{ background: "var(--tint-subtle)", color: s.color }}
+            >
+              {s.icon}
+            </span>
+            <span className="min-w-0 truncate font-medium">{s.text}</span>
           </button>
         ))}
       </div>
@@ -1584,7 +1590,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
             onClick={openSearch}
             className="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-100 hover:bg-[var(--bg-hover)]"
             style={{ color: searchOpen ? "var(--tint)" : "var(--fill-tertiary)" }}
-            title="搜索消息 (⌘F)"
+            title={`搜索消息 (${MOD_KEY}F)`}
           >
             <Search size={15} strokeWidth={1.5} />
           </button>
@@ -1807,7 +1813,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                 onClick={() => fileInputRef.current?.click()}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-100 hover:bg-[var(--bg-hover)]"
                 style={{ color: "var(--fill-tertiary)" }}
-                title="附件 (⌘⇧A)"
+                title={`附件 (${MOD_KEY}${isMacPlatform ? "⇧" : "Shift+"}A)`}
               >
                 <Paperclip size={16} strokeWidth={1.5} />
               </button>
@@ -1889,10 +1895,10 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                       if (t) handleMentionSend(t, ref.getMentions());
                     }
                   }}
-                  className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 disabled:opacity-25"
+                  className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-150 hover:brightness-110 active:scale-95 disabled:opacity-25"
                   style={{
-                    background: "var(--fill-primary)",
-                    color: "var(--fill-inverse)",
+                    background: "var(--tint)",
+                    color: "#fff",
                   }}
                   title="发送 ↩"
                 >

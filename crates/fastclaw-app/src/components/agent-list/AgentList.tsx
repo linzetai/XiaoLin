@@ -175,7 +175,7 @@ export function AgentList() {
       {/* Search */}
       <div className="px-4 pb-2 pt-4">
         <div
-          className="flex items-center gap-2.5 rounded-[10px] px-3 py-[7px]"
+          className="flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] transition-shadow duration-200 focus-within:shadow-[0_0_0_2px_var(--tint)]"
           style={{ background: "var(--bg-hover)" }}
         >
           <Search size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
@@ -184,9 +184,18 @@ export function AgentList() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[var(--fill-quaternary)]"
             style={{ color: "var(--fill-primary)" }}
           />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[var(--bg-active)]"
+              style={{ color: "var(--fill-tertiary)" }}
+            >
+              <X size={10} strokeWidth={2} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -247,7 +256,7 @@ export function AgentList() {
               <div className="relative shrink-0">
                 <div
                   className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[15px] font-semibold"
-                  style={{ background: "var(--bg-tertiary)", color: "var(--fill-secondary)" }}
+                  style={{ background: agent.color || "var(--bg-tertiary)", color: agent.color ? "#fff" : "var(--fill-secondary)" }}
                 >
                   {agent.initial}
                 </div>

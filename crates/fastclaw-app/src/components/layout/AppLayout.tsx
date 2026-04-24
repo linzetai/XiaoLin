@@ -13,13 +13,22 @@ function Loading({ error }: { error: string | null }) {
   return (
     <div className="flex h-full flex-col items-center justify-center" style={{ background: "var(--bg-primary)" }}>
       <div style={{ animation: "scale-in 0.4s ease-out" }} className="text-center">
-        <div className="mx-auto mb-5">
+        <div className="mx-auto mb-5" style={{ animation: error ? "none" : "pulse-subtle 2s ease-in-out infinite" }}>
           <ClawIcon size={64} />
         </div>
-        <p className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>FastClaw</p>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
+        <p className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: "var(--fill-primary)" }}>FastClaw</p>
+        <p className="mt-1.5 text-[13px]" style={{ color: error ? "var(--red)" : "var(--fill-tertiary)" }}>
           {error ? `连接失败: ${error}` : "正在启动..."}
         </p>
+        {error && (
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 cursor-pointer rounded-[var(--radius-xs)] px-4 py-1.5 text-[12px] font-medium transition-colors duration-150 hover:opacity-80"
+            style={{ background: "var(--tint)", color: "#fff" }}
+          >
+            重试连接
+          </button>
+        )}
       </div>
     </div>
   );

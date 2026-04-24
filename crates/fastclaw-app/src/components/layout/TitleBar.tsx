@@ -106,7 +106,7 @@ function WindowControls() {
       </button>
       <button
         onClick={close}
-        className={`${btn} w-11 h-full hover:bg-[var(--bg-active)]`}
+        className={`${btn} w-11 h-full hover:bg-[#E81123] hover:text-white`}
         style={{ color: "var(--fill-secondary)" }}
         title="关闭"
       >
