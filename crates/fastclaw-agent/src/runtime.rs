@@ -377,104 +377,82 @@ impl AgentRuntime {
                 .filter(|t| !t.is_empty())
                 .ok_or_else(|| anyhow::anyhow!("LLM reported tool_calls but none were present"))?;
 
-            for tc in tool_calls {
+            // Execute tool calls in parallel (fork-join): spawn all concurrently,
+            // then process results sequentially for correct message ordering.
+            let tool_futures: Vec<_> = tool_calls.iter().map(|tc| {
+                let tool_name = tc.function.name.clone();
+                let call_id = tc.id.clone();
+                let arguments = tc.function.arguments.clone();
+                let registry = tool_registry.clone();
+                let behavior = config.behavior.clone();
+                let work_dir = request.work_dir.clone();
+                async move {
+                    if !is_tool_allowed(&tool_name, &behavior) {
+                        tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy");
+                        let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
+                        return (tool_name, call_id, fastclaw_core::tool::ToolResult::err(msg));
+                    }
+                    let result = match registry.get(&tool_name) {
+                        Some(tool) => {
+                            let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
+                            with_file_access_mode(
+                                behavior.file_access,
+                                with_work_dir(work_dir_path, tool.execute(&arguments)),
+                            )
+                            .await
+                        }
+                        None => {
+                            let msg = format!("tool not found: {}", tool_name);
+                            fastclaw_core::tool::ToolResult::err(msg)
+                        }
+                    };
+                    tracing::info!(
+                        tool = %tool_name, success = result.success,
+                        output_len = result.output.len(), "tool result"
+                    );
+                    (tool_name, call_id, result)
+                }
+            }).collect();
+
+            let results = futures::future::join_all(tool_futures).await;
+
+            for (tool_name, call_id, result) in results {
                 total_tool_calls += 1;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
                     action_type: "tool_call".into(),
-                    tool_name: Some(tc.function.name.clone()),
-                    summary: truncate_for_trajectory(&tc.function.arguments),
+                    tool_name: Some(tool_name.clone()),
+                    summary: truncate_for_trajectory(""),
                     success: None,
                 });
 
-                tracing::info!(
-                    tool = %tc.function.name,
-                    call_id = %tc.id,
-                    "executing tool"
-                );
-
-                if !is_tool_allowed(&tc.function.name, &config.behavior) {
-                    tracing::warn!(
-                        tool = %tc.function.name,
-                        agent_id = %config.agent_id,
-                        "tool blocked by allow/deny policy at execution time"
-                    );
-                    let msg = format!("tool '{}' is not allowed by agent policy", tc.function.name);
-                    let result = fastclaw_core::tool::ToolResult::err(msg);
-                    let out = truncate_tool_result_output(&result.output);
-                    messages.push(ChatMessage {
-                        role: Role::Tool,
-                        content: Some(serde_json::Value::String(out)),
-                        name: Some(tc.function.name.clone()),
-                        tool_calls: None,
-                        tool_call_id: Some(tc.id.clone()),
-                    });
+                if !result.success {
                     consecutive_errors += 1;
                     failure_streak_traces.push(ToolCallTrace {
-                        tool_name: tc.function.name.clone(),
+                        tool_name: tool_name.clone(),
                         success: false,
                         latency_ms: 0,
-                        error: Some(result.output),
+                        error: Some(result.output.clone()),
                     });
-                    continue;
+                } else {
+                    consecutive_errors = 0;
+                    failure_streak_traces.clear();
                 }
-
-                let result = match tool_registry.get(&tc.function.name) {
-                    Some(tool) => {
-                        let work_dir_path = request.work_dir.as_ref().map(std::path::PathBuf::from);
-                        let r = with_file_access_mode(
-                            config.behavior.file_access,
-                            with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),
-                        )
-                        .await;
-                        if !r.success {
-                            consecutive_errors += 1;
-                            failure_streak_traces.push(ToolCallTrace {
-                                tool_name: tc.function.name.clone(),
-                                success: false,
-                                latency_ms: 0,
-                                error: Some(r.output.clone()),
-                            });
-                        } else {
-                            consecutive_errors = 0;
-                            failure_streak_traces.clear();
-                        }
-                        r
-                    }
-                    None => {
-                        consecutive_errors += 1;
-                        let msg = format!("tool not found: {}", tc.function.name);
-                        failure_streak_traces.push(ToolCallTrace {
-                            tool_name: tc.function.name.clone(),
-                            success: false,
-                            latency_ms: 0,
-                            error: Some(msg.clone()),
-                        });
-                        fastclaw_core::tool::ToolResult::err(msg)
-                    }
-                };
-
-                tracing::info!(
-                    tool = %tc.function.name,
-                    success = result.success,
-                    output_len = result.output.len(),
-                    "tool result"
-                );
 
                 let out = truncate_tool_result_output(&result.output);
                 messages.push(ChatMessage {
                     role: Role::Tool,
                     content: Some(serde_json::Value::String(out)),
-                    name: Some(tc.function.name.clone()),
+                    name: Some(tool_name.clone()),
                     tool_calls: None,
-                    tool_call_id: Some(tc.id.clone()),
+                    tool_call_id: Some(call_id),
                 });
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "tool".into(),
                     action_type: "tool_result".into(),
-                    tool_name: Some(tc.function.name.clone()),
+                    tool_name: Some(tool_name.clone()),
                     summary: truncate_for_trajectory(&result.output),
                     success: Some(result.success),
                 });
@@ -853,17 +831,8 @@ impl AgentRuntime {
                 tool_call_id: None,
             });
 
+            // Emit ToolExecuting events for all tool calls first.
             for tc in &assembled_calls {
-                total_tool_calls += 1;
-
-                trajectory_steps.push(TrajectoryStep {
-                    role: "assistant".into(),
-                    action_type: "tool_call".into(),
-                    tool_name: Some(tc.function.name.clone()),
-                    summary: truncate_for_trajectory(&tc.function.arguments),
-                    success: None,
-                });
-
                 let args_str = if tc.function.arguments.is_empty() { None } else { Some(tc.function.arguments.clone()) };
                 let _ = send_stream_event(
                     &tx,
@@ -875,87 +844,59 @@ impl AgentRuntime {
                     false,
                 )
                 .await;
+            }
 
-                tracing::info!(
-                    tool = %tc.function.name,
-                    call_id = %tc.id,
-                    "executing tool (stream)"
-                );
-
-                if !is_tool_allowed(&tc.function.name, &config.behavior) {
-                    tracing::warn!(
-                        tool = %tc.function.name,
-                        agent_id = %config.agent_id,
-                        "tool blocked by allow/deny policy at execution time (stream)"
-                    );
-                    let blocked_msg =
-                        format!("tool '{}' is not allowed by agent policy", tc.function.name);
-                    let blocked_result = fastclaw_core::tool::ToolResult::err(blocked_msg);
-                    let blocked_out = truncate_tool_result_output(&blocked_result.output);
-                    let _ = send_stream_event(
-                        &tx,
-                        StreamEvent::ToolResult {
-                            tool_name: tc.function.name.clone(),
-                            call_id: tc.id.clone(),
-                            output: blocked_out.clone(),
-                            success: false,
-                        },
-                        false,
-                    )
-                    .await;
-                    messages.push(ChatMessage {
-                        role: Role::Tool,
-                        content: Some(serde_json::Value::String(blocked_out)),
-                        name: Some(tc.function.name.clone()),
-                        tool_calls: None,
-                        tool_call_id: Some(tc.id.clone()),
-                    });
-                    consecutive_errors += 1;
-                    failure_streak_traces.push(ToolCallTrace {
-                        tool_name: tc.function.name.clone(),
-                        success: false,
-                        latency_ms: 0,
-                        error: Some(blocked_result.output),
-                    });
-                    continue;
-                }
-
-                let mut result = match tool_registry.get(&tc.function.name) {
-                    Some(tool) => {
-                        let work_dir_path = request.work_dir.as_ref().map(std::path::PathBuf::from);
-                        let r = with_file_access_mode(
-                            config.behavior.file_access,
-                            with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),
-                        )
-                        .await;
-                        if !r.success {
-                            consecutive_errors += 1;
-                            failure_streak_traces.push(ToolCallTrace {
-                                tool_name: tc.function.name.clone(),
-                                success: false,
-                                latency_ms: 0,
-                                error: Some(r.output.clone()),
-                            });
-                        } else {
-                            consecutive_errors = 0;
-                            failure_streak_traces.clear();
+            // Execute all tool calls in parallel (fork-join).
+            let stream_tool_futures: Vec<_> = assembled_calls.iter().map(|tc| {
+                let tool_name = tc.function.name.clone();
+                let call_id = tc.id.clone();
+                let arguments = tc.function.arguments.clone();
+                let registry = tool_registry.clone();
+                let behavior = config.behavior.clone();
+                let work_dir = request.work_dir.clone();
+                async move {
+                    if !is_tool_allowed(&tool_name, &behavior) {
+                        tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy (stream)");
+                        let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
+                        return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(msg));
+                    }
+                    let result = match registry.get(&tool_name) {
+                        Some(tool) => {
+                            let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
+                            with_file_access_mode(
+                                behavior.file_access,
+                                with_work_dir(work_dir_path, tool.execute(&arguments)),
+                            )
+                            .await
                         }
-                        r
-                    }
-                    None => {
-                        consecutive_errors += 1;
-                        let msg = format!("tool not found: {}", tc.function.name);
-                        failure_streak_traces.push(ToolCallTrace {
-                            tool_name: tc.function.name.clone(),
-                            success: false,
-                            latency_ms: 0,
-                            error: Some(msg.clone()),
-                        });
-                        fastclaw_core::tool::ToolResult::err(msg)
-                    }
-                };
+                        None => {
+                            let msg = format!("tool not found: {}", tool_name);
+                            fastclaw_core::tool::ToolResult::err(msg)
+                        }
+                    };
+                    tracing::info!(
+                        tool = %tool_name, success = result.success,
+                        output_len = result.output.len(), "tool result (stream)"
+                    );
+                    (tool_name, call_id, arguments, result)
+                }
+            }).collect();
 
-                // ── Runtime-driven confirmation flow ──
+            let stream_results = futures::future::join_all(stream_tool_futures).await;
+
+            // Process results sequentially for ordering, confirmation, and state updates.
+            for (tool_name, call_id, arguments, mut result) in stream_results {
+                total_tool_calls += 1;
+
+                trajectory_steps.push(TrajectoryStep {
+                    role: "assistant".into(),
+                    action_type: "tool_call".into(),
+                    tool_name: Some(tool_name.clone()),
+                    summary: truncate_for_trajectory(&arguments),
+                    success: None,
+                });
+
+                // ── Runtime-driven confirmation flow (sequential, requires user interaction) ──
                 if result.needs_confirmation {
                     if let Some(ref pending_map) = confirm_pending {
                         use fastclaw_core::types::AskQuestionOption;
@@ -998,23 +939,19 @@ impl AgentRuntime {
 
                         if approved {
                             let mut args: serde_json::Value =
-                                serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                                serde_json::from_str(&arguments).unwrap_or_default();
                             if let Some(obj) = args.as_object_mut() {
                                 obj.insert("confirmed".into(), serde_json::Value::Bool(true));
                             }
                             let confirmed_args = serde_json::to_string(&args).unwrap_or_default();
 
-                            if let Some(tool) = tool_registry.get(&tc.function.name) {
+                            if let Some(tool) = tool_registry.get(&tool_name) {
                                 let work_dir_path = request.work_dir.as_ref().map(std::path::PathBuf::from);
                                 result = with_file_access_mode(
                                     config.behavior.file_access,
                                     with_work_dir(work_dir_path, tool.execute(&confirmed_args)),
                                 )
                                 .await;
-                                if result.success {
-                                    consecutive_errors = 0;
-                                    failure_streak_traces.clear();
-                                }
                             }
                         } else {
                             result = fastclaw_core::tool::ToolResult::err(
@@ -1024,12 +961,25 @@ impl AgentRuntime {
                     }
                 }
 
+                if !result.success {
+                    consecutive_errors += 1;
+                    failure_streak_traces.push(ToolCallTrace {
+                        tool_name: tool_name.clone(),
+                        success: false,
+                        latency_ms: 0,
+                        error: Some(result.output.clone()),
+                    });
+                } else {
+                    consecutive_errors = 0;
+                    failure_streak_traces.clear();
+                }
+
                 let llm_out = truncate_tool_result_output(&result.output);
                 let _ = send_stream_event(
                     &tx,
                     StreamEvent::ToolResult {
-                        tool_name: tc.function.name.clone(),
-                        call_id: tc.id.clone(),
+                        tool_name: tool_name.clone(),
+                        call_id: call_id.clone(),
                         output: result.output.clone(),
                         success: result.success,
                     },
@@ -1040,7 +990,7 @@ impl AgentRuntime {
                 trajectory_steps.push(TrajectoryStep {
                     role: "tool".into(),
                     action_type: "tool_result".into(),
-                    tool_name: Some(tc.function.name.clone()),
+                    tool_name: Some(tool_name.clone()),
                     summary: truncate_for_trajectory(&result.output),
                     success: Some(result.success),
                 });
@@ -1048,9 +998,9 @@ impl AgentRuntime {
                 messages.push(ChatMessage {
                     role: Role::Tool,
                     content: Some(serde_json::Value::String(llm_out)),
-                    name: Some(tc.function.name.clone()),
+                    name: Some(tool_name.clone()),
                     tool_calls: None,
-                    tool_call_id: Some(tc.id.clone()),
+                    tool_call_id: Some(call_id),
                 });
 
                 if self.try_self_iter_tool_recovery(

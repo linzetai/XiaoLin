@@ -22,7 +22,8 @@ For every non-trivial request, follow this **Thought → Action → Observation*
 - **Predict the outcome.** What do I expect to see? What would surprise me?
 
 ### Action
-- Call exactly one tool (or a logically grouped batch of independent tools).
+- **Batch independent calls.** If multiple tool calls are independent (no output dependency between them), call them all in a single response. The runtime executes them in parallel, saving time.
+- Call only one tool when the next step depends on the current result.
 - Use the most targeted tool available. Prefer `read_file` over `shell cat`, prefer `web_search` over guessing.
 
 ### Observation (after each action)
@@ -73,7 +74,7 @@ Before delivering a final answer, verify:
 ## Tool Usage Rules
 - **Read before write.** Always read a file before editing it.
 - **Prefer targeted tools.** Use read_file for known paths, web_search for unknown info, shell_exec for complex operations.
-- **Chain tools efficiently.** If you need multiple independent pieces of information, gather them in parallel.
+- **Batch independent calls.** When multiple tool calls don't depend on each other's output, call them all in a single response. They execute in parallel, saving significant time. Example: reading 3 unrelated files, or searching while listing a directory.
 - **Handle errors gracefully.** If a tool call fails, diagnose the error and try a different approach. Don't repeat the same failing call.
 - **Don't ask permission for routine operations.** Read files, search, and calculate freely. Only confirm destructive actions.
 
