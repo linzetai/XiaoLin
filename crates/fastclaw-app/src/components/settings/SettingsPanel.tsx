@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useThemeStore, ACCENT_PRESETS, type ThemeMode } from "../../lib/theme";
 import { useGatewayStore } from "../../lib/store";
 import { Settings2, Box, Wrench, Server, Info, ChevronDown, Plus, Pencil, Globe, User, X, RefreshCw, Upload, FolderOpen, FileText, Plug, Trash2, ToggleLeft, ToggleRight, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Search, Shield, Check } from "lucide-react";
@@ -1206,6 +1206,7 @@ function SkillsTab() {
   const [filter, setFilter] = useState<"skills" | "tools">("skills");
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const gatewayReady = useGatewayStore((s) => s.connected);
 
   const loadAllSkills = useCallback(async () => {
@@ -1280,6 +1281,11 @@ function SkillsTab() {
     setUploading(false);
   }, [loadAllSkills]);
 
+  const totalSkills = useMemo(
+    () => publicSkills.length + Object.values(agentSkillsMap).reduce((s, a) => s + a.length, 0),
+    [publicSkills, agentSkillsMap],
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1287,8 +1293,6 @@ function SkillsTab() {
       </div>
     );
   }
-
-  const totalSkills = publicSkills.length + Object.values(agentSkillsMap).reduce((s, a) => s + a.length, 0);
 
   const SkillRow = ({ skill, isLast }: { skill: api.SkillInfo; isLast: boolean }) => (
     <div
@@ -1333,37 +1337,35 @@ function SkillsTab() {
               </button>
               <div className="relative">
                 <button
-                  onClick={() => {
-                    const el = document.getElementById("settings-skill-upload-menu");
-                    if (el) el.classList.toggle("hidden");
-                  }}
+                  onClick={() => setSkillMenuOpen((v) => !v)}
                   disabled={uploading}
                   className="cursor-pointer rounded-[var(--radius-xs)] p-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-40"
                   title="上传 Skill"
                 >
                   <Upload size={13} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
                 </button>
-                <div
-                  id="settings-skill-upload-menu"
-                  className="hidden absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-sm)] py-1 shadow-lg"
-                  style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
-                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).classList.add("hidden")}
-                >
-                  <button
-                    onClick={() => { document.getElementById("settings-skill-upload-menu")?.classList.add("hidden"); handleUploadFolder(); }}
-                    className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
-                    style={{ color: "var(--fill-primary)" }}
+                {skillMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-sm)] py-1 shadow-lg"
+                    style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
+                    onMouseLeave={() => setSkillMenuOpen(false)}
                   >
-                    <FolderOpen size={12} className="mr-2 inline" strokeWidth={1.5} />选择文件夹
-                  </button>
-                  <button
-                    onClick={() => { document.getElementById("settings-skill-upload-menu")?.classList.add("hidden"); handleUploadZip(); }}
-                    className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
-                    style={{ color: "var(--fill-primary)" }}
-                  >
-                    <FileText size={12} className="mr-2 inline" strokeWidth={1.5} />选择 ZIP 文件
-                  </button>
-                </div>
+                    <button
+                      onClick={() => { setSkillMenuOpen(false); handleUploadFolder(); }}
+                      className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
+                      style={{ color: "var(--fill-primary)" }}
+                    >
+                      <FolderOpen size={12} className="mr-2 inline" strokeWidth={1.5} />选择文件夹
+                    </button>
+                    <button
+                      onClick={() => { setSkillMenuOpen(false); handleUploadZip(); }}
+                      className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
+                      style={{ color: "var(--fill-primary)" }}
+                    >
+                      <FileText size={12} className="mr-2 inline" strokeWidth={1.5} />选择 ZIP 文件
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

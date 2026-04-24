@@ -24,15 +24,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "var(--bg-primary)" }}>
-      <style>{`
-        .ob-fade-in { animation: obFadeIn 0.35s ease-out forwards; }
-        .ob-fade-out { animation: obFadeOut 0.2s ease-in forwards; }
-        @keyframes obFadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes obFadeOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
-        .ob-dot { width: 6px; height: 6px; border-radius: 50%; transition: all 0.3s ease; }
-        .ob-dot-active { width: 20px; border-radius: 3px; }
-      `}</style>
-
       <div className={`w-full max-w-[560px] px-6 ${fadeClass}`}>
         {step === "welcome" && <WelcomeStep onNext={() => goTo("model")} />}
         {step === "model" && <ModelStep onNext={() => goTo("features")} />}

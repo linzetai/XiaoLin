@@ -12,7 +12,6 @@ import {
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { ClawIcon } from "../layout/ClawIcon";
-import { open as tauriOpenDialog } from "@tauri-apps/plugin-dialog";
 
 function ts(d: Date) {
   return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -1047,7 +1046,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       if (!ds.done) ids.add(chatId);
     }
     return ids;
-  }, [streaming, streamSegments]);
+  }, [streaming, detachedStreams]);
 
   const atBottomRef = useRef(true);
   const suppressScrollTrackingUntilRef = useRef(0);
@@ -1858,6 +1857,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
                   if (!curChat) return;
                   let selected: string | null = null;
                   try {
+                    const { open: tauriOpenDialog } = await import("@tauri-apps/plugin-dialog");
                     selected = await tauriOpenDialog({ directory: true, multiple: false, defaultPath: curChat.workDir ?? undefined }) as string | null;
                   } catch {
                     selected = prompt("输入工作目录路径:", curChat.workDir ?? "");

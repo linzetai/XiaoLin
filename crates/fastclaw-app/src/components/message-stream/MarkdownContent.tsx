@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, type ComponentPropsWithoutRef } from "react";
+import { memo, useState, useCallback, type ComponentPropsWithoutRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -152,7 +152,6 @@ const components = {
 export const MarkdownContent = memo(function MarkdownContent({
   content,
 }: MarkdownContentProps) {
-  const memoContent = useMemo(() => content, [content]);
   return (
     <div className="markdown-body">
       <Markdown
@@ -160,7 +159,7 @@ export const MarkdownContent = memo(function MarkdownContent({
         rehypePlugins={rehypePlugins}
         components={components}
       >
-        {memoContent}
+        {content}
       </Markdown>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useGatewayStore } from "../../lib/store";
 import { useAgentStore } from "../../lib/agent-store";
 import { AgentList } from "../agent-list/AgentList";
@@ -35,7 +35,8 @@ function Loading({ error }: { error: string | null }) {
 }
 
 export function AppLayout() {
-  const { mode, error } = useGatewayStore();
+  const mode = useGatewayStore((s) => s.mode);
+  const error = useGatewayStore((s) => s.error);
   const connected = useGatewayStore((s) => s.connected);
 
   const activeAgentId = useAgentStore((s) => s.activeAgentId);
@@ -44,7 +45,10 @@ export function AppLayout() {
   const toggleDetail = useAgentStore((s) => s.toggleDetail);
   const closeDetail = useAgentStore((s) => s.closeDetail);
 
-  const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+  const activeAgent = useMemo(
+    () => agents.find((a) => a.id === activeAgentId) ?? agents[0],
+    [agents, activeAgentId],
+  );
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
@@ -54,17 +58,19 @@ export function AppLayout() {
     let cancelled = false;
     (async () => {
       try {
-        const cfg = (await api.getConfig("onboarding")) as { value?: { completed?: boolean }; completed?: boolean } | null;
+        const [cfg, models] = await Promise.all([
+          api.getConfig("onboarding") as Promise<{ value?: { completed?: boolean }; completed?: boolean } | null>,
+          api.listModels(),
+        ]);
+        if (cancelled) return;
         const val = cfg?.value ?? cfg;
         if (val && typeof val === "object" && (val as Record<string, unknown>).completed) {
-          if (!cancelled) { setShowOnboarding(false); setOnboardingChecked(true); }
+          setShowOnboarding(false);
+          setOnboardingChecked(true);
           return;
         }
-        const models = await api.listModels();
-        if (!cancelled) {
-          setShowOnboarding(models.length === 0);
-          setOnboardingChecked(true);
-        }
+        setShowOnboarding(models.length === 0);
+        setOnboardingChecked(true);
       } catch {
         if (!cancelled) { setShowOnboarding(false); setOnboardingChecked(true); }
       }

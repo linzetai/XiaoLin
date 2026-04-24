@@ -124,9 +124,11 @@ export interface BackendMessage {
 
 let nextId = 1;
 const STORAGE_KEY = "fastclaw:ui-state";
+const UI_STATE_VERSION = 1;
 const DEFAULT_AGENT_ID = "main";
 
 interface PersistedUIState {
+  version: number;
   activeAgentId: string;
   agentActiveChats: Record<string, string>;
   agentOpenChats: Record<string, string[]>;
@@ -136,7 +138,9 @@ function loadUIState(): PersistedUIState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PersistedUIState;
+    const parsed = JSON.parse(raw) as PersistedUIState;
+    if (parsed.version !== UI_STATE_VERSION) return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -151,6 +155,7 @@ function saveUIState(state: AgentState) {
       agentOpenChats[agentId] = ac.chatList.filter((c) => c.open).map((c) => c.id);
     }
     const persisted: PersistedUIState = {
+      version: UI_STATE_VERSION,
       activeAgentId: state.activeAgentId,
       agentActiveChats,
       agentOpenChats,

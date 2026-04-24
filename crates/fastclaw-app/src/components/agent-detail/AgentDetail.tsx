@@ -635,6 +635,7 @@ function ConfigTab() {
   const [deleting, setDeleting] = useState(false);
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [uploadingSkill, setUploadingSkill] = useState(false);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
 
   const reloadSkillsList = useCallback(() => {
     api.listSkills(activeAgentId).then(setAgentSkills).catch(() => {});
@@ -646,23 +647,21 @@ function ConfigTab() {
     api.listModels().then(setModels).catch(() => {});
   }, [gatewayReady]);
 
-  useEffect(() => {
-    if (!gatewayReady) return;
-    loadModels();
-    api.listAgentTools(activeAgentId).then(setAgentTools).catch(() => {});
-    reloadSkillsList();
-  }, [activeAgentId, gatewayReady, loadModels, reloadSkillsList]);
-
-  useEffect(() => {
-    const onModelsUpdated = () => loadModels();
-    window.addEventListener("fastclaw:models-updated", onModelsUpdated);
-    return () => window.removeEventListener("fastclaw:models-updated", onModelsUpdated);
-  }, [loadModels]);
-
   const [backendAgent, setBackendAgent] = useState<api.BackendAgent | null>(null);
+
   useEffect(() => {
     if (!gatewayReady) return;
-    api.getAgent(activeAgentId).then((a) => {
+    Promise.all([
+      api.listModels().catch(() => [] as api.ModelInfo[]),
+      api.listAgentTools(activeAgentId).catch(() => [] as api.AgentToolInfo[]),
+      api.listSkills(activeAgentId).catch(() => [] as api.SkillInfo[]),
+      api.getSkillsDenyList().catch(() => [] as string[]),
+      api.getAgent(activeAgentId).catch(() => null),
+    ]).then(([m, tools, skills, deny, a]) => {
+      setModels(m);
+      setAgentTools(tools);
+      setAgentSkills(skills);
+      setSkillsDeny(deny);
       if (a) {
         setBackendAgent(a);
         if (typeof a.model === "string") {
@@ -674,8 +673,14 @@ function ConfigTab() {
         }
         setFileAccessMode(a.behavior?.fileAccess ?? "workspace");
       }
-    }).catch(() => {});
+    });
   }, [activeAgentId, gatewayReady]);
+
+  useEffect(() => {
+    const onModelsUpdated = () => loadModels();
+    window.addEventListener("fastclaw:models-updated", onModelsUpdated);
+    return () => window.removeEventListener("fastclaw:models-updated", onModelsUpdated);
+  }, [loadModels]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -926,37 +931,35 @@ function ConfigTab() {
             </button>
             <div className="relative">
               <button
-                onClick={() => {
-                  const el = document.getElementById("skill-upload-menu");
-                  if (el) el.classList.toggle("hidden");
-                }}
+                onClick={() => setSkillMenuOpen((v) => !v)}
                 disabled={uploadingSkill}
                 className="cursor-pointer rounded-[var(--radius-xs)] p-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-40"
                 title="上传 Skill"
               >
                 <Upload size={13} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
               </button>
-              <div
-                id="skill-upload-menu"
-                className="hidden absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-sm)] py-1 shadow-lg"
-                style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
-                onMouseLeave={(e) => (e.currentTarget as HTMLElement).classList.add("hidden")}
-              >
-                <button
-                  onClick={() => { document.getElementById("skill-upload-menu")?.classList.add("hidden"); handleUploadSkillFolder(); }}
-                  className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
-                  style={{ color: "var(--fill-primary)" }}
+              {skillMenuOpen && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-sm)] py-1 shadow-lg"
+                  style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
+                  onMouseLeave={() => setSkillMenuOpen(false)}
                 >
-                  <FolderOpen size={12} className="mr-2 inline" strokeWidth={1.5} />选择文件夹
-                </button>
-                <button
-                  onClick={() => { document.getElementById("skill-upload-menu")?.classList.add("hidden"); handleUploadSkillZip(); }}
-                  className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
-                  style={{ color: "var(--fill-primary)" }}
-                >
-                  <FileText size={12} className="mr-2 inline" strokeWidth={1.5} />选择 ZIP 文件
-                </button>
-              </div>
+                  <button
+                    onClick={() => { setSkillMenuOpen(false); handleUploadSkillFolder(); }}
+                    className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
+                    style={{ color: "var(--fill-primary)" }}
+                  >
+                    <FolderOpen size={12} className="mr-2 inline" strokeWidth={1.5} />选择文件夹
+                  </button>
+                  <button
+                    onClick={() => { setSkillMenuOpen(false); handleUploadSkillZip(); }}
+                    className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
+                    style={{ color: "var(--fill-primary)" }}
+                  >
+                    <FileText size={12} className="mr-2 inline" strokeWidth={1.5} />选择 ZIP 文件
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

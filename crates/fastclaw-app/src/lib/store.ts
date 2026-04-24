@@ -25,10 +25,12 @@ let sessionChangedUnsub: (() => void) | null = null;
 
 async function syncBackendData() {
   try {
-    const agents = await transport.listAgents();
+    const [agents, sessions] = await Promise.all([
+      transport.listAgents(),
+      transport.listSessions(50),
+    ]);
     if (agents.length > 0) {
       useAgentStore.getState().syncAgentsFromBackend(agents);
-      const sessions = await transport.listSessions(50);
       for (const agent of agents) {
         const agentSessions = sessions.filter(
           (s) => s.agentId === agent.agentId,
