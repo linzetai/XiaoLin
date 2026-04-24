@@ -1,15 +1,23 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite, Transaction};
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use fastclaw_core::types::ChatMessage;
 
 use crate::models::{Session, SessionCreateOutcome, SessionMessage, SessionSummary};
 
+const MSG_CACHE_MAX_SESSIONS: usize = 32;
+
 pub struct SessionStore {
     pool: Pool<Sqlite>,
+    /// In-memory cache of ChatMessage lists keyed by session_id.
+    /// Avoids re-reading the full history from SQLite on every turn.
+    msg_cache: Arc<RwLock<HashMap<String, Vec<ChatMessage>>>>,
 }
 
 impl SessionStore {
@@ -30,7 +38,10 @@ impl SessionStore {
             .connect_with(options)
             .await?;
 
-        let store = Self { pool };
+        let store = Self {
+            pool,
+            msg_cache: Arc::new(RwLock::new(HashMap::new())),
+        };
         store.run_migrations().await?;
 
         tracing::info!(path = %db_path.display(), "session store opened");
@@ -53,7 +64,10 @@ impl SessionStore {
             .connect_with(options)
             .await?;
 
-        let store = Self { pool };
+        let store = Self {
+            pool,
+            msg_cache: Arc::new(RwLock::new(HashMap::new())),
+        };
         store.run_migrations().await?;
         Ok(store)
     }
@@ -252,6 +266,12 @@ impl SessionStore {
         let mut tx = self.pool.begin().await?;
         Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
         tx.commit().await?;
+
+        let mut cache = self.msg_cache.write().await;
+        if let Some(cached) = cache.get_mut(session_id) {
+            cached.push(msg.clone());
+        }
+
         Ok(())
     }
 
@@ -312,6 +332,12 @@ impl SessionStore {
             Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
         }
         tx.commit().await?;
+
+        let mut cache = self.msg_cache.write().await;
+        if let Some(cached) = cache.get_mut(session_id) {
+            cached.extend_from_slice(messages);
+        }
+
         Ok(())
     }
 
@@ -345,6 +371,8 @@ impl SessionStore {
                 tool_call_id: None,
             };
             self.append_message(session_id, &msg).await?;
+        } else {
+            self.invalidate_msg_cache(session_id).await;
         }
         Ok(())
     }
@@ -370,6 +398,7 @@ impl SessionStore {
             .bind(session_id)
             .execute(&self.pool)
             .await?;
+            self.invalidate_msg_cache(session_id).await;
         }
         Ok(())
     }
@@ -388,8 +417,31 @@ impl SessionStore {
     }
 
     /// Convert stored messages back into ChatMessage format for the LLM.
+    /// Uses an in-memory cache to avoid re-reading from SQLite on every turn.
     pub async fn load_chat_messages(&self, session_id: &str) -> anyhow::Result<Vec<ChatMessage>> {
-        let rows = self.load_messages(session_id).await?;
+        {
+            let cache = self.msg_cache.read().await;
+            if let Some(cached) = cache.get(session_id) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let messages = self.load_chat_messages_from_db(session_id).await?;
+
+        {
+            let mut cache = self.msg_cache.write().await;
+            if cache.len() >= MSG_CACHE_MAX_SESSIONS && !cache.contains_key(session_id) {
+                if let Some(oldest) = cache.keys().next().cloned() {
+                    cache.remove(&oldest);
+                }
+            }
+            cache.insert(session_id.to_string(), messages.clone());
+        }
+
+        Ok(messages)
+    }
+
+    fn parse_chat_messages_from_rows(rows: Vec<SessionMessage>) -> anyhow::Result<Vec<ChatMessage>> {
         let mut messages = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -430,6 +482,17 @@ impl SessionStore {
         Ok(messages)
     }
 
+    async fn load_chat_messages_from_db(&self, session_id: &str) -> anyhow::Result<Vec<ChatMessage>> {
+        let rows = self.load_messages(session_id).await?;
+        Self::parse_chat_messages_from_rows(rows)
+    }
+
+    /// Invalidate the message cache for a session (e.g. after external edits).
+    pub async fn invalidate_msg_cache(&self, session_id: &str) {
+        let mut cache = self.msg_cache.write().await;
+        cache.remove(session_id);
+    }
+
     /// Update the title of an existing session.
     pub async fn update_title(&self, session_id: &str, title: &str) -> anyhow::Result<bool> {
         let result = sqlx::query(
@@ -448,6 +511,10 @@ impl SessionStore {
             .bind(session_id)
             .execute(&self.pool)
             .await?;
+
+        if result.rows_affected() > 0 {
+            self.invalidate_msg_cache(session_id).await;
+        }
 
         Ok(result.rows_affected() > 0)
     }

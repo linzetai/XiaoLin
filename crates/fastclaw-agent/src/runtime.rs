@@ -742,6 +742,8 @@ impl AgentRuntime {
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
+                        context_tokens: None,
+                        context_window: None,
                     },
                     false,
                 )
@@ -772,6 +774,8 @@ impl AgentRuntime {
                         final_tool_calls: if final_tc.is_empty() { None } else { Some(final_tc) },
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
+                        context_tokens: None,
+                        context_window: None,
                     },
                     false,
                 )
@@ -799,6 +803,8 @@ impl AgentRuntime {
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
+                        context_tokens: None,
+                        context_window: None,
                     },
                     false,
                 )

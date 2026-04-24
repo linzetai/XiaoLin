@@ -741,7 +741,7 @@ async fn spawn_chat(
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
-            let resp = event_to_response(&event, &rid, &state);
+            let resp = event_to_response(&event, &rid, &state, setup.context_tokens_estimate);
             if bg_tx.send(resp).await.is_err() {
                 break;
             }
@@ -826,7 +826,7 @@ async fn spawn_chat(
     });
 }
 
-fn event_to_response(event: &StreamEvent, req_id: &Option<String>, state: &AppState) -> WsResponse {
+fn event_to_response(event: &StreamEvent, req_id: &Option<String>, state: &AppState, context_estimate: Option<(u32, u32)>) -> WsResponse {
     match event {
         StreamEvent::Delta(delta) => {
             let text = delta
@@ -874,6 +874,13 @@ fn event_to_response(event: &StreamEvent, req_id: &Option<String>, state: &AppSt
             let mut data = json!({"sessionId": session_id, "toolCallsMade": tool_calls_made, "iterations": iterations, "elapsedMs": elapsed_ms});
             if let Some(ref u) = usage {
                 data["usage"] = json!({"promptTokens": u.prompt_tokens, "completionTokens": u.completion_tokens, "totalTokens": u.total_tokens});
+            }
+            if let Some((est_tokens, ctx_window)) = context_estimate {
+                let actual_prompt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
+                data["contextTokens"] = json!(if actual_prompt > 0 { actual_prompt } else { est_tokens });
+                if ctx_window > 0 {
+                    data["contextWindow"] = json!(ctx_window);
+                }
             }
             WsResponse {
                 id: req_id.clone(),

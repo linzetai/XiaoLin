@@ -43,6 +43,29 @@ pub const IMPORTANCE_TOOL_RESULTS: u32 = 30;
 /// The context engine’s default compaction trigger uses the same value so one pass usually suffices.
 pub const DEFAULT_IMPORTANCE_MAX_MESSAGES: usize = 60;
 
+const DEFAULT_CHARS_PER_TOKEN: usize = 4;
+const PER_MESSAGE_OVERHEAD: usize = 4;
+
+/// Estimate the total token count for a slice of messages using the chars/4 heuristic.
+/// Includes per-message overhead (~4 tokens for role/separators) and counts content + tool_call JSON.
+pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
+    messages.iter().map(|m| estimate_single_message_tokens(m)).sum()
+}
+
+fn estimate_single_message_tokens(msg: &ChatMessage) -> usize {
+    let content_chars = msg.content.as_ref().map_or(0, |c| {
+        serde_json::to_string(c)
+            .map(|s| s.len())
+            .unwrap_or(0)
+    });
+    let tool_chars = msg.tool_calls.as_ref().map_or(0, |tc| {
+        tc.iter()
+            .map(|t| t.function.name.len() + t.function.arguments.len())
+            .sum()
+    });
+    (content_chars + tool_chars) / DEFAULT_CHARS_PER_TOKEN + PER_MESSAGE_OVERHEAD
+}
+
 /// How many trailing conversational messages count as “recent” for [`IMPORTANCE_RECENT_MESSAGES`].
 pub const DEFAULT_IMPORTANCE_RECENT_WINDOW: usize = 20;
 

@@ -918,6 +918,110 @@ impl ContextHook for AgentMemoryIngestHook {
     }
 }
 
+/// Default output token reservation: `min(max_tokens, context_window / 4)`.
+fn default_reserved_output(context_window: u32, max_tokens: Option<u32>) -> u32 {
+    let quarter = context_window / 4;
+    match max_tokens {
+        Some(mt) => mt.min(quarter),
+        None => quarter,
+    }
+}
+
+impl ContextEngine {
+    /// Trim `messages` so total estimated tokens fit within `context_window - reserved_output`.
+    ///
+    /// 1. If already within budget, returns the estimated token count without modification.
+    /// 2. Applies `ImportanceBased` compaction first (preserves recent + tool results).
+    /// 3. Falls back to sliding-window truncation (drop oldest non-system messages) if still over.
+    /// 4. Never drops system messages or the current user turn (last user message).
+    pub fn fit_to_context_window(
+        messages: &mut Vec<ChatMessage>,
+        context_window: u32,
+        max_tokens: Option<u32>,
+    ) -> usize {
+        let reserved = default_reserved_output(context_window, max_tokens);
+        let budget = (context_window.saturating_sub(reserved)) as usize;
+
+        let estimated = crate::compressor::estimate_messages_tokens(messages);
+        if estimated <= budget {
+            return estimated;
+        }
+
+        tracing::info!(
+            estimated,
+            budget,
+            context_window,
+            reserved,
+            "context window exceeded — applying compaction"
+        );
+
+        // Phase 1: ImportanceBased compaction
+        let compactor = crate::compressor::ContextCompactor::new(
+            crate::compressor::CompactionStrategy::ImportanceBased {
+                max_messages: crate::compressor::DEFAULT_IMPORTANCE_MAX_MESSAGES,
+                recent_window: crate::compressor::DEFAULT_IMPORTANCE_RECENT_WINDOW,
+            },
+        );
+        let result = compactor.compact(messages);
+        *messages = result.messages;
+
+        let estimated = crate::compressor::estimate_messages_tokens(messages);
+        if estimated <= budget {
+            return estimated;
+        }
+
+        // Phase 2: TokenBudget compaction (drop oldest conversational messages)
+        let compactor = crate::compressor::ContextCompactor::new(
+            crate::compressor::CompactionStrategy::TokenBudget { max_tokens: budget },
+        );
+        let result = compactor.compact(messages);
+        *messages = result.messages;
+
+        let estimated = crate::compressor::estimate_messages_tokens(messages);
+        if estimated <= budget {
+            return estimated;
+        }
+
+        // Phase 3: Hard sliding-window truncation — keep system msgs + last N non-system
+        let (system_msgs, conversation): (Vec<_>, Vec<_>) = messages
+            .iter()
+            .partition(|m| matches!(m.role, Role::System));
+
+        let mut kept = Vec::new();
+        let mut used = 0usize;
+        let system_tokens: usize = system_msgs
+            .iter()
+            .map(|m| crate::compressor::estimate_messages_tokens(std::slice::from_ref(*m)))
+            .sum();
+        let remaining = budget.saturating_sub(system_tokens);
+
+        for msg in conversation.iter().rev() {
+            let cost = crate::compressor::estimate_messages_tokens(std::slice::from_ref(*msg));
+            if used + cost > remaining && !kept.is_empty() {
+                break;
+            }
+            kept.push((*msg).clone());
+            used += cost;
+        }
+        kept.reverse();
+
+        let mut final_msgs: Vec<ChatMessage> = system_msgs.into_iter().cloned().collect();
+        if !conversation.is_empty() && kept.len() < conversation.len() {
+            final_msgs.push(ChatMessage {
+                role: Role::System,
+                content: Some("[Earlier conversation history was truncated to fit context window]".into()),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+        final_msgs.extend(kept);
+        *messages = final_msgs;
+
+        crate::compressor::estimate_messages_tokens(messages)
+    }
+}
+
 /// Build a ContextEngine with sensible defaults.
 pub fn build_default_engine(
     strategy: crate::compressor::CompactionStrategy,

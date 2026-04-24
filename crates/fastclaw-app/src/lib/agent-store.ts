@@ -43,6 +43,8 @@ export interface ChatUsage {
   completionTokens: number;
   totalTokens: number;
   elapsedMs: number;
+  contextTokens?: number;
+  contextWindow?: number;
 }
 
 export interface Chat {
@@ -596,6 +598,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                   completionTokens: (prev?.completionTokens ?? 0) + incoming.completionTokens,
                   totalTokens: (prev?.totalTokens ?? 0) + incoming.totalTokens,
                   elapsedMs: (prev?.elapsedMs ?? 0) + incoming.elapsedMs,
+                  contextTokens: incoming.contextTokens ?? prev?.contextTokens,
+                  contextWindow: incoming.contextWindow ?? prev?.contextWindow,
                 },
               };
             }),

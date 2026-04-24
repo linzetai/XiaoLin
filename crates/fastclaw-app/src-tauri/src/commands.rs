@@ -1190,6 +1190,7 @@ pub async fn chat_stream(
     let agent_config = setup.agent_config.clone();
     let enriched = setup.enriched_request.clone();
     let after_turn_messages = setup.enriched_request.messages.clone();
+    let context_tokens_est = setup.context_tokens_estimate;
 
     for msg in &setup.user_messages {
         if let Err(e) = app.session_store.append_message(&session_id, msg).await {
@@ -1354,6 +1355,13 @@ pub async fn chat_stream(
                         "completionTokens": u.completion_tokens,
                         "totalTokens": u.total_tokens,
                     });
+                }
+                if let Some((est_tokens, ctx_window)) = context_tokens_est {
+                    let actual_prompt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
+                    complete_data["contextTokens"] = json!(if actual_prompt > 0 { actual_prompt } else { est_tokens });
+                    if ctx_window > 0 {
+                        complete_data["contextWindow"] = json!(ctx_window);
+                    }
                 }
                 let _ = channel.send(json!({
                     "type": "chat.complete",

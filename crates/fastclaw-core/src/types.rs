@@ -254,6 +254,10 @@ pub enum StreamEvent {
         usage: Option<Usage>,
         /// Wall-clock elapsed time for the entire streaming run (ms).
         elapsed_ms: u64,
+        /// Estimated input context tokens used (from API usage or pre-call estimate).
+        context_tokens: Option<u32>,
+        /// The model's effective context window limit.
+        context_window: Option<u32>,
     },
     Error(String),
 }

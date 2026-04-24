@@ -654,6 +654,119 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
+function ContextRing({ used, limit }: { used: number; limit: number }) {
+  const [hover, setHover] = useState(false);
+  const ratio = limit > 0 ? used / limit : 0;
+  const clampedRatio = Math.min(ratio, 1);
+  const pct = clampedRatio * 100;
+  const color = ratio < 0.5
+    ? "var(--green, #68D391)"
+    : ratio < 0.8
+      ? "var(--yellow, #ED8936)"
+      : "var(--red, #FC8181)";
+
+  const size = 24;
+  const strokeWidth = 2.5;
+  const r = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference * (1 - clampedRatio);
+
+  const remaining = Math.max(0, limit - used);
+  const warning = ratio >= 0.8;
+  const critical = ratio >= 0.95;
+
+  return (
+    <div
+      className="relative flex items-center justify-center"
+      style={{
+        width: size,
+        height: size,
+        cursor: "default",
+        animation: critical ? "pulse 2s ease-in-out infinite" : undefined,
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke="var(--separator-opaque, #E2E8F0)"
+          strokeWidth={strokeWidth}
+          opacity={0.6}
+        />
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 0.4s ease, stroke 0.3s ease" }}
+        />
+      </svg>
+      <span
+        className="absolute text-[7px] font-bold tabular-nums leading-none"
+        style={{ color }}
+      >
+        {pct < 1 ? "<1" : Math.round(pct)}
+      </span>
+      {hover && (
+        <div
+          className="absolute bottom-full mb-2 rounded-xl px-3 py-2.5"
+          style={{
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--separator)",
+            boxShadow: "var(--shadow-lg)",
+            color: "var(--fill-primary)",
+            zIndex: 50,
+            right: -8,
+            minWidth: 180,
+            animation: "fade-in 0.1s ease-out",
+          }}
+        >
+          <div className="mb-1.5 text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
+            上下文窗口
+          </div>
+          <div className="mb-2 flex items-baseline gap-1">
+            <span className="text-[16px] font-bold tabular-nums" style={{ color }}>{formatTokens(used)}</span>
+            <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>/ {formatTokens(limit)} tokens</span>
+          </div>
+          <div
+            className="mb-2 h-[4px] w-full overflow-hidden rounded-full"
+            style={{ background: "var(--separator-opaque, #E2E8F0)" }}
+          >
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${pct}%`,
+                background: color,
+                transition: "width 0.3s ease",
+              }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px]" style={{ color: "var(--fill-tertiary)" }}>
+            <span>已用 {pct.toFixed(1)}%</span>
+            <span>剩余 {formatTokens(remaining)}</span>
+          </div>
+          {warning && (
+            <div
+              className="mt-2 rounded-md px-2 py-1 text-[10px]"
+              style={{
+                background: critical ? "rgba(252,129,129,0.12)" : "rgba(237,137,54,0.12)",
+                color: critical ? "var(--red, #FC8181)" : "var(--yellow, #ED8936)",
+              }}
+            >
+              {critical ? "上下文即将溢出，建议开始新对话" : "上下文使用较高，较长对话可能被压缩"}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Typing() {
   return (
     <div className="pb-6 flex items-center gap-1" style={{ animation: "fade-in 0.15s" }}>
@@ -1133,13 +1246,17 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
             // Track usage metrics (after ID remap so usage lands on the final chat ID)
             const usageData = event.data?.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
             const elapsedMs = (event.data?.elapsedMs as number) ?? 0;
-            if (usageData || elapsedMs) {
+            const contextTokens = (event.data?.contextTokens as number) || undefined;
+            const contextWindow = (event.data?.contextWindow as number) || undefined;
+            if (usageData || elapsedMs || contextTokens) {
               const resolvedChatId = sid ?? capturedChatId;
               updateChatUsage(capturedAgentId, resolvedChatId, {
                 promptTokens: usageData?.promptTokens ?? 0,
                 completionTokens: usageData?.completionTokens ?? 0,
                 totalTokens: usageData?.totalTokens ?? 0,
                 elapsedMs,
+                contextTokens,
+                contextWindow,
               });
             }
 
@@ -1742,39 +1859,47 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               )}
             </div>
 
-            {streaming ? (
-              <button
-                key="stop"
-                onClick={stopStream}
-                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150"
-                style={{
-                  background: "var(--fill-warning, #ED8936)",
-                  color: "#fff",
-                }}
-                title="停止生成"
-              >
-                <Square size={12} strokeWidth={2.5} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                key="send"
-                onClick={() => {
-                  const ref = mentionInputRef.current;
-                  if (ref) {
-                    const t = ref.getText().trim();
-                    if (t) handleMentionSend(t, ref.getMentions());
-                  }
-                }}
-                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 disabled:opacity-25"
-                style={{
-                  background: "var(--fill-primary)",
-                  color: "var(--fill-inverse)",
-                }}
-                title="发送 ↩"
-              >
-                <ArrowUp size={16} strokeWidth={2} />
-              </button>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {activeChat?.usage?.contextTokens != null && activeChat?.usage?.contextWindow != null && activeChat.usage.contextWindow > 0 && (
+                <ContextRing
+                  used={activeChat.usage.contextTokens}
+                  limit={activeChat.usage.contextWindow}
+                />
+              )}
+              {streaming ? (
+                <button
+                  key="stop"
+                  onClick={stopStream}
+                  className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150"
+                  style={{
+                    background: "var(--fill-warning, #ED8936)",
+                    color: "#fff",
+                  }}
+                  title="停止生成"
+                >
+                  <Square size={12} strokeWidth={2.5} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  key="send"
+                  onClick={() => {
+                    const ref = mentionInputRef.current;
+                    if (ref) {
+                      const t = ref.getText().trim();
+                      if (t) handleMentionSend(t, ref.getMentions());
+                    }
+                  }}
+                  className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 disabled:opacity-25"
+                  style={{
+                    background: "var(--fill-primary)",
+                    color: "var(--fill-inverse)",
+                  }}
+                  title="发送 ↩"
+                >
+                  <ArrowUp size={16} strokeWidth={2} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

@@ -164,6 +164,7 @@ interface ModelConfigEntry {
   temperature: number;
   maxConcurrent: number;
   timeoutSecs: number;
+  contextWindow: number;
 }
 
 interface CredentialEntry {
@@ -178,6 +179,7 @@ const EMPTY_MODEL: Omit<ModelConfigEntry, "key"> = {
   temperature: 0,
   maxConcurrent: 10,
   timeoutSecs: 120,
+  contextWindow: 0,
 };
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -299,6 +301,28 @@ function ModelFormModal({
             </div>
           </div>
           <div>
+            <label className={labelCls} style={labelStyle}>
+              上下文窗口 (tokens) <span style={{ color: "var(--red, #FC8181)" }}>*</span>
+            </label>
+            <input
+              type="number"
+              min="1024"
+              step="1024"
+              value={form.contextWindow || ""}
+              onChange={(e) => patch("contextWindow", parseInt(e.target.value) || 0)}
+              placeholder="例: 128000"
+              required
+              className={inputCls}
+              style={{
+                ...inputStyle,
+                borderColor: form.contextWindow <= 0 ? "var(--red, #FC8181)" : undefined,
+              }}
+            />
+            <p className="mt-1 text-[10px]" style={{ color: form.contextWindow <= 0 ? "var(--red, #FC8181)" : "var(--fill-quaternary)" }}>
+              {form.contextWindow <= 0 ? "必填项：请输入模型支持的最大上下文长度" : "模型支持的最大上下文长度，用于自动压缩历史消息"}
+            </p>
+          </div>
+          <div>
             <label className={labelCls} style={labelStyle}>API Key</label>
             <div className="relative">
               <input
@@ -356,18 +380,20 @@ function ModelFormModal({
               高级设置
             </button>
             {showAdvanced && (
-              <div className="mt-3 grid grid-cols-3 gap-3">
-                <div>
-                  <label className={labelCls} style={labelStyle}>温度</label>
-                  <input type="number" step="0.1" min="0" max="2" value={form.temperature} onChange={(e) => patch("temperature", parseFloat(e.target.value) || 0)} className={inputCls} style={inputStyle} />
-                </div>
-                <div>
-                  <label className={labelCls} style={labelStyle}>并发数</label>
-                  <input type="number" min="1" value={form.maxConcurrent} onChange={(e) => patch("maxConcurrent", parseInt(e.target.value) || 1)} className={inputCls} style={inputStyle} />
-                </div>
-                <div>
-                  <label className={labelCls} style={labelStyle}>超时 (秒)</label>
-                  <input type="number" min="10" value={form.timeoutSecs} onChange={(e) => patch("timeoutSecs", parseInt(e.target.value) || 60)} className={inputCls} style={inputStyle} />
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className={labelCls} style={labelStyle}>温度</label>
+                    <input type="number" step="0.1" min="0" max="2" value={form.temperature} onChange={(e) => patch("temperature", parseFloat(e.target.value) || 0)} className={inputCls} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label className={labelCls} style={labelStyle}>并发数</label>
+                    <input type="number" min="1" value={form.maxConcurrent} onChange={(e) => patch("maxConcurrent", parseInt(e.target.value) || 1)} className={inputCls} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label className={labelCls} style={labelStyle}>超时 (秒)</label>
+                    <input type="number" min="10" value={form.timeoutSecs} onChange={(e) => patch("timeoutSecs", parseInt(e.target.value) || 60)} className={inputCls} style={inputStyle} />
+                  </div>
                 </div>
               </div>
             )}
@@ -453,9 +479,14 @@ function ModelsTab() {
       temperature: (v.temperature as number) ?? 0,
       maxConcurrent: (v.maxConcurrent as number) ?? 10,
       timeoutSecs: (v.timeoutSecs as number) ?? 120,
+      contextWindow: (v.contextWindow as number) ?? 0,
     }));
 
   const handleSave = async (entry: ModelConfigEntry, cred: CredentialEntry) => {
+    if (!entry.contextWindow || entry.contextWindow < 1024) {
+      alert("请设置上下文窗口大小（至少 1024 tokens）");
+      return;
+    }
     setSaving(true);
     try {
       const targetKey = entry.key;
@@ -463,7 +494,7 @@ function ModelsTab() {
       if (editing && editing !== entry.key) {
         delete newModels[editing];
       }
-      newModels[targetKey] = {
+      const modelEntry: Record<string, unknown> = {
         provider: entry.provider,
         model: entry.model,
         baseUrl: entry.baseUrl,
@@ -471,6 +502,8 @@ function ModelsTab() {
         maxConcurrent: entry.maxConcurrent,
         timeoutSecs: entry.timeoutSecs,
       };
+      modelEntry.contextWindow = entry.contextWindow;
+      newModels[targetKey] = modelEntry;
       await api.setConfig("models", newModels);
 
       const existingCred = credentials[targetKey] ?? { apiKey: "", baseUrl: "" };

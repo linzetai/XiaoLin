@@ -64,6 +64,8 @@ pub struct ChatSetup {
     pub slash_intent_value: Option<String>,
     pub slash_exact_match: Option<bool>,
     pub slash_skill_loaded: Option<bool>,
+    /// (estimated_context_tokens, effective_context_window). Window is 0 when unconfigured.
+    pub context_tokens_estimate: Option<(u32, u32)>,
 }
 
 /// Run the setup phase: resolve agent, session, context, model routing, budget.
@@ -171,6 +173,48 @@ pub async fn setup_chat(
         .model
         .clone()
         .unwrap_or_else(|| agent_config.model.model.clone());
+
+    // Resolve effective context window: model config (live) > model router > agent fallback
+    let effective_context_window: Option<u32> = {
+        let model_ctx_from_config = state
+            .config_live
+            .read()
+            .ok()
+            .and_then(|live| {
+                live.get("models")
+                    .and_then(|m| m.as_object())
+                    .and_then(|models| {
+                        models.values().find_map(|cfg| {
+                            let m = cfg.get("model").and_then(|v| v.as_str())?;
+                            if m == model_for_budget {
+                                cfg.get("contextWindow").and_then(|v| v.as_u64()).map(|v| v as u32)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+            });
+        model_ctx_from_config
+            .or(agent_config.model.context_window)
+            .or_else(|| {
+                state
+                    .model_router
+                    .as_ref()
+                    .and_then(|mr| mr.max_context_for_model(&model_for_budget))
+            })
+    };
+    let context_tokens_estimate = if let Some(cw) = effective_context_window {
+        let est = fastclaw_context::ContextEngine::fit_to_context_window(
+            &mut enriched_request.messages,
+            cw,
+            agent_config.model.max_tokens,
+        );
+        Some((est as u32, cw))
+    } else {
+        let est = fastclaw_context::estimate_messages_tokens(&enriched_request.messages);
+        Some((est as u32, 0))
+    };
+
     let input_estimate = fastclaw_model_router::CostEstimator::estimate_chat_complexity_tokens(
         &enriched_request.messages,
         tool_definition_count,
@@ -204,6 +248,7 @@ pub async fn setup_chat(
         slash_intent_value: slash_meta.as_ref().map(|m| m.value.clone()),
         slash_exact_match: slash_meta.as_ref().map(|m| m.exact_match),
         slash_skill_loaded: slash_meta.as_ref().map(|m| m.skill_loaded),
+        context_tokens_estimate,
     })
 }
 

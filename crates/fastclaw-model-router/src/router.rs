@@ -120,6 +120,11 @@ impl ModelRouter {
         &self.budget
     }
 
+    /// Look up the `max_context` for a model in the pricing table.
+    pub fn max_context_for_model(&self, model: &str) -> Option<u32> {
+        self.estimator.get_pricing(model).map(|p| p.max_context)
+    }
+
     /// Estimated USD cost for a completed request using this router's pricing table (including custom `add_model` entries).
     pub fn usage_charge_for_tokens(
         &self,
