@@ -1,5 +1,6 @@
 pub mod compressor;
 pub mod engine;
+pub mod keyword_interceptor;
 pub mod manager;
 pub mod user_profile;
 
@@ -17,5 +18,6 @@ pub use engine::{
     DEFAULT_COMPACTION_THRESHOLD, DEFAULT_SYSTEM_REMINDER_INTERVAL_USER_TURNS,
     DEFAULT_SYSTEM_REMINDER_TEXT,
 };
+pub use keyword_interceptor::MemoryKeywordInterceptor;
 pub use manager::ContextManager;
 pub use user_profile::{CommunicationStyle, UserProfile};

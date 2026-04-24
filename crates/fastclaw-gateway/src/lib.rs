@@ -1,3 +1,4 @@
+pub mod consolidation;
 pub mod error;
 pub mod extract;
 pub mod chat_pipeline;

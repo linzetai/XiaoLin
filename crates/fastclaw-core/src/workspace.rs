@@ -501,6 +501,14 @@ const DEFAULT_AGENTS_TEMPLATE: &str = r#"# AGENTS.md - 运行规则
 - 优先使用现有工具完成任务
 - 工具调用失败时，尝试替代方案而非直接报错
 
+## 记忆管理
+
+- 用户说"记住"/"remember"/"别忘了"时，立即调用 memory_store
+- 学到用户偏好、项目规则、架构决策时，主动存储为 fact
+- 对话结束前，将关键结论和决策存储为 episode
+- 回答历史相关问题前，先 memory_search 查询
+- 禁止存储密码、密钥、token 等敏感信息
+
 ## 消息规范
 
 - 群聊中被 @提及 时才回复

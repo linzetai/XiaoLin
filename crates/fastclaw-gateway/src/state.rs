@@ -458,6 +458,47 @@ impl StateBuilder {
                 embedding_provider.clone(),
                 10,
             )));
+
+            context_engine.add_hook(Arc::new(
+                fastclaw_context::MemoryKeywordInterceptor::new(
+                    agent_semantic_map
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    embedding_provider.clone(),
+                ),
+            ));
+
+            let consolidation_model = config
+                .memory
+                .consolidation_model
+                .clone()
+                .or_else(|| {
+                    p4.phase3
+                        .phase1
+                        .agents
+                        .first()
+                        .map(|a| a.model.model.clone())
+                })
+                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+
+            context_engine.add_hook(Arc::new(
+                crate::consolidation::MemoryConsolidationHook::new(
+                    p4.phase3.runtime.default_provider_arc(),
+                    agent_episodic_map
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    agent_semantic_map
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    embedding_provider.clone(),
+                    fastclaw_memory::ImportanceScorer::from(config.memory.importance.clone()),
+                    config.memory.consolidation_min_messages,
+                    consolidation_model,
+                ),
+            ));
         }
         tracing::info!(
             hooks = context_engine.hook_count(),
@@ -646,6 +687,10 @@ impl StateBuilder {
         if state.config.memory.enabled && dream_secs > 0 && !state.agent_episodic.is_empty() {
             let episodic = state.agent_episodic.clone();
             let semantic = state.agent_semantic.clone();
+            let dream_embedder = state.embedding_provider.clone();
+            let dream_scorer = Some(fastclaw_memory::ImportanceScorer::from(
+                state.config.memory.importance.clone(),
+            ));
             tokio::spawn(async move {
                 const DREAM_EPISODE_BATCH: i64 = 50;
                 let mut interval =
@@ -658,15 +703,23 @@ impl StateBuilder {
                             let pipe = DreamingPipeline {
                                 episodic: ep.as_ref(),
                                 semantic: sem.as_ref(),
+                                embedder: dream_embedder.clone(),
+                                scorer: dream_scorer.clone(),
                             };
                             match pipe.run_dream_cycle(DREAM_EPISODE_BATCH).await {
                                 Ok(report) => {
-                                    if report.episodes_considered > 0 {
+                                    if report.episodes_considered > 0
+                                        || report.embeddings_backfilled > 0
+                                        || report.importance_rescored > 0
+                                    {
                                         tracing::info!(
                                             agent_id = %agent_id,
                                             considered = report.episodes_considered,
                                             marked = report.episodes_marked,
                                             rels = report.relationships_added,
+                                            facts = report.facts_extracted,
+                                            embeddings = report.embeddings_backfilled,
+                                            rescored = report.importance_rescored,
                                             "dream cycle completed"
                                         );
                                     }

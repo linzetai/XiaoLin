@@ -25,8 +25,8 @@
 - 🎚️ **Model router** — **Five** strategies (fixed, cost, quality, latency, fallback), **Tiny → Frontier** complexity tiers, and **budget tracking**.  
   *五种路由策略、复杂度分层、预算追踪。*
 
-- 🧠 **Three-layer memory + dreaming** — LRU **working** set, **episodic** store with vector recall, **semantic** graph (**petgraph**); **dreaming** pipeline with configurable cycles.  
-  *工作/情景/语义三层记忆、做梦巩固管线、周期可配。*
+- 🧠 **Three-layer memory + auto-capture** — LRU **working** set, **episodic** store with vector recall, **semantic** graph (**petgraph**); **dreaming** pipeline with fact extraction and embedding backfill; **keyword interception** (bilingual); **LLM-based session consolidation**; **importance scoring** (5 weighted signals).  
+  *工作/情景/语义三层记忆、做梦管线（事实抽取+嵌入回填）、关键词自动捕获（中英文）、LLM 会话摘要巩固、五维重要性评分。*
 
 - 🔀 **DAG engine** — **Nine** node kinds (LLM, Tool, Condition, Parallel, Join, HumanApproval, Loop, Reflect, Code), timeouts/retries/failure policies, **expression evaluation** (JSON Pointer, operators, indexing, `in`, `contains`), **SQLite checkpoints**, structured execution events.  
   *九类节点、表达式求值、SQLite 检查点、结构化执行事件。*
@@ -170,7 +170,7 @@ flowchart TB
 | WASM plugin host + fuel + hot reload | **wasmtime**, signed manifests | Plugin model (JS/ ecosystem) | Rarely first-class |
 | DAG / workflow engine | **9** node types, SQLite checkpoints, expression DSL | Automation/tasks (different shape) | Typically ad hoc scripts |
 | Studio / visual flows | **21** node kinds, FlowDSL compiler, WS + versioning | Control UI / docs-oriented flows | Seldom integrated |
-| Memory architecture | **3** layers + vectors + **petgraph** + dreaming | Configurable memory docs | Often retrieval-only |
+| Memory architecture | **3** layers + vectors + **petgraph** + dreaming + **auto-capture** + **LLM consolidation** + importance scoring | Configurable memory docs | Often retrieval-only |
 | Model routing | **5** strategies + complexity tiers + budget | Provider / model selection | Usually manual or single-router |
 | Multi-agent patterns | Delegation, MCP tool bridges | Subagents / agent-send patterns | Research prototypes vary |
 | Self-evolution / skills | Feedback, distill, **trajectory→skill** lifecycle | Skills / Clawhub ecosystem | **Focus**: skill formation |
@@ -364,6 +364,8 @@ Webhook ingress uses `POST /webhook/:channel_id` (per channel registration).
   *配置读写 ACL 白名单与敏感值脱敏。*
 - ✅ **Intent-based prompt routing** — Rule-based intent → profile → role prompt selection.  
   *意图驱动提示词路由。*
+- ✅ **Memory optimization** — Keyword interception (bilingual auto-capture), importance scoring (5-signal weighted), LLM session consolidation, dreaming pipeline enhancement (fact extraction, embedding backfill, re-scoring), prompt reinforcement.  
+  *记忆优化：关键词自动捕获（中英文）、五维重要性评分、LLM 会话摘要巩固、做梦管线增强（事实抽取+嵌入回填+重评分）、提示词强化。*
 
 **Up next / 下一步：**
 
@@ -376,8 +378,8 @@ Webhook ingress uses `POST /webhook/:channel_id` (per channel registration).
 - **Desktop app (Phase 3–4)** — DAG visual editor, plugin marketplace, mobile targets (iOS/Android).  
   *DAG 可视化编辑器、插件市场、移动端目标。*
 
-- **Memory** — Deeper optional **usearch** integration; larger graph analytics / visualization.  
-  *usearch 更深集成；更大规模图分析。*
+- **Memory** — Deeper optional **usearch** integration; larger graph analytics / visualization; cross-agent memory sharing.  
+  *usearch 更深集成；更大规模图分析；跨 Agent 记忆共享。*
 
 - **WASM** — First-class **Component Model / WIT** tooling alignment.  
   *组件模型与 WIT 一等支持。*

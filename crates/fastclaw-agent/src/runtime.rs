@@ -186,6 +186,11 @@ impl AgentRuntime {
         &*self.default_provider
     }
 
+    /// Get a shared reference to the default LLM provider.
+    pub fn default_provider_arc(&self) -> Arc<dyn LlmProvider> {
+        self.default_provider.clone()
+    }
+
     pub fn register_provider(&self, agent_id: &str, provider: Arc<dyn LlmProvider>) {
         let mut guard = self
             .agent_providers

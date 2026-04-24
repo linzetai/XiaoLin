@@ -318,7 +318,7 @@ pub const DEFAULT_COMPACTION_THRESHOLD: usize = crate::compressor::DEFAULT_IMPOR
 pub const DEFAULT_SYSTEM_REMINDER_INTERVAL_USER_TURNS: usize = 20;
 
 /// Brief nudge inserted by [`SystemReminderHook`] on assemble (e.g. every 20 user turns).
-pub const DEFAULT_SYSTEM_REMINDER_TEXT: &str = "[System reminder] You have access to tools. Use read_file, write_file, shell_exec, web_search and other tools to accomplish tasks. Don't hallucinate — verify information. Be concise.";
+pub const DEFAULT_SYSTEM_REMINDER_TEXT: &str = "[System reminder] You have access to tools. Use read_file, write_file, shell_exec, web_search and other tools to accomplish tasks. Don't hallucinate — verify information. Be concise. Remember to use memory_store for important facts, user preferences, and key decisions; use memory_search before answering questions about past context.";
 
 /// Pluggable context engine that manages the full context lifecycle.
 ///

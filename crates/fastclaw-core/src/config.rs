@@ -622,10 +622,23 @@ pub struct MemoryConfig {
     /// Seconds between automatic dream cycles over episodic memory (0 = disabled).
     #[serde(default = "default_dreaming_interval_secs")]
     pub dreaming_interval_secs: u64,
+    /// Importance scoring weights for auto-consolidation and episode recording.
+    #[serde(default)]
+    pub importance: ImportanceScoringConfig,
+    /// Minimum non-system messages before auto-consolidation fires (default 6).
+    #[serde(default = "default_consolidation_min_messages")]
+    pub consolidation_min_messages: usize,
+    /// Optional model override for the consolidation summarisation call (fast/cheap model).
+    #[serde(default)]
+    pub consolidation_model: Option<String>,
 }
 
 fn default_dreaming_interval_secs() -> u64 {
     3600
+}
+
+fn default_consolidation_min_messages() -> usize {
+    6
 }
 
 impl Default for MemoryConfig {
@@ -634,6 +647,54 @@ impl Default for MemoryConfig {
             enabled: true,
             embedding: EmbeddingConfig::default(),
             dreaming_interval_secs: default_dreaming_interval_secs(),
+            importance: ImportanceScoringConfig::default(),
+            consolidation_min_messages: default_consolidation_min_messages(),
+            consolidation_model: None,
+        }
+    }
+}
+
+/// Importance scoring weights — mirrors `fastclaw_memory::ImportanceScorer` fields
+/// so users can override via JSON config without depending on the memory crate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportanceScoringConfig {
+    #[serde(default = "default_w_015")]
+    pub weight_length: f32,
+    #[serde(default = "default_w_025")]
+    pub weight_tool_calls: f32,
+    #[serde(default = "default_w_030")]
+    pub weight_keywords: f32,
+    #[serde(default = "default_w_015")]
+    pub weight_depth: f32,
+    #[serde(default = "default_w_015")]
+    pub weight_corrections: f32,
+    #[serde(default = "default_min_threshold")]
+    pub min_threshold: f32,
+}
+
+fn default_w_015() -> f32 {
+    0.15
+}
+fn default_w_025() -> f32 {
+    0.25
+}
+fn default_w_030() -> f32 {
+    0.30
+}
+fn default_min_threshold() -> f32 {
+    0.3
+}
+
+impl Default for ImportanceScoringConfig {
+    fn default() -> Self {
+        Self {
+            weight_length: default_w_015(),
+            weight_tool_calls: default_w_025(),
+            weight_keywords: default_w_030(),
+            weight_depth: default_w_015(),
+            weight_corrections: default_w_015(),
+            min_threshold: default_min_threshold(),
         }
     }
 }

@@ -1,20 +1,27 @@
 use anyhow::Result;
 use regex::Regex;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
+use crate::embedding::EmbeddingProvider;
 use crate::episodic::EpisodicMemory;
-use crate::semantic::SemanticMemory;
+use crate::importance::ImportanceScorer;
+use crate::semantic::{Fact, FactCategory, SemanticMemory};
 
 #[derive(Debug, Clone, Default)]
 pub struct DreamCycleReport {
     pub episodes_considered: usize,
     pub episodes_marked: usize,
     pub relationships_added: usize,
+    pub facts_extracted: usize,
+    pub embeddings_backfilled: usize,
+    pub importance_rescored: usize,
 }
 
 pub struct DreamingPipeline<'a> {
     pub episodic: &'a EpisodicMemory,
     pub semantic: &'a SemanticMemory,
+    pub embedder: Option<Arc<dyn EmbeddingProvider>>,
+    pub scorer: Option<ImportanceScorer>,
 }
 
 impl DreamingPipeline<'_> {
@@ -31,18 +38,112 @@ impl DreamingPipeline<'_> {
         let mut ids = Vec::with_capacity(episodes.len());
         for ep in &episodes {
             let pairs = extract_entity_relations(&ep.summary);
-            for (src, rel, tgt) in pairs {
+            for (src, rel, tgt) in &pairs {
                 self.semantic
-                    .add_relationship(&src, &rel, &tgt, ep.importance.clamp(0.0, 1.0))
+                    .add_relationship(src, rel, tgt, ep.importance.clamp(0.0, 1.0))
                     .await?;
                 report.relationships_added += 1;
             }
+
+            let facts = extract_facts(&ep.summary);
+            for (subj, pred, obj) in facts {
+                let fact_id = format!(
+                    "dream_{}_{}",
+                    normalize_entity(&subj).replace(' ', "_"),
+                    &uuid::Uuid::new_v4().to_string()[..8]
+                );
+                let now = chrono::Utc::now().to_rfc3339();
+                let fact = Fact {
+                    id: fact_id,
+                    subject: subj,
+                    predicate: pred,
+                    object: obj,
+                    category: FactCategory::DomainKnowledge.as_str().to_string(),
+                    confidence: ep.importance.clamp(0.0, 1.0) as f32,
+                    source_session: Some(ep.session_id.clone()),
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+                if self
+                    .semantic
+                    .upsert_auto(&fact, self.embedder.as_deref())
+                    .await
+                    .is_ok()
+                {
+                    report.facts_extracted += 1;
+                }
+            }
+
             ids.push(ep.id.clone());
         }
 
         let marked = self.episodic.mark_episodes_dreamed(&ids).await?;
         report.episodes_marked = marked;
+
+        self.backfill_embeddings(&mut report, limit).await;
+        self.rescore_importance(&mut report, limit).await;
+
         Ok(report)
+    }
+
+    async fn backfill_embeddings(&self, report: &mut DreamCycleReport, limit: i64) {
+        let Some(ref embedder) = self.embedder else {
+            return;
+        };
+
+        if let Ok(episodes) = self.episodic.unembedded_episodes(limit).await {
+            let texts: Vec<&str> = episodes.iter().map(|e| e.summary.as_str()).collect();
+            if !texts.is_empty() {
+                if let Ok(vecs) = embedder.embed_batch(&texts).await {
+                    for (ep, vec) in episodes.iter().zip(vecs.iter()) {
+                        if self.episodic.update_embedding(&ep.id, vec).await.is_ok() {
+                            report.embeddings_backfilled += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(facts) = self.semantic.unembedded_facts(limit).await {
+            let texts: Vec<String> = facts
+                .iter()
+                .map(|f| format!("{} {} {}", f.subject, f.predicate, f.object))
+                .collect();
+            let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            if !refs.is_empty() {
+                if let Ok(vecs) = embedder.embed_batch(&refs).await {
+                    for (fact, vec) in facts.iter().zip(vecs.iter()) {
+                        if self.semantic.update_embedding(&fact.id, vec).await.is_ok() {
+                            report.embeddings_backfilled += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn rescore_importance(&self, report: &mut DreamCycleReport, limit: i64) {
+        if self.scorer.is_none() {
+            return;
+        }
+
+        if let Ok(episodes) = self.episodic.recent(None, limit).await {
+            for ep in &episodes {
+                if (ep.importance - 0.5).abs() < 0.01 {
+                    let new_score = ImportanceScorer::score_single(&ep.summary);
+                    if (new_score - ep.importance).abs() > 0.05 {
+                        if self
+                            .episodic
+                            .update_importance(&ep.id, new_score)
+                            .await
+                            .is_ok()
+                        {
+                            report.importance_rescored += 1;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -97,6 +198,47 @@ fn extract_entity_relations(text: &str) -> Vec<(String, String, String)> {
     out
 }
 
+/// Extract SPO facts from summaries for storage as semantic facts.
+/// Captures patterns like "X prefers Y", "X chose Y", "X selected Y".
+fn extract_facts(text: &str) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    let t = text.trim();
+    if t.is_empty() {
+        return out;
+    }
+
+    static PREFERS_RE: OnceLock<Regex> = OnceLock::new();
+    static CHOSE_RE: OnceLock<Regex> = OnceLock::new();
+    static SELECTED_RE: OnceLock<Regex> = OnceLock::new();
+
+    let ent = r"[A-Za-z0-9\u{4e00}-\u{9fff}][A-Za-z0-9 _.\-\u{4e00}-\u{9fff}]{0,48}?";
+
+    let prefers_re = PREFERS_RE.get_or_init(|| {
+        Regex::new(&format!(r"(?i)({ent})\s+prefers?\s+({ent})")).expect("regex")
+    });
+    let chose_re = CHOSE_RE.get_or_init(|| {
+        Regex::new(&format!(r"(?i)({ent})\s+chose\s+({ent})")).expect("regex")
+    });
+    let selected_re = SELECTED_RE.get_or_init(|| {
+        Regex::new(&format!(r"(?i)({ent})\s+selected\s+({ent})")).expect("regex")
+    });
+
+    for (re, pred) in [
+        (prefers_re, "prefers"),
+        (chose_re, "chose"),
+        (selected_re, "selected"),
+    ] {
+        for cap in re.captures_iter(t) {
+            let a = normalize_entity(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
+            let b = normalize_entity(cap.get(2).map(|m| m.as_str()).unwrap_or(""));
+            if !a.is_empty() && !b.is_empty() {
+                out.push((a, pred.to_string(), b));
+            }
+        }
+    }
+    out
+}
+
 fn normalize_entity(s: &str) -> String {
     s.trim()
         .trim_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | '"' | '\'' | ')' | '('))
@@ -135,6 +277,8 @@ mod tests {
         let pipe = DreamingPipeline {
             episodic: &episodic,
             semantic: &semantic,
+            embedder: None,
+            scorer: None,
         };
         let r = pipe.run_dream_cycle(10).await.unwrap();
         assert_eq!(r.episodes_considered, 1);
@@ -166,6 +310,8 @@ mod tests {
         let pipe = DreamingPipeline {
             episodic: &episodic,
             semantic: &semantic,
+            embedder: None,
+            scorer: None,
         };
         let r = pipe.run_dream_cycle(10).await.unwrap();
         assert_eq!(r.episodes_considered, 0);
@@ -209,6 +355,8 @@ mod tests {
         let pipe = DreamingPipeline {
             episodic: &episodic,
             semantic: &semantic,
+            embedder: None,
+            scorer: None,
         };
         let r = pipe.run_dream_cycle(10).await.unwrap();
         assert_eq!(r.episodes_considered, 2);
@@ -248,6 +396,8 @@ mod tests {
         let pipe = DreamingPipeline {
             episodic: &episodic,
             semantic: &semantic,
+            embedder: None,
+            scorer: None,
         };
         let first = pipe.run_dream_cycle(10).await.unwrap();
         assert_eq!(first.episodes_considered, 1);

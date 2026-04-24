@@ -719,6 +719,31 @@ impl SemanticMemory {
         ranked.truncate(limit);
         Ok(ranked)
     }
+
+    /// Return facts that have no embedding vector stored.
+    pub async fn unembedded_facts(&self, limit: i64) -> Result<Vec<Fact>> {
+        let rows = sqlx::query_as::<_, Fact>(
+            "SELECT id, category, subject, predicate, object, confidence, source_session, created_at, updated_at \
+             FROM facts WHERE embedding IS NULL ORDER BY updated_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Backfill embedding + norm for an existing fact row.
+    pub async fn update_embedding(&self, id: &str, embedding: &EmbeddingVec) -> Result<()> {
+        let blob = embedding_to_blob(embedding);
+        let norm = l2_norm(embedding) as f64;
+        sqlx::query("UPDATE facts SET embedding = ?, embedding_norm = ? WHERE id = ?")
+            .bind(&blob)
+            .bind(norm)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 // ---- helpers ----

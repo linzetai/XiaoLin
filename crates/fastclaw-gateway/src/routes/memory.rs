@@ -193,12 +193,14 @@ pub async fn auto_record_episode(
         content.to_string()
     };
 
+    let importance = fastclaw_memory::ImportanceScorer::score_single(&summary);
+
     let episode = fastclaw_memory::Episode {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
         summary,
-        importance: 0.5,
+        importance,
         tags: String::new(),
         created_at: chrono::Utc::now().to_rfc3339(),
         dreamed_at: None,

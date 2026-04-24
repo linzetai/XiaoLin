@@ -520,6 +520,41 @@ impl EpisodicMemory {
         }
         Ok(out)
     }
+
+    /// Return episodes that have no embedding vector stored.
+    pub async fn unembedded_episodes(&self, limit: i64) -> Result<Vec<Episode>> {
+        let rows = sqlx::query_as::<_, Episode>(
+            "SELECT id, session_id, agent_id, summary, importance, tags, created_at, dreamed_at \
+             FROM episodes WHERE embedding IS NULL ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Backfill embedding + norm for an existing episode row.
+    pub async fn update_embedding(&self, id: &str, embedding: &EmbeddingVec) -> Result<()> {
+        let blob = embedding_to_blob(embedding);
+        let norm = l2_norm(embedding) as f64;
+        sqlx::query("UPDATE episodes SET embedding = ?, embedding_norm = ? WHERE id = ?")
+            .bind(&blob)
+            .bind(norm)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Update the importance score for an existing episode.
+    pub async fn update_importance(&self, id: &str, importance: f32) -> Result<()> {
+        sqlx::query("UPDATE episodes SET importance = ? WHERE id = ?")
+            .bind(importance)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 // ---- helpers ----
