@@ -152,27 +152,28 @@ enum ToolAction {
     List,
 }
 
-fn state_dir(dev: bool, profile: Option<&str>) -> PathBuf {
+fn state_dir(mode: &fastclaw_core::config::ConfigMode) -> PathBuf {
+    use fastclaw_core::config::ConfigMode;
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    match (dev, profile) {
-        (true, _) => home.join(".fastclaw-dev"),
-        (_, Some(name)) => home.join(format!(".fastclaw-{name}")),
-        _ => home.join(".fastclaw"),
+    match mode {
+        ConfigMode::Development => home.join(".fastclaw-dev"),
+        ConfigMode::Profile(name) => home.join(format!(".fastclaw-{name}")),
+        ConfigMode::Production => home.join(".fastclaw"),
     }
 }
 
-fn config_file_path(dev: bool, profile: Option<&str>) -> PathBuf {
-    state_dir(dev, profile).join("config/default.json")
+fn config_file_path(mode: &fastclaw_core::config::ConfigMode) -> PathBuf {
+    state_dir(mode).join("config/default.json")
 }
 
 /// PID file for a background `fastclaw serve` process (per state dir / profile).
-fn daemon_pid_path(dev: bool, profile: Option<&str>) -> PathBuf {
-    state_dir(dev, profile).join("daemon.pid")
+fn daemon_pid_path(mode: &fastclaw_core::config::ConfigMode) -> PathBuf {
+    state_dir(mode).join("daemon.pid")
 }
 
 /// Log file for background gateway daemon output.
-fn daemon_log_path(dev: bool, profile: Option<&str>) -> PathBuf {
-    state_dir(dev, profile).join("logs/gateway-daemon.log")
+fn daemon_log_path(mode: &fastclaw_core::config::ConfigMode) -> PathBuf {
+    state_dir(mode).join("logs/gateway-daemon.log")
 }
 
 fn read_daemon_pid(path: &Path) -> anyhow::Result<Option<u32>> {
@@ -247,15 +248,15 @@ fn signal_daemon_stop(_pid: u32) -> anyhow::Result<()> {
     anyhow::bail!("gateway daemon stop is only supported on Unix-like systems")
 }
 
-fn cmd_daemon_start(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
+fn cmd_daemon_start(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     {
-        let _ = (dev, profile);
+        let _ = mode;
         anyhow::bail!("gateway daemon start is only supported on Unix-like systems; use `fastclaw serve` in a terminal multiplexer instead");
     }
     #[cfg(unix)]
     {
-        let pid_path = daemon_pid_path(dev, profile);
+        let pid_path = daemon_pid_path(mode);
         if let Some(pid) = read_daemon_pid(&pid_path)? {
             if process_alive(pid) {
                 anyhow::bail!(
@@ -269,10 +270,10 @@ fn cmd_daemon_start(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("cannot resolve current executable: {e}"))?;
         let mut cmd = std::process::Command::new(exe);
         cmd.arg("serve");
-        if dev {
+        if mode.is_dev() {
             cmd.arg("--dev");
         }
-        if let Some(p) = profile {
+        if let Some(p) = mode.profile_name() {
             cmd.arg("--profile");
             cmd.arg(p);
         }
@@ -282,7 +283,7 @@ fn cmd_daemon_start(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
         cmd.stdin(Stdio::null());
-        let log_path = daemon_log_path(dev, profile);
+        let log_path = daemon_log_path(mode);
         if let Some(dir) = log_path.parent() {
             std::fs::create_dir_all(dir)?;
         }
@@ -321,8 +322,8 @@ fn cmd_daemon_start(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
     }
 }
 
-fn cmd_daemon_stop(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
-    let pid_path = daemon_pid_path(dev, profile);
+fn cmd_daemon_stop(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
+    let pid_path = daemon_pid_path(mode);
     let Some(pid) = read_daemon_pid(&pid_path)? else {
         anyhow::bail!(
             "no gateway daemon pid file at {} (daemon not running)",
@@ -357,12 +358,14 @@ async fn main() -> anyhow::Result<()> {
         fastclaw_observe::init_observability(if cli.json { "json" } else { "pretty" });
     }
 
+    let mode = fastclaw_core::config::ConfigMode::from_flags(cli.dev, cli.profile.as_deref());
+
     match cli.command {
         Commands::Serve
         | Commands::Gateway {
             action: GatewayAction::Run,
         } => {
-            let config = fastclaw_core::config::load_config(cli.dev, cli.profile.as_deref())?;
+            let config = fastclaw_core::config::load_config(&mode)?;
             let log_format = if cli.json {
                 "json"
             } else {
@@ -383,16 +386,16 @@ async fn main() -> anyhow::Result<()> {
             fastclaw_gateway::run(config).await?;
         }
         Commands::Health => {
-            cmd_health(cli.dev, cli.profile.as_deref()).await?;
+            cmd_health(&mode).await?;
         }
         Commands::Doctor => {
-            cmd_doctor(cli.dev, cli.profile.as_deref(), cli.json).await?;
+            cmd_doctor(&mode, cli.json).await?;
         }
         Commands::Config { action } => {
-            cmd_config(action, cli.dev, cli.profile.as_deref(), cli.json)?;
+            cmd_config(action, &mode, cli.json)?;
         }
         Commands::Sessions { action } => {
-            cmd_sessions(action, cli.dev, cli.profile.as_deref(), cli.json).await?;
+            cmd_sessions(action, &mode, cli.json).await?;
         }
         Commands::Agents { action } => {
             cmd_agents(action, cli.json)?;
@@ -405,7 +408,7 @@ async fn main() -> anyhow::Result<()> {
             token,
             session,
         } => {
-            let config = fastclaw_core::config::load_config(cli.dev, cli.profile.as_deref())
+            let config = fastclaw_core::config::load_config(&mode)
                 .unwrap_or_default();
             let effective_url = if url == "ws://127.0.0.1:18789/ws" {
                 format!("ws://127.0.0.1:{}/ws", config.gateway.port)
@@ -413,7 +416,7 @@ async fn main() -> anyhow::Result<()> {
                 url
             };
 
-            let sd = state_dir(cli.dev, cli.profile.as_deref());
+            let sd = state_dir(&mode);
             let ws_root = fastclaw_core::workspace::resolve_workspace_root(
                 &sd,
                 "main",
@@ -427,8 +430,7 @@ async fn main() -> anyhow::Result<()> {
                 token.as_deref(),
                 session.as_deref(),
                 Some(work_dir),
-                cli.dev,
-                cli.profile.clone(),
+                &mode,
             )
             .await?;
         }
@@ -440,31 +442,31 @@ async fn main() -> anyhow::Result<()> {
             clap_complete::generate(shell, &mut cmd, "fastclaw", &mut std::io::stdout());
         }
         Commands::Setup => {
-            cmd_setup(cli.dev, cli.profile.as_deref())?;
+            cmd_setup(&mode)?;
         }
         Commands::Onboard => {
-            cmd_onboard(cli.dev, cli.profile.as_deref())?;
+            cmd_onboard(&mode)?;
         }
         Commands::Gateway { action } => match action {
             GatewayAction::Run => {
-                let config = fastclaw_core::config::load_config(cli.dev, cli.profile.as_deref())?;
+                let config = fastclaw_core::config::load_config(&mode)?;
                 fastclaw_gateway::run(config).await?;
             }
             GatewayAction::Start => {
-                cmd_daemon_start(cli.dev, cli.profile.as_deref())?;
+                cmd_daemon_start(&mode)?;
             }
             GatewayAction::Stop => {
-                cmd_daemon_stop(cli.dev, cli.profile.as_deref())?;
+                cmd_daemon_stop(&mode)?;
             }
             GatewayAction::Restart => {
-                let _ = cmd_daemon_stop(cli.dev, cli.profile.as_deref());
-                cmd_daemon_start(cli.dev, cli.profile.as_deref())?;
+                let _ = cmd_daemon_stop(&mode);
+                cmd_daemon_start(&mode)?;
             }
             GatewayAction::Status => {
-                cmd_daemon_status(cli.dev, cli.profile.as_deref()).await?;
+                cmd_daemon_status(&mode).await?;
             }
             GatewayAction::Health => {
-                cmd_health(cli.dev, cli.profile.as_deref()).await?;
+                cmd_health(&mode).await?;
             }
         },
     }
@@ -476,19 +478,18 @@ async fn main() -> anyhow::Result<()> {
 
 fn cmd_config(
     action: ConfigAction,
-    dev: bool,
-    profile: Option<&str>,
+    mode: &fastclaw_core::config::ConfigMode,
     as_json: bool,
 ) -> anyhow::Result<()> {
     match action {
         ConfigAction::File => {
-            let config = fastclaw_core::config::load_config(dev, profile)?;
+            let config = fastclaw_core::config::load_config(mode)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
         ConfigAction::Path => {
-            println!("{}", config_file_path(dev, profile).display());
+            println!("{}", config_file_path(mode).display());
         }
-        ConfigAction::Check => match fastclaw_core::config::load_config(dev, profile) {
+        ConfigAction::Check => match fastclaw_core::config::load_config(mode) {
             Ok(config) => {
                 if as_json {
                     println!(
@@ -514,7 +515,7 @@ fn cmd_config(
             }
         },
         ConfigAction::Get { key } => {
-            let config = fastclaw_core::config::load_config(dev, profile)?;
+            let config = fastclaw_core::config::load_config(mode)?;
             let full = serde_json::to_value(&config)?;
             let value = navigate_json(&full, &key);
             match value {
@@ -526,7 +527,7 @@ fn cmd_config(
             }
         }
         ConfigAction::Set { key, value } => {
-            let path = config_file_path(dev, profile);
+            let path = config_file_path(mode);
             let mut config_value = if path.exists() {
                 let text = std::fs::read_to_string(&path)?;
                 serde_json::from_str::<serde_json::Value>(&text)?
@@ -546,7 +547,7 @@ fn cmd_config(
             println!("set {key} in {}", path.display());
         }
         ConfigAction::Fix => {
-            let path = config_file_path(dev, profile);
+            let path = config_file_path(mode);
             if !path.exists() {
                 eprintln!("No config file at {}", path.display());
                 std::process::exit(1);
@@ -595,13 +596,13 @@ fn set_json_path(
 
 // --- Doctor ---
 
-async fn cmd_doctor(dev: bool, profile: Option<&str>, as_json: bool) -> anyhow::Result<()> {
+async fn cmd_doctor(mode: &fastclaw_core::config::ConfigMode, as_json: bool) -> anyhow::Result<()> {
     let mut checks: Vec<(&str, bool, String)> = Vec::new();
 
     let version = env!("CARGO_PKG_VERSION");
     checks.push(("version", true, format!("FastClaw v{version}")));
 
-    let sd = state_dir(dev, profile);
+    let sd = state_dir(mode);
     let data_exists = sd.join("data").exists();
     checks.push(("state_dir", true, format!("{}", sd.display())));
     checks.push((
@@ -614,7 +615,7 @@ async fn cmd_doctor(dev: bool, profile: Option<&str>, as_json: bool) -> anyhow::
         },
     ));
 
-    let cfg_path = config_file_path(dev, profile);
+    let cfg_path = config_file_path(mode);
     let config_ok = cfg_path.exists();
     checks.push((
         "config_file",
@@ -626,7 +627,7 @@ async fn cmd_doctor(dev: bool, profile: Option<&str>, as_json: bool) -> anyhow::
         },
     ));
 
-    let config = fastclaw_core::config::load_config(dev, profile).unwrap_or_default();
+    let config = fastclaw_core::config::load_config(mode).unwrap_or_default();
 
     let agents_dir = PathBuf::from("config/agents");
     let agent_count = if agents_dir.exists() {
@@ -805,8 +806,8 @@ async fn cmd_doctor(dev: bool, profile: Option<&str>, as_json: bool) -> anyhow::
 /// Probe the gateway health endpoint. Reads the configured port so that the
 /// check always targets the FastClaw instance for the active profile instead
 /// of a hardcoded default that may be occupied by a different process.
-async fn cmd_health(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
-    let config = fastclaw_core::config::load_config(dev, profile).unwrap_or_default();
+async fn cmd_health(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
+    let config = fastclaw_core::config::load_config(mode).unwrap_or_default();
     let port = config.gateway.port;
     let url = format!("http://localhost:{port}/health");
     let client = reqwest::Client::new();
@@ -832,10 +833,10 @@ async fn cmd_health(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
 ///
 /// This prevents false-positives when another process happens to be listening
 /// on the same address (e.g. an openclaw-gateway on the default port 18789).
-async fn cmd_daemon_status(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
-    let pid_path = daemon_pid_path(dev, profile);
-    let log_path = daemon_log_path(dev, profile);
-    let config = fastclaw_core::config::load_config(dev, profile).unwrap_or_default();
+async fn cmd_daemon_status(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
+    let pid_path = daemon_pid_path(mode);
+    let log_path = daemon_log_path(mode);
+    let config = fastclaw_core::config::load_config(mode).unwrap_or_default();
     let port = config.gateway.port;
 
     let pid = match read_daemon_pid(&pid_path)? {
@@ -893,11 +894,10 @@ async fn cmd_daemon_status(dev: bool, profile: Option<&str>) -> anyhow::Result<(
 
 async fn cmd_sessions(
     action: SessionAction,
-    dev: bool,
-    profile: Option<&str>,
+    mode: &fastclaw_core::config::ConfigMode,
     as_json: bool,
 ) -> anyhow::Result<()> {
-    let db_path = state_dir(dev, profile).join("data/sessions.db");
+    let db_path = state_dir(mode).join("data/sessions.db");
     if !db_path.exists() {
         eprintln!("No session database found at {}", db_path.display());
         eprintln!("Start the gateway first with `fastclaw serve`.");
@@ -1181,8 +1181,8 @@ fn prompt_line(msg: &str) -> String {
     buf.trim().to_string()
 }
 
-fn cmd_setup(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
-    let sd = state_dir(dev, profile);
+fn cmd_setup(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
+    let sd = state_dir(mode);
     let cfg_path = sd.join("config/default.json");
 
     println!("FastClaw Setup");
@@ -1344,7 +1344,7 @@ fn cmd_setup(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmd_onboard(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
+fn cmd_onboard(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
     println!("Welcome to FastClaw!");
     println!("{}", "=".repeat(40));
     println!();
@@ -1366,7 +1366,7 @@ fn cmd_onboard(dev: bool, profile: Option<&str>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    cmd_setup(dev, profile)?;
+    cmd_setup(mode)?;
 
     println!("\n--- Quick Start Guide ---");
     println!("1. Start gateway:  fastclaw serve");

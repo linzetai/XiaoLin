@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::agent_config::AgentConfig;
 use crate::config::{AgentsConfig, BindingConfig, DmScope};
-use crate::types::ChatRequest;
+use crate::types::{AgentId, ChatRequest};
 
 /// Ephemeral route row managed at runtime (not persisted with config files).
 #[derive(Debug, Clone)]
@@ -153,8 +153,8 @@ pub fn build_session_key(
 ///
 /// For inbound channel binding (peer / channel / account rules), use [`resolve_route`].
 pub struct Router {
-    agents: HashMap<String, AgentConfig>,
-    default_agent_id: Option<String>,
+    agents: HashMap<AgentId, AgentConfig>,
+    default_agent_id: Option<AgentId>,
 }
 
 impl Router {

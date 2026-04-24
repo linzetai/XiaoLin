@@ -100,7 +100,7 @@ impl FeishuMessageHandler for FeishuChannel {
             model: None,
             temperature: None,
             max_tokens: None,
-            agent_id: Some(self.config.agent_id.clone()),
+            agent_id: Some(self.config.agent_id.clone().into()),
             session_id: Some(session.id.clone()),
             tools: None,
             slash_intent: None,

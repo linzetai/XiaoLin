@@ -122,7 +122,7 @@ pub fn run() {
             let startup_state = handle.state::<AppData>().gateway_startup_state.clone();
 
             tauri::async_runtime::spawn(async move {
-                match EmbeddedGateway::start(false, None).await {
+                match EmbeddedGateway::start(&fastclaw_core::config::ConfigMode::Production).await {
                     Ok(gw) => {
                         // Subscribe to gateway broadcast events and re-emit as Tauri events.
                         // This bridges cron notifications (and other push events) to the

@@ -181,7 +181,7 @@ impl fastclaw_dag::NodeHandler for DagNodeHandler {
                         .get("max_tokens")
                         .and_then(|v| v.as_u64())
                         .map(|n| n as u32),
-                    agent_id: Some(agent_id.to_string()),
+                    agent_id: Some(agent_id.into()),
                     session_id: None,
                     tools: None,
                     slash_intent: None,

@@ -138,7 +138,7 @@ pub async fn setup_chat(
 
     let ingest_input = fastclaw_context::IngestInput {
         messages: user_messages.clone(),
-        agent_id: agent_id.clone(),
+        agent_id: agent_id.to_string(),
         session_id: session_id.clone(),
         user_id: None,
     };
@@ -297,7 +297,7 @@ pub async fn setup_chat(
 
     Ok(ChatSetup {
         agent_config,
-        agent_id,
+        agent_id: agent_id.to_string(),
         session_id,
         enriched_request,
         resolve_reason,

@@ -269,7 +269,7 @@ impl MessageBus {
     pub async fn register(&self, agent_id: &str) -> mpsc::Receiver<AgentMessage> {
         let (tx, rx) = mpsc::channel(256);
         let mut mailboxes = self.mailboxes.write().await;
-        mailboxes.insert(agent_id.to_string(), Mailbox { sender: tx });
+        mailboxes.insert(AgentId::from(agent_id), Mailbox { sender: tx });
         tracing::debug!(agent_id, "agent registered on message bus");
         rx
     }
@@ -342,7 +342,7 @@ impl MessageBus {
                         .await
                         .map_err(|_| FastClawError::BusMailboxClosed)?;
                 } else {
-                    return Err(FastClawError::BusAgentNotFound(target_id.clone()));
+                    return Err(FastClawError::BusAgentNotFound(target_id.to_string()));
                 }
             }
             MessageTarget::Broadcast => {

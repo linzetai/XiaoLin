@@ -21,8 +21,8 @@ pub struct EmbeddedGateway {
 }
 
 impl EmbeddedGateway {
-    pub async fn start(dev: bool, profile: Option<&str>) -> anyhow::Result<Self> {
-        let mut config = fastclaw_core::config::load_config(dev, profile)?;
+    pub async fn start(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<Self> {
+        let mut config = fastclaw_core::config::load_config(mode)?;
         if config.gateway.cors_origins.is_empty() {
             config.gateway.cors_origins = vec!["*".to_string()];
         }

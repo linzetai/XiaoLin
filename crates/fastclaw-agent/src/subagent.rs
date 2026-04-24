@@ -175,7 +175,7 @@ impl Tool for SubAgentTool {
             model: None,
             temperature: None,
             max_tokens: None,
-            agent_id: Some(params.agent_id.clone()),
+            agent_id: Some(params.agent_id.clone().into()),
             session_id: None,
             tools: None,
             slash_intent: None,
@@ -203,6 +203,8 @@ impl Tool for SubAgentTool {
             .with_depth(self.current_depth + 1, self.max_depth);
             child_registry.register(Arc::new(child_subagent));
         }
+
+        let child_registry = Arc::new(child_registry);
 
         tracing::info!(
             parent_depth = self.current_depth,

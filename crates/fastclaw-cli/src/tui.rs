@@ -89,9 +89,8 @@ pub struct TuiApp {
     // Active request ID for chat.cancel support
     last_request_id: Option<String>,
 
-    // Config profile for preflight checks
-    config_dev: bool,
-    config_profile: Option<String>,
+    // Config mode for preflight checks
+    config_mode: fastclaw_core::config::ConfigMode,
 }
 
 #[derive(Clone)]
@@ -140,8 +139,7 @@ impl TuiApp {
             total_elapsed_ms: 0,
             work_dir: None,
             last_request_id: None,
-            config_dev: false,
-            config_profile: None,
+            config_mode: fastclaw_core::config::ConfigMode::Production,
         }
     }
 
@@ -198,7 +196,7 @@ fn run_preflight_checks(app: &mut TuiApp) {
         warnings.push("No agents found. Configure agents in config/agents/.".into());
     }
 
-    match fastclaw_core::config::load_config(app.config_dev, app.config_profile.as_deref()) {
+    match fastclaw_core::config::load_config(&app.config_mode) {
         Ok(config) => {
             let has_creds = !config.credentials.providers.is_empty()
                 && config
@@ -247,8 +245,7 @@ pub async fn run_tui(
     token: Option<&str>,
     session: Option<&str>,
     work_dir: Option<String>,
-    config_dev: bool,
-    config_profile: Option<String>,
+    config_mode: &fastclaw_core::config::ConfigMode,
 ) -> anyhow::Result<()> {
     if !std::io::stdout().is_terminal() {
         anyhow::bail!("TUI requires an interactive terminal (TTY). Use --help for options.");
@@ -267,8 +264,7 @@ pub async fn run_tui(
         session.map(String::from),
     );
     app.work_dir = work_dir;
-    app.config_dev = config_dev;
-    app.config_profile = config_profile;
+    app.config_mode = config_mode.clone();
 
     let ws_url = {
         let mut u = app.ws_url.clone();

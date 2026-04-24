@@ -7,7 +7,8 @@ use fastclaw_evolution::{
     SkillStore, Trajectory, TrajectoryOutcome, TrajectoryStep, TrajectoryStore,
 };
 use fastclaw_core::agent_config::AgentConfig;
-use fastclaw_core::tool::ToolRegistry;
+use fastclaw_core::agent_config::BehaviorConfig;
+use fastclaw_core::tool::{ToolDefinition, ToolRegistry};
 use fastclaw_core::workspace::default_runtime_system_prompt_for_agent;
 use fastclaw_core::types::{
     ChatMessage, ChatRequest, ChatResponse, FunctionCall, Role, StreamEvent, ToolCall,
@@ -109,6 +110,138 @@ pub struct ExecutionResult {
     pub response: ChatResponse,
     pub tool_calls_made: u32,
     pub iterations: u32,
+}
+
+/// Filter tool definitions by agent visibility and allow/deny policy.
+fn filter_tool_definitions(
+    all_defs: &[ToolDefinition],
+    config: &AgentConfig,
+) -> Vec<ToolDefinition> {
+    all_defs
+        .iter()
+        .filter(|td| {
+            let name = &td.function.name;
+            if !memory_tool_visible_for_agent(name, &config.agent_id) {
+                return false;
+            }
+            if !config.behavior.tools_deny.is_empty()
+                && config.behavior.tools_deny.iter().any(|d| d == name)
+            {
+                return false;
+            }
+            if !config.behavior.tools_allow.is_empty()
+                && !config.behavior.tools_allow.iter().any(|a| a == name)
+            {
+                return false;
+            }
+            true
+        })
+        .cloned()
+        .collect()
+}
+
+/// Mutable state tracked across iterations of the tool-calling loop.
+struct LoopState {
+    total_tool_calls: u32,
+    consecutive_errors: u32,
+    iteration: u32,
+    failure_streak_traces: Vec<ToolCallTrace>,
+    self_iter_recovery_used: u32,
+    error_limit_reached: bool,
+}
+
+impl LoopState {
+    fn new() -> Self {
+        Self {
+            total_tool_calls: 0,
+            consecutive_errors: 0,
+            iteration: 0,
+            failure_streak_traces: Vec::new(),
+            self_iter_recovery_used: 0,
+            error_limit_reached: false,
+        }
+    }
+
+    fn record_tool_error(&mut self, tool_name: &str, error_output: &str) {
+        self.consecutive_errors += 1;
+        self.failure_streak_traces.push(ToolCallTrace {
+            tool_name: tool_name.to_string(),
+            success: false,
+            latency_ms: 0,
+            error: Some(error_output.to_string()),
+        });
+    }
+
+    fn clear_error_streak(&mut self) {
+        self.consecutive_errors = 0;
+        self.failure_streak_traces.clear();
+    }
+}
+
+type ToolExecResult = (String, String, String, fastclaw_core::tool::ToolResult);
+
+/// Execute a batch of tool calls in parallel (fork-join).
+async fn execute_tool_batch(
+    tool_calls: &[ToolCall],
+    tool_registry: &Arc<ToolRegistry>,
+    behavior: &BehaviorConfig,
+    work_dir: &Option<String>,
+    log_suffix: &str,
+) -> Vec<ToolExecResult> {
+    let shared_registry = Arc::clone(tool_registry);
+    let shared_behavior = Arc::new(behavior.clone());
+    let futures: Vec<_> = tool_calls
+        .iter()
+        .map(|tc| {
+            let tool_name = tc.function.name.clone();
+            let call_id = tc.id.clone();
+            let arguments = tc.function.arguments.clone();
+            let registry = Arc::clone(&shared_registry);
+            let behavior = Arc::clone(&shared_behavior);
+            let work_dir = work_dir.clone();
+            async move {
+                if !is_tool_allowed(&tool_name, &behavior) {
+                    tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy{log_suffix}");
+                    let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
+                    return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(msg));
+                }
+                let result = match registry.get(&tool_name) {
+                    Some(tool) => {
+                        let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
+                        with_file_access_mode(
+                            behavior.file_access,
+                            with_work_dir(work_dir_path, tool.execute(&arguments)),
+                        )
+                        .await
+                    }
+                    None => {
+                        let msg = format!("tool not found: {}", tool_name);
+                        fastclaw_core::tool::ToolResult::err(msg)
+                    }
+                };
+                tracing::info!(
+                    tool = %tool_name, success = result.success,
+                    output_len = result.output.len(), "tool result{log_suffix}"
+                );
+                (tool_name, call_id, arguments, result)
+            }
+        })
+        .collect();
+    futures::future::join_all(futures).await
+}
+
+/// Shared parameters for both streaming and non-streaming execution paths.
+pub struct ExecutionParams<'a> {
+    pub config: &'a AgentConfig,
+    pub request: &'a ChatRequest,
+    pub tool_registry: &'a Arc<ToolRegistry>,
+    pub llm_override: Option<Arc<dyn LlmProvider>>,
+}
+
+/// Additional parameters specific to the streaming execution path.
+pub struct StreamParams {
+    pub tx: tokio::sync::mpsc::Sender<StreamEvent>,
+    pub confirm_pending: Option<Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>>,
 }
 
 /// Manages the execution of a single agent invocation, including
@@ -226,9 +359,18 @@ impl AgentRuntime {
         &self,
         config: &AgentConfig,
         request: &ChatRequest,
-        tool_registry: &ToolRegistry,
+        tool_registry: &Arc<ToolRegistry>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<ExecutionResult> {
+        let params = ExecutionParams { config, request, tool_registry, llm_override };
+        self.execute_inner(&params).await
+    }
+
+    async fn execute_inner(
+        &self,
+        params: &ExecutionParams<'_>,
+    ) -> anyhow::Result<ExecutionResult> {
+        let ExecutionParams { config, request, tool_registry, ref llm_override } = *params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
@@ -249,27 +391,7 @@ impl AgentRuntime {
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
         let all_tool_defs = tool_registry.definitions();
-        let tool_defs: Vec<_> = all_tool_defs
-            .iter()
-            .filter(|td| {
-                let name = &td.function.name;
-                if !memory_tool_visible_for_agent(name, &config.agent_id) {
-                    return false;
-                }
-                if !config.behavior.tools_deny.is_empty()
-                    && config.behavior.tools_deny.iter().any(|d| d == name)
-                {
-                    return false;
-                }
-                if !config.behavior.tools_allow.is_empty()
-                    && !config.behavior.tools_allow.iter().any(|a| a == name)
-                {
-                    return false;
-                }
-                true
-            })
-            .cloned()
-            .collect();
+        let tool_defs = filter_tool_definitions(&all_tool_defs, config);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions");
         let tools_for_llm = if tool_defs.is_empty() {
             None
@@ -281,18 +403,13 @@ impl AgentRuntime {
         let max_tokens = request.max_tokens.or(config.model.max_tokens);
         let model = request.model.as_deref().unwrap_or(&config.model.model);
 
-        let mut total_tool_calls: u32 = 0;
-        let mut consecutive_errors: u32 = 0;
-        let mut iteration: u32 = 0;
-        let mut failure_streak_traces: Vec<ToolCallTrace> = Vec::new();
-        let mut self_iter_recovery_used: u32 = 0;
-        let mut error_limit_reached = false;
+        let mut lstate = LoopState::new();
 
         loop {
-            if error_limit_reached {
+            if lstate.error_limit_reached {
                 tracing::warn!(
                     agent_id = %config.agent_id,
-                    consecutive_errors,
+                    consecutive_errors = lstate.consecutive_errors,
                     "stopping outer loop — consecutive error limit reached"
                 );
                 self.finalize_injected_skills(&injected_skill_ids, false).await;
@@ -301,16 +418,16 @@ impl AgentRuntime {
                 anyhow::bail!(
                     "agent '{}' stopped: {} consecutive tool errors",
                     config.agent_id,
-                    consecutive_errors
+                    lstate.consecutive_errors
                 );
             }
 
-            iteration += 1;
+            lstate.iteration += 1;
 
             tracing::info!(
                 agent_id = %config.agent_id,
                 model,
-                iteration,
+                iteration = lstate.iteration,
                 msg_count = messages.len(),
                 "LLM call"
             );
@@ -340,13 +457,11 @@ impl AgentRuntime {
                 .as_ref()
                 .is_some_and(|tc| !tc.is_empty());
 
-            // Prefer tool_calls over finish_reason: some models send finish_reason "stop"
-            // while still returning tool_calls; those tools must run.
             if !has_tool_calls {
                 tracing::info!(
                     agent_id = %config.agent_id,
-                    iterations = iteration,
-                    total_tool_calls,
+                    iterations = lstate.iteration,
+                    total_tool_calls = lstate.total_tool_calls,
                     "agent execution complete"
                 );
                 self.finalize_injected_skills(&injected_skill_ids, true).await;
@@ -354,12 +469,12 @@ impl AgentRuntime {
                     .await;
                 return Ok(ExecutionResult {
                     response,
-                    tool_calls_made: total_tool_calls,
-                    iterations: iteration,
+                    tool_calls_made: lstate.total_tool_calls,
+                    iterations: lstate.iteration,
                 });
             }
 
-            if iteration >= max_iterations {
+            if lstate.iteration >= max_iterations {
                 tracing::warn!(
                     agent_id = %config.agent_id,
                     max_iterations,
@@ -370,12 +485,11 @@ impl AgentRuntime {
                     .await;
                 return Ok(ExecutionResult {
                     response,
-                    tool_calls_made: total_tool_calls,
-                    iterations: iteration,
+                    tool_calls_made: lstate.total_tool_calls,
+                    iterations: lstate.iteration,
                 });
             }
 
-            // Append assistant message with tool_calls
             messages.push(choice.message.clone());
 
             let tool_calls = choice
@@ -385,47 +499,12 @@ impl AgentRuntime {
                 .filter(|t| !t.is_empty())
                 .ok_or_else(|| anyhow::anyhow!("LLM reported tool_calls but none were present"))?;
 
-            // Execute tool calls in parallel (fork-join): spawn all concurrently,
-            // then process results sequentially for correct message ordering.
-            let tool_futures: Vec<_> = tool_calls.iter().map(|tc| {
-                let tool_name = tc.function.name.clone();
-                let call_id = tc.id.clone();
-                let arguments = tc.function.arguments.clone();
-                let registry = tool_registry.clone();
-                let behavior = config.behavior.clone();
-                let work_dir = request.work_dir.clone();
-                async move {
-                    if !is_tool_allowed(&tool_name, &behavior) {
-                        tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy");
-                        let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
-                        return (tool_name, call_id, fastclaw_core::tool::ToolResult::err(msg));
-                    }
-                    let result = match registry.get(&tool_name) {
-                        Some(tool) => {
-                            let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
-                            with_file_access_mode(
-                                behavior.file_access,
-                                with_work_dir(work_dir_path, tool.execute(&arguments)),
-                            )
-                            .await
-                        }
-                        None => {
-                            let msg = format!("tool not found: {}", tool_name);
-                            fastclaw_core::tool::ToolResult::err(msg)
-                        }
-                    };
-                    tracing::info!(
-                        tool = %tool_name, success = result.success,
-                        output_len = result.output.len(), "tool result"
-                    );
-                    (tool_name, call_id, result)
-                }
-            }).collect();
+            let results = execute_tool_batch(
+                tool_calls, tool_registry, &config.behavior, &request.work_dir, "",
+            ).await;
 
-            let results = futures::future::join_all(tool_futures).await;
-
-            for (tool_name, call_id, result) in results {
-                total_tool_calls += 1;
+            for (tool_name, call_id, _arguments, result) in results {
+                lstate.total_tool_calls += 1;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -436,16 +515,9 @@ impl AgentRuntime {
                 });
 
                 if !result.success {
-                    consecutive_errors += 1;
-                    failure_streak_traces.push(ToolCallTrace {
-                        tool_name: tool_name.clone(),
-                        success: false,
-                        latency_ms: 0,
-                        error: Some(result.output.clone()),
-                    });
+                    lstate.record_tool_error(&tool_name, &result.output);
                 } else {
-                    consecutive_errors = 0;
-                    failure_streak_traces.clear();
+                    lstate.clear_error_streak();
                 }
 
                 let out = truncate_tool_result_output(&result.output);
@@ -469,23 +541,22 @@ impl AgentRuntime {
                     &mut messages,
                     config,
                     request,
-                    iteration,
-                    consecutive_errors,
+                    lstate.iteration,
+                    lstate.consecutive_errors,
                     max_errors,
-                    &failure_streak_traces,
-                    &mut self_iter_recovery_used,
+                    &lstate.failure_streak_traces,
+                    &mut lstate.self_iter_recovery_used,
                 ) {
-                    consecutive_errors = 0;
-                    failure_streak_traces.clear();
+                    lstate.clear_error_streak();
                 }
 
-                if consecutive_errors >= max_errors {
+                if lstate.consecutive_errors >= max_errors {
                     tracing::warn!(
                         agent_id = %config.agent_id,
-                        consecutive_errors,
+                        consecutive_errors = lstate.consecutive_errors,
                         "consecutive error limit reached"
                     );
-                    error_limit_reached = true;
+                    lstate.error_limit_reached = true;
                     break;
                 }
             }
@@ -504,12 +575,13 @@ impl AgentRuntime {
         &self,
         config: &AgentConfig,
         request: &ChatRequest,
-        tool_registry: &ToolRegistry,
+        tool_registry: &Arc<ToolRegistry>,
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<(u32, u32)> {
-        self.execute_stream_inner(config, request, tool_registry, tx, llm_override, None)
-            .await
+        let exec = ExecutionParams { config, request, tool_registry, llm_override };
+        let stream = StreamParams { tx, confirm_pending: None };
+        self.execute_stream_inner(&exec, stream).await
     }
 
     /// Same as `execute_stream` but accepts an optional `confirm_pending` map so the runtime
@@ -518,24 +590,23 @@ impl AgentRuntime {
         &self,
         config: &AgentConfig,
         request: &ChatRequest,
-        tool_registry: &ToolRegistry,
+        tool_registry: &Arc<ToolRegistry>,
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
         confirm_pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     ) -> anyhow::Result<(u32, u32)> {
-        self.execute_stream_inner(config, request, tool_registry, tx, llm_override, Some(confirm_pending))
-            .await
+        let exec = ExecutionParams { config, request, tool_registry, llm_override };
+        let stream = StreamParams { tx, confirm_pending: Some(confirm_pending) };
+        self.execute_stream_inner(&exec, stream).await
     }
 
     async fn execute_stream_inner(
         &self,
-        config: &AgentConfig,
-        request: &ChatRequest,
-        tool_registry: &ToolRegistry,
-        tx: tokio::sync::mpsc::Sender<StreamEvent>,
-        llm_override: Option<Arc<dyn LlmProvider>>,
-        confirm_pending: Option<Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>>,
+        params: &ExecutionParams<'_>,
+        stream_params: StreamParams,
     ) -> anyhow::Result<(u32, u32)> {
+        let ExecutionParams { config, request, tool_registry, ref llm_override } = *params;
+        let StreamParams { ref tx, ref confirm_pending } = stream_params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
@@ -556,27 +627,7 @@ impl AgentRuntime {
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
         let all_tool_defs = tool_registry.definitions();
-        let tool_defs: Vec<_> = all_tool_defs
-            .iter()
-            .filter(|td| {
-                let name = &td.function.name;
-                if !memory_tool_visible_for_agent(name, &config.agent_id) {
-                    return false;
-                }
-                if !config.behavior.tools_deny.is_empty()
-                    && config.behavior.tools_deny.iter().any(|d| d == name)
-                {
-                    return false;
-                }
-                if !config.behavior.tools_allow.is_empty()
-                    && !config.behavior.tools_allow.iter().any(|a| a == name)
-                {
-                    return false;
-                }
-                true
-            })
-            .cloned()
-            .collect();
+        let tool_defs = filter_tool_definitions(&all_tool_defs, config);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions (stream)");
         let tools_for_llm = if tool_defs.is_empty() {
             None
@@ -592,28 +643,23 @@ impl AgentRuntime {
             .unwrap_or(&config.model.model)
             .to_string();
 
-        let mut total_tool_calls: u32 = 0;
-        let mut consecutive_errors: u32 = 0;
-        let mut iteration: u32 = 0;
-        let mut failure_streak_traces: Vec<ToolCallTrace> = Vec::new();
-        let mut self_iter_recovery_used: u32 = 0;
-        let mut error_limit_reached = false;
+        let mut lstate = LoopState::new();
         let stream_start = std::time::Instant::now();
         let mut acc_prompt_tokens: u32 = 0;
         let mut acc_completion_tokens: u32 = 0;
 
         loop {
-            if error_limit_reached {
+            if lstate.error_limit_reached {
                 tracing::warn!(
                     agent_id = %config.agent_id,
-                    consecutive_errors,
+                    consecutive_errors = lstate.consecutive_errors,
                     "stopping outer stream loop — consecutive error limit reached"
                 );
                 let _ = send_stream_event(
                     &tx,
                     StreamEvent::Error(format!(
                         "agent stopped: {} consecutive tool errors",
-                        consecutive_errors
+                        lstate.consecutive_errors
                     )),
                     false,
                 )
@@ -622,16 +668,16 @@ impl AgentRuntime {
                 return Err(anyhow::anyhow!(
                     "agent '{}' stopped: {} consecutive tool errors",
                     config.agent_id,
-                    consecutive_errors
+                    lstate.consecutive_errors
                 ));
             }
 
-            iteration += 1;
+            lstate.iteration += 1;
 
             tracing::info!(
                 agent_id = %config.agent_id,
                 model = %model,
-                iteration,
+                iteration = lstate.iteration,
                 msg_count = messages.len(),
                 "streaming LLM call"
             );
@@ -764,8 +810,8 @@ impl AgentRuntime {
                     &tx,
                     StreamEvent::Done {
                         session_id: request.session_id.clone(),
-                        tool_calls_made: total_tool_calls,
-                        iterations: iteration,
+                        tool_calls_made: lstate.total_tool_calls,
+                        iterations: lstate.iteration,
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
@@ -778,10 +824,10 @@ impl AgentRuntime {
                 self.finalize_injected_skills(&injected_skill_ids, true).await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
-                return Ok((total_tool_calls, iteration));
+                return Ok((lstate.total_tool_calls, lstate.iteration));
             }
 
-            if iteration >= max_iterations {
+            if lstate.iteration >= max_iterations {
                 tracing::warn!(
                     agent_id = %config.agent_id,
                     max_iterations,
@@ -796,8 +842,8 @@ impl AgentRuntime {
                     &tx,
                     StreamEvent::Done {
                         session_id: request.session_id.clone(),
-                        tool_calls_made: total_tool_calls,
-                        iterations: iteration,
+                        tool_calls_made: lstate.total_tool_calls,
+                        iterations: lstate.iteration,
                         final_tool_calls: if final_tc.is_empty() { None } else { Some(final_tc) },
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
@@ -810,7 +856,7 @@ impl AgentRuntime {
                 self.finalize_injected_skills(&injected_skill_ids, true).await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
-                return Ok((total_tool_calls, iteration));
+                return Ok((lstate.total_tool_calls, lstate.iteration));
             }
 
             let assembled_calls: Vec<ToolCall> = tool_call_accum
@@ -825,8 +871,8 @@ impl AgentRuntime {
                     &tx,
                     StreamEvent::Done {
                         session_id: request.session_id.clone(),
-                        tool_calls_made: total_tool_calls,
-                        iterations: iteration,
+                        tool_calls_made: lstate.total_tool_calls,
+                        iterations: lstate.iteration,
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
@@ -839,7 +885,7 @@ impl AgentRuntime {
                 self.finalize_injected_skills(&injected_skill_ids, true).await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
-                return Ok((total_tool_calls, iteration));
+                return Ok((lstate.total_tool_calls, lstate.iteration));
             }
 
             messages.push(ChatMessage {
@@ -869,47 +915,12 @@ impl AgentRuntime {
                 .await;
             }
 
-            // Execute all tool calls in parallel (fork-join).
-            let stream_tool_futures: Vec<_> = assembled_calls.iter().map(|tc| {
-                let tool_name = tc.function.name.clone();
-                let call_id = tc.id.clone();
-                let arguments = tc.function.arguments.clone();
-                let registry = tool_registry.clone();
-                let behavior = config.behavior.clone();
-                let work_dir = request.work_dir.clone();
-                async move {
-                    if !is_tool_allowed(&tool_name, &behavior) {
-                        tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy (stream)");
-                        let msg = format!("tool '{}' is not allowed by agent policy", tool_name);
-                        return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(msg));
-                    }
-                    let result = match registry.get(&tool_name) {
-                        Some(tool) => {
-                            let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
-                            with_file_access_mode(
-                                behavior.file_access,
-                                with_work_dir(work_dir_path, tool.execute(&arguments)),
-                            )
-                            .await
-                        }
-                        None => {
-                            let msg = format!("tool not found: {}", tool_name);
-                            fastclaw_core::tool::ToolResult::err(msg)
-                        }
-                    };
-                    tracing::info!(
-                        tool = %tool_name, success = result.success,
-                        output_len = result.output.len(), "tool result (stream)"
-                    );
-                    (tool_name, call_id, arguments, result)
-                }
-            }).collect();
+            let stream_results = execute_tool_batch(
+                &assembled_calls, tool_registry, &config.behavior, &request.work_dir, " (stream)",
+            ).await;
 
-            let stream_results = futures::future::join_all(stream_tool_futures).await;
-
-            // Process results sequentially for ordering, confirmation, and state updates.
             for (tool_name, call_id, arguments, mut result) in stream_results {
-                total_tool_calls += 1;
+                lstate.total_tool_calls += 1;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -985,16 +996,9 @@ impl AgentRuntime {
                 }
 
                 if !result.success {
-                    consecutive_errors += 1;
-                    failure_streak_traces.push(ToolCallTrace {
-                        tool_name: tool_name.clone(),
-                        success: false,
-                        latency_ms: 0,
-                        error: Some(result.output.clone()),
-                    });
+                    lstate.record_tool_error(&tool_name, &result.output);
                 } else {
-                    consecutive_errors = 0;
-                    failure_streak_traces.clear();
+                    lstate.clear_error_streak();
                 }
 
                 let llm_out = truncate_tool_result_output(&result.output);
@@ -1030,23 +1034,22 @@ impl AgentRuntime {
                     &mut messages,
                     config,
                     request,
-                    iteration,
-                    consecutive_errors,
+                    lstate.iteration,
+                    lstate.consecutive_errors,
                     max_errors,
-                    &failure_streak_traces,
-                    &mut self_iter_recovery_used,
+                    &lstate.failure_streak_traces,
+                    &mut lstate.self_iter_recovery_used,
                 ) {
-                    consecutive_errors = 0;
-                    failure_streak_traces.clear();
+                    lstate.clear_error_streak();
                 }
 
-                if consecutive_errors >= max_errors {
+                if lstate.consecutive_errors >= max_errors {
                     tracing::warn!(
                         agent_id = %config.agent_id,
-                        consecutive_errors,
+                        consecutive_errors = lstate.consecutive_errors,
                         "consecutive error limit reached (stream)"
                     );
-                    error_limit_reached = true;
+                    lstate.error_limit_reached = true;
                     break;
                 }
             }
@@ -1170,7 +1173,7 @@ impl AgentRuntime {
             .unwrap_or_else(|| "default".to_string());
         let trajectory = Trajectory {
             id: uuid::Uuid::new_v4().to_string(),
-            agent_id: config.agent_id.clone(),
+            agent_id: config.agent_id.to_string(),
             session_id,
             task_type: infer_task_type(steps),
             steps: steps.to_vec(),
@@ -1539,7 +1542,7 @@ mod stream_resume_tests {
             calls: calls.clone(),
         });
         let runtime = AgentRuntime::new(provider);
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
 
         let req = ChatRequest {

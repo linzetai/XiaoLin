@@ -1798,7 +1798,7 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "fastclaw-agent"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-collab"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-context"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-cron"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-dag"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-discord"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2019,7 +2019,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-evolution"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-feishu"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-gateway"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-matrix"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-memory"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2152,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-model-router"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "fastclaw-core",
@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-msteams"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2180,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-observe"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-plugin"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-security"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-self-iter"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2247,7 +2247,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-session"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-slack"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2279,7 +2279,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-telegram"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2293,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-whatsapp"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "async-trait",

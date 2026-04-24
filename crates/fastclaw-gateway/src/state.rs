@@ -2011,7 +2011,7 @@ fn resolve_agents_dir(paths_cfg: &fastclaw_core::config::PathsConfig) -> PathBuf
 
 fn builtin_default_agent(config: &FastClawConfig) -> AgentConfig {
     AgentConfig {
-        agent_id: "main".to_string(),
+        agent_id: "main".into(),
         name: Some("Main Agent".to_string()),
         description: Some("Built-in default assistant".to_string()),
         model: builtin_default_model(config),

@@ -22,7 +22,7 @@ use fastclaw_core::config_access::{
     CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS, filter_config_for_read, navigate_config,
     persist_config_key, set_nested_key,
 };
-use fastclaw_core::types::{ChatMessage, ChatRequest, StreamEvent};
+use fastclaw_core::types::{AgentId, ChatMessage, ChatRequest, StreamEvent};
 use fastclaw_security::ApiKeyAuth;
 
 static CONN_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -600,7 +600,7 @@ async fn spawn_chat(
             agent_id: params
                 .get("agentId")
                 .and_then(|v| v.as_str())
-                .map(String::from),
+                .map(AgentId::from),
             session_id: params
                 .get("sessionId")
                 .and_then(|v| v.as_str())

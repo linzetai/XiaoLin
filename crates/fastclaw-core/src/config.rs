@@ -5,6 +5,39 @@ use std::path::PathBuf;
 
 use crate::error::{FastClawError, FastClawResult};
 
+/// Selects which state directory and config search paths to use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigMode {
+    /// Production: uses `~/.fastclaw/`
+    Production,
+    /// Development: uses `~/.fastclaw-dev/`
+    Development,
+    /// Named profile: uses `~/.fastclaw-<name>/`
+    Profile(String),
+}
+
+impl ConfigMode {
+    /// Construct from the legacy `(dev, profile)` pair used by the CLI.
+    pub fn from_flags(dev: bool, profile: Option<&str>) -> Self {
+        match (dev, profile) {
+            (true, _) => Self::Development,
+            (_, Some(name)) => Self::Profile(name.to_string()),
+            _ => Self::Production,
+        }
+    }
+
+    pub fn is_dev(&self) -> bool {
+        matches!(self, Self::Development)
+    }
+
+    pub fn profile_name(&self) -> Option<&str> {
+        match self {
+            Self::Profile(name) => Some(name),
+            _ => None,
+        }
+    }
+}
+
 /// Per-key model / provider hints from the top-level `models` config object.
 ///
 /// Known fields map to typed options; any additional keys are preserved in [`Self::extra`]
@@ -849,8 +882,8 @@ pub struct ProviderCredential {
 ///
 /// All configuration is loaded from JSON5 config files only — environment
 /// variables are **not** used for configuration values.
-pub fn load_config(dev: bool, profile: Option<&str>) -> FastClawResult<FastClawConfig> {
-    let (fastclaw_paths, legacy_paths) = build_search_paths(dev, profile);
+pub fn load_config(mode: &ConfigMode) -> FastClawResult<FastClawConfig> {
+    let (fastclaw_paths, legacy_paths) = build_search_paths(mode);
 
     // Deep-merge all fastclaw-native config layers (project + user-level).
     // Iterate in reverse so highest-priority paths overlay lower ones.
@@ -1213,7 +1246,7 @@ fn warn_unknown_keys(val: &serde_json::Value) {
 
 /// Returns (fastclaw_paths, legacy_paths). Fastclaw paths are deep-merged;
 /// legacy paths are used only as a standalone fallback.
-fn build_search_paths(dev: bool, profile: Option<&str>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+fn build_search_paths(mode: &ConfigMode) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut fastclaw = Vec::new();
     let mut legacy = Vec::new();
 
@@ -1222,10 +1255,10 @@ fn build_search_paths(dev: bool, profile: Option<&str>) -> (Vec<PathBuf>, Vec<Pa
 
     // 2. Home directory user config
     if let Some(home) = dirs::home_dir() {
-        let state_dir = match (dev, profile) {
-            (true, _) => home.join(".fastclaw-dev"),
-            (_, Some(name)) => home.join(format!(".fastclaw-{name}")),
-            _ => home.join(".fastclaw"),
+        let state_dir = match mode {
+            ConfigMode::Development => home.join(".fastclaw-dev"),
+            ConfigMode::Profile(name) => home.join(format!(".fastclaw-{name}")),
+            ConfigMode::Production => home.join(".fastclaw"),
         };
         fastclaw.push(state_dir.join("config/default.json"));
     }

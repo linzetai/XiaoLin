@@ -775,8 +775,8 @@ pub async fn update_agent(
 
     let mut agent: fastclaw_core::agent_config::AgentConfig =
         serde_json::from_value(config).map_err(|e| format!("invalid agent config: {e}"))?;
-    if agent.agent_id != agent_id {
-        agent.agent_id = agent_id.clone();
+    if agent.agent_id.as_str() != agent_id {
+        agent.agent_id = agent_id.clone().into();
     }
 
     let dir = fastclaw_core::paths::resolve_agents_dir_from(Some(&app.config.paths));
@@ -1203,7 +1203,7 @@ pub async fn chat_stream(
         stream: true,
         max_tokens,
         temperature,
-        agent_id,
+        agent_id: agent_id.map(Into::into),
         session_id,
         tools: None,
         slash_intent: None,

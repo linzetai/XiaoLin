@@ -267,7 +267,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let _ = self.state.session_store.append_message(&sid, &user_msg).await;
 
             let mut request = fastclaw_core::types::ChatRequest {
-                agent_id: Some(agent_id.to_string()),
+                agent_id: Some(agent_id.into()),
                 session_id: Some(sid.clone()),
                 messages: vec![user_msg],
                 model: None,
