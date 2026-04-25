@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronRight, ChevronDown, ChevronLeft, Bot, MessageSquare, Clock, Search, Wrench, Settings, Sparkles, Eye, EyeOff, Zap, CheckCircle, XCircle, ArrowRight, Upload } from "lucide-react";
 import { ClawIcon } from "../layout/ClawIcon";
 import * as api from "../../lib/api";
@@ -7,16 +7,55 @@ import { ImportChoiceStep } from "./ImportChoiceStep";
 
 type Step = "welcome" | "model" | "features" | "done";
 
-interface OnboardingWizardProps {
-  onComplete: () => void;
+type ImportChoice = "new" | "import";
+
+// 用于存储各步骤状态的类型
+interface StepState {
+  model: {
+    key: string;
+    provider: string;
+    model: string;
+    baseUrl: string;
+    apiKey: string;
+    showApiKey: boolean;
+    showAdvanced: boolean;
+    testStatus: TestStatus;
+    testMsg: string;
+    saving: boolean;
+    saved: boolean;
+  };
 }
 
-type ImportChoice = "new" | "import";
+type TestStatus = "idle" | "testing" | "success" | "error";
+
+export interface OnboardingWizardProps {
+  onComplete: () => void;
+}
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [step, setStep] = useState<Step | "import_choice">("welcome");
   const [importChoice, setImportChoice] = useState<ImportChoice | null>(null);
   const [fadeClass, setFadeClass] = useState("ob-fade-in");
+  // 存储各步骤的状态
+  const [stepStates, setStepStates] = useState<StepState>({
+    model: {
+      key: "",
+      provider: "openai_compatible",
+      model: "",
+      baseUrl: "",
+      apiKey: "",
+      showApiKey: false,
+      showAdvanced: false,
+      testStatus: "idle",
+      testMsg: "",
+      saving: false,
+      saved: false,
+    }
+  });
+
+  const updateStepState = useCallback((newState: Partial<StepState>) => {
+    setStepStates(prev => ({ ...prev, ...newState }));
+  }, []);
 
   const goTo = useCallback((next: Step | "import_choice") => {
     setFadeClass("ob-fade-out");
@@ -79,7 +118,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       <div className={`w-full max-w-[560px] px-6 ${fadeClass}`}>
         {step === "welcome" && <WelcomeStep onNext={() => handleImportChoice("new")} onImport={() => handleImportChoice("import")} />}
         {step === "import_choice" && <ImportChoiceStep onSelect={handleImportChoice} />}
-        {step === "model" && <ModelStep onNext={() => goTo("features")} onPrev={() => goTo("welcome")} />}
+        {step === "model" && <ModelStep 
+          onNext={() => goTo("features")} 
+          onPrev={() => goTo("welcome")} 
+          stepStates={stepStates}
+          updateStepState={updateStepState}
+        />}
         {step === "features" && <FeaturesStep onNext={() => goTo("done")} onPrev={() => goTo("model")} />}
         {step === "done" && <DoneStep onComplete={onComplete} />}
       </div>
@@ -158,20 +202,43 @@ function WelcomeStep({ onNext, onImport }: { onNext: () => void, onImport: () =>
 
 /* ━━━ Step 2: Model Setup ━━━ */
 
-type TestStatus = "idle" | "testing" | "success" | "error";
+function ModelStep({ onNext, onPrev, stepStates, updateStepState }: { 
+  onNext: () => void, 
+  onPrev: () => void,
+  stepStates: StepState,
+  updateStepState: (newState: Partial<StepState>) => void 
+}) {
+  const { model: modelState } = stepStates;
+  const [key, setKey] = useState(modelState.key);
+  const [provider, setProvider] = useState(modelState.provider);
+  const [model, setModel] = useState(modelState.model);
+  const [baseUrl, setBaseUrl] = useState(modelState.baseUrl);
+  const [apiKey, setApiKey] = useState(modelState.apiKey);
+  const [showApiKey, setShowApiKey] = useState(modelState.showApiKey);
+  const [showAdvanced, setShowAdvanced] = useState(modelState.showAdvanced);
+  const [testStatus, setTestStatus] = useState<TestStatus>(modelState.testStatus);
+  const [testMsg, setTestMsg] = useState(modelState.testMsg);
+  const [saving, setSaving] = useState(modelState.saving);
+  const [saved, setSaved] = useState(modelState.saved);
 
-function ModelStep({ onNext, onPrev }: { onNext: () => void, onPrev: () => void }) {
-  const [key, setKey] = useState("");
-  const [provider, setProvider] = useState("openai_compatible");
-  const [model, setModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
-  const [testMsg, setTestMsg] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // 当状态变化时，更新父组件的状态
+  useEffect(() => {
+    updateStepState({
+      model: {
+        key,
+        provider,
+        model,
+        baseUrl,
+        apiKey,
+        showApiKey,
+        showAdvanced,
+        testStatus,
+        testMsg,
+        saving,
+        saved
+      }
+    });
+  }, [key, provider, model, baseUrl, apiKey, showApiKey, showAdvanced, testStatus, testMsg, saving, saved]);
 
   const canSave = key.trim() && model.trim();
 
@@ -265,7 +332,19 @@ function ModelStep({ onNext, onPrev }: { onNext: () => void, onPrev: () => void 
   }
 
   return (
-    <div>
+    <div className="relative">
+      {/* 顶部导航栏 */}
+      <div className="absolute -top-12 left-0 flex">
+        <button
+          onClick={onPrev}
+          className="flex cursor-pointer items-center gap-1 text-[13px] font-medium transition-colors hover:opacity-80"
+          style={{ color: "var(--fill-tertiary)" }}
+        >
+          <ChevronLeft size={16} />
+          返回
+        </button>
+      </div>
+
       <div className="mb-6 text-center">
         <h2 className="text-[22px] font-bold" style={{ color: "var(--fill-primary)" }}>
           添加你的第一个模型
@@ -370,24 +449,14 @@ function ModelStep({ onNext, onPrev }: { onNext: () => void, onPrev: () => void 
           className="flex items-center justify-between px-5 py-3"
           style={{ borderTop: "0.5px solid var(--separator)" }}
         >
-          <div className="flex gap-2">
-            <button
-              onClick={onPrev}
-              className="flex cursor-pointer items-center gap-1 text-[12px] transition-colors hover:opacity-80"
-              style={{ color: "var(--fill-tertiary)" }}
-            >
-              <ChevronLeft size={12} />
-              返回
-            </button>
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex cursor-pointer items-center gap-1 text-[12px] transition-colors hover:opacity-80"
-              style={{ color: "var(--fill-tertiary)" }}
-            >
-              <ChevronRight size={12} className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`} />
-              高级选项
-            </button>
-          </div>
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex cursor-pointer items-center gap-1 text-[12px] transition-colors hover:opacity-80"
+            style={{ color: "var(--fill-tertiary)" }}
+          >
+            <ChevronRight size={12} className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`} />
+            高级选项
+          </button>
           <button
             onClick={handleSave}
             disabled={!canSave || saving}
@@ -445,7 +514,19 @@ const FEATURES = [
 
 function FeaturesStep({ onNext, onPrev }: { onNext: () => void, onPrev: () => void }) {
   return (
-    <div>
+    <div className="relative">
+      {/* 顶部导航栏 */}
+      <div className="absolute -top-12 left-0 flex">
+        <button
+          onClick={onPrev}
+          className="flex cursor-pointer items-center gap-1 text-[13px] font-medium transition-colors hover:opacity-80"
+          style={{ color: "var(--fill-tertiary)" }}
+        >
+          <ChevronLeft size={16} />
+          返回
+        </button>
+      </div>
+
       <div className="mb-6 text-center">
         <h2 className="text-[22px] font-bold" style={{ color: "var(--fill-primary)" }}>
           核心功能一览
@@ -478,22 +559,14 @@ function FeaturesStep({ onNext, onPrev }: { onNext: () => void, onPrev: () => vo
         ))}
       </div>
 
-      <div className="mt-6 flex justify-between">
-        <button
-          onClick={onPrev}
-          className="flex cursor-pointer items-center gap-1 rounded-full px-6 py-2.5 text-[14px] font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-          style={{ background: "var(--bg-elevated)", color: "var(--fill-primary)", border: "1px solid var(--separator-opaque)" }}
-        >
-          <ChevronLeft size={14} strokeWidth={2} />
-          返回
-        </button>
+      <div className="mt-6 flex justify-end">
         <button
           onClick={onNext}
           className="flex cursor-pointer items-center gap-2 rounded-full px-8 py-3 text-[14px] font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
           style={{ background: "var(--fill-primary)", color: "var(--fill-inverse)" }}
         >
           开始使用
-          <Sparkles size={16} strokeWidth={2} />
+          <ArrowRight size={16} strokeWidth={2} />
         </button>
       </div>
     </div>
