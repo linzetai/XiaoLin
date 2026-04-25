@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronRight, ChevronDown, ChevronLeft, Bot, MessageSquare, Clock, Search, Wrench, Settings, Sparkles, Eye, EyeOff, Zap, CheckCircle, XCircle, ArrowRight, Upload, Cpu } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Bot, MessageSquare, Clock, Search, Wrench, Settings, Sparkles, Eye, EyeOff, Zap, CheckCircle, XCircle, ArrowRight, Upload } from "lucide-react";
 import { ClawIcon } from "../layout/ClawIcon";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
@@ -410,7 +410,7 @@ function ModelStep({ onNext, onPrev, stepStates, updateStepState }: {
           }}
           onClick={() => setActiveTab("preset")}
         >
-          预设模型
+          颺定模型
         </button>
         <button
           className={`flex-1 rounded-[var(--radius-xs)] py-2 text-[13px] font-medium transition-colors ${
@@ -422,7 +422,7 @@ function ModelStep({ onNext, onPrev, stepStates, updateStepState }: {
           }}
           onClick={() => setActiveTab("custom")}
         >
-          自定义模型
+          自定模型
         </button>
       </div>
 
@@ -435,18 +435,18 @@ function ModelStep({ onNext, onPrev, stepStates, updateStepState }: {
             <p className="text-[13px] mb-4" style={{ color: "var(--fill-secondary)" }}>
               选择一个预设模型配置快速开始
             </p>
-            <div className="grid grid-cols-1 gap-3">
+            <div className="space-y-3">
               {PRESET_MODELS.map((preset) => (
                 <div
                   key={preset.id}
-                  className="rounded-[var(--radius-sm)] p-4 cursor-pointer transition-all hover:scale-[1.02]"
+                  className="rounded-[var(--radius-sm)] p-3 cursor-pointer transition-all hover:scale-[1.02]"
                   style={{ 
                     background: key === preset.id ? "var(--bg-selected)" : "var(--bg-base)",
                     border: `1px solid ${key === preset.id ? "var(--fill-primary)" : "var(--separator-opaque)"}`,
                   }}
                   onClick={() => handlePresetSelect(preset)}
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-center">
                     <div>
                       <h3 className="font-medium text-[14px]" style={{ color: "var(--fill-primary)" }}>
                         {preset.name}
