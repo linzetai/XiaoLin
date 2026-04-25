@@ -21,6 +21,7 @@ use crate::builtin_tools::{with_file_access_mode, with_work_dir};
 use crate::llm::{CompletionParams, LlmProvider};
 
 mod accumulator;
+pub(crate) mod context_compressor;
 mod prompt_builder;
 mod stream_engine;
 mod tool_executor;
@@ -35,6 +36,7 @@ use stream_engine::LoopState;
 use stream_engine::send_stream_event;
 use tool_executor::execute_tool_batch;
 use tool_executor::filter_tool_definitions;
+use tool_executor::microcompact_tool_results;
 use tool_executor::truncate_tool_result_output;
 use trajectory::append_text_to_chat_content;
 use trajectory::last_user_turn_text;
@@ -210,8 +212,11 @@ impl AgentRuntime {
         };
 
         let temperature = request.temperature.unwrap_or(config.model.temperature);
-        let max_tokens = request.max_tokens.or(config.model.max_tokens);
         let model = request.model.as_deref().unwrap_or(&config.model.model);
+        let max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
+            let inferred = fastclaw_context::infer_output_limit_from_model(model);
+            if inferred > 0 { Some(inferred) } else { None }
+        });
 
         let mut lstate = LoopState::new();
 
@@ -341,7 +346,7 @@ impl AgentRuntime {
                     lstate.clear_error_streak();
                 }
 
-                let out = truncate_tool_result_output(&result.output);
+                let out = truncate_tool_result_output(&result.output, &tool_name);
                 messages.push(ChatMessage {
                     role: Role::Tool,
                     content: Some(serde_json::Value::String(out)),
@@ -475,17 +480,21 @@ impl AgentRuntime {
         };
 
         let temperature = request.temperature.unwrap_or(config.model.temperature);
-        let max_tokens = request.max_tokens.or(config.model.max_tokens);
         let model = request
             .model
             .as_deref()
             .unwrap_or(&config.model.model)
             .to_string();
+        let max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
+            let inferred = fastclaw_context::infer_output_limit_from_model(&model);
+            if inferred > 0 { Some(inferred) } else { None }
+        });
 
         let mut lstate = LoopState::new();
         let stream_start = std::time::Instant::now();
         let mut acc_prompt_tokens: u32 = 0;
         let mut acc_completion_tokens: u32 = 0;
+        let mut last_estimated_tokens: usize = 0;
 
         loop {
             if lstate.error_limit_reached {
@@ -513,11 +522,85 @@ impl AgentRuntime {
 
             lstate.iteration += 1;
 
+            // ── Context window management ───────────────────────────────
+            let context_window = config.model.context_window.unwrap_or(
+                fastclaw_context::infer_context_window_from_model(&config.model.model),
+            );
+
+            // Phase 0a: Microcompact old tool results (keep last 5 intact)
+            microcompact_tool_results(&mut messages, 5);
+
+            // Phase 0b: Content filter — truncate oversized tool results, remove
+            // empty messages, deduplicate consecutive identical system messages.
+            {
+                let filter = fastclaw_context::ContentFilterHook::new(2000);
+                let _ = fastclaw_context::ContextHook::on_assemble(&filter, &mut messages).await;
+            }
+
+            // Phase 0c: System reminder — nudge every 20 user turns to keep the
+            // agent grounded on tool usage and memory in long conversations.
+            {
+                let reminder = fastclaw_context::SystemReminderHook::default();
+                let _ = fastclaw_context::ContextHook::on_assemble(&reminder, &mut messages).await;
+            }
+
+            // Phase 1: LLM-based compression at 70% threshold
+            let pre_compress_tokens = fastclaw_context::estimate_messages_tokens(&messages);
+            tracing::debug!(tokens = pre_compress_tokens, "pre-compact: entering LLM compression");
+
+            let provider_for_compress = match &llm_override {
+                Some(p) => p.clone(),
+                None => self.resolve_provider(&config.agent_id)?,
+            };
+            let compress_result = context_compressor::try_compress_chat(
+                &mut messages,
+                context_window,
+                &provider_for_compress,
+                &model,
+            ).await;
+
+            if compress_result.compressed {
+                tracing::info!(
+                    original = compress_result.original_tokens,
+                    new = compress_result.new_tokens,
+                    saved = compress_result.original_tokens.saturating_sub(compress_result.new_tokens),
+                    "post-compact: LLM compression reduced context"
+                );
+            }
+
+            // Phase 2: Hard fit messages within context window budget
+            last_estimated_tokens = fastclaw_context::ContextEngine::fit_to_context_window(
+                &mut messages,
+                context_window,
+                max_tokens,
+            );
+            let estimated_tokens = last_estimated_tokens;
+
+            // Phase 3: Warn if context usage is critically high (>90%)
+            let usage_ratio = estimated_tokens as f32 / context_window.max(1) as f32;
+            if usage_ratio > 0.90 {
+                let _ = send_stream_event(
+                    &tx,
+                    StreamEvent::ContextLimitWarning {
+                        used_tokens: estimated_tokens as u32,
+                        limit_tokens: context_window,
+                        message: format!(
+                            "Context usage is at {:.0}% ({}/{} tokens). Consider starting a new session.",
+                            usage_ratio * 100.0,
+                            estimated_tokens,
+                            context_window,
+                        ),
+                    },
+                    false,
+                ).await;
+            }
             tracing::info!(
                 agent_id = %config.agent_id,
                 model = %model,
                 iteration = lstate.iteration,
                 msg_count = messages.len(),
+                estimated_tokens,
+                context_window,
                 "streaming LLM call"
             );
 
@@ -605,6 +688,10 @@ impl AgentRuntime {
                     if let Some(ref u) = delta.usage {
                         acc_prompt_tokens += u.prompt_tokens;
                         acc_completion_tokens += u.completion_tokens;
+                        // Prefer API-reported prompt_tokens over local estimate
+                        if u.prompt_tokens > 0 {
+                            last_estimated_tokens = u.prompt_tokens as usize;
+                        }
                     }
 
                     if tool_call_accum.is_empty() {
@@ -654,8 +741,8 @@ impl AgentRuntime {
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: None,
-                        context_window: None,
+                        context_tokens: Some(last_estimated_tokens as u32),
+                        context_window: Some(context_window),
                     },
                     false,
                 )
@@ -686,8 +773,8 @@ impl AgentRuntime {
                         final_tool_calls: if final_tc.is_empty() { None } else { Some(final_tc) },
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: None,
-                        context_window: None,
+                        context_tokens: Some(last_estimated_tokens as u32),
+                        context_window: Some(context_window),
                     },
                     false,
                 )
@@ -715,8 +802,8 @@ impl AgentRuntime {
                         final_tool_calls: None,
                         usage: build_done_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: None,
-                        context_window: None,
+                        context_tokens: Some(last_estimated_tokens as u32),
+                        context_window: Some(context_window),
                     },
                     false,
                 )
@@ -834,13 +921,14 @@ impl AgentRuntime {
                     lstate.clear_error_streak();
                 }
 
-                let llm_out = truncate_tool_result_output(&result.output);
+                let llm_out = truncate_tool_result_output(&result.output, &tool_name);
                 let _ = send_stream_event(
                     &tx,
                     StreamEvent::ToolResult {
                         tool_name: tool_name.clone(),
                         call_id: call_id.clone(),
-                        output: result.output.clone(),
+                        output: result.ui_output().to_string(),
+                        display_output: result.display_output.clone(),
                         success: result.success,
                     },
                     false,
