@@ -363,12 +363,12 @@ async fn handle_stream(
                     });
                     yield Ok(format!("event: tool\ndata: {ev}\n\n"));
                 }
-                StreamEvent::ToolResult { tool_name, call_id, output, success } => {
+                StreamEvent::ToolResult { tool_name, call_id, output, display_output, success } => {
                     let ev = json!({
                         "type": "tool_result",
                         "tool": tool_name,
                         "call_id": call_id,
-                        "output": output,
+                        "output": display_output.as_ref().unwrap_or(&output),
                         "success": success,
                     });
                     yield Ok(format!("event: tool\ndata: {ev}\n\n"));
@@ -528,6 +528,14 @@ async fn handle_stream(
                         });
                     }
                     yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
+                }
+                StreamEvent::ContextLimitWarning { used_tokens, limit_tokens, message } => {
+                    let ev = json!({
+                        "usedTokens": used_tokens,
+                        "limitTokens": limit_tokens,
+                        "message": message,
+                    });
+                    yield Ok(format!("event: context_warning\ndata: {ev}\n\n"));
                 }
             }
         }

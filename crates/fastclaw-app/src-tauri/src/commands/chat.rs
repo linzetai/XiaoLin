@@ -206,15 +206,17 @@ pub async fn chat_stream(
                 tool_name,
                 call_id,
                 output,
+                display_output,
                 success,
             } => {
+                let ui_out = display_output.as_ref().unwrap_or(output);
                 if let Some(tc) = accumulated_tool_calls.iter_mut().find(|(cid, _, _, _, _)| cid == call_id) {
-                    tc.3 = Some(output.clone());
+                    tc.3 = Some(ui_out.clone());
                     tc.4 = *success;
                 }
                 let _ = channel.send(json!({
                     "type": "chat.tool.done",
-                    "data": {"tool": tool_name, "callId": call_id, "output": output, "success": success}
+                    "data": {"tool": tool_name, "callId": call_id, "output": ui_out, "success": success}
                 }));
             }
             StreamEvent::Done {
@@ -370,6 +372,12 @@ pub async fn chat_stream(
                 let _ = channel.send(json!({
                     "type": "chat.subagent.tool.done",
                     "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "output": output, "success": success}
+                }));
+            }
+            StreamEvent::ContextLimitWarning { used_tokens, limit_tokens, message } => {
+                let _ = channel.send(json!({
+                    "type": "chat.context.warning",
+                    "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "message": message}
                 }));
             }
             StreamEvent::SubAgentComplete { run_id, status, result, tool_calls_made, iterations, usage, elapsed_ms } => {

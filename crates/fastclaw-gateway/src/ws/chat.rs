@@ -548,12 +548,13 @@ pub fn event_to_response(
             tool_name,
             call_id,
             output,
+            display_output,
             success,
         } => WsResponse {
             id: req_id.clone(),
             msg_type: "chat.tool.done".into(),
             data: Some(
-                json!({"tool": tool_name, "callId": call_id, "output": output, "success": success}),
+                json!({"tool": tool_name, "callId": call_id, "output": display_output.as_ref().unwrap_or(output), "success": success}),
             ),
             error: None,
         },
@@ -694,5 +695,19 @@ pub fn event_to_response(
                 error: None,
             }
         }
+        StreamEvent::ContextLimitWarning {
+            used_tokens,
+            limit_tokens,
+            message,
+        } => WsResponse {
+            id: req_id.clone(),
+            msg_type: "chat.context.warning".into(),
+            data: Some(json!({
+                "usedTokens": used_tokens,
+                "limitTokens": limit_tokens,
+                "message": message,
+            })),
+            error: None,
+        },
     }
 }

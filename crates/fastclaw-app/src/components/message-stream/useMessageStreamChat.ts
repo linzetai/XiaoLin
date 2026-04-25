@@ -377,6 +377,17 @@ export function useMessageStreamChat({
             }
             break;
           }
+          case "chat.context.warning": {
+            const d = event.data;
+            if (d?.message && isActive()) {
+              addMessage(capturedAgentId, {
+                role: "system",
+                content: d.message as string,
+                timestamp: new Date(),
+              }, capturedChatId);
+            }
+            break;
+          }
           case "chat.subagent.start": {
             const d = event.data;
             if (!d?.runId) break;
