@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, Plus, Pencil, X, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Trash2 } from "lucide-react";
 import * as api from "../../lib/api";
-import * as transport from "../../lib/transport";
 import { SectionTitle } from "./SettingsShared";
+import { inferContextWindow, takeModelSnapshot, popModelSnapshot, hasModelSnapshots } from "../../lib/model-registry";
+import { useModelTest } from "../../lib/model-utils";
 
 
 /* ━━━ Models Tab ━━━ */
@@ -33,8 +34,6 @@ const EMPTY_MODEL: Omit<ModelConfigEntry, "key"> = {
   contextWindow: 0,
 };
 
-type TestStatus = "idle" | "testing" | "success" | "error";
-
 function ModelFormModal({
   entry,
   credential,
@@ -55,9 +54,8 @@ function ModelFormModal({
   const [form, setForm] = useState(entry);
   const [cred, setCred] = useState(credential);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
-  const [testMsg, setTestMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { testStatus, testMsg, runTest, resetTest } = useModelTest();
   const patch = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
   useEffect(() => {
@@ -68,38 +66,9 @@ function ModelFormModal({
     return () => window.removeEventListener("keydown", handleKey);
   }, [onCancel]);
 
-  const handleTest = async () => {
+  const handleTest = () => {
     const baseUrl = (form.baseUrl || cred.baseUrl || "").replace(/\/+$/, "");
-    const apiKey = cred.apiKey;
-    if (!baseUrl) { setTestStatus("error"); setTestMsg("请先填写 Base URL"); return; }
-    if (!apiKey || apiKey.startsWith("***")) { setTestStatus("error"); setTestMsg("请先填写有效的 API Key"); return; }
-    setTestStatus("testing");
-    setTestMsg("");
-    try {
-      if (transport.isTauri) {
-        await transport.testModelConnection(baseUrl, apiKey, form.model || undefined);
-        setTestStatus("success");
-        setTestMsg("连接成功");
-      } else {
-        const resp = await fetch(`${baseUrl}/models`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(10000),
-        });
-        if (resp.ok) {
-          setTestStatus("success");
-          setTestMsg("连接成功");
-        } else {
-          const body = await resp.text().catch(() => "");
-          setTestStatus("error");
-          setTestMsg(`HTTP ${resp.status}${body ? `: ${body.slice(0, 80)}` : ""}`);
-        }
-      }
-    } catch (err: unknown) {
-      setTestStatus("error");
-      const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "连接失败";
-      setTestMsg(msg.length > 120 ? msg.slice(0, 120) + "…" : msg);
-    }
+    runTest(baseUrl, cred.apiKey, form.model || undefined);
   };
 
   const inputCls = "w-full rounded-[6px] px-3 py-2 text-[13px] outline-none transition-all focus:ring-2 focus:ring-[var(--tint)]";
@@ -144,7 +113,14 @@ function ModelFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls} style={labelStyle}>模型名称</label>
-              <input value={form.model} onChange={(e) => patch("model", e.target.value)} placeholder="例: gpt-4o" className={inputCls} style={inputStyle} />
+              <input value={form.model} onChange={(e) => {
+                const modelId = e.target.value;
+                patch("model", modelId);
+                if (form.contextWindow === 0 && modelId) {
+                  const inferred = inferContextWindow(modelId);
+                  if (inferred !== 8192) patch("contextWindow", inferred);
+                }
+              }} placeholder="例: gpt-4o" className={inputCls} style={inputStyle} />
             </div>
             <div>
               <label className={labelCls} style={labelStyle}>Base URL</label>
@@ -179,7 +155,7 @@ function ModelFormModal({
               <input
                 type={showApiKey ? "text" : "password"}
                 value={cred.apiKey}
-                onChange={(e) => { setCred((c) => ({ ...c, apiKey: e.target.value })); if (testStatus !== "idle") setTestStatus("idle"); }}
+                onChange={(e) => { setCred((c) => ({ ...c, apiKey: e.target.value })); if (testStatus !== "idle") resetTest(); }}
                 placeholder="sk-..."
                 className={`${inputCls} pr-20 font-mono`}
                 style={inputStyle}
@@ -398,6 +374,7 @@ export function ModelTab() {
       return;
     }
     setSaving(true);
+    takeModelSnapshot(modelsConfig, credentials as Record<string, Record<string, unknown>>);
     try {
       const targetKey = entry.key;
       const newModels = { ...modelsConfig };
@@ -451,6 +428,7 @@ export function ModelTab() {
 
   const handleDelete = async (key: string) => {
     setSaving(true);
+    takeModelSnapshot(modelsConfig, credentials as Record<string, Record<string, unknown>>);
     try {
       const newModels = { ...modelsConfig };
       delete newModels[key];
@@ -461,6 +439,23 @@ export function ModelTab() {
       showToast(`已删除「${key}」`, "ok");
     } catch {
       showToast("删除失败", "err");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRollback = async () => {
+    const snapshot = popModelSnapshot();
+    if (!snapshot) return;
+    setSaving(true);
+    try {
+      await api.setConfig("models", snapshot.models);
+      await api.setConfig("credentials", snapshot.credentials);
+      loadData();
+      window.dispatchEvent(new CustomEvent("fastclaw:models-updated"));
+      showToast("已回滚到上一个配置", "ok");
+    } catch {
+      showToast("回滚失败", "err");
     } finally {
       setSaving(false);
     }
@@ -491,14 +486,26 @@ export function ModelTab() {
       )}
       <div className="flex items-center justify-between">
         <SectionTitle>已配置模型 ({entries.length})</SectionTitle>
-        <button
-          onClick={() => { setAdding(true); setEditing(null); }}
-          className="flex cursor-pointer items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
-          style={{ color: "var(--tint)" }}
-        >
-          <Plus size={12} strokeWidth={2} />
-          新增模型
-        </button>
+        <div className="flex items-center gap-2">
+          {hasModelSnapshots() && (
+            <button
+              onClick={handleRollback}
+              disabled={saving}
+              className="flex cursor-pointer items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80 disabled:opacity-40"
+              style={{ color: "var(--fill-tertiary)" }}
+            >
+              撤销
+            </button>
+          )}
+          <button
+            onClick={() => { setAdding(true); setEditing(null); }}
+            className="flex cursor-pointer items-center gap-1 rounded-[6px] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
+            style={{ color: "var(--tint)" }}
+          >
+            <Plus size={12} strokeWidth={2} />
+            新增模型
+          </button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
