@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use base64::Engine;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 use crate::client::FeishuClient;
@@ -217,6 +218,246 @@ impl Tool for FeishuGetChatMessagesTool {
         {
             Ok(data) => ToolResult::ok(serde_json::to_string(&data).unwrap_or_default()),
             Err(e) => ToolResult::err(format!("feishu get messages failed: {e}")),
+        }
+    }
+}
+
+/// Tool: feishu_send_image — Send an image to a Feishu user or group.
+pub struct FeishuSendImageTool {
+    client: Arc<FeishuClient>,
+}
+
+impl FeishuSendImageTool {
+    pub fn new(client: Arc<FeishuClient>) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait]
+impl Tool for FeishuSendImageTool {
+    fn name(&self) -> &str {
+        "feishu_send_image"
+    }
+
+    fn description(&self) -> &str {
+        "Send an image to a Feishu (Lark) user or group chat. \
+         Provide either image_data (base64-encoded image) or image_url. \
+         Supported formats: png, jpeg, gif, webp."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "receive_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The ID of the recipient (user or chat)"
+            }),
+        );
+        properties.insert(
+            "receive_id_type".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["open_id", "chat_id", "user_id", "union_id", "email"],
+                "description": "Type of receive_id"
+            }),
+        );
+        properties.insert(
+            "image_data".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Base64-encoded image data (optional if image_url is provided)"
+            }),
+        );
+        properties.insert(
+            "image_url".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "URL of the image to send (optional if image_data is provided)"
+            }),
+        );
+        properties.insert(
+            "image_type".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"],
+                "default": "image/png",
+                "description": "MIME type of the image"
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties,
+            required: vec!["receive_id".to_string(), "receive_id_type".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+        };
+
+        let receive_id = args["receive_id"].as_str().unwrap_or("");
+        let receive_id_type = args["receive_id_type"].as_str().unwrap_or("chat_id");
+        let image_type = args["image_type"].as_str().unwrap_or("image/png");
+
+        let image_data = if let Some(url) = args["image_url"].as_str() {
+            if url.is_empty() {
+                return ToolResult::err("either image_data (base64) or image_url must be provided");
+            }
+            match reqwest::get(url).await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.bytes().await {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
+                    }
+                }
+                Ok(resp) => return ToolResult::err(format!("image download failed: HTTP {}", resp.status())),
+                Err(e) => return ToolResult::err(format!("failed to download image: {e}")),
+            }
+        } else if let Some(b64) = args["image_data"].as_str() {
+            if b64.is_empty() {
+                return ToolResult::err("either image_data (base64) or image_url must be provided");
+            }
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(data) => data,
+                Err(e) => return ToolResult::err(format!("invalid base64: {e}")),
+            }
+        } else {
+            return ToolResult::err("either image_data (base64) or image_url must be provided");
+        };
+
+        match self.client.upload_image(image_type, &image_data).await {
+            Ok(image_key) => {
+                match self.client.send_image(receive_id, receive_id_type, &image_key).await {
+                    Ok(result) => ToolResult::ok(serde_json::json!({
+                        "success": true,
+                        "message": "image sent successfully",
+                        "result": result,
+                        "image_key": image_key
+                    }).to_string()),
+                    Err(e) => ToolResult::err(format!("send image failed: {e}")),
+                }
+            }
+            Err(e) => ToolResult::err(format!("upload failed: {e}")),
+        }
+    }
+}
+
+/// Tool: feishu_reply_image — Reply with an image to a Feishu message.
+pub struct FeishuReplyImageTool {
+    client: Arc<FeishuClient>,
+}
+
+impl FeishuReplyImageTool {
+    pub fn new(client: Arc<FeishuClient>) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait]
+impl Tool for FeishuReplyImageTool {
+    fn name(&self) -> &str {
+        "feishu_reply_image"
+    }
+
+    fn description(&self) -> &str {
+        "Reply with an image to a specific Feishu message. \
+         Provide either image_data (base64-encoded image) or image_url."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "message_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The message ID to reply to"
+            }),
+        );
+        properties.insert(
+            "image_data".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Base64-encoded image data (optional if image_url is provided)"
+            }),
+        );
+        properties.insert(
+            "image_url".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "URL of the image to send (optional if image_data is provided)"
+            }),
+        );
+        properties.insert(
+            "image_type".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"],
+                "default": "image/png",
+                "description": "MIME type of the image"
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties,
+            required: vec!["message_id".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+        };
+
+        let message_id = args["message_id"].as_str().unwrap_or("");
+        let image_type = args["image_type"].as_str().unwrap_or("image/png");
+
+        if message_id.is_empty() {
+            return ToolResult::err("message_id is required");
+        }
+
+        let image_data = if let Some(url) = args["image_url"].as_str() {
+            if url.is_empty() {
+                return ToolResult::err("either image_data (base64) or image_url must be provided");
+            }
+            match reqwest::get(url).await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.bytes().await {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
+                    }
+                }
+                Ok(resp) => return ToolResult::err(format!("image download failed: HTTP {}", resp.status())),
+                Err(e) => return ToolResult::err(format!("failed to download image: {e}")),
+            }
+        } else if let Some(b64) = args["image_data"].as_str() {
+            if b64.is_empty() {
+                return ToolResult::err("either image_data (base64) or image_url must be provided");
+            }
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(data) => data,
+                Err(e) => return ToolResult::err(format!("invalid base64: {e}")),
+            }
+        } else {
+            return ToolResult::err("either image_data (base64) or image_url must be provided");
+        };
+
+        match self.client.upload_image(image_type, &image_data).await {
+            Ok(image_key) => {
+                match self.client.reply_image(message_id, &image_key).await {
+                    Ok(result) => ToolResult::ok(serde_json::json!({
+                        "success": true,
+                        "message": "image replied successfully",
+                        "result": result,
+                        "image_key": image_key
+                    }).to_string()),
+                    Err(e) => ToolResult::err(format!("reply image failed: {e}")),
+                }
+            }
+            Err(e) => ToolResult::err(format!("upload failed: {e}")),
         }
     }
 }

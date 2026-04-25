@@ -345,12 +345,15 @@ impl ChannelPlugin for FeishuPlugin {
     fn tools(&self) -> Vec<Arc<dyn Tool>> {
         use crate::tools::{
             FeishuBitableListRecordsTool, FeishuCalendarListEventsTool, FeishuDocCreateTool,
-            FeishuDocGetContentTool, FeishuTaskCreateTool, FeishuTaskListTool,
+            FeishuDocGetContentTool, FeishuSendImageTool, FeishuReplyImageTool,
+            FeishuTaskCreateTool, FeishuTaskListTool,
         };
         vec![
             Arc::new(FeishuSendMessageTool::new(self.client.clone())),
             Arc::new(FeishuReplyMessageTool::new(self.client.clone())),
             Arc::new(FeishuGetChatMessagesTool::new(self.client.clone())),
+            Arc::new(FeishuSendImageTool::new(self.client.clone())),
+            Arc::new(FeishuReplyImageTool::new(self.client.clone())),
             Arc::new(FeishuTaskCreateTool::new(self.client.clone())),
             Arc::new(FeishuTaskListTool::new(self.client.clone())),
             Arc::new(FeishuBitableListRecordsTool::new(self.client.clone())),
@@ -451,7 +454,7 @@ mod tests {
     #[test]
     fn plugin_tools_count() {
         let plugin = FeishuPlugin::new(test_config());
-        assert_eq!(plugin.tools().len(), 9);
+        assert_eq!(plugin.tools().len(), 11);
     }
 
     #[test]

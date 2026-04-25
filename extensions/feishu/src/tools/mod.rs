@@ -8,5 +8,5 @@ pub mod task;
 pub use bitable::FeishuBitableListRecordsTool;
 pub use calendar::FeishuCalendarListEventsTool;
 pub use doc::{FeishuDocCreateTool, FeishuDocGetContentTool};
-pub use im_tools::{FeishuGetChatMessagesTool, FeishuReplyMessageTool, FeishuSendMessageTool};
+pub use im_tools::{FeishuGetChatMessagesTool, FeishuReplyImageTool, FeishuReplyMessageTool, FeishuSendImageTool, FeishuSendMessageTool};
 pub use task::{FeishuTaskCreateTool, FeishuTaskListTool};

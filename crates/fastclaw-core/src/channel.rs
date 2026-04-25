@@ -62,6 +62,9 @@ pub struct OutboundMessage {
     pub text: String,
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// Image key for channels that support image messages (e.g., Feishu image_key).
+    #[serde(default)]
+    pub image_key: Option<String>,
 }
 
 /// Result of handling a webhook.

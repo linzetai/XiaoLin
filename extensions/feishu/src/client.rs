@@ -424,6 +424,108 @@ impl FeishuClient {
         .to_string()
     }
 
+    /// Upload an image to Feishu and return the image_key.
+    /// `image_type` is one of: "image/png", "image/jpeg", "image/gif", "image/webp".
+    /// `data` is the raw image bytes.
+    pub async fn upload_image(
+        &self,
+        image_type: &str,
+        data: &[u8],
+    ) -> anyhow::Result<String> {
+        let token = self.get_tenant_token().await?;
+        let url = format!("{}/im/v1/images", self.base_url);
+
+        let form = reqwest::multipart::Form::new()
+            .part("image_type", reqwest::multipart::Part::text(image_type.to_string()))
+            .part(
+                "image",
+                reqwest::multipart::Part::bytes(data.to_vec())
+                    .file_name("image.png")
+                    .mime_str(image_type)?,
+            );
+
+        let resp: ApiResponse = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .multipart(form)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if resp.code != 0 {
+            anyhow::bail!("Feishu upload image error ({}): {}", resp.code, resp.msg);
+        }
+
+        let data = resp.data.ok_or_else(|| anyhow::anyhow!("no data in upload image response"))?;
+        let image_key = data
+            .get("image_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("no image_key in upload image response"))?;
+
+        Ok(image_key.to_string())
+    }
+
+    /// Send an image message to a chat/user.
+    pub async fn send_image(&self, receive_id: &str, receive_id_type: &str, image_key: &str) -> anyhow::Result<serde_json::Value> {
+        let token = self.get_tenant_token().await?;
+        let url = format!("{}/im/v1/messages?receive_id_type={}", self.base_url, receive_id_type);
+
+        let content = serde_json::json!({ "image_key": image_key }).to_string();
+
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "image",
+            "content": content,
+        });
+
+        let resp: ApiResponse = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if resp.code != 0 {
+            anyhow::bail!("Feishu send image error ({}): {}", resp.code, resp.msg);
+        }
+
+        Ok(resp.data.unwrap_or(serde_json::Value::Null))
+    }
+
+    /// Reply with an image to a specific message.
+    pub async fn reply_image(&self, message_id: &str, image_key: &str) -> anyhow::Result<serde_json::Value> {
+        let token = self.get_tenant_token().await?;
+        let url = format!("{}/im/v1/messages/{}/reply", self.base_url, message_id);
+
+        let content = serde_json::json!({ "image_key": image_key }).to_string();
+
+        let body = serde_json::json!({
+            "msg_type": "image",
+            "content": content,
+        });
+
+        let resp: ApiResponse = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if resp.code != 0 {
+            anyhow::bail!("Feishu reply image error ({}): {}", resp.code, resp.msg);
+        }
+
+        Ok(resp.data.unwrap_or(serde_json::Value::Null))
+    }
+
     /// Retrieve recent messages from a chat.
     pub async fn get_chat_messages(
         &self,
