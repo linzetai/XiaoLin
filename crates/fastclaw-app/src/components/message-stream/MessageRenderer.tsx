@@ -4,7 +4,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ToolCallCard } from "./ToolCallCard";
 import { SubAgentCard } from "./SubAgentCard";
 import {
-  Clock, ArrowUpRight, ArrowDownRight,
+  Clock, ArrowUpRight, ArrowDownRight, Copy, Check,
 } from "lucide-react";
 import type { StreamSegment } from "./types";
 
@@ -25,20 +25,40 @@ function parseUserContent(content: string): { text: string; tags: Array<{ type: 
   return { text, tags };
 }
 
-function UserBubble({ msg }: { msg: ChatMessage }) {
+function UserBubble({ msg, copyable, selected, onToggleSelect }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void }) {
   const { text, tags } = useMemo(() => parseUserContent(msg.content), [msg.content]);
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
   return (
-    <div className="pb-5 flex justify-end" style={{ animation: "slide-right 0.2s ease-out" }}>
+    <div className="pb-5 flex justify-end group/message" style={{ animation: "slide-right 0.2s ease-out" }}>
       <div className="flex flex-col items-end" style={{ maxWidth: "65%" }}>
-        <div
-          className="rounded-2xl px-4 py-3 text-[15px] leading-[1.6] break-words"
-          style={{
-            background: "var(--bubble-user)",
-            color: "var(--bubble-user-text)",
-            borderTopRightRadius: 6,
-            overflowWrap: "anywhere",
-          }}
-        >
+        <div className="flex items-start gap-2">
+          {onToggleSelect && (
+            <button
+              onClick={onToggleSelect}
+              className="mt-3 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors duration-100 hover:border-[var(--fill-secondary)]"
+              style={{
+                borderColor: selected ? "var(--tint)" : "var(--fill-quaternary)",
+                background: selected ? "var(--tint)" : "transparent",
+              }}
+            >
+              {selected && <Check size={10} strokeWidth={2.5} style={{ color: "white" }} />}
+            </button>
+          )}
+          <div
+            className="rounded-2xl px-4 py-3 text-[15px] leading-[1.6] break-words relative"
+            style={{
+              background: "var(--bubble-user)",
+              color: "var(--bubble-user-text)",
+              borderTopRightRadius: 6,
+              overflowWrap: "anywhere",
+            }}
+          >
           {text}
           {msg.images && msg.images.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -78,6 +98,17 @@ function UserBubble({ msg }: { msg: ChatMessage }) {
               )}
             </div>
           )}
+          </div>
+          {copyable && (
+            <button
+              onClick={handleCopy}
+              className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors duration-100 hover:bg-[var(--bg-hover)] opacity-0 group-hover/message:opacity-100"
+              style={{ color: "var(--fill-tertiary)" }}
+              title="复制"
+            >
+              {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.5} />}
+            </button>
+          )}
         </div>
         <span className="mt-1 pr-1 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
           {ts(msg.timestamp)}
@@ -87,10 +118,31 @@ function UserBubble({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function AiMessage({ msg, usage }: { msg: ChatMessage; usage?: ChatUsage }) {
+function AiMessage({ msg, usage, copyable, selected, onToggleSelect }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void }) {
   const toolCalls = msg.toolCalls;
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(msg.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [msg.content]);
   return (
-    <div className="pb-7" style={{ animation: "slide-left 0.2s ease-out", maxWidth: "75%" }}>
+    <div className="pb-7 group/message" style={{ animation: "slide-left 0.2s ease-out", maxWidth: "75%" }}>
+      <div className="flex items-start gap-2">
+        {onToggleSelect && (
+          <button
+            onClick={onToggleSelect}
+            className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors duration-100 hover:border-[var(--fill-secondary)]"
+            style={{
+              borderColor: selected ? "var(--tint)" : "var(--fill-quaternary)",
+              background: selected ? "var(--tint)" : "transparent",
+            }}
+          >
+            {selected && <Check size={10} strokeWidth={2.5} style={{ color: "white" }} />}
+          </button>
+        )}
+        <div className="flex-1 min-w-0">
       {toolCalls && toolCalls.length > 0 && (
         <div className="mb-2">
           {toolCalls.map((tc) => (
@@ -119,6 +171,18 @@ function AiMessage({ msg, usage }: { msg: ChatMessage; usage?: ChatUsage }) {
               {formatTokens(usage.completionTokens)}
             </span>
           </>
+        )}
+      </div>
+        </div>
+        {copyable && (
+          <button
+            onClick={handleCopy}
+            className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors duration-100 hover:bg-[var(--bg-hover)] opacity-0 group-hover/message:opacity-100"
+            style={{ color: "var(--fill-tertiary)" }}
+            title="复制"
+          >
+            {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.5} />}
+          </button>
         )}
       </div>
     </div>
@@ -362,6 +426,9 @@ export interface MessageRendererRowProps {
   streamSegments: StreamSegment[];
   subAgentRuns: Record<string, SubAgentRunUI> | undefined;
   bottomRef: React.RefObject<HTMLDivElement | null>;
+  selectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (fullIdx: number) => void;
 }
 
 export function MessageRendererRow({
@@ -374,6 +441,9 @@ export function MessageRendererRow({
   streamSegments,
   subAgentRuns,
   bottomRef,
+  selectMode,
+  isSelected,
+  onToggleSelect,
 }: MessageRendererRowProps) {
   const m = item.data as StreamableMsg;
 
@@ -431,9 +501,24 @@ export function MessageRendererRow({
         background: isCurrent ? "var(--tint-bg)" : isMatch ? "var(--tint-subtle)" : "transparent",
       }}
     >
-      {cm.role === "user" ? <UserBubble msg={cm} /> :
-       cm.role === "system" ? <SystemMsg msg={cm} /> :
-       <AiMessage msg={cm} usage={cm.usage} />}
+      {cm.role === "user" ? (
+        <UserBubble
+          msg={cm}
+          copyable
+          selected={selectMode ? isSelected : undefined}
+          onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
+        />
+      ) : cm.role === "system" ? (
+        <SystemMsg msg={cm} />
+      ) : (
+        <AiMessage
+          msg={cm}
+          usage={cm.usage}
+          copyable
+          selected={selectMode ? isSelected : undefined}
+          onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
+        />
+      )}
     </div>
   );
 }

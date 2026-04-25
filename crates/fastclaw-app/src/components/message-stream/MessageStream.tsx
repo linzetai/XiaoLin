@@ -3,10 +3,11 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useAgentStore } from "../../lib/agent-store";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
 import { MessageRendererRow } from "./MessageRenderer";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { StreamFooter, type AttachedFile, MOD_KEY } from "./StreamFooter";
 import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
-import { X, ChevronUp, ChevronDown, Settings2, Upload, Search } from "lucide-react";
+import { X, ChevronUp, ChevronDown, Settings2, Upload, Search, CheckSquare, Square, FileText, Code, Check, Copy } from "lucide-react";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { ChatTabsBar } from "./ChatTabsBar";
@@ -148,6 +149,103 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
     api.listSkills().then(setBackendSkills).catch(() => {});
   }, []);
 
+  // --- Selection & Export ---
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [exportToast, setExportToast] = useState<string | null>(null);
+
+  const toggleSelect = useCallback((fullIdx: number) => {
+    setSelectedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullIdx)) next.delete(fullIdx);
+      else next.add(fullIdx);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    const msgs = stream.filter((item) => item.data.role !== "streaming");
+    setSelectedIndices(new Set(msgs.map((_, i) => i)));
+  }, [stream]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIndices(new Set());
+    setSelectMode(false);
+  }, []);
+
+  const showToast = useCallback((msg: string) => {
+    setExportToast(msg);
+    setTimeout(() => setExportToast(null), 2500);
+  }, []);
+
+  const buildMarkdown = useCallback((messages: ChatMessage[]): string => {
+    const lines: string[] = [];
+    lines.push(`# 对话导出 - ${agent.name}`);
+    lines.push("");
+    lines.push(`**时间:** ${new Date().toLocaleString("zh-CN")}`);
+    if (activeChat) {
+      lines.push(`**会话:** ${activeChat.title || activeChat.id.slice(0, 8)}`);
+    }
+    lines.push("");
+    lines.push("---");
+    for (const msg of messages) {
+      const time = msg.timestamp instanceof Date ? msg.timestamp.toLocaleString("zh-CN") : "";
+      const role = msg.role === "user" ? "用户" : msg.role === "system" ? "系统" : agent.name;
+      lines.push("");
+      lines.push(`## ${time} — ${role}`);
+      if (msg.content) lines.push(msg.content);
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        lines.push("");
+        for (const tc of msg.toolCalls) {
+          lines.push(`**工具调用:** ${tc.name}`);
+          if (tc.arguments) lines.push("```json\n" + tc.arguments + "\n```");
+        }
+      }
+    }
+    return lines.join("\n");
+  }, [agent.name, activeChat]);
+
+  const buildJson = useCallback((messages: ChatMessage[]): string => {
+    return JSON.stringify(messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+      toolCalls: m.toolCalls,
+      usage: m.usage,
+    })), null, 2);
+  }, []);
+
+  const downloadFile = useCallback((filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const exportMessages = useCallback((format: "md" | "json") => {
+    const msgs = stream
+      .filter((item) => item.data.role !== "streaming")
+      .map((item) => item.data as ChatMessage);
+    const selected = msgs.filter((_, i) => selectedIndices.has(i));
+    const toExport = selected.length > 0 ? msgs : selected;
+    if (toExport.length === 0) { showToast("没有可导出的消息"); return; }
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    if (format === "md") {
+      const md = buildMarkdown(toExport);
+      downloadFile(`chat-export-${ts}.md`, md, "text/markdown");
+      showToast(`已导出 ${toExport.length} 条消息为 Markdown`);
+    } else {
+      const json = buildJson(toExport);
+      downloadFile(`chat-export-${ts}.json`, json, "application/json");
+      showToast(`已导出 ${toExport.length} 条消息为 JSON`);
+    }
+  }, [stream, selectedIndices, buildMarkdown, buildJson, downloadFile, showToast]);
+
   const mentionOptions: MentionOption[] = useMemo(() => {
     const opts: MentionOption[] = [];
     if (workDir) {
@@ -264,6 +362,9 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
   });
 
   const isEmpty = stream.length === 0 && !streaming;
+
+  const hasTextSegment = streamSegments.some((s) => s.type === "text");
+  const showThinking = streaming && !hasTextSegment;
 
   return (
     <div
@@ -451,6 +552,12 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
             Footer: () => <div className="h-8" />,
           }}
         />
+      )}
+
+      {showThinking && (
+        <div className="px-8 py-2">
+          <ThinkingIndicator />
+        </div>
       )}
 
       <StreamFooter
