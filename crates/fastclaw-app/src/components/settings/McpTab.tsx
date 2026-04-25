@@ -3,6 +3,8 @@ import { Plug, ChevronDown, RefreshCw, Plus, Pencil, Trash2, ToggleLeft, ToggleR
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { SectionTitle } from "./SettingsShared";
+import { McpInstallGuide } from "./McpInstallGuide";
+import { McpServerCard, McpServerForm, useMcpManager } from "./McpManager";
 
 
 /* ━━━ MCP Tab ━━━ */
@@ -238,21 +240,55 @@ export function McpTab() {
     <div className="space-y-3 rounded-[var(--radius-sm)] p-4" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator-opaque)" }}>
       <div>
         <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>ID</label>
-        <input style={inputStyle} value={draft.id} disabled={!!editingId} onChange={(e) => setDraft({ ...draft, id: e.target.value })} placeholder="e.g. chrome-devtools" />
+        <input 
+          style={inputStyle} 
+          value={draft.id} 
+          disabled={!!editingId} 
+          onChange={(e) => setDraft({ ...draft, id: e.target.value })} 
+          placeholder="e.g. chrome-devtools" 
+        />
       </div>
       <div>
         <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Command</label>
-        <input style={inputStyle} value={draft.command} onChange={(e) => setDraft({ ...draft, command: e.target.value })} placeholder="e.g. npx" />
+        <input 
+          style={inputStyle} 
+          value={draft.command} 
+          onChange={(e) => setDraft({ ...draft, command: e.target.value })} 
+          placeholder="e.g. npx" 
+        />
       </div>
       <div>
         <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Args (逗号分隔)</label>
-        <input style={inputStyle} value={draft.args.join(", ")} onChange={(e) => setDraft({ ...draft, args: e.target.value.split(",").map((a) => a.trim()).filter(Boolean) })} placeholder="e.g. -y, @anthropic-ai/chrome-devtools-mcp@latest" />
+        <input 
+          style={inputStyle} 
+          value={draft.args.join(", ")} 
+          onChange={(e) => setDraft({ 
+            ...draft, 
+            args: e.target.value 
+              .split(",") 
+              .map((a) => a.trim()) 
+              .filter(Boolean) 
+          })} 
+          placeholder="e.g. -y, @anthropic-ai/chrome-devtools-mcp@latest" 
+        />
       </div>
       <div className="flex gap-2 pt-1">
-        <button onClick={saveDraft} disabled={!draft.id.trim() || !draft.command.trim()} className="rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium transition-colors duration-100" style={{ background: "var(--accent)", color: "#fff", opacity: (!draft.id.trim() || !draft.command.trim()) ? 0.5 : 1, cursor: (!draft.id.trim() || !draft.command.trim()) ? "not-allowed" : "pointer" }}>
+        <button 
+          onClick={saveDraft} 
+          disabled={!draft.id.trim() || !draft.command.trim()} 
+          className="rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ 
+            background: "var(--accent)", 
+            color: "#fff" 
+          }}
+        >
           {editingId ? "保存" : "添加"}
         </button>
-        <button onClick={cancelEdit} className="rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium cursor-pointer transition-colors duration-100 hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-secondary)" }}>
+        <button 
+          onClick={cancelEdit} 
+          className="rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium cursor-pointer transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+          style={{ color: "var(--fill-secondary)" }}
+        >
           取消
         </button>
       </div>
@@ -284,6 +320,8 @@ export function McpTab() {
           )}
         </div>
       </div>
+      
+      <McpInstallGuide />
 
       {adding && renderForm()}
 
