@@ -374,7 +374,7 @@ export function ModelTab() {
       return;
     }
     setSaving(true);
-    takeModelSnapshot(modelsConfig, credentials as Record<string, Record<string, unknown>>);
+    takeModelSnapshot(modelsConfig, credentials as unknown as Record<string, Record<string, unknown>>);
     try {
       const targetKey = entry.key;
       const newModels = { ...modelsConfig };
@@ -428,7 +428,7 @@ export function ModelTab() {
 
   const handleDelete = async (key: string) => {
     setSaving(true);
-    takeModelSnapshot(modelsConfig, credentials as Record<string, Record<string, unknown>>);
+    takeModelSnapshot(modelsConfig, credentials as unknown as Record<string, Record<string, unknown>>);
     try {
       const newModels = { ...modelsConfig };
       delete newModels[key];

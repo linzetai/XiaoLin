@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Terminal, Package, Download, Settings, BookOpen, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { Terminal, Package, Download, Settings, BookOpen, AlertTriangle } from "lucide-react";
 import { SectionTitle } from "./SettingsShared";
 
 export function McpInstallGuide() {

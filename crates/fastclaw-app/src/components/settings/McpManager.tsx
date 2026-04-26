@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Terminal, Package, Download, Settings, BookOpen, AlertTriangle, CheckCircle, XCircle, Play, Square, RotateCcw } from "lucide-react";
+import { Settings, CheckCircle, XCircle, Play, Square, RotateCcw, Plug } from "lucide-react";
 
 interface McpServerStatus {
   id: string;

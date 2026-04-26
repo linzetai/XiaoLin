@@ -4,7 +4,6 @@ import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { SectionTitle } from "./SettingsShared";
 import { McpInstallGuide } from "./McpInstallGuide";
-import { McpServerCard, McpServerForm, useMcpManager } from "./McpManager";
 
 
 /* ━━━ MCP Tab ━━━ */

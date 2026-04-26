@@ -39,22 +39,23 @@ export function MigrationTab() {
 
       // 保存文件
       const fileName = `fastclaw-backup-${new Date().toISOString().split('T')[0]}.fcdata`;
-      await window.__TAURI__.dialog.save({
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const filePath = await save({
         filters: [{
           name: "FastClaw Data File",
           extensions: ["fcdata"]
         }],
         defaultPath: fileName
-      }).then(async (filePath) => {
-        if (filePath) {
-          await window.__TAURI__.fs.writeBinaryFile(filePath, Array.from(data));
-          setProgress(100);
-          setExportStatus("success");
-          setTimeout(() => setExportStatus("idle"), 3000);
-        } else {
-          setExportStatus("idle");
-        }
       });
+      if (filePath) {
+        const { writeFile } = await import("@tauri-apps/plugin-fs");
+        await writeFile(filePath, data);
+        setProgress(100);
+        setExportStatus("success");
+        setTimeout(() => setExportStatus("idle"), 3000);
+      } else {
+        setExportStatus("idle");
+      }
     } catch (error) {
       setExportStatus("error");
       console.error("导出失败:", error);
@@ -78,7 +79,8 @@ export function MigrationTab() {
       }, 300);
 
       // 选择文件
-      const selected = await window.__TAURI__.dialog.open({
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
         filters: [{
           name: "FastClaw Data Files",
           extensions: ["fcdata", "json"]
@@ -87,8 +89,8 @@ export function MigrationTab() {
       });
 
       if (selected) {
-        // 读取文件内容
-        const fileContents = await window.__TAURI__.fs.readBinaryFile(selected);
+        const { readFile } = await import("@tauri-apps/plugin-fs");
+        const fileContents = await readFile(selected as string);
         clearInterval(progressInterval);
         setProgress(70);
 
