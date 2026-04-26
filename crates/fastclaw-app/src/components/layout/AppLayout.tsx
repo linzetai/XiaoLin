@@ -6,6 +6,7 @@ import { AgentDetail } from "../agent-detail/AgentDetail";
 import { MessageStream } from "../message-stream/MessageStream";
 import { TitleBar } from "./TitleBar";
 import { ClawIcon } from "./ClawIcon";
+import { UpdateBanner } from "./UpdateBanner";
 import { OnboardingWizard } from "../onboarding/OnboardingWizard";
 import * as api from "../../lib/api";
 
@@ -97,6 +98,7 @@ export function AppLayout() {
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--bg-primary)" }}>
       <TitleBar />
+      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         <AgentList />
         <main className="relative flex min-w-0 flex-1 flex-col">
