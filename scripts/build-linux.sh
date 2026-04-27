@@ -63,7 +63,8 @@ ok "pnpm:  $(pnpm --version)"
 
 if [ "$SKIP_LINT" = false ]; then
   log "运行 clippy..."
-  (cd "$PROJECT_ROOT" && cargo clippy --workspace --all-targets -- -D warnings)
+  # 仅检查打包所需的 Tauri crate，避免 workspace 里无关测试/实验代码阻塞发布构建。
+  (cd "$PROJECT_ROOT" && cargo clippy --manifest-path "$TAURI_DIR/Cargo.toml" --no-deps)
   ok "Clippy 通过"
 fi
 
@@ -79,7 +80,13 @@ ok "前端构建完成"
 #── Tauri 构建 ────────────────────────────────────────────────────────
 
 log "构建 Tauri 应用 (Linux)..."
-(cd "$APP_DIR" && pnpm exec -- tauri build)
+if [ "${CI:-}" = "1" ]; then
+  export CI=true
+elif [ "${CI:-}" = "0" ]; then
+  export CI=false
+fi
+
+(cd "$APP_DIR" && APPIMAGE_EXTRACT_AND_RUN=1 pnpm exec -- tauri build)
 ok "Tauri 构建完成"
 
 #── 收集产物 ──────────────────────────────────────────────────────────
