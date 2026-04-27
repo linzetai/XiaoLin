@@ -376,6 +376,17 @@ async fn handle_stream(
                     }
                     yield Ok(format!("event: tool\ndata: {ev}\n\n"));
                 }
+                StreamEvent::ToolProgress { tool_name, call_id, message, progress, partial_output } => {
+                    let ev = json!({
+                        "type": "tool_progress",
+                        "tool": tool_name,
+                        "call_id": call_id,
+                        "message": message,
+                        "progress": progress,
+                        "partial_output": partial_output,
+                    });
+                    yield Ok(format!("event: tool\ndata: {ev}\n\n"));
+                }
                 StreamEvent::Done { session_id, tool_calls_made, iterations, final_tool_calls, usage, elapsed_ms, .. } => {
                     record_chat_budget_stream_estimate(
                         &state_budget,

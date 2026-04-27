@@ -58,7 +58,8 @@ impl LoopState {
                 .as_deref()
                 .unwrap_or("unknown error");
             let truncated = if err_msg.len() > 200 {
-                format!("{}...", &err_msg[..200])
+                let end = err_msg.floor_char_boundary(200);
+                format!("{}...", &err_msg[..end])
             } else {
                 err_msg.to_string()
             };

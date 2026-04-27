@@ -603,10 +603,49 @@ pub(crate) async fn execute_tool_batch_with_hooks(
     hooks: &[Arc<dyn ToolHook>],
     agent_id: &str,
 ) -> Vec<ToolExecResult> {
+    execute_tool_batch_with_hooks_and_stream(
+        tool_calls, tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, None,
+    ).await
+}
+
+pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
+    tool_calls: &[ToolCall],
+    tool_registry: &Arc<ToolRegistry>,
+    behavior: &BehaviorConfig,
+    work_dir: &Option<String>,
+    log_suffix: &str,
+    hooks: &[Arc<dyn ToolHook>],
+    agent_id: &str,
+    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
+) -> Vec<ToolExecResult> {
+    // Batch-level dedup: when the same read_file path appears multiple times
+    // in one batch, only execute the first and share the result.
+    let mut read_file_seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut dedup_source: Vec<Option<usize>> = vec![None; tool_calls.len()];
+
+    for (i, tc) in tool_calls.iter().enumerate() {
+        if tc.function.name == "read_file" {
+            if let Some(path) = extract_target_key("read_file", &tc.function.arguments) {
+                if let Some(&first_idx) = read_file_seen.get(&path) {
+                    dedup_source[i] = Some(first_idx);
+                    tracing::info!(
+                        tool = "read_file", path = %path,
+                        "skipping duplicate read_file in same batch (first at index {first_idx})"
+                    );
+                } else {
+                    read_file_seen.insert(path, i);
+                }
+            }
+        }
+    }
+
     let mut concurrent_indices = Vec::new();
     let mut sequential_indices = Vec::new();
 
     for (i, tc) in tool_calls.iter().enumerate() {
+        if dedup_source[i].is_some() {
+            continue;
+        }
         let kind = tool_registry.get(&tc.function.name)
             .map(|t| t.kind())
             .unwrap_or(fastclaw_core::tool::ToolKind::Other);
@@ -622,7 +661,7 @@ pub(crate) async fn execute_tool_batch_with_hooks(
     if !concurrent_indices.is_empty() {
         let concurrent_futures: Vec<_> = concurrent_indices.iter().map(|&i| {
             execute_single_tool(
-                &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id,
+                &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, stream_tx,
             )
         }).collect();
         let concurrent_results = futures::future::join_all(concurrent_futures).await;
@@ -633,9 +672,28 @@ pub(crate) async fn execute_tool_batch_with_hooks(
 
     for &i in &sequential_indices {
         let result = execute_single_tool(
-            &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id,
+            &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, stream_tx,
         ).await;
         results[i] = Some(result);
+    }
+
+    for (i, source) in dedup_source.iter().enumerate() {
+        if let Some(src_idx) = source {
+            if let Some(ref original) = results[*src_idx] {
+                let dedup_output = format!(
+                    "[duplicate read_file in same batch — identical to call_id {}]",
+                    original.1,
+                );
+                let mut dedup_result = original.3.clone();
+                dedup_result.output = dedup_output;
+                results[i] = Some((
+                    tool_calls[i].function.name.clone(),
+                    tool_calls[i].id.clone(),
+                    tool_calls[i].function.arguments.clone(),
+                    dedup_result,
+                ));
+            }
+        }
     }
 
     results.into_iter().map(|r| r.expect("all slots filled")).collect()
@@ -649,6 +707,7 @@ async fn execute_single_tool(
     log_suffix: &str,
     hooks: &[Arc<dyn ToolHook>],
     agent_id: &str,
+    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
 ) -> ToolExecResult {
     let tool_name = tc.function.name.clone();
     let call_id = tc.id.clone();
@@ -702,11 +761,40 @@ async fn execute_single_tool(
     let result = match tool_registry.get(&tool_name) {
         Some(tool) => {
             let work_dir_path = work_dir.as_ref().map(std::path::PathBuf::from);
-            with_file_access_mode(
-                behavior.file_access,
-                with_work_dir(work_dir_path, tool.execute(&effective_args)),
-            )
-            .await
+            if tool.supports_progress() && stream_tx.is_some() {
+                let stream_tx = stream_tx.unwrap().clone();
+                let tn = tool_name.clone();
+                let ci = call_id.clone();
+                let (progress_tx, mut progress_rx) =
+                    tokio::sync::mpsc::channel::<fastclaw_core::tool::ToolProgressUpdate>(32);
+
+                let bridge = tokio::spawn(async move {
+                    while let Some(update) = progress_rx.recv().await {
+                        let event = fastclaw_core::types::StreamEvent::ToolProgress {
+                            tool_name: tn.clone(),
+                            call_id: ci.clone(),
+                            message: update.message,
+                            progress: update.progress,
+                            partial_output: update.partial_output,
+                        };
+                        let _ = stream_tx.send(event).await;
+                    }
+                });
+
+                let res = with_file_access_mode(
+                    behavior.file_access,
+                    with_work_dir(work_dir_path, tool.execute_with_progress(&effective_args, progress_tx)),
+                )
+                .await;
+                bridge.abort();
+                res
+            } else {
+                with_file_access_mode(
+                    behavior.file_access,
+                    with_work_dir(work_dir_path, tool.execute(&effective_args)),
+                )
+                .await
+            }
         }
         None => {
             let msg = format!("tool not found: {}", tool_name);

@@ -212,6 +212,21 @@ impl ToolResult {
     }
 }
 
+/// Callback for tools to report intermediate progress during execution.
+/// Send messages through this channel to emit `ToolProgress` stream events.
+pub type ProgressSender = tokio::sync::mpsc::Sender<ToolProgressUpdate>;
+
+/// A progress update sent by a tool during execution.
+#[derive(Debug, Clone)]
+pub struct ToolProgressUpdate {
+    /// Human-readable progress message
+    pub message: String,
+    /// Optional numeric progress (0.0 to 1.0)
+    pub progress: Option<f64>,
+    /// Optional partial output accumulated so far
+    pub partial_output: Option<String>,
+}
+
 /// Trait all tools must implement.
 #[async_trait]
 pub trait Tool: Send + Sync {
@@ -226,6 +241,23 @@ pub trait Tool: Send + Sync {
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult;
+
+    /// Execute with a progress reporting channel. Override this in tools that
+    /// benefit from streaming progress (e.g., shell_exec, web_fetch, browser).
+    /// Default implementation ignores the sender and calls `execute`.
+    async fn execute_with_progress(
+        &self,
+        arguments: &str,
+        _progress: ProgressSender,
+    ) -> ToolResult {
+        self.execute(arguments).await
+    }
+
+    /// Whether this tool supports progress reporting.
+    /// When `true`, the executor will call `execute_with_progress` instead of `execute`.
+    fn supports_progress(&self) -> bool {
+        false
+    }
 
     fn to_definition(&self) -> ToolDefinition {
         ToolDefinition {

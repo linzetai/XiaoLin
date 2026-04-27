@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolProgressUpdate, ToolResult, ProgressSender};
 
 /// Default output truncation limit (raised from 8KB to 64KB to capture more useful output).
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 65536;
@@ -112,7 +112,23 @@ impl Tool for ShellTool {
         shell_parameter_schema(true)
     }
 
+    fn supports_progress(&self) -> bool { true }
+
     async fn execute(&self, arguments: &str) -> ToolResult {
+        self.execute_shell(arguments, None).await
+    }
+
+    async fn execute_with_progress(
+        &self,
+        arguments: &str,
+        progress: ProgressSender,
+    ) -> ToolResult {
+        self.execute_shell(arguments, Some(progress)).await
+    }
+}
+
+impl ShellTool {
+    async fn execute_shell(&self, arguments: &str, progress: Option<ProgressSender>) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
             Err(e) => return ToolResult::err(format!(
@@ -176,7 +192,6 @@ impl Tool for ShellTool {
             cmd.current_dir(dir);
         }
 
-        // Set env indicator so scripts can detect they're running inside FastClaw
         cmd.env("FASTCLAW_AGENT", "1");
 
         cmd.stdout(std::process::Stdio::piped())
@@ -185,11 +200,25 @@ impl Tool for ShellTool {
         let timeout = tokio::time::Duration::from_secs(self.timeout_secs);
 
         if is_background {
-            // For background commands, spawn and return PID immediately
             match cmd.spawn() {
-                Ok(child) => {
+                Ok(mut child) => {
                     let pid = child.id();
                     let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or(command);
+                    let cmd_for_log = command.to_string();
+                    tokio::spawn(async move {
+                        match child.wait().await {
+                            Ok(status) => tracing::debug!(
+                                pid, command = %cmd_for_log,
+                                exit_code = status.code(),
+                                "background shell command exited"
+                            ),
+                            Err(e) => tracing::warn!(
+                                pid, command = %cmd_for_log,
+                                error = %e,
+                                "background shell command wait failed"
+                            ),
+                        }
+                    });
                     ToolResult::ok(
                         serde_json::json!({
                             "background": true,
@@ -202,6 +231,8 @@ impl Tool for ShellTool {
                 }
                 Err(e) => ToolResult::err(format!("shell_exec spawn failed: {e}")),
             }
+        } else if progress.is_some() {
+            self.execute_with_streaming(cmd, command, timeout, progress.unwrap()).await
         } else {
             match tokio::time::timeout(timeout, cmd.output()).await {
                 Ok(Ok(output)) => {
@@ -245,6 +276,113 @@ impl Tool for ShellTool {
                     "shell_exec timed out after {}s, command killed.",
                     self.timeout_secs
                 )),
+            }
+        }
+    }
+
+    async fn execute_with_streaming(
+        &self,
+        mut cmd: tokio::process::Command,
+        _command: &str,
+        timeout: tokio::time::Duration,
+        progress: ProgressSender,
+    ) -> ToolResult {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => return ToolResult::err(format!("shell_exec spawn failed: {e}")),
+        };
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        let progress_clone = progress.clone();
+        let stdout_task = tokio::spawn(async move {
+            let mut lines = Vec::new();
+            if let Some(out) = stdout {
+                let mut reader = BufReader::new(out).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    lines.push(line.clone());
+                    let count = lines.len();
+                    if count % 10 == 0 || count <= 5 {
+                        let _ = progress_clone.send(ToolProgressUpdate {
+                            message: format!("stdout: {} lines", count),
+                            progress: None,
+                            partial_output: Some(
+                                lines.iter().rev().take(5).rev()
+                                    .cloned().collect::<Vec<_>>().join("\n")
+                            ),
+                        }).await;
+                    }
+                }
+            }
+            lines.join("\n")
+        });
+
+        let stderr_task = tokio::spawn(async move {
+            let mut lines = Vec::new();
+            if let Some(err) = stderr {
+                let mut reader = BufReader::new(err).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    lines.push(line);
+                }
+            }
+            lines.join("\n")
+        });
+
+        let wait_result = tokio::time::timeout(timeout, async {
+            let stdout_out = stdout_task.await.unwrap_or_default();
+            let stderr_out = stderr_task.await.unwrap_or_default();
+            let status = child.wait().await;
+            (stdout_out, stderr_out, status)
+        }).await;
+
+        match wait_result {
+            Ok((stdout_out, stderr_out, Ok(status))) => {
+                let code = status.code().unwrap_or(-1);
+                let total_lines = stdout_out.lines().count() + stderr_out.lines().count();
+
+                let _ = progress.send(ToolProgressUpdate {
+                    message: format!("completed: exit_code={code}, {total_lines} total lines"),
+                    progress: Some(1.0),
+                    partial_output: None,
+                }).await;
+
+                #[cfg(unix)]
+                let signal = {
+                    use std::os::unix::process::ExitStatusExt;
+                    status.signal()
+                };
+                #[cfg(not(unix))]
+                let signal: Option<i32> = None;
+
+                let result = serde_json::json!({
+                    "exit_code": code,
+                    "stdout": truncate_output(&stdout_out, DEFAULT_MAX_OUTPUT_BYTES),
+                    "stderr": truncate_output(&stderr_out, DEFAULT_MAX_OUTPUT_BYTES),
+                    "signal": signal,
+                });
+
+                let full_display = result.to_string();
+                if code == 0 {
+                    let llm_summary = format!(
+                        "{{\"exit_code\":0,\"stdout\":{},\"stderr\":{}}}",
+                        serde_json::Value::String(truncate_output(&stdout_out, DEFAULT_MAX_OUTPUT_BYTES)),
+                        serde_json::Value::String(truncate_output(&stderr_out, DEFAULT_MAX_OUTPUT_BYTES)),
+                    );
+                    ToolResult::ok_split(llm_summary, full_display)
+                } else {
+                    ToolResult::err(format!("exit_code={code}: {}", result))
+                }
+            }
+            Ok((_, _, Err(e))) => ToolResult::err(format!("shell_exec wait failed: {e}")),
+            Err(_) => {
+                let _ = child.kill().await;
+                ToolResult::err(format!(
+                    "shell_exec timed out after {}s, command killed.",
+                    self.timeout_secs
+                ))
             }
         }
     }

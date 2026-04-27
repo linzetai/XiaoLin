@@ -379,6 +379,12 @@ pub async fn chat_stream(
                     "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "output": output, "success": success}
                 }));
             }
+            StreamEvent::ToolProgress { tool_name, call_id, message, progress, partial_output } => {
+                let _ = channel.send(json!({
+                    "type": "chat.tool.progress",
+                    "data": {"tool": tool_name, "callId": call_id, "message": message, "progress": progress, "partialOutput": partial_output}
+                }));
+            }
             StreamEvent::ContextLimitWarning { used_tokens, limit_tokens, message } => {
                 let _ = channel.send(json!({
                     "type": "chat.context.warning",

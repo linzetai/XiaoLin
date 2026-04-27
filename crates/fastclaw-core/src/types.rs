@@ -419,6 +419,19 @@ pub enum StreamEvent {
         /// The model's effective context window limit.
         context_window: Option<u32>,
     },
+    /// Intermediate progress update from a long-running tool.
+    /// Useful for shell commands, downloads, large file operations, etc.
+    ToolProgress {
+        tool_name: String,
+        call_id: String,
+        /// Progress message (e.g., "downloading 50%", "line 1000 of 5000")
+        message: String,
+        /// Optional numeric progress (0.0 to 1.0)
+        progress: Option<f64>,
+        /// Optional current output so far (streaming partial output)
+        partial_output: Option<String>,
+    },
+
     Error(String),
 
     /// Emitted when context token usage exceeds a safety threshold.

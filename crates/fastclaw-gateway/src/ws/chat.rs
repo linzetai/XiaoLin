@@ -563,6 +563,24 @@ pub fn event_to_response(
                 error: None,
             }
         }
+        StreamEvent::ToolProgress {
+            tool_name,
+            call_id,
+            message,
+            progress,
+            partial_output,
+        } => WsResponse {
+            id: req_id.clone(),
+            msg_type: "chat.tool.progress".into(),
+            data: Some(json!({
+                "tool": tool_name,
+                "callId": call_id,
+                "message": message,
+                "progress": progress,
+                "partialOutput": partial_output,
+            })),
+            error: None,
+        },
         StreamEvent::Done {
             session_id,
             tool_calls_made,
