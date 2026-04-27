@@ -198,16 +198,16 @@ fn render_line_slice(content: &str, offset: Option<i64>, limit: Option<usize>, n
     if content.is_empty() {
         return "File is empty.".to_string();
     }
-    let lines: Vec<&str> = content.lines().collect();
-    let total = lines.len();
+    let total = content.lines().count();
     let (start, end) = compute_slice_bounds(total, offset, limit);
+    let slice_len = end.saturating_sub(start);
     let mut rendered = String::new();
-    for (idx, line) in lines[start..end].iter().enumerate() {
+    for (idx, line) in content.lines().skip(start).take(slice_len).enumerate() {
         if number_lines {
             rendered.push_str(&format!("{}|", start + idx + 1));
         }
         rendered.push_str(line);
-        if idx + 1 < end.saturating_sub(start) {
+        if idx + 1 < slice_len {
             rendered.push('\n');
         }
     }
@@ -250,26 +250,10 @@ fn build_edit_snippet(content: &str, needle: &str, context: usize) -> String {
     }
 }
 
-/// Normalize whitespace for fuzzy matching: collapse runs of spaces/tabs
-/// to a single space and trim each line, preserving line structure.
+#[cfg(test)]
 fn normalize_whitespace(s: &str) -> String {
     s.lines()
-        .map(|line| {
-            let mut result = String::with_capacity(line.len());
-            let mut prev_ws = false;
-            for ch in line.chars() {
-                if ch == ' ' || ch == '\t' {
-                    if !prev_ws {
-                        result.push(' ');
-                    }
-                    prev_ws = true;
-                } else {
-                    result.push(ch);
-                    prev_ws = false;
-                }
-            }
-            result.trim().to_string()
-        })
+        .map(|line| normalize_line(line))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -287,14 +271,47 @@ enum FuzzyMatchResult {
     MultipleMatches(usize),
 }
 
+fn normalize_line(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let mut prev_ws = false;
+    for ch in line.chars() {
+        if ch == ' ' || ch == '\t' {
+            if !prev_ws { result.push(' '); }
+            prev_ws = true;
+        } else {
+            result.push(ch);
+            prev_ws = false;
+        }
+    }
+    result.trim().to_string()
+}
+
 fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
-    let norm_file = normalize_whitespace(file_content);
-    let norm_old = normalize_whitespace(old_string);
-    if norm_old.is_empty() {
+    let file_lines: Vec<&str> = file_content.lines().collect();
+    let norm_file_lines: Vec<String> = file_lines.iter().map(|l| normalize_line(l)).collect();
+    let norm_old_lines: Vec<String> = old_string.lines().map(|l| normalize_line(l)).collect();
+    let old_line_count = norm_old_lines.len();
+    if old_line_count == 0 || norm_old_lines.iter().all(|l| l.is_empty()) {
         return FuzzyMatchResult::NoMatch;
     }
 
-    let match_count = norm_file.matches(&norm_old).count();
+    // Count line-based fuzzy matches and find the first match position
+    let mut match_count = 0usize;
+    let mut first_match_line: Option<usize> = None;
+    for start_line in 0..file_lines.len() {
+        if start_line + old_line_count > file_lines.len() {
+            break;
+        }
+        let all_match = (0..old_line_count)
+            .all(|i| norm_file_lines[start_line + i] == norm_old_lines[i]);
+        if all_match {
+            match_count += 1;
+            if first_match_line.is_none() {
+                first_match_line = Some(start_line);
+            }
+        }
+    }
+
     if match_count == 0 {
         return FuzzyMatchResult::NoMatch;
     }
@@ -302,93 +319,43 @@ fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
         return FuzzyMatchResult::MultipleMatches(match_count);
     }
 
-    // Found exactly one fuzzy match — map it back to the original content.
-    // Strategy: normalize both, find position in normalized, then walk
-    // original lines to locate the corresponding original byte range.
-    let file_lines: Vec<&str> = file_content.lines().collect();
-    let norm_file_lines: Vec<String> = file_lines.iter().map(|l| {
-        let mut result = String::with_capacity(l.len());
-        let mut prev_ws = false;
-        for ch in l.chars() {
-            if ch == ' ' || ch == '\t' {
-                if !prev_ws { result.push(' '); }
-                prev_ws = true;
-            } else {
-                result.push(ch);
-                prev_ws = false;
-            }
+    if let Some(start_line) = first_match_line {
+        let mut byte_offset = 0usize;
+        for line in file_lines.iter().take(start_line) {
+            byte_offset += line.len() + 1;
         }
-        result.trim().to_string()
-    }).collect();
-
-    let norm_old_lines: Vec<&str> = norm_old.lines().collect();
-    let old_line_count = norm_old_lines.len();
-    if old_line_count == 0 {
-        return FuzzyMatchResult::NoMatch;
-    }
-
-    // Find which original line the fuzzy match starts at
-    for start_line in 0..file_lines.len() {
-        if start_line + old_line_count > file_lines.len() {
-            break;
+        let start_byte = byte_offset;
+        for line in file_lines.iter().skip(start_line).take(old_line_count) {
+            byte_offset += line.len() + 1;
         }
-        let mut all_match = true;
-        for (i, norm_old_line) in norm_old_lines.iter().enumerate() {
-            if norm_file_lines[start_line + i] != *norm_old_line {
-                all_match = false;
-                break;
-            }
+        let end_byte = byte_offset.saturating_sub(1);
+        if old_string.ends_with('\n') {
+            return FuzzyMatchResult::UniqueMatch { start: start_byte, end: byte_offset.min(file_content.len()) };
         }
-        if all_match {
-            // Calculate byte offsets in the original content
-            let mut byte_offset = 0usize;
-            for line in file_lines.iter().take(start_line) {
-                byte_offset += line.len() + 1; // +1 for '\n'
-            }
-            let start_byte = byte_offset;
-            for line in file_lines.iter().skip(start_line).take(old_line_count) {
-                byte_offset += line.len() + 1;
-            }
-            // Don't include the trailing newline of the last matched line
-            let end_byte = byte_offset.saturating_sub(1);
-            // But if old_string ends with newline, include it
-            if old_string.ends_with('\n') {
-                return FuzzyMatchResult::UniqueMatch { start: start_byte, end: byte_offset.min(file_content.len()) };
-            }
-            return FuzzyMatchResult::UniqueMatch { start: start_byte, end: end_byte.min(file_content.len()) };
-        }
+        return FuzzyMatchResult::UniqueMatch { start: start_byte, end: end_byte.min(file_content.len()) };
     }
     FuzzyMatchResult::NoMatch
 }
 
-/// Build a unified-diff style snippet for the LLM to verify the edit.
+/// Build a unified-diff style snippet using a proper Myers diff algorithm.
 fn build_diff_snippet(old_text: &str, new_text: &str, file_path: &str) -> String {
-    let old_lines: Vec<&str> = old_text.lines().collect();
-    let new_lines: Vec<&str> = new_text.lines().collect();
-
-    let mut diff = String::new();
-    diff.push_str(&format!("--- a/{file_path}\n+++ b/{file_path}\n"));
-
-    // Simple line-by-line diff (not a full Myers diff, but good enough for snippets)
-    let max_lines = old_lines.len().max(new_lines.len());
-    let context_window = 3;
-    let mut i = 0;
-    while i < max_lines {
-        let old_line = old_lines.get(i).copied().unwrap_or("");
-        let new_line = new_lines.get(i).copied().unwrap_or("");
-        if i < old_lines.len() && i < new_lines.len() && old_line == new_line {
-            if i < context_window || i >= max_lines.saturating_sub(context_window) {
-                diff.push_str(&format!(" {old_line}\n"));
-            }
-        } else {
-            if i < old_lines.len() {
-                diff.push_str(&format!("-{old_line}\n"));
-            }
-            if i < new_lines.len() {
-                diff.push_str(&format!("+{new_line}\n"));
+    use similar::{ChangeTag, TextDiff};
+    let text_diff = TextDiff::from_lines(old_text, new_text);
+    let mut diff = format!("--- a/{file_path}\n+++ b/{file_path}\n");
+    for hunk in text_diff.unified_diff().context_radius(3).iter_hunks() {
+        diff.push_str(&hunk.header().to_string());
+        for change in hunk.iter_changes() {
+            let sign = match change.tag() {
+                ChangeTag::Delete => "-",
+                ChangeTag::Insert => "+",
+                ChangeTag::Equal => " ",
+            };
+            diff.push_str(sign);
+            diff.push_str(change.as_str().unwrap_or(""));
+            if change.missing_newline() {
+                diff.push('\n');
             }
         }
-        i += 1;
     }
     diff
 }
@@ -1815,6 +1782,9 @@ impl Tool for ApplyPatchTool {
             }
         }
 
+        let original_line_ending = detect_line_ending(&current);
+        let mut working = current.replace("\r\n", "\n");
+
         let mut applied = Vec::new();
         for (idx, edit) in args.edits.iter().enumerate() {
             if edit.old_string.is_empty() {
@@ -1822,7 +1792,10 @@ impl Tool for ApplyPatchTool {
                     "apply_patch edit #{idx} has empty old_string, which is not allowed."
                 ));
             }
-            let match_count = current.matches(&edit.old_string).count();
+            let old_norm = edit.old_string.replace("\r\n", "\n");
+            let new_norm = edit.new_string.replace("\r\n", "\n");
+
+            let match_count = working.matches(&old_norm).count();
             if let Some(expected) = edit.expected_replacements {
                 if match_count != expected {
                     return ToolResult::err(format!(
@@ -1830,21 +1803,54 @@ impl Tool for ApplyPatchTool {
                     ));
                 }
             }
+
             if match_count == 0 {
-                return ToolResult::err(format!(
-                    "apply_patch edit #{idx} found no matches for old_string."
-                ));
+                match try_fuzzy_match(&working, &old_norm) {
+                    FuzzyMatchResult::UniqueMatch { start, end } => {
+                        let mut result = String::with_capacity(working.len());
+                        result.push_str(&working[..start]);
+                        result.push_str(&new_norm);
+                        result.push_str(&working[end..]);
+                        working = result;
+                        applied.push(serde_json::json!({
+                            "edit_index": idx,
+                            "replacements": 1,
+                            "fuzzy": true,
+                        }));
+                        continue;
+                    }
+                    FuzzyMatchResult::NoMatch => {
+                        let file_preview: String = working.lines().take(15)
+                            .enumerate()
+                            .map(|(i, l)| format!("{}|{}", i + 1, l))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        return ToolResult::err(format!(
+                            "apply_patch edit #{idx} found no matches for old_string \
+                             (neither exact nor whitespace-normalized). \
+                             Re-read the file to get current content.\n\
+                             File preview:\n{file_preview}"
+                        ));
+                    }
+                    FuzzyMatchResult::MultipleMatches(n) => {
+                        return ToolResult::err(format!(
+                            "apply_patch edit #{idx} found {n} fuzzy matches (0 exact). \
+                             Provide more context or set replace_all=true."
+                        ));
+                    }
+                }
             }
+
             if !edit.replace_all && edit.expected_replacements.is_none() && match_count > 1 {
                 return ToolResult::err(format!(
                     "apply_patch edit #{idx} found {match_count} matches; set replace_all=true or expected_replacements to disambiguate."
                 ));
             }
             let replaced = if edit.replace_all { match_count } else { 1 };
-            current = if edit.replace_all {
-                current.replace(&edit.old_string, &edit.new_string)
+            working = if edit.replace_all {
+                working.replace(&old_norm, &new_norm)
             } else {
-                current.replacen(&edit.old_string, &edit.new_string, 1)
+                working.replacen(&old_norm, &new_norm, 1)
             };
             applied.push(serde_json::json!({
                 "edit_index": idx,
@@ -1852,13 +1858,19 @@ impl Tool for ApplyPatchTool {
             }));
         }
 
-        match atomic_write_text(&validated, &current).await {
+        let final_content = if original_line_ending == "crlf" {
+            working.replace('\n', "\r\n")
+        } else {
+            working
+        };
+
+        match atomic_write_text(&validated, &final_content).await {
             Ok(()) => ToolResult::ok(
                 serde_json::json!({
                     "patched": true,
                     "path": args.path,
                     "edits_applied": applied,
-                    "bytes": current.len(),
+                    "bytes": final_content.len(),
                 })
                 .to_string(),
             ),
@@ -2099,6 +2111,212 @@ impl Tool for GlobTool {
             "files": file_list,
             "count": total,
             "truncated": truncated,
+        }).to_string())
+    }
+}
+
+// ─── Multi-file Atomic Edit ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct MultiEditArgs {
+    edits: Vec<MultiEditFileEntry>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultiEditFileEntry {
+    path: String,
+    changes: Vec<MultiEditChange>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultiEditChange {
+    old_string: String,
+    new_string: String,
+    #[serde(default)]
+    replace_all: bool,
+}
+
+/// Atomically apply edits across multiple files.
+///
+/// All files are validated and patched in memory first.
+/// Only if every file's edits succeed are the results written to disk.
+/// If any edit in any file fails, no files are modified (all-or-nothing).
+pub struct MultiEditTool;
+
+#[async_trait]
+impl Tool for MultiEditTool {
+    fn kind(&self) -> ToolKind { ToolKind::Edit }
+    fn name(&self) -> &str { "multi_edit" }
+
+    fn description(&self) -> &str {
+        "Atomically apply edits across multiple files. All edits are validated in memory first; \
+         only if every edit succeeds are results written to disk. If any edit fails, no files are \
+         modified (all-or-nothing transaction). Supports dry_run mode to preview changes."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert("edits".to_string(), serde_json::json!({
+            "type": "array",
+            "description": "List of file edit entries. Each entry has 'path' and 'changes' (array of {old_string, new_string, replace_all?})."
+        }));
+        props.insert("dry_run".to_string(), serde_json::json!({
+            "type": "boolean",
+            "description": "If true, validate all edits but do not write. Default false."
+        }));
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["edits".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: MultiEditArgs = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!(
+                "multi_edit invalid JSON: {e}. Expected {{\"edits\": [{{\"path\": \"...\", \"changes\": [...]}}]}}."
+            )),
+        };
+
+        if args.edits.is_empty() {
+            return ToolResult::err("multi_edit requires at least one file entry.".to_string());
+        }
+
+        // Phase 1: Read all files and compute edits in memory
+        let mut staged: Vec<(PathBuf, String, String, Vec<serde_json::Value>)> = Vec::new();
+
+        for (file_idx, entry) in args.edits.iter().enumerate() {
+            let validated = match ensure_within_workspace(Path::new(&entry.path), true) {
+                Ok(p) => p,
+                Err(_) => return ToolResult::err(format!(
+                    "multi_edit: file #{file_idx} '{}' is outside the workspace. Transaction aborted, no files modified.",
+                    entry.path
+                )),
+            };
+
+            let raw_bytes = match tokio::fs::read(&validated).await {
+                Ok(b) => b,
+                Err(e) => return ToolResult::err(format!(
+                    "multi_edit: could not read file #{file_idx} '{}': {e}. Transaction aborted, no files modified.",
+                    entry.path
+                )),
+            };
+
+            let original = match String::from_utf8(raw_bytes) {
+                Ok(s) => s,
+                Err(_) => return ToolResult::err(format!(
+                    "multi_edit: file #{file_idx} '{}' contains non-UTF8 data. Transaction aborted.",
+                    entry.path
+                )),
+            };
+
+            let line_ending = detect_line_ending(&original);
+            let mut current = original.replace("\r\n", "\n");
+            let mut change_log = Vec::new();
+
+            for (change_idx, change) in entry.changes.iter().enumerate() {
+                if change.old_string.is_empty() {
+                    return ToolResult::err(format!(
+                        "multi_edit: file #{file_idx} '{}', change #{change_idx} has empty old_string. Transaction aborted.",
+                        entry.path
+                    ));
+                }
+
+                let old_norm = change.old_string.replace("\r\n", "\n");
+                let new_norm = change.new_string.replace("\r\n", "\n");
+                let match_count = current.matches(&old_norm).count();
+
+                if match_count == 0 {
+                    return ToolResult::err(format!(
+                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found. \
+                         Transaction aborted, no files modified. Re-read the file to get current content.",
+                        entry.path
+                    ));
+                }
+
+                if !change.replace_all && match_count > 1 {
+                    return ToolResult::err(format!(
+                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {match_count} matches. \
+                         Set replace_all=true or provide more context. Transaction aborted.",
+                        entry.path
+                    ));
+                }
+
+                let replaced = if change.replace_all { match_count } else { 1 };
+                current = if change.replace_all {
+                    current.replace(&old_norm, &new_norm)
+                } else {
+                    current.replacen(&old_norm, &new_norm, 1)
+                };
+
+                change_log.push(serde_json::json!({
+                    "change_index": change_idx,
+                    "replacements": replaced,
+                }));
+            }
+
+            let final_content = if line_ending == "crlf" {
+                current.replace('\n', "\r\n")
+            } else {
+                current
+            };
+
+            staged.push((validated, entry.path.clone(), final_content, change_log));
+        }
+
+        // Phase 2: Write all files (only if all edits succeeded)
+        if args.dry_run {
+            let results: Vec<serde_json::Value> = staged.iter().map(|(_, path, content, log)| {
+                serde_json::json!({
+                    "path": path,
+                    "changes_applied": log,
+                    "result_bytes": content.len(),
+                    "result_lines": content.lines().count(),
+                })
+            }).collect();
+
+            return ToolResult::ok(serde_json::json!({
+                "dry_run": true,
+                "files": results,
+                "count": results.len(),
+                "status": "all edits valid, no files written",
+            }).to_string());
+        }
+
+        let mut written = Vec::new();
+        for (validated_path, display_path, content, change_log) in &staged {
+            match atomic_write_text(validated_path, content).await {
+                Ok(()) => {
+                    written.push(serde_json::json!({
+                        "path": display_path,
+                        "changes_applied": change_log,
+                        "bytes": content.len(),
+                        "lines": content.lines().count(),
+                    }));
+                }
+                Err(e) => {
+                    return ToolResult::err(format!(
+                        "multi_edit: CRITICAL — failed to write '{}' after {} files already written: {e}. \
+                         Earlier files in the transaction ({}) were already modified. \
+                         Manual recovery may be needed.",
+                        display_path,
+                        written.len(),
+                        written.iter()
+                            .filter_map(|w| w.get("path").and_then(|p| p.as_str()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }
+        }
+
+        ToolResult::ok(serde_json::json!({
+            "success": true,
+            "files": written,
+            "count": written.len(),
         }).to_string())
     }
 }
@@ -2449,5 +2667,101 @@ mod user_friendly_error_tests {
         assert!(workspace_msg.contains("outside the current workspace root"), "should explain boundary: {workspace_msg}");
         assert!(workspace_msg.contains("工作目录"), "should guide user to work_dir: {workspace_msg}");
         assert!(workspace_msg.contains("文件访问权限"), "should guide user to setting: {workspace_msg}");
+    }
+}
+
+#[cfg(test)]
+mod multi_edit_tests {
+    use super::*;
+    use fastclaw_core::tool::Tool;
+    use tempfile::tempdir_in;
+
+    #[tokio::test]
+    async fn multi_edit_atomic_success() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
+        let file_a = tmp.path().join("a.txt");
+        let file_b = tmp.path().join("b.txt");
+        tokio::fs::write(&file_a, "hello world\n").await.unwrap();
+        tokio::fs::write(&file_b, "foo bar baz\n").await.unwrap();
+
+        let tool = MultiEditTool;
+        let args = serde_json::json!({
+            "edits": [
+                {
+                    "path": file_a.to_string_lossy(),
+                    "changes": [{"old_string": "hello", "new_string": "goodbye"}]
+                },
+                {
+                    "path": file_b.to_string_lossy(),
+                    "changes": [{"old_string": "foo", "new_string": "qux"}]
+                }
+            ]
+        }).to_string();
+
+        let result = Tool::execute(&tool, &args).await;
+        assert!(result.success, "multi_edit should succeed: {}", result.output);
+
+        let a_content = tokio::fs::read_to_string(&file_a).await.unwrap();
+        assert_eq!(a_content, "goodbye world\n");
+        let b_content = tokio::fs::read_to_string(&file_b).await.unwrap();
+        assert_eq!(b_content, "qux bar baz\n");
+    }
+
+    #[tokio::test]
+    async fn multi_edit_atomic_rollback_on_failure() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
+        let file_a = tmp.path().join("a2.txt");
+        let file_b = tmp.path().join("b2.txt");
+        tokio::fs::write(&file_a, "original_a\n").await.unwrap();
+        tokio::fs::write(&file_b, "original_b\n").await.unwrap();
+
+        let tool = MultiEditTool;
+        let args = serde_json::json!({
+            "edits": [
+                {
+                    "path": file_a.to_string_lossy(),
+                    "changes": [{"old_string": "original_a", "new_string": "modified_a"}]
+                },
+                {
+                    "path": file_b.to_string_lossy(),
+                    "changes": [{"old_string": "NONEXISTENT_STRING", "new_string": "anything"}]
+                }
+            ]
+        }).to_string();
+
+        let result = Tool::execute(&tool, &args).await;
+        assert!(!result.success, "multi_edit should fail when edit not found");
+        assert!(result.output.contains("Transaction aborted"));
+
+        // File A should NOT be modified (atomic rollback)
+        let a_content = tokio::fs::read_to_string(&file_a).await.unwrap();
+        assert_eq!(a_content, "original_a\n", "file A should be untouched after failed transaction");
+    }
+
+    #[tokio::test]
+    async fn multi_edit_dry_run() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
+        let file_a = tmp.path().join("dry.txt");
+        tokio::fs::write(&file_a, "dry run content\n").await.unwrap();
+
+        let tool = MultiEditTool;
+        let args = serde_json::json!({
+            "dry_run": true,
+            "edits": [{
+                "path": file_a.to_string_lossy(),
+                "changes": [{"old_string": "dry run", "new_string": "wet run"}]
+            }]
+        }).to_string();
+
+        let result = Tool::execute(&tool, &args).await;
+        assert!(result.success, "dry_run should succeed: {}", result.output);
+        assert!(result.output.contains("dry_run"));
+
+        // File should NOT be modified
+        let content = tokio::fs::read_to_string(&file_a).await.unwrap();
+        assert_eq!(content, "dry run content\n", "dry_run should not modify files");
     }
 }

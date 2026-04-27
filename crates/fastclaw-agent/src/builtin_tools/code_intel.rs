@@ -724,6 +724,43 @@ async fn execute_hover(path: &str, line: usize, col: usize) -> ToolResult {
 }
 
 async fn execute_document_symbol(path: &str) -> ToolResult {
+    let file_path = std::path::Path::new(path);
+    if let Some(lang) = fastclaw_treesitter::CodeParser::detect_language(file_path) {
+        if fastclaw_treesitter::CodeParser::is_language_available(&lang) {
+            match fastclaw_treesitter::CodeParser::parse_file(file_path) {
+                Ok(parsed) => {
+                    let symbols = fastclaw_treesitter::extract_symbols(
+                        &parsed.tree, &parsed.source, &parsed.language,
+                    );
+                    let json_symbols: Vec<serde_json::Value> = symbols
+                        .iter()
+                        .filter(|s| !matches!(s.kind, fastclaw_treesitter::SymbolKind::Import))
+                        .map(|s| {
+                            serde_json::json!({
+                                "name": s.name,
+                                "kind": s.kind.to_string(),
+                                "line": s.start_line,
+                                "endLine": s.end_line,
+                                "signature": s.signature,
+                            })
+                        })
+                        .collect();
+                    return ToolResult::ok(serde_json::json!({
+                        "operation": "documentSymbol",
+                        "filePath": path,
+                        "symbols": json_symbols,
+                        "count": json_symbols.len(),
+                        "engine": "treesitter",
+                        "language": lang,
+                    }).to_string());
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "treesitter parse failed for documentSymbol, falling back to regex");
+                }
+            }
+        }
+    }
+
     let pattern = r"\b(fn|struct|enum|trait|impl|class|interface|type|const|static|pub|def|function)\s+\w+";
     let search_args = serde_json::json!({
         "pattern": pattern,
@@ -821,6 +858,176 @@ async fn execute_code_actions(path: &str, line: usize, col: usize) -> ToolResult
         "count": 0,
         "note": "LSP code actions not yet connected. Describe the desired fix and use edit_file directly.",
     }).to_string())
+}
+
+// ─── TreeSitter-powered Tools ─────────────────────────────────────
+
+pub struct FileOutlineTool;
+
+#[async_trait]
+impl Tool for FileOutlineTool {
+    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn name(&self) -> &str { "file_outline" }
+
+    fn description(&self) -> &str {
+        "Extract a structured outline of symbols (functions, classes, structs, etc.) \
+         from a source file using AST parsing. Faster and more accurate than regex."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert("path".to_string(), serde_json::json!({
+            "type": "string",
+            "description": "Path to the source file."
+        }));
+        props.insert("include_imports".to_string(), serde_json::json!({
+            "type": "boolean",
+            "description": "Include import statements in the outline. Default false."
+        }));
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["path".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        #[derive(Deserialize)]
+        struct Args {
+            path: String,
+            include_imports: Option<bool>,
+        }
+        let args: Args = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!("file_outline invalid JSON: {e}")),
+        };
+        let file_path = std::path::Path::new(&args.path);
+        let lang = match fastclaw_treesitter::CodeParser::detect_language(file_path) {
+            Some(l) => l,
+            None => return ToolResult::err(format!(
+                "file_outline: unsupported file type '{}'",
+                file_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown")
+            )),
+        };
+
+        if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
+            return ToolResult::err(format!("file_outline: tree-sitter language '{lang}' not available"));
+        }
+
+        let parsed = match fastclaw_treesitter::CodeParser::parse_file(file_path) {
+            Ok(p) => p,
+            Err(e) => return ToolResult::err(format!("file_outline parse error: {e}")),
+        };
+
+        let all_symbols = fastclaw_treesitter::extract_symbols(&parsed.tree, &parsed.source, &lang);
+        let include_imports = args.include_imports.unwrap_or(false);
+        let symbols: Vec<serde_json::Value> = all_symbols
+            .iter()
+            .filter(|s| include_imports || !matches!(s.kind, fastclaw_treesitter::SymbolKind::Import))
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "kind": s.kind.to_string(),
+                    "startLine": s.start_line,
+                    "endLine": s.end_line,
+                    "signature": s.signature,
+                })
+            })
+            .collect();
+
+        ToolResult::ok(serde_json::json!({
+            "filePath": args.path,
+            "language": lang,
+            "symbols": symbols,
+            "count": symbols.len(),
+            "engine": "treesitter",
+        }).to_string())
+    }
+}
+
+pub struct CodeChunkTool;
+
+#[async_trait]
+impl Tool for CodeChunkTool {
+    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn name(&self) -> &str { "code_chunk" }
+
+    fn description(&self) -> &str {
+        "Split a source file into semantic code chunks using AST parsing. \
+         Each chunk represents a logical unit (function, class, impl block, etc.). \
+         Useful for targeted reading of large files."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert("path".to_string(), serde_json::json!({
+            "type": "string",
+            "description": "Path to the source file."
+        }));
+        props.insert("max_chunk_lines".to_string(), serde_json::json!({
+            "type": "integer",
+            "description": "Maximum lines per chunk before splitting. Default 80."
+        }));
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["path".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        #[derive(Deserialize)]
+        struct Args {
+            path: String,
+            max_chunk_lines: Option<usize>,
+        }
+        let args: Args = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!("code_chunk invalid JSON: {e}")),
+        };
+        let file_path = std::path::Path::new(&args.path);
+        let lang = match fastclaw_treesitter::CodeParser::detect_language(file_path) {
+            Some(l) => l,
+            None => return ToolResult::err(format!(
+                "code_chunk: unsupported file type '{}'",
+                file_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown")
+            )),
+        };
+
+        if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
+            return ToolResult::err(format!("code_chunk: tree-sitter language '{lang}' not available"));
+        }
+
+        let parsed = match fastclaw_treesitter::CodeParser::parse_file(file_path) {
+            Ok(p) => p,
+            Err(e) => return ToolResult::err(format!("code_chunk parse error: {e}")),
+        };
+
+        let max_lines = args.max_chunk_lines.unwrap_or(80).clamp(10, 500);
+        let chunks = fastclaw_treesitter::chunk_file(&parsed.tree, &parsed.source, &lang, max_lines);
+
+        let json_chunks: Vec<serde_json::Value> = chunks
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "startLine": c.start_line,
+                    "endLine": c.end_line,
+                    "kind": c.kind,
+                    "name": c.name,
+                    "lines": c.end_line.saturating_sub(c.start_line) + 1,
+                })
+            })
+            .collect();
+
+        ToolResult::ok(serde_json::json!({
+            "filePath": args.path,
+            "language": lang,
+            "chunks": json_chunks,
+            "count": json_chunks.len(),
+            "totalLines": parsed.source.lines().count(),
+            "engine": "treesitter",
+        }).to_string())
+    }
 }
 
 #[cfg(test)]

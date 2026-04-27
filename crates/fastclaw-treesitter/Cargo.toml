@@ -1,0 +1,17 @@
+[package]
+name = "fastclaw-treesitter"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tree-sitter-language-pack = "1.6"
+tree-sitter = "0.26"
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+dashmap.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

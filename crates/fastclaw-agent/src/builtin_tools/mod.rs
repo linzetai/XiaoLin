@@ -25,7 +25,7 @@ use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_session::SessionStore;
 
 pub use filesystem::{
-    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
+    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
 };
 pub use filesystem::{with_file_access_mode, with_work_dir};
 pub use media::{ImageGenerateTool, TtsTool};
@@ -43,7 +43,7 @@ pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool}
 pub use ask_question::{AskQuestionTool, with_stream_context};
 pub use confirm::ConfirmTool;
 pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
-pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool};
+pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeChunkTool};
 pub use utility::{CalculatorTool, CurrentTimeTool};
 
 #[cfg(feature = "browser")]
@@ -75,6 +75,9 @@ pub fn register_builtin_tools_with_sandbox(registry: &ToolRegistry, sandboxed: b
     registry.register(Arc::new(SearchInFilesTool));
     registry.register(Arc::new(GlobTool));
     registry.register(Arc::new(UnifiedLspTool));
+    registry.register(Arc::new(FileOutlineTool));
+    registry.register(Arc::new(CodeChunkTool));
+    registry.register(Arc::new(MultiEditTool));
     registry.register(Arc::new(ListDirectoryTool));
 }
 

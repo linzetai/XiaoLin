@@ -17,6 +17,7 @@ members = [
     "crates/fastclaw-self-iter",
     "crates/fastclaw-eval",
     "crates/fastclaw-cron",
+    "crates/fastclaw-treesitter",
     "extensions/feishu",
     "extensions/telegram",
     "extensions/discord",
