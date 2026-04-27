@@ -1,4 +1,5 @@
 //! Conversation trajectory recording for skill auto-formation (Hermes-style).
+#![allow(clippy::type_complexity)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

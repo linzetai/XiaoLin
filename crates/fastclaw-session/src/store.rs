@@ -363,7 +363,7 @@ impl SessionStore {
         let tool_calls_json = msg
             .tool_calls
             .as_ref()
-            .map(|tc| serde_json::to_string(tc))
+            .map(serde_json::to_string)
             .transpose()?;
 
         let content_json: Option<String> = match &msg.content {

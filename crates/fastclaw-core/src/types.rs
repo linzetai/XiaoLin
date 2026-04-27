@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Type-safe wrapper for agent identifiers, preventing accidental misuse of
 /// unrelated strings as agent IDs.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(transparent)]
 pub struct AgentId(String);
 
@@ -44,12 +44,6 @@ impl From<&str> for AgentId {
 impl From<AgentId> for String {
     fn from(id: AgentId) -> Self {
         id.0
-    }
-}
-
-impl Default for AgentId {
-    fn default() -> Self {
-        Self(String::new())
     }
 }
 
@@ -133,9 +127,7 @@ impl ChatMessage {
     pub fn has_images(&self) -> bool {
         match &self.content {
             Some(serde_json::Value::Array(arr)) => arr.iter().any(|item| {
-                item.get("type")
-                    .and_then(|v| v.as_str())
-                    .map_or(false, |t| t == "image_url")
+                item.get("type").and_then(|v| v.as_str()) == Some("image_url")
             }),
             _ => false,
         }
@@ -269,10 +261,11 @@ pub struct StreamFunctionDelta {
 // ── Sub-Agent types ──────────────────────────────────────────────────
 
 /// The kind of sub-agent to spawn, determining its tool set and behavior.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SubAgentType {
     /// Full-capability child agent inheriting the parent's tool set.
+    #[default]
     General,
     /// Read-only exploration agent (file_read, search, web, memory).
     Explore,
@@ -293,12 +286,6 @@ impl std::fmt::Display for SubAgentType {
             Self::Browser => f.write_str("browser"),
             Self::Custom(name) => write!(f, "custom:{name}"),
         }
-    }
-}
-
-impl Default for SubAgentType {
-    fn default() -> Self {
-        Self::General
     }
 }
 

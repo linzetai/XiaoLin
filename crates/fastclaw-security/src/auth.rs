@@ -8,22 +8,13 @@ use constant_time_eq::constant_time_eq;
 use serde::Deserialize;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub api_keys: Vec<String>,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            api_keys: Vec::new(),
-        }
-    }
 }
 
 /// API key authentication layer.

@@ -1,15 +1,7 @@
-#━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FastClaw — Windows 本地打包脚本
-#
-# 用法 (PowerShell):
-#   .\scripts\build-windows.ps1              # 正常构建
-#   .\scripts\build-windows.ps1 -Release     # 构建 + 生成 latest.json
-#   .\scripts\build-windows.ps1 -SkipLint    # 跳过 clippy 检查
-#━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 param(
     [switch]$Release,
-    [switch]$SkipLint
+    [switch]$SkipLint,
+    [switch]$StrictLint
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,25 +13,22 @@ $TauriDir = Join-Path $AppDir "src-tauri"
 $DistDir = Join-Path $ProjectRoot "dist"
 $KeyPath = Join-Path $env:USERPROFILE ".tauri\fastclaw.key"
 
-function Log($msg) { Write-Host "▸ $msg" -ForegroundColor Cyan }
-function Err($msg) { Write-Host "✗ $msg" -ForegroundColor Red }
-function Ok($msg) { Write-Host "✓ $msg" -ForegroundColor Green }
+function Log($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+function Err($msg) { Write-Host "[ERR ] $msg" -ForegroundColor Red }
+function Ok($msg) { Write-Host "[ OK ] $msg" -ForegroundColor Green }
 
-#── 环境检查 ──────────────────────────────────────────────────────────
-
-Log "检查构建环境..."
-
-foreach ($cmd in @("cargo", "pnpm", "node")) {
+Log "Checking build environment..."
+foreach ($cmd in @("cargo", "corepack", "node")) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-        Err "未找到 $cmd，请先安装"
+        Err "Missing command: $cmd"
         exit 1
     }
 }
 
 if (-not (Test-Path $KeyPath)) {
-    Err "签名私钥不存在: $KeyPath"
-    Write-Host "  运行以下命令生成:"
-    Write-Host "  npx @tauri-apps/cli@latest signer generate --write-keys $KeyPath --force -p `"`""
+    Err "Signing key not found: $KeyPath"
+    Write-Host "  Generate it with:"
+    Write-Host ('  npx @tauri-apps/cli@latest signer generate --write-keys "' + $KeyPath + '" --force -p ""')
     exit 1
 }
 
@@ -50,77 +39,92 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
 
 $TauriConf = Get-Content (Join-Path $TauriDir "tauri.conf.json") | ConvertFrom-Json
 $Version = $TauriConf.version
-Ok "版本号: v$Version"
+Ok "Version: v$Version"
 Ok "Cargo: $(cargo --version)"
-Ok "Node:  $(node --version)"
-Ok "pnpm:  $(pnpm --version)"
-
-#── Lint ──────────────────────────────────────────────────────────────
+Ok "Node: $(node --version)"
+Ok "pnpm: $(corepack pnpm --version)"
 
 if (-not $SkipLint) {
-    Log "运行 clippy..."
+    if ($StrictLint) {
+        Log "Running clippy (strict: -D warnings)..."
+    } else {
+        Log "Running clippy (non-strict)..."
+    }
     Push-Location $ProjectRoot
-    cargo clippy --workspace --all-targets -- -D warnings
-    if ($LASTEXITCODE -ne 0) { Err "Clippy 检查失败"; exit 1 }
+    if ($StrictLint) {
+        cargo clippy --workspace --all-targets -j 1 -- -D warnings
+    } else {
+        cargo clippy --workspace --all-targets -j 1
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Pop-Location
+        Err "Clippy failed"
+        exit 1
+    }
     Pop-Location
-    Ok "Clippy 通过"
+    Ok "Clippy passed"
 }
 
-#── 前端构建 ──────────────────────────────────────────────────────────
-
-Log "安装前端依赖..."
+Log "Installing frontend dependencies..."
 Push-Location $AppDir
-pnpm install --frozen-lockfile
-if ($LASTEXITCODE -ne 0) { Err "pnpm install 失败"; exit 1 }
+corepack pnpm install --frozen-lockfile
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    Err "pnpm install failed"
+    exit 1
+}
 
-Log "构建前端..."
-pnpm build
-if ($LASTEXITCODE -ne 0) { Err "前端构建失败"; exit 1 }
+Log "Building frontend..."
+corepack pnpm build
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    Err "Frontend build failed"
+    exit 1
+}
 Pop-Location
-Ok "前端构建完成"
+Ok "Frontend build complete"
 
-#── Tauri 构建 ────────────────────────────────────────────────────────
-
-Log "构建 Tauri 应用 (Windows)..."
+Log "Building Tauri app (Windows)..."
 Push-Location $AppDir
-pnpm exec -- tauri build
-if ($LASTEXITCODE -ne 0) { Err "Tauri 构建失败"; exit 1 }
+corepack pnpm exec tauri build
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    Err "Tauri build failed"
+    exit 1
+}
 Pop-Location
-Ok "Tauri 构建完成"
+Ok "Tauri build complete"
 
-#── 收集产物 ──────────────────────────────────────────────────────────
-
-Log "收集构建产物..."
-if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
+Log "Collecting build artifacts..."
+if (Test-Path $DistDir) {
+    Remove-Item -Recurse -Force $DistDir
+}
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 
-$BundleDir = Join-Path $ProjectRoot "target\release\bundle"
+$BundleDir = Join-Path $ProjectRoot "target\tauri\release\bundle"
 $Patterns = @("*.exe", "*.msi", "*.nsis.zip", "*.nsis.zip.sig")
-
 foreach ($pattern in $Patterns) {
     Get-ChildItem -Recurse -Path $BundleDir -Filter $pattern -ErrorAction SilentlyContinue |
         Copy-Item -Destination $DistDir
 }
 
-Ok "产物已收集到 $DistDir\"
-Get-ChildItem $DistDir | Format-Table Name, @{Label="Size"; Expression={"{0:N2} MB" -f ($_.Length / 1MB)}} -AutoSize
-
-#── 生成 latest.json (-Release 模式) ─────────────────────────────────
+Ok "Artifacts collected at $DistDir"
+Get-ChildItem $DistDir | Select-Object Name, Length | Format-Table -AutoSize
 
 if ($Release) {
-    Log "生成 latest.json..."
-
-    $NsisZip = Get-ChildItem $DistDir -Filter "*.nsis.zip" | Where-Object { $_.Name -notmatch "\.sig$" } | Select-Object -First 1
+    Log "Generating latest.json..."
+    $NsisZip = Get-ChildItem $DistDir -Filter "*.nsis.zip" |
+        Where-Object { $_.Name -notmatch "\.sig$" } |
+        Select-Object -First 1
     $NsisSig = Get-ChildItem $DistDir -Filter "*.nsis.zip.sig" | Select-Object -First 1
 
     if (-not $NsisZip -or -not $NsisSig) {
-        Err "未找到 NSIS zip 归档或签名文件"
+        Err "NSIS zip or signature file not found"
         exit 1
     }
 
     $SigContent = Get-Content $NsisSig.FullName -Raw
     $PubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
     $LatestJson = @{
         version = $Version
         notes = "FastClaw v$Version"
@@ -134,29 +138,23 @@ if ($Release) {
     } | ConvertTo-Json -Depth 4
 
     $LatestJson | Out-File -FilePath (Join-Path $DistDir "latest.json") -Encoding utf8
-
-    Ok "latest.json 已生成"
-    Write-Host ""
-    Write-Host "  ⚠ 请编辑 $DistDir\latest.json 中的 url 字段"
-    Write-Host "    将 REPLACE_WITH_DOWNLOAD_URL 替换为实际的下载地址"
-    Write-Host ""
+    Ok "latest.json generated"
+    Write-Host "  Edit $DistDir\\latest.json and replace the url field"
+    Write-Host "  Replace REPLACE_WITH_DOWNLOAD_URL with the real download URL"
 }
 
-#── 完成 ──────────────────────────────────────────────────────────────
-
 Write-Host ""
-Ok "Windows 构建完成! 产物位于: $DistDir\"
-Write-Host ""
-Write-Host "  产物列表:"
+Ok "Windows build complete. Artifacts: $DistDir"
+Write-Host "  Artifact list:"
 Get-ChildItem $DistDir | ForEach-Object {
-    $size = "{0:N2} MB" -f ($_.Length / 1MB)
+    $size = ($_.Length / 1MB).ToString("N2") + " MB"
     Write-Host "    $($_.Name)  ($size)"
 }
-Write-Host ""
 
 if ($Release) {
-    Write-Host "  发布步骤:"
-    Write-Host "    1. 上传 dist\ 中的所有文件到发布渠道"
-    Write-Host "    2. 编辑 latest.json 中的 url 为实际下载地址"
-    Write-Host "    3. 将 latest.json 放到更新端点 URL 可访问的位置"
+    Write-Host ""
+    Write-Host "  Release steps:"
+    Write-Host "    1. Upload all files in dist"
+    Write-Host "    2. Update latest.json url to real download URL"
+    Write-Host "    3. Host latest.json on your update endpoint"
 }

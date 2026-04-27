@@ -43,6 +43,7 @@ impl FactCategory {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "user_preference" => Self::UserPreference,
@@ -526,8 +527,8 @@ impl SemanticMemory {
     ) -> Result<Vec<(Fact, f32)>> {
         let qn = l2_norm(query_vec) as f64;
         let candidate_cap = (limit.saturating_mul(VECTOR_SEARCH_CANDIDATE_MULT))
-            .max(VECTOR_SEARCH_CANDIDATE_MIN)
-            .min(VECTOR_SEARCH_CANDIDATE_MAX) as i64;
+            .clamp(VECTOR_SEARCH_CANDIDATE_MIN, VECTOR_SEARCH_CANDIDATE_MAX)
+            as i64;
 
         let rows: Vec<FactWithBlob> = sqlx::query_as(
             "SELECT id, category, subject, predicate, object, confidence, source_session, embedding, embedding_norm, created_at, updated_at \
@@ -757,7 +758,7 @@ fn embedding_to_blob(v: &[f32]) -> Vec<u8> {
 }
 
 fn blob_to_embedding(blob: &[u8]) -> Option<EmbeddingVec> {
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         return None;
     }
     Some(

@@ -236,18 +236,13 @@ impl Default for SubAgentPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FileAccessMode {
     None,
+    #[default]
     Workspace,
     Full,
-}
-
-impl Default for FileAccessMode {
-    fn default() -> Self {
-        Self::Workspace
-    }
 }
 
 fn default_max_tool_calls() -> u32 {
@@ -335,7 +330,7 @@ pub fn load_agent_configs(dir: &std::path::Path) -> anyhow::Result<Vec<AgentConf
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "json") {
+        if path.extension().is_some_and(|e| e == "json") {
             let text = std::fs::read_to_string(&path)?;
             match json5::from_str::<AgentConfig>(&text) {
                 Ok(config) => {

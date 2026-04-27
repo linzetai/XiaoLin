@@ -1,4 +1,5 @@
 //! Persistent store for extracted skills, parameters, and usage telemetry.
+#![allow(clippy::type_complexity)]
 
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
@@ -326,7 +327,7 @@ impl SkillStore {
                 scored.push((score, skill));
             }
         }
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.sort_by_key(|b| std::cmp::Reverse(b.0));
         Ok(scored
             .into_iter()
             .take(limit)

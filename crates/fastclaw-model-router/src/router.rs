@@ -4,21 +4,16 @@ use fastclaw_core::complexity::ComplexityTier;
 use crate::budget::BudgetTracker;
 use crate::estimator::{CostEstimator, ModelPricing, TokenEstimate};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingStrategy {
     /// Always use the configured model; no fallback.
+    #[default]
     Fixed,
     /// Cheapest model that fits the context window.
     CostOptimized,
     /// Fallback chain: try primary, then alternates on failure.
     Fallback,
-}
-
-impl Default for RoutingStrategy {
-    fn default() -> Self {
-        Self::Fixed
-    }
 }
 
 #[derive(Debug, Clone)]

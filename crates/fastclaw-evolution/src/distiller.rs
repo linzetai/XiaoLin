@@ -19,16 +19,11 @@ pub struct PromptCandidate {
 }
 
 /// Rule-based distillation (default) or LLM-assisted rewrite.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DistillationMode {
+    #[default]
     RuleBased,
     LlmAssisted(LlmDistillerConfig),
-}
-
-impl Default for DistillationMode {
-    fn default() -> Self {
-        Self::RuleBased
-    }
 }
 
 /// Provider configuration for [`DistillationMode::LlmAssisted`].
@@ -143,8 +138,8 @@ fn levenshtein_bounded(a: &str, b: &str, bound: usize) -> usize {
     }
     let mut prev = vec![0usize; m + 1];
     let mut curr = vec![0usize; m + 1];
-    for j in 0..=m {
-        prev[j] = j;
+    for (j, item) in prev.iter_mut().enumerate().take(m + 1) {
+        *item = j;
     }
     for i in 1..=n {
         curr[0] = i;

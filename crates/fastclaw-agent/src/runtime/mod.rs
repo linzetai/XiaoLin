@@ -19,6 +19,7 @@ use futures::StreamExt;
 
 use crate::builtin_tools::{with_file_access_mode, with_work_dir};
 use crate::llm::{CompletionParams, LlmProvider};
+use base64::Engine as _;
 
 mod accumulator;
 pub(crate) mod context_compressor;
@@ -43,6 +44,28 @@ use tool_executor::truncate_tool_result_output;
 use trajectory::append_text_to_chat_content;
 use trajectory::last_user_turn_text;
 use trajectory::truncate_for_trajectory;
+
+/// Build ChatMessage content for a tool result. When the result carries images,
+/// constructs a multimodal content array so the LLM can visually interpret them.
+fn tool_result_content(
+    text: &str,
+    result: &fastclaw_core::tool::ToolResult,
+) -> serde_json::Value {
+    if result.images.is_empty() {
+        return serde_json::Value::String(text.to_string());
+    }
+    let mut parts = vec![serde_json::json!({"type": "text", "text": text})];
+    for img in &result.images {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&img.data);
+        parts.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:{};base64,{b64}", img.mime_type)
+            }
+        }));
+    }
+    serde_json::Value::Array(parts)
+}
 
 /// Execution result containing the final response and tool-call trace.
 pub struct ExecutionResult {
@@ -355,9 +378,10 @@ impl AgentRuntime {
                 let truncated = truncate_tool_result_output(&result.output, &tool_name);
                 let header = semantic_header(&tool_name, &arguments, &result.output, result.success);
                 let out = format!("{header}\n{truncated}");
+                let content = tool_result_content(&out, &result);
                 messages.push(ChatMessage {
                     role: Role::Tool,
-                    content: Some(serde_json::Value::String(out)),
+                    content: Some(content),
                     name: Some(tool_name.clone()),
                     tool_calls: None,
                     tool_call_id: Some(call_id),
@@ -1053,9 +1077,10 @@ impl AgentRuntime {
                     success: Some(result.success),
                 });
 
+                let content = tool_result_content(&llm_out, &result);
                 messages.push(ChatMessage {
                     role: Role::Tool,
-                    content: Some(serde_json::Value::String(llm_out)),
+                    content: Some(content),
                     name: Some(tool_name.clone()),
                     tool_calls: None,
                     tool_call_id: Some(call_id),

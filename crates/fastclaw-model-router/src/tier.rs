@@ -13,7 +13,7 @@ pub struct TierEstimateInput<'a> {
 
 /// Rough token count (~4 chars per token).
 fn token_len(text: &str) -> u32 {
-    (text.len() as u32 + 3) / 4
+    (text.len() as u32).div_ceil(4)
 }
 
 fn last_user_text(messages: &[ChatMessage]) -> Option<String> {

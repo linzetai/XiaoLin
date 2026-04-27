@@ -687,10 +687,21 @@ impl Tool for SandboxedShellTool {
         }
 
         let mut cmd = if self.config.use_namespace {
-            let shell = preferred_shell();
-            let mut c = tokio::process::Command::new("unshare");
-            c.args(["--mount", "--pid", "--fork", "--", shell, "-c", command]);
-            c
+            #[cfg(not(windows))]
+            {
+                let shell = preferred_shell();
+                let mut c = tokio::process::Command::new("unshare");
+                c.args(["--mount", "--pid", "--fork", "--", shell, "-c", command]);
+                c
+            }
+            #[cfg(windows)]
+            {
+                // Namespace sandboxing via unshare is Linux-only; fallback to cmd on Windows.
+                let mut c = tokio::process::Command::new("cmd.exe");
+                c.args(["/C", command]);
+                c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                c
+            }
         } else {
             #[cfg(windows)]
             {

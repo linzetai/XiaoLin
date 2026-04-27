@@ -171,7 +171,7 @@ impl CostEstimator {
 
     /// Rough token count: ~4 chars per token for English.
     pub fn estimate_tokens(text: &str) -> u32 {
-        (text.len() as u32 + 3) / 4
+        (text.len() as u32).div_ceil(4)
     }
 
     /// Rough input-token budget for routing: message text + serialized tool calls + tool schema overhead.
@@ -196,7 +196,7 @@ impl CostEstimator {
             }
         }
         let capped = chars.min(u32::MAX as u64) as u32;
-        let base = capped.saturating_add(3) / 4;
+        let base = capped.div_ceil(4);
         let tool_schema_overhead = (tool_definition_count as u32).saturating_mul(180);
         base.saturating_add(tool_schema_overhead).max(64)
     }
@@ -213,7 +213,7 @@ impl CostEstimator {
                 total_chars += content.len();
             }
         }
-        let input_tokens = (total_chars as u32 + 3) / 4;
+        let input_tokens = (total_chars as u32).div_ceil(4);
         let estimated_output = (input_tokens / 3).max(100);
         let est = TokenEstimate {
             input_tokens,
@@ -221,6 +221,12 @@ impl CostEstimator {
         };
         let cost = est.estimated_cost(pricing);
         Some((est, cost))
+    }
+}
+
+impl Default for CostEstimator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

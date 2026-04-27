@@ -303,8 +303,8 @@ impl EpisodicMemory {
     ) -> Result<Vec<(Episode, f32)>> {
         let qn = l2_norm(query_vec) as f64;
         let candidate_cap = (limit.saturating_mul(VECTOR_SEARCH_CANDIDATE_MULT))
-            .max(VECTOR_SEARCH_CANDIDATE_MIN)
-            .min(VECTOR_SEARCH_CANDIDATE_MAX) as i64;
+            .clamp(VECTOR_SEARCH_CANDIDATE_MIN, VECTOR_SEARCH_CANDIDATE_MAX)
+            as i64;
 
         let half_cap = candidate_cap / 2;
         let rows: Vec<EpisodeWithBlob> = sqlx::query_as(
@@ -341,7 +341,7 @@ impl EpisodicMemory {
                 let blob = r.embedding.take()?;
                 let emb = blob_to_embedding(&blob)?;
                 let row_norm = r.embedding_norm.unwrap_or_else(|| l2_norm(&emb) as f64);
-                if row_norm < 1e-9 || qn < 1e-9 as f64 {
+                if row_norm < 1e-9 || qn < 1e-9_f64 {
                     return None;
                 }
                 // Optional Cauchy–Schwarz upper bound on |dot| for pruning:
@@ -591,7 +591,7 @@ fn embedding_to_blob(v: &[f32]) -> Vec<u8> {
 }
 
 fn blob_to_embedding(blob: &[u8]) -> Option<EmbeddingVec> {
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         return None;
     }
     Some(

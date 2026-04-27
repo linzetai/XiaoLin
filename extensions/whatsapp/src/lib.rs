@@ -549,6 +549,7 @@ mod outbound_http_tests {
             target_type: "user".into(),
             text: "outbound body".into(),
             reply_to: None,
+            image_key: None,
         };
         plugin.send_message(&msg).await.unwrap();
 

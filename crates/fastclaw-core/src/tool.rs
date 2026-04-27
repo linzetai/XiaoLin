@@ -123,6 +123,15 @@ impl std::fmt::Display for ToolErrorType {
     }
 }
 
+/// An image to be sent to the LLM as a multimodal content part.
+#[derive(Debug, Clone)]
+pub struct ToolImage {
+    /// MIME type, e.g. "image/png", "image/jpeg".
+    pub mime_type: String,
+    /// Raw image bytes (will be base64-encoded when sent to the LLM).
+    pub data: Vec<u8>,
+}
+
 /// Result of a tool execution.
 ///
 /// `output` is what the LLM sees (may be summarized/truncated by the runtime).
@@ -142,6 +151,10 @@ pub struct ToolResult {
     /// Optional structured metadata for the UI (e.g. file info, diff stats).
     /// Not sent to the LLM; consumed by frontend components for richer rendering.
     pub metadata: Option<serde_json::Value>,
+    /// Images to include as multimodal content parts in the LLM message.
+    /// When non-empty, the runtime constructs a content array with both text
+    /// and image_url parts so the LLM can visually interpret the images.
+    pub images: Vec<ToolImage>,
 }
 
 impl ToolResult {
@@ -153,6 +166,7 @@ impl ToolResult {
             error_type: None,
             needs_confirmation: false,
             metadata: None,
+            images: vec![],
         }
     }
 
@@ -164,6 +178,7 @@ impl ToolResult {
             error_type: Some(ToolErrorType::Unknown),
             needs_confirmation: false,
             metadata: None,
+            images: vec![],
         }
     }
 
@@ -176,6 +191,7 @@ impl ToolResult {
             error_type: Some(error_type),
             needs_confirmation: false,
             metadata: None,
+            images: vec![],
         }
     }
 
@@ -188,6 +204,20 @@ impl ToolResult {
             error_type: None,
             needs_confirmation: false,
             metadata: None,
+            images: vec![],
+        }
+    }
+
+    /// Build a result with text output and images for multimodal LLM consumption.
+    pub fn ok_with_images(output: impl Into<String>, images: Vec<ToolImage>) -> Self {
+        Self {
+            success: true,
+            output: output.into(),
+            display_output: None,
+            error_type: None,
+            needs_confirmation: false,
+            metadata: None,
+            images,
         }
     }
 
@@ -208,6 +238,7 @@ impl ToolResult {
             error_type: None,
             needs_confirmation: true,
             metadata: None,
+            images: vec![],
         }
     }
 }

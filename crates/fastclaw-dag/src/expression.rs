@@ -448,7 +448,7 @@ fn unescape_json_string(s: &str) -> String {
     out
 }
 
-fn resolve_path<'a>(context: &'a Value, segments: &[PathSegment]) -> anyhow::Result<Value> {
+fn resolve_path(context: &Value, segments: &[PathSegment]) -> anyhow::Result<Value> {
     let mut cur: &Value = context;
     for seg in segments {
         match seg {

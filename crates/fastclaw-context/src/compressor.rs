@@ -49,7 +49,7 @@ const PER_MESSAGE_OVERHEAD: usize = 4;
 /// Estimate the total token count for a slice of messages using the chars/4 heuristic.
 /// Includes per-message overhead (~4 tokens for role/separators) and counts content + tool_call JSON.
 pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
-    messages.iter().map(|m| estimate_single_message_tokens(m)).sum()
+    messages.iter().map(estimate_single_message_tokens).sum()
 }
 
 fn estimate_single_message_tokens(msg: &ChatMessage) -> usize {
@@ -257,11 +257,11 @@ impl ContextCompactor {
 
         let mut kept: Vec<ChatMessage> = Vec::new();
         let mut evicted: Vec<&ChatMessage> = Vec::new();
-        for i in 0..n {
+        for (i, msg) in conversation.iter().enumerate().take(n) {
             if remove_idx.contains(&i) {
-                evicted.push(conversation[i]);
+                evicted.push(*msg);
             } else {
-                kept.push((*conversation[i]).clone());
+                kept.push((**msg).clone());
             }
         }
 
@@ -620,16 +620,9 @@ fn split_into_rounds<'a>(conversation: &'a [&'a ChatMessage]) -> Vec<Vec<&'a Cha
     let mut i = 0usize;
     while i < conversation.len() {
         let start = i;
-        if matches!(conversation[i].role, Role::User) {
+        i += 1;
+        while i < conversation.len() && !matches!(conversation[i].role, Role::User) {
             i += 1;
-            while i < conversation.len() && !matches!(conversation[i].role, Role::User) {
-                i += 1;
-            }
-        } else {
-            i += 1;
-            while i < conversation.len() && !matches!(conversation[i].role, Role::User) {
-                i += 1;
-            }
         }
         rounds.push(conversation[start..i].to_vec());
     }
@@ -680,7 +673,7 @@ fn message_importance(msg: &ChatMessage) -> u32 {
 }
 
 fn round_importance(round: &[&ChatMessage]) -> u32 {
-    round.iter().map(|m| message_importance(*m)).sum()
+    round.iter().map(|m| message_importance(m)).sum()
 }
 
 fn is_small_talk_line(line: &str) -> bool {

@@ -342,18 +342,6 @@ fn copy_dir_all(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// 检查代理配置是否存在
-fn agent_exists(agents_dir: &PathBuf, agent_id: &str) -> bool {
-    let agent_path = agents_dir.join(format!("{}.json", agent_id));
-    agent_path.exists()
-}
-
-/// 检查代理工作目录是否存在
-fn workspace_exists(workspace_dir: &PathBuf, agent_id: &str) -> bool {
-    let agent_workspace_dir = workspace_dir.join(agent_id);
-    agent_workspace_dir.exists()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

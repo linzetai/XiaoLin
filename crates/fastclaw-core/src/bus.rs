@@ -221,6 +221,7 @@ struct Mailbox {
 /// 3. **Topic** ([`MessageTarget::Topic`]): only agents that called [`MessageBus::subscribe_topic`]
 ///    for that topic name (distinct from broadcast)
 /// 4. **Request-reply**: [`MessageBus::request`] pairs with [`AgentMessage::reply_to`]
+///
 /// LRU-style dedup cache for message IDs (replay protection within the time window).
 const REPLAY_CACHE_CAPACITY: usize = 8192;
 

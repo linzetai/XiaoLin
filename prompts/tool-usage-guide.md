@@ -54,7 +54,7 @@
 ## Utilities
 - **get_current_time**: Current date/time.
 - **calculator**: Evaluate math expressions.
-- **browser**: Chrome automation via CDP. Actions: `navigate`, `screenshot`, `click`, `type`, `evaluate`, `cookies`, `interact`, etc.
+- **browser**: Chrome automation via CDP. See **Browser Best Practices** below for the full workflow.
 - **image_generate** / **text_to_speech**: Media generation (requires API keys).
 
 ## MCP Extensions
@@ -75,6 +75,24 @@
 - Use `shell_exec` for builds (cargo, npm), git, and environment checks — it's the escape hatch.
 - Before executing commands that modify the file system or system state, briefly explain the command's purpose.
 - Combine independent shell commands with `&&` to save round trips (e.g. `git status && git diff HEAD && git log -n 3`).
+
+### Browser
+The browser tool provides full Chrome automation. Follow this workflow:
+
+**Core Loop**: `screenshot` → `take_snapshot` → uid-based action → `screenshot` to verify
+
+1. **Always screenshot first** — see the page visually before deciding what to do. The screenshot image is returned directly to you; use it to understand layout, content, errors, and visual state.
+2. **take_snapshot for UIDs** — the a11y snapshot assigns stable UIDs (e.g. `e5`) to interactive elements. Always prefer uid-based actions over CSS selectors.
+3. **Interact by uid** — `click(uid)`, `fill(uid, value)`, `hover(uid)`, etc.
+4. **Screenshot to verify** — after every navigation or interaction, screenshot again to confirm the result.
+
+Key rules:
+- **Screenshot frequently**: after navigation, after form submission, after clicking, when checking errors, before making any decision about page content. The more you screenshot, the better you understand the page.
+- **Persistent session**: the browser tab preserves cookies and login state across actions — no need to re-login between steps.
+- **Snapshot before interaction**: always `take_snapshot` to get fresh UIDs before clicking/filling. Stale UIDs from previous snapshots may be invalid after page changes.
+- **Use `includeSnapshot=true`** on click/fill/hover to get an updated snapshot in one round-trip.
+- **JS evaluation**: use `evaluate` with a JS function for complex DOM queries, data extraction, or actions not covered by built-in commands.
+- **Debugging**: `list_console_messages` + `list_network_requests` for diagnosing errors. Use `get_console_message(msgid)` / `get_network_request(reqid)` for details.
 
 ### Web
 - `web_search` for discovery → `web_fetch` for reading docs → `http_fetch` for JSON APIs.

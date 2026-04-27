@@ -139,9 +139,9 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
     let lim = budget.layer_token_limits();
 
     let system_body = truncate_to_token_budget(&layers.system_prompt, lim.system, cpt);
-    let profile_body = truncate_to_token_budget(&layers.profile_text.trim(), lim.profile, cpt);
-    let summary_body = truncate_to_token_budget(&layers.session_summary.trim(), lim.summary, cpt);
-    let recall_body = truncate_to_token_budget(&layers.recall_text.trim(), lim.recall, cpt);
+    let profile_body = truncate_to_token_budget(layers.profile_text.trim(), lim.profile, cpt);
+    let summary_body = truncate_to_token_budget(layers.session_summary.trim(), lim.summary, cpt);
+    let recall_body = truncate_to_token_budget(layers.recall_text.trim(), lim.recall, cpt);
 
     let mut recent_kept: Vec<ChatMessage> = Vec::new();
     let mut used_recent = 0usize;
@@ -839,6 +839,12 @@ impl AgentPersonalityHook {
     }
 }
 
+impl Default for AgentPersonalityHook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl ContextHook for AgentPersonalityHook {
     fn name(&self) -> &str {
@@ -1166,7 +1172,7 @@ impl ContextHook for ContentFilterHook {
             let has_tool_calls = msg.tool_calls.as_ref().is_some_and(|t| !t.is_empty());
             let has_tool_call_id = msg.tool_call_id.is_some();
             let text = msg.text_content();
-            let has_text = text.as_deref().map_or(false, |s| !s.trim().is_empty());
+            let has_text = text.as_deref().is_some_and(|s| !s.trim().is_empty());
 
             if !has_text && !has_tool_calls && !has_tool_call_id {
                 return false; // drop empty message

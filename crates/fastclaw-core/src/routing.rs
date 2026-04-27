@@ -72,8 +72,8 @@ pub fn resolve_route(
 
         let tier = match (&m.peer, &m.account_id) {
             (Some(peer), _) => {
-                let kind_ok = peer_kind.map_or(false, |k| k == peer.kind);
-                let id_ok = peer_id.map_or(false, |i| i == peer.id);
+                let kind_ok = peer_kind.is_some_and(|k| k == peer.kind);
+                let id_ok = peer_id.is_some_and(|i| i == peer.id);
                 if kind_ok && id_ok {
                     MatchTier::Peer
                 } else {
@@ -82,7 +82,7 @@ pub fn resolve_route(
             }
             (None, Some(acc)) if acc == "*" => MatchTier::ChannelWild,
             (None, Some(acc)) => {
-                if account_id.map_or(false, |a| a == acc.as_str()) {
+                if account_id == Some(acc.as_str()) {
                     MatchTier::AccountId
                 } else {
                     continue;
@@ -91,7 +91,7 @@ pub fn resolve_route(
             (None, None) => MatchTier::Channel,
         };
 
-        if best.as_ref().map_or(true, |(t, _)| tier > *t) {
+        if best.as_ref().is_none_or(|(t, _)| tier > *t) {
             best = Some((tier, &binding.agent_id));
         }
     }

@@ -74,7 +74,7 @@ pub fn set_nested_key(
     root: &mut serde_json::Value,
     path: &str,
     value: serde_json::Value,
-) -> Result<(), ()> {
+) -> Result<(), &'static str> {
     let parts: Vec<&str> = path.split('.').collect();
     let mut current = root;
     for (i, part) in parts.iter().enumerate() {
@@ -83,16 +83,18 @@ pub fn set_nested_key(
                 obj.insert(part.to_string(), value);
                 return Ok(());
             }
-            return Err(());
+            return Err("target is not an object");
         }
         if !current.get(*part).is_some_and(|v| v.is_object()) {
             if let Some(obj) = current.as_object_mut() {
                 obj.insert(part.to_string(), json!({}));
             }
         }
-        current = current.get_mut(*part).ok_or(())?;
+        current = current
+            .get_mut(*part)
+            .ok_or("failed to access nested key while creating path")?;
     }
-    Err(())
+    Err("empty or invalid path")
 }
 
 /// Persist a single config key to the user's config file.

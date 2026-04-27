@@ -110,7 +110,7 @@ impl ImportanceScorer {
         let tool_count = messages
             .iter()
             .filter(|m| {
-                m.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty())
+                m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
                     || m.tool_call_id.is_some()
             })
             .count();

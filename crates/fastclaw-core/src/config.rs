@@ -132,20 +132,12 @@ pub struct FastClawConfig {
 }
 
 /// Controls conversation tracing for the harness / eval subsystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TracingConfig {
     /// When true, every chat turn is recorded as a `ConversationTrace` in the session database.
     #[serde(default)]
     pub conversation_trace: bool,
-}
-
-impl Default for TracingConfig {
-    fn default() -> Self {
-        Self {
-            conversation_trace: false,
-        }
-    }
 }
 
 /// Intervals for gateway-hosted evolution background tasks ([`FastClawConfig::evolution`]).
@@ -364,18 +356,13 @@ pub struct ChannelConfig {
     pub user_access_token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum BindMode {
+    #[default]
     Loopback,
     Lan,
     Custom,
-}
-
-impl Default for BindMode {
-    fn default() -> Self {
-        Self::Loopback
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -502,10 +489,11 @@ pub struct SessionConfig {
 }
 
 /// DM session isolation scope (from OpenClaw).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum DmScope {
     /// All DMs share one session (default, single-user).
+    #[default]
     Main,
     /// Isolate by sender across channels.
     PerPeer,
@@ -513,12 +501,6 @@ pub enum DmScope {
     PerChannelPeer,
     /// Isolate by account + channel + sender.
     PerAccountChannelPeer,
-}
-
-impl Default for DmScope {
-    fn default() -> Self {
-        Self::Main
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -800,7 +782,7 @@ impl Default for EmbeddingConfig {
 }
 
 /// Policy for destructive / dangerous operations (file deletion, dangerous shell commands, etc.).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DangerousOpsPolicy {
     /// Block all dangerous operations outright.
@@ -808,13 +790,8 @@ pub enum DangerousOpsPolicy {
     /// Allow without any confirmation.
     Allow,
     /// Pause and ask the user for confirmation before executing.
+    #[default]
     Confirm,
-}
-
-impl Default for DangerousOpsPolicy {
-    fn default() -> Self {
-        Self::Confirm
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

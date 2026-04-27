@@ -61,7 +61,7 @@ impl DreamingPipeline<'_> {
                     predicate: pred,
                     object: obj,
                     category: FactCategory::DomainKnowledge.as_str().to_string(),
-                    confidence: ep.importance.clamp(0.0, 1.0) as f32,
+                    confidence: ep.importance.clamp(0.0, 1.0),
                     source_session: Some(ep.session_id.clone()),
                     created_at: now.clone(),
                     updated_at: now,
@@ -144,15 +144,14 @@ impl DreamingPipeline<'_> {
             for ep in &episodes {
                 if (ep.importance - 0.5).abs() < 0.01 {
                     let new_score = ImportanceScorer::score_single(&ep.summary);
-                    if (new_score - ep.importance).abs() > 0.05 {
-                        if self
+                    if (new_score - ep.importance).abs() > 0.05
+                        && self
                             .episodic
                             .update_importance(&ep.id, new_score)
                             .await
                             .is_ok()
-                        {
-                            report.importance_rescored += 1;
-                        }
+                    {
+                        report.importance_rescored += 1;
                     }
                 }
             }
@@ -265,7 +264,7 @@ fn is_procedural_episode(summary: &str) -> bool {
     let has_actions = action_indicators.iter().any(|w| lower.contains(w));
     let word_count = summary.split_whitespace().count();
 
-    (has_steps && has_actions) || (has_actions && word_count > 30)
+    (word_count > 30 || has_steps) && has_actions
 }
 
 fn normalize_entity(s: &str) -> String {
