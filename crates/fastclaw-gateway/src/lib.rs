@@ -245,10 +245,36 @@ fn spawn_cron_scheduler(state: AppState) {
             agent_id: &str,
             message: &str,
             session_id: Option<&str>,
-        ) -> anyhow::Result<String> {
-            let sid = session_id
-                .map(String::from)
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            notify_channels: &[fastclaw_cron::NotifyChannel],
+        ) -> anyhow::Result<(String, bool)> {
+            // When notify_channels is configured, run the agent in the channel's
+            // conversation session so the user sees continuity when replying.
+            let (sid, channel_session) = if !notify_channels.is_empty() && session_id.is_none() {
+                let nc = &notify_channels[0];
+                let dm_scope = self
+                    .state
+                    .cfg
+                    .config
+                    .session
+                    .dm_scope
+                    .clone()
+                    .unwrap_or(fastclaw_core::config::DmScope::PerChannelPeer);
+                let chat_type = nc.target_type.as_str();
+                let key = fastclaw_core::routing::build_session_key(
+                    &dm_scope,
+                    agent_id,
+                    &nc.channel_id,
+                    None,
+                    &nc.target_id,
+                    chat_type,
+                );
+                (key, true)
+            } else {
+                let sid = session_id
+                    .map(String::from)
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                (sid, false)
+            };
 
             let title_preview: String = message.chars().take(30).collect();
             let title = format!("[定时] {title_preview}");
@@ -336,7 +362,40 @@ fn spawn_cron_scheduler(state: AppState) {
                 .append_message(&sid, &assistant_msg)
                 .await;
 
-            Ok(reply)
+            // Send the agent reply directly through each notify channel so the
+            // response appears in the conversation (not as a separate notification).
+            let mut sent = false;
+            if channel_session && !notify_channels.is_empty() {
+                let registry = self.state.ext.channel_registry.read().await;
+                for nc in notify_channels {
+                    if let Some(channel) = registry.get(&nc.channel_id) {
+                        let msg = fastclaw_core::channel::OutboundMessage {
+                            target_id: nc.target_id.clone(),
+                            target_type: nc.target_type.clone(),
+                            text: reply.clone(),
+                            reply_to: None,
+                            image_key: None,
+                        };
+                        if let Err(e) = channel.send_message(&msg).await {
+                            tracing::warn!(
+                                channel = %nc.channel_id,
+                                target = %nc.target_id,
+                                error = %e,
+                                "cron: failed to send agent reply to channel"
+                            );
+                        } else {
+                            sent = true;
+                            tracing::info!(
+                                channel = %nc.channel_id,
+                                target = %nc.target_id,
+                                "cron: agent reply sent to channel session"
+                            );
+                        }
+                    }
+                }
+            }
+
+            Ok((reply, sent))
         }
 
         async fn trigger_dag_execute(
@@ -400,6 +459,7 @@ fn spawn_cron_scheduler(state: AppState) {
             job_name: &str,
             output: Option<&str>,
             notify_channels: &[fastclaw_cron::NotifyChannel],
+            sent_via_channel: bool,
         ) {
             let preview: String = output.unwrap_or("").chars().take(120).collect();
 
@@ -440,7 +500,9 @@ fn spawn_cron_scheduler(state: AppState) {
             });
             let _ = self.state.strm.ws_broadcast.send(event.to_string());
 
-            if !notify_channels.is_empty() {
+            // Skip channel notification if the agent reply was already sent
+            // directly through the channel in trigger_agent_chat.
+            if !sent_via_channel && !notify_channels.is_empty() {
                 let msg = format!("✅ 定时任务「{job_name}」执行完成\n{}", if preview.is_empty() { String::new() } else { format!("输出：{preview}") });
                 send_to_channels(&self.state, notify_channels, &msg).await;
             }

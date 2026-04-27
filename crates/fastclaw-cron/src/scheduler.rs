@@ -11,12 +11,18 @@ use crate::store::{CronJob, CronJobStore, JobAction, NotifyChannel};
 /// Callback trait for executing job actions.
 #[async_trait::async_trait]
 pub trait JobTrigger: Send + Sync + 'static {
+    /// Execute an agent chat. When `notify_channels` is non-empty, the
+    /// implementation should run the agent within the channel's conversation
+    /// session (so context is shared) and send the reply through the channel.
+    /// Returns the agent's reply text and a bool indicating whether the reply
+    /// was already sent to channels (so on_job_completed can skip duplicate push).
     async fn trigger_agent_chat(
         &self,
         agent_id: &str,
         message: &str,
         session_id: Option<&str>,
-    ) -> anyhow::Result<String>;
+        notify_channels: &[NotifyChannel],
+    ) -> anyhow::Result<(String, bool)>;
 
     async fn trigger_dag_execute(
         &self,
@@ -32,12 +38,15 @@ pub trait JobTrigger: Send + Sync + 'static {
     ) -> anyhow::Result<()>;
 
     /// Called after a job finishes successfully. Override to send in-app notifications.
+    /// `sent_via_channel` is true when the agent reply was already delivered through
+    /// the notify channels during `trigger_agent_chat`, so a duplicate push can be skipped.
     async fn on_job_completed(
         &self,
         _job_id: &str,
         _job_name: &str,
         _output: Option<&str>,
         _notify_channels: &[NotifyChannel],
+        _sent_via_channel: bool,
     ) {
     }
 
@@ -154,37 +163,37 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
 
     let run_id = store.insert_run(&job_id).await.unwrap_or(-1);
 
-    let result: Result<Option<String>, anyhow::Error> = match &job.action {
+    let result: Result<(Option<String>, bool), anyhow::Error> = match &job.action {
         JobAction::AgentChat {
             agent_id,
             message,
             session_id,
         } => trigger
-            .trigger_agent_chat(agent_id, message, session_id.as_deref())
+            .trigger_agent_chat(agent_id, message, session_id.as_deref(), &job.notify_channels)
             .await
-            .map(Some),
+            .map(|(reply, sent)| (Some(reply), sent)),
         JobAction::DagExecute { dag, input } => trigger
             .trigger_dag_execute(dag, input.as_ref())
             .await
-            .map(|v| Some(v.to_string())),
+            .map(|v| (Some(v.to_string()), false)),
         JobAction::Webhook { url, method, body } => trigger
             .trigger_webhook(url, method.as_deref(), body.as_ref())
             .await
-            .map(|_| None),
+            .map(|_| (None, false)),
     };
 
     let next = compute_next_run(&schedule);
     let next_ref = next.as_deref();
 
     match result {
-        Ok(output) => {
+        Ok((output, sent_via_channel)) => {
             tracing::info!(job = %job_id, next = ?next_ref, "cron: job completed");
             let _ = store.mark_completed(&job_id, next_ref).await;
             if run_id >= 0 {
                 let _ = store.complete_run(run_id, output.as_deref()).await;
             }
             trigger
-                .on_job_completed(&job_id, &job.name, output.as_deref(), &job.notify_channels)
+                .on_job_completed(&job_id, &job.name, output.as_deref(), &job.notify_channels, sent_via_channel)
                 .await;
         }
         Err(e) => {

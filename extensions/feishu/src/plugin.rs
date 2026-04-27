@@ -188,6 +188,23 @@ impl FeishuPlugin {
     }
 }
 
+/// Infer Feishu `receive_id_type` from the target ID prefix and the generic target_type hint.
+/// Feishu API expects: "open_id" for `ou_*`, "chat_id" for `oc_*`, "user_id" for enterprise IDs.
+fn infer_receive_id_type<'a>(target_id: &str, target_type: &'a str) -> &'a str {
+    if target_id.starts_with("oc_") {
+        return "chat_id";
+    }
+    if target_id.starts_with("ou_") {
+        return "open_id";
+    }
+    match target_type {
+        "p2p" | "open_id" => "open_id",
+        "group" | "chat_id" => "chat_id",
+        "user_id" => "user_id",
+        _ => "chat_id",
+    }
+}
+
 #[async_trait]
 impl ChannelPlugin for FeishuPlugin {
     fn meta(&self) -> &ChannelMeta {
@@ -316,8 +333,9 @@ impl ChannelPlugin for FeishuPlugin {
     }
 
     async fn send_message(&self, msg: &OutboundMessage) -> anyhow::Result<serde_json::Value> {
+        let receive_id_type = infer_receive_id_type(&msg.target_id, &msg.target_type);
         self.client
-            .send_message(&msg.target_id, &msg.target_type, &msg.text)
+            .send_message(&msg.target_id, receive_id_type, &msg.text)
             .await
     }
 

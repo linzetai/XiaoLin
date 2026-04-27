@@ -149,9 +149,45 @@ async fn handle_slash_command(
         return Some(buf);
     }
 
+    if trimmed == "/new" || trimmed == "/new session" || trimmed == "/reset" {
+        let bindings = state.merged_route_bindings().await;
+        let route = fastclaw_core::routing::resolve_route(
+            &bindings,
+            &state.cfg.config.agents,
+            channel_id,
+            None,
+            None,
+            Some(chat_id),
+        );
+        let agent_id = route.agent_id.as_str();
+
+        let dm_scope = state
+            .cfg
+            .config
+            .session
+            .dm_scope
+            .clone()
+            .unwrap_or(fastclaw_core::config::DmScope::PerChannelPeer);
+        let session_key =
+            fastclaw_core::routing::build_session_key(&dm_scope, agent_id, channel_id, None, chat_id, "p2p");
+
+        let deleted = state
+            .store
+            .session_store
+            .delete_session(&session_key)
+            .await
+            .unwrap_or(false);
+
+        if deleted {
+            return Some("🔄 已开启新对话，之前的上下文已清除。".to_string());
+        } else {
+            return Some("🔄 已就绪，当前没有历史上下文。".to_string());
+        }
+    }
+
     if trimmed == "/help" {
         return Some(
-            "可用命令:\n• `/skills` — 列出当前 agent 的所有 Skill\n• `/help` — 显示帮助"
+            "可用命令:\n• `/new` — 开启新对话（清除上下文）\n• `/skills` — 列出当前 agent 的所有 Skill\n• `/help` — 显示帮助"
                 .to_string(),
         );
     }
