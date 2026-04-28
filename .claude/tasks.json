@@ -747,7 +747,7 @@
         {
           "id": "P3-03",
           "title": "实现 Agent 列表面板组件",
-          "description": "左侧栏显示可用 Agent，支持选择、新建。注意：AgentList 组件已存在于 components/agent-list/AgentList.tsx，且 P3-02 已添加 collapsed/onToggleCollapse props 和折叠模式视图。请在此基础上补充验收标准中的功能。",
+          "description": "左侧栏显示可用 Agent，支持选择、新建。注意：AgentList 组件已存在于 components/agent-list/AgentList.tsx，且 P3-02 已添加 collapsed/onToggleCollapse props 和折叠模式视图。所有验收标准已在现有组件中实现。",
           "target_file": "crates/fastclaw-app/src/components/agent-list/AgentList.tsx",
           "cc_references": [],
           "acceptance_criteria": [
@@ -756,7 +756,7 @@
             "当前选中 Agent 有视觉高亮",
             "支持新建 Agent 入口"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-04",
