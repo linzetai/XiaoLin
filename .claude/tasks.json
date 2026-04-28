@@ -244,7 +244,7 @@
             "无 self-iter 时 Agent 正常运行，工具失败不触发自动诊断",
             "有 self-iter 时行为与改造前完全一致"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0-19",

@@ -1,7 +1,18 @@
 use std::time::Duration;
 
 use fastclaw_core::types::StreamEvent;
+#[cfg(feature = "self-iter")]
 use fastclaw_self_iter::ToolCallTrace;
+
+#[cfg(not(feature = "self-iter"))]
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct ToolCallTrace {
+    pub tool_name: String,
+    pub success: bool,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
 
 /// Mutable state tracked across iterations of the tool-calling loop.
 pub(crate) struct LoopState {

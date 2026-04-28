@@ -25,7 +25,10 @@ struct TrajectoryStep {
     summary: String,
     success: Option<bool>,
 }
+#[cfg(feature = "self-iter")]
 use fastclaw_self_iter::{SelfIterEngine, ToolCallTrace};
+#[cfg(not(feature = "self-iter"))]
+use stream_engine::ToolCallTrace;
 use futures::StreamExt;
 
 use crate::builtin_tools::{with_file_access_mode, with_work_dir};
@@ -53,6 +56,7 @@ use tool_executor::filter_tool_definitions;
 use tool_executor::microcompact_tool_results;
 use tool_executor::semantic_header;
 use tool_executor::truncate_tool_result_output;
+#[cfg(any(feature = "evolution", feature = "self-iter"))]
 use trajectory::append_text_to_chat_content;
 #[cfg(feature = "evolution")]
 use trajectory::last_user_turn_text;
@@ -109,7 +113,9 @@ pub struct StreamParams {
 pub struct AgentRuntime {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: ArcSwap<HashMap<String, Arc<dyn LlmProvider>>>,
+    #[cfg(feature = "self-iter")]
     self_iter_engine: Option<Arc<SelfIterEngine>>,
+    #[cfg(feature = "self-iter")]
     self_iter_max_recovery_attempts: u32,
     #[cfg(feature = "evolution")]
     skill_store: ArcSwap<Option<Arc<SkillStore>>>,
@@ -122,7 +128,9 @@ impl AgentRuntime {
         Self {
             default_provider: provider,
             agent_providers: ArcSwap::new(Arc::new(HashMap::new())),
+            #[cfg(feature = "self-iter")]
             self_iter_engine: None,
+            #[cfg(feature = "self-iter")]
             self_iter_max_recovery_attempts: 3,
             #[cfg(feature = "evolution")]
             skill_store: ArcSwap::new(Arc::new(None)),
@@ -149,13 +157,13 @@ impl AgentRuntime {
         self.trajectory_store.store(Arc::new(Some(trajectory)));
     }
 
-    /// Attach the self-iteration / diagnosis engine for automatic tool-failure recovery hints.
+    #[cfg(feature = "self-iter")]
     pub fn with_self_iter_engine(mut self, engine: Arc<SelfIterEngine>) -> Self {
         self.self_iter_engine = Some(engine);
         self
     }
 
-    /// Cap how many recovery guidance injections are allowed per single `execute` / `execute_stream` run (default 3).
+    #[cfg(feature = "self-iter")]
     pub fn with_self_iter_max_recovery_attempts(mut self, n: u32) -> Self {
         self.self_iter_max_recovery_attempts = n.max(1);
         self
@@ -1203,6 +1211,7 @@ impl AgentRuntime {
         }
     }
 
+    #[cfg(feature = "self-iter")]
     fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, guidance: &str) {
         let block = format!(
             "\n\n---\n[Tool execution recovery — review before your next tool_calls]\n{guidance}\n---\n"
@@ -1227,8 +1236,7 @@ impl AgentRuntime {
         );
     }
 
-    /// When consecutive tool errors hit the trigger threshold, run `SelfIterEngine` diagnosis
-    /// and merge recovery text into the primary system prompt (Anthropic-safe single-system).
+    #[cfg(feature = "self-iter")]
     fn try_self_iter_tool_recovery(
         &self,
         messages: &mut Vec<ChatMessage>,
@@ -1273,6 +1281,21 @@ impl AgentRuntime {
             "self-iter: merged tool recovery guidance into system prompt"
         );
         true
+    }
+
+    #[cfg(not(feature = "self-iter"))]
+    fn try_self_iter_tool_recovery(
+        &self,
+        _messages: &mut Vec<ChatMessage>,
+        _config: &AgentConfig,
+        _request: &ChatRequest,
+        _loop_iteration: u32,
+        _consecutive_errors: u32,
+        _max_errors: u32,
+        _failure_streak: &[ToolCallTrace],
+        _recovery_attempts: &mut u32,
+    ) -> bool {
+        false
     }
 
     #[cfg(feature = "evolution")]
