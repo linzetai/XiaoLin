@@ -705,6 +705,11 @@
 .ob-dot-active { width: 20px; border-radius: 3px; }
 
 /* ━━━ Responsive ━━━ */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-w: 260px;
+  }
+}
 @media (max-width: 768px) {
   :root {
     --sidebar-w: 72px;

@@ -45,6 +45,8 @@ export function AppLayout() {
   const detailOpen = useAgentStore((s) => s.detailOpen);
   const toggleDetail = useAgentStore((s) => s.toggleDetail);
   const closeDetail = useAgentStore((s) => s.closeDetail);
+  const sidebarCollapsed = useAgentStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useAgentStore((s) => s.toggleSidebar);
 
   const activeAgent = useMemo(
     () => agents.find((a) => a.id === activeAgentId) ?? agents[0],
@@ -100,7 +102,7 @@ export function AppLayout() {
       <TitleBar />
       <UpdateBanner />
       <div className="flex min-h-0 flex-1">
-        <AgentList />
+        <AgentList collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
         <main className="relative flex min-w-0 flex-1 flex-col">
           <MessageStream onToggleDetail={toggleDetail} detailOpen={detailOpen} />
           {!connected && mode !== "browser" && (

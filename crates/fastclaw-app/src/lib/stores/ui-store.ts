@@ -5,8 +5,10 @@ import type { AgentState } from "./types";
 export function buildUISlice(set: any) {
   return {
     detailOpen: false,
+    sidebarCollapsed: false,
 
     toggleDetail: () => set((s: AgentState) => ({ detailOpen: !s.detailOpen })),
     closeDetail: () => set({ detailOpen: false }),
+    toggleSidebar: () => set((s: AgentState) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   };
 }

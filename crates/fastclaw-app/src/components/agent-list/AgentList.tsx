@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, memo } from "react";
 import { createPortal } from "react-dom";
 import { useAgentStore } from "../../lib/agent-store";
 import { useGatewayStore } from "../../lib/store";
-import { Search, Plus, ChevronDown, Check, Camera, X } from "lucide-react";
+import { Search, Plus, ChevronDown, Check, Camera, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { useAvatarUrl, loadAvatarBlobUrl } from "../../lib/use-avatar-url";
@@ -24,7 +24,12 @@ const AgentAvatar = memo(function AgentAvatar({ agent }: { agent: Agent }) {
   );
 });
 
-export function AgentList() {
+interface AgentListProps {
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProps) {
   const agents = useAgentStore((s) => s.agents);
   const activeAgentId = useAgentStore((s) => s.activeAgentId);
   const agentChats = useAgentStore((s) => s.agentChats);
@@ -189,41 +194,64 @@ export function AgentList() {
     <aside
       className="vibrancy flex shrink-0 flex-col"
       style={{
-        width: "var(--sidebar-w)",
+        width: collapsed ? "72px" : "var(--sidebar-w)",
         background: "var(--bg-sidebar)",
         borderRight: "0.5px solid var(--separator)",
+        transition: "width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        overflow: "hidden",
       }}
     >
-      {/* Search */}
-      <div className="px-4 pb-2 pt-4">
-        <div
-          className="flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] transition-shadow duration-200 focus-within:shadow-[0_0_0_2px_var(--tint)]"
-          style={{ background: "var(--bg-hover)" }}
-        >
-          <Search size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[var(--fill-quaternary)]"
-            style={{ color: "var(--fill-primary)" }}
-          />
-          {query && (
-            <button
-              onClick={() => setQuery("")}
-              className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[var(--bg-active)]"
-              style={{ color: "var(--fill-tertiary)" }}
+      {/* Header: Search / Collapse toggle */}
+      <div className="flex items-center gap-1 px-3 pb-2 pt-4" style={{ minHeight: 48 }}>
+        {collapsed ? (
+          <button
+            onClick={onToggleCollapse}
+            className="mx-auto flex h-9 w-9 items-center justify-center rounded-[var(--radius-xs)] transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+            style={{ color: "var(--fill-tertiary)" }}
+            title="展开侧边栏"
+          >
+            <PanelLeftOpen size={16} strokeWidth={1.5} />
+          </button>
+        ) : (
+          <>
+            <div
+              className="flex flex-1 items-center gap-2.5 rounded-[10px] px-3 py-[7px] transition-shadow duration-200 focus-within:shadow-[0_0_0_2px_var(--tint)]"
+              style={{ background: "var(--bg-hover)" }}
             >
-              <X size={10} strokeWidth={2} />
+              <Search size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索"
+                className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[var(--fill-quaternary)]"
+                style={{ color: "var(--fill-primary)" }}
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery("")}
+                  className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[var(--bg-active)]"
+                  style={{ color: "var(--fill-tertiary)" }}
+                >
+                  <X size={10} strokeWidth={2} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={onToggleCollapse}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-xs)] transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+              style={{ color: "var(--fill-tertiary)" }}
+              title="折叠侧边栏"
+            >
+              <PanelLeftClose size={16} strokeWidth={1.5} />
             </button>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-3 py-1.5">
-        {list.length === 0 && !query && (
+        {!collapsed && list.length === 0 && !query && (
           <div
             className="mx-2 mt-3 rounded-[var(--radius-sm)] p-4"
             style={{ background: "var(--bg-hover)", border: "0.5px solid var(--separator)" }}
@@ -264,6 +292,31 @@ export function AgentList() {
           const lastTime = ac?.lastTime;
           const unread = ac?.unread ?? 0;
 
+          if (collapsed) {
+            return (
+              <button
+                key={agent.id}
+                onClick={() => setActiveAgent(agent.id)}
+                className="group relative mx-auto mb-1 flex h-[52px] w-[52px] items-center justify-center rounded-[var(--radius-sm)] transition-all duration-150 hover:bg-[var(--bg-hover)]"
+                style={{
+                  background: active ? "var(--bg-active)" : "transparent",
+                  animation: `slide-up 0.3s ease-out ${i * 0.04}s backwards`,
+                }}
+                title={agent.name}
+              >
+                <AgentAvatar agent={agent} />
+                {unread > 0 && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full px-0.5 text-[10px] font-bold"
+                    style={{ background: "var(--red)", color: "#fff" }}
+                  >
+                    {unread}
+                  </span>
+                )}
+              </button>
+            );
+          }
+
           return (
             <button
               key={agent.id}
@@ -284,7 +337,6 @@ export function AgentList() {
                 )}
               </div>
 
-              {/* Text */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>
@@ -317,15 +369,27 @@ export function AgentList() {
 
       {/* New Agent Button */}
       <div className="px-3 pb-3 pt-1">
-        <button
-          onClick={() => setShowNewForm(true)}
-          disabled={creating}
-          className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-sm)] py-2.5 text-[13px] font-medium transition-all duration-150 hover:bg-[var(--tint-bg)] disabled:opacity-50"
-          style={{ color: "var(--fill-secondary)" }}
-        >
-          <Plus size={13} strokeWidth={2} />
-          新建 Agent
-        </button>
+        {collapsed ? (
+          <button
+            onClick={() => setShowNewForm(true)}
+            disabled={creating}
+            className="mx-auto flex h-9 w-9 items-center justify-center rounded-[var(--radius-xs)] transition-all duration-150 hover:bg-[var(--tint-bg)] disabled:opacity-50"
+            style={{ color: "var(--fill-secondary)" }}
+            title="新建 Agent"
+          >
+            <Plus size={16} strokeWidth={2} />
+          </button>
+        ) : (
+          <button
+            onClick={() => setShowNewForm(true)}
+            disabled={creating}
+            className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-sm)] py-2.5 text-[13px] font-medium transition-all duration-150 hover:bg-[var(--tint-bg)] disabled:opacity-50"
+            style={{ color: "var(--fill-secondary)" }}
+          >
+            <Plus size={13} strokeWidth={2} />
+            新建 Agent
+          </button>
+        )}
       </div>
 
       {/* New Agent Modal — portaled to body to escape vibrancy containing block */}
