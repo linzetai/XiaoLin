@@ -501,7 +501,7 @@
             "cargo check -p fastclaw-context 编译通过",
             "无冗余依赖（cargo udeps 无警告）"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
