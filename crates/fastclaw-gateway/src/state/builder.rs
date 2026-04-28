@@ -611,7 +611,11 @@ impl StateBuilder {
             rt: super::RuntimeState {
                 router: Arc::new(tokio::sync::RwLock::new(p5.phase2.phase4.phase3.router)),
                 runtime: p5.phase2.phase4.phase3.runtime,
-                tool_registry: Arc::new(p5.phase2.phase4.phase3.tool_registry),
+                tool_registry: {
+                    let reg = Arc::new(p5.phase2.phase4.phase3.tool_registry);
+                    fastclaw_agent::builtin_tools::register_tool_search(&reg);
+                    reg
+                },
                 base_skill_registry: Arc::new(ArcSwap::new(
                     p5.phase2.phase4.base_skill_registry,
                 )),

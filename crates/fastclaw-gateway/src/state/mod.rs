@@ -1340,7 +1340,11 @@ impl AppState {
             rt: RuntimeState {
                 router: Arc::new(tokio::sync::RwLock::new(router)),
                 runtime,
-                tool_registry: Arc::new(tool_registry),
+                tool_registry: {
+                    let reg = Arc::new(tool_registry);
+                    fastclaw_agent::builtin_tools::register_tool_search(&reg);
+                    reg
+                },
                 base_skill_registry: Arc::new(ArcSwap::new(Arc::new(SkillRegistry::new()))),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     std::collections::HashMap::new(),

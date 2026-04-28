@@ -488,6 +488,12 @@ impl ToolRegistry {
         removed
     }
 
+    /// Number of tools currently in the deferred set.
+    pub fn deferred_count(&self) -> usize {
+        let guard = self.deferred.read().expect("deferred set poisoned");
+        guard.len()
+    }
+
     /// Execute a registered tool by name.
     ///
     /// Returns [`FastClawError::ToolNotFound`] when the name is missing.

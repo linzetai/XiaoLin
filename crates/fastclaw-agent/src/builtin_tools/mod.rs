@@ -11,6 +11,7 @@ mod session;
 mod shell;
 mod skill;
 mod todo;
+mod tool_search;
 mod utility;
 
 #[cfg(feature = "browser")]
@@ -44,6 +45,7 @@ pub use ask_question::{AskQuestionTool, with_stream_context};
 pub use confirm::ConfirmTool;
 pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
 pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeChunkTool};
+pub use tool_search::ToolSearchTool;
 pub use utility::{CalculatorTool, CurrentTimeTool, SleepTool};
 
 #[cfg(feature = "browser")]
@@ -114,6 +116,12 @@ pub fn register_identity_tools(registry: &ToolRegistry, workspace: Arc<AgentWork
 }
 
 /// Register todo tracking tool (todo_write) with a shared in-session store.
+/// Register the ToolSearchTool. Must be called after the registry is wrapped
+/// in `Arc`, since the tool needs a reference to search deferred tools.
+pub fn register_tool_search(registry: &Arc<ToolRegistry>) {
+    registry.register(Arc::new(ToolSearchTool::new(registry.clone())));
+}
+
 pub fn register_todo_tools(registry: &ToolRegistry, store: TodoStore) {
     registry.register(Arc::new(TodoWriteTool::new(store)));
 }

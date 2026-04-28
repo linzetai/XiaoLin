@@ -648,7 +648,7 @@
             "无匹配时返回空列表和 total_deferred_tools 计数",
             "ToolSearchTool 自身是 eager（非 deferred）"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2-10",
