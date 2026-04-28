@@ -286,7 +286,7 @@
             "cargo test -p fastclaw-gateway --no-default-features 通过",
             "删除的模块相关测试已移除或跳过"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

@@ -554,58 +554,6 @@ async fn e2e_evolution_feedback_loop() {
 // Scenario 5: DAG validation
 // ===================================================================
 
-#[tokio::test]
-async fn e2e_dag_validate_workflow() {
-    let srv = E2eServer::start(simple_provider()).await;
-    let client = reqwest::Client::new();
-
-    // Valid DAG with condition + tool nodes
-    let valid_dag = json!({
-        "nodes": [
-            {
-                "id": "start",
-                "kind": "llm_call",
-                "config": {"prompt": "Analyze the request"}
-            },
-            {
-                "id": "decide",
-                "kind": "condition",
-                "config": {"expression": "$output.start == 'yes'"}
-            },
-            {
-                "id": "process",
-                "kind": "tool_call",
-                "config": {"tool_name": "calculator", "arguments": {"expression": "1+1"}}
-            },
-            {
-                "id": "reject",
-                "kind": "llm_call",
-                "config": {"prompt": "Explain rejection"}
-            }
-        ],
-        "edges": [
-            {"from": "start", "to": "decide"},
-            {"from": "decide", "to": "process", "label": "true"},
-            {"from": "decide", "to": "reject", "label": "false"}
-        ]
-    });
-
-    let resp: Value = client
-        .post(srv.url("/api/v1/dag/validate"))
-        .json(&valid_dag)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.get("valid").and_then(|v| v.as_bool()),
-        Some(true),
-        "validation should report valid=true: {resp}"
-    );
-}
-
 // ===================================================================
 // Scenario 6: WebSocket multi-turn conversation with streaming
 // ===================================================================

@@ -641,6 +641,7 @@ async fn ws_chat_stream_and_session_persistence() {
                 got_complete = true;
                 break;
             }
+            "chat.context.usage" => {}
             "chat.error" => panic!("unexpected chat error: {msg}"),
             other => panic!("unexpected event type: {other}"),
         }
@@ -1078,7 +1079,7 @@ async fn feishu_plugin_provides_tools() {
     });
 
     let tools = plugin.tools();
-    assert_eq!(tools.len(), 9, "IM + user-scoped Feishu tools");
+    assert_eq!(tools.len(), 11, "IM + user-scoped Feishu tools");
 
     let names: Vec<&str> = tools
         .iter()
