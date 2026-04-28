@@ -36,6 +36,7 @@ use crate::llm::{CompletionParams, LlmProvider};
 use base64::Engine as _;
 
 mod accumulator;
+pub mod query_engine;
 pub(crate) mod context_compressor;
 mod prompt_builder;
 mod stream_engine;

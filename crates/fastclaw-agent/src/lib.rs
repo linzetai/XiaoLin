@@ -18,6 +18,7 @@ pub use llm::{
     CircuitBreaker, CircuitState, CompletionParams, FallbackProvider, LlmProvider, OpenAiProvider,
 };
 pub use runtime::{AgentRuntime, ExecutionResult, SubAgentPromptContext, build_subagent_prompt_block};
+pub use runtime::query_engine::QueryEngine;
 pub use agent_discovery::{GetAgentInfoTool, ListAgentsTool};
 pub use subagent::SubAgentTool;
 pub use subagent_manager::SubAgentManager;

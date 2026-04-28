@@ -525,7 +525,7 @@
             "连续调用 submit_message 时 messages 跨 turn 累积",
             "每次 turn 后 total_usage 正确累加"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2-02",
