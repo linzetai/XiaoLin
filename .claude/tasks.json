@@ -46,7 +46,7 @@
             "cargo check -p fastclaw-gateway 编译通过",
             "extensions/discord/ 目录不存在"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0-04",

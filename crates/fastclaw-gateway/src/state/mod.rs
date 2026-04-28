@@ -547,22 +547,6 @@ impl AppState {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        let discord_config = config.channels.get("discord").and_then(|ch| {
-            if ch.enabled == Some(false) {
-                None
-            } else {
-                fastclaw_discord::DiscordPluginConfig::from_channel_config(ch)
-            }
-        });
-        if let Some(dc) = discord_config.map(fastclaw_discord::DiscordPlugin::new) {
-            let dc = Arc::new(dc);
-            if let Err(e) = dc.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start Discord channel plugin");
-            }
-            channel_registry.register(dc);
-            tracing::info!("Discord channel plugin registered");
-        }
-
         let slack_config = config.channels.get("slack").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -1185,18 +1169,6 @@ impl AppState {
                     true
                 } else {
                     tracing::warn!("feishu: config missing required fields (appId/appSecret)");
-                    false
-                }
-            }
-            "discord" => {
-                if let Some(cfg) = fastclaw_discord::DiscordPluginConfig::from_channel_config(ch) {
-                    let plugin = Arc::new(fastclaw_discord::DiscordPlugin::new(cfg));
-                    plugin.start(tx).await?;
-                    self.ext.channel_registry.write().await.register(plugin);
-                    tracing::info!("discord channel hot-reloaded");
-                    true
-                } else {
-                    tracing::warn!("discord: config missing required fields");
                     false
                 }
             }

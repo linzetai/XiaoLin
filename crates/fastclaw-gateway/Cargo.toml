@@ -18,7 +18,6 @@ fastclaw-observe = { path = "../fastclaw-observe" }
 fastclaw-cron = { path = "../fastclaw-cron" }
 fastclaw-collab = { path = "../fastclaw-collab" }
 fastclaw-feishu = { path = "../../extensions/feishu" }
-fastclaw-discord = { path = "../../extensions/discord" }
 fastclaw-slack = { path = "../../extensions/slack" }
 fastclaw-whatsapp = { path = "../../extensions/whatsapp" }
 fastclaw-matrix = { path = "../../extensions/matrix" }

@@ -2269,22 +2269,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastclaw-discord"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "fastclaw-core",
- "futures",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tracing",
-]
-
-[[package]]
 name = "fastclaw-eval"
 version = "0.0.2"
 dependencies = [
@@ -2360,7 +2344,6 @@ dependencies = [
  "fastclaw-core",
  "fastclaw-cron",
  "fastclaw-dag",
- "fastclaw-discord",
  "fastclaw-evolution",
  "fastclaw-feishu",
  "fastclaw-gateway",
