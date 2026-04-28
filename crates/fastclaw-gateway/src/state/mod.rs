@@ -547,22 +547,6 @@ impl AppState {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        let msteams_config = config.channels.get("msteams").and_then(|ch| {
-            if ch.enabled == Some(false) {
-                None
-            } else {
-                fastclaw_msteams::TeamsPluginConfig::from_channel_config(ch)
-            }
-        });
-        if let Some(mt) = msteams_config.map(fastclaw_msteams::TeamsPlugin::new) {
-            let mt = Arc::new(mt);
-            if let Err(e) = mt.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start Microsoft Teams channel plugin");
-            }
-            channel_registry.register(mt);
-            tracing::info!("Microsoft Teams channel plugin registered");
-        }
-
         Ok((channel_registry, inbound_tx, inbound_rx))
     }
 
@@ -1121,18 +1105,6 @@ impl AppState {
                     true
                 } else {
                     tracing::warn!("feishu: config missing required fields (appId/appSecret)");
-                    false
-                }
-            }
-            "msteams" => {
-                if let Some(cfg) = fastclaw_msteams::TeamsPluginConfig::from_channel_config(ch) {
-                    let plugin = Arc::new(fastclaw_msteams::TeamsPlugin::new(cfg));
-                    plugin.start(tx).await?;
-                    self.ext.channel_registry.write().await.register(plugin);
-                    tracing::info!("msteams channel hot-reloaded");
-                    true
-                } else {
-                    tracing::warn!("msteams: config missing required fields");
                     false
                 }
             }

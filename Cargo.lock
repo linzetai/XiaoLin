@@ -2349,7 +2349,6 @@ dependencies = [
  "fastclaw-gateway",
  "fastclaw-memory",
  "fastclaw-model-router",
- "fastclaw-msteams",
  "fastclaw-observe",
  "fastclaw-plugin",
  "fastclaw-security",
@@ -2407,23 +2406,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
-]
-
-[[package]]
-name = "fastclaw-msteams"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "fastclaw-core",
- "hex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "url",
 ]
 
 [[package]]

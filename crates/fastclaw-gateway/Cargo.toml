@@ -18,7 +18,6 @@ fastclaw-observe = { path = "../fastclaw-observe" }
 fastclaw-cron = { path = "../fastclaw-cron" }
 fastclaw-collab = { path = "../fastclaw-collab" }
 fastclaw-feishu = { path = "../../extensions/feishu" }
-fastclaw-msteams = { path = "../../extensions/msteams" }
 fastclaw-model-router = { path = "../fastclaw-model-router" }
 tokio.workspace = true
 axum.workspace = true
