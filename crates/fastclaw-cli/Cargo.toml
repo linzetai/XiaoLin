@@ -13,7 +13,7 @@ fastclaw-gateway = { path = "../fastclaw-gateway" }
 fastclaw-observe = { path = "../fastclaw-observe" }
 fastclaw-session = { path = "../fastclaw-session" }
 fastclaw-agent = { path = "../fastclaw-agent" }
-fastclaw-collab = { path = "../fastclaw-collab" }
+fastclaw-mcp = { path = "../fastclaw-mcp" }
 clap.workspace = true
 clap_complete.workspace = true
 tokio.workspace = true

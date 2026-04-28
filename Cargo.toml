@@ -10,7 +10,6 @@ members = [
     "crates/fastclaw-evolution",
     "crates/fastclaw-observe",
     "crates/fastclaw-security",
-    "crates/fastclaw-collab",
     "crates/fastclaw-mcp",
     "crates/fastclaw-model-router",
     "crates/fastclaw-context",

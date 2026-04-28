@@ -15,7 +15,6 @@ fastclaw-self-iter = { path = "../fastclaw-self-iter" }
 fastclaw-plugin = { path = "../fastclaw-plugin" }
 fastclaw-observe = { path = "../fastclaw-observe" }
 fastclaw-cron = { path = "../fastclaw-cron" }
-fastclaw-collab = { path = "../fastclaw-collab" }
 fastclaw-mcp = { path = "../fastclaw-mcp" }
 fastclaw-feishu = { path = "../../extensions/feishu" }
 fastclaw-model-router = { path = "../fastclaw-model-router" }

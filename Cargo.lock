@@ -2147,9 +2147,9 @@ dependencies = [
  "crossterm",
  "dirs 5.0.1",
  "fastclaw-agent",
- "fastclaw-collab",
  "fastclaw-core",
  "fastclaw-gateway",
+ "fastclaw-mcp",
  "fastclaw-observe",
  "fastclaw-session",
  "futures",
@@ -2162,27 +2162,6 @@ dependencies = [
  "tokio-tungstenite 0.24.0",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "fastclaw-collab"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "dashmap",
- "fastclaw-agent",
- "fastclaw-core",
- "futures",
- "hex",
- "hmac",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2305,7 +2284,6 @@ dependencies = [
  "dashmap",
  "dirs 5.0.1",
  "fastclaw-agent",
- "fastclaw-collab",
  "fastclaw-context",
  "fastclaw-core",
  "fastclaw-cron",

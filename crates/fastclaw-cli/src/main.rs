@@ -1612,6 +1612,6 @@ async fn cmd_mcp_server() -> anyhow::Result<()> {
     );
 
     let tool_registry = std::sync::Arc::new(registry);
-    let server = fastclaw_collab::create_fastclaw_mcp_server(tool_registry);
+    let server = fastclaw_mcp::create_fastclaw_mcp_server(tool_registry);
     server.run_stdio().await
 }

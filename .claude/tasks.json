@@ -190,7 +190,7 @@
             "rg fastclaw.collab 在 workspace 中返回零匹配",
             "cargo check --workspace 编译通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0-15",
