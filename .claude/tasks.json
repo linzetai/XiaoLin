@@ -775,8 +775,8 @@
         {
           "id": "P3-05",
           "title": "实现消息列表组件",
-          "description": "IM 风格消息流：用户右对齐，AI 左对齐。markdown 渲染、代码高亮、虚拟滚动。",
-          "target_file": "crates/fastclaw-app/src/components/MessageList.tsx",
+          "description": "IM 风格消息流：用户右对齐，AI 左对齐。markdown 渲染、代码高亮、虚拟滚动。已实现为 MessageStream + MessageRenderer + MarkdownContent 组件（message-stream/ 目录），使用 react-virtuoso 虚拟滚动 + react-markdown/rehype-highlight。",
+          "target_file": "crates/fastclaw-app/src/components/message-stream/",
           "cc_references": [],
           "acceptance_criteria": [
             "用户消息右对齐，AI 消息左对齐",
@@ -785,13 +785,13 @@
             "500+ 条消息时虚拟滚动无卡顿",
             "新消息自动滚动到底部"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-06",
           "title": "实现工具调用展示组件",
-          "description": "折叠式工具调用卡片：名称、参数摘要、执行状态、进度条。",
-          "target_file": "crates/fastclaw-app/src/components/ToolCallCard.tsx",
+          "description": "折叠式工具调用卡片：名称、参数摘要、执行状态、进度条。已实现为 ToolCallCard 组件（message-stream/ToolCallCard.tsx）。",
+          "target_file": "crates/fastclaw-app/src/components/message-stream/ToolCallCard.tsx",
           "cc_references": [],
           "acceptance_criteria": [
             "默认折叠，显示工具名称和状态图标",
@@ -800,13 +800,13 @@
             "running 状态显示进度动画",
             "error 状态显示错误信息和红色标识"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-07",
           "title": "实现输入框组件",
-          "description": "底部多行输入：Shift+Enter 换行、Enter 发送、文件拖拽、context usage 指示器。",
-          "target_file": "crates/fastclaw-app/src/components/ChatInput.tsx",
+          "description": "底部多行输入：Shift+Enter 换行、Enter 发送、文件拖拽、context usage 指示器。已实现为 MentionInput + StreamFooter 组件（message-stream/ 目录），含 @mention、文件拖拽、ContextRing 显示。",
+          "target_file": "crates/fastclaw-app/src/components/message-stream/",
           "cc_references": [],
           "acceptance_criteria": [
             "Enter 发送消息，Shift+Enter 换行",
@@ -815,13 +815,13 @@
             "发送中禁用输入框，显示 loading 状态",
             "支持 Cmd/Ctrl+K 清空输入框"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-08",
           "title": "实现 Tauri IPC 流式适配层",
-          "description": "Tauri Channel 将 Rust StreamEvent 实时推送到 React 前端。",
-          "target_file": "crates/fastclaw-app/src-tauri/src/ + crates/fastclaw-app/src/transport/",
+          "description": "Tauri Channel 将 Rust StreamEvent 实时推送到 React 前端。已在 src-tauri/src/commands/chat.rs 中完整实现，所有 StreamEvent 变体均通过 channel.send(json!(...)) 推送。",
+          "target_file": "crates/fastclaw-app/src-tauri/src/commands/chat.rs",
           "cc_references": [],
           "acceptance_criteria": [
             "Text、ToolCall、ToolResult、ToolProgress、Done 事件正确映射",
@@ -829,13 +829,13 @@
             "网络异常时前端显示错误提示",
             "Rust 端无 panic（所有 send 错误被 catch）"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-09",
           "title": "实现会话状态管理 (Zustand/Jotai store)",
-          "description": "前端状态管理：agents、sessions、messages、streaming、context usage。",
-          "target_file": "crates/fastclaw-app/src/stores/",
+          "description": "前端状态管理：agents、sessions、messages、streaming、context usage。已通过 Zustand 实现在 lib/stores/ 和 lib/agent-store.ts 中，包含 AgentState、chatList、streaming 追踪、context usage 更新等。",
+          "target_file": "crates/fastclaw-app/src/lib/stores/",
           "cc_references": [],
           "acceptance_criteria": [
             "切换 session 时消息列表正确切换",
@@ -843,7 +843,7 @@
             "context usage 数据实时更新",
             "页面刷新后 session 列表恢复（持久化）"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-10",
