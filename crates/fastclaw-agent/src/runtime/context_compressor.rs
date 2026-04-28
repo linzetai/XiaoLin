@@ -362,6 +362,101 @@ pub async fn try_compress_chat(
     }
 }
 
+/// Maximum consecutive compression failures before the circuit breaker trips.
+#[allow(dead_code)]
+const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES: u32 = 3;
+
+/// Outcome of an [`AutoCompactor::compact_if_needed`] call.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoCompactOutcome {
+    /// Compression was not needed (below threshold).
+    NotNeeded,
+    /// Compression succeeded.
+    Compressed { original_tokens: usize, new_tokens: usize },
+    /// Compression failed (LLM error, inflated result, etc.).
+    Failed,
+    /// Skipped because the circuit breaker has tripped after too many failures.
+    CircuitBreakerOpen,
+}
+
+/// Wraps [`try_compress_chat`] with a circuit breaker that stops retrying
+/// after [`MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES`] consecutive failures.
+#[allow(dead_code)]
+pub struct AutoCompactor {
+    consecutive_failures: u32,
+}
+
+#[allow(dead_code)]
+impl AutoCompactor {
+    pub fn new() -> Self {
+        Self {
+            consecutive_failures: 0,
+        }
+    }
+
+    /// Whether the circuit breaker is currently open (tripped).
+    pub fn is_circuit_open(&self) -> bool {
+        self.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+    }
+
+    /// Current consecutive failure count.
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+
+    /// Attempt compression if needed. Returns immediately with
+    /// [`AutoCompactOutcome::CircuitBreakerOpen`] if too many consecutive
+    /// failures have occurred.
+    pub async fn compact_if_needed(
+        &mut self,
+        messages: &mut Vec<ChatMessage>,
+        context_window: u32,
+        provider: &Arc<dyn LlmProvider>,
+        model: &str,
+        api_prompt_tokens: usize,
+    ) -> AutoCompactOutcome {
+        if self.is_circuit_open() {
+            tracing::warn!(
+                consecutive_failures = self.consecutive_failures,
+                "auto-compact circuit breaker open, skipping"
+            );
+            return AutoCompactOutcome::CircuitBreakerOpen;
+        }
+
+        let result = try_compress_chat(messages, context_window, provider, model, api_prompt_tokens).await;
+
+        if result.compressed {
+            self.consecutive_failures = 0;
+            AutoCompactOutcome::Compressed {
+                original_tokens: result.original_tokens,
+                new_tokens: result.new_tokens,
+            }
+        } else if result.original_tokens <= (context_window as f32 * COMPRESSION_THRESHOLD) as usize {
+            AutoCompactOutcome::NotNeeded
+        } else {
+            self.consecutive_failures += 1;
+            tracing::warn!(
+                consecutive_failures = self.consecutive_failures,
+                max = MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+                "auto-compact failed"
+            );
+            AutoCompactOutcome::Failed
+        }
+    }
+
+    /// Manually reset the circuit breaker (e.g. after a model change).
+    pub fn reset(&mut self) {
+        self.consecutive_failures = 0;
+    }
+}
+
+impl Default for AutoCompactor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,5 +501,47 @@ mod tests {
     fn split_point_empty_returns_zero() {
         let msgs: Vec<&ChatMessage> = vec![];
         assert_eq!(find_split_point(&msgs, 0.3), 0);
+    }
+
+    #[test]
+    fn auto_compactor_starts_with_closed_breaker() {
+        let ac = AutoCompactor::new();
+        assert!(!ac.is_circuit_open());
+        assert_eq!(ac.consecutive_failures(), 0);
+    }
+
+    #[test]
+    fn circuit_breaker_trips_after_max_failures() {
+        let mut ac = AutoCompactor::new();
+        for _ in 0..MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES {
+            ac.consecutive_failures += 1;
+        }
+        assert!(ac.is_circuit_open());
+        assert_eq!(ac.consecutive_failures(), MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES);
+    }
+
+    #[test]
+    fn circuit_breaker_does_not_trip_below_max() {
+        let mut ac = AutoCompactor::new();
+        ac.consecutive_failures = MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1;
+        assert!(!ac.is_circuit_open());
+    }
+
+    #[test]
+    fn reset_clears_circuit_breaker() {
+        let mut ac = AutoCompactor::new();
+        ac.consecutive_failures = MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES;
+        assert!(ac.is_circuit_open());
+
+        ac.reset();
+        assert!(!ac.is_circuit_open());
+        assert_eq!(ac.consecutive_failures(), 0);
+    }
+
+    #[test]
+    fn default_impl_matches_new() {
+        let ac = AutoCompactor::default();
+        assert!(!ac.is_circuit_open());
+        assert_eq!(ac.consecutive_failures(), 0);
     }
 }

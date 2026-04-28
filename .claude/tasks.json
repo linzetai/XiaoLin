@@ -413,7 +413,7 @@
             "一次成功后重置计数器，恢复正常检查",
             "现有 try_compress_chat 行为不变"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P1-09",
