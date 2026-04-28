@@ -554,7 +554,7 @@
             "使用 mock LlmProvider 避免真实 API 调用",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2-04",

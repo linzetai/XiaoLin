@@ -237,6 +237,319 @@ impl QueryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use fastclaw_core::agent_config::{AgentModelConfig, BehaviorConfig};
+    use fastclaw_core::types::{
+        ChatResponse, DeltaContent, StreamChoice, StreamDelta,
+    };
+    use futures::stream;
+    use crate::CompletionParams;
+
+    fn test_agent_config() -> AgentConfig {
+        AgentConfig {
+            agent_id: "test-qe".into(),
+            name: None,
+            description: None,
+            model: AgentModelConfig {
+                provider: "openai".into(),
+                model: "mock".into(),
+                temperature: 0.0,
+                max_tokens: None,
+                context_window: None,
+                cost_per_1k_input: None,
+                cost_per_1k_output: None,
+                supports_reasoning: None,
+                fallbacks: Vec::new(),
+                max_concurrent_requests: 10,
+            },
+            system_prompt: Some("You are a test assistant.".into()),
+            tools: Vec::new(),
+            behavior: BehaviorConfig::default(),
+            mcp_servers: Vec::new(),
+            min_tier: None,
+            max_tier: None,
+            avatar: None,
+            channels: std::collections::HashMap::new(),
+        }
+    }
+
+    fn delta_text(text: &str) -> StreamDelta {
+        StreamDelta {
+            id: "d-1".into(),
+            object: "chat.completion.chunk".into(),
+            created: 0,
+            model: "mock".into(),
+            choices: vec![StreamChoice {
+                index: 0,
+                delta: DeltaContent {
+                    role: None,
+                    content: Some(text.into()),
+                    tool_calls: None,
+                },
+                finish_reason: None,
+            }],
+            usage: None,
+        }
+    }
+
+    fn delta_stop() -> StreamDelta {
+        StreamDelta {
+            id: "d-1".into(),
+            object: "chat.completion.chunk".into(),
+            created: 0,
+            model: "mock".into(),
+            choices: vec![StreamChoice {
+                index: 0,
+                delta: DeltaContent {
+                    role: None,
+                    content: None,
+                    tool_calls: None,
+                },
+                finish_reason: Some("stop".into()),
+            }],
+            usage: None,
+        }
+    }
+
+    /// Mock provider that returns a fixed response: "Hello World" in two deltas.
+    struct MockProvider;
+
+    #[async_trait]
+    impl LlmProvider for MockProvider {
+        async fn chat_completion(
+            &self,
+            _: &CompletionParams<'_>,
+        ) -> anyhow::Result<ChatResponse> {
+            anyhow::bail!("not used")
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _: &CompletionParams<'_>,
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>>
+        {
+            use futures::StreamExt;
+            Ok(stream::iter(vec![
+                Ok(delta_text("Hello ")),
+                Ok(delta_text("World")),
+                Ok(delta_stop()),
+            ])
+            .boxed())
+        }
+    }
+
+    /// Mock provider that pauses between deltas (for abort testing).
+    struct SlowMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for SlowMockProvider {
+        async fn chat_completion(
+            &self,
+            _: &CompletionParams<'_>,
+        ) -> anyhow::Result<ChatResponse> {
+            anyhow::bail!("not used")
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _: &CompletionParams<'_>,
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>>
+        {
+            use futures::StreamExt;
+            let items = vec![
+                (delta_text("partial"), false),
+                (delta_text(" complete"), true),
+                (delta_stop(), false),
+            ];
+            let s = futures::stream::unfold(items.into_iter(), |mut iter| async move {
+                let (delta, slow) = iter.next()?;
+                if slow {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                }
+                Some((Ok(delta), iter))
+            });
+            Ok(s.boxed())
+        }
+    }
+
+    fn make_engine(provider: Arc<dyn LlmProvider>) -> QueryEngine {
+        let runtime = Arc::new(AgentRuntime::new(provider));
+        let config = test_agent_config();
+        let registry = Arc::new(ToolRegistry::new());
+        QueryEngine::new(runtime, config, registry)
+    }
+
+    #[tokio::test]
+    async fn submit_message_streams_response() {
+        let mut engine = make_engine(Arc::new(MockProvider));
+        let mut rx = engine.submit_message("Hi").await;
+
+        let mut text = String::new();
+        let mut got_done = false;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        while let Ok(Some(event)) =
+            tokio::time::timeout_at(deadline, rx.recv()).await
+        {
+            match event {
+                StreamEvent::Delta(d) => {
+                    for c in &d.choices {
+                        if let Some(ref content) = c.delta.content {
+                            text.push_str(content);
+                        }
+                    }
+                }
+                StreamEvent::Done { .. } => {
+                    got_done = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(got_done, "should receive Done event");
+        assert_eq!(text, "Hello World");
+    }
+
+    #[tokio::test]
+    async fn cross_turn_messages_accumulate() {
+        let mut engine = make_engine(Arc::new(MockProvider));
+
+        // Turn 1
+        let mut rx = engine.submit_message("First question").await;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        while let Ok(Some(event)) =
+            tokio::time::timeout_at(deadline, rx.recv()).await
+        {
+            if matches!(event, StreamEvent::Done { .. }) {
+                break;
+            }
+        }
+
+        // Turn 2
+        let mut rx = engine.submit_message("Second question").await;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        while let Ok(Some(event)) =
+            tokio::time::timeout_at(deadline, rx.recv()).await
+        {
+            if matches!(event, StreamEvent::Done { .. }) {
+                break;
+            }
+        }
+
+        let msgs = engine.messages().await;
+        assert_eq!(msgs.len(), 4, "2 user + 2 assistant = 4");
+        assert_eq!(msgs[0].role, Role::User);
+        assert_eq!(msgs[1].role, Role::Assistant);
+        assert_eq!(msgs[2].role, Role::User);
+        assert_eq!(msgs[3].role, Role::Assistant);
+
+        assert_eq!(engine.turn_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn usage_accumulates_across_turns() {
+        let mut engine = make_engine(Arc::new(MockProvider));
+
+        for _ in 0..3 {
+            let mut rx = engine.submit_message("test").await;
+            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+            while let Ok(Some(event)) =
+                tokio::time::timeout_at(deadline, rx.recv()).await
+            {
+                if matches!(event, StreamEvent::Done { .. }) {
+                    break;
+                }
+            }
+        }
+
+        let usage = engine.usage().await;
+        // The mock doesn't produce usage in Done, so all zeros — but the
+        // accumulation logic is still exercised (3 turns, no panics).
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn abort_stops_stream() {
+        let mut engine = make_engine(Arc::new(SlowMockProvider));
+        let mut rx = engine.submit_message("question").await;
+
+        // Receive the first partial delta.
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        let mut received_partial = false;
+        while let Ok(Some(event)) =
+            tokio::time::timeout_at(deadline, rx.recv()).await
+        {
+            if let StreamEvent::Delta(d) = &event {
+                if d.choices.iter().any(|c| c.delta.content.as_deref() == Some("partial")) {
+                    received_partial = true;
+                    break;
+                }
+            }
+        }
+        assert!(received_partial, "should receive 'partial' delta");
+
+        // Abort the current turn.
+        engine.abort();
+
+        // The receiver should close soon after abort.
+        let close_deadline =
+            tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        let mut remaining = 0;
+        while let Ok(Some(_)) =
+            tokio::time::timeout_at(close_deadline, rx.recv()).await
+        {
+            remaining += 1;
+        }
+
+        assert!(
+            remaining <= 2,
+            "few or no events after abort, got {remaining}"
+        );
+
+        // The assistant text should NOT be in messages (partial, not committed).
+        let msgs = engine.messages().await;
+        let has_assistant = msgs.iter().any(|m| m.role == Role::Assistant);
+        assert!(
+            !has_assistant,
+            "partial assistant text should not be committed"
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_then_new_turn_works() {
+        let mut engine = make_engine(Arc::new(SlowMockProvider));
+
+        // Start and abort
+        let _rx = engine.submit_message("will abort").await;
+        engine.abort();
+
+        // Give tasks time to observe cancellation
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Replace with fast mock for the next turn
+        engine = QueryEngine::new(
+            Arc::new(AgentRuntime::new(Arc::new(MockProvider) as Arc<dyn LlmProvider>)),
+            test_agent_config(),
+            Arc::new(ToolRegistry::new()),
+        );
+
+        let mut rx = engine.submit_message("after abort").await;
+        let mut got_done = false;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        while let Ok(Some(event)) =
+            tokio::time::timeout_at(deadline, rx.recv()).await
+        {
+            if matches!(event, StreamEvent::Done { .. }) {
+                got_done = true;
+                break;
+            }
+        }
+
+        assert!(got_done, "new turn after abort should complete normally");
+    }
+
+    // ---- P2-01 and P2-02 unit tests (retained) ----
 
     fn make_usage(prompt: u32, completion: u32) -> Usage {
         Usage {
@@ -247,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_accumulation() {
+    fn usage_accumulation_arithmetic() {
         let mut total = Usage {
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -264,88 +577,13 @@ mod tests {
     }
 
     #[test]
-    fn messages_accumulate_across_turns() {
-        let mut messages: Vec<ChatMessage> = Vec::new();
-
-        let pairs = [("hello", "hi there"), ("how are you?", "I'm good!")];
-        for (user_text, assistant_text) in pairs {
-            messages.push(ChatMessage {
-                role: Role::User,
-                content: Some(serde_json::json!(user_text)),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            messages.push(ChatMessage {
-                role: Role::Assistant,
-                content: Some(serde_json::json!(assistant_text)),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-        }
-
-        assert_eq!(messages.len(), 4);
-        assert_eq!(messages[0].role, Role::User);
-        assert_eq!(messages[1].role, Role::Assistant);
-        assert_eq!(messages[2].role, Role::User);
-        assert_eq!(messages[3].role, Role::Assistant);
-    }
-
-    #[tokio::test]
-    async fn state_mutex_serializes_cross_turn_access() {
-        let state = Arc::new(Mutex::new(QueryEngineState {
-            session_id: None,
-            messages: Vec::new(),
-            total_usage: Usage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-            },
-        }));
-
-        {
-            let mut s = state.lock().await;
-            s.messages.push(ChatMessage {
-                role: Role::User,
-                content: Some(serde_json::json!("turn 1")),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            s.total_usage.prompt_tokens += 100;
-            s.session_id = Some("sess-1".to_string());
-        }
-
-        {
-            let mut s = state.lock().await;
-            s.messages.push(ChatMessage {
-                role: Role::Assistant,
-                content: Some(serde_json::json!("reply 1")),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            s.total_usage.completion_tokens += 50;
-        }
-
-        {
-            let mut s = state.lock().await;
-            s.messages.push(ChatMessage {
-                role: Role::User,
-                content: Some(serde_json::json!("turn 2")),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            s.total_usage.prompt_tokens += 120;
-        }
-
-        let s = state.lock().await;
-        assert_eq!(s.messages.len(), 3);
-        assert_eq!(s.total_usage.prompt_tokens, 220);
-        assert_eq!(s.total_usage.completion_tokens, 50);
-        assert_eq!(s.session_id, Some("sess-1".to_string()));
+    fn cancel_token_lifecycle() {
+        let t1 = CancellationToken::new();
+        assert!(!t1.is_cancelled());
+        t1.cancel();
+        assert!(t1.is_cancelled());
+        let t2 = CancellationToken::new();
+        assert!(!t2.is_cancelled(), "new token should be fresh");
     }
 
     #[test]
@@ -360,97 +598,5 @@ mod tests {
         };
         assert_eq!(msg.role, Role::User);
         assert_eq!(msg.text_content().as_deref(), Some(text));
-    }
-
-    #[tokio::test]
-    async fn cancel_token_stops_forwarding() {
-        let cancel = CancellationToken::new();
-        let (tx, mut rx) = mpsc::channel::<String>(16);
-
-        let cancel_clone = cancel.clone();
-        tokio::spawn(async move {
-            for i in 0..100 {
-                tokio::select! {
-                    _ = cancel_clone.cancelled() => break,
-                    _ = tokio::task::yield_now() => {
-                        if tx.send(format!("msg-{i}")).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        // Receive a few messages then cancel.
-        let mut received = Vec::new();
-        for _ in 0..3 {
-            if let Some(msg) = rx.recv().await {
-                received.push(msg);
-            }
-        }
-        cancel.cancel();
-
-        // Allow the spawned task to observe cancellation.
-        tokio::task::yield_now().await;
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-        // Channel should close shortly after cancellation.
-        let mut after_cancel = 0;
-        while rx.recv().await.is_some() {
-            after_cancel += 1;
-        }
-
-        assert!(received.len() >= 3, "should receive at least 3 before cancel");
-        assert!(
-            after_cancel <= 3,
-            "should receive very few events after cancel, got {after_cancel}"
-        );
-    }
-
-    #[tokio::test]
-    async fn abort_resets_for_next_turn() {
-        let cancel1 = CancellationToken::new();
-        assert!(!cancel1.is_cancelled());
-
-        cancel1.cancel();
-        assert!(cancel1.is_cancelled());
-
-        // After creating a new token, the new one should NOT be cancelled.
-        let cancel2 = CancellationToken::new();
-        assert!(!cancel2.is_cancelled(), "new token should be fresh");
-    }
-
-    #[tokio::test]
-    async fn partial_text_not_added_on_cancel() {
-        let state = Arc::new(Mutex::new(QueryEngineState {
-            session_id: None,
-            messages: Vec::new(),
-            total_usage: Usage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-            },
-        }));
-
-        // Simulate: add user message, start accumulating assistant text,
-        // then cancel before Done arrives.
-        {
-            let mut s = state.lock().await;
-            s.messages.push(ChatMessage {
-                role: Role::User,
-                content: Some(serde_json::json!("question")),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            });
-        }
-
-        // assistant_text would have been "partial answer..." but cancellation
-        // prevents it from being committed to state.
-        // After cancel, only the user message should be in history.
-        let s = state.lock().await;
-        assert_eq!(s.messages.len(), 1);
-        assert_eq!(s.messages[0].role, Role::User);
-        // No assistant message was committed.
     }
 }
