@@ -111,7 +111,7 @@
             "cargo check --workspace 编译通过",
             "crates/fastclaw-eval/ 目录不存在"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0-09",

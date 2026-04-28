@@ -15,7 +15,6 @@ members = [
     "crates/fastclaw-model-router",
     "crates/fastclaw-context",
     "crates/fastclaw-self-iter",
-    "crates/fastclaw-eval",
     "crates/fastclaw-cron",
     "crates/fastclaw-treesitter",
     "extensions/feishu",

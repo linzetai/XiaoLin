@@ -2149,7 +2149,6 @@ dependencies = [
  "fastclaw-agent",
  "fastclaw-collab",
  "fastclaw-core",
- "fastclaw-eval",
  "fastclaw-gateway",
  "fastclaw-observe",
  "fastclaw-session",
@@ -2266,21 +2265,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "fastclaw-eval"
-version = "0.0.2"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "fastclaw-agent",
- "fastclaw-core",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

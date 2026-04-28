@@ -82,11 +82,6 @@ enum Commands {
         #[command(subcommand)]
         action: TraceAction,
     },
-    /// Run evaluation suite against a gateway
-    Eval {
-        #[command(subcommand)]
-        action: EvalAction,
-    },
     /// Backup and restore state databases
     Backup {
         #[command(subcommand)]
@@ -180,23 +175,6 @@ enum TraceAction {
     Show { trace_id: String },
     /// Export a trace as JSON to stdout
     Export { trace_id: String },
-}
-
-#[derive(Subcommand)]
-enum EvalAction {
-    /// Run eval cases from a directory against a live gateway
-    Run {
-        #[arg(long, help = "Directory containing eval case JSON files")]
-        cases: String,
-        #[arg(long, default_value = "http://localhost:18789", help = "Gateway base URL")]
-        gateway_url: String,
-        #[arg(long, help = "API key for authentication")]
-        api_key: Option<String>,
-        #[arg(long, help = "Write HTML report to this path")]
-        html: Option<String>,
-        #[arg(long, help = "Write JSON report to this path")]
-        json_out: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -412,7 +390,6 @@ async fn main() -> anyhow::Result<()> {
             | Commands::Agents { .. }
             | Commands::Tools { .. }
             | Commands::Trace { .. }
-            | Commands::Eval { .. }
             | Commands::Backup { .. }
             | Commands::Health
             | Commands::Doctor
@@ -469,9 +446,6 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Trace { action } => {
             cmd_trace(action, &mode, cli.json).await?;
-        }
-        Commands::Eval { action } => {
-            cmd_eval(action).await?;
         }
         Commands::Backup { action } => {
             cmd_backup(action, &mode).await?;
@@ -1533,72 +1507,6 @@ async fn cmd_backup(
             }
 
             eprintln!("\nRestore complete: {} database(s) from {}", restored, backup_dir.display());
-        }
-    }
-
-    Ok(())
-}
-
-// --- Eval ---
-
-async fn cmd_eval(action: EvalAction) -> anyhow::Result<()> {
-    match action {
-        EvalAction::Run {
-            cases,
-            gateway_url,
-            api_key,
-            html,
-            json_out,
-        } => {
-            let eval_cases = fastclaw_eval::load_eval_cases_from_dir(&cases)?;
-            if eval_cases.is_empty() {
-                eprintln!("No eval cases found in {cases}");
-                std::process::exit(1);
-            }
-            eprintln!(
-                "Running {} eval case(s) against {gateway_url}...",
-                eval_cases.len()
-            );
-
-            let mut driver = fastclaw_eval::GatewayEvalDriver::new(&gateway_url);
-            if let Some(key) = api_key {
-                driver = driver.with_api_key(key);
-            }
-
-            let suite = fastclaw_eval::run_eval_suite(&eval_cases, &driver).await?;
-            let report =
-                fastclaw_eval::EvalReport::from_suite(&suite, "FastClaw Eval Run");
-
-            // Always print summary
-            eprintln!(
-                "\nResults: {}/{} passed ({:.0}%)",
-                suite.passed,
-                suite.total,
-                suite.pass_rate * 100.0,
-            );
-            for r in &suite.results {
-                let icon = if r.passed { "  ✓" } else { "  ✗" };
-                eprintln!("{icon} {} ({}ms)", r.case_id, r.duration_ms);
-                for reason in &r.failure_reasons {
-                    eprintln!("    → {reason}");
-                }
-            }
-
-            if let Some(path) = json_out {
-                let json = report.to_json()?;
-                std::fs::write(&path, &json)?;
-                eprintln!("\nJSON report written to {path}");
-            }
-
-            if let Some(path) = html {
-                let html_content = report.to_html();
-                std::fs::write(&path, &html_content)?;
-                eprintln!("HTML report written to {path}");
-            }
-
-            if suite.failed > 0 {
-                std::process::exit(1);
-            }
         }
     }
 
