@@ -686,6 +686,26 @@ impl AgentRuntime {
                 let _ = fastclaw_context::ContextHook::on_assemble(&reminder, &mut messages).await;
             }
 
+            // Phase 0.5: ContextPipeline pre-query compaction (snip + importance)
+            let pipeline = fastclaw_context::ContextPipeline::new(
+                fastclaw_context::PipelineConfig {
+                    snip_max_tokens: context_window as usize,
+                    reactive_target_tokens: context_window as usize,
+                    ..Default::default()
+                },
+            );
+            let (compacted, pipeline_meta) = pipeline.pre_query_compact(&messages);
+            if pipeline_meta.snip_applied || pipeline_meta.micro_applied {
+                tracing::info!(
+                    snip_freed = pipeline_meta.snip_tokens_freed,
+                    snip_rounds = pipeline_meta.snip_rounds_removed,
+                    micro_evicted = pipeline_meta.micro_evicted,
+                    total_freed = pipeline_meta.total_tokens_freed,
+                    "pre-query pipeline compacted context"
+                );
+                messages = compacted;
+            }
+
             // Phase 1: LLM-based compression at 60% threshold
             // Use API-reported prompt_tokens from the previous iteration when available;
             // falls back to chars/4 heuristic on the first iteration.
@@ -796,7 +816,34 @@ impl AgentRuntime {
                 };
 
                 let llm_call_t0 = std::time::Instant::now();
-                let mut stream = provider.chat_completion_stream(&params).await?;
+                let stream_result = provider.chat_completion_stream(&params).await;
+                let mut stream = match stream_result {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let err_str = e.to_string().to_lowercase();
+                        let is_prompt_too_long = err_str.contains("prompt_too_long")
+                            || err_str.contains("context_length_exceeded")
+                            || err_str.contains("maximum context length")
+                            || err_str.contains("too many tokens");
+                        if is_prompt_too_long {
+                            tracing::warn!(
+                                error = %e,
+                                "prompt_too_long detected — attempting reactive compaction"
+                            );
+                            let reactive_result = pipeline.reactive_compact(&messages);
+                            if reactive_result.recovered {
+                                tracing::info!(
+                                    level = ?reactive_result.level_used,
+                                    tokens_after = reactive_result.tokens_after,
+                                    "reactive compaction recovered — retrying LLM call"
+                                );
+                                messages = reactive_result.messages;
+                                continue 'stream_try;
+                            }
+                        }
+                        return Err(e);
+                    }
+                };
                 tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: stream_connect");
 
                 let mut first_chunk = true;

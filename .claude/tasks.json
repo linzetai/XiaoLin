@@ -475,7 +475,7 @@
             "现有 microcompact_tool_results 和 dedup_repeated_tool_calls 保留",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P1-13",
