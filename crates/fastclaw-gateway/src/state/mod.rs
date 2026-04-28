@@ -547,22 +547,6 @@ impl AppState {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        let matrix_config = config.channels.get("matrix").and_then(|ch| {
-            if ch.enabled == Some(false) {
-                None
-            } else {
-                fastclaw_matrix::MatrixPluginConfig::from_channel_config(ch)
-            }
-        });
-        if let Some(mx) = matrix_config.map(fastclaw_matrix::MatrixPlugin::new) {
-            let mx = Arc::new(mx);
-            if let Err(e) = mx.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start Matrix channel plugin");
-            }
-            channel_registry.register(mx);
-            tracing::info!("Matrix channel plugin registered");
-        }
-
         let msteams_config = config.channels.get("msteams").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -1137,18 +1121,6 @@ impl AppState {
                     true
                 } else {
                     tracing::warn!("feishu: config missing required fields (appId/appSecret)");
-                    false
-                }
-            }
-            "matrix" => {
-                if let Some(cfg) = fastclaw_matrix::MatrixPluginConfig::from_channel_config(ch) {
-                    let plugin = Arc::new(fastclaw_matrix::MatrixPlugin::new(cfg));
-                    plugin.start(tx).await?;
-                    self.ext.channel_registry.write().await.register(plugin);
-                    tracing::info!("matrix channel hot-reloaded");
-                    true
-                } else {
-                    tracing::warn!("matrix: config missing required fields");
                     false
                 }
             }

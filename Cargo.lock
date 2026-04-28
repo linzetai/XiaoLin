@@ -2347,7 +2347,6 @@ dependencies = [
  "fastclaw-evolution",
  "fastclaw-feishu",
  "fastclaw-gateway",
- "fastclaw-matrix",
  "fastclaw-memory",
  "fastclaw-model-router",
  "fastclaw-msteams",
@@ -2372,23 +2371,6 @@ dependencies = [
  "tracing",
  "url",
  "utoipa",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-matrix"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "fastclaw-core",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "url",
  "uuid",
 ]
 
