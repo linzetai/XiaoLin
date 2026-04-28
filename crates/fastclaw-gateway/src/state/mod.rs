@@ -17,6 +17,7 @@ use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
+#[cfg(feature = "evolution")]
 use fastclaw_evolution::{
     FeedbackStore, LlmExtractionCallback, LlmExtractedPattern, PromptDistiller, SkillExtractor,
     SkillParam, SkillStore, TrajectoryStore,
@@ -89,19 +90,24 @@ pub struct StorageState {
     pub cron_store: Arc<CronJobStore>,
     pub cron_wake: Arc<tokio::sync::Notify>,
     pub notification_store: Arc<crate::notification_store::NotificationStore>,
+    #[cfg(feature = "evolution")]
     pub feedback_store: Arc<FeedbackStore>,
+    #[cfg(feature = "evolution")]
     pub prompt_distiller: Arc<PromptDistiller>,
+    #[cfg(feature = "evolution")]
     pub trajectory_store: Arc<TrajectoryStore>,
+    #[cfg(feature = "evolution")]
     pub skill_store: Arc<SkillStore>,
     pub context_engine: Arc<fastclaw_context::ContextEngine>,
 }
 
-/// LLM-backed skill extraction callback for the evolution pipeline.
+#[cfg(feature = "evolution")]
 pub(crate) struct LlmSkillExtraction {
     pub(crate) provider: Arc<dyn fastclaw_agent::LlmProvider>,
     pub(crate) model: String,
 }
 
+#[cfg(feature = "evolution")]
 #[async_trait::async_trait]
 impl LlmExtractionCallback for LlmSkillExtraction {
     async fn extract_pattern(&self, trajectories_summary: &str) -> anyhow::Result<LlmExtractedPattern> {
@@ -341,7 +347,7 @@ impl AppState {
         Ok(())
     }
 
-    /// Periodic skill maintenance and background extraction from trajectories.
+    #[cfg(feature = "evolution")]
     fn spawn_skill_evolution_tasks(&self) {
         let skill_store = self.store.skill_store.clone();
         let maintenance_secs = self.cfg.config.evolution.skill_maintenance_interval_secs;
@@ -480,10 +486,14 @@ impl AppState {
             }
         };
 
-        let self_iter = Arc::new(fastclaw_self_iter::SelfIterEngine::diagnosis_only());
-        let runtime = Arc::new(
-            AgentRuntime::new(Arc::from(default_provider)).with_self_iter_engine(self_iter),
-        );
+        let runtime = Arc::new({
+            let rt = AgentRuntime::new(Arc::from(default_provider));
+            #[cfg(feature = "self-iter")]
+            let rt = rt.with_self_iter_engine(Arc::new(
+                fastclaw_self_iter::SelfIterEngine::diagnosis_only(),
+            ));
+            rt
+        });
 
         for agent in agents {
             match create_provider_chain(&agent.model, Some(creds)) {
@@ -1201,28 +1211,33 @@ impl AppState {
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());
 
-        let evo_pool = {
+        #[cfg(feature = "evolution")]
+        let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
             let target = tmp.join("evolution.db");
             let opts = SqliteConnectOptions::new()
                 .filename(&target)
                 .create_if_missing(true)
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                 .foreign_keys(true);
-            SqlitePoolOptions::new()
+            let evo_pool = SqlitePoolOptions::new()
                 .max_connections(2)
                 .connect_with(opts)
-                .await?
+                .await?;
+            let fs = FeedbackStore::open(evo_pool.clone()).await?;
+            let ts = Arc::new(TrajectoryStore::open(evo_pool.clone()).await?);
+            let ss = Arc::new(SkillStore::open(evo_pool.clone()).await?);
+            let pd = PromptDistiller::open(evo_pool).await?;
+            (fs, ts, ss, pd)
         };
-        let feedback_store = FeedbackStore::open(evo_pool.clone()).await?;
-        let trajectory_store = Arc::new(TrajectoryStore::open(evo_pool.clone()).await?);
-        let skill_store = Arc::new(SkillStore::open(evo_pool.clone()).await?);
-        let prompt_distiller = PromptDistiller::open(evo_pool).await?;
 
-        let runtime = Arc::new(
-            AgentRuntime::new(Arc::from(provider))
+        let runtime = Arc::new({
+            let rt = AgentRuntime::new(Arc::from(provider));
+            #[cfg(feature = "evolution")]
+            let rt = rt
                 .with_skill_store(skill_store.clone())
-                .with_trajectory_store(trajectory_store.clone()),
-        );
+                .with_trajectory_store(trajectory_store.clone());
+            rt
+        });
 
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
@@ -1338,9 +1353,13 @@ impl AppState {
                 cron_store: Arc::new(cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(notification_store),
+                #[cfg(feature = "evolution")]
                 feedback_store: Arc::new(feedback_store),
+                #[cfg(feature = "evolution")]
                 prompt_distiller: Arc::new(prompt_distiller),
+                #[cfg(feature = "evolution")]
                 trajectory_store,
+                #[cfg(feature = "evolution")]
                 skill_store,
                 context_engine: Arc::new(context_engine),
             },

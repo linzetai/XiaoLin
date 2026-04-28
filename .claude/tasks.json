@@ -258,7 +258,7 @@
             "cargo check -p fastclaw-gateway --features evolution 编译通过",
             "routes/evolution.rs 内容被 #[cfg(feature = \"evolution\")] 包裹"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0-20",
