@@ -560,6 +560,14 @@ async fn handle_stream(
                     });
                     yield Ok(format!("event: context_usage\ndata: {ev}\n\n"));
                 }
+                StreamEvent::BriefMessage { content, attachments, mode } => {
+                    let ev = json!({
+                        "content": content,
+                        "attachments": attachments,
+                        "mode": mode,
+                    });
+                    yield Ok(format!("event: brief\ndata: {ev}\n\n"));
+                }
             }
         }
     };

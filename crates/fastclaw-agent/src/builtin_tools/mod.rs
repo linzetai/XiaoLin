@@ -1,4 +1,5 @@
 mod ask_question;
+mod brief;
 mod confirm;
 mod code_intel;
 mod filesystem;
@@ -43,6 +44,7 @@ pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};
 pub use ask_question::{AskQuestionTool, with_stream_context};
+pub use brief::BriefTool;
 pub use confirm::ConfirmTool;
 pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
 pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeChunkTool};
@@ -131,6 +133,14 @@ pub fn register_snip_tool(
     messages: std::sync::Arc<std::sync::Mutex<Vec<fastclaw_core::types::ChatMessage>>>,
 ) {
     registry.register(Arc::new(SnipTool::new(messages)));
+}
+
+/// Register BriefTool (send_user_message) with shared stream event channels.
+pub fn register_brief_tool(
+    registry: &ToolRegistry,
+    stream_event_txs: std::sync::Arc<dashmap::DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
+) {
+    registry.register(Arc::new(BriefTool::new(stream_event_txs)));
 }
 
 pub fn register_todo_tools(registry: &ToolRegistry, store: TodoStore) {

@@ -853,5 +853,19 @@ pub fn event_to_response(
             })),
             error: None,
         },
+        StreamEvent::BriefMessage {
+            content,
+            attachments,
+            mode,
+        } => WsResponse {
+            id: req_id.clone(),
+            msg_type: "chat.brief".into(),
+            data: Some(json!({
+                "content": content,
+                "attachments": attachments,
+                "mode": mode,
+            })),
+            error: None,
+        },
     }
 }

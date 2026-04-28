@@ -410,6 +410,12 @@ pub async fn chat_stream(
                     "data": data,
                 }));
             }
+            StreamEvent::BriefMessage { content, attachments, mode } => {
+                let _ = channel.send(json!({
+                    "type": "chat.brief",
+                    "data": {"content": content, "attachments": attachments, "mode": mode}
+                }));
+            }
         }
     }
 

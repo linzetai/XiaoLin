@@ -728,7 +728,7 @@
             "支持 attachments 文件路径列表",
             "normal/proactive 状态正确传递"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P3-02",

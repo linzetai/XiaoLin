@@ -419,6 +419,17 @@ pub enum StreamEvent {
         partial_output: Option<String>,
     },
 
+    /// Agent-initiated message pushed to the user (via BriefTool / SendUserMessage).
+    BriefMessage {
+        /// Markdown-formatted message body.
+        content: String,
+        /// Optional file paths attached to the message.
+        attachments: Vec<String>,
+        /// `"normal"` when responding to a user action, `"proactive"` when
+        /// the agent initiates communication unprompted.
+        mode: String,
+    },
+
     Error(String),
 
     /// Emitted when context token usage exceeds a safety threshold.
