@@ -385,7 +385,7 @@
             "连续 3 轮 delta < 500 返回 Stop(diminishing_returns=true)",
             "budget 用尽返回 Stop"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P1-07",

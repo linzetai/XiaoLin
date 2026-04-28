@@ -1,3 +1,4 @@
+pub mod budget;
 pub mod compressor;
 pub mod engine;
 pub mod keyword_interceptor;
@@ -21,6 +22,7 @@ pub use engine::{
     DEFAULT_SYSTEM_REMINDER_TEXT,
 };
 pub use keyword_interceptor::MemoryKeywordInterceptor;
+pub use budget::{BudgetDecision, StopReason, TokenBudgetTracker};
 pub use reactive::{ReactiveCompactResult, ReactiveCompactor, ReactiveCompactorConfig};
 pub use snip::{group_by_api_round, ApiRound, SnipCompactor, SnipCompactorConfig, SnipResult};
 pub use model_context::{
