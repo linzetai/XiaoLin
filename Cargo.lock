@@ -2356,7 +2356,6 @@ dependencies = [
  "fastclaw-security",
  "fastclaw-self-iter",
  "fastclaw-session",
- "fastclaw-whatsapp",
  "futures",
  "http-body-util",
  "json5",
@@ -2539,25 +2538,6 @@ dependencies = [
  "tracing",
  "tree-sitter",
  "tree-sitter-language-pack",
-]
-
-[[package]]
-name = "fastclaw-whatsapp"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "constant_time_eq",
- "fastclaw-core",
- "hex",
- "hmac",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
 ]
 
 [[package]]

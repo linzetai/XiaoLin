@@ -547,22 +547,6 @@ impl AppState {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        let whatsapp_config = config.channels.get("whatsapp").and_then(|ch| {
-            if ch.enabled == Some(false) {
-                None
-            } else {
-                fastclaw_whatsapp::WhatsAppPluginConfig::from_channel_config(ch)
-            }
-        });
-        if let Some(wa) = whatsapp_config.map(fastclaw_whatsapp::WhatsAppPlugin::new) {
-            let wa = Arc::new(wa);
-            if let Err(e) = wa.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start WhatsApp channel plugin");
-            }
-            channel_registry.register(wa);
-            tracing::info!("WhatsApp channel plugin registered");
-        }
-
         let matrix_config = config.channels.get("matrix").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -1153,19 +1137,6 @@ impl AppState {
                     true
                 } else {
                     tracing::warn!("feishu: config missing required fields (appId/appSecret)");
-                    false
-                }
-            }
-            "whatsapp" => {
-                if let Some(cfg) = fastclaw_whatsapp::WhatsAppPluginConfig::from_channel_config(ch)
-                {
-                    let plugin = Arc::new(fastclaw_whatsapp::WhatsAppPlugin::new(cfg));
-                    plugin.start(tx).await?;
-                    self.ext.channel_registry.write().await.register(plugin);
-                    tracing::info!("whatsapp channel hot-reloaded");
-                    true
-                } else {
-                    tracing::warn!("whatsapp: config missing required fields");
                     false
                 }
             }
