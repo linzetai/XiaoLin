@@ -290,6 +290,18 @@ pub trait Tool: Send + Sync {
         false
     }
 
+    /// Additional keywords that help the tool-search system match this tool
+    /// against free-text queries. Default is empty (name + description used).
+    fn search_hint(&self) -> &str {
+        ""
+    }
+
+    /// Deferred tools are not included in the initial prompt's tool list.
+    /// They become available only after activation via `ToolSearchTool`.
+    fn is_deferred(&self) -> bool {
+        false
+    }
+
     fn to_definition(&self) -> ToolDefinition {
         ToolDefinition {
             tool_type: "function".to_string(),

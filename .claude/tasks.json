@@ -600,7 +600,7 @@
             "现有 Tool 实现无需修改即可编译",
             "cargo check --workspace 通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2-07",
