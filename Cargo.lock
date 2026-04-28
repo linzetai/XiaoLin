@@ -2356,7 +2356,6 @@ dependencies = [
  "fastclaw-security",
  "fastclaw-self-iter",
  "fastclaw-session",
- "fastclaw-slack",
  "fastclaw-whatsapp",
  "futures",
  "http-body-util",
@@ -2526,23 +2525,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "fastclaw-slack"
-version = "0.0.4"
-dependencies = [
- "anyhow",
- "async-trait",
- "fastclaw-core",
- "hex",
- "hmac",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
 ]
 
 [[package]]

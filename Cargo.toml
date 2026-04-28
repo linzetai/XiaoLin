@@ -19,7 +19,6 @@ members = [
     "crates/fastclaw-cron",
     "crates/fastclaw-treesitter",
     "extensions/feishu",
-    "extensions/slack",
     "extensions/whatsapp",
     "extensions/matrix",
     "extensions/msteams",

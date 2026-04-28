@@ -547,22 +547,6 @@ impl AppState {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        let slack_config = config.channels.get("slack").and_then(|ch| {
-            if ch.enabled == Some(false) {
-                None
-            } else {
-                fastclaw_slack::SlackPluginConfig::from_channel_config(ch)
-            }
-        });
-        if let Some(sl) = slack_config.map(fastclaw_slack::SlackPlugin::new) {
-            let sl = Arc::new(sl);
-            if let Err(e) = sl.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start Slack channel plugin");
-            }
-            channel_registry.register(sl);
-            tracing::info!("Slack channel plugin registered");
-        }
-
         let whatsapp_config = config.channels.get("whatsapp").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -1169,18 +1153,6 @@ impl AppState {
                     true
                 } else {
                     tracing::warn!("feishu: config missing required fields (appId/appSecret)");
-                    false
-                }
-            }
-            "slack" => {
-                if let Some(cfg) = fastclaw_slack::SlackPluginConfig::from_channel_config(ch) {
-                    let plugin = Arc::new(fastclaw_slack::SlackPlugin::new(cfg));
-                    plugin.start(tx).await?;
-                    self.ext.channel_registry.write().await.register(plugin);
-                    tracing::info!("slack channel hot-reloaded");
-                    true
-                } else {
-                    tracing::warn!("slack: config missing required fields");
                     false
                 }
             }
