@@ -268,7 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn snip_protects_last_user_turn() {
-        let (msgs, tool) = setup();
+        let (_msgs, tool) = setup();
         let result = tool
             .execute(r#"{"message_indices": [5], "reason": "test"}"#)
             .await;
@@ -324,5 +324,61 @@ mod tests {
         });
         assert!(summary.is_some());
         assert!(summary.unwrap().text_content().unwrap().contains("cleaned old exchange"));
+    }
+
+    #[tokio::test]
+    async fn snip_invalid_json() {
+        let (_, tool) = setup();
+        let result = tool.execute("not json").await;
+        assert!(!result.success);
+        assert!(result.output.contains("not valid JSON"));
+    }
+
+    #[tokio::test]
+    async fn snip_duplicate_indices_deduped() {
+        let (msgs, tool) = setup();
+        let result = tool
+            .execute(r#"{"message_indices": [2, 2, 2], "reason": "dup test"}"#)
+            .await;
+        assert!(result.success);
+        let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(v["snipped_count"], 1);
+
+        let guard = msgs.lock().unwrap();
+        // 6 original - 1 removed + 1 summary = 6
+        assert_eq!(guard.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn snip_default_reason() {
+        let (msgs, tool) = setup();
+        tool.execute(r#"{"message_indices": [2]}"#).await;
+
+        let guard = msgs.lock().unwrap();
+        let summary = guard.iter().find(|m| {
+            m.text_content()
+                .map(|t| t.contains("snipped"))
+                .unwrap_or(false)
+        });
+        assert!(summary.is_some());
+        assert!(summary.unwrap().text_content().unwrap().contains("removed by agent"));
+    }
+
+    #[tokio::test]
+    async fn snip_mixed_valid_and_protected() {
+        let (msgs, tool) = setup();
+        // index 0 = system (protected), index 2 = assistant (removable), index 5 = last user (protected)
+        let result = tool
+            .execute(r#"{"message_indices": [0, 2, 5], "reason": "mixed"}"#)
+            .await;
+        assert!(result.success);
+        let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(v["snipped_count"], 1);
+        let skipped = v["skipped"].as_array().unwrap();
+        assert_eq!(skipped.len(), 2);
+
+        let guard = msgs.lock().unwrap();
+        // 6 original - 1 removed + 1 summary = 6
+        assert_eq!(guard.len(), 6);
     }
 }

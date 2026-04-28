@@ -260,4 +260,28 @@ mod tests {
         let tool = SleepTool;
         assert!(matches!(tool.kind(), ToolKind::Think));
     }
+
+    #[tokio::test]
+    async fn sleep_invalid_json() {
+        let tool = SleepTool;
+        let result = tool.execute("not json").await;
+        assert!(!result.success);
+        assert!(result.output.contains("not valid JSON"));
+    }
+
+    #[tokio::test]
+    async fn sleep_seconds_is_string_returns_error() {
+        let tool = SleepTool;
+        let result = tool.execute(r#"{"seconds": "five"}"#).await;
+        assert!(!result.success);
+        assert!(result.output.contains("missing"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sleep_fractional_seconds() {
+        let tool = SleepTool;
+        let result = tool.execute(r#"{"seconds": 0.001}"#).await;
+        assert!(result.success);
+        assert!(result.output.contains("0.001"));
+    }
 }

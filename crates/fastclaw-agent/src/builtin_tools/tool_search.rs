@@ -119,7 +119,6 @@ impl Tool for ToolSearchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fastclaw_core::tool::ToolDefinition;
 
     struct FakeTool {
         name_str: &'static str,
@@ -212,5 +211,58 @@ mod tests {
         let result = tool.execute(r#"{}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("missing"));
+    }
+
+    #[tokio::test]
+    async fn invalid_json_returns_error() {
+        let (_, tool) = setup();
+        let result = tool.execute("not json").await;
+        assert!(!result.success);
+        assert!(result.output.contains("not valid JSON"));
+    }
+
+    #[tokio::test]
+    async fn search_matches_by_description() {
+        let (_, tool) = setup();
+        let result = tool.execute(r#"{"query": "regex"}"#).await;
+        assert!(result.success);
+        let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(v["match_count"], 1);
+        assert_eq!(v["matches"][0]["name"], "grep_tool");
+    }
+
+    #[tokio::test]
+    async fn activate_reduces_deferred_count() {
+        let (reg, tool) = setup();
+        assert_eq!(reg.deferred_count(), 2);
+
+        tool.execute(r#"{"query": "select:grep_tool"}"#).await;
+        assert_eq!(reg.deferred_count(), 1);
+
+        let result = tool.execute(r#"{"query": "regex"}"#).await;
+        let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(v["match_count"], 0);
+        assert_eq!(v["total_deferred_tools"], 1);
+    }
+
+    #[tokio::test]
+    async fn search_matches_multiple_results() {
+        let reg = Arc::new(ToolRegistry::new());
+        reg.register_deferred(Arc::new(FakeTool {
+            name_str: "file_read",
+            desc: "Read a file from disk",
+            hint: "fs file",
+        }));
+        reg.register_deferred(Arc::new(FakeTool {
+            name_str: "file_write",
+            desc: "Write a file to disk",
+            hint: "fs file",
+        }));
+        let tool = ToolSearchTool::new(reg.clone());
+
+        let result = tool.execute(r#"{"query": "file"}"#).await;
+        assert!(result.success);
+        let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(v["match_count"], 2);
     }
 }
