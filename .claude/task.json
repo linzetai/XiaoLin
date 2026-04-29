@@ -141,7 +141,7 @@
             "30+ 测试（traversal + symlink + protected）",
             "预计 ~400 行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "6A-04",
