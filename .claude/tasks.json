@@ -1209,7 +1209,7 @@
             "output_efficiency 覆盖：不 narrate 工具名、inverted pyramid、避免过度格式化",
             "output_efficiency 包含任务完成后不问 anything else"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-06",
