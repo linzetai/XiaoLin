@@ -290,6 +290,139 @@ Git 仓库：{git}
     )
 }
 
+/// Memory section: injects persistent memory context from the memory system.
+///
+/// Returns `None` when no memory prompt is available, causing
+/// `PromptEngine` to skip this section entirely.
+pub fn memory_section() -> PromptSection {
+    PromptSection {
+        name: "memory",
+        compute: Box::new(|ctx| {
+            ctx.memory_prompt
+                .as_ref()
+                .filter(|m| !m.trim().is_empty())
+                .map(|m| format!("<memory>\n{m}\n</memory>"))
+        }),
+        cache_break: false,
+    }
+}
+
+/// Language preference section: tells the model which language to respond in.
+///
+/// Returns `None` when no explicit preference is set (model uses its default).
+pub fn language_section() -> PromptSection {
+    PromptSection {
+        name: "language",
+        compute: Box::new(|ctx| {
+            ctx.language_preference.as_ref().map(|lang| {
+                format!(
+                    "<language_preference>\n\
+                     Respond in: {lang}\n\
+                     Match the user's language when they write in a specific language.\n\
+                     </language_preference>"
+                )
+            })
+        }),
+        cache_break: false,
+    }
+}
+
+/// MCP instructions section: lists instructions from connected MCP servers.
+///
+/// This is `cache_break: true` because MCP servers can connect/disconnect
+/// between turns, making the content potentially stale.
+pub fn mcp_instructions_section() -> PromptSection {
+    PromptSection {
+        name: "mcp_instructions",
+        compute: Box::new(|ctx| {
+            let servers_with_instructions: Vec<_> = ctx
+                .mcp_servers
+                .iter()
+                .filter_map(|s| {
+                    s.instructions
+                        .as_ref()
+                        .filter(|i| !i.trim().is_empty())
+                        .map(|i| (&s.id, i.as_str()))
+                })
+                .collect();
+
+            if servers_with_instructions.is_empty() {
+                return None;
+            }
+
+            let mut parts = vec!["<mcp_instructions>".to_string()];
+            for (id, instructions) in servers_with_instructions {
+                parts.push(format!(
+                    "## MCP Server: {id}\n\n{instructions}"
+                ));
+            }
+            parts.push("</mcp_instructions>".to_string());
+            Some(parts.join("\n\n"))
+        }),
+        cache_break: true,
+    }
+}
+
+/// Token budget section: guidance on response token budget when enabled.
+///
+/// Returns `None` when no budget is set, letting the model use full capacity.
+pub fn token_budget_section() -> PromptSection {
+    PromptSection {
+        name: "token_budget",
+        compute: Box::new(|ctx| {
+            ctx.token_budget.map(|budget| {
+                let lang = ctx.language_preference.as_deref();
+                match lang {
+                    Some("zh" | "zh-CN" | "zh-TW") => format!(
+                        "<token_budget>\n\
+                         你的回复 token 预算约为 {budget} tokens。\n\
+                         优先保证完整性和正确性，但注意控制回复长度。\n\
+                         如果任务需要更多空间，可以超出预算，但应尽量精简。\n\
+                         </token_budget>"
+                    ),
+                    _ => format!(
+                        "<token_budget>\n\
+                         Your response token budget is approximately {budget} tokens.\n\
+                         Prioritize completeness and correctness, but be mindful of length.\n\
+                         You may exceed the budget if the task requires it, but aim to be concise.\n\
+                         </token_budget>"
+                    ),
+                }
+            })
+        }),
+        cache_break: false,
+    }
+}
+
+/// Function result clearing section: informs the model that old tool results
+/// may be automatically compacted or cleared to save context space.
+pub fn frc_section() -> PromptSection {
+    PromptSection {
+        name: "frc",
+        compute: Box::new(|ctx| {
+            let lang = ctx.language_preference.as_deref();
+            Some(match lang {
+                Some("zh" | "zh-CN" | "zh-TW") => "\
+<function_result_clearing>\n\
+旧的工具调用结果可能被自动压缩或替换为摘要，以节省上下文空间。\n\
+如果你需要之前工具调用的精确内容，请重新调用该工具而非依赖记忆。\n\
+被清理的结果会显示为简短的摘要标记。\n\
+</function_result_clearing>"
+                    .to_string(),
+                _ => "\
+<function_result_clearing>\n\
+Old tool call results may be automatically compacted or replaced with summaries \n\
+to save context space. If you need the exact content from a previous tool call, \n\
+re-invoke the tool rather than relying on memory. Cleared results appear as \n\
+short summary markers.\n\
+</function_result_clearing>"
+                    .to_string(),
+            })
+        }),
+        cache_break: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,5 +608,147 @@ mod tests {
     #[test]
     fn environment_not_cache_break() {
         assert!(!environment_section().cache_break);
+    }
+
+    // ── memory section ──────────────────────────────────────────
+
+    #[test]
+    fn memory_returns_content_when_present() {
+        let mut ctx = base_ctx(None);
+        ctx.memory_prompt = Some("User prefers Rust. Last session: fixed auth bug.".into());
+        let section = memory_section();
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("prefers Rust"));
+        assert!(text.contains("<memory>"));
+    }
+
+    #[test]
+    fn memory_returns_none_when_absent() {
+        let ctx = base_ctx(None);
+        let section = memory_section();
+        assert!((section.compute)(&ctx).is_none());
+    }
+
+    #[test]
+    fn memory_returns_none_when_empty() {
+        let mut ctx = base_ctx(None);
+        ctx.memory_prompt = Some("  ".into());
+        let section = memory_section();
+        assert!((section.compute)(&ctx).is_none());
+    }
+
+    // ── language section ────────────────────────────────────────
+
+    #[test]
+    fn language_returns_preference_when_set() {
+        let ctx = base_ctx(Some("zh-CN"));
+        let section = language_section();
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("zh-CN"));
+        assert!(text.contains("language_preference"));
+    }
+
+    #[test]
+    fn language_returns_none_when_unset() {
+        let ctx = base_ctx(None);
+        let section = language_section();
+        assert!((section.compute)(&ctx).is_none());
+    }
+
+    // ── mcp_instructions section ────────────────────────────────
+
+    #[test]
+    fn mcp_instructions_lists_servers() {
+        let mut ctx = base_ctx(None);
+        ctx.mcp_servers = vec![
+            McpServerInfo {
+                id: "git-server".into(),
+                instructions: Some("Use for git operations".into()),
+            },
+            McpServerInfo {
+                id: "no-inst".into(),
+                instructions: None,
+            },
+            McpServerInfo {
+                id: "db-server".into(),
+                instructions: Some("Query the database".into()),
+            },
+        ];
+        let section = mcp_instructions_section();
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("git-server"));
+        assert!(text.contains("Use for git operations"));
+        assert!(text.contains("db-server"));
+        assert!(!text.contains("no-inst"));
+    }
+
+    #[test]
+    fn mcp_instructions_returns_none_when_no_instructions() {
+        let mut ctx = base_ctx(None);
+        ctx.mcp_servers = vec![McpServerInfo {
+            id: "empty".into(),
+            instructions: None,
+        }];
+        let section = mcp_instructions_section();
+        assert!((section.compute)(&ctx).is_none());
+    }
+
+    #[test]
+    fn mcp_instructions_is_cache_break() {
+        assert!(mcp_instructions_section().cache_break);
+    }
+
+    // ── token_budget section ────────────────────────────────────
+
+    #[test]
+    fn token_budget_returns_when_set() {
+        let mut ctx = base_ctx(None);
+        ctx.token_budget = Some(4096);
+        let section = token_budget_section();
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("4096"));
+        assert!(text.contains("token_budget"));
+    }
+
+    #[test]
+    fn token_budget_returns_none_when_unset() {
+        let ctx = base_ctx(None);
+        let section = token_budget_section();
+        assert!((section.compute)(&ctx).is_none());
+    }
+
+    #[test]
+    fn token_budget_zh() {
+        let mut ctx = base_ctx(Some("zh"));
+        ctx.token_budget = Some(8192);
+        let section = token_budget_section();
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("8192"));
+        assert!(text.contains("预算"));
+    }
+
+    // ── frc section ─────────────────────────────────────────────
+
+    #[test]
+    fn frc_en_mentions_clearing() {
+        let section = frc_section();
+        let ctx = base_ctx(None);
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("compacted"));
+        assert!(text.contains("re-invoke"));
+    }
+
+    #[test]
+    fn frc_zh_mentions_clearing() {
+        let section = frc_section();
+        let ctx = base_ctx(Some("zh"));
+        let text = (section.compute)(&ctx).unwrap();
+        assert!(text.contains("压缩"));
+        assert!(text.contains("重新调用"));
+    }
+
+    #[test]
+    fn frc_not_cache_break() {
+        assert!(!frc_section().cache_break);
     }
 }
