@@ -1675,7 +1675,7 @@
             "TokenBudgetTracker.check p99 < 1ms",
             "基准测试可通过 cargo bench 运行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P5-04",

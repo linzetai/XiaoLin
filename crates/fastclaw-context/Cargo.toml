@@ -22,3 +22,7 @@ criterion.workspace = true
 [[bench]]
 name = "token_estimation"
 harness = false
+
+[[bench]]
+name = "compaction_layers"
+harness = false
