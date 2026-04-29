@@ -1716,7 +1716,7 @@
             "deferred 模式节省 >= 30% 工具描述 token",
             "Agent 仍能通过 tool_search 找到并使用 deferred 工具"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     }
