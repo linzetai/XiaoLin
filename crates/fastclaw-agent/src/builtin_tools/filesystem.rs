@@ -1289,6 +1289,27 @@ impl Tool for ReadFileTool {
          with outputs). For text files, use offset/limit to read specific line ranges."
     }
 
+    fn prompt(&self) -> String {
+        "Reads a file from the local filesystem. You can access any file directly by using this tool.\n\
+Assume this tool is able to read all files on the machine. If the User provides a path to a file \
+assume that path is valid. It is okay to read a file that does not exist; an error will be returned.\n\n\
+Usage:\n\
+- The file_path parameter must be an absolute path, not a relative path\n\
+- By default, it reads up to 2000 lines starting from the beginning of the file\n\
+- You can optionally specify a line offset and limit (especially handy for long files), \
+but it's recommended to read the whole file by not providing these parameters\n\
+- Results are returned with line numbers starting at 1, using the format: LINE_NUMBER|LINE_CONTENT\n\
+- This tool can read images (PNG, JPG, GIF, WEBP, SVG, BMP). When reading an image file \
+the contents are presented visually as the model is multimodal\n\
+- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide \
+the pages parameter to read specific page ranges (e.g., pages: \"1-5\"). Maximum 20 pages per request\n\
+- This tool can read Jupyter notebooks (.ipynb) and returns all cells with their outputs\n\
+- This tool can only read files, not directories. To list a directory, use `list_directory` or `shell_exec`\n\
+- If you read a file that exists but has empty contents you will receive a system reminder warning\n\
+- When you already know which part of the file you need, only read that part using offset/limit. \
+This is important for larger files".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
@@ -1511,6 +1532,21 @@ impl Tool for WriteFileTool {
          Use expected_content for optimistic locking (write only if current content matches)."
     }
 
+    fn prompt(&self) -> String {
+        "Writes a file to the local filesystem.\n\n\
+Usage:\n\
+- This tool will overwrite the existing file if there is one at the provided path\n\
+- If this is an existing file, you MUST use the `read_file` tool first to read the file's contents. \
+This tool will fail if you did not read the file first\n\
+- Prefer the `edit_file` tool for modifying existing files — it only sends the diff. \
+Only use this tool to create new files or for complete rewrites\n\
+- NEVER create documentation files (*.md) or README files unless explicitly requested by the User\n\
+- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked\n\
+- Parent directories are created automatically if they don't exist\n\
+- Modes: overwrite (default — replaces entire file), append (add to end), create_new (fail if exists)\n\
+- Preserves existing file encoding (BOM, UTF-16, line endings) when overwriting".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
@@ -1711,6 +1747,25 @@ impl Tool for EditFileTool {
          Include at least 3 lines of context BEFORE and AFTER for unique identification. \
          Preserves file encoding (BOM, line endings) automatically. \
          Falls back to Unicode-normalized and whitespace-normalized fuzzy matching if exact match fails."
+    }
+
+    fn prompt(&self) -> String {
+        "Performs exact string replacements in files.\n\n\
+Usage:\n\
+- You must use the `read_file` tool at least once in the conversation before editing. \
+This tool will error if you attempt an edit without reading the file first\n\
+- When editing text from read_file output, ensure you preserve the exact indentation (tabs/spaces) \
+as it appears AFTER the line number prefix. The line number prefix format is: LINE_NUMBER|LINE_CONTENT. \
+Everything after the pipe is the actual file content to match. Never include any part of the line number prefix \
+in the old_string or new_string\n\
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required\n\
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked\n\
+- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string \
+with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`\n\
+- Use the smallest old_string that's clearly unique — usually 2-4 adjacent lines is sufficient. \
+Avoid including 10+ lines of context when less uniquely identifies the target\n\
+- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful \
+if you want to rename a variable for instance".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {

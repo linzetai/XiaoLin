@@ -1302,11 +1302,11 @@
           "id": "P4H-11",
           "title": "为 ReadFile/WriteFile/EditFile 编写 prompt() 实现",
           "description": "ReadFile: 编码自动检测、大文件 offset/limit、图片/PDF 支持。WriteFile: 必须先 read、模式选择（overwrite/append/create_new）。EditFile: 必须先 read、唯一性要求、最小 old_string、replace_all。",
-          "target_file": "crates/fastclaw-agent/src/builtin_tools/file_ops.rs",
+          "target_file": "crates/fastclaw-agent/src/builtin_tools/filesystem.rs",
           "cc_references": [
-            "claude-code/packages/builtin-tools/src/tools/FileReadTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/FileWriteTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/FileEditTool/prompt.ts"
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/FileReadTool/prompt.ts",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/FileWriteTool/prompt.ts",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/FileEditTool/prompt.ts"
           ],
           "acceptance_criteria": [
             "ReadFile prompt 包含编码、大文件处理、offset/limit 指导",
@@ -1315,7 +1315,7 @@
             "EditFile prompt 说明 replace_all 用途（重命名变量）",
             "每个工具 prompt 30-50 行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-12",
@@ -1323,11 +1323,11 @@
           "description": "Glob: 查询构造、pattern 示例、fallback。Search: content words 原则、pipe alternation、fallback chain。SubAgent: 何时委托 vs 直接做。TodoWrite: 任务管理规范。Snip: 何时主动裁剪。",
           "target_file": "crates/fastclaw-agent/src/builtin_tools/",
           "cc_references": [
-            "claude-code/packages/builtin-tools/src/tools/GlobTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/GrepTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/AgentTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/TodoWriteTool/prompt.ts",
-            "claude-code/packages/builtin-tools/src/tools/SnipTool/prompt.ts"
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/GlobTool/prompt.ts",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/GrepTool/prompt.ts",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/AgentTool/AgentTool.tsx",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/TodoWriteTool/TodoWriteTool.tsx",
+            "/home/linzetai/workspace/my_tools/claude-code/packages/builtin-tools/src/tools/SnipTool/SnipTool.tsx"
           ],
           "acceptance_criteria": [
             "GlobTool prompt 包含 pattern 示例和文件扩展名指导",
@@ -1345,8 +1345,8 @@
           "description": "创建 tool_result_storage.rs。实现核心功能：(1) 常量定义：DEFAULT_MAX_RESULT_SIZE_CHARS=50K, MAX_TOOL_RESULTS_PER_MESSAGE_CHARS=200K, PREVIEW_SIZE_BYTES=2000, PERSISTED_OUTPUT_TAG XML 标签 (2) get_persistence_threshold()：Infinity(usize::MAX) opt-out + min(declared, 50K) (3) ToolResultStorage::process_result()：空结果 marker、已持久化检测、阈值比较、持久化到 session_dir/tool-results/<id>.txt(使用 O_EXCL 避免重复写)、generate_preview 在换行边界截断 (4) buildLargeToolResultMessage 生成 <persisted-output> XML 包裹的 preview + 路径。注意：ReadFile 等声明 max_result_size_chars=usize::MAX 的工具通过 get_persistence_threshold 跳过持久化（防死循环）。参考 CC toolResultStorage.ts L1-200。",
           "target_file": "crates/fastclaw-agent/src/runtime/tool_result_storage.rs",
           "cc_references": [
-            "claude-code/src/utils/toolResultStorage.ts L1-200 — persistToolResult, buildLargeToolResultMessage, generatePreview, isToolResultContentEmpty, maybePersistLargeToolResult",
-            "claude-code/src/constants/toolLimits.ts — DEFAULT_MAX_RESULT_SIZE_CHARS, MAX_TOOL_RESULT_BYTES, BYTES_PER_TOKEN"
+            "/home/linzetai/workspace/my_tools/claude-code/src/utils/toolResultStorage.ts L1-200 — persistToolResult, buildLargeToolResultMessage, generatePreview, isToolResultContentEmpty, maybePersistLargeToolResult",
+            "/home/linzetai/workspace/my_tools/claude-code/src/constants/toolLimits.ts — DEFAULT_MAX_RESULT_SIZE_CHARS, MAX_TOOL_RESULT_BYTES, BYTES_PER_TOKEN"
           ],
           "acceptance_criteria": [
             "空结果返回 '(tool_name completed with no output)' marker",
