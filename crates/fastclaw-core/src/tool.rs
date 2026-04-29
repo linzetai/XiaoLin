@@ -302,11 +302,11 @@ pub trait Tool: Send + Sync {
         false
     }
 
-    /// Maximum characters to keep in tool result output before truncation.
-    /// Tools producing large output (e.g. shell, browser) should override
-    /// this with a larger value.
+    /// Maximum characters of tool result output before persistence to disk.
+    /// Default: 100_000. Tools with naturally bounded output (e.g. ReadFile
+    /// uses its own maxTokens) should return `usize::MAX` to opt out.
     fn max_result_size_chars(&self) -> usize {
-        1500
+        100_000
     }
 
     /// Rich behavioral guidance sent to the LLM as the tool's description.

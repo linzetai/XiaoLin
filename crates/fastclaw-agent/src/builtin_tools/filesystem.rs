@@ -1280,6 +1280,8 @@ impl Tool for ReadFileTool {
         "read_file"
     }
 
+    fn max_result_size_chars(&self) -> usize { usize::MAX }
+
     fn description(&self) -> &str {
         "Reads and returns the content of a specified file. If the file is large, the content \
          will be truncated with details on how to read more using 'offset' and 'limit' parameters. \
@@ -2301,6 +2303,8 @@ impl Tool for SearchInFilesTool {
     fn name(&self) -> &str {
         "search_in_files"
     }
+
+    fn max_result_size_chars(&self) -> usize { 20_000 }
 
     fn description(&self) -> &str {
         "Search files using regex. Returns matches with file paths and line numbers in ripgrep-style format. \

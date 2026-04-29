@@ -1402,7 +1402,7 @@
             "tool_output_char_limit() 和 tool_output_line_limit() 函数标记 #[deprecated] 或删除",
             "cargo check -p fastclaw-agent 编译通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-14",

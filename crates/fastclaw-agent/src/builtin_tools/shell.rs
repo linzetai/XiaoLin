@@ -411,7 +411,7 @@ impl Tool for ShellTool {
 
     fn supports_progress(&self) -> bool { true }
 
-    fn max_result_size_chars(&self) -> usize { 8000 }
+    fn max_result_size_chars(&self) -> usize { 30_000 }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
         self.execute_shell(arguments, None).await
@@ -866,6 +866,8 @@ impl Tool for SandboxedShellTool {
     fn name(&self) -> &str {
         "shell_exec"
     }
+
+    fn max_result_size_chars(&self) -> usize { 30_000 }
 
     fn description(&self) -> &str {
         "Sandboxed shell_exec — commands validated against allow/deny rules before execution. \

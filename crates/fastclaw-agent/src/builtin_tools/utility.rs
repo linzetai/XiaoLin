@@ -109,6 +109,8 @@ impl Tool for SleepTool {
         "sleep"
     }
 
+    fn max_result_size_chars(&self) -> usize { 1_000 }
+
     fn description(&self) -> &str {
         "Wait for a specified number of seconds (max 300). \
          Input: {\"seconds\": <positive number>}. \

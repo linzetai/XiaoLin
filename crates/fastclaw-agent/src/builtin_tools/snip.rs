@@ -37,6 +37,8 @@ impl Tool for SnipTool {
         "snip"
     }
 
+    fn max_result_size_chars(&self) -> usize { 5_000 }
+
     fn description(&self) -> &str {
         "Remove specific messages from conversation context to free tokens. \
          Input: {\"message_indices\": [2, 5, 8], \"reason\": \"old search results no longer needed\"}. \

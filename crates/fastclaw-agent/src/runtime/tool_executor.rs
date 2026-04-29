@@ -9,52 +9,11 @@ use crate::builtin_tools::{with_file_access_mode, with_work_dir, ExecutionModeSt
 
 use super::prompt_builder::memory_tool_suffix;
 
-/// Default max characters of tool output embedded in chat history.
-/// Individual tools override this via `tool_output_char_limit`.
-pub const MAX_TOOL_RESULT_CHARS: usize = 1500;
-
-/// Per-tool character limits.
-/// Aggressive limits to prevent context exhaustion. Full output is saved
-/// to temp files and can be re-read with `read_file` if needed.
-fn tool_output_char_limit(tool_name: &str) -> usize {
-    match tool_name {
-        // Write/edit tools: the LLM already knows what it wrote; keep only the status.
-        "write_file" | "edit_file" | "apply_patch" | "create_directory" => 200,
-
-        // Search tools: only the first few matches matter; rest can be re-searched.
-        "grep" | "ripgrep" | "glob" | "web_search" => 800,
-
-        // Directory listing: compact structure.
-        "list_dir" | "list_directory" => 600,
-
-        // File reading: key content, but agent can re-read specific sections.
-        "read_file" => 1200,
-
-        // Shell execution: tail-heavy (errors/results at end).
-        "shell_exec" | "shell" | "run_command" => 1200,
-
-        // Web fetch: often huge HTML; extract only key text.
-        "web_fetch" | "fetch_url" => 1500,
-
-        // Memory/todo tools are already compact.
-        "memory_store" | "memory_search" | "todo_write" => 1000,
-
-        // Default: use the global limit.
-        _ => MAX_TOOL_RESULT_CHARS,
-    }
-}
-
-/// Per-tool line limits (same principle).
-fn tool_output_line_limit(tool_name: &str) -> usize {
-    match tool_name {
-        "write_file" | "edit_file" | "apply_patch" | "create_directory" => 10,
-        "grep" | "ripgrep" | "glob" | "web_search" => 40,
-        "list_dir" | "list_directory" => 30,
-        "read_file" => 80,
-        "shell_exec" | "shell" | "run_command" => 60,
-        _ => MAX_TOOL_RESULT_LINES,
-    }
-}
+/// Legacy fallback character limit for tool output.
+/// Now superseded by `Tool::max_result_size_chars()` (100_000 default).
+/// Kept only for the `truncate_tool_result_output_with_limit` fallback path.
+#[deprecated(note = "Use Tool::max_result_size_chars() instead")]
+pub const MAX_TOOL_RESULT_CHARS: usize = 100_000;
 
 fn safe_char_boundary(s: &str, idx: usize) -> usize {
     if idx >= s.len() {
@@ -111,20 +70,22 @@ fn save_truncated_output(tool_name: &str, output: &str) -> Option<String> {
 /// If truncation occurs, the full output is saved to a temp file and the
 /// agent is told it can use `read_file` to retrieve the complete content.
 #[cfg(test)]
+#[allow(deprecated)]
 pub(crate) fn truncate_tool_result_output(output: &str, tool_name: &str) -> String {
     truncate_tool_result_output_with_limit(output, tool_name, None)
 }
 
-/// Truncate with an explicit char-limit override from the tool's
-/// `max_result_size_chars()`. Falls back to the per-tool hardcoded limit
-/// when `char_limit_override` is `None`.
+/// Truncate with an explicit char-limit from `Tool::max_result_size_chars()`.
+/// Falls back to `MAX_TOOL_RESULT_CHARS` (100_000) when `char_limit_override`
+/// is `None` — callers should always pass `Some(tool.max_result_size_chars())`.
+#[allow(deprecated)]
 pub(crate) fn truncate_tool_result_output_with_limit(
     output: &str,
     tool_name: &str,
     char_limit_override: Option<usize>,
 ) -> String {
-    let char_limit = char_limit_override.unwrap_or_else(|| tool_output_char_limit(tool_name));
-    let line_limit = tool_output_line_limit(tool_name);
+    let char_limit = char_limit_override.unwrap_or(MAX_TOOL_RESULT_CHARS);
+    let line_limit = MAX_TOOL_RESULT_LINES;
 
     let total_chars = output.chars().count();
     let lines: Vec<&str> = output.lines().collect();
@@ -855,6 +816,7 @@ async fn execute_single_tool(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tool_result_truncation_tests {
     use super::{truncate_tool_result_output, MAX_TOOL_RESULT_CHARS, TRUNCATION_SEPARATOR};
 
