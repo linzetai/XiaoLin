@@ -170,6 +170,22 @@ impl Tool for TodoWriteTool {
         TODO_WRITE_DESCRIPTION
     }
 
+    fn prompt(&self) -> String {
+        format!("{TODO_WRITE_DESCRIPTION}\n\n\
+## Examples of When to Use\n\n\
+- User: \"Add dark mode toggle\" → Create todo list: add state management, implement styles, \
+create toggle component, update components, run tests\n\
+- User: \"Rename getCwd to getCurrentWorkingDirectory\" → Search codebase, find all instances, \
+create todo per file\n\
+- User: \"Implement registration, catalog, cart, checkout\" → Break each feature into specific tasks\n\n\
+## Examples of When NOT to Use\n\n\
+- User: \"What does git status do?\" → Informational, no coding task\n\
+- User: \"Add a comment to this function\" → Single straightforward edit\n\
+- User: \"Run npm install\" → Single command execution\n\n\
+When in doubt, use this tool. Being proactive with task management demonstrates attentiveness \
+and ensures you complete all requirements successfully.")
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert("todos".to_string(), serde_json::json!({

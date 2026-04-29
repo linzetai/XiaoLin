@@ -45,6 +45,21 @@ impl Tool for SnipTool {
          Returns {\"snipped_count\": N, \"tokens_freed\": M}."
     }
 
+    fn prompt(&self) -> String {
+        "Snip messages from your conversation history to free up context window space. \
+Snipped messages are replaced with a compact summary so you retain awareness of what happened \
+without the full content.\n\n\
+Use this when:\n\
+- Your context is getting full and you need to make room\n\
+- Earlier messages contain large tool outputs you no longer need in full\n\
+- You want to compact a long exploration sequence into a summary\n\n\
+Guidelines:\n\
+- Only snip messages you're confident you won't need verbatim again\n\
+- The summary replacement preserves key facts (file paths, decisions, errors found)\n\
+- You cannot un-snip — the original content is gone from context\n\
+- System messages (index 0) and the last user turn cannot be snipped".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(

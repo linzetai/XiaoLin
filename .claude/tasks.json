@@ -1319,7 +1319,7 @@
         },
         {
           "id": "P4H-12",
-          "title": "为 Glob/Search/SubAgent/TodoWrite/Snip 编写 prompt() 实现",
+          "title": "为 Glob/Search/TaskCreate/TodoWrite/Snip 编写 prompt() 实现",
           "description": "Glob: 查询构造、pattern 示例、fallback。Search: content words 原则、pipe alternation、fallback chain。SubAgent: 何时委托 vs 直接做。TodoWrite: 任务管理规范。Snip: 何时主动裁剪。",
           "target_file": "crates/fastclaw-agent/src/builtin_tools/",
           "cc_references": [
@@ -1337,7 +1337,7 @@
             "TodoWriteTool prompt 包含任务管理规范",
             "每个工具 prompt 20-50 行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-13",

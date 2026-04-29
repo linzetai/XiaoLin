@@ -2308,6 +2308,23 @@ impl Tool for SearchInFilesTool {
          Case-insensitive by default. Supports glob filter, context lines (0-5). Respects .gitignore."
     }
 
+    fn prompt(&self) -> String {
+        "A powerful search tool built on ripgrep.\n\n\
+Usage:\n\
+- ALWAYS use search_in_files for search tasks. NEVER invoke `grep` or `rg` as a shell_exec command. \
+This tool has been optimized for correct permissions and access\n\
+- Supports full regex syntax (e.g., \"log.*Error\", \"function\\\\s+\\\\w+\")\n\
+- Filter files with glob parameter (e.g., \"*.js\", \"**/*.tsx\")\n\
+- Output modes: \"content\" shows matching lines, \"files_with_matches\" shows only file paths, \
+\"count\" shows match counts\n\
+- Pattern syntax: Uses ripgrep (not grep) — literal braces need escaping \
+(use `interface\\\\{\\\\}` to find `interface{}` in Go code)\n\
+- Multiline matching: By default patterns match within single lines only. For cross-line patterns \
+like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`\n\
+- Case-insensitive by default\n\
+- Respects .gitignore automatically".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
@@ -2824,6 +2841,21 @@ impl Tool for GlobTool {
     fn description(&self) -> &str {
         "Find files by glob pattern. Recursive search, results sorted by modification time (newest first). \
          Respects .gitignore patterns. Examples: '*.rs', 'src/**/*.tsx', '**/test_*.py'. Returns up to 100 results."
+    }
+
+    fn prompt(&self) -> String {
+        "Fast file pattern matching tool that works with any codebase size.\n\n\
+- Supports glob patterns like \"**/*.js\" or \"src/**/*.ts\"\n\
+- Returns matching file paths sorted by modification time\n\
+- Use this tool when you need to find files by name patterns\n\
+- Respects .gitignore patterns automatically\n\
+- Returns up to 100 results\n\
+- Patterns not starting with \"**/\" are automatically prepended with \"**/\" for recursive searching\n\n\
+Examples:\n\
+- \"*.rs\" → find all Rust source files\n\
+- \"src/**/*.tsx\" → find all TSX files under src/\n\
+- \"**/Cargo.toml\" → find all Cargo.toml files\n\
+- \"**/test_*.py\" → find all Python test files".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {

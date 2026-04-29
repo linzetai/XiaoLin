@@ -338,6 +338,32 @@ impl Tool for TaskCreateTool {
          progress can be monitored with task_list/task_get. Returns the unique task_id."
     }
 
+    fn prompt(&self) -> String {
+        "Launch a new agent to handle complex, multi-step tasks autonomously.\n\n\
+The task_create tool launches specialized agents that autonomously handle complex tasks.\n\n\
+## Writing the prompt\n\n\
+Brief the agent like a smart colleague who just walked into the room — it hasn't seen \
+this conversation, doesn't know what you've tried, doesn't understand why this task matters.\n\
+- Explain what you're trying to accomplish and why\n\
+- Describe what you've already learned or ruled out\n\
+- Give enough context that the agent can make judgment calls\n\
+- If you need a short response, say so (\"report in under 200 words\")\n\
+- Lookups: hand over the exact command. Investigations: hand over the question\n\n\
+**Never delegate understanding.** Don't write \"based on your findings, fix the bug\". \
+Write prompts that prove you understood: include file paths, line numbers, what specifically to change.\n\n\
+## When NOT to use\n\n\
+- If you want to read a specific file, use `read_file` or `glob` instead\n\
+- If you are searching for a specific class definition, use `search_in_files` instead\n\
+- If the task is simple and can be completed in 1-2 tool calls\n\n\
+## Usage notes\n\n\
+- Always include a short description (3-5 words) summarizing what the agent will do\n\
+- Launch multiple agents concurrently whenever possible for maximum performance\n\
+- When the agent is done, it returns a single message. The result is not visible to the user — \
+send a text message with a concise summary\n\
+- The agent's outputs should generally be trusted\n\
+- Clearly tell the agent whether you expect it to write code or just do research".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
