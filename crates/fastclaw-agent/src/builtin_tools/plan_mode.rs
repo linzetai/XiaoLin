@@ -122,6 +122,37 @@ impl Tool for EnterPlanModeTool {
          Write/edit/execute tools are blocked until exit_plan_mode is called."
     }
 
+    fn prompt(&self) -> String {
+        "Switch to plan mode for collaborative design before implementation.\n\n\
+## When to Enter Plan Mode\n\n\
+- Task has multiple valid approaches with significant trade-offs\n\
+- Architectural decisions needed (caching strategy, data model, API design)\n\
+- Large refactors touching many files or systems\n\
+- Requirements are unclear and need exploration before committing to a direction\n\
+- User asks for a plan, design, or approach discussion\n\n\
+## What Changes in Plan Mode\n\n\
+**Available tools (read-only):**\n\
+- read_file, search_in_files, glob, list_directory (explore code)\n\
+- shell_exec with READONLY commands only (ls, cat, grep, git status, cargo check)\n\
+- web_search, web_fetch (research)\n\
+- todo_write (planning)\n\
+- task_create (delegate exploration)\n\n\
+**Blocked tools (write/edit/execute):**\n\
+- write_file, edit_file, multi_edit, apply_patch (file modifications)\n\
+- shell_exec with write commands (rm, mv, git commit, cargo install)\n\n\
+## When NOT to Enter Plan Mode\n\n\
+- Task is straightforward with an obvious implementation\n\
+- You've already gathered enough context and are ready to code\n\
+- The task is a simple fix or small change\n\
+- User explicitly asked you to implement something\n\n\
+## Workflow\n\n\
+1. Enter plan mode to explore and understand\n\
+2. Read relevant code, search for patterns, check tests\n\
+3. Propose approach to user with trade-offs\n\
+4. Exit plan mode when ready to implement\n\
+5. Execute the agreed-upon plan in agent mode".to_string()
+    }
+
     fn search_hint(&self) -> &str {
         "switch to plan mode design approach before coding"
     }
@@ -183,6 +214,27 @@ impl Tool for ExitPlanModeTool {
     fn description(&self) -> &str {
         "Exit plan mode and return to agent mode with full tool access. \
          Call this after designing your approach to start implementation."
+    }
+
+    fn prompt(&self) -> String {
+        "Exit plan mode and return to agent mode with full tool access.\n\n\
+## When to Exit\n\
+- You have a clear implementation plan agreed with the user\n\
+- Requirements are sufficiently understood to begin coding\n\
+- The user explicitly says to proceed with implementation\n\n\
+## Before Exiting — Verify\n\
+1. You have identified all files that need changes\n\
+2. You understand the approach and trade-offs\n\
+3. You have a todo list if the task has multiple steps\n\
+4. The user has confirmed the approach (if there were choices)\n\n\
+## After Exiting\n\
+- All write/edit/execute tools become available\n\
+- Start implementing the plan immediately\n\
+- Reference your plan notes and todo list during implementation\n\n\
+## Anti-Patterns\n\
+- Don't exit plan mode just because you're impatient\n\
+- Don't exit without a clear direction\n\
+- Don't ask the user 'should I exit plan mode?' — just do it when ready".to_string()
     }
 
     fn search_hint(&self) -> &str {

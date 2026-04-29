@@ -235,7 +235,8 @@
             "ScheduleCronTool 包含 cron 表达式格式/timezone 说明",
             "cargo check -p fastclaw-agent 编译通过"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "Added prompt() to 6 tools: EnterPlanModeTool, ExitPlanModeTool, ToolSearchTool, WebSearchTool, WebFetchTool, AskQuestionTool. ScheduleCronTool skipped (not yet implemented). 16 tools now have prompt() overrides across the codebase."
         }
       ]
     },

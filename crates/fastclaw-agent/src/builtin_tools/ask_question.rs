@@ -43,11 +43,31 @@ impl Tool for AskQuestionTool {
     fn description(&self) -> &str {
         "Present the user with a structured question and wait for their answer. \
          Use this tool when you need to gather specific information from the user, \
-         confirm a decision, or let them choose from a set of options. \
-         Each option needs an 'id' (returned as the answer) and a 'label' (shown to the user). \
-         Set allow_multiple to true if the user should be able to select more than one option. \
-         The tool blocks until the user responds or the timeout expires. \
-         Example: {\"question\": \"Which language?\", \"options\": [{\"id\": \"rust\", \"label\": \"Rust\"}, {\"id\": \"go\", \"label\": \"Go\"}]}"
+         confirm a decision, or let them choose from a set of options."
+    }
+
+    fn prompt(&self) -> String {
+        "Present the user with a structured multiple-choice question.\n\n\
+## When to Ask\n\
+- Ambiguous requirements that could go multiple ways\n\
+- Destructive or irreversible actions needing confirmation\n\
+- Multiple valid approaches where user preference matters\n\
+- Missing information that cannot be inferred from context\n\n\
+## When NOT to Ask\n\
+- You can figure it out from the codebase or context\n\
+- The answer is implied by the user's request\n\
+- You're asking just to seem thorough (bias toward action)\n\
+- Mid-implementation for minor style choices\n\n\
+## Question Quality\n\
+- Be specific: 'Should login redirect to /dashboard or /home?' not 'What should happen?'\n\
+- Include WHY you're asking if it's not obvious\n\
+- Provide sensible options (at least 2, ideally 2-4)\n\
+- Make option labels clear and self-explanatory\n\
+- Use allow_multiple when the options aren't mutually exclusive\n\n\
+## Anti-Patterns\n\
+- Don't ask multiple questions in one turn — combine or prioritize\n\
+- Don't ask yes/no questions that can be inferred from context\n\
+- Don't re-ask what the user already specified".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {

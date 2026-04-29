@@ -35,6 +35,29 @@ impl Tool for ToolSearchTool {
          Returns matching deferred tools or activation confirmation."
     }
 
+    fn prompt(&self) -> String {
+        "Search for or activate additional tools from the deferred pool.\n\n\
+## Two Modes\n\
+1. **Search**: Pass a keyword to find relevant deferred tools\n\
+   - Matches against tool name, description, and search hints\n\
+   - Returns a list of matching tools with descriptions\n\
+2. **Select**: Pass 'select:tool_name' to activate a specific deferred tool\n\
+   - The tool becomes available for immediate use\n\
+   - Use this after finding the right tool via search\n\n\
+## When to Use\n\
+- You need a capability not in the current eager tool set\n\
+- The task requires a specialized tool (e.g., MCP, WASM plugin)\n\
+- You're unsure if a tool exists for a particular task\n\n\
+## Search Strategy\n\
+- Use broad keywords first: 'database', 'http', 'git'\n\
+- Refine if too many results: 'postgres migration'\n\
+- Search by capability, not tool name: 'send email' not 'smtp_tool'\n\n\
+## After Activation\n\
+- The activated tool appears in your available tools immediately\n\
+- You can call it in the same turn\n\
+- Don't re-search for tools you've already activated".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(

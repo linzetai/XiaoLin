@@ -993,6 +993,25 @@ impl Tool for WebSearchTool {
          max_results defaults to 5, caps at 10. Follow up with web_fetch for full content."
     }
 
+    fn prompt(&self) -> String {
+        "Search the web for real-time information.\n\n\
+## When to Use\n\
+- Up-to-date information not in your training data\n\
+- Current library/framework documentation and best practices\n\
+- Technology news, release notes, changelogs\n\
+- Error messages you don't recognize\n\
+- Verifying current facts (API endpoints, pricing, availability)\n\n\
+## Query Construction\n\
+- Be specific: include version numbers, dates, exact error text\n\
+- Use the current year in queries about recent topics\n\
+- Include language/framework name for technical queries\n\
+- Use quotes for exact phrases: '\"exact error message\"'\n\n\
+## Anti-Patterns\n\
+- Don't search for things you already know well\n\
+- Don't search when the answer is in the local codebase\n\
+- Don't use web_search for code examples — search_in_files is better for local patterns".to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
@@ -1106,6 +1125,27 @@ impl Tool for WebFetchTool {
         "Fetch a web page and extract content. Returns JSON {url, status, content_type, content, content_length}. \
          extract_mode: 'text' (default, strips HTML), 'raw' (raw HTML), 'markdown'. \
          No JS execution. Content truncated at ~32KB."
+    }
+
+    fn prompt(&self) -> String {
+        "Fetch and extract content from a web URL.\n\n\
+## When to Use\n\
+- Reading documentation pages found via web_search\n\
+- Fetching API responses for inspection\n\
+- Reading READMEs from GitHub repos\n\
+- Getting current content from a known URL\n\n\
+## Parameters\n\
+- url: Must be a full http(s) URL\n\
+- extract_mode: 'text' (clean text, default), 'markdown' (preserves structure), 'raw' (HTML)\n\n\
+## Limitations\n\
+- No JavaScript execution — won't work for SPAs that render client-side\n\
+- Content truncated at ~32KB — use 'text' mode for large pages\n\
+- No authentication — private/gated content will fail\n\
+- localhost and private IPs are blocked (SSRF prevention)\n\n\
+## Anti-Patterns\n\
+- Don't fetch URLs you already have content for\n\
+- Don't use for downloading files — redirect output to disk via shell\n\
+- Don't fetch multiple pages when web_search results already have enough info".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
