@@ -308,56 +308,93 @@ Run a shell command in the user's environment.
 
 ## When to Use
 
-Use this tool ONLY when no specialized tool can accomplish the task:
-- Reading files → use `read_file` instead of `cat`
-- Editing files → use `edit_file` instead of `sed`/`awk`
-- Searching file contents → use `search_in_files` instead of `grep`/`rg`
-- Finding files by name → use `glob` instead of `find`
-- Listing directories → use `list_directory` instead of `ls`
-- Writing files → use `write_file` instead of `echo >` or `cat <<EOF`
+Use this tool ONLY when no specialized tool can accomplish the task. \
+The following specialized tools are ALWAYS preferred over their shell equivalents:
 
-Specialized tools are faster, produce structured output, and avoid shell escaping pitfalls.
+| Task | Use This Tool | NOT This Shell Command |
+|------|---------------|------------------------|
+| Read files | `read_file` | `cat`, `head`, `tail`, `less` |
+| Edit files | `edit_file` or `multi_edit` | `sed -i`, `awk`, `perl -pi` |
+| Search file contents | `search_in_files` | `grep`, `rg`, `ag`, `ack` |
+| Find files by name | `glob` | `find`, `fd`, `locate` |
+| List directories | `list_directory` | `ls`, `tree`, `dir` |
+| Write new files | `write_file` | `echo >`, `cat <<EOF >`, `tee` |
+| HTTP requests | `web_fetch` | `curl`, `wget` |
+| File outline/symbols | `file_outline` | `grep -n 'function'` |
+
+**Why**: Specialized tools are faster, produce structured output, respect file encoding, \
+handle large files efficiently, and avoid shell escaping pitfalls.
+
+**When shell IS appropriate**:
+- Running build tools (`cargo build`, `make`, `npm run build`)
+- Running test suites (`cargo test`, `pytest`, `npm test`)
+- Package management (`cargo add`, `pip install`, `npm install`)
+- Git operations (`git status`, `git commit`, `git push`)
+- System commands (`docker`, `kubectl`, environment inspection)
+- Commands with complex pipes where no single tool suffices
 
 ## Command Execution Rules
 
 ### Multiple Commands
 
-Chain dependent commands with `&&`:
+**Dependent commands** — chain with `&&` (next runs only if previous succeeds):
 ```
 cd /path && cargo build && cargo test
 ```
-Use `;` only when you don't care if earlier commands fail.
 
-For INDEPENDENT commands that can run in parallel, make separate tool calls \
-in the same response — don't chain them with `&&`.
+**Independent commands** — use SEPARATE tool calls in the same response:
+```
+// Call 1: cargo clippy
+// Call 2: cargo test (runs in parallel with Call 1)
+```
+This is faster than `cargo clippy && cargo test` because they run in parallel.
+
+**Fire-and-forget fallbacks** — use `;` only when you don't care if earlier commands fail:
+```
+rm -f old.log; touch new.log
+```
 
 ### Quoting and Paths
 
 ALWAYS double-quote file paths that may contain spaces:
 ```
 cat \"/path/with spaces/file.txt\"    # correct
-cat /path/with spaces/file.txt        # WRONG — will fail
+cat /path/with spaces/file.txt        # WRONG — shell splits on spaces
+```
+
+For paths with special characters ($, !, etc.), use single quotes or escape:
+```
+cat '/path/with$pecial/file.txt'
+cat /path/with\\$pecial/file.txt
 ```
 
 ### Working Directory
 
-Use the `working_directory` parameter to run in a specific directory rather than `cd`:
+Use the `working_directory` parameter to run in a specific directory:
 ```json
 {\"command\": \"npm install\", \"working_directory\": \"/path/to/project\"}
 ```
+This is better than `cd /path && npm install` because:
+- Clearer intent
+- Doesn't depend on `cd` succeeding
+- Shows in tool call metadata for debugging
 
 ## Git Operations
 
-### Commit Rules
-- NEVER update the git config
-- NEVER use `--no-verify` or `--no-gpg-sign` unless explicitly asked
-- NEVER run `git push --force` to main/master — warn the user
-- NEVER run destructive git operations (hard reset, force push) without confirmation
-- Prefer creating a NEW commit over `--amend` unless all conditions are met:
-  1. User explicitly requested amend, OR pre-commit hook auto-modified files
-  2. HEAD commit was created by you in this conversation
-  3. Commit has NOT been pushed to remote
-- For commit messages, use a HEREDOC to preserve formatting:
+### Commit Safety Rules
+- NEVER update the git config (user.name, user.email, etc.)
+- NEVER use `--no-verify` or `--no-gpg-sign` unless explicitly requested
+- NEVER run `git push --force` to main/master — always warn the user first
+- NEVER run destructive git operations (hard reset, force push) without explicit user consent
+- NEVER commit files that likely contain secrets (.env, credentials.json, private keys)
+
+### Commit Best Practices
+- Prefer creating a NEW commit over `--amend` unless ALL conditions are met:
+  1. User explicitly requested amend, OR pre-commit hook auto-modified files that need including
+  2. HEAD commit was created by you in this conversation (verify with `git log -1`)
+  3. Commit has NOT been pushed to remote (verify: `git status` shows 'ahead')
+- If commit FAILED due to pre-commit hook, NEVER amend — fix the issue and create a NEW commit
+- Use a HEREDOC for multi-line commit messages to preserve formatting:
   ```
   git commit -m \"$(cat <<'EOF'
   feat: add user authentication
@@ -367,53 +404,89 @@ Use the `working_directory` parameter to run in a specific directory rather than
   )\"
   ```
 
+### Pre-Commit Workflow
+1. Run `git status` to see all changed files
+2. Run `git diff` to review actual changes
+3. Stage with `git add` (specific files, not blindly `git add .`)
+4. Commit with descriptive message focusing on 'why' not 'what'
+5. If hook fails, read the error, fix the issue, make a NEW commit
+
 ### Branch Safety
-- NEVER skip pre-commit hooks
-- Check `git status` before committing
-- Use `git diff` to review changes before commit
+- Check current branch before push (`git branch --show-current`)
+- Never force-push to shared branches without explicit permission
+- Use `git log --oneline origin/main..HEAD` to see what you're about to push
 
 ## Background Commands
 
-Set `is_background: true` for:
-- Dev servers (`npm run dev`, `cargo watch`)
-- File watchers
-- Any long-running process you don't need to wait for
+### When to use `is_background: true`:
+- Dev servers: `npm run dev`, `cargo watch`, `python manage.py runserver`
+- File watchers: `inotifywait`, `fswatch`, `nodemon`
+- Long-running processes: database migrations, large data processing
+- Any process that should continue running after tool returns
 
-Set `is_background: false` (default) for:
-- Build commands
-- Test suites
-- One-off scripts
-- Commands where you need the output
+### When to use `is_background: false` (default):
+- Build commands: `cargo build`, `make`, `npm run build`
+- Test suites: `cargo test`, `pytest`, `npm test`
+- Linting: `cargo clippy`, `eslint`, `ruff check`
+- One-off scripts where you need the output immediately
 
-Timeout for foreground commands: 5 minutes. For longer tasks, use background mode \
-with output redirection, then poll results.
+### Timeout Behavior
+- Foreground timeout: 5 minutes (300 seconds)
+- If a command might exceed 5 minutes, use background mode
+- For 1-4 minute commands (large builds, full test suites), foreground is fine
 
-## Sleep and Polling
+### Monitoring Background Processes
+After starting a background command:
+1. The system returns a process ID and output file path
+2. Use `sleep N` then `read_file` on the output path to check progress
+3. Use exponential backoff: check at 2s, 4s, 8s, 16s intervals
+4. When output shows completion (exit code), read final results
 
-Use `sleep` in shell pipelines when appropriate:
-```
-sleep 30 && cat build-output.txt
-```
+## Environment and Security
 
-Do NOT use sleep between separate tool calls — the system handles timing.
-Do NOT spin-wait in a loop. Use background mode + periodic polling.
+### Sandbox Restrictions
+- Commands are subject to security validation before execution
+- Shell injection patterns ($(), backticks, process substitution) are blocked
+- Protected system paths (/etc/shadow, ~/.ssh, ~/.gnupg) cannot be written to
+- Path traversal attempts (../) targeting sensitive directories are blocked
+- Binary hijack prefixes (PATH=, LD_PRELOAD=) are blocked
 
-## Anti-Patterns
+### Environment Variables
+- Standard env vars ($HOME, $PATH, $USER) are available
+- Simple variable references ($HOME, ${VARIABLE}) are allowed
+- Dangerous parameter expansion (${var//pattern/...}) is blocked
+- Secrets (API keys, tokens) are stripped from the environment for safety
+
+### What Won't Work
+- Interactive commands requiring stdin: `vim`, `nano`, `python` (REPL), `node` (REPL)
+- Commands requiring a TTY: `top`, `htop`, `less`, `man` (use non-interactive alternatives)
+- GUI applications: anything requiring a display server
+- Commands needing `sudo` or root access (blocked by sandbox)
+
+## Output Handling
+
+- stdout and stderr are captured and returned together
+- Output truncated at ~64KB — for larger output, redirect to file and use `read_file`
+- Non-zero exit codes are returned as tool errors with the full output
+- Binary output is not supported — redirect to file if needed
+- For very large expected output: `command > /tmp/output.txt 2>&1` then `read_file`
+
+## Anti-Patterns (NEVER DO)
 
 - Don't use `cat` to read files — use `read_file`
-- Don't use `echo` to communicate — write your response in text
-- Don't use `grep` for searching — use `search_in_files`
-- Don't use `sed`/`awk` to edit files — use `edit_file`
+- Don't use `echo` to communicate thoughts — write your response in text
+- Don't use `grep`/`rg` for searching — use `search_in_files`
+- Don't use `sed -i`/`awk` to edit files — use `edit_file`
 - Don't pipe long output through `head`/`tail` — use `read_file` with offset/limit
-- Don't use `find` — use `glob`
-- Don't use interactive commands (`vim`, `nano`, `less`, `top`)
-- Don't run commands that require user input (stdin)
-
-## Output
-
-- stdout/stderr truncated at ~64KB
-- Non-zero exit codes are returned as tool errors
-- For very large output, redirect to a file and use `read_file`";
+- Don't use `find` to locate files — use `glob`
+- Don't use interactive commands (`vim`, `nano`, `less`, `top`, `htop`)
+- Don't run commands that require user input (stdin prompts)
+- Don't use code comments in commands as a thinking scratchpad
+- Don't use `echo` + redirect to create files — use `write_file`
+- Don't use `curl`/`wget` for HTTP — use `web_fetch`
+- Don't chain many `cat` calls — use a single `read_file` with the right range
+- Don't run `git add .` blindly — check `git status` first and add specific files
+- Don't use `sleep` between separate tool calls — make parallel calls instead";
 
 #[async_trait]
 impl Tool for ShellTool {
