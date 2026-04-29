@@ -765,4 +765,97 @@ mod tests {
         assert!(state.seen_ids.is_empty());
         assert!(state.replacements.is_empty());
     }
+
+    // ---- Additional coverage ----
+
+    #[test]
+    fn process_result_infinity_threshold_never_persists() {
+        let (storage, _tmp) = make_storage();
+        let big = "x".repeat(500_000);
+        let result = storage
+            .process_result("read_file", "id-inf", &big, usize::MAX)
+            .unwrap();
+        assert!(result.is_none(), "usize::MAX threshold must never trigger persistence");
+    }
+
+    #[test]
+    fn generate_preview_no_newline_falls_back_to_byte_cut() {
+        let content = "a".repeat(5000);
+        let (preview, has_more) = generate_preview(&content, 100);
+        assert!(has_more);
+        assert_eq!(preview.len(), 100);
+        assert_eq!(preview, "a".repeat(100));
+    }
+
+    #[test]
+    fn generate_preview_newline_in_first_half_uses_byte_cut() {
+        let mut content = String::new();
+        content.push_str("short\n");
+        content.push_str(&"x".repeat(5000));
+        let (preview, has_more) = generate_preview(&content, 100);
+        assert!(has_more);
+        assert_eq!(preview.len(), 100, "newline at pos 5 (< 50) should be ignored, use byte cut");
+    }
+
+    #[test]
+    fn enforce_budget_multi_group_selects_largest_across_all() {
+        let (storage, _tmp) = make_storage();
+        let mut state = ContentReplacementState::new();
+        let entries = vec![
+            ToolResultEntry { tool_use_id: "g1".into(), tool_name: "shell".into(), content: "a".repeat(80_000) },
+            ToolResultEntry { tool_use_id: "g2".into(), tool_name: "shell".into(), content: "b".repeat(60_000) },
+            ToolResultEntry { tool_use_id: "g3".into(), tool_name: "shell".into(), content: "c".repeat(40_000) },
+        ];
+        let result = storage.enforce_per_message_budget(
+            entries, &mut state, &HashSet::new(), 100_000,
+        );
+        assert!(!result.newly_replaced.is_empty());
+        let replaced_ids: Vec<&str> = result.newly_replaced.iter().map(|r| r.tool_use_id.as_str()).collect();
+        assert!(replaced_ids.contains(&"g1"), "largest (80k) must be replaced first");
+    }
+
+    #[test]
+    fn reconstruct_state_then_enforce_produces_consistent_decisions() {
+        let (storage, _tmp) = make_storage();
+
+        let mut state = ContentReplacementState::new();
+        let big = "z".repeat(150_000);
+        let entries = vec![
+            ToolResultEntry { tool_use_id: "t1".into(), tool_name: "shell".into(), content: big.clone() },
+            ToolResultEntry { tool_use_id: "t2".into(), tool_name: "shell".into(), content: "small".into() },
+        ];
+        let r1 = storage.enforce_per_message_budget(
+            entries, &mut state, &HashSet::new(), 100_000,
+        );
+        assert_eq!(r1.newly_replaced.len(), 1);
+        let original_replacement = r1.newly_replaced[0].replacement.clone();
+
+        let records: Vec<ContentReplacementRecord> = r1.newly_replaced;
+        let ids = vec!["t1".to_string(), "t2".to_string()];
+        let reconstructed = reconstruct_state(&ids, &records);
+
+        assert!(reconstructed.seen_ids.contains("t1"));
+        assert!(reconstructed.seen_ids.contains("t2"));
+        assert_eq!(
+            reconstructed.replacements.get("t1").unwrap(),
+            &original_replacement,
+            "reconstructed replacement must be byte-identical"
+        );
+    }
+
+    #[test]
+    fn enforce_budget_frozen_ids_not_replaceable() {
+        let (storage, _tmp) = make_storage();
+        let mut state = ContentReplacementState::new();
+        state.seen_ids.insert("frozen_id".into());
+
+        let entries = vec![
+            ToolResultEntry { tool_use_id: "frozen_id".into(), tool_name: "shell".into(), content: "x".repeat(200_000) },
+        ];
+        let result = storage.enforce_per_message_budget(
+            entries, &mut state, &HashSet::new(), 50_000,
+        );
+        assert!(result.newly_replaced.is_empty(), "frozen (seen but not replaced) must not be replaced");
+        assert!(!result.replacements.contains_key("frozen_id"));
+    }
 }

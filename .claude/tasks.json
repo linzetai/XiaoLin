@@ -1479,7 +1479,7 @@
             "至少 15 个测试用例",
             "cargo test -p fastclaw-agent -- tool_result_storage 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-17",
