@@ -938,6 +938,7 @@ impl AgentRuntime {
             let mut tool_call_accum: Vec<ToolCallAccumulator> = Vec::new();
             let mut stream_errored = false;
             let mut last_finish_reason: Option<String> = None;
+            let mut withheld_prompt_too_long: Option<String> = None;
 
             'stream_try: loop {
                 let params = CompletionParams {
@@ -953,12 +954,7 @@ impl AgentRuntime {
                 let mut stream = match stream_result {
                     Ok(s) => s,
                     Err(e) => {
-                        let err_str = e.to_string().to_lowercase();
-                        let is_prompt_too_long = err_str.contains("prompt_too_long")
-                            || err_str.contains("context_length_exceeded")
-                            || err_str.contains("maximum context length")
-                            || err_str.contains("too many tokens");
-                        if is_prompt_too_long {
+                        if query_state::is_prompt_too_long_error(&e.to_string()) {
                             tracing::warn!(
                                 error = %e,
                                 "prompt_too_long detected — attempting reactive compaction"
@@ -989,6 +985,15 @@ impl AgentRuntime {
                     let delta = match result {
                         Ok(d) => d,
                         Err(e) => {
+                            if query_state::is_prompt_too_long_error(&e.to_string()) {
+                                tracing::warn!(
+                                    error = %e,
+                                    "prompt_too_long during stream — withholding error for recovery attempt"
+                                );
+                                withheld_prompt_too_long = Some(e.to_string());
+                                break;
+                            }
+
                             if tool_call_accum.is_empty()
                                 && !accumulated_content.is_empty()
                                 && stream_resume_attempts < MAX_STREAM_RESUME_ATTEMPTS
@@ -1059,6 +1064,35 @@ impl AgentRuntime {
                     continue 'stream_try;
                 }
                 break 'stream_try;
+            }
+
+            // Withheld prompt_too_long recovery: attempt reactive compact
+            // before surfacing the error to the client.
+            if let Some(ref withheld_err) = withheld_prompt_too_long {
+                if !state.has_attempted_reactive_compact {
+                    state.has_attempted_reactive_compact = true;
+                    let reactive_result = deps.reactive_compact(&messages);
+                    if reactive_result.recovered {
+                        tracing::info!(
+                            level = ?reactive_result.level_used,
+                            tokens_after = reactive_result.tokens_after,
+                            "withheld prompt_too_long recovered via reactive compact — retrying"
+                        );
+                        messages = reactive_result.messages;
+                        continue;
+                    }
+                }
+                tracing::error!(
+                    error = %withheld_err,
+                    "withheld prompt_too_long: reactive compact failed — yielding error to client"
+                );
+                let _ = send_stream_event(
+                    tx,
+                    StreamEvent::Error(withheld_err.clone()),
+                    false,
+                ).await;
+                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                return Err(anyhow::anyhow!("prompt_too_long: recovery failed"));
             }
 
             if stream_errored {

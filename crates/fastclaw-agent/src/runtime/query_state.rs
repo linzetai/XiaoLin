@@ -14,6 +14,16 @@ pub(crate) const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT: u32 = 3;
 /// 16 384 is a safe upper bound that most models support.
 pub(crate) const ESCALATED_MAX_TOKENS: u32 = 16_384;
 
+/// Check if an error string indicates a prompt_too_long / context_length_exceeded
+/// condition from the LLM API.
+pub(crate) fn is_prompt_too_long_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("prompt_too_long")
+        || lower.contains("context_length_exceeded")
+        || lower.contains("maximum context length")
+        || lower.contains("too many tokens")
+}
+
 /// Unified mutable state tracked across iterations of the agent query loop.
 ///
 /// Subsumes the old `LoopState` and the scattered token-accumulation variables
@@ -383,6 +393,28 @@ mod tests {
             s.determine_post_llm_transition(true),
             LoopTransition::Continue(ContinueReason::ToolUse)
         );
+    }
+
+    #[test]
+    fn is_prompt_too_long_detects_variants() {
+        assert!(is_prompt_too_long_error("Error: prompt_too_long — reduce input"));
+        assert!(is_prompt_too_long_error("context_length_exceeded: 130000 > 128000"));
+        assert!(is_prompt_too_long_error("This model's maximum context length is 128000"));
+        assert!(is_prompt_too_long_error("Too many tokens in the request"));
+    }
+
+    #[test]
+    fn is_prompt_too_long_rejects_unrelated() {
+        assert!(!is_prompt_too_long_error("rate_limit_exceeded"));
+        assert!(!is_prompt_too_long_error("authentication_error"));
+        assert!(!is_prompt_too_long_error("network timeout"));
+        assert!(!is_prompt_too_long_error(""));
+    }
+
+    #[test]
+    fn is_prompt_too_long_case_insensitive() {
+        assert!(is_prompt_too_long_error("PROMPT_TOO_LONG"));
+        assert!(is_prompt_too_long_error("Context_Length_Exceeded"));
     }
 
     #[test]

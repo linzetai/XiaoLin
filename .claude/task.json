@@ -313,7 +313,7 @@
             "3 个测试（恢复成功、恢复失败、非该错误不 withhold）",
             "预计 ~100 行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "6C-05",
