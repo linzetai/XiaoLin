@@ -1164,33 +1164,376 @@ async fn test_reactive_compact_on_overflow() {
 
 ---
 
-## 十一、总结
+---
 
-### 方案核心差异（v5 vs v4）
+## 十一、v6 补充：PromptEngine + 工具截断重构
 
-| 维度 | v4 方案 | v5 方案 |
+> 以下为 v6 架构审视后的补充内容。Phase 0~3 已完成，Phase 4 进行到 P4-08。
+> 发现三大偏移：(1) Prompt 管理系统缺失 (2) 工具截断策略需对齐 CC (3) 工具行为指导需接入流程。
+
+### 11.1 偏移诊断
+
+Claude Code 的 agent 质量 **70% 来自 Prompt Engineering**（`prompts.ts` 996 行），而非工具实现。
+
+**FastClaw 当前 prompt 系统：**
+- `prompts/system-base.md` — 141 行静态 markdown
+- `prompts/tool-usage-guide.md` — 工具参考手册
+- `workspace.rs` → `default_runtime_system_prompt_for_agent()` — 简单拼接 (base + guide + role)
+
+**CC 的 prompt 系统：**
+- 14 个动态 section（每轮/每 session 计算），7 个静态 section（跨 session 可缓存）
+- `systemPromptSection()` 带 memoize 缓存，`/clear` 或 `/compact` 时失效
+- `DANGEROUS_uncachedSystemPromptSection()` 每轮强制重算（如 MCP instructions）
+- `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 标记分离静态/动态区域（API prompt cache 边界）
+- `buildEffectiveSystemPrompt()` 优先级层叠（override > coordinator > agent > custom > default + append）
+- 每个 Tool 有 `prompt()` 方法返回丰富行为指导（BashTool 370 行）
+
+**差距：CC 有 21 个 prompt section + 每工具独立 prompt，FastClaw 有 0 个动态 section + 无工具 prompt。**
+
+### 11.2 PromptEngine 架构设计
+
+**新文件**: `crates/fastclaw-agent/src/runtime/prompt_engine.rs`
+
+```rust
+/// Prompt section — 延迟计算、可缓存的系统提示片段。
+pub struct PromptSection {
+    pub name: &'static str,
+    /// 计算函数：基于运行时上下文生成 prompt 片段。返回 None 表示该 section 不适用。
+    pub compute: Box<dyn Fn(&PromptContext) -> Option<String> + Send + Sync>,
+    /// true = 每轮强制重算（如 MCP instructions），false = 计算一次后缓存到 /clear
+    pub cache_break: bool,
+}
+
+/// 构建 prompt 所需的运行时上下文
+pub struct PromptContext {
+    pub agent_config: Arc<AgentConfig>,
+    pub enabled_tools: HashSet<String>,
+    pub deferred_tool_count: usize,
+    pub model_id: String,
+    pub cwd: PathBuf,
+    pub is_git: bool,
+    pub platform: String,
+    pub shell: String,
+    pub execution_mode: ExecutionMode,  // Plan / Agent / Auto
+    pub mcp_clients: Vec<McpClientInfo>,
+    pub language_preference: Option<String>,
+    pub token_budget: Option<usize>,
+    pub memory_prompt: Option<String>,
+    pub session_start_date: String,
+}
+
+pub enum ExecutionMode {
+    Plan,   // 只读探索模式，write 类工具禁用
+    Agent,  // 完整执行模式
+    Auto,   // 自动判断
+}
+
+/// 分层、可缓存、动态组装的 Prompt 引擎
+pub struct PromptEngine {
+    static_sections: Vec<PromptSection>,   // 启动时确定，跨 session 可缓存
+    dynamic_sections: Vec<PromptSection>,  // 每轮/每 session 计算
+    section_cache: DashMap<String, Option<String>>,  // name → cached value
+}
+
+impl PromptEngine {
+    /// 构建完整系统提示词。
+    /// 返回 Vec<String>，每个元素是一个独立 section（便于 API prompt cache）。
+    pub fn build_system_prompt(&self, ctx: &PromptContext) -> Vec<String> {
+        let mut parts = Vec::new();
+
+        // 1. 静态 sections（缓存后不重算）
+        for section in &self.static_sections {
+            let value = self.resolve_section(section, ctx);
+            if let Some(v) = value {
+                parts.push(v);
+            }
+        }
+
+        // 2. 动态边界标记（API prompt cache 分割点）
+        parts.push("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__".into());
+
+        // 3. 动态 sections
+        for section in &self.dynamic_sections {
+            let value = if section.cache_break {
+                (section.compute)(ctx) // 强制重算
+            } else {
+                self.resolve_section(section, ctx)
+            };
+            if let Some(v) = value {
+                parts.push(v);
+            }
+        }
+
+        parts
+    }
+
+    /// 优先级层叠构建最终有效 prompt。
+    /// override > agent_prompt > custom_prompt > default + append
+    pub fn build_effective_prompt(
+        &self,
+        ctx: &PromptContext,
+        override_prompt: Option<&str>,
+        agent_prompt: Option<&str>,
+        custom_prompt: Option<&str>,
+        append_prompt: Option<&str>,
+    ) -> Vec<String> {
+        if let Some(ovr) = override_prompt {
+            return vec![ovr.to_string()];
+        }
+        let base = if let Some(ap) = agent_prompt {
+            vec![ap.to_string()]
+        } else if let Some(cp) = custom_prompt {
+            vec![cp.to_string()]
+        } else {
+            self.build_system_prompt(ctx)
+        };
+        if let Some(append) = append_prompt {
+            let mut result = base;
+            result.push(append.to_string());
+            result
+        } else {
+            base
+        }
+    }
+
+    /// 清除所有缓存（/clear, /compact, mode switch 时调用）
+    pub fn clear_cache(&self) { self.section_cache.clear(); }
+
+    fn resolve_section(&self, section: &PromptSection, ctx: &PromptContext) -> Option<String> {
+        if let Some(cached) = self.section_cache.get(section.name) {
+            return cached.clone();
+        }
+        let value = (section.compute)(ctx);
+        self.section_cache.insert(section.name.to_string(), value.clone());
+        value
+    }
+}
+```
+
+### 11.3 Prompt Section 清单
+
+**静态 sections（编译期确定）:**
+
+| Section | CC 对应 | 内容 |
+|---------|---------|------|
+| `intro` | `getSimpleIntroSection()` | 身份 + 安全指令（禁止生成 URL、prompt injection 防护） |
+| `system` | `getSimpleSystemSection()` | system-reminder 说明、hooks 说明、压缩说明、deferred tools 提示 |
+| `doing_tasks` | `getSimpleDoingTasksSection()` | 代码风格规范、验证要求、最小改动原则、注释规范 |
+| `actions` | `getActionsSection()` | 可逆性判断、blast radius 评估、确认规则、具体危险操作列表 |
+| `using_tools` | `getUsingYourToolsSection()` | 决策树(Step 0-3)、反模式、few-shot 示例、cost asymmetry、fallback chain |
+| `tone_and_style` | `getSimpleToneAndStyleSection()` | 无 emoji、引用格式、建设性沟通 |
+| `output_efficiency` | `getOutputEfficiencySection()` | 用户沟通规范、格式化、避免冗余 |
+
+**动态 sections（运行时计算）:**
+
+| Section | CC 对应 | cache_break | 内容 |
+|---------|---------|-------------|------|
+| `session_guidance` | `getSessionSpecificGuidanceSection()` | false | 基于启用工具 + 模式的动态指导 |
+| `memory` | `loadMemoryPrompt()` | false | 从 memory 系统加载 |
+| `environment` | `computeSimpleEnvInfo()` | false | cwd, platform, model, git, shell |
+| `language` | `getLanguageSection()` | false | 语言偏好 |
+| `mcp_instructions` | `getMcpInstructionsSection()` | **true** | MCP server 连接/断开，每轮重算 |
+| `token_budget` | token_budget section | false | 预算指导 |
+| `frc` | `getFunctionResultClearingSection()` | false | 旧工具结果自动清理提示 |
+
+### 11.4 Tool.prompt() 方法 — 工具行为指导
+
+CC 每个 Tool 的 `prompt()` 方法返回该工具的**完整行为指导**，作为 tool schema 的 description 字段发送给 LLM。这不是短描述，而是详细操作规范。
+
+**修改 Tool trait:**
+
+```rust
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;  // 短描述（UI 展示）
+
+    /// 丰富的行为指导 prompt，发送给 LLM 作为 tool description。
+    /// 包含使用说明、反模式、示例、约束等。
+    /// 默认退化为短描述。
+    fn prompt(&self) -> String { self.description().to_string() }
+}
+```
+
+**核心工具 prompt 实现计划:**
+
+| 工具 | CC 对应 | 预计行数 | 核心内容 |
+|------|---------|----------|----------|
+| `ShellTool` | BashTool (370行) | ~200行 | 专用工具优先规则、多命令规则、git 规则、sleep 规则、background 使用、沙箱说明 |
+| `ReadFileTool` | FileReadTool (~50行) | ~50行 | 编码、大文件 offset/limit、图片/PDF |
+| `WriteFileTool` | FileWriteTool (~30行) | ~30行 | 必须先 read、模式选择 |
+| `EditFileTool` | FileEditTool (~30行) | ~40行 | 必须先 read、唯一性、replace_all |
+| `GlobTool` | GlobTool (~20行) | ~30行 | 查询构造、fallback |
+| `SearchInFilesTool` | GrepTool (~30行) | ~40行 | content words not descriptions、fallback chain |
+| `SubAgentTool` | AgentTool (~40行) | ~50行 | 何时委托 vs 直接做 |
+| `TodoWriteTool` | TodoWriteTool (~20行) | ~20行 | 任务管理规范 |
+| `SnipTool` | SnipTool (~20行) | ~20行 | 何时主动裁剪 |
+| `ToolSearchTool` | ToolSearchTool (~20行) | ~20行 | 搜索 vs 直接 select |
+
+### 11.5 工具截断重构：Persist-to-Disk 策略
+
+> 对齐 CC 的 `toolResultStorage.ts`
+
+**CC 的工具结果处理（3 层）：**
+
+1. **Per-tool persistence threshold** — 每工具声明 `maxResultSizeChars`（默认 50K，ShellTool 30K，ReadFile ∞），超过阈值时**整个结果持久化到磁盘**，替换为 2KB preview + 文件路径引用
+2. **Per-message aggregate budget** (200K) — 同一轮 N 个并行工具结果总和超过 200K 时，最大的结果被持久化
+3. **MicroCompact** (渐进淡化) — 老结果随时间淡化
+
+**FastClaw 当前问题：**
+- 截断是 in-place 的（head 20% + tail 80%），截断后**信息丢失**
+- 没有 per-message aggregate budget — 10 个并行工具各 1500 chars = 15K OK，但如果 limit 提高，可能爆
+- 保存到 temp 文件的路径不稳定（含时间戳），重启后丢失
+
+**重构方案：**
+
+```rust
+// crates/fastclaw-agent/src/runtime/tool_result_storage.rs (新文件)
+
+/// 工具结果持久化策略常量
+pub const DEFAULT_MAX_RESULT_SIZE_CHARS: usize = 50_000;
+pub const MAX_TOOL_RESULTS_PER_MESSAGE_CHARS: usize = 200_000;
+pub const PREVIEW_SIZE_BYTES: usize = 2000;
+
+/// 持久化大工具结果到会话目录
+pub struct ToolResultStorage {
+    session_dir: PathBuf,       // ~/.fastclaw/sessions/<session_id>/tool-results/
+    seen_ids: HashSet<String>,  // 已处理过的 tool_use_id（决策不可变）
+    replacements: HashMap<String, String>,  // tool_use_id → 替换后的 preview 文本
+}
+
+impl ToolResultStorage {
+    /// 处理单个工具结果：超过阈值时持久化到磁盘，返回 preview。
+    pub async fn process_result(
+        &mut self,
+        tool_use_id: &str,
+        tool_name: &str,
+        content: &str,
+        max_result_size: usize,
+    ) -> String {
+        let threshold = max_result_size.min(DEFAULT_MAX_RESULT_SIZE_CHARS);
+        if content.len() <= threshold {
+            return content.to_string();
+        }
+        // 持久化到 session_dir/tool-results/<tool_use_id>.txt
+        let filepath = self.persist(tool_use_id, content).await;
+        let preview = self.generate_preview(content);
+        let message = format!(
+            "<persisted-output>\n\
+             Output too large ({} chars). Full output saved to: {}\n\n\
+             Preview (first ~2KB):\n{}\n...\n\
+             </persisted-output>",
+            content.len(), filepath.display(), preview
+        );
+        self.replacements.insert(tool_use_id.to_string(), message.clone());
+        message
+    }
+
+    /// 对一轮的所有工具结果执行 per-message aggregate budget 检查。
+    /// 当总和超过 200K 时，最大的结果被持久化。
+    pub async fn enforce_per_message_budget(
+        &mut self,
+        results: &mut [(String, String, String)], // (tool_use_id, tool_name, content)
+    ) {
+        let total: usize = results.iter().map(|(_, _, c)| c.len()).sum();
+        if total <= MAX_TOOL_RESULTS_PER_MESSAGE_CHARS {
+            return;
+        }
+        // 按 size 降序，持久化最大的直到总量 < budget
+        let mut indices: Vec<usize> = (0..results.len()).collect();
+        indices.sort_by(|a, b| results[*b].2.len().cmp(&results[*a].2.len()));
+        let mut remaining = total;
+        for idx in indices {
+            if remaining <= MAX_TOOL_RESULTS_PER_MESSAGE_CHARS { break; }
+            let (id, name, content) = &results[idx];
+            let replaced = self.process_result(id, name, content, usize::MAX).await;
+            remaining -= content.len();
+            remaining += replaced.len();
+            results[idx].2 = replaced;
+        }
+    }
+}
+```
+
+**关键改进 vs 当前实现：**
+
+| 维度 | 当前 (v5) | 重构后 (v6) |
+|------|-----------|-------------|
+| 截断策略 | head 20% + tail 80% in-place | 整体持久化到磁盘 + 2KB preview |
+| 信息丢失 | 中间部分永久丢失 | 完整内容可通过 ReadFile 恢复 |
+| 文件路径 | `/tmp/fastclaw_truncated/<ts>_<tool>.txt` | `~/.fastclaw/sessions/<sid>/tool-results/<tool_use_id>.txt` |
+| 持久性 | 重启丢失 | 跟随 session 持久化 |
+| Per-message budget | 无 | 200K aggregate limit |
+| 空结果处理 | 无 | `(tool_name completed with no output)` marker |
+| Cache 稳定性 | N/A | 决策一旦做出不可变（seenIds frozen） |
+
+### 11.6 `build_messages` 重构
+
+当前 `runtime/mod.rs` 的 `build_messages_with_subagent_ctx()` 是简单字符串拼接：
+
+```rust
+// 当前实现（仅 3 行核心逻辑）
+let system_text = configured.unwrap_or(default_runtime_system_prompt_for_agent(id));
+system_text.push_str(&subagent_block);
+messages.push(ChatMessage::system(system_text));
+```
+
+**重构为：**
+
+```rust
+fn build_messages_with_subagent_ctx(...) -> Vec<ChatMessage> {
+    let prompt_ctx = PromptContext::from_runtime(
+        config, &self.tool_registry, &self.mcp_clients, ...
+    );
+
+    let system_parts = self.prompt_engine.build_effective_prompt(
+        &prompt_ctx,
+        None,                          // override
+        config.system_prompt.as_deref(), // agent prompt
+        None,                          // custom
+        subagent_ctx.map(|c| build_subagent_prompt_block(c)).flatten().as_deref(),
+    );
+
+    let system_text = system_parts.join("\n\n");
+    messages.push(ChatMessage::system(system_text));
+    messages.extend_from_slice(user_messages);
+    messages
+}
+```
+
+### 11.7 修正后的时间线
+
+| 阶段 | 状态 | 时长 |
+|------|------|------|
+| Phase 0: 基建清场 | ✅ DONE | - |
+| Phase 1: 压缩流水线 | ✅ DONE | - |
+| Phase 2: QueryEngine + P0 工具 | ✅ DONE | - |
+| Phase 3: 前端 IM | ✅ DONE | - |
+| Phase 4: Context Collapse + P1 工具 | 8/16 DONE | 1.5周（完成剩余） |
+| **Phase 4.5: PromptEngine + 工具截断重构** | **新增** | **2.5~3 周** |
+| Phase 5: 测试与优化 | PENDING | 1 周 |
+| **修正后总剩余** | | **~5~5.5 周** |
+
+---
+
+## 十二、总结
+
+### 方案核心差异（v6 vs v5）
+
+| 维度 | v5 方案 | v6 方案 |
 |------|---------|---------|
-| 基建阶段 | 无，直接堆功能 | **Phase 0 先清场再建基** |
-| 模块处置 | 笼统 "feature flag 代替删除" | 区分对待：删除（DAG/Plugin/Eval/非飞书Channel）+ feature flag（Evolution/Self-iter）+ 拆分（Collab→MCP） |
-| Feature flag 层次 | 只涉及 gateway | **从内到外**：先 agent 层，再 gateway 透传 |
-| MCP 保留 | 与 collab 捆绑 | 拆出独立 `fastclaw-mcp` crate |
-| 阶段排序 | 压缩流水线→QueryEngine+FeatureFlag→前端→Collapse→测试 | **基建→压缩流水线→QueryEngine+工具→前端→Collapse+工具→测试** |
-| 时间估算 | 11-12 周 | 12.5-14 周（多了基建的 1.5-2 周，值得） |
+| Prompt 系统 | 静态 md 文件拼接 | **PromptEngine：21 个 section + 缓存 + 动态边界** |
+| 工具行为指导 | 短 description 字符串 | **Tool.prompt() 返回完整行为规范（50~370行/工具）** |
+| 工具截断 | head/tail in-place 截断 | **persist-to-disk + 2KB preview + ReadFile 恢复** |
+| Per-message budget | 无 | **200K aggregate limit（防并行工具 context 爆炸）** |
+| 空结果处理 | 无 | **marker 文本（防模型误判 stop sequence）** |
+| 模式感知 | 无 | **Plan/Agent/Auto 影响 tool 可用性和 prompt** |
 
-### 预期成果
+### 预期成果（在 v5 基础上新增）
 
-- ✅ **干净的依赖树**：最小构建仅包含核心 crate（core/agent/context/session/memory/mcp/security/observe/cron/treesitter/feishu）
-- ✅ 内存占用：< 100MB
-- ✅ Claude Code 级别上下文管理：4 层压缩流水线
-- ✅ IM 风格界面：多 Agent、多会话
-- ✅ 飞书集成 + Cron 定时任务
-- ✅ 40+ 内置工具（原有 30+ 保留 + 新增 Snip/ToolSearch/Sleep/Notebook/Task系列/Workflow/PlanMode/Brief/TerminalCapture）
-- ✅ MicroCompact 三层淡化 + Semantic Header + Dedup（FastClaw 独有优势）
-- ✅ Token Budget 预算控制
-- ✅ Reactive Compact 安全网
-- ✅ Deferred Tools 动态工具发现（避免 context 浪费）
-- ✅ Agent 主动上下文裁剪（SnipTool）
-- ✅ 并行后台任务管理（TaskTool 系列）
-- ✅ Agent 发起的 Plan/Execute 模式切换
-- ✅ Feature flag 灵活构建（evolution/self-iter 可选开启）
-- ✅ 独立 MCP crate（可复用、可单独演进）
+- ✅ **Claude Code 级别 Prompt Engineering**：21 个 section 动态组装，对齐 CC 的 prompts.ts
+- ✅ **工具行为指导**：10+ 核心工具有丰富的 prompt（不只是名字，而是教 Agent 怎么用）
+- ✅ **Persist-to-disk 截断**：大结果不丢失，通过 ReadFile 可恢复
+- ✅ **Per-message aggregate budget**：防止 N 个并行工具集体撑爆 context
+- ✅ **Prompt cache 友好**：静态/动态分离 + section 缓存 + 决策不可变
+- ✅ **模式感知 Prompt**：Plan 模式自动禁用 write 工具 + 调整行为指导
+- ✅ **优先级层叠**：override > agent > custom > default + append

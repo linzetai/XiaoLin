@@ -51,7 +51,10 @@ pub use confirm::ConfirmTool;
 pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
 pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeChunkTool};
 pub use notebook::NotebookEditTool;
-pub use task::{TaskCreateTool, TaskInfo, TaskManager, TaskManagerError, TaskStatus};
+pub use task::{
+    NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
+    TaskManagerError, TaskStatus, TaskStopTool, TaskWorkFactory,
+};
 pub use snip::SnipTool;
 pub use tool_search::ToolSearchTool;
 pub use utility::{CalculatorTool, CurrentTimeTool, SleepTool};
@@ -150,6 +153,22 @@ pub fn register_brief_tool(
 
 pub fn register_todo_tools(registry: &ToolRegistry, store: TodoStore) {
     registry.register(Arc::new(TodoWriteTool::new(store)));
+}
+
+/// Register task management tools (create, list, get, stop).
+/// TaskList, TaskGet, and TaskStop are registered as deferred (available via ToolSearch).
+pub fn register_task_tools(
+    registry: &ToolRegistry,
+    manager: Arc<TaskManager>,
+    work_factory: Arc<dyn TaskWorkFactory>,
+) {
+    registry.register(Arc::new(TaskCreateTool::new(
+        Arc::clone(&manager),
+        work_factory,
+    )));
+    registry.register_deferred(Arc::new(TaskListTool::new(Arc::clone(&manager))));
+    registry.register_deferred(Arc::new(TaskGetTool::new(Arc::clone(&manager))));
+    registry.register_deferred(Arc::new(TaskStopTool::new(manager)));
 }
 
 pub fn register_session_tools(

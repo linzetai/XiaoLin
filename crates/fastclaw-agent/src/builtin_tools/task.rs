@@ -232,20 +232,53 @@ impl std::fmt::Display for TaskManagerError {
 
 impl std::error::Error for TaskManagerError {}
 
+// ─── Task Work Factory ───────────────────────────────────────────────
+
+/// Trait for creating the async work that a task executes.
+///
+/// Implementors receive the subject + description and return a future.
+/// The default implementation is a no-op that immediately succeeds;
+/// production code should provide an `AgentTaskWorkFactory` that calls
+/// `AgentRuntime::execute` with a sub-agent config.
+#[async_trait]
+pub trait TaskWorkFactory: Send + Sync + 'static {
+    /// Create and execute the work for a task. Called inside tokio::spawn.
+    async fn run(&self, subject: String, description: String) -> Result<String, String>;
+}
+
+/// Default factory that immediately returns success (for unit tests).
+pub struct NoopTaskWorkFactory;
+
+#[async_trait]
+impl TaskWorkFactory for NoopTaskWorkFactory {
+    async fn run(&self, _subject: String, description: String) -> Result<String, String> {
+        Ok(format!("Task completed: {description}"))
+    }
+}
+
 // ─── TaskCreateTool ──────────────────────────────────────────────────
 
 /// Tool that creates a new background task via the TaskManager.
 ///
-/// The actual work function is provided via `set_work_factory`. If no factory
-/// is set, the tool creates a placeholder task that immediately completes
-/// with the description as output (useful for testing the task lifecycle).
+/// The work factory determines what actually executes when a task is spawned.
+/// In production, inject an `AgentTaskWorkFactory` that delegates to the
+/// `AgentRuntime`. For testing, use `NoopTaskWorkFactory`.
 pub struct TaskCreateTool {
     manager: Arc<TaskManager>,
+    work_factory: Arc<dyn TaskWorkFactory>,
 }
 
 impl TaskCreateTool {
-    pub fn new(manager: Arc<TaskManager>) -> Self {
-        Self { manager }
+    pub fn new(manager: Arc<TaskManager>, work_factory: Arc<dyn TaskWorkFactory>) -> Self {
+        Self {
+            manager,
+            work_factory,
+        }
+    }
+
+    /// Convenience constructor with the default no-op factory.
+    pub fn with_noop(manager: Arc<TaskManager>) -> Self {
+        Self::new(manager, Arc::new(NoopTaskWorkFactory))
     }
 }
 
@@ -305,11 +338,15 @@ impl Tool for TaskCreateTool {
         };
 
         let desc = args.description.unwrap_or_default();
+        let factory = Arc::clone(&self.work_factory);
+        let subject_clone = args.subject.clone();
         let desc_clone = desc.clone();
 
-        let result = self.manager.spawn(args.subject.clone(), desc, async move {
-            Ok(format!("Task completed: {desc_clone}"))
-        });
+        let result =
+            self.manager
+                .spawn(args.subject.clone(), desc, async move {
+                    factory.run(subject_clone, desc_clone).await
+                });
 
         match result {
             Ok(task_id) => ToolResult::ok(
@@ -327,6 +364,261 @@ impl Tool for TaskCreateTool {
                 ))
             }
             Err(e) => ToolResult::err(format!("Failed to create task: {e}")),
+        }
+    }
+}
+
+// ─── TaskListTool ────────────────────────────────────────────────────
+
+/// Tool that lists all managed background tasks with their status.
+pub struct TaskListTool {
+    manager: Arc<TaskManager>,
+}
+
+impl TaskListTool {
+    pub fn new(manager: Arc<TaskManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[async_trait]
+impl Tool for TaskListTool {
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+
+    fn name(&self) -> &str {
+        "task_list"
+    }
+
+    fn description(&self) -> &str {
+        "List all background tasks with their id, subject, and status."
+    }
+
+    fn search_hint(&self) -> &str {
+        "list all tasks background"
+    }
+
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+        }
+    }
+
+    async fn execute(&self, _arguments: &str) -> ToolResult {
+        let mut tasks = self.manager.list();
+        if tasks.is_empty() {
+            return ToolResult::ok("No tasks found");
+        }
+
+        tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        let lines: Vec<String> = tasks
+            .iter()
+            .map(|t| {
+                let status = serde_json::to_value(t.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{:?}", t.status));
+                format!("#{} [{}] {}", t.task_id, status, t.subject)
+            })
+            .collect();
+
+        ToolResult::ok(lines.join("\n"))
+    }
+}
+
+// ─── TaskGetTool ─────────────────────────────────────────────────────
+
+/// Tool that retrieves detailed information about a specific background task.
+pub struct TaskGetTool {
+    manager: Arc<TaskManager>,
+}
+
+impl TaskGetTool {
+    pub fn new(manager: Arc<TaskManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[derive(Deserialize)]
+struct TaskGetArgs {
+    task_id: String,
+}
+
+#[async_trait]
+impl Tool for TaskGetTool {
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+
+    fn name(&self) -> &str {
+        "task_get"
+    }
+
+    fn description(&self) -> &str {
+        "Get detailed information about a specific background task by its ID, \
+         including status, description, output, and error details."
+    }
+
+    fn search_hint(&self) -> &str {
+        "retrieve a task by ID"
+    }
+
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "task_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The ID of the task to retrieve."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["task_id".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: TaskGetArgs = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "Invalid arguments: {e}. Expected {{\"task_id\": \"...\"}}"
+                ))
+            }
+        };
+
+        let info = match self.manager.get(&args.task_id) {
+            Some(info) => info,
+            None => {
+                return ToolResult::err(format!(
+                    "Task not found: {}. Use task_list to see available tasks.",
+                    args.task_id
+                ))
+            }
+        };
+
+        let status = serde_json::to_value(info.status)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| format!("{:?}", info.status));
+
+        let mut lines = vec![
+            format!("Task #{}: {}", info.task_id, info.subject),
+            format!("Status: {}", status),
+        ];
+
+        if !info.description.is_empty() {
+            lines.push(format!("Description: {}", info.description));
+        }
+
+        if let Some(ref output) = info.output {
+            lines.push(format!("Output: {}", output));
+        }
+
+        if let Some(ref error) = info.error {
+            lines.push(format!("Error: {}", error));
+        }
+
+        if let Some(finished_at) = info.finished_at {
+            let duration_ms = finished_at.saturating_sub(info.created_at);
+            lines.push(format!("Duration: {}ms", duration_ms));
+        }
+
+        ToolResult::ok(lines.join("\n"))
+    }
+}
+
+// ─── TaskStopTool ────────────────────────────────────────────────────
+
+/// Tool that stops/cancels a running background task.
+pub struct TaskStopTool {
+    manager: Arc<TaskManager>,
+}
+
+impl TaskStopTool {
+    pub fn new(manager: Arc<TaskManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[derive(Deserialize)]
+struct TaskStopArgs {
+    task_id: String,
+}
+
+#[async_trait]
+impl Tool for TaskStopTool {
+    fn kind(&self) -> ToolKind {
+        ToolKind::Execute
+    }
+
+    fn name(&self) -> &str {
+        "task_stop"
+    }
+
+    fn description(&self) -> &str {
+        "Stop/cancel a running background task by its ID."
+    }
+
+    fn search_hint(&self) -> &str {
+        "stop cancel abort task"
+    }
+
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "task_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The ID of the task to stop."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["task_id".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: TaskStopArgs = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "Invalid arguments: {e}. Expected {{\"task_id\": \"...\"}}"
+                ))
+            }
+        };
+
+        match self.manager.stop(&args.task_id) {
+            Ok(true) => ToolResult::ok(format!("Task {} cancelled.", args.task_id)),
+            Ok(false) => ToolResult::ok(format!(
+                "Task {} already finished (not running).",
+                args.task_id
+            )),
+            Err(TaskManagerError::NotFound(_)) => ToolResult::err(format!(
+                "Task not found: {}. Use task_list to see available tasks.",
+                args.task_id
+            )),
+            Err(e) => ToolResult::err(format!("Failed to stop task: {e}")),
         }
     }
 }
@@ -527,7 +819,7 @@ mod tests {
     #[tokio::test]
     async fn task_create_tool_success() {
         let mgr = Arc::new(TaskManager::new(5));
-        let tool = TaskCreateTool::new(Arc::clone(&mgr));
+        let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
 
         let result = tool
             .execute(r#"{"subject": "test task", "description": "do something"}"#)
@@ -548,7 +840,7 @@ mod tests {
     #[tokio::test]
     async fn task_create_tool_missing_subject() {
         let mgr = Arc::new(TaskManager::new(5));
-        let tool = TaskCreateTool::new(Arc::clone(&mgr));
+        let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
 
         let result = tool.execute(r#"{"description": "no subject"}"#).await;
         assert!(!result.success);
@@ -566,7 +858,7 @@ mod tests {
         })
         .unwrap();
 
-        let tool = TaskCreateTool::new(Arc::clone(&mgr));
+        let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
         let result = tool
             .execute(r#"{"subject": "will be rejected"}"#)
             .await;
@@ -574,10 +866,41 @@ mod tests {
         assert!(result.output.contains("concurrency limit"));
     }
 
+    struct EchoWorkFactory;
+    #[async_trait]
+    impl TaskWorkFactory for EchoWorkFactory {
+        async fn run(&self, subject: String, description: String) -> Result<String, String> {
+            Ok(format!("Executed: {subject} - {description}"))
+        }
+    }
+
+    #[tokio::test]
+    async fn task_create_tool_with_custom_factory() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskCreateTool::new(Arc::clone(&mgr), Arc::new(EchoWorkFactory));
+
+        let result = tool
+            .execute(r#"{"subject": "echo test", "description": "hello world"}"#)
+            .await;
+        assert!(result.success);
+
+        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        let task_id = output["task_id"].as_str().unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let info = mgr.get(task_id).unwrap();
+        assert_eq!(info.status, TaskStatus::Completed);
+        assert_eq!(
+            info.output.as_deref(),
+            Some("Executed: echo test - hello world")
+        );
+    }
+
     #[tokio::test]
     async fn task_create_tool_returns_unique_ids() {
         let mgr = Arc::new(TaskManager::new(10));
-        let tool = TaskCreateTool::new(Arc::clone(&mgr));
+        let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
 
         let r1 = tool.execute(r#"{"subject": "a"}"#).await;
         let r2 = tool.execute(r#"{"subject": "b"}"#).await;
@@ -586,5 +909,190 @@ mod tests {
         let o2: serde_json::Value = serde_json::from_str(&r2.output).unwrap();
 
         assert_ne!(o1["task_id"], o2["task_id"]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TaskListTool tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn task_list_tool_empty() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskListTool::new(Arc::clone(&mgr));
+
+        let result = tool.execute("{}").await;
+        assert!(result.success);
+        assert_eq!(result.output, "No tasks found");
+    }
+
+    #[tokio::test]
+    async fn task_list_tool_shows_all_tasks() {
+        let mgr = Arc::new(TaskManager::new(10));
+        mgr.spawn("alpha".into(), "desc a".into(), async { Ok("ok".into()) })
+            .unwrap();
+        mgr.spawn("beta".into(), "desc b".into(), async {
+            Err("fail".into())
+        })
+        .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let tool = TaskListTool::new(Arc::clone(&mgr));
+        let result = tool.execute("{}").await;
+        assert!(result.success);
+        assert!(result.output.contains("alpha"));
+        assert!(result.output.contains("beta"));
+        assert!(result.output.contains("[completed]"));
+        assert!(result.output.contains("[failed]"));
+    }
+
+    #[tokio::test]
+    async fn task_list_tool_is_deferred() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskListTool::new(mgr);
+        assert!(tool.is_deferred());
+        assert_eq!(tool.kind(), ToolKind::Read);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TaskGetTool tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn task_get_tool_completed_task() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let id = mgr
+            .spawn("build project".into(), "run cargo build".into(), async {
+                Ok("Build succeeded".into())
+            })
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let tool = TaskGetTool::new(Arc::clone(&mgr));
+        let result = tool
+            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
+            .await;
+        assert!(result.success);
+        assert!(result.output.contains("build project"));
+        assert!(result.output.contains("completed"));
+        assert!(result.output.contains("Build succeeded"));
+        assert!(result.output.contains("run cargo build"));
+        assert!(result.output.contains("Duration:"));
+    }
+
+    #[tokio::test]
+    async fn task_get_tool_failed_task() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let id = mgr
+            .spawn("failing task".into(), "will fail".into(), async {
+                Err("compilation error".into())
+            })
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let tool = TaskGetTool::new(Arc::clone(&mgr));
+        let result = tool
+            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
+            .await;
+        assert!(result.success);
+        assert!(result.output.contains("failed"));
+        assert!(result.output.contains("compilation error"));
+    }
+
+    #[tokio::test]
+    async fn task_get_tool_not_found() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskGetTool::new(Arc::clone(&mgr));
+
+        let result = tool
+            .execute(r#"{"task_id": "nonexistent-id"}"#)
+            .await;
+        assert!(!result.success);
+        assert!(result.output.contains("Task not found"));
+        assert!(result.output.contains("task_list"));
+    }
+
+    #[tokio::test]
+    async fn task_get_tool_invalid_args() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskGetTool::new(Arc::clone(&mgr));
+
+        let result = tool.execute(r#"{"wrong_field": "x"}"#).await;
+        assert!(!result.success);
+        assert!(result.output.contains("Invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn task_get_tool_is_deferred() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskGetTool::new(mgr);
+        assert!(tool.is_deferred());
+        assert_eq!(tool.kind(), ToolKind::Read);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TaskStopTool tests
+    // ═══════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn task_stop_tool_cancels_running() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let id = mgr
+            .spawn("long task".into(), "".into(), async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok("never".into())
+            })
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let tool = TaskStopTool::new(Arc::clone(&mgr));
+        let result = tool
+            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
+            .await;
+        assert!(result.success);
+        assert!(result.output.contains("cancelled"));
+
+        let info = mgr.get(&id).unwrap();
+        assert_eq!(info.status, TaskStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn task_stop_tool_already_finished() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let id = mgr
+            .spawn("quick".into(), "".into(), async { Ok("done".into()) })
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let tool = TaskStopTool::new(Arc::clone(&mgr));
+        let result = tool
+            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
+            .await;
+        assert!(result.success);
+        assert!(result.output.contains("already finished"));
+    }
+
+    #[tokio::test]
+    async fn task_stop_tool_not_found() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskStopTool::new(Arc::clone(&mgr));
+
+        let result = tool
+            .execute(r#"{"task_id": "nonexistent"}"#)
+            .await;
+        assert!(!result.success);
+        assert!(result.output.contains("Task not found"));
+    }
+
+    #[tokio::test]
+    async fn task_stop_tool_is_deferred() {
+        let mgr = Arc::new(TaskManager::new(5));
+        let tool = TaskStopTool::new(mgr);
+        assert!(tool.is_deferred());
+        assert_eq!(tool.kind(), ToolKind::Execute);
     }
 }

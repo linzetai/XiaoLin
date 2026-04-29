@@ -1005,7 +1005,7 @@
             "TaskGet 返回指定任务的详细信息和输出",
             "不存在的 task_id 返回友好错误"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-10",
@@ -1111,6 +1111,332 @@
             "每个工具至少 3 个测试用例",
             "覆盖正常路径、参数验证、错误处理",
             "cargo test -p fastclaw-agent 全通过"
+          ],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-4.5",
+      "name": "PromptEngine + 工具截断重构",
+      "priority": "P0",
+      "estimated_weeks": 3,
+      "tasks": [
+        {
+          "id": "P4H-01",
+          "title": "实现 PromptSection 抽象和 PromptEngine 框架",
+          "description": "创建 prompt_engine.rs，定义 PromptSection（name + compute + cache_break）、PromptContext、PromptEngine 结构体。实现 build_system_prompt()、build_effective_prompt()、clear_cache() 方法。section_cache 使用 DashMap 实现 memoize。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_engine.rs",
+          "cc_references": [
+            "claude-code/src/constants/systemPromptSections.ts — systemPromptSection() / DANGEROUS_uncachedSystemPromptSection()",
+            "claude-code/src/utils/systemPrompt.ts — buildEffectiveSystemPrompt()"
+          ],
+          "acceptance_criteria": [
+            "PromptEngine::build_system_prompt 按 static → boundary → dynamic 顺序组装",
+            "cache_break=false 的 section 计算一次后缓存命中",
+            "cache_break=true 的 section 每次调用都重新计算",
+            "clear_cache() 后所有 section 重新计算",
+            "build_effective_prompt 正确实现优先级层叠（override > agent > custom > default + append）",
+            "cargo check -p fastclaw-agent 编译通过"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-02",
+          "title": "编写静态 section: intro + system",
+          "description": "Intro section: 身份声明 + 安全指令（禁止生成 URL、prompt injection 防护）。System section: system-reminder 说明、hooks 支持、自动压缩说明、deferred tools 提示。参照 CC getSimpleIntroSection() + getSimpleSystemSection()。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:177-200 — getSimpleIntroSection()",
+            "claude-code/src/constants/prompts.ts:188-200 — getSimpleSystemSection()"
+          ],
+          "acceptance_criteria": [
+            "intro section 包含 AI 身份 + CYBER_RISK 级安全指令",
+            "system section 包含 system-reminder 说明、hooks 说明、压缩说明",
+            "system section 提到 deferred tools 和 ToolSearch",
+            "内容支持中英双语（基于 language_preference）"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-03",
+          "title": "编写静态 section: doing_tasks + actions",
+          "description": "DoingTasks section: 代码风格规范（最小改动、不加多余注释、验证工作）。Actions section: 可逆性判断、blast radius 评估、确认规则、危险操作列表。参照 CC getSimpleDoingTasksSection() + getActionsSection()。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:202-244 — getSimpleDoingTasksSection()",
+            "claude-code/src/constants/prompts.ts:246-258 — getActionsSection()"
+          ],
+          "acceptance_criteria": [
+            "doing_tasks 包含最小改动原则、注释规范（why not what）、验证要求",
+            "actions 包含可逆性评估框架 + 具体危险操作清单",
+            "actions 明确区分 local/reversible vs shared/irreversible",
+            "内容对齐 CC 精神但本地化为 FastClaw 上下文"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-04",
+          "title": "编写静态 section: using_tools（决策树 + 反模式 + 示例）",
+          "description": "最核心的 section。包含: (1) 决策树 Step 0-3（是否需要工具→专用工具？→shell？→并行？）(2) cost asymmetry 原则 (3) 反模式（何时不用工具）(4) few-shot 示例 (5) Grep/Glob 查询构造指导 (6) progressive fallback chain (7) multi-step search strategy。参照 CC getUsingYourToolsSection()。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:260-403 — getUsingYourToolsSection()"
+          ],
+          "acceptance_criteria": [
+            "包含 4 步决策树（Step 0: 是否需要工具 → Step 3: 是否并行）",
+            "包含 cost asymmetry 指导（搜索便宜/猜测昂贵）",
+            "包含反模式列表（何时不该调用工具）",
+            "包含 8+ 个 few-shot 示例（Request → Action 格式）",
+            "包含 Grep/Glob 查询构造指导",
+            "包含 progressive fallback chain（3 层降级）",
+            "根据 ctx.enabled_tools 动态引用正确的工具名"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-05",
+          "title": "编写静态 section: tone_and_style + output_efficiency",
+          "description": "ToneAndStyle: 无 emoji、引用格式、建设性沟通、文件路径引用规范。OutputEfficiency: 用户沟通规范（简洁直接、倒金字塔、避免过度格式化、不说 let me search）。参照 CC getSimpleToneAndStyleSection() + getOutputEfficiencySection()。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:521-532 — getSimpleToneAndStyleSection()",
+            "claude-code/src/constants/prompts.ts:496-519 — getOutputEfficiencySection()"
+          ],
+          "acceptance_criteria": [
+            "tone_and_style 包含 emoji 规则、代码引用格式",
+            "output_efficiency 包含用户沟通完整规范（500+ 字）",
+            "output_efficiency 覆盖：不 narrate 工具名、inverted pyramid、避免过度格式化",
+            "output_efficiency 包含任务完成后不问 anything else"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-06",
+          "title": "编写动态 section: session_guidance + environment",
+          "description": "SessionGuidance: 基于 enabled_tools 和 execution_mode 的动态指导（如 SubAgent 使用指导、Plan 模式指导、AskUserQuestion 指导）。Environment: cwd、platform、shell、model_id、is_git、知识截止日期。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/dynamic.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:441-491 — getSessionSpecificGuidanceSection()",
+            "claude-code/src/constants/prompts.ts:730-789 — computeSimpleEnvInfo()"
+          ],
+          "acceptance_criteria": [
+            "session_guidance 根据 enabled_tools 有无条件包含不同指导",
+            "session_guidance 在 Plan 模式下包含只读限制提示",
+            "environment 正确输出 cwd/platform/shell/model/git 信息",
+            "environment 包含模型知识截止日期"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-07",
+          "title": "编写动态 section: memory + language + mcp_instructions + token_budget + frc",
+          "description": "Memory: 从 memory 系统加载注入。Language: 语言偏好。McpInstructions: 已连接 MCP server 的 instructions 字段（cache_break=true）。TokenBudget: 预算指导。FRC: 旧工具结果自动清理提示。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_sections/dynamic.rs",
+          "cc_references": [
+            "claude-code/src/constants/prompts.ts:581-634 — dynamic sections registry",
+            "claude-code/src/constants/prompts.ts:658-683 — getMcpInstructions()"
+          ],
+          "acceptance_criteria": [
+            "memory section 从 PromptContext.memory_prompt 注入",
+            "language section 根据 language_preference 生成（None 时返回 None）",
+            "mcp_instructions section 列出所有已连接 MCP server 的 instructions",
+            "mcp_instructions 标记为 cache_break=true",
+            "token_budget 仅在预算启用时返回",
+            "frc 提示用户旧工具结果会被清理"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-08",
+          "title": "重构 build_messages_with_subagent_ctx 接入 PromptEngine",
+          "description": "将 runtime/mod.rs 的 build_messages_with_subagent_ctx 从简单字符串拼接改为调用 PromptEngine.build_effective_prompt。PromptEngine 实例化为 AgentRuntime 的字段。",
+          "target_file": "crates/fastclaw-agent/src/runtime/mod.rs",
+          "cc_references": [],
+          "acceptance_criteria": [
+            "AgentRuntime 持有 PromptEngine 实例",
+            "build_messages 构建 PromptContext 并调用 prompt_engine.build_effective_prompt",
+            "原有 system_prompt 配置作为 agent_prompt 参数传入",
+            "subagent_block 作为 append_prompt 传入",
+            "无 system_prompt 配置时使用 PromptEngine 的 default（非 workspace.rs 的旧函数）",
+            "cargo test -p fastclaw-agent 全通过"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-09",
+          "title": "为 Tool trait 添加 fn prompt() 方法",
+          "description": "Tool trait 新增 fn prompt(&self) -> String 默认方法（默认返回 description）。tool_executor 中构建 tool definition 时使用 prompt() 而非 description() 作为发送给 LLM 的工具描述。",
+          "target_file": "crates/fastclaw-core/src/tool.rs + crates/fastclaw-agent/src/runtime/tool_executor.rs",
+          "cc_references": [
+            "claude-code/src/Tool.ts:526-531 — prompt() method"
+          ],
+          "acceptance_criteria": [
+            "Tool trait 有 fn prompt(&self) -> String 默认方法",
+            "默认实现返回 self.description().to_string()",
+            "tool definition 构建时使用 prompt() 作为 LLM 看到的描述",
+            "现有所有 Tool 实现无需修改即可编译"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-10",
+          "title": "为 ShellTool 编写丰富的 prompt() 实现",
+          "description": "对齐 CC BashTool prompt（370行）。包含：专用工具优先规则、多命令规则（&&/;/并行）、git 操作规则、sleep 规则、background 使用、沙箱说明、文件路径引号规则。",
+          "target_file": "crates/fastclaw-agent/src/builtin_tools/shell.rs",
+          "cc_references": [
+            "claude-code/packages/builtin-tools/src/tools/BashTool/prompt.ts:275-369 — getSimplePrompt()"
+          ],
+          "acceptance_criteria": [
+            "prompt() 返回 150+ 行的完整行为指导",
+            "包含专用工具优先列表（read_file > cat、edit_file > sed、glob > find 等）",
+            "包含多命令规则（并行 vs && vs ;）",
+            "包含 git 操作规则（prefer new commit、不 skip hooks）",
+            "包含 sleep 反模式（不要在命令间 sleep、用 background 替代）",
+            "包含沙箱限制说明",
+            "包含文件路径空格引号规则"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-11",
+          "title": "为 ReadFile/WriteFile/EditFile 编写 prompt() 实现",
+          "description": "ReadFile: 编码自动检测、大文件 offset/limit、图片/PDF 支持。WriteFile: 必须先 read、模式选择（overwrite/append/create_new）。EditFile: 必须先 read、唯一性要求、最小 old_string、replace_all。",
+          "target_file": "crates/fastclaw-agent/src/builtin_tools/file_ops.rs",
+          "cc_references": [
+            "claude-code/packages/builtin-tools/src/tools/FileReadTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/FileWriteTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/FileEditTool/prompt.ts"
+          ],
+          "acceptance_criteria": [
+            "ReadFile prompt 包含编码、大文件处理、offset/limit 指导",
+            "WriteFile prompt 强调必须先 read 再 write",
+            "EditFile prompt 强调必须先 read、唯一性要求、最小 old_string 原则",
+            "EditFile prompt 说明 replace_all 用途（重命名变量）",
+            "每个工具 prompt 30-50 行"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-12",
+          "title": "为 Glob/Search/SubAgent/TodoWrite/Snip 编写 prompt() 实现",
+          "description": "Glob: 查询构造、pattern 示例、fallback。Search: content words 原则、pipe alternation、fallback chain。SubAgent: 何时委托 vs 直接做。TodoWrite: 任务管理规范。Snip: 何时主动裁剪。",
+          "target_file": "crates/fastclaw-agent/src/builtin_tools/",
+          "cc_references": [
+            "claude-code/packages/builtin-tools/src/tools/GlobTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/GrepTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/AgentTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/TodoWriteTool/prompt.ts",
+            "claude-code/packages/builtin-tools/src/tools/SnipTool/prompt.ts"
+          ],
+          "acceptance_criteria": [
+            "GlobTool prompt 包含 pattern 示例和文件扩展名指导",
+            "SearchTool prompt 包含 content words 原则（not descriptions of code）",
+            "SearchTool prompt 包含 pipe alternation 示例",
+            "SubAgentTool prompt 包含何时委托 vs 直接做的决策指导",
+            "TodoWriteTool prompt 包含任务管理规范",
+            "每个工具 prompt 20-50 行"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-13",
+          "title": "实现 ToolResultStorage — persist-to-disk 策略",
+          "description": "创建 tool_result_storage.rs。大工具结果持久化到 session 目录（~/.fastclaw/sessions/<sid>/tool-results/<id>.txt），替换为 2KB preview + 文件路径。实现 per-message aggregate budget（200K）。空结果返回 marker 文本。",
+          "target_file": "crates/fastclaw-agent/src/runtime/tool_result_storage.rs",
+          "cc_references": [
+            "claude-code/src/utils/toolResultStorage.ts — 全文",
+            "claude-code/src/constants/toolLimits.ts"
+          ],
+          "acceptance_criteria": [
+            "超过 per-tool threshold 的结果持久化到 session 目录",
+            "持久化后的 preview 包含：文件大小、路径、前 2KB 内容",
+            "per-message aggregate budget (200K) 正确执行",
+            "空结果返回 '(tool_name completed with no output)' marker",
+            "决策一旦做出不可变（seenIds frozen，支持 prompt cache 稳定性）",
+            "文件路径格式：~/.fastclaw/sessions/<sid>/tool-results/<tool_use_id>.txt"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-14",
+          "title": "重构 tool_executor 接入 ToolResultStorage",
+          "description": "在 tool_executor.rs 中，工具执行完成后通过 ToolResultStorage.process_result() 处理结果（替代当前的 truncate_tool_result_output_with_limit）。batch 执行完成后调用 enforce_per_message_budget()。保留现有 microcompact 和 semantic_header 逻辑不变。",
+          "target_file": "crates/fastclaw-agent/src/runtime/tool_executor.rs",
+          "cc_references": [
+            "claude-code/src/services/tools/toolExecution.ts — processToolResultBlock()"
+          ],
+          "acceptance_criteria": [
+            "单工具结果通过 ToolResultStorage.process_result() 处理",
+            "batch 执行后调用 enforce_per_message_budget()",
+            "现有 microcompact_tool_results 和 semantic_header 保持不变",
+            "现有 dedup_repeated_tool_calls 保持不变",
+            "truncate_tool_result_output_with_limit 作为 fallback（ToolResultStorage 失败时）",
+            "cargo test -p fastclaw-agent 全通过"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-15",
+          "title": "PromptEngine 集成测试",
+          "description": "验证不同 mode/tool set/language 下 prompt 正确组装。验证缓存行为、cache_break 行为、优先级层叠。",
+          "target_file": "crates/fastclaw-agent/src/runtime/prompt_engine.rs",
+          "cc_references": [],
+          "acceptance_criteria": [
+            "Plan 模式 prompt 包含只读限制",
+            "Agent 模式 prompt 包含完整工具指导",
+            "不同 enabled_tools 集合生成不同 session_guidance",
+            "language_preference='Chinese' 时 language section 存在",
+            "MCP section 每次调用都重新计算（cache_break=true）",
+            "clear_cache 后所有 section 重新计算",
+            "override_prompt 覆盖所有其他 section",
+            "至少 8 个测试用例"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-16",
+          "title": "ToolResultStorage 单元测试",
+          "description": "测试持久化、preview 生成、per-message budget、空结果处理、决策不可变性。",
+          "target_file": "crates/fastclaw-agent/src/runtime/tool_result_storage.rs",
+          "cc_references": [],
+          "acceptance_criteria": [
+            "小结果（< threshold）不触发持久化",
+            "大结果持久化后返回 preview + 文件路径",
+            "per-message budget 正确替换最大的结果",
+            "空结果返回 marker 文本",
+            "同一 tool_use_id 重复调用返回相同决策（不可变）",
+            "至少 6 个测试用例"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-17",
+          "title": "Prompt token 基准测试",
+          "description": "度量静态区总 token 数、动态区变化范围、不同工具集对 prompt 大小的影响。确保 prompt 不超过 context window 的 15%。",
+          "target_file": "crates/fastclaw-agent/benches/",
+          "cc_references": [],
+          "acceptance_criteria": [
+            "静态区总 token < 8000",
+            "动态区变化范围 1000~5000 tokens",
+            "全部 eager 工具 prompt 总和 < 15000 tokens",
+            "deferred 模式下工具 prompt 总和 < 8000 tokens（节省 >= 30%）",
+            "基准测试可通过 cargo bench 运行"
+          ],
+          "status": "pending"
+        },
+        {
+          "id": "P4H-18",
+          "title": "阶段 4.5 全量验证",
+          "description": "确保 cargo test --workspace 和 clippy 全通过。验证 PromptEngine 与现有 QueryEngine/ContextPipeline 的集成正确。",
+          "target_file": "workspace",
+          "cc_references": [],
+          "acceptance_criteria": [
+            "cargo test --workspace 全通过",
+            "cargo clippy --workspace -- -D warnings 零警告",
+            "PromptEngine 正确注入到 execute_stream 流程",
+            "ToolResultStorage 正确注入到 tool_executor 流程",
+            "现有 microcompact/snip/reactive/autocompact 行为不受影响"
           ],
           "status": "pending"
         }
