@@ -172,6 +172,32 @@ impl QueryLoopState {
         None
     }
 
+    /// Check if estimated tokens have reached the blocking limit (95% of
+    /// context window).  When auto-compact is enabled the pipeline will handle
+    /// reduction automatically, so we only block when manual `/compact` is the
+    /// only remedy.
+    ///
+    /// `just_compacted` should be true when a compression step ran earlier in
+    /// this iteration and freed tokens — in that case we skip the check to
+    /// avoid immediately re-blocking on the freshly compacted messages.
+    pub fn check_blocking_limit(
+        &self,
+        estimated_tokens: usize,
+        context_window: u32,
+        auto_compact_enabled: bool,
+        just_compacted: bool,
+    ) -> Option<LoopTransition> {
+        if just_compacted || auto_compact_enabled {
+            return None;
+        }
+        let blocking_limit = (context_window as f64 * 0.95) as usize;
+        if estimated_tokens >= blocking_limit {
+            Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
+        } else {
+            None
+        }
+    }
+
     /// After the LLM response: should the loop continue or terminate?
     pub fn determine_post_llm_transition(&self, has_tool_calls: bool) -> LoopTransition {
         if !has_tool_calls {
@@ -335,6 +361,46 @@ mod tests {
             s.determine_post_llm_transition(true),
             LoopTransition::Continue(ContinueReason::ToolUse)
         );
+    }
+
+    #[test]
+    fn blocking_limit_triggers_at_95_percent() {
+        let s = QueryLoopState::new(10);
+        let context_window = 100_000_u32;
+        let at_95 = (context_window as f64 * 0.95) as usize; // 95000
+
+        let result = s.check_blocking_limit(at_95, context_window, false, false);
+        assert_eq!(
+            result,
+            Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
+        );
+
+        let result_above = s.check_blocking_limit(at_95 + 1000, context_window, false, false);
+        assert_eq!(
+            result_above,
+            Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
+        );
+    }
+
+    #[test]
+    fn blocking_limit_skipped_when_below_threshold() {
+        let s = QueryLoopState::new(10);
+        let result = s.check_blocking_limit(90_000, 100_000, false, false);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn blocking_limit_skipped_after_compact() {
+        let s = QueryLoopState::new(10);
+        let result = s.check_blocking_limit(96_000, 100_000, false, true);
+        assert!(result.is_none(), "should not block after compaction just ran");
+    }
+
+    #[test]
+    fn blocking_limit_skipped_when_auto_compact_enabled() {
+        let s = QueryLoopState::new(10);
+        let result = s.check_blocking_limit(96_000, 100_000, true, false);
+        assert!(result.is_none(), "should not block when auto_compact handles it");
     }
 
     #[test]

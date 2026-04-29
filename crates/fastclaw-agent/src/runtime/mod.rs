@@ -796,13 +796,13 @@ impl AgentRuntime {
             Some(p) => p.clone(),
             None => self.resolve_provider(&config.agent_id)?,
         };
-        let compact_pipeline = fastclaw_context::ContextPipeline::new(
-            fastclaw_context::PipelineConfig {
-                snip_max_tokens: context_window as usize,
-                reactive_target_tokens: context_window as usize,
-                ..Default::default()
-            },
-        );
+        let pipeline_config = fastclaw_context::PipelineConfig {
+            snip_max_tokens: context_window as usize,
+            reactive_target_tokens: context_window as usize,
+            ..Default::default()
+        };
+        let auto_compact_enabled = pipeline_config.enable_auto_compact;
+        let compact_pipeline = fastclaw_context::ContextPipeline::new(pipeline_config);
         let deps = query_deps::ProductionDeps::new(provider_for_deps, compact_pipeline);
 
         // Reconstruct ContentReplacementState from persisted records on session resume
@@ -888,6 +888,31 @@ impl AgentRuntime {
                     false,
                 ).await;
             }
+            // Blocking limit: if tokens >= 95% of context window and
+            // auto-compact is off, stop and tell the user to run /compact.
+            let just_compacted = compact_result.compressed_by_llm || compact_result.pipeline_applied;
+            if let Some(query_state::LoopTransition::Terminal(query_state::TerminalReason::BlockingLimit)) =
+                state.check_blocking_limit(estimated_tokens, context_window, auto_compact_enabled, just_compacted)
+            {
+                tracing::warn!(
+                    agent_id = %config.agent_id,
+                    estimated_tokens,
+                    context_window,
+                    "blocking limit reached (>= 95% context window) — stopping"
+                );
+                let _ = send_stream_event(
+                    tx,
+                    StreamEvent::Error(format!(
+                        "Context window is nearly full ({}/{} tokens, {:.0}%). \
+                         Please run /compact to free space, or start a new session.",
+                        estimated_tokens, context_window, usage_ratio * 100.0,
+                    )),
+                    false,
+                ).await;
+                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                return Ok((state.total_tool_calls, state.iteration));
+            }
+
             let total_est_with_tools = estimated_tokens + tool_defs_est_tokens;
             tracing::info!(
                 agent_id = %config.agent_id,

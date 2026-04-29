@@ -261,7 +261,7 @@
             "2 个测试（超限阻塞、compact 后不阻塞）",
             "预计 ~50 行"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "6C-02",
