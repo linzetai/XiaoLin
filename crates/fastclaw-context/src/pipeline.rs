@@ -30,6 +30,17 @@ pub struct CompactionMetadata {
     pub tokens_after: usize,
 }
 
+impl CompactionMetadata {
+    /// Whether the caller should proceed with auto-compact (Layer 4).
+    ///
+    /// Collapse and auto-compact are mutually exclusive: when collapse is
+    /// active, auto-compact must not run, because both are LLM-based
+    /// summarizers that would fight over the same message range.
+    pub fn should_auto_compact(&self, config: &PipelineConfig) -> bool {
+        config.enable_auto_compact && !config.enable_collapse
+    }
+}
+
 /// Configuration for which pipeline layers are enabled.
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
@@ -93,8 +104,9 @@ impl ContextPipeline {
     /// Run the pre-query compaction pipeline (layers 1-3, synchronous).
     ///
     /// Layer 4 (AutoCompact) is not executed here because it requires an
-    /// async LLM call. Instead, `metadata.snip_tokens_freed` is populated
-    /// so the caller can pass it to `AutoCompactor::compact_if_needed`.
+    /// async LLM call. Callers should check `metadata.should_auto_compact(config)`
+    /// before invoking auto-compact — when collapse is enabled, auto-compact
+    /// is suppressed (mutual exclusion at the pipeline layer).
     pub fn pre_query_compact(&self, messages: &[ChatMessage]) -> (Vec<ChatMessage>, CompactionMetadata) {
         let tokens_before = estimate_messages_tokens(messages);
         let mut meta = CompactionMetadata::default();
@@ -128,10 +140,11 @@ impl ContextPipeline {
             }
         }
 
-        // Layer 3: Collapse (reserved)
+        // Layer 3: Collapse (marks active; actual summarization is async in CollapseEngine)
+        // When collapse is enabled, auto-compact (Layer 4) is suppressed — see
+        // `CompactionMetadata::should_auto_compact()`.
         if self.config.enable_collapse {
-            // Collapse is not yet implemented — no-op.
-            meta.collapse_applied = false;
+            meta.collapse_applied = true;
         }
 
         let tokens_after = estimate_messages_tokens(&current);
@@ -486,6 +499,60 @@ mod tests {
             sys_count_r >= 2,
             "reactive must preserve both system messages, got {sys_count_r}"
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Collapse ↔ AutoCompact mutual exclusion
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn collapse_enabled_suppresses_auto_compact() {
+        let config = PipelineConfig {
+            enable_collapse: true,
+            enable_auto_compact: true,
+            ..Default::default()
+        };
+        let msgs = build_conversation(5, 100);
+        let pipeline = ContextPipeline::new(config.clone());
+        let (_, meta) = pipeline.pre_query_compact(&msgs);
+
+        assert!(meta.collapse_applied);
+        assert!(
+            !meta.should_auto_compact(&config),
+            "auto_compact must be suppressed when collapse is enabled"
+        );
+    }
+
+    #[test]
+    fn collapse_disabled_allows_auto_compact() {
+        let config = PipelineConfig {
+            enable_collapse: false,
+            enable_auto_compact: true,
+            ..Default::default()
+        };
+        let msgs = build_conversation(5, 100);
+        let pipeline = ContextPipeline::new(config.clone());
+        let (_, meta) = pipeline.pre_query_compact(&msgs);
+
+        assert!(!meta.collapse_applied);
+        assert!(
+            meta.should_auto_compact(&config),
+            "auto_compact must be allowed when collapse is disabled"
+        );
+    }
+
+    #[test]
+    fn both_disabled_no_auto_compact() {
+        let config = PipelineConfig {
+            enable_collapse: false,
+            enable_auto_compact: false,
+            ..Default::default()
+        };
+        let msgs = build_conversation(5, 100);
+        let pipeline = ContextPipeline::new(config.clone());
+        let (_, meta) = pipeline.pre_query_compact(&msgs);
+
+        assert!(!meta.should_auto_compact(&config));
     }
 
     #[test]

@@ -903,7 +903,7 @@
         {
           "id": "P4-03",
           "title": "实现 projectView 投影函数",
-          "description": "查询时将折叠摘要投影到消息中：被折叠的原始消息替换为摘要。",
+          "description": "查询时将折叠摘要投影到消息中：被折叠的原始消息替换为摘要。已在 P4-01 中完成 project() 函数及 5 个覆盖全部验收标准的测试。",
           "target_file": "crates/fastclaw-context/src/collapse.rs",
           "cc_references": [
             "claude-code/src/services/contextCollapse/index.ts"
@@ -914,7 +914,7 @@
             "投影是非破坏性的（不修改原始消息）",
             "投影后的 token 数 < 投影前"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-04",
@@ -929,7 +929,7 @@
             "collapse 关闭时 autocompact 正常工作",
             "互斥逻辑在 ContextPipeline 层而非各 compactor 内部"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-05",
