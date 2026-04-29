@@ -1245,7 +1245,7 @@
             "token_budget 仅在预算启用时返回",
             "frc 提示用户旧工具结果会被清理"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-08",
