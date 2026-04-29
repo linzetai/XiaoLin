@@ -48,6 +48,7 @@ pub use shell::{
     SandboxedShellTool, ShellSandboxConfig, ShellTool,
     validate_readonly_command, validate_command_paths,
     PermissionRule, strip_safe_wrappers, has_binary_hijack_prefix,
+    SedEditInfo, parse_sed_edit, sed_to_edit_suggestion,
 };
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};

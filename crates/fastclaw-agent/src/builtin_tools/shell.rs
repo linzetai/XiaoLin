@@ -1317,6 +1317,200 @@ pub fn has_binary_hijack_prefix(command: &str) -> Option<String> {
     None
 }
 
+// ─── sed → EditFile Conversion ──────────────────────────────────────────────
+
+/// Information extracted from a `sed -i` edit command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SedEditInfo {
+    /// The file path being edited.
+    pub file_path: String,
+    /// The search pattern (regex).
+    pub pattern: String,
+    /// The replacement string.
+    pub replacement: String,
+    /// Substitution flags (g, i, etc.).
+    pub flags: String,
+}
+
+/// Parse a sed in-place edit command and extract substitution info.
+/// Returns None if the command is not a valid simple `sed -i 's/old/new/flags' file`.
+pub fn parse_sed_edit(command: &str) -> Option<SedEditInfo> {
+    let trimmed = command.trim();
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let base = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
+    if base != "sed" {
+        return None;
+    }
+
+    let args = &tokens[1..];
+    let mut has_in_place = false;
+    let mut expression: Option<&str> = None;
+    let mut file_path: Option<&str> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i];
+
+        // Handle -i flag
+        if arg == "-i" || arg == "--in-place" {
+            has_in_place = true;
+            i += 1;
+            // Check for backup suffix (macOS style: -i '' or -i.bak)
+            if i < args.len() && !args[i].starts_with('-') &&
+               (args[i].is_empty() || args[i].starts_with('.')) {
+                i += 1; // skip backup suffix
+            }
+            continue;
+        }
+        if arg.starts_with("-i") {
+            has_in_place = true;
+            i += 1;
+            continue;
+        }
+
+        // Extended regex flags
+        if arg == "-E" || arg == "-r" || arg == "--regexp-extended" {
+            i += 1;
+            continue;
+        }
+
+        // Expression flag
+        if arg == "-e" || arg == "--expression" {
+            if i + 1 < args.len() {
+                if expression.is_some() { return None; } // multiple expressions not supported
+                expression = Some(args[i + 1]);
+                i += 2;
+                continue;
+            }
+            return None;
+        }
+
+        // Unknown flags
+        if arg.starts_with('-') {
+            return None;
+        }
+
+        // Positional arguments
+        if expression.is_none() {
+            expression = Some(arg);
+        } else if file_path.is_none() {
+            file_path = Some(arg);
+        } else {
+            return None; // multiple files not supported
+        }
+        i += 1;
+    }
+
+    if !has_in_place {
+        return None;
+    }
+    let expr = expression?;
+    let file = file_path?;
+
+    // Parse s/pattern/replacement/flags
+    parse_substitution_expr(expr).map(|(pattern, replacement, flags)| SedEditInfo {
+        file_path: file.trim_matches(|c| c == '\'' || c == '"').to_string(),
+        pattern,
+        replacement,
+        flags,
+    })
+}
+
+/// Parse a sed substitution expression like `s/old/new/g`.
+/// Supports different delimiters (the character after 's').
+fn parse_substitution_expr(expr: &str) -> Option<(String, String, String)> {
+    let trimmed = expr.trim_matches(|c| c == '\'' || c == '"');
+    if !trimmed.starts_with('s') || trimmed.len() < 4 {
+        return None;
+    }
+
+    let delimiter = trimmed.as_bytes()[1] as char;
+    let rest = &trimmed[2..];
+
+    let mut pattern = String::new();
+    let mut replacement = String::new();
+    let mut flags = String::new();
+    let mut state = 0u8; // 0=pattern, 1=replacement, 2=flags
+
+    let bytes = rest.as_bytes();
+    let mut j = 0;
+    while j < bytes.len() {
+        let ch = bytes[j] as char;
+
+        if ch == '\\' && j + 1 < bytes.len() {
+            let escaped = &rest[j..j + 2];
+            match state {
+                0 => pattern.push_str(escaped),
+                1 => replacement.push_str(escaped),
+                _ => flags.push_str(escaped),
+            }
+            j += 2;
+            continue;
+        }
+
+        if ch == delimiter {
+            if state < 2 {
+                state += 1;
+            } else {
+                return None; // extra delimiter
+            }
+            j += 1;
+            continue;
+        }
+
+        match state {
+            0 => pattern.push(ch),
+            1 => replacement.push(ch),
+            _ => flags.push(ch),
+        }
+        j += 1;
+    }
+
+    if state < 1 {
+        return None; // didn't find enough delimiters
+    }
+
+    // Validate flags
+    if !flags.chars().all(|c| "gpimIM123456789".contains(c)) {
+        return None;
+    }
+
+    Some((pattern, replacement, flags))
+}
+
+/// Generate an EditFileTool suggestion from a parsed sed command.
+pub fn sed_to_edit_suggestion(info: &SedEditInfo) -> String {
+    let escaped_pattern = info.pattern
+        .replace('\\', "\\\\")
+        .replace('/', "\\/");
+    let escaped_replacement = info.replacement
+        .replace('\\', "\\\\")
+        .replace('/', "\\/");
+
+    format!(
+        "Instead of sed -i, use the edit_file tool for safer file editing:\n\
+         \n\
+         File: {}\n\
+         Search (regex): {}\n\
+         Replace with: {}\n\
+         Flags: {}\n\
+         \n\
+         Suggested tool call:\n\
+         {{\"tool\": \"edit_file\", \"path\": \"{}\", \"old_string\": \"<match of {}>\", \"new_string\": \"{}\"}}",
+        info.file_path,
+        info.pattern,
+        info.replacement,
+        if info.flags.is_empty() { "first match" } else { &info.flags },
+        info.file_path,
+        escaped_pattern,
+        escaped_replacement,
+    )
+}
+
 /// Zsh-specific dangerous commands that can bypass shell security.
 const ZSH_DANGEROUS_COMMANDS: &[&str] = &[
     "zmodload", "emulate",
@@ -1802,6 +1996,14 @@ Sandbox restrictions:\n");
             return ToolResult::err(format!(
                 "SANDBOX BLOCKED: {reason} \
                  Use absolute paths within the allowed workspace, or use dedicated file tools."
+            ));
+        }
+
+        // Detect sed -i and suggest EditFileTool instead
+        if let Some(sed_info) = parse_sed_edit(command) {
+            let suggestion = sed_to_edit_suggestion(&sed_info);
+            return ToolResult::err(format!(
+                "SANDBOX SUGGESTION: sed -i detected. {suggestion}"
             ));
         }
 
@@ -2499,5 +2701,75 @@ mod sandbox_tests {
         assert!(!config.isolate_network);
         assert!(config.writable_paths.is_empty());
         assert!(config.allowed_hosts.is_empty());
+    }
+
+    // --- sed → EditFile conversion tests ---
+
+    #[test]
+    fn sed_parse_simple_substitution() {
+        let info = super::parse_sed_edit("sed -i 's/old/new/g' file.txt").unwrap();
+        assert_eq!(info.file_path, "file.txt");
+        assert_eq!(info.pattern, "old");
+        assert_eq!(info.replacement, "new");
+        assert_eq!(info.flags, "g");
+    }
+
+    #[test]
+    fn sed_parse_no_flags() {
+        let info = super::parse_sed_edit("sed -i 's/foo/bar/' config.yml").unwrap();
+        assert_eq!(info.pattern, "foo");
+        assert_eq!(info.replacement, "bar");
+        assert_eq!(info.flags, "");
+    }
+
+    #[test]
+    fn sed_parse_different_delimiter() {
+        let info = super::parse_sed_edit("sed -i 's|/usr/local|/opt|g' paths.conf").unwrap();
+        assert_eq!(info.pattern, "/usr/local");
+        assert_eq!(info.replacement, "/opt");
+        assert_eq!(info.flags, "g");
+    }
+
+    #[test]
+    fn sed_parse_with_backup_suffix() {
+        let info = super::parse_sed_edit("sed -i.bak 's/old/new/' file.txt").unwrap();
+        assert_eq!(info.file_path, "file.txt");
+    }
+
+    #[test]
+    fn sed_parse_returns_none_without_i() {
+        assert!(super::parse_sed_edit("sed 's/old/new/g' file.txt").is_none());
+    }
+
+    #[test]
+    fn sed_parse_returns_none_for_non_sed() {
+        assert!(super::parse_sed_edit("grep 'pattern' file.txt").is_none());
+    }
+
+    #[test]
+    fn sed_parse_returns_none_for_delete_command() {
+        assert!(super::parse_sed_edit("sed -i '/pattern/d' file.txt").is_none());
+    }
+
+    #[test]
+    fn sed_to_edit_generates_suggestion() {
+        let info = super::SedEditInfo {
+            file_path: "src/main.rs".into(),
+            pattern: "old_func".into(),
+            replacement: "new_func".into(),
+            flags: "g".into(),
+        };
+        let suggestion = super::sed_to_edit_suggestion(&info);
+        assert!(suggestion.contains("edit_file"));
+        assert!(suggestion.contains("src/main.rs"));
+        assert!(suggestion.contains("old_func"));
+        assert!(suggestion.contains("new_func"));
+    }
+
+    #[test]
+    fn sed_parse_escaped_delimiter() {
+        let info = super::parse_sed_edit(r"sed -i 's/foo\/bar/baz/' file.txt").unwrap();
+        assert_eq!(info.pattern, r"foo\/bar");
+        assert_eq!(info.replacement, "baz");
     }
 }

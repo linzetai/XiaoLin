@@ -1625,7 +1625,7 @@
             "返回等效的 EditFileTool 调用建议",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
