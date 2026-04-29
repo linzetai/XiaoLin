@@ -1026,6 +1026,263 @@ pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<
     Ok(())
 }
 
+// ─── Permission Rule Engine ─────────────────────────────────────────────────
+
+/// Environment variables that indicate binary hijack attempts.
+/// These MUST NOT be stripped before rule matching.
+const BINARY_HIJACK_VARS: &[&str] = &[
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+];
+
+/// Wrapper commands that are safe to strip before permission matching.
+const SAFE_WRAPPERS: &[&str] = &[
+    "timeout", "time", "nice", "nohup", "stdbuf", "env",
+];
+
+/// A parsed permission rule for shell commands.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PermissionRule {
+    /// Exact command match (e.g., "git status")
+    Exact(String),
+    /// Prefix match (e.g., "git:*" matches "git status", "git diff", etc.)
+    Prefix(String),
+    /// Wildcard match (e.g., "docker * run" matches "docker compose run")
+    Wildcard(String),
+}
+
+impl PermissionRule {
+    /// Parse a permission rule string into a structured rule.
+    pub fn parse(rule: &str) -> Self {
+        let trimmed = rule.trim();
+        // Legacy prefix syntax: "command:*"
+        if let Some(prefix) = trimmed.strip_suffix(":*") {
+            return PermissionRule::Prefix(prefix.to_string());
+        }
+        // Wildcard: contains unescaped *
+        if contains_unescaped_wildcard(trimmed) {
+            return PermissionRule::Wildcard(trimmed.to_string());
+        }
+        // Exact match — resolve escape sequences (\* → *, \\ → \)
+        let resolved = resolve_escapes(trimmed);
+        PermissionRule::Exact(resolved)
+    }
+
+    /// Check if this rule matches a given command.
+    pub fn matches(&self, command: &str) -> bool {
+        match self {
+            PermissionRule::Exact(expected) => command.trim() == expected.as_str(),
+            PermissionRule::Prefix(prefix) => {
+                let cmd = command.trim();
+                cmd == prefix.as_str() || cmd.starts_with(&format!("{prefix} "))
+            }
+            PermissionRule::Wildcard(pattern) => match_wildcard(pattern, command.trim()),
+        }
+    }
+}
+
+/// Resolve escape sequences in a rule string: \* → *, \\ → \.
+fn resolve_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'*' => { result.push('*'); i += 2; continue; }
+                b'\\' => { result.push('\\'); i += 2; continue; }
+                _ => {}
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
+/// Check if a string contains unescaped wildcards (not part of `:*`).
+fn contains_unescaped_wildcard(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len() {
+        if bytes[i] == b'*' {
+            // Count preceding backslashes
+            let mut bs = 0;
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                bs += 1;
+                j -= 1;
+            }
+            if bs % 2 == 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Match a command against a wildcard pattern.
+/// `*` matches any sequence of characters. `\*` matches literal `*`.
+fn match_wildcard(pattern: &str, command: &str) -> bool {
+    let regex_str = build_wildcard_regex(pattern);
+    regex::Regex::new(&regex_str)
+        .map(|re| re.is_match(command))
+        .unwrap_or(false)
+}
+
+/// Build a regex from a wildcard pattern.
+fn build_wildcard_regex(pattern: &str) -> String {
+    let mut result = String::from("^");
+    let bytes = pattern.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'*' {
+                result.push_str(r"\*");
+                i += 2;
+                continue;
+            } else if bytes[i + 1] == b'\\' {
+                result.push_str(r"\\");
+                i += 2;
+                continue;
+            }
+        }
+        if bytes[i] == b'*' {
+            result.push_str(".*");
+        } else {
+            let ch = bytes[i] as char;
+            if ".+?^${}()|[]".contains(ch) {
+                result.push('\\');
+            }
+            result.push(ch);
+        }
+        i += 1;
+    }
+    result.push('$');
+    result
+}
+
+/// Strip safe wrapper commands (timeout, nice, nohup, etc.) and safe env var
+/// prefixes from a command before permission matching.
+/// Returns the normalized command for rule matching.
+pub fn strip_safe_wrappers(command: &str) -> String {
+    let mut stripped = command.trim().to_string();
+    let env_var_re = regex::Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_./:\-]+)\s+")
+        .unwrap_or_else(|_| regex::Regex::new(r"x^").unwrap());
+
+    // Iteratively strip env vars and wrappers until stable
+    loop {
+        let prev = stripped.clone();
+
+        // Strip safe env vars (not binary-hijack vars)
+        while let Some(m) = env_var_re.find(&stripped) {
+            let var_name = stripped[..m.end()]
+                .split('=')
+                .next()
+                .unwrap_or("");
+            if BINARY_HIJACK_VARS.contains(&var_name) {
+                break;
+            }
+            stripped = stripped[m.end()..].to_string();
+        }
+
+        // Strip wrapper commands
+        let tokens: Vec<&str> = stripped.split_whitespace().collect();
+        if let Some(&first) = tokens.first() {
+            let base = first.rsplit('/').next().unwrap_or(first);
+            if SAFE_WRAPPERS.contains(&base) {
+                // Find where the actual command starts (skip wrapper + its args)
+                let rest = skip_wrapper_args(base, &tokens[1..]);
+                stripped = rest;
+            }
+        }
+
+        if stripped == prev {
+            break;
+        }
+    }
+
+    stripped
+}
+
+/// Skip wrapper command arguments and return the remaining command.
+fn skip_wrapper_args(wrapper: &str, args: &[&str]) -> String {
+    match wrapper {
+        "timeout" => {
+            // Skip flags and duration, return the rest
+            let mut i = 0;
+            while i < args.len() {
+                let arg = args[i];
+                if arg == "--" { i += 1; break; }
+                if arg.starts_with('-') {
+                    // flags like --kill-after, -k, -s with values
+                    if matches!(arg, "-k" | "-s" | "--kill-after" | "--signal") {
+                        i += 2; // skip flag + value
+                    } else {
+                        i += 1;
+                    }
+                } else {
+                    // This is the duration; skip it and take the rest
+                    i += 1;
+                    break;
+                }
+            }
+            args[i..].join(" ")
+        }
+        "nice" => {
+            let mut i = 0;
+            while i < args.len() {
+                let arg = args[i];
+                if arg == "--" { i += 1; break; }
+                if arg == "-n" { i += 2; continue; }
+                if arg.starts_with('-') && arg.chars().skip(1).all(|c| c.is_ascii_digit()) {
+                    i += 1; continue;
+                }
+                break;
+            }
+            args[i..].join(" ")
+        }
+        "env" => {
+            // env strips env vars and runs the command
+            let mut i = 0;
+            let env_re = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*=").unwrap();
+            while i < args.len() {
+                if args[i] == "--" { i += 1; break; }
+                if args[i].starts_with('-') { i += 1; continue; }
+                if env_re.is_match(args[i]) { i += 1; continue; }
+                break;
+            }
+            args[i..].join(" ")
+        }
+        // time, nohup, stdbuf: skip just the wrapper name
+        _ => args.join(" "),
+    }
+}
+
+/// Check if a command has a binary-hijack env var prefix that should block execution.
+pub fn has_binary_hijack_prefix(command: &str) -> Option<String> {
+    let env_var_re = regex::Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+        .unwrap_or_else(|_| regex::Regex::new(r"x^").unwrap());
+
+    let trimmed = command.trim();
+    let mut remaining = trimmed;
+
+    while let Some(m) = env_var_re.find(remaining) {
+        let var_name = &remaining[..m.end() - 1]; // exclude '='
+        if BINARY_HIJACK_VARS.contains(&var_name) {
+            return Some(format!(
+                "binary hijack attempt: {var_name}= prefix modifies critical execution environment"
+            ));
+        }
+        // Skip past this env var assignment
+        if let Some(space_pos) = remaining[m.end()..].find(char::is_whitespace) {
+            remaining = remaining[m.end() + space_pos..].trim_start();
+        } else {
+            break;
+        }
+    }
+    None
+}
+
 /// Zsh-specific dangerous commands that can bypass shell security.
 const ZSH_DANGEROUS_COMMANDS: &[&str] = &[
     "zmodload", "emulate",
@@ -1204,7 +1461,14 @@ impl SandboxedShellTool {
 
         self.validate_injection_patterns(trimmed)?;
 
-        let first_token = trimmed.split_whitespace().next().unwrap_or("");
+        // Block binary hijack env var prefixes (PATH=, LD_PRELOAD=, etc.)
+        if let Some(reason) = has_binary_hijack_prefix(trimmed) {
+            return Err(reason);
+        }
+
+        // Strip safe wrappers/env vars for deny list matching
+        let normalized = strip_safe_wrappers(trimmed);
+        let first_token = normalized.split_whitespace().next().unwrap_or("");
         let base_cmd = first_token.rsplit('/').next().unwrap_or(first_token);
 
         if !self.config.allowed_commands.is_empty()
@@ -1239,7 +1503,12 @@ impl SandboxedShellTool {
             .chain(trimmed.split(';'))
         {
             let sub = part.trim();
-            let sub_cmd = sub.split_whitespace().next().unwrap_or("");
+            if sub.is_empty() {
+                continue;
+            }
+            // Strip wrappers from each segment before checking deny list
+            let sub_normalized = strip_safe_wrappers(sub);
+            let sub_cmd = sub_normalized.split_whitespace().next().unwrap_or("");
             let sub_base = sub_cmd.rsplit('/').next().unwrap_or(sub_cmd);
             if sub_base.is_empty() {
                 continue;
@@ -1250,11 +1519,9 @@ impl SandboxedShellTool {
                      Every segment must pass the same allow/deny rules—remove or replace the risky segment, or split into separate shell_exec calls."
                 ));
             }
-            let sub_base_for_zsh = sub.split_whitespace().next().unwrap_or("");
-            let sub_base_zsh = sub_base_for_zsh.rsplit('/').next().unwrap_or(sub_base_for_zsh);
-            if ZSH_DANGEROUS_COMMANDS.contains(&sub_base_zsh) {
+            if ZSH_DANGEROUS_COMMANDS.contains(&sub_base) {
                 return Err(format!(
-                    "Sandbox blocks Zsh-specific dangerous command '{sub_base_zsh}'. \
+                    "Sandbox blocks Zsh-specific dangerous command '{sub_base}'. \
                      These commands can bypass security via module loading or pseudo-terminal execution."
                 ));
             }
@@ -1966,5 +2233,101 @@ mod sandbox_tests {
         let allowed = vec![tmp.to_string_lossy().to_string()];
         let cmd = format!("touch {}/test.txt", tmp.display());
         assert!(super::validate_command_paths(&cmd, &allowed).is_ok());
+    }
+
+    // --- Permission rule engine tests ---
+
+    #[test]
+    fn rule_exact_match() {
+        let rule = super::PermissionRule::parse("git status");
+        assert!(rule.matches("git status"));
+        assert!(!rule.matches("git push"));
+        assert!(!rule.matches("git status --short"));
+    }
+
+    #[test]
+    fn rule_prefix_match() {
+        let rule = super::PermissionRule::parse("git:*");
+        assert!(rule.matches("git status"));
+        assert!(rule.matches("git push origin main"));
+        assert!(rule.matches("git"));
+        assert!(!rule.matches("gitk"));
+    }
+
+    #[test]
+    fn rule_wildcard_match() {
+        let rule = super::PermissionRule::parse("docker * run");
+        assert!(rule.matches("docker compose run"));
+        assert!(rule.matches("docker stack run"));
+        assert!(!rule.matches("docker ps"));
+    }
+
+    #[test]
+    fn rule_wildcard_escaped_star() {
+        let rule = super::PermissionRule::parse(r"echo \*");
+        assert!(rule.matches("echo *"));
+        assert!(!rule.matches("echo hello"));
+    }
+
+    #[test]
+    fn strip_wrappers_timeout() {
+        assert_eq!(super::strip_safe_wrappers("timeout 10 ls -la"), "ls -la");
+        assert_eq!(super::strip_safe_wrappers("timeout -k 5 10 npm test"), "npm test");
+    }
+
+    #[test]
+    fn strip_wrappers_nice_nohup() {
+        assert_eq!(super::strip_safe_wrappers("nice -n 10 cargo build"), "cargo build");
+        assert_eq!(super::strip_safe_wrappers("nohup python3 server.py"), "python3 server.py");
+    }
+
+    #[test]
+    fn strip_wrappers_env_vars() {
+        assert_eq!(super::strip_safe_wrappers("GOOS=linux cargo build"), "cargo build");
+        assert_eq!(super::strip_safe_wrappers("NODE_ENV=test npm test"), "npm test");
+    }
+
+    #[test]
+    fn strip_wrappers_preserves_binary_hijack() {
+        // PATH= should NOT be stripped — it's preserved so hijack check catches it
+        let result = super::strip_safe_wrappers("PATH=/evil cargo build");
+        assert!(result.starts_with("PATH=") || result.contains("PATH="));
+    }
+
+    #[test]
+    fn binary_hijack_detected() {
+        assert!(super::has_binary_hijack_prefix("PATH=/evil/bin ls").is_some());
+        assert!(super::has_binary_hijack_prefix("LD_PRELOAD=./evil.so ls").is_some());
+        assert!(super::has_binary_hijack_prefix("LD_LIBRARY_PATH=/evil ls").is_some());
+    }
+
+    #[test]
+    fn binary_hijack_not_triggered_for_safe_vars() {
+        assert!(super::has_binary_hijack_prefix("GOOS=linux cargo build").is_none());
+        assert!(super::has_binary_hijack_prefix("NODE_ENV=test npm test").is_none());
+    }
+
+    #[test]
+    fn sandbox_blocks_wrapped_denied_command() {
+        let mut config = super::ShellSandboxConfig::default();
+        config.denied_commands.push("rm".into());
+        let tool = super::SandboxedShellTool::new(config);
+        // "nohup rm -rf /" should be caught even though "nohup" isn't denied
+        assert!(tool.validate_command("nohup rm -rf /").is_err());
+    }
+
+    #[test]
+    fn sandbox_blocks_env_prefixed_denied_command() {
+        let mut config = super::ShellSandboxConfig::default();
+        config.denied_commands.push("rm".into());
+        let tool = super::SandboxedShellTool::new(config);
+        assert!(tool.validate_command("FORCE=1 rm -rf /").is_err());
+    }
+
+    #[test]
+    fn sandbox_blocks_binary_hijack() {
+        let tool = default_sandbox();
+        assert!(tool.validate_command("PATH=/evil ls").is_err());
+        assert!(tool.validate_command("LD_PRELOAD=./evil.so cat /etc/passwd").is_err());
     }
 }

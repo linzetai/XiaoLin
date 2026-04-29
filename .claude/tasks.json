@@ -1591,7 +1591,7 @@
             "剥离 timeout/nice/env/nohup 等 wrapper 命令后再验证",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4S-05",

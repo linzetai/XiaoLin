@@ -44,7 +44,11 @@ pub use network::{
     BuiltinMetaEngine, engine_by_id, BUILTIN_ENGINE_IDS,
 };
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
-pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool, validate_readonly_command, validate_command_paths};
+pub use shell::{
+    SandboxedShellTool, ShellSandboxConfig, ShellTool,
+    validate_readonly_command, validate_command_paths,
+    PermissionRule, strip_safe_wrappers, has_binary_hijack_prefix,
+};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};
 pub use ask_question::{AskQuestionTool, with_stream_context};
