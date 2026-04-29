@@ -1690,7 +1690,7 @@
             "无 evolution 时 skill 相关功能 graceful 跳过",
             "无 self-iter 时工具失败不触发诊断"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P5-05",
