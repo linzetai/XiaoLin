@@ -1070,7 +1070,7 @@
             "all_steps_completed=false 时提醒 Agent 尚有未完成步骤",
             "验证通过后可安全退出 Plan 模式"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-14",
@@ -1086,7 +1086,7 @@
             "panel_id 不存在时返回友好错误",
             "内容正确去除 ANSI escape codes"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-15",
@@ -1099,7 +1099,7 @@
             "TaskTool 系列和 PlanMode 注册为 eager",
             "cargo check -p fastclaw-agent 编译通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4-16",
@@ -1112,7 +1112,7 @@
             "覆盖正常路径、参数验证、错误处理",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
@@ -1139,7 +1139,7 @@
             "build_effective_prompt 正确实现优先级层叠（override > agent > custom > default + append）",
             "cargo check -p fastclaw-agent 编译通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-02",
@@ -1156,7 +1156,7 @@
             "system section 提到 deferred tools 和 ToolSearch",
             "内容支持中英双语（基于 language_preference）"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-03",
@@ -1173,7 +1173,7 @@
             "actions 明确区分 local/reversible vs shared/irreversible",
             "内容对齐 CC 精神但本地化为 FastClaw 上下文"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-04",
