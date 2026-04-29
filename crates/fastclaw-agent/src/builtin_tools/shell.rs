@@ -269,6 +269,118 @@ impl ShellTool {
     }
 }
 
+const SHELL_TOOL_PROMPT: &str = "\
+Run a shell command in the user's environment.
+
+## When to Use
+
+Use this tool ONLY when no specialized tool can accomplish the task:
+- Reading files → use `read_file` instead of `cat`
+- Editing files → use `edit_file` instead of `sed`/`awk`
+- Searching file contents → use `search_in_files` instead of `grep`/`rg`
+- Finding files by name → use `glob` instead of `find`
+- Listing directories → use `list_directory` instead of `ls`
+- Writing files → use `write_file` instead of `echo >` or `cat <<EOF`
+
+Specialized tools are faster, produce structured output, and avoid shell escaping pitfalls.
+
+## Command Execution Rules
+
+### Multiple Commands
+
+Chain dependent commands with `&&`:
+```
+cd /path && cargo build && cargo test
+```
+Use `;` only when you don't care if earlier commands fail.
+
+For INDEPENDENT commands that can run in parallel, make separate tool calls \
+in the same response — don't chain them with `&&`.
+
+### Quoting and Paths
+
+ALWAYS double-quote file paths that may contain spaces:
+```
+cat \"/path/with spaces/file.txt\"    # correct
+cat /path/with spaces/file.txt        # WRONG — will fail
+```
+
+### Working Directory
+
+Use the `working_directory` parameter to run in a specific directory rather than `cd`:
+```json
+{\"command\": \"npm install\", \"working_directory\": \"/path/to/project\"}
+```
+
+## Git Operations
+
+### Commit Rules
+- NEVER update the git config
+- NEVER use `--no-verify` or `--no-gpg-sign` unless explicitly asked
+- NEVER run `git push --force` to main/master — warn the user
+- NEVER run destructive git operations (hard reset, force push) without confirmation
+- Prefer creating a NEW commit over `--amend` unless all conditions are met:
+  1. User explicitly requested amend, OR pre-commit hook auto-modified files
+  2. HEAD commit was created by you in this conversation
+  3. Commit has NOT been pushed to remote
+- For commit messages, use a HEREDOC to preserve formatting:
+  ```
+  git commit -m \"$(cat <<'EOF'
+  feat: add user authentication
+
+  Implements JWT-based auth with refresh tokens.
+  EOF
+  )\"
+  ```
+
+### Branch Safety
+- NEVER skip pre-commit hooks
+- Check `git status` before committing
+- Use `git diff` to review changes before commit
+
+## Background Commands
+
+Set `is_background: true` for:
+- Dev servers (`npm run dev`, `cargo watch`)
+- File watchers
+- Any long-running process you don't need to wait for
+
+Set `is_background: false` (default) for:
+- Build commands
+- Test suites
+- One-off scripts
+- Commands where you need the output
+
+Timeout for foreground commands: 5 minutes. For longer tasks, use background mode \
+with output redirection, then poll results.
+
+## Sleep and Polling
+
+Use `sleep` in shell pipelines when appropriate:
+```
+sleep 30 && cat build-output.txt
+```
+
+Do NOT use sleep between separate tool calls — the system handles timing.
+Do NOT spin-wait in a loop. Use background mode + periodic polling.
+
+## Anti-Patterns
+
+- Don't use `cat` to read files — use `read_file`
+- Don't use `echo` to communicate — write your response in text
+- Don't use `grep` for searching — use `search_in_files`
+- Don't use `sed`/`awk` to edit files — use `edit_file`
+- Don't pipe long output through `head`/`tail` — use `read_file` with offset/limit
+- Don't use `find` — use `glob`
+- Don't use interactive commands (`vim`, `nano`, `less`, `top`)
+- Don't run commands that require user input (stdin)
+
+## Output
+
+- stdout/stderr truncated at ~64KB
+- Non-zero exit codes are returned as tool errors
+- For very large output, redirect to a file and use `read_file`";
+
 #[async_trait]
 impl Tool for ShellTool {
     fn kind(&self) -> ToolKind { ToolKind::Execute }
@@ -287,6 +399,10 @@ impl Tool for ShellTool {
          then poll with 'sleep N' + 'read_file' to monitor progress. \
          For moderate tasks (builds, tests) that run under 5min, foreground mode is fine — \
          use 'sleep' freely in shell pipelines (e.g. 'sleep 30 && cat result.txt')."
+    }
+
+    fn prompt(&self) -> String {
+        SHELL_TOOL_PROMPT.to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -761,6 +877,36 @@ impl Tool for SandboxedShellTool {
          Destructive ops (rm, chmod) follow the dangerous_ops security policy. \
          For very long tasks (>5min), use background mode with output redirection, \
          then poll with 'sleep N' + 'read_file' to monitor progress."
+    }
+
+    fn prompt(&self) -> String {
+        let mut prompt = SHELL_TOOL_PROMPT.to_string();
+        prompt.push_str("\n\n## Command Sandbox\n\n\
+By default, your command will be run in a sandbox. This sandbox controls \
+which directories and network hosts commands may access or modify.\n\n\
+Sandbox restrictions:\n");
+
+        if !self.config.allowed_dirs.is_empty() {
+            prompt.push_str(&format!(
+                "- Filesystem write allowed directories: {}\n",
+                self.config.allowed_dirs.join(", ")
+            ));
+        }
+        if !self.config.denied_patterns.is_empty() {
+            prompt.push_str(&format!(
+                "- Denied command patterns: {}\n",
+                self.config.denied_patterns.join(", ")
+            ));
+        }
+
+        prompt.push_str("\n\
+- Commands validated against allow/deny rules before execution\n\
+- Blocked commands (sudo, su, mkfs, dd, fdisk, etc.) return SANDBOX BLOCKED\n\
+- For temporary files, use the `$TMPDIR` environment variable — do NOT use `/tmp` directly\n\
+- If a command fails due to sandbox restrictions, work with the user to adjust sandbox settings\n\
+- Do NOT attempt to bypass the sandbox");
+
+        prompt
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
