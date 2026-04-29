@@ -309,12 +309,20 @@ pub trait Tool: Send + Sync {
         1500
     }
 
+    /// Rich behavioral guidance sent to the LLM as the tool's description.
+    /// Override to provide detailed usage instructions, anti-patterns, examples,
+    /// and constraints beyond the short `description()` shown in the UI.
+    /// Default returns `description()`.
+    fn prompt(&self) -> String {
+        self.description().to_string()
+    }
+
     fn to_definition(&self) -> ToolDefinition {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
                 name: self.name().to_string(),
-                description: self.description().to_string(),
+                description: self.prompt(),
                 parameters: self.parameters_schema(),
             },
         }
