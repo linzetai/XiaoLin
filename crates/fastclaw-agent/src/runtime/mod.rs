@@ -45,7 +45,6 @@ pub mod prompt_sections;
 mod prompt_builder;
 mod stream_engine;
 mod tool_executor;
-#[allow(dead_code)]
 pub mod tool_result_storage;
 mod trajectory;
 
@@ -61,12 +60,120 @@ use tool_executor::execute_tool_batch;
 use tool_executor::filter_tool_definitions;
 use tool_executor::microcompact_tool_results;
 use tool_executor::semantic_header;
+#[allow(deprecated)]
 use tool_executor::truncate_tool_result_output_with_limit;
+use tool_result_storage::{
+    ContentReplacementState, ToolResultEntry, ToolResultStorage,
+    MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
+};
 #[cfg(any(feature = "evolution", feature = "self-iter"))]
 use trajectory::append_text_to_chat_content;
 #[cfg(feature = "evolution")]
 use trajectory::last_user_turn_text;
 use trajectory::truncate_for_trajectory;
+
+/// Create a ToolResultStorage for the current invocation session.
+/// Uses a temp directory under the system temp path to persist large tool outputs.
+fn create_tool_result_storage() -> ToolResultStorage {
+    let session_dir = std::env::temp_dir()
+        .join("fastclaw_sessions")
+        .join(format!("s_{}", std::process::id()));
+    ToolResultStorage::new(session_dir)
+}
+
+/// Build the set of tool names whose results should skip budget enforcement.
+/// These are tools with max_result_size_chars == usize::MAX (e.g. ReadFileTool).
+fn build_skip_tool_names(tool_registry: &fastclaw_core::tool::ToolRegistry) -> std::collections::HashSet<String> {
+    tool_registry
+        .tool_names()
+        .into_iter()
+        .filter(|name| {
+            tool_registry
+                .get(name)
+                .map(|t| t.max_result_size_chars() == usize::MAX)
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Process a tool result: try ToolResultStorage.process_result() first,
+/// fall back to truncate_tool_result_output_with_limit on error.
+#[allow(deprecated)]
+fn process_tool_output(
+    storage: &ToolResultStorage,
+    tool_name: &str,
+    call_id: &str,
+    output: &str,
+    max_result_size_chars: usize,
+) -> String {
+    let threshold = tool_result_storage::get_persistence_threshold(max_result_size_chars);
+    match storage.process_result(tool_name, call_id, output, threshold) {
+        Ok(Some(replacement)) => replacement,
+        Ok(None) => output.to_string(),
+        Err(e) => {
+            tracing::warn!(error = %e, tool = tool_name, "ToolResultStorage failed, falling back to truncation");
+            truncate_tool_result_output_with_limit(output, tool_name, Some(max_result_size_chars))
+        }
+    }
+}
+
+/// Apply enforce_per_message_budget on messages before sending to LLM.
+/// Modifies messages in-place by replacing oversized tool results with previews.
+fn apply_message_budget(
+    storage: &ToolResultStorage,
+    messages: &mut [fastclaw_core::types::ChatMessage],
+    state: &mut ContentReplacementState,
+    skip_tool_names: &std::collections::HashSet<String>,
+) {
+    let mut tool_entries: Vec<ToolResultEntry> = Vec::new();
+    let mut entry_indices: Vec<usize> = Vec::new();
+
+    for (i, msg) in messages.iter().enumerate() {
+        if msg.role == fastclaw_core::types::Role::Tool {
+            if let Some(content) = msg.text_content() {
+                let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
+                let tool_name = msg.name.clone().unwrap_or_default();
+                tool_entries.push(ToolResultEntry {
+                    tool_use_id,
+                    tool_name,
+                    content: content.to_string(),
+                });
+                entry_indices.push(i);
+            }
+        }
+    }
+
+    if tool_entries.is_empty() {
+        return;
+    }
+
+    let result = storage.enforce_per_message_budget(
+        tool_entries,
+        state,
+        skip_tool_names,
+        MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
+    );
+
+    if result.replacements.is_empty() {
+        return;
+    }
+
+    for &idx in &entry_indices {
+        let msg = &messages[idx];
+        if let Some(tool_call_id) = &msg.tool_call_id {
+            if let Some(replacement) = result.replacements.get(tool_call_id) {
+                messages[idx].content = Some(serde_json::Value::String(replacement.clone()));
+            }
+        }
+    }
+
+    if !result.newly_replaced.is_empty() {
+        tracing::info!(
+            count = result.newly_replaced.len(),
+            "Per-message budget: persisted tool results"
+        );
+    }
+}
 
 /// Build ChatMessage content for a tool result. When the result carries images,
 /// constructs a multimodal content array so the LLM can visually interpret them.
@@ -312,6 +419,9 @@ impl AgentRuntime {
         });
 
         let mut lstate = LoopState::new();
+        let tool_storage = create_tool_result_storage();
+        let mut replacement_state = ContentReplacementState::new();
+        let skip_tool_names = build_skip_tool_names(tool_registry);
 
         loop {
             if lstate.error_limit_reached {
@@ -343,6 +453,8 @@ impl AgentRuntime {
                 msg_count = messages.len(),
                 "LLM call"
             );
+
+            apply_message_budget(&tool_storage, &mut messages, &mut replacement_state, &skip_tool_names);
 
             let params = CompletionParams {
                 model,
@@ -443,14 +555,15 @@ impl AgentRuntime {
                     lstate.clear_error_streak();
                 }
 
-                let tool_char_limit = tool_registry
+                let max_chars = tool_registry
                     .get(&tool_name)
-                    .map(|t| t.max_result_size_chars());
-                let truncated = truncate_tool_result_output_with_limit(
-                    &result.output, &tool_name, tool_char_limit,
+                    .map(|t| t.max_result_size_chars())
+                    .unwrap_or(100_000);
+                let processed = process_tool_output(
+                    &tool_storage, &tool_name, &call_id, &result.output, max_chars,
                 );
                 let header = semantic_header(&tool_name, &arguments, &result.output, result.success);
-                let out = format!("{header}\n{truncated}");
+                let out = format!("{header}\n{processed}");
                 let content = tool_result_content(&out, &result);
                 messages.push(ChatMessage {
                     role: Role::Tool,
@@ -660,6 +773,9 @@ impl AgentRuntime {
         });
 
         let mut lstate = LoopState::new();
+        let tool_storage = create_tool_result_storage();
+        let mut replacement_state = ContentReplacementState::new();
+        let skip_tool_names = build_skip_tool_names(tool_registry);
         let stream_start = std::time::Instant::now();
         let mut acc_prompt_tokens: u32 = 0;
         let mut acc_completion_tokens: u32 = 0;
@@ -844,6 +960,8 @@ impl AgentRuntime {
                 Some(p) => p.clone(),
                 None => self.resolve_provider(&config.agent_id)?,
             };
+
+            apply_message_budget(&tool_storage, &mut messages, &mut replacement_state, &skip_tool_names);
 
             let mut accumulated_content = String::new();
             let mut tool_call_accum: Vec<ToolCallAccumulator> = Vec::new();
@@ -1183,14 +1301,15 @@ impl AgentRuntime {
                     lstate.clear_error_streak();
                 }
 
-                let tool_char_limit = tool_registry
+                let max_chars = tool_registry
                     .get(&tool_name)
-                    .map(|t| t.max_result_size_chars());
-                let truncated = truncate_tool_result_output_with_limit(
-                    &result.output, &tool_name, tool_char_limit,
+                    .map(|t| t.max_result_size_chars())
+                    .unwrap_or(100_000);
+                let processed = process_tool_output(
+                    &tool_storage, &tool_name, &call_id, &result.output, max_chars,
                 );
                 let header = semantic_header(&tool_name, &arguments, &result.output, result.success);
-                let llm_out = format!("{header}\n{truncated}");
+                let llm_out = format!("{header}\n{processed}");
                 let _ = send_stream_event(
                     tx,
                     StreamEvent::ToolResult {

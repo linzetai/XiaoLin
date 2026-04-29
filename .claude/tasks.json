@@ -1424,7 +1424,7 @@
             "持久化 I/O 失败时 fallback 到 truncate_tool_result_output_with_limit",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-14b",

@@ -6,6 +6,7 @@ pub const DEFAULT_MAX_RESULT_SIZE_CHARS: usize = 50_000;
 
 pub const MAX_TOOL_RESULTS_PER_MESSAGE_CHARS: usize = 200_000;
 
+#[allow(dead_code)]
 pub const BYTES_PER_TOKEN: usize = 4;
 
 pub const PREVIEW_SIZE_BYTES: usize = 2000;
@@ -13,6 +14,7 @@ pub const PREVIEW_SIZE_BYTES: usize = 2000;
 pub const PERSISTED_OUTPUT_TAG: &str = "<persisted-output>";
 pub const PERSISTED_OUTPUT_CLOSING_TAG: &str = "</persisted-output>";
 
+#[allow(dead_code)]
 pub const TOOL_RESULT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
 
 const TOOL_RESULTS_SUBDIR: &str = "tool-results";
@@ -212,6 +214,7 @@ impl Default for ContentReplacementState {
 /// Serializable record of one content-replacement decision.
 /// Written to the transcript so decisions survive session resume.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ContentReplacementRecord {
     pub tool_use_id: String,
     pub replacement: String,
@@ -417,6 +420,7 @@ impl ToolResultStorage {
 ///
 /// All tool_use_ids in `message_tool_use_ids` are frozen (added to seen_ids).
 /// Records populate the replacements map.
+#[allow(dead_code)]
 pub fn reconstruct_state(
     message_tool_use_ids: &[String],
     records: &[ContentReplacementRecord],
