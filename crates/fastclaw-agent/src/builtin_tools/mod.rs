@@ -44,7 +44,7 @@ pub use network::{
     BuiltinMetaEngine, engine_by_id, BUILTIN_ENGINE_IDS,
 };
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
-pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool};
+pub use shell::{SandboxedShellTool, ShellSandboxConfig, ShellTool, validate_readonly_command};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};
 pub use ask_question::{AskQuestionTool, with_stream_context};

@@ -61,8 +61,24 @@ impl ExecutionModeState {
     }
 
     /// Whether the current mode blocks the given tool kind.
+    /// Note: shell_exec (ToolKind::Execute) handles its own Plan mode validation
+    /// internally via `validate_readonly_command`, so use `is_blocked_for_tool`
+    /// when you have the tool name.
     pub fn is_blocked(&self, kind: ToolKind) -> bool {
         if self.current_mode() != ExecutionMode::Plan {
+            return false;
+        }
+        matches!(kind, ToolKind::Edit | ToolKind::Execute)
+    }
+
+    /// Whether the current mode blocks the given tool by name and kind.
+    /// `shell_exec` is exempted from the blanket Execute block because it
+    /// performs its own readonly command classification internally.
+    pub fn is_blocked_for_tool(&self, tool_name: &str, kind: ToolKind) -> bool {
+        if self.current_mode() != ExecutionMode::Plan {
+            return false;
+        }
+        if tool_name == "shell_exec" {
             return false;
         }
         matches!(kind, ToolKind::Edit | ToolKind::Execute)

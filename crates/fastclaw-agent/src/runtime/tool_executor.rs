@@ -160,6 +160,13 @@ const COMPACTABLE_TOOLS: &[&str] = &[
     "run_command", "ripgrep", "fetch_url",
 ];
 
+/// Extract the "command" field from shell_exec tool arguments JSON.
+fn extract_command_from_args(args: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(args)
+        .ok()
+        .and_then(|v| v.get("command")?.as_str().map(String::from))
+}
+
 /// Heuristic: does this tool result look like an error?
 /// Error results are always preserved to prevent repeated mistakes.
 fn is_error_tool_result(content: &str) -> bool {
@@ -715,13 +722,32 @@ async fn execute_single_tool(
         .unwrap_or(fastclaw_core::tool::ToolKind::Other);
 
     if let Some(ms) = mode_state {
-        if ms.is_blocked(tool_kind) {
+        if ms.is_blocked_for_tool(&tool_name, tool_kind) {
             tracing::info!(tool = %tool_name, kind = ?tool_kind, "tool blocked by plan mode{log_suffix}");
             let result = fastclaw_core::tool::ToolResult::typed_err(
                 fastclaw_core::tool::ToolErrorType::ExecutionDenied,
                 ExecutionModeState::blocked_message(&tool_name),
             );
             return (tool_name, call_id, arguments, result);
+        }
+        // shell_exec in Plan mode: validate readonly command classification
+        if tool_name == "shell_exec"
+            && ms.current_mode() == fastclaw_core::types::ExecutionMode::Plan
+        {
+            if let Some(cmd) = extract_command_from_args(&arguments) {
+                if let Err(reason) = crate::builtin_tools::validate_readonly_command(&cmd) {
+                    tracing::info!(tool = "shell_exec", %reason, "shell command blocked by plan mode readonly policy{log_suffix}");
+                    let result = fastclaw_core::tool::ToolResult::typed_err(
+                        fastclaw_core::tool::ToolErrorType::ExecutionDenied,
+                        format!(
+                            "Plan mode (read-only) blocks this command: {reason}. \
+                             Only read-only commands (ls, cat, grep, git status, cargo check, etc.) \
+                             are allowed. Use exit_plan_mode to switch back to Agent mode for writes."
+                        ),
+                    );
+                    return (tool_name, call_id, arguments, result);
+                }
+            }
         }
     }
 

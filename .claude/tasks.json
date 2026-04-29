@@ -1556,7 +1556,7 @@
             "重定向 > >> 自动标记为 write",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4S-03",
