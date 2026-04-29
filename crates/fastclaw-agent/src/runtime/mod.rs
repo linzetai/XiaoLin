@@ -43,6 +43,7 @@ pub(crate) mod context_compressor;
 pub mod prompt_engine;
 pub mod prompt_sections;
 mod prompt_builder;
+mod query_state;
 mod stream_engine;
 mod tool_executor;
 pub mod tool_result_storage;
@@ -53,7 +54,7 @@ pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
 use accumulator::{accumulate_tool_call, ToolCallAccumulator};
 #[cfg(feature = "evolution")]
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
-use stream_engine::LoopState;
+use query_state::QueryLoopState;
 use stream_engine::send_stream_event;
 use tool_executor::dedup_repeated_tool_calls;
 use tool_executor::execute_tool_batch;
@@ -424,7 +425,7 @@ impl AgentRuntime {
             if inferred > 0 { Some(inferred) } else { None }
         });
 
-        let mut lstate = LoopState::new();
+        let mut state = QueryLoopState::new(max_iterations);
         let tool_storage = create_tool_result_storage();
         let skip_tool_names = build_skip_tool_names(tool_registry);
 
@@ -436,10 +437,10 @@ impl AgentRuntime {
         ).await;
 
         loop {
-            if lstate.error_limit_reached {
+            if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
                 tracing::warn!(
                     agent_id = %config.agent_id,
-                    consecutive_errors = lstate.consecutive_errors,
+                    consecutive_errors = state.consecutive_errors,
                     "stopping outer loop — consecutive error limit reached"
                 );
                 self.finalize_injected_skills(&injected_skill_ids, false).await;
@@ -448,20 +449,16 @@ impl AgentRuntime {
                 anyhow::bail!(
                     "agent '{}' stopped: {} consecutive tool errors",
                     config.agent_id,
-                    lstate.consecutive_errors
+                    state.consecutive_errors
                 );
             }
 
-            if lstate.grace_turn_active {
-                lstate.grace_turn_active = false;
-            }
-
-            lstate.iteration += 1;
+            state.begin_iteration();
 
             tracing::info!(
                 agent_id = %config.agent_id,
                 model,
-                iteration = lstate.iteration,
+                iteration = state.iteration,
                 msg_count = messages.len(),
                 "LLM call"
             );
@@ -505,37 +502,26 @@ impl AgentRuntime {
                 .as_ref()
                 .is_some_and(|tc| !tc.is_empty());
 
-            if !has_tool_calls {
-                tracing::info!(
-                    agent_id = %config.agent_id,
-                    iterations = lstate.iteration,
-                    total_tool_calls = lstate.total_tool_calls,
-                    "agent execution complete"
-                );
-                self.finalize_injected_skills(&injected_skill_ids, true).await;
-                self.record_completed_trajectory(request, config, &trajectory_steps, true)
-                    .await;
-                return Ok(ExecutionResult {
-                    response,
-                    tool_calls_made: lstate.total_tool_calls,
-                    iterations: lstate.iteration,
-                });
-            }
-
-            if lstate.iteration >= max_iterations {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    max_iterations,
-                    "tool call limit reached, returning last response"
-                );
-                self.finalize_injected_skills(&injected_skill_ids, true).await;
-                self.record_completed_trajectory(request, config, &trajectory_steps, true)
-                    .await;
-                return Ok(ExecutionResult {
-                    response,
-                    tool_calls_made: lstate.total_tool_calls,
-                    iterations: lstate.iteration,
-                });
+            let transition = state.determine_post_llm_transition(has_tool_calls);
+            match transition {
+                query_state::LoopTransition::Terminal(ref reason) => {
+                    tracing::info!(
+                        agent_id = %config.agent_id,
+                        reason = %reason,
+                        iterations = state.iteration,
+                        total_tool_calls = state.total_tool_calls,
+                        "agent execution complete"
+                    );
+                    self.finalize_injected_skills(&injected_skill_ids, true).await;
+                    self.record_completed_trajectory(request, config, &trajectory_steps, true)
+                        .await;
+                    return Ok(ExecutionResult {
+                        response,
+                        tool_calls_made: state.total_tool_calls,
+                        iterations: state.iteration,
+                    });
+                }
+                query_state::LoopTransition::Continue(_) => {}
             }
 
             messages.push(choice.message.clone());
@@ -552,7 +538,7 @@ impl AgentRuntime {
             ).await;
 
             for (tool_name, call_id, arguments, result) in results {
-                lstate.total_tool_calls += 1;
+                state.total_tool_calls += 1;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -563,9 +549,9 @@ impl AgentRuntime {
                 });
 
                 if !result.success {
-                    lstate.record_tool_error(&tool_name, &result.output);
+                    state.record_tool_error(&tool_name, &result.output);
                 } else {
-                    lstate.clear_error_streak();
+                    state.clear_error_streak();
                 }
 
                 let max_chars = tool_registry
@@ -598,54 +584,51 @@ impl AgentRuntime {
                     &mut messages,
                     config,
                     request,
-                    lstate.iteration,
-                    lstate.consecutive_errors,
+                    state.iteration,
+                    state.consecutive_errors,
                     max_errors,
-                    &lstate.failure_streak_traces,
-                    &mut lstate.self_iter_recovery_used,
+                    &state.failure_streak_traces,
+                    &mut state.self_iter_recovery_used,
                 ) {
-                    lstate.clear_error_streak();
+                    state.clear_error_streak();
                 }
 
-                if lstate.consecutive_errors >= max_errors {
-                    if !lstate.grace_turn_used {
-                        tracing::info!(
-                            agent_id = %config.agent_id,
-                            consecutive_errors = lstate.consecutive_errors,
-                            "consecutive error limit reached — entering grace turn (non-stream)"
-                        );
-                        let failure_summary = lstate.format_failure_summary();
-                        messages.push(ChatMessage {
-                            role: Role::System,
-                            content: Some(serde_json::Value::String(format!(
-                                "[TOOL ERROR LIMIT] You have hit {consecutive_errors} consecutive tool errors. \
-                                 The failing calls were:\n{failure_summary}\n\n\
-                                 STOP calling the tools that keep failing. Instead:\n\
-                                 1. Explain to the user what you were trying to do and what went wrong.\n\
-                                 2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
-                                 3. Ask the user if they want you to try a different approach.\n\n\
-                                 Do NOT retry the same failing tool calls.",
-                                consecutive_errors = lstate.consecutive_errors,
-                                failure_summary = failure_summary,
-                            ))),
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
-                        lstate.grace_turn_active = true;
-                        lstate.grace_turn_used = true;
-                        lstate.consecutive_errors = 0;
-                        lstate.failure_streak_traces.clear();
-                        break;
-                    } else {
-                        tracing::warn!(
-                            agent_id = %config.agent_id,
-                            consecutive_errors = lstate.consecutive_errors,
-                            "consecutive error limit reached after grace turn (non-stream)"
-                        );
-                        lstate.error_limit_reached = true;
-                        break;
+                let failure_summary = state.format_failure_summary();
+                let error_count = state.consecutive_errors;
+                if let Some(transition) = state.check_error_limit(max_errors) {
+                    match transition {
+                        query_state::LoopTransition::Terminal(query_state::TerminalReason::ConsecutiveErrors) => {
+                            tracing::warn!(
+                                agent_id = %config.agent_id,
+                                consecutive_errors = error_count,
+                                "consecutive error limit reached after grace turn (non-stream)"
+                            );
+                            break;
+                        }
+                        _ => break,
                     }
+                } else if state.grace_turn_active {
+                    tracing::info!(
+                        agent_id = %config.agent_id,
+                        consecutive_errors = error_count,
+                        "consecutive error limit reached — entering grace turn (non-stream)"
+                    );
+                    messages.push(ChatMessage {
+                        role: Role::System,
+                        content: Some(serde_json::Value::String(format!(
+                            "[TOOL ERROR LIMIT] You have hit {error_count} consecutive tool errors. \
+                             The failing calls were:\n{failure_summary}\n\n\
+                             STOP calling the tools that keep failing. Instead:\n\
+                             1. Explain to the user what you were trying to do and what went wrong.\n\
+                             2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
+                             3. Ask the user if they want you to try a different approach.\n\n\
+                             Do NOT retry the same failing tool calls.",
+                        ))),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                    break;
                 }
             }
 
@@ -786,7 +769,7 @@ impl AgentRuntime {
             if inferred > 0 { Some(inferred) } else { None }
         });
 
-        let mut lstate = LoopState::new();
+        let mut state = QueryLoopState::new(max_iterations);
         let tool_storage = create_tool_result_storage();
         let skip_tool_names = build_skip_tool_names(tool_registry);
         let stream_start = std::time::Instant::now();
@@ -797,22 +780,19 @@ impl AgentRuntime {
             request.session_id.as_deref(),
             &request.messages,
         ).await;
-        let mut acc_prompt_tokens: u32 = 0;
-        let mut acc_completion_tokens: u32 = 0;
-        let mut last_estimated_tokens: usize = 0;
 
         loop {
-            if lstate.error_limit_reached {
+            if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
                 tracing::warn!(
                     agent_id = %config.agent_id,
-                    consecutive_errors = lstate.consecutive_errors,
+                    consecutive_errors = state.consecutive_errors,
                     "stopping outer stream loop — consecutive error limit reached"
                 );
-                let failure_detail = lstate.format_failure_summary();
+                let failure_detail = state.format_failure_summary();
                 let user_msg = if failure_detail.is_empty() {
                     format!(
                         "执行过程中遇到连续 {} 次工具错误，已自动停止。请检查工具配置或尝试换一种方式描述任务。",
-                        lstate.consecutive_errors
+                        state.consecutive_errors
                     )
                 } else {
                     format!(
@@ -830,16 +810,11 @@ impl AgentRuntime {
                 return Err(anyhow::anyhow!(
                     "agent '{}' stopped: {} consecutive tool errors",
                     config.agent_id,
-                    lstate.consecutive_errors
+                    state.consecutive_errors
                 ));
             }
 
-            // Grace turn: skip error-limit check, let the LLM respond once more
-            if lstate.grace_turn_active {
-                lstate.grace_turn_active = false;
-            }
-
-            lstate.iteration += 1;
+            state.begin_iteration();
 
             // ── Context window management ───────────────────────────────
             let context_window = config.model.context_window.unwrap_or(
@@ -892,7 +867,7 @@ impl AgentRuntime {
             let local_estimate = fastclaw_context::estimate_messages_tokens(&messages);
             tracing::debug!(
                 local_estimate,
-                api_prompt_tokens = last_estimated_tokens,
+                api_prompt_tokens = state.last_estimated_tokens,
                 "pre-compact: entering LLM compression"
             );
 
@@ -905,7 +880,7 @@ impl AgentRuntime {
                 context_window,
                 &provider_for_compress,
                 &model,
-                last_estimated_tokens,
+                state.last_estimated_tokens,
             ).await;
 
             if compress_result.compressed {
@@ -918,12 +893,12 @@ impl AgentRuntime {
             }
 
             // Phase 2: Hard fit messages within context window budget
-            last_estimated_tokens = fastclaw_context::ContextEngine::fit_to_context_window(
+            state.last_estimated_tokens = fastclaw_context::ContextEngine::fit_to_context_window(
                 &mut messages,
                 context_window,
                 max_tokens,
             );
-            let estimated_tokens = last_estimated_tokens;
+            let estimated_tokens = state.last_estimated_tokens;
 
             // Emit live context usage update to frontend
             let tokens_saved = if compress_result.compressed {
@@ -964,7 +939,7 @@ impl AgentRuntime {
             tracing::info!(
                 agent_id = %config.agent_id,
                 model = %model,
-                iteration = lstate.iteration,
+                iteration = state.iteration,
                 msg_count = messages.len(),
                 msg_tokens = estimated_tokens,
                 tool_def_tokens = tool_defs_est_tokens,
@@ -1090,11 +1065,10 @@ impl AgentRuntime {
                     }
 
                     if let Some(ref u) = delta.usage {
-                        acc_prompt_tokens += u.prompt_tokens;
-                        acc_completion_tokens += u.completion_tokens;
-                        // Prefer API-reported prompt_tokens over local estimate
+                        state.acc_prompt_tokens += u.prompt_tokens;
+                        state.acc_completion_tokens += u.completion_tokens;
                         if u.prompt_tokens > 0 {
-                            last_estimated_tokens = u.prompt_tokens as usize;
+                            state.last_estimated_tokens = u.prompt_tokens as usize;
                         }
                     }
 
@@ -1120,73 +1094,48 @@ impl AgentRuntime {
             }
 
             let has_valid_tool_calls = tool_call_accum.iter().any(|a| !a.name.is_empty());
+            let transition = state.determine_post_llm_transition(has_valid_tool_calls);
 
-            // Same as non-streaming: never treat finish_reason "stop" as canceling a valid tool stream.
-            let build_done_usage = || -> Option<fastclaw_core::types::Usage> {
-                let total = acc_prompt_tokens + acc_completion_tokens;
-                if total > 0 {
-                    Some(fastclaw_core::types::Usage {
-                        prompt_tokens: acc_prompt_tokens,
-                        completion_tokens: acc_completion_tokens,
-                        total_tokens: total,
-                    })
-                } else {
-                    None
+            match transition {
+                query_state::LoopTransition::Terminal(ref reason) => {
+                    let final_tc: Option<Vec<ToolCall>> = if matches!(reason, query_state::TerminalReason::MaxIterations) {
+                        let tc: Vec<ToolCall> = tool_call_accum
+                            .iter()
+                            .filter(|a| !a.name.is_empty())
+                            .map(|a| a.to_tool_call())
+                            .collect();
+                        if tc.is_empty() { None } else { Some(tc) }
+                    } else {
+                        None
+                    };
+                    if matches!(reason, query_state::TerminalReason::MaxIterations) {
+                        tracing::warn!(
+                            agent_id = %config.agent_id,
+                            max_iterations,
+                            "streaming tool call limit reached"
+                        );
+                    }
+                    let _ = send_stream_event(
+                        tx,
+                        StreamEvent::Done {
+                            session_id: request.session_id.clone(),
+                            tool_calls_made: state.total_tool_calls,
+                            iterations: state.iteration,
+                            final_tool_calls: final_tc,
+                            usage: state.build_usage(),
+                            elapsed_ms: stream_start.elapsed().as_millis() as u64,
+                            context_tokens: Some(state.last_estimated_tokens as u32),
+                            context_window: Some(context_window),
+                        },
+                        false,
+                    )
+                    .await;
+                    self.finalize_injected_skills(&injected_skill_ids, true).await;
+                    self.record_completed_trajectory(request, config, &trajectory_steps, true)
+                        .await;
+                    return Ok((state.total_tool_calls, state.iteration));
                 }
-            };
-
-            if !has_valid_tool_calls {
-                let _ = send_stream_event(
-                    tx,
-                    StreamEvent::Done {
-                        session_id: request.session_id.clone(),
-                        tool_calls_made: lstate.total_tool_calls,
-                        iterations: lstate.iteration,
-                        final_tool_calls: None,
-                        usage: build_done_usage(),
-                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: Some(last_estimated_tokens as u32),
-                        context_window: Some(context_window),
-                    },
-                    false,
-                )
-                .await;
-                self.finalize_injected_skills(&injected_skill_ids, true).await;
-                self.record_completed_trajectory(request, config, &trajectory_steps, true)
-                    .await;
-                return Ok((lstate.total_tool_calls, lstate.iteration));
-            }
-
-            if lstate.iteration >= max_iterations {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    max_iterations,
-                    "streaming tool call limit reached"
-                );
-                let final_tc: Vec<ToolCall> = tool_call_accum
-                    .iter()
-                    .filter(|a| !a.name.is_empty())
-                    .map(|a| a.to_tool_call())
-                    .collect();
-                let _ = send_stream_event(
-                    tx,
-                    StreamEvent::Done {
-                        session_id: request.session_id.clone(),
-                        tool_calls_made: lstate.total_tool_calls,
-                        iterations: lstate.iteration,
-                        final_tool_calls: if final_tc.is_empty() { None } else { Some(final_tc) },
-                        usage: build_done_usage(),
-                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: Some(last_estimated_tokens as u32),
-                        context_window: Some(context_window),
-                    },
-                    false,
-                )
-                .await;
-                self.finalize_injected_skills(&injected_skill_ids, true).await;
-                self.record_completed_trajectory(request, config, &trajectory_steps, true)
-                    .await;
-                return Ok((lstate.total_tool_calls, lstate.iteration));
+                query_state::LoopTransition::Continue(_) => {}
             }
 
             let assembled_calls: Vec<ToolCall> = tool_call_accum
@@ -1201,12 +1150,12 @@ impl AgentRuntime {
                     tx,
                     StreamEvent::Done {
                         session_id: request.session_id.clone(),
-                        tool_calls_made: lstate.total_tool_calls,
-                        iterations: lstate.iteration,
+                        tool_calls_made: state.total_tool_calls,
+                        iterations: state.iteration,
                         final_tool_calls: None,
-                        usage: build_done_usage(),
+                        usage: state.build_usage(),
                         elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: Some(last_estimated_tokens as u32),
+                        context_tokens: Some(state.last_estimated_tokens as u32),
                         context_window: Some(context_window),
                     },
                     false,
@@ -1215,7 +1164,7 @@ impl AgentRuntime {
                 self.finalize_injected_skills(&injected_skill_ids, true).await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
-                return Ok((lstate.total_tool_calls, lstate.iteration));
+                return Ok((state.total_tool_calls, state.iteration));
             }
 
             messages.push(ChatMessage {
@@ -1251,7 +1200,7 @@ impl AgentRuntime {
             ).await;
 
             for (tool_name, call_id, arguments, mut result) in stream_results {
-                lstate.total_tool_calls += 1;
+                state.total_tool_calls += 1;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -1317,9 +1266,9 @@ impl AgentRuntime {
                 }
 
                 if !result.success {
-                    lstate.record_tool_error(&tool_name, &result.output);
+                    state.record_tool_error(&tool_name, &result.output);
                 } else {
-                    lstate.clear_error_streak();
+                    state.clear_error_streak();
                 }
 
                 let max_chars = tool_registry
@@ -1366,54 +1315,51 @@ impl AgentRuntime {
                     &mut messages,
                     config,
                     request,
-                    lstate.iteration,
-                    lstate.consecutive_errors,
+                    state.iteration,
+                    state.consecutive_errors,
                     max_errors,
-                    &lstate.failure_streak_traces,
-                    &mut lstate.self_iter_recovery_used,
+                    &state.failure_streak_traces,
+                    &mut state.self_iter_recovery_used,
                 ) {
-                    lstate.clear_error_streak();
+                    state.clear_error_streak();
                 }
 
-                if lstate.consecutive_errors >= max_errors {
-                    if !lstate.grace_turn_used {
-                        tracing::info!(
-                            agent_id = %config.agent_id,
-                            consecutive_errors = lstate.consecutive_errors,
-                            "consecutive error limit reached — entering grace turn"
-                        );
-                        let failure_summary = lstate.format_failure_summary();
-                        messages.push(ChatMessage {
-                            role: Role::System,
-                            content: Some(serde_json::Value::String(format!(
-                                "[TOOL ERROR LIMIT] You have hit {consecutive_errors} consecutive tool errors. \
-                                 The failing calls were:\n{failure_summary}\n\n\
-                                 STOP calling the tools that keep failing. Instead:\n\
-                                 1. Explain to the user what you were trying to do and what went wrong.\n\
-                                 2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
-                                 3. Ask the user if they want you to try a different approach.\n\n\
-                                 Do NOT retry the same failing tool calls.",
-                                consecutive_errors = lstate.consecutive_errors,
-                                failure_summary = failure_summary,
-                            ))),
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
-                        lstate.grace_turn_active = true;
-                        lstate.grace_turn_used = true;
-                        lstate.consecutive_errors = 0;
-                        lstate.failure_streak_traces.clear();
-                        break;
-                    } else {
-                        tracing::warn!(
-                            agent_id = %config.agent_id,
-                            consecutive_errors = lstate.consecutive_errors,
-                            "consecutive error limit reached after grace turn"
-                        );
-                        lstate.error_limit_reached = true;
-                        break;
+                let failure_summary = state.format_failure_summary();
+                let error_count = state.consecutive_errors;
+                if let Some(transition) = state.check_error_limit(max_errors) {
+                    match transition {
+                        query_state::LoopTransition::Terminal(query_state::TerminalReason::ConsecutiveErrors) => {
+                            tracing::warn!(
+                                agent_id = %config.agent_id,
+                                consecutive_errors = error_count,
+                                "consecutive error limit reached after grace turn"
+                            );
+                            break;
+                        }
+                        _ => break,
                     }
+                } else if state.grace_turn_active {
+                    tracing::info!(
+                        agent_id = %config.agent_id,
+                        consecutive_errors = error_count,
+                        "consecutive error limit reached — entering grace turn"
+                    );
+                    messages.push(ChatMessage {
+                        role: Role::System,
+                        content: Some(serde_json::Value::String(format!(
+                            "[TOOL ERROR LIMIT] You have hit {error_count} consecutive tool errors. \
+                             The failing calls were:\n{failure_summary}\n\n\
+                             STOP calling the tools that keep failing. Instead:\n\
+                             1. Explain to the user what you were trying to do and what went wrong.\n\
+                             2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
+                             3. Ask the user if they want you to try a different approach.\n\n\
+                             Do NOT retry the same failing tool calls.",
+                        ))),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                    break;
                 }
             }
 
