@@ -1,7 +1,9 @@
-//! Static prompt sections for the PromptEngine.
+//! Prompt sections for the PromptEngine.
 //!
 //! Each function returns a `PromptSection` with a compute closure that
 //! generates the section text based on `PromptContext`.
+
+pub mod dynamic;
 
 use super::prompt_engine::{PromptContext, PromptSection};
 
