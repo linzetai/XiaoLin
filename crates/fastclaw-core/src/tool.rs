@@ -430,6 +430,12 @@ impl ToolRegistry {
         guard.len()
     }
 
+    /// Return the names of all registered tools (eager + deferred).
+    pub fn tool_names(&self) -> HashSet<String> {
+        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        guard.keys().cloned().collect()
+    }
+
     /// Register a tool as deferred. Deferred tools are stored in the
     /// registry but excluded from `eager_definitions()`. They become
     /// visible after `activate_deferred()`.

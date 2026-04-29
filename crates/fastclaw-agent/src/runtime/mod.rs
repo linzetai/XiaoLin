@@ -8,7 +8,9 @@ use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::types::{
     ChatMessage, ChatRequest, ChatResponse, Role, StreamEvent, ToolCall,
 };
-use fastclaw_core::workspace::default_runtime_system_prompt_for_agent;
+use fastclaw_core::types::ExecutionMode;
+
+use prompt_engine::{PromptContext, PromptEngine, PromptSection};
 #[cfg(feature = "evolution")]
 use fastclaw_evolution::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, infer_task_type, SkillStatus,
@@ -48,7 +50,6 @@ mod trajectory;
 pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
 
 use accumulator::{accumulate_tool_call, ToolCallAccumulator};
-use prompt_builder::append_subagent_prompt_to_system;
 #[cfg(feature = "evolution")]
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
 use stream_engine::LoopState;
@@ -119,6 +120,7 @@ pub struct StreamParams {
 pub struct AgentRuntime {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: ArcSwap<HashMap<String, Arc<dyn LlmProvider>>>,
+    prompt_engine: PromptEngine,
     #[cfg(feature = "self-iter")]
     self_iter_engine: Option<Arc<SelfIterEngine>>,
     #[cfg(feature = "self-iter")]
@@ -134,6 +136,7 @@ impl AgentRuntime {
         Self {
             default_provider: provider,
             agent_providers: ArcSwap::new(Arc::new(HashMap::new())),
+            prompt_engine: Self::default_prompt_engine(),
             #[cfg(feature = "self-iter")]
             self_iter_engine: None,
             #[cfg(feature = "self-iter")]
@@ -143,6 +146,39 @@ impl AgentRuntime {
             #[cfg(feature = "evolution")]
             trajectory_store: ArcSwap::new(Arc::new(None)),
         }
+    }
+
+    fn default_prompt_engine() -> PromptEngine {
+        use prompt_sections::{
+            actions_section, doing_tasks_section, intro_section, output_efficiency_section,
+            system_section, tone_and_style_section, using_tools_section,
+        };
+        use prompt_sections::dynamic::{
+            environment_section, frc_section, language_section, mcp_instructions_section,
+            memory_section, session_guidance_section, token_budget_section,
+        };
+
+        let static_sections: Vec<PromptSection> = vec![
+            intro_section(),
+            system_section(),
+            doing_tasks_section(),
+            actions_section(),
+            using_tools_section(),
+            tone_and_style_section(),
+            output_efficiency_section(),
+        ];
+
+        let dynamic_sections: Vec<PromptSection> = vec![
+            session_guidance_section(),
+            environment_section(),
+            memory_section(),
+            language_section(),
+            mcp_instructions_section(),
+            token_budget_section(),
+            frc_section(),
+        ];
+
+        PromptEngine::new(static_sections, dynamic_sections)
     }
 
     #[cfg(feature = "evolution")]
@@ -233,15 +269,12 @@ impl AgentRuntime {
         &self,
         params: &ExecutionParams<'_>,
     ) -> anyhow::Result<ExecutionResult> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, ref subagent_prompt, ref mode_state } = *params;
+        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state } = *params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
         let t0 = std::time::Instant::now();
-        let mut messages = self.build_messages(config, &request.messages);
-        if let Some(prompt) = subagent_prompt {
-            append_subagent_prompt_to_system(&mut messages, prompt);
-        }
+        let mut messages = self.build_messages(params);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages");
 
         #[allow(unused_mut)]
@@ -573,16 +606,13 @@ impl AgentRuntime {
         params: &ExecutionParams<'_>,
         stream_params: StreamParams,
     ) -> anyhow::Result<(u32, u32)> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, ref subagent_prompt, ref mode_state } = *params;
+        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state } = *params;
         let StreamParams { ref tx, ref confirm_pending } = stream_params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
         let t0 = std::time::Instant::now();
-        let mut messages = self.build_messages(config, &request.messages);
-        if let Some(prompt) = subagent_prompt {
-            append_subagent_prompt_to_system(&mut messages, prompt);
-        }
+        let mut messages = self.build_messages(params);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages (stream)");
 
         let t0 = std::time::Instant::now();
@@ -1542,37 +1572,29 @@ impl AgentRuntime {
 
     fn build_messages(
         &self,
-        config: &AgentConfig,
-        user_messages: &[ChatMessage],
+        params: &ExecutionParams<'_>,
     ) -> Vec<ChatMessage> {
-        self.build_messages_with_subagent_ctx(config, user_messages, None)
-    }
+        let config = params.config;
+        let user_messages = &params.request.messages;
 
-    fn build_messages_with_subagent_ctx(
-        &self,
-        config: &AgentConfig,
-        user_messages: &[ChatMessage],
-        subagent_ctx: Option<&SubAgentPromptContext<'_>>,
-    ) -> Vec<ChatMessage> {
         let mut messages = Vec::with_capacity(user_messages.len() + 1);
 
-        let configured = config
+        let agent_prompt = config
             .system_prompt
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
 
-        let mut system_text = if let Some(prompt) = configured {
-            prompt.to_string()
-        } else {
-            default_runtime_system_prompt_for_agent(&config.agent_id)
-        };
+        let ctx = self.build_prompt_context(params);
+        let parts = self.prompt_engine.build_effective_prompt(
+            &ctx,
+            None,
+            agent_prompt,
+            None,
+            params.subagent_prompt.as_deref(),
+        );
 
-        if let Some(ctx) = subagent_ctx {
-            if let Some(block) = build_subagent_prompt_block(ctx) {
-                system_text.push_str(&block);
-            }
-        }
+        let system_text = parts.join("\n\n");
 
         messages.push(ChatMessage {
             role: Role::System,
@@ -1584,6 +1606,46 @@ impl AgentRuntime {
 
         messages.extend_from_slice(user_messages);
         messages
+    }
+
+    fn build_prompt_context(&self, params: &ExecutionParams<'_>) -> PromptContext {
+        let tool_names = params.tool_registry.tool_names();
+        let deferred_count = params.tool_registry.deferred_count();
+
+        let mode = params
+            .mode_state
+            .as_ref()
+            .map(|ms| ms.current_mode())
+            .unwrap_or(ExecutionMode::Agent);
+
+        let model_id = format!(
+            "{}/{}",
+            params.config.model.provider, params.config.model.model
+        );
+
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let is_git = cwd.join(".git").exists();
+        let platform = std::env::consts::OS.to_string();
+        let shell = std::env::var("SHELL")
+            .unwrap_or_else(|_| "sh".to_string());
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        PromptContext {
+            agent_config: Arc::new(params.config.clone()),
+            enabled_tools: tool_names,
+            deferred_tool_count: deferred_count,
+            model_id,
+            cwd,
+            is_git,
+            platform,
+            shell,
+            execution_mode: mode,
+            mcp_servers: vec![],
+            language_preference: None,
+            token_budget: None,
+            memory_prompt: None,
+            session_start_date: date,
+        }
     }
 
 }
