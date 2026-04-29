@@ -14,6 +14,7 @@ mod session;
 mod task;
 mod terminal;
 mod shell;
+pub mod shell_readonly;
 pub mod shell_security;
 mod skill;
 mod todo;
