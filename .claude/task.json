@@ -330,7 +330,7 @@
             "已发送过预警的 turn 不重复发送",
             "2 个测试"
           ],
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

@@ -465,6 +465,15 @@ pub enum StreamEvent {
         message: String,
     },
 
+    /// Softer warning at 85% context usage suggesting /compact.
+    /// Non-blocking — the LLM call proceeds normally.
+    /// Sent at most once per session to avoid noise.
+    CompactWarning {
+        used_tokens: u32,
+        limit_tokens: u32,
+        message: String,
+    },
+
     /// Emitted after each iteration's context management phase to keep
     /// the frontend updated on live context token usage.
     ContextUsageUpdate {

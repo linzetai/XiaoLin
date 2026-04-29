@@ -872,8 +872,29 @@ impl AgentRuntime {
                 false,
             ).await;
 
-            // Warn if context usage is critically high (>90%)
             let usage_ratio = estimated_tokens as f32 / context_window.max(1) as f32;
+
+            // Compact warning at 85%: suggest /compact (sent once per session)
+            if usage_ratio > 0.85 && !state.compact_warning_sent {
+                state.compact_warning_sent = true;
+                let _ = send_stream_event(
+                    tx,
+                    StreamEvent::CompactWarning {
+                        used_tokens: estimated_tokens as u32,
+                        limit_tokens: context_window,
+                        message: format!(
+                            "Context is {:.0}% full ({}/{} tokens). \
+                             Run /compact to free space, or the system will auto-compact if enabled.",
+                            usage_ratio * 100.0,
+                            estimated_tokens,
+                            context_window,
+                        ),
+                    },
+                    false,
+                ).await;
+            }
+
+            // Critical warning at 90%
             if usage_ratio > 0.90 {
                 let _ = send_stream_event(
                     tx,

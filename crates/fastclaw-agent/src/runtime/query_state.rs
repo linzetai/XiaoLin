@@ -54,6 +54,9 @@ pub(crate) struct QueryLoopState {
     pub acc_prompt_tokens: u32,
     pub acc_completion_tokens: u32,
     pub last_estimated_tokens: usize,
+
+    // ── Warning deduplication ────────────────────────────────────────
+    pub compact_warning_sent: bool,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -121,6 +124,8 @@ impl QueryLoopState {
             acc_prompt_tokens: 0,
             acc_completion_tokens: 0,
             last_estimated_tokens: 0,
+
+            compact_warning_sent: false,
         }
     }
 
@@ -393,6 +398,20 @@ mod tests {
             s.determine_post_llm_transition(true),
             LoopTransition::Continue(ContinueReason::ToolUse)
         );
+    }
+
+    #[test]
+    fn compact_warning_sent_defaults_false() {
+        let s = QueryLoopState::new(10);
+        assert!(!s.compact_warning_sent);
+    }
+
+    #[test]
+    fn compact_warning_sent_flag_prevents_resend() {
+        let mut s = QueryLoopState::new(10);
+        assert!(!s.compact_warning_sent, "should start as false");
+        s.compact_warning_sent = true;
+        assert!(s.compact_warning_sent, "should stay true after setting");
     }
 
     #[test]
