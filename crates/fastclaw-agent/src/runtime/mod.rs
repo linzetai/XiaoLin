@@ -38,6 +38,7 @@ use base64::Engine as _;
 mod accumulator;
 pub mod query_engine;
 pub(crate) mod context_compressor;
+pub mod prompt_engine;
 mod prompt_builder;
 mod stream_engine;
 mod tool_executor;
