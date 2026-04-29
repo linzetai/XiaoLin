@@ -45,6 +45,8 @@ pub mod prompt_sections;
 mod prompt_builder;
 pub(crate) mod query_deps;
 mod query_state;
+#[allow(dead_code)]
+mod stop_hooks;
 mod stream_engine;
 mod tool_executor;
 pub mod tool_result_storage;
