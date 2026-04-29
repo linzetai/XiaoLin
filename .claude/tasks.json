@@ -1461,7 +1461,7 @@
             "override_prompt 覆盖所有其他 section",
             "至少 8 个测试用例"
           ],
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P4H-16",

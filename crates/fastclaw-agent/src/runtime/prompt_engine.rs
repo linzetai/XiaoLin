@@ -193,6 +193,7 @@ mod tests {
         }
     }
 
+
     #[test]
     fn build_system_prompt_order() {
         let engine = PromptEngine::new(
@@ -413,5 +414,395 @@ mod tests {
         engine.build_system_prompt(&ctx);
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+}
+
+/// Integration tests for the full PromptEngine assembly pipeline using the
+/// default engine configuration (`AgentRuntime::default_prompt_engine()`).
+///
+/// These verify end-to-end behavior of the prompt system under realistic
+/// configurations: mode switching, tool set changes, language preferences,
+/// MCP injection, caching behavior, and priority layering.
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::runtime::prompt_sections::{
+        actions_section, doing_tasks_section, intro_section, output_efficiency_section,
+        system_section, tone_and_style_section, using_tools_section,
+    };
+    use crate::runtime::prompt_sections::dynamic::{
+        environment_section, frc_section, language_section, mcp_instructions_section,
+        memory_section, session_guidance_section, token_budget_section,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn default_engine() -> PromptEngine {
+        let static_sections: Vec<PromptSection> = vec![
+            intro_section(),
+            system_section(),
+            doing_tasks_section(),
+            actions_section(),
+            using_tools_section(),
+            tone_and_style_section(),
+            output_efficiency_section(),
+        ];
+
+        let dynamic_sections: Vec<PromptSection> = vec![
+            session_guidance_section(),
+            environment_section(),
+            memory_section(),
+            language_section(),
+            mcp_instructions_section(),
+            token_budget_section(),
+            frc_section(),
+        ];
+
+        PromptEngine::new(static_sections, dynamic_sections)
+    }
+
+    fn full_ctx(mode: ExecutionMode, tools: &[&str], lang: Option<&str>) -> PromptContext {
+        PromptContext {
+            agent_config: Arc::new(AgentConfig {
+                agent_id: "main".into(),
+                name: None,
+                description: None,
+                model: Default::default(),
+                system_prompt: None,
+                tools: vec![],
+                behavior: Default::default(),
+                mcp_servers: vec![],
+                min_tier: None,
+                max_tier: None,
+                avatar: None,
+                channels: Default::default(),
+            }),
+            enabled_tools: tools.iter().map(|s| s.to_string()).collect(),
+            deferred_tool_count: 0,
+            model_id: "anthropic/claude-4-sonnet".into(),
+            cwd: PathBuf::from("/home/user/project"),
+            is_git: true,
+            platform: "linux x86_64".into(),
+            shell: "bash".into(),
+            execution_mode: mode,
+            mcp_servers: vec![],
+            language_preference: lang.map(String::from),
+            token_budget: None,
+            memory_prompt: None,
+            session_start_date: "2026-04-29".into(),
+        }
+    }
+
+    const FULL_TOOLS: &[&str] = &[
+        "read_file", "write_file", "edit_file", "shell_exec",
+        "search_in_files", "glob", "list_directory", "tool_search",
+        "todo_write", "ask_question", "memory_store", "memory_search",
+    ];
+
+    // ── 1. Plan mode prompt contains readonly restriction ──
+
+    #[test]
+    fn integration_plan_mode_assembled_prompt_contains_readonly() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Plan, FULL_TOOLS, None);
+        let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
+        let joined = prompt.join("\n");
+
+        assert!(
+            joined.contains("Plan Mode") || joined.contains("Read-Only"),
+            "Plan mode prompt must contain readonly restriction"
+        );
+        assert!(
+            joined.contains("CANNOT write files") || joined.contains("read-only tools"),
+            "Plan mode prompt must explicitly restrict writes"
+        );
+    }
+
+    // ── 2. Agent mode prompt contains full tool guidance ──
+
+    #[test]
+    fn integration_agent_mode_assembled_prompt_contains_tool_guidance() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+        let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
+        let joined = prompt.join("\n");
+
+        assert!(joined.contains("using_tools"), "must include using_tools section");
+        assert!(joined.contains("Decision Tree"), "must include tool decision tree");
+        assert!(joined.contains("`read_file`"), "must reference actual tool names");
+        assert!(joined.contains("`edit_file`"), "must reference edit_file");
+        assert!(joined.contains("Anti-Patterns"), "must include anti-patterns");
+        assert!(!joined.contains("Plan Mode"), "Agent mode must not include Plan mode block");
+    }
+
+    // ── 3. Different enabled_tools produce different session_guidance ──
+
+    #[test]
+    fn integration_different_tool_sets_produce_different_guidance() {
+        let engine = default_engine();
+
+        let ctx_with_subagent = full_ctx(ExecutionMode::Agent, &["task_create", "read_file"], None);
+        let ctx_without_subagent = full_ctx(ExecutionMode::Agent, &["read_file", "edit_file"], None);
+
+        let prompt_with = engine.build_effective_prompt(&ctx_with_subagent, None, None, None, None);
+        engine.clear_cache();
+        let prompt_without = engine.build_effective_prompt(&ctx_without_subagent, None, None, None, None);
+
+        let joined_with = prompt_with.join("\n");
+        let joined_without = prompt_without.join("\n");
+
+        assert!(
+            joined_with.contains("Sub-Agent") || joined_with.contains("Task Delegation"),
+            "with task_create should have sub-agent guidance"
+        );
+        assert!(
+            !joined_without.contains("Sub-Agent"),
+            "without task_create should not have sub-agent guidance"
+        );
+        assert_ne!(joined_with, joined_without, "different tools must produce different prompts");
+    }
+
+    // ── 4. language_preference='Chinese' produces language section ──
+
+    #[test]
+    fn integration_chinese_language_preference_produces_language_section() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, Some("zh-CN"));
+        let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
+        let joined = prompt.join("\n");
+
+        assert!(
+            joined.contains("language_preference"),
+            "Chinese preference must generate language section"
+        );
+        assert!(
+            joined.contains("zh-CN"),
+            "must include the specified language code"
+        );
+    }
+
+    #[test]
+    fn integration_no_language_preference_omits_language_section() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+        let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
+        let joined = prompt.join("\n");
+
+        assert!(
+            !joined.contains("language_preference"),
+            "no preference should omit language section"
+        );
+    }
+
+    // ── 5. MCP section recomputes every call (cache_break=true) ──
+
+    #[test]
+    fn integration_mcp_section_recomputes_on_every_call() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+
+        let engine = PromptEngine::new(
+            vec![intro_section()],
+            vec![PromptSection {
+                name: "mcp_instructions",
+                compute: Box::new(move |_ctx| {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    Some(format!("MCP call #{}", n + 1))
+                }),
+                cache_break: true,
+            }],
+        );
+
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+
+        let p1 = engine.build_system_prompt(&ctx);
+        let p2 = engine.build_system_prompt(&ctx);
+        let p3 = engine.build_system_prompt(&ctx);
+
+        assert_eq!(counter.load(Ordering::SeqCst), 3, "MCP must recompute every call");
+        assert!(p1.iter().any(|s| s.contains("MCP call #1")));
+        assert!(p2.iter().any(|s| s.contains("MCP call #2")));
+        assert!(p3.iter().any(|s| s.contains("MCP call #3")));
+    }
+
+    #[test]
+    fn integration_default_mcp_section_changes_with_server_list() {
+        let engine = default_engine();
+        let mut ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+
+        let prompt_no_mcp = engine.build_system_prompt(&ctx);
+        assert!(
+            !prompt_no_mcp.iter().any(|s| s.contains("mcp_instructions")),
+            "no MCP servers → no MCP section"
+        );
+
+        ctx.mcp_servers = vec![McpServerInfo {
+            id: "test-server".into(),
+            instructions: Some("Use this for DB queries".into()),
+        }];
+        let prompt_with_mcp = engine.build_system_prompt(&ctx);
+        assert!(
+            prompt_with_mcp.iter().any(|s| s.contains("test-server")),
+            "MCP servers present → MCP section appears (cache_break recomputes)"
+        );
+    }
+
+    // ── 6. clear_cache forces full recomputation ──
+
+    #[test]
+    fn integration_clear_cache_forces_all_sections_recompute() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+        let engine = PromptEngine::new(
+            vec![
+                PromptSection {
+                    name: "static_counted",
+                    compute: Box::new(move |_| {
+                        c.fetch_add(1, Ordering::SeqCst);
+                        Some("STATIC".into())
+                    }),
+                    cache_break: false,
+                },
+            ],
+            vec![],
+        );
+        let ctx = full_ctx(ExecutionMode::Agent, &["read_file"], None);
+
+        engine.build_system_prompt(&ctx);
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        engine.build_system_prompt(&ctx);
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "cached, no recompute");
+
+        engine.clear_cache();
+        engine.build_system_prompt(&ctx);
+        assert_eq!(counter.load(Ordering::SeqCst), 2, "clear_cache forced recompute");
+
+        engine.clear_cache();
+        engine.build_system_prompt(&ctx);
+        assert_eq!(counter.load(Ordering::SeqCst), 3, "clear_cache works repeatedly");
+    }
+
+    // ── 7. override_prompt overrides all other sections ──
+
+    #[test]
+    fn integration_override_prompt_overrides_all_sections() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, Some("zh-CN"));
+
+        let result = engine.build_effective_prompt(
+            &ctx,
+            Some("CUSTOM OVERRIDE SYSTEM PROMPT"),
+            Some("Agent custom prompt"),
+            Some("User custom prompt"),
+            Some("Append block"),
+        );
+
+        assert_eq!(result.len(), 1, "override must produce single element");
+        assert_eq!(result[0], "CUSTOM OVERRIDE SYSTEM PROMPT");
+    }
+
+    #[test]
+    fn integration_agent_prompt_takes_priority_over_default() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+
+        let result = engine.build_effective_prompt(
+            &ctx,
+            None,
+            Some("I am a custom agent prompt"),
+            None,
+            None,
+        );
+
+        assert_eq!(result, vec!["I am a custom agent prompt"]);
+    }
+
+    #[test]
+    fn integration_append_prompt_added_to_default_sections() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+
+        let result = engine.build_effective_prompt(
+            &ctx,
+            None,
+            None,
+            None,
+            Some("SUBAGENT BLOCK APPENDED"),
+        );
+
+        let last = result.last().unwrap();
+        assert_eq!(last, "SUBAGENT BLOCK APPENDED");
+        assert!(result.len() > 2, "should have default sections + append");
+    }
+
+    // ── 8. Full assembly sanity: default engine produces all expected sections ──
+
+    #[test]
+    fn integration_default_engine_full_assembly_contains_all_core_sections() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, Some("zh-CN"));
+        let prompt = engine.build_system_prompt(&ctx);
+        let joined = prompt.join("\n");
+
+        assert!(joined.contains("FastClaw"), "intro section must be present");
+        assert!(joined.contains("security"), "security directives must be present");
+        assert!(
+            joined.contains("system_communication") || joined.contains("auto_compression"),
+            "system section must be present"
+        );
+        assert!(
+            joined.contains("making_code_changes") || joined.contains("最小改动"),
+            "doing_tasks section must be present"
+        );
+        assert!(
+            joined.contains("actions_and_reversibility") || joined.contains("可逆"),
+            "actions section must be present"
+        );
+        assert!(
+            joined.contains("using_tools") || joined.contains("工具使用"),
+            "using_tools section must be present"
+        );
+        assert!(
+            joined.contains("tone_and_style") || joined.contains("沟通风格"),
+            "tone section must be present"
+        );
+        assert!(
+            joined.contains("output_efficiency") || joined.contains("沟通规范"),
+            "output_efficiency section must be present"
+        );
+        assert!(joined.contains("environment"), "environment section must be present");
+        assert!(joined.contains("session_guidance"), "session_guidance must be present");
+        assert!(joined.contains("language_preference"), "language section must be present");
+        assert!(
+            joined.contains("function_result_clearing") || joined.contains("工具调用结果"),
+            "frc section must be present"
+        );
+        assert!(
+            joined.contains(DYNAMIC_BOUNDARY),
+            "dynamic boundary marker must be present"
+        );
+    }
+
+    #[test]
+    fn integration_prompt_order_static_before_dynamic() {
+        let engine = default_engine();
+        let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
+        let prompt = engine.build_system_prompt(&ctx);
+
+        let boundary_idx = prompt.iter().position(|s| s == DYNAMIC_BOUNDARY)
+            .expect("boundary must exist");
+
+        for part in &prompt[..boundary_idx] {
+            assert!(
+                !part.contains("environment") || !part.contains("Working directory"),
+                "environment (dynamic) must not appear before boundary"
+            );
+        }
+
+        let post_boundary = prompt[boundary_idx + 1..].join("\n");
+        assert!(
+            post_boundary.contains("environment") || post_boundary.contains("Working directory"),
+            "environment must appear after boundary"
+        );
     }
 }
