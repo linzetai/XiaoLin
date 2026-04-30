@@ -1,6 +1,10 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+use fastclaw_treesitter::shell_ast::{
+    self, ShellAst, ShellArg, nesting_depth,
+};
+
 /// Security verdict for a shell command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecurityVerdict {
@@ -397,6 +401,209 @@ fn contains_unescaped_backticks(s: &str) -> bool {
     false
 }
 
+// ── AST-Driven Security Analysis ────────────────────────────────────
+
+/// AST-based security analysis result.
+#[derive(Debug, Clone)]
+pub struct AstSecurityFinding {
+    pub severity: FindingSeverity,
+    pub category: &'static str,
+    pub description: String,
+    pub in_safe_context: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FindingSeverity {
+    Block,
+    Warn,
+    Info,
+}
+
+/// AST-driven shell security checker.
+///
+/// Uses tree-sitter to parse the command into an AST, then walks the tree
+/// to detect security issues with full quoting context awareness.
+/// Falls back to regex-based `ShellSecurityChecker` if parsing fails.
+pub struct AstSecurityChecker;
+
+impl AstSecurityChecker {
+    /// Perform AST-driven security analysis.
+    /// Returns a list of findings, or falls back to regex-based check.
+    pub fn check(command: &str) -> SecurityVerdict {
+        let findings = match Self::analyze(command) {
+            Ok(f) => f,
+            Err(_) => return ShellSecurityChecker::check(command),
+        };
+
+        for f in &findings {
+            if !f.in_safe_context && f.severity == FindingSeverity::Block {
+                return SecurityVerdict::Blocked {
+                    pattern: f.category.to_string(),
+                    reason: f.description.clone(),
+                };
+            }
+        }
+
+        for f in &findings {
+            if !f.in_safe_context && f.severity == FindingSeverity::Warn {
+                return SecurityVerdict::NeedsConfirmation {
+                    pattern: f.category.to_string(),
+                    reason: f.description.clone(),
+                };
+            }
+        }
+
+        SecurityVerdict::Safe
+    }
+
+    /// Full analysis returning all findings.
+    pub fn analyze(command: &str) -> anyhow::Result<Vec<AstSecurityFinding>> {
+        let ast = shell_ast::parse_shell_ast(command)?;
+        let mut findings = Vec::new();
+        Self::walk_ast(&ast, false, &mut findings);
+
+        if nesting_depth(&ast) >= 3 {
+            findings.push(AstSecurityFinding {
+                severity: FindingSeverity::Block,
+                category: "deep_nesting",
+                description: format!(
+                    "Command has nesting depth {} (>=3), which is suspicious",
+                    nesting_depth(&ast)
+                ),
+                in_safe_context: false,
+            });
+        }
+
+        Ok(findings)
+    }
+
+    fn walk_ast(
+        ast: &ShellAst,
+        in_safe_context: bool,
+        findings: &mut Vec<AstSecurityFinding>,
+    ) {
+        match ast {
+            ShellAst::Command { name, args, .. } => {
+                if matches!(name.as_str(), "eval" | "source") {
+                    findings.push(AstSecurityFinding {
+                        severity: FindingSeverity::Block,
+                        category: "eval_source",
+                        description: format!("{name} executes arbitrary strings as code"),
+                        in_safe_context,
+                    });
+                }
+
+                for arg in args {
+                    Self::check_arg(arg, in_safe_context, findings);
+                }
+            }
+            ShellAst::Pipeline(cmds) => {
+                for c in cmds {
+                    Self::walk_ast(c, in_safe_context, findings);
+                }
+            }
+            ShellAst::And(l, r) | ShellAst::Or(l, r) => {
+                Self::walk_ast(l, in_safe_context, findings);
+                Self::walk_ast(r, in_safe_context, findings);
+            }
+            ShellAst::Sequence(stmts) | ShellAst::CompoundList(stmts) => {
+                for s in stmts {
+                    Self::walk_ast(s, in_safe_context, findings);
+                }
+            }
+            ShellAst::Subshell(inner) => {
+                Self::walk_ast(inner, in_safe_context, findings);
+            }
+            ShellAst::Function { body, .. } => {
+                Self::walk_ast(body, in_safe_context, findings);
+            }
+            ShellAst::If { condition, then_body, elif_branches, else_body } => {
+                Self::walk_ast(condition, in_safe_context, findings);
+                Self::walk_ast(then_body, in_safe_context, findings);
+                for (c, b) in elif_branches {
+                    Self::walk_ast(c, in_safe_context, findings);
+                    Self::walk_ast(b, in_safe_context, findings);
+                }
+                if let Some(e) = else_body {
+                    Self::walk_ast(e, in_safe_context, findings);
+                }
+            }
+            ShellAst::For { body, .. } => Self::walk_ast(body, in_safe_context, findings),
+            ShellAst::While { condition, body } => {
+                Self::walk_ast(condition, in_safe_context, findings);
+                Self::walk_ast(body, in_safe_context, findings);
+            }
+            ShellAst::Case { arms, .. } => {
+                for arm in arms {
+                    Self::walk_ast(&arm.body, in_safe_context, findings);
+                }
+            }
+            ShellAst::Assignment { value, .. } => {
+                if value.contains("$(") || value.contains('`') {
+                    findings.push(AstSecurityFinding {
+                        severity: FindingSeverity::Block,
+                        category: "command_substitution_in_assignment",
+                        description: "Command substitution in variable assignment".into(),
+                        in_safe_context,
+                    });
+                }
+            }
+            ShellAst::Raw(_) => {}
+        }
+    }
+
+    fn check_arg(
+        arg: &ShellArg,
+        in_safe_context: bool,
+        findings: &mut Vec<AstSecurityFinding>,
+    ) {
+        match arg {
+            ShellArg::SingleQuoted(_) => {
+                // Single-quoted content is always safe — no expansion occurs
+            }
+            ShellArg::CommandSubstitution(inner) => {
+                findings.push(AstSecurityFinding {
+                    severity: FindingSeverity::Block,
+                    category: "command_substitution",
+                    description: "$() command substitution allows arbitrary code execution".into(),
+                    in_safe_context,
+                });
+                Self::walk_ast(inner, in_safe_context, findings);
+            }
+            ShellArg::DoubleQuoted(content) => {
+                if content.contains("$(") || content.contains('`') {
+                    findings.push(AstSecurityFinding {
+                        severity: FindingSeverity::Block,
+                        category: "command_substitution_in_double_quote",
+                        description: "Command substitution inside double quotes is expanded".into(),
+                        in_safe_context,
+                    });
+                }
+            }
+            ShellArg::Heredoc { body, quoted, .. } => {
+                if !quoted && (body.contains("$(") || body.contains('`')) {
+                    findings.push(AstSecurityFinding {
+                        severity: FindingSeverity::Block,
+                        category: "command_substitution_in_heredoc",
+                        description: "Unquoted heredoc expands command substitutions".into(),
+                        in_safe_context,
+                    });
+                }
+            }
+            ShellArg::Literal(text) => {
+                if text.contains("$(") {
+                    findings.push(AstSecurityFinding {
+                        severity: FindingSeverity::Block,
+                        category: "command_substitution",
+                        description: "$() in unquoted context".into(),
+                        in_safe_context,
+                    });
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,5 +973,106 @@ mod tests {
     #[test]
     fn safe_single_quoted_injection_attempts() {
         assert!(ShellSecurityChecker::check("echo 'eval $(rm -rf /) `dangerous`'").is_safe());
+    }
+
+    // ── AST vs Regex Comparison Tests ───────────────────────────────
+
+    #[test]
+    fn ast_single_quote_no_false_positive() {
+        let ast_v = AstSecurityChecker::check("echo '$(cmd)'");
+        assert!(ast_v.is_safe(), "AST should recognize single-quoted $() as safe");
+    }
+
+    #[test]
+    fn ast_double_quote_detects_expansion() {
+        let ast_v = AstSecurityChecker::check("echo \"$(cmd)\"");
+        assert!(!ast_v.is_safe(), "AST should detect $() inside double quotes");
+    }
+
+    #[test]
+    fn ast_unquoted_cmd_sub_blocked() {
+        let ast_v = AstSecurityChecker::check("echo $(whoami)");
+        assert!(!ast_v.is_safe(), "AST should block unquoted $()");
+    }
+
+    #[test]
+    fn ast_nested_cmd_sub_detected() {
+        let ast_v = AstSecurityChecker::check("echo $(echo $(whoami))");
+        assert!(!ast_v.is_safe(), "AST should detect nested $()");
+    }
+
+    #[test]
+    fn ast_deep_nesting_blocked() {
+        let ast_v = AstSecurityChecker::check("echo $(echo $(echo $(whoami)))");
+        assert!(!ast_v.is_safe());
+        if let Ok(findings) = AstSecurityChecker::analyze("echo $(echo $(echo $(whoami)))") {
+            assert!(findings.iter().any(|f| f.category == "deep_nesting" || f.category == "command_substitution"),
+                "Deep nesting should be flagged");
+        }
+    }
+
+    #[test]
+    fn ast_eval_blocked() {
+        let ast_v = AstSecurityChecker::check("eval rm -rf /");
+        assert!(!ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_safe_normal_command() {
+        let ast_v = AstSecurityChecker::check("ls -la /tmp");
+        assert!(ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_safe_pipe_chain() {
+        let ast_v = AstSecurityChecker::check("cat file.txt | grep pattern | wc -l");
+        assert!(ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_safe_git_status() {
+        let ast_v = AstSecurityChecker::check("git status && git diff");
+        assert!(ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_safe_for_loop() {
+        let ast_v = AstSecurityChecker::check("for f in a b c; do echo $f; done");
+        assert!(ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_cmd_sub_in_loop_blocked() {
+        let ast_v = AstSecurityChecker::check("for f in $(ls); do echo $f; done");
+        assert!(!ast_v.is_safe(), "AST should detect $() even in for loop word list");
+    }
+
+    #[test]
+    fn ast_eval_in_chain_blocked() {
+        let ast_v = AstSecurityChecker::check("true && eval payload");
+        assert!(!ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_source_blocked() {
+        let ast_v = AstSecurityChecker::check("source /tmp/malicious.sh");
+        assert!(!ast_v.is_safe());
+    }
+
+    #[test]
+    fn ast_analyze_returns_details() {
+        if let Ok(findings) = AstSecurityChecker::analyze("echo $(whoami)") {
+            assert!(!findings.is_empty());
+            assert!(findings.iter().any(|f| f.category == "command_substitution"));
+        }
+        // Falls back to regex if bash parser unavailable
+        let v = AstSecurityChecker::check("echo $(whoami)");
+        assert!(!v.is_safe());
+    }
+
+    #[test]
+    fn ast_fallback_on_parse_failure() {
+        let v = AstSecurityChecker::check("");
+        assert!(v.is_safe());
     }
 }

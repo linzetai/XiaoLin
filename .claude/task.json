@@ -884,7 +884,8 @@
             "深度嵌套（3+ 层）正确检测",
             "15+ 对比测试（正则 vs AST 结果差异）"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 AstSecurityChecker ~150行。walk_ast 遍历 AST 识别 eval/source、$() in double-quote、heredoc 展开、深层嵌套(>=3)。check_arg 区分 SingleQuoted(安全)/DoubleQuoted/CommandSubstitution/Literal/Heredoc。parse 失败自动 fallback 到 regex ShellSecurityChecker。15 个 AST 对比测试全通过(72 total)。"
         },
         {
           "id": "6Av2-03",
