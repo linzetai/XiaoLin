@@ -562,8 +562,6 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
         workDir={workDir}
         activeChat={activeChat}
         streaming={streaming}
-        detailOpen={detailOpen}
-        onToggleDetail={onToggleDetail}
         mentionOptions={mentionOptions}
         attachedFiles={attachedFiles}
         removeFile={removeFile}

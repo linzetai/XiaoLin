@@ -1,5 +1,5 @@
 import {
-  Image as ImageIcon, FileText, Paperclip, Settings2, FolderOpen, ArrowUp,
+  Image as ImageIcon, FileText, Paperclip, FolderOpen, ArrowUp,
   Square, X, Loader2,
 } from "lucide-react";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -234,8 +234,6 @@ export interface StreamFooterProps {
   workDir: string | null;
   activeChat: Chat | null | undefined;
   streaming: boolean;
-  detailOpen?: boolean;
-  onToggleDetail?: () => void;
   mentionOptions: MentionOption[];
   attachedFiles: AttachedFile[];
   removeFile: (index: number) => void;
@@ -254,8 +252,6 @@ export function StreamFooter({
   workDir,
   activeChat,
   streaming,
-  detailOpen,
-  onToggleDetail,
   mentionOptions,
   attachedFiles,
   removeFile,
@@ -416,18 +412,6 @@ export function StreamFooter({
               <Paperclip size={16} strokeWidth={1.5} />
             </button>
             <button
-              onClick={onToggleDetail}
-              className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-              style={{ color: detailOpen ? "var(--fill-secondary)" : "var(--fill-tertiary)" }}
-              title="工具"
-            >
-              <Settings2 size={14} strokeWidth={1.5} />
-              工具
-            </button>
-
-            <div className="mx-1 h-4 w-px shrink-0" style={{ background: "var(--separator)" }} />
-
-            <button
               onClick={async () => {
                 const currentState = useAgentStore.getState();
                 const curAgentId = currentState.activeAgentId;
@@ -455,12 +439,8 @@ export function StreamFooter({
               </span>
             </button>
 
-            {!detailOpen && (
-              <>
-                <div className="mx-1 h-4 w-px shrink-0" style={{ background: "var(--separator)" }} />
-                <ShortcutsHint />
-              </>
-            )}
+            <div className="mx-1 h-4 w-px shrink-0" style={{ background: "var(--separator)" }} />
+            <ShortcutsHint />
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
