@@ -96,908 +96,868 @@
   },
   "suites": [
     {
-      "title": "visual/screenshot-matrix.spec.ts",
-      "file": "visual/screenshot-matrix.spec.ts",
+      "title": "regression/c1-cold-start.spec.ts",
+      "file": "regression/c1-cold-start.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "截图矩阵 (5 × 5)",
-          "file": "visual/screenshot-matrix.spec.ts",
-          "line": 53,
+          "title": "C1: 冷启动无白屏 / crash",
+          "file": "regression/c1-cold-start.spec.ts",
+          "line": 3,
           "column": 6,
-          "specs": [],
-          "suites": [
+          "specs": [
             {
-              "title": "Theme: light-default",
-              "file": "visual/screenshot-matrix.spec.ts",
-              "line": 55,
-              "column": 10,
-              "specs": [
+              "title": "应用启动后渲染主界面，无 JS 错误",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "AgentList sidebar - light-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 906,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:30.165Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1333,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:13.411Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "20a8f01e0f372b59c6bd-298e18cf8d8320d39f96",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 57,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream empty - light-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1283,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:14.797Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-0675581ded182725e1ba",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 66,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream with messages - light-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1778,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:16.085Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-66264b237c81ad25fcd3",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 75,
-                  "column": 11
-                },
-                {
-                  "title": "Settings panel - light-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1777,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:17.869Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-4dab3858fcd723bbceef",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 103,
-                  "column": 11
-                },
-                {
-                  "title": "Full app dark mode - light-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1240,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:19.652Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-c5f2171366a34d194807",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 119,
-                  "column": 11
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "e4d0afe9857bb28bcee2-8b6defe6411ec89a701f",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 4,
+              "column": 7
             },
             {
-              "title": "Theme: dark-default",
-              "file": "visual/screenshot-matrix.spec.ts",
-              "line": 55,
-              "column": 10,
-              "specs": [
+              "title": "TitleBar 可见",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "AgentList sidebar - dark-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 828,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:31.129Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1266,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:20.898Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "20a8f01e0f372b59c6bd-df7003d31f5414a408c2",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 57,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream empty - dark-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1288,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:22.169Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-3128dc9665efd7eef919",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 66,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream with messages - dark-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1786,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:23.463Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-3da83ef8764c3fbf21c6",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 75,
-                  "column": 11
-                },
-                {
-                  "title": "Settings panel - dark-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1809,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:25.255Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-60df6a1c727a0a7c3ffb",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 103,
-                  "column": 11
-                },
-                {
-                  "title": "Full app dark mode - dark-default",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1271,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:27.070Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-9e934c1e149304dfa7c4",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 119,
-                  "column": 11
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "e4d0afe9857bb28bcee2-7b5fbd8f260bdf0750e1",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 13,
+              "column": 7
             },
             {
-              "title": "Theme: light-ocean",
-              "file": "visual/screenshot-matrix.spec.ts",
-              "line": 55,
-              "column": 10,
-              "specs": [
+              "title": "AgentList sidebar 渲染且包含至少 1 个 agent",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "AgentList sidebar - light-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 822,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:31.963Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1264,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:28.347Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "20a8f01e0f372b59c6bd-afc8deb54adb1e5811b5",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 57,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream empty - light-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1291,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:29.616Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-ceaaa6b93f572494a6bd",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 66,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream with messages - light-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1781,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:30.911Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-48881a1370d8a21b4ae7",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 75,
-                  "column": 11
-                },
-                {
-                  "title": "Settings panel - light-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1801,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:32.697Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-35675a8cd1adf84224c5",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 103,
-                  "column": 11
-                },
-                {
-                  "title": "Full app dark mode - light-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1252,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:34.504Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-b114567afb82f3459a70",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 119,
-                  "column": 11
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "e4d0afe9857bb28bcee2-1c99d806f1f410118b92",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 25,
+              "column": 7
             },
             {
-              "title": "Theme: dark-ocean",
-              "file": "visual/screenshot-matrix.spec.ts",
-              "line": 55,
-              "column": 10,
-              "specs": [
+              "title": "主消息区域可见",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "AgentList sidebar - dark-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 811,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:32.791Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1264,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:35.761Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "20a8f01e0f372b59c6bd-9bcfa32060a30ade3b68",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 57,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream empty - dark-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1258,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:37.029Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-38b6d34635a57ad5a1f8",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 66,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream with messages - dark-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1772,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:38.292Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-273eb5c97228fc708d89",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 75,
-                  "column": 11
-                },
-                {
-                  "title": "Settings panel - dark-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1755,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:40.068Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-4f492ce9c61bf6d21652",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 103,
-                  "column": 11
-                },
-                {
-                  "title": "Full app dark mode - dark-ocean",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1241,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:41.828Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-7f57c45bd8072fc39d88",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 119,
-                  "column": 11
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "e4d0afe9857bb28bcee2-2e09c139df418d22663d",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 32,
+              "column": 7
             },
             {
-              "title": "Theme: dark-midnight",
-              "file": "visual/screenshot-matrix.spec.ts",
-              "line": 55,
-              "column": 10,
-              "specs": [
+              "title": "无 console.error 级别输出 (排除已知噪声)",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "AgentList sidebar - dark-midnight",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 812,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:33.609Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1261,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:43.074Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "20a8f01e0f372b59c6bd-243c97d658bf171628f9",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 57,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream empty - dark-midnight",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1265,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:44.341Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-2f732e1384a53b6ad170",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 66,
-                  "column": 11
-                },
-                {
-                  "title": "MessageStream with messages - dark-midnight",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1781,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:45.611Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-2b418d1127d96d7d7b44",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 75,
-                  "column": 11
-                },
-                {
-                  "title": "Settings panel - dark-midnight",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1783,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:47.397Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-77c86eadce089287cbb5",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 103,
-                  "column": 11
-                },
-                {
-                  "title": "Full app dark mode - dark-midnight",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "visual",
-                      "projectName": "visual",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1258,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2026-04-30T16:45:49.184Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "20a8f01e0f372b59c6bd-bb5461a5c4fc0ca76c0f",
-                  "file": "visual/screenshot-matrix.spec.ts",
-                  "line": 119,
-                  "column": 11
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "e4d0afe9857bb28bcee2-99678554a5d63afd2355",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 39,
+              "column": 7
+            },
+            {
+              "title": "首屏加载时间 < 5s (宽松阈值)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 812,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:34.427Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e4d0afe9857bb28bcee2-83240320efb72e4c239f",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 62,
+              "column": 7
+            },
+            {
+              "title": "localStorage 可正常读写 (persist 机制)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 812,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:35.244Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e4d0afe9857bb28bcee2-0bba8cfdcf4312fa02cf",
+              "file": "regression/c1-cold-start.spec.ts",
+              "line": 70,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "regression/c3-streaming.spec.ts",
+      "file": "regression/c3-streaming.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "C3: 发消息 streaming 正确",
+          "file": "regression/c3-streaming.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "输入框可见且可聚焦",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 840,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:36.063Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-7e9c4aa96b611e86f6ab",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 4,
+              "column": 7
+            },
+            {
+              "title": "输入文本后发送按钮变为可交互",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1008,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:36.909Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-a19f920b215d9c85c503",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 13,
+              "column": 7
+            },
+            {
+              "title": "注入消息后 UI 正确渲染用户消息和助手消息",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 867,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:37.924Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-2c635bf26f72e9153d6e",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "历史消息加载后列表中显示内容",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 816,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:38.797Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-e2509ca7ba74e656f7fd",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "Markdown 内容正确渲染 (代码块、链接)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 847,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:39.620Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-94c809585c318a991ba8",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "空聊天显示空状态 / welcome 区域",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 811,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:40.473Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3df7e32334e1e25051fa-10683fd13eb3ef6ad982",
+              "file": "regression/c3-streaming.spec.ts",
+              "line": 93,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "regression/c5-agent-switch.spec.ts",
+      "file": "regression/c5-agent-switch.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "C5: 切换 Agent → 消息列表正确",
+          "file": "regression/c5-agent-switch.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "sidebar 至少显示 1 个 agent 条目",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 817,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:41.290Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "68010b5b41a1e3f142bf-0d2cc858e52cea9bb4e0",
+              "file": "regression/c5-agent-switch.spec.ts",
+              "line": 4,
+              "column": 7
+            },
+            {
+              "title": "点击不同 agent 后主区域内容切换",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1365,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:42.113Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "68010b5b41a1e3f142bf-1d9660b393014265ac5c",
+              "file": "regression/c5-agent-switch.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "切换 agent 后再切回，消息列表应保持",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/home/linzetai/workspace/my_tools/FastClaw/crates/fastclaw-app/tests/regression/c5-agent-switch.spec.ts",
+                        "line": 47,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 805,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:43.484Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/home/linzetai/workspace/my_tools/FastClaw/crates/fastclaw-app/tests/regression/c5-agent-switch.spec.ts",
+                            "line": 47,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "68010b5b41a1e3f142bf-e256544bedb5153e1e24",
+              "file": "regression/c5-agent-switch.spec.ts",
+              "line": 30,
+              "column": 7
+            },
+            {
+              "title": "切换 agent 无 JS 错误",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1815,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:44.294Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "68010b5b41a1e3f142bf-e18a8936e85fcf1d3b91",
+              "file": "regression/c5-agent-switch.spec.ts",
+              "line": 68,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "regression/c9-theme-switch.spec.ts",
+      "file": "regression/c9-theme-switch.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "C9: 主题切换 light↔dark",
+          "file": "regression/c9-theme-switch.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "默认主题 data-theme 为 light",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 802,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:46.116Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-d24d5421fcfc40e1b8a1",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 4,
+              "column": 7
+            },
+            {
+              "title": "切换到 dark 主题后 data-theme 变为 dark",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1094,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:46.922Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-11ca014501a803229a31",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 13,
+              "column": 7
+            },
+            {
+              "title": "dark 主题下背景色变深",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1210,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:48.022Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-4b32ce4fb04bcb70bfc1",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 33,
+              "column": 7
+            },
+            {
+              "title": "切换回 light 后恢复",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1413,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:49.238Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-1a854bc78b88101aa267",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 61,
+              "column": 7
+            },
+            {
+              "title": "accent theme 切换无报错",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1611,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:50.657Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-417299b3fd9e527ccccb",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 90,
+              "column": 7
+            },
+            {
+              "title": "主题切换过程中无白屏闪烁 (基础检查)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "regression",
+                  "projectName": "regression",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1231,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-30T16:48:52.273Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7fb28ab2222b5183740f-2dc318771f96207b36ff",
+              "file": "regression/c9-theme-switch.spec.ts",
+              "line": 116,
+              "column": 7
             }
           ]
         }
@@ -1006,10 +966,10 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-04-30T16:45:12.462Z",
-    "duration": 38034.687,
-    "expected": 25,
-    "skipped": 0,
+    "startTime": "2026-04-30T16:48:28.923Z",
+    "duration": 24637.722999999998,
+    "expected": 22,
+    "skipped": 1,
     "unexpected": 0,
     "flaky": 0
   }

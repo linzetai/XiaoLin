@@ -415,18 +415,36 @@ export async function listCronRuns(jobId: string, limit?: number) {
 
 // ─── File listing (via Tauri or fallback) ───
 
+const SKIP_DIRS = new Set(["node_modules", ".git", "target", "dist", "build", "__pycache__", ".next", ".nuxt", ".venv"]);
+const MAX_ENTRIES = 2000;
+const MAX_DEPTH = 5;
+
 export async function listFiles(dirPath: string): Promise<{ files: string[]; dirs: string[] }> {
   if (transport.isTauri) {
     try {
       const { readDir } = await import("@tauri-apps/plugin-fs");
-      const entries = await readDir(dirPath);
       const files: string[] = [];
       const dirs: string[] = [];
-      for (const entry of entries) {
-        if (entry.name?.startsWith(".")) continue;
-        if (entry.isDirectory) dirs.push(entry.name!);
-        else if (entry.isFile) files.push(entry.name!);
+
+      async function walk(base: string, prefix: string, depth: number) {
+        if (depth > MAX_DEPTH || files.length + dirs.length >= MAX_ENTRIES) return;
+        const entries = await readDir(base);
+        for (const entry of entries) {
+          if (files.length + dirs.length >= MAX_ENTRIES) break;
+          if (!entry.name || entry.name.startsWith(".")) continue;
+          const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory) {
+            dirs.push(relPath);
+            if (!SKIP_DIRS.has(entry.name)) {
+              await walk(`${base}/${entry.name}`, relPath, depth + 1);
+            }
+          } else if (entry.isFile) {
+            files.push(relPath);
+          }
+        }
       }
+
+      await walk(dirPath, "", 0);
       files.sort();
       dirs.sort();
       return { files, dirs };
