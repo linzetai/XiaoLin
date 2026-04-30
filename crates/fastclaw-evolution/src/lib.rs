@@ -12,7 +12,7 @@ pub use evaluator::{StrategyEvaluator, StrategyReport};
 pub use feedback::{Feedback, FeedbackKind, FeedbackStore, InteractionSignal};
 pub use skill_extractor::{
     ExtractedSkill, LlmExtractedPattern, LlmExtractionCallback, SkillExtractor, SkillParam,
-    SkillStatus,
+    SkillStatus, PatternTracker, PatternObservation, SkillQualityValidator, QualityVerdict,
 };
 pub use skill_store::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, MaintenanceReport, SkillStore,

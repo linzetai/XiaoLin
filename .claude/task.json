@@ -930,7 +930,8 @@
             "8 个测试",
             "预计 ~400 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 PatternTracker ~80行 (observe/should_promote/promotable_patterns) + SkillQualityValidator ~50行 (evaluate/promote_if_ready, 含 QualityVerdict enum)。promote_threshold=3, min_success_count=2, min_success_rate=0.7。8 个新测试全通过。"
         },
         {
           "id": "7C-02",
