@@ -94,6 +94,16 @@ function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"c
   return <code className={className} {...rest}>{children}</code>;
 }
 
+function extractTextFromNode(node: React.ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractTextFromNode).join("");
+  if (typeof node === "object" && "props" in node) {
+    return extractTextFromNode((node as React.ReactElement<{ children?: React.ReactNode }>).props.children);
+  }
+  return "";
+}
+
 function extractCodeInfo(children: React.ReactNode): { lang: string; text: string } {
   const child = (Array.isArray(children) ? children[0] : children) as
     React.ReactElement<{ className?: string; children?: React.ReactNode }> | undefined;
@@ -108,8 +118,7 @@ function extractCodeInfo(children: React.ReactNode): { lang: string; text: strin
     lang = langMatch[1];
   }
 
-  const raw = child.props.children;
-  const text = typeof raw === "string" ? raw.replace(/\n$/, "") : String(raw ?? "").replace(/\n$/, "");
+  const text = extractTextFromNode(child.props.children).replace(/\n$/, "");
   return { lang, text };
 }
 
