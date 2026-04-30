@@ -5,6 +5,7 @@ import { SubAgentCard } from "./SubAgentCard";
 import {
   groupConsecutiveSegments,
   groupConsecutiveToolCalls,
+  ToolCallGroupCard,
   ToolCallGroupTimeline,
 } from "./ToolCallGroup";
 import { AlertTriangle } from "lucide-react";
@@ -207,7 +208,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               return <ToolCallCard key={item.tool.id} tool={item.tool} />;
             }
             return (
-              <ToolCallGroupTimeline
+              <ToolCallGroupCard
                 key={item.tools[0].id}
                 tools={item.tools}
               />
