@@ -393,6 +393,12 @@ pub async fn chat_stream(
                     "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "message": message}
                 }));
             }
+            StreamEvent::CompactWarning { used_tokens, limit_tokens, message } => {
+                let _ = channel.send(json!({
+                    "type": "chat.compact.warning",
+                    "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "message": message}
+                }));
+            }
             StreamEvent::ContextUsageUpdate { used_tokens, limit_tokens, compressed, tokens_saved } => {
                 let _ = channel.send(json!({
                     "type": "chat.context.usage",

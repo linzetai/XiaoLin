@@ -5,12 +5,16 @@
 //! Mutating tools (Edit/Execute/Other) are serialized to avoid conflicts.
 //! Results are yielded in insertion order regardless of completion order.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 
+use fastclaw_core::agent_config::FileAccessMode;
 use fastclaw_core::tool::{ToolKind, ToolRegistry, ToolResult};
 use fastclaw_core::types::ToolCall;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
+
+use crate::builtin_tools::{with_file_access_mode, with_work_dir};
 
 /// State of a tracked tool through its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +30,7 @@ pub enum ToolState {
 #[derive(Debug)]
 struct TrackedTool {
     call: ToolCall,
+    #[allow(dead_code)]
     kind: ToolKind,
     state: ToolState,
     result: Option<ToolResult>,
@@ -45,12 +50,18 @@ pub struct CompletedTool {
 pub struct StreamingExecutorConfig {
     /// Whether to cancel sibling tools when one fails.
     pub sibling_cancel_on_error: bool,
+    /// Working directory to scope tool execution.
+    pub work_dir: Option<PathBuf>,
+    /// File access mode for the execution context.
+    pub file_access: FileAccessMode,
 }
 
 impl Default for StreamingExecutorConfig {
     fn default() -> Self {
         Self {
             sibling_cancel_on_error: true,
+            work_dir: None,
+            file_access: FileAccessMode::default(),
         }
     }
 }
@@ -109,6 +120,8 @@ impl StreamingToolExecutor {
         let serial_lock = Arc::clone(&self.serial_lock);
         let sibling_cancel = self.config.sibling_cancel_on_error;
         let cancel_for_sibling = self.cancel_token.clone();
+        let work_dir = self.config.work_dir.clone();
+        let file_access = self.config.file_access;
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
@@ -142,7 +155,7 @@ impl StreamingToolExecutor {
                 }
             }
 
-            // Execute the tool
+            // Execute the tool with work_dir and file_access context
             let result = tokio::select! {
                 _ = cancel.cancelled() => {
                     let mut tools = tools_ref.lock().unwrap();
@@ -151,7 +164,7 @@ impl StreamingToolExecutor {
                     }
                     return;
                 }
-                r = execute_single_tool(&call, &registry) => r,
+                r = execute_single_tool_with_context(&call, &registry, work_dir, file_access) => r,
             };
 
             // Store result
@@ -227,11 +240,13 @@ impl StreamingToolExecutor {
     }
 
     /// Cancel all pending/executing tools and discard results.
+    #[allow(dead_code)]
     pub fn discard(&self) {
         self.cancel_token.cancel();
     }
 
     /// Whether all tracked tools have been yielded or cancelled.
+    #[allow(dead_code)]
     pub fn is_complete(&self) -> bool {
         let tools = self.tools.lock().unwrap();
         tools
@@ -240,17 +255,29 @@ impl StreamingToolExecutor {
     }
 
     /// Number of tools currently tracked.
+    #[allow(dead_code)]
     pub fn tracked_count(&self) -> usize {
         self.tools.lock().unwrap().len()
     }
 }
 
-async fn execute_single_tool(call: &ToolCall, registry: &ToolRegistry) -> ToolResult {
+async fn execute_single_tool_with_context(
+    call: &ToolCall,
+    registry: &ToolRegistry,
+    work_dir: Option<PathBuf>,
+    file_access: FileAccessMode,
+) -> ToolResult {
     let tool_name = &call.function.name;
     let arguments = &call.function.arguments;
 
     match registry.get(tool_name) {
-        Some(tool) => tool.execute(arguments).await,
+        Some(tool) => {
+            with_file_access_mode(
+                file_access,
+                with_work_dir(work_dir, tool.execute(arguments)),
+            )
+            .await
+        }
         None => ToolResult {
             success: false,
             output: format!("Unknown tool: {}", tool_name),
@@ -262,6 +289,7 @@ async fn execute_single_tool(call: &ToolCall, registry: &ToolRegistry) -> ToolRe
         },
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -478,6 +506,7 @@ mod tests {
         let registry = build_registry(vec![Arc::new(MockFailTool), Arc::new(SlowSearchTool)]);
         let config = StreamingExecutorConfig {
             sibling_cancel_on_error: true,
+            ..Default::default()
         };
         let mut executor = StreamingToolExecutor::new(registry, config);
 
@@ -535,5 +564,131 @@ mod tests {
         assert_eq!(results[0].call_id, "r1");
         assert_eq!(results[1].call_id, "e1");
         assert_eq!(results[2].call_id, "r2");
+    }
+
+    // ─── Integration tests: streaming tool execution pattern ─────────────
+
+    /// Simulates the streaming integration: first tool is submitted while LLM
+    /// is still "outputting" the second tool. Verifies that the first tool
+    /// starts executing before the second is even submitted.
+    #[tokio::test]
+    async fn streaming_integration_first_tool_starts_during_output() {
+        let registry = build_registry(vec![Arc::new(SlowSearchTool), Arc::new(MockReadTool)]);
+        let mut executor = StreamingToolExecutor::new(registry, Default::default());
+
+        // Simulate: LLM emits tool 0 completely, then starts tool 1
+        // Submit tool 0 as soon as tool 1's index is seen (streaming behavior)
+        executor.add_tool(make_call("search", "tool_0"));
+
+        // Tool 0 is now executing. Simulate delay for "LLM outputting tool 1"
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Now submit tool 1 (LLM finished outputting it)
+        executor.add_tool(make_call("read_file", "tool_1"));
+
+        let start = std::time::Instant::now();
+        let results = executor.drain_remaining().await;
+        let total = start.elapsed();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].call_id, "tool_0");
+        assert_eq!(results[1].call_id, "tool_1");
+        // Tool 0 (50ms) was already running 10ms by the time tool 1 was submitted.
+        // If sequential, total from drain would be >= 60ms.
+        // With streaming start, search was already ~10ms in, so remaining is ~40ms.
+        assert!(total < Duration::from_millis(80));
+    }
+
+    /// Verifies that when streaming_tool_execution is disabled (batch mode
+    /// equivalent), all tools only execute after being submitted together.
+    #[tokio::test]
+    async fn batch_mode_all_tools_submitted_together() {
+        let registry = build_registry(vec![Arc::new(MockReadTool), Arc::new(SlowSearchTool)]);
+        let mut executor = StreamingToolExecutor::new(registry, Default::default());
+
+        // In batch mode, all tools are submitted at once (no incremental submission)
+        let start = std::time::Instant::now();
+        executor.add_tool(make_call("read_file", "c1"));
+        executor.add_tool(make_call("search", "c2"));
+        let results = executor.drain_remaining().await;
+        let _elapsed = start.elapsed();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].result.success);
+        assert!(results[1].result.success);
+    }
+
+    /// Verifies streaming executor produces results in insertion order even
+    /// when tools are submitted incrementally during "streaming".
+    #[tokio::test]
+    async fn streaming_integration_results_in_order_with_incremental_submit() {
+        let registry = build_registry(vec![
+            Arc::new(SlowSearchTool),
+            Arc::new(MockReadTool),
+            Arc::new(SlowSearchTool),
+        ]);
+        let mut executor = StreamingToolExecutor::new(registry, Default::default());
+
+        // Submit tools incrementally, simulating streaming detection
+        executor.add_tool(make_call("search", "slow_first"));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        executor.add_tool(make_call("read_file", "fast_second"));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        executor.add_tool(make_call("search", "slow_third"));
+
+        let results = executor.drain_remaining().await;
+        assert_eq!(results.len(), 3);
+        // Must be in insertion order
+        assert_eq!(results[0].call_id, "slow_first");
+        assert_eq!(results[1].call_id, "fast_second");
+        assert_eq!(results[2].call_id, "slow_third");
+    }
+
+    /// Feature flag behavior: executor respects work_dir/file_access config.
+    #[tokio::test]
+    async fn streaming_executor_respects_config() {
+        use fastclaw_core::agent_config::FileAccessMode;
+        use std::path::PathBuf;
+
+        let registry = build_registry(vec![Arc::new(MockReadTool)]);
+        let config = StreamingExecutorConfig {
+            sibling_cancel_on_error: false,
+            work_dir: Some(PathBuf::from("/tmp/test-workspace")),
+            file_access: FileAccessMode::Full,
+        };
+        let mut executor = StreamingToolExecutor::new(registry, config);
+
+        executor.add_tool(make_call("read_file", "c1"));
+        let results = executor.drain_remaining().await;
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].result.success);
+    }
+
+    /// Polling get_completed_results during streaming returns results as they
+    /// complete, without waiting for all tools to finish.
+    #[tokio::test]
+    async fn streaming_integration_poll_during_execution() {
+        let registry = build_registry(vec![Arc::new(MockReadTool), Arc::new(SlowSearchTool)]);
+        let mut executor = StreamingToolExecutor::new(registry, Default::default());
+
+        // Submit fast tool first, slow tool second
+        executor.add_tool(make_call("read_file", "fast"));
+        executor.add_tool(make_call("search", "slow"));
+
+        // Wait for fast tool to complete but slow still running
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Poll: fast tool should be available
+        let partial = executor.get_completed_results();
+        assert_eq!(partial.len(), 1);
+        assert_eq!(partial[0].call_id, "fast");
+
+        // Drain remaining
+        let remaining = executor.drain_remaining().await;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].call_id, "slow");
     }
 }

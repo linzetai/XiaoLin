@@ -45,7 +45,6 @@ pub mod cache_break_detection;
 pub mod cost_tracker;
 #[allow(dead_code)]
 pub mod retry;
-#[allow(dead_code)]
 pub mod streaming_tool_executor;
 mod accumulator;
 pub mod query_engine;
@@ -971,6 +970,24 @@ impl AgentRuntime {
             let mut last_finish_reason: Option<String> = None;
             let mut withheld_prompt_too_long: Option<String> = None;
 
+            // Streaming tool execution: create executor and track submission state.
+            // A new executor is created per iteration since it's consumed via drain_remaining().
+            let streaming_exec_enabled = config.behavior.streaming_tool_execution;
+            let mut streaming_executor = if streaming_exec_enabled {
+                let exec_config = streaming_tool_executor::StreamingExecutorConfig {
+                    sibling_cancel_on_error: true,
+                    work_dir: request.work_dir.as_ref().map(std::path::PathBuf::from),
+                    file_access: config.behavior.file_access,
+                };
+                Some(streaming_tool_executor::StreamingToolExecutor::new(
+                    Arc::clone(tool_registry),
+                    exec_config,
+                ))
+            } else {
+                None
+            };
+            let mut last_submitted_tool_idx: Option<usize> = None;
+
             'stream_try: loop {
                 let params = CompletionParams {
                     model: &model,
@@ -1066,6 +1083,24 @@ impl AgentRuntime {
 
                         if let Some(ref tc_deltas) = choice.delta.tool_calls {
                             for tc_delta in tc_deltas {
+                                // In streaming mode: when a new tool index appears, all
+                                // prior tools are fully accumulated and can start executing.
+                                if let Some(ref mut executor) = streaming_executor {
+                                    let new_idx = tc_delta.index as usize;
+                                    let submit_start = last_submitted_tool_idx
+                                        .map(|i| i + 1)
+                                        .unwrap_or(0);
+                                    if new_idx > 0 && submit_start < new_idx {
+                                        for si in submit_start..new_idx {
+                                            if let Some(acc) = tool_call_accum.get(si) {
+                                                if !acc.name.is_empty() {
+                                                    executor.add_tool(acc.to_tool_call());
+                                                    last_submitted_tool_idx = Some(si);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 accumulate_tool_call(&mut tool_call_accum, tc_delta);
                             }
                         }
@@ -1263,9 +1298,38 @@ impl AgentRuntime {
             }
 
             let mode_before = mode_state.as_ref().map(|ms| ms.current_mode());
-            let stream_results = execute_tool_batch(
-                &assembled_calls, tool_registry, &config.behavior, &request.work_dir, " (stream)", mode_state.as_ref(),
-            ).await;
+
+            // Choose execution path based on streaming_tool_execution config.
+            let stream_results = if let Some(mut executor) = streaming_executor.take() {
+                // Submit any remaining unsubmitted tools to the streaming executor
+                let submit_start = last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
+                for si in submit_start..tool_call_accum.len() {
+                    if let Some(acc) = tool_call_accum.get(si) {
+                        if !acc.name.is_empty() {
+                            executor.add_tool(acc.to_tool_call());
+                        }
+                    }
+                }
+
+                // Drain all results (tools already started during streaming)
+                let completed = executor.drain_remaining().await;
+                completed
+                    .into_iter()
+                    .map(|ct| {
+                        let tc = &assembled_calls[ct.index];
+                        (
+                            ct.tool_name,
+                            ct.call_id,
+                            tc.function.arguments.clone(),
+                            ct.result,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                execute_tool_batch(
+                    &assembled_calls, tool_registry, &config.behavior, &request.work_dir, " (stream)", mode_state.as_ref(),
+                ).await
+            };
 
             for (tool_name, call_id, arguments, mut result) in stream_results {
                 state.total_tool_calls += 1;

@@ -551,6 +551,14 @@ async fn handle_stream(
                     });
                     yield Ok(format!("event: context_warning\ndata: {ev}\n\n"));
                 }
+                StreamEvent::CompactWarning { used_tokens, limit_tokens, message } => {
+                    let ev = json!({
+                        "usedTokens": used_tokens,
+                        "limitTokens": limit_tokens,
+                        "message": message,
+                    });
+                    yield Ok(format!("event: compact_warning\ndata: {ev}\n\n"));
+                }
                 StreamEvent::ContextUsageUpdate { used_tokens, limit_tokens, compressed, tokens_saved } => {
                     let ev = json!({
                         "usedTokens": used_tokens,

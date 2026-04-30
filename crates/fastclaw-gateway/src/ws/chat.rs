@@ -839,6 +839,20 @@ pub fn event_to_response(
             })),
             error: None,
         },
+        StreamEvent::CompactWarning {
+            used_tokens,
+            limit_tokens,
+            message,
+        } => WsResponse {
+            id: req_id.clone(),
+            msg_type: "chat.compact.warning".into(),
+            data: Some(json!({
+                "usedTokens": used_tokens,
+                "limitTokens": limit_tokens,
+                "message": message,
+            })),
+            error: None,
+        },
         StreamEvent::ContextUsageUpdate {
             used_tokens,
             limit_tokens,

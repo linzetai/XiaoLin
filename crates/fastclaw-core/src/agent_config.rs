@@ -183,6 +183,11 @@ pub struct BehaviorConfig {
     pub file_access: FileAccessMode,
     #[serde(default)]
     pub subagent: SubAgentPolicy,
+    /// When true, tools begin execution as soon as they are received during LLM
+    /// streaming output, rather than waiting for the full response before batch
+    /// execution. Concurrent-safe tools run in parallel; mutating tools serialize.
+    #[serde(default)]
+    pub streaming_tool_execution: bool,
 }
 
 /// Policy governing sub-agent delegation for an agent.
@@ -263,6 +268,7 @@ impl Default for BehaviorConfig {
             tools_deny: Vec::new(),
             file_access: FileAccessMode::default(),
             subagent: SubAgentPolicy::default(),
+            streaming_tool_execution: false,
         }
     }
 }
