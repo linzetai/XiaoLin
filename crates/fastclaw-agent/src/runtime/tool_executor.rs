@@ -4,6 +4,7 @@ use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::agent_config::BehaviorConfig;
 use fastclaw_core::tool::{PostToolInfo, ToolDefinition, ToolHook, ToolHookContext, ToolRegistry};
 use fastclaw_core::types::ToolCall;
+use serde::Serialize;
 
 use crate::builtin_tools::{with_file_access_mode, with_work_dir, ExecutionModeState};
 
@@ -558,6 +559,93 @@ fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
         }
         _ => None,
     }
+}
+
+// ── cache_edits API Microcompact (6E-03) ─────────────────────────────
+
+/// A cache_edits block instructing the API to delete cached tool results.
+#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
+pub(crate) struct CacheEditsBlock {
+    pub tool_ids_to_delete: Vec<String>,
+}
+
+/// Tracks tool_result IDs sent to the API so that stale results can be
+/// deleted via the Anthropic `cache_edits` API rather than re-sending
+/// the entire prompt. Only applicable to models that support this feature.
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+pub(crate) struct CachedMCState {
+    registered_tools: std::collections::HashSet<String>,
+    tool_order: Vec<String>,
+    deleted_refs: std::collections::HashSet<String>,
+    tools_sent_to_api: bool,
+}
+
+#[allow(dead_code)]
+const CACHED_MC_KEEP_RECENT: usize = 6;
+
+#[allow(dead_code)]
+impl CachedMCState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a tool_result ID after it has been sent to the API.
+    pub fn register_tool_result(&mut self, tool_id: &str) {
+        if self.registered_tools.insert(tool_id.to_string()) {
+            self.tool_order.push(tool_id.to_string());
+        }
+        self.tools_sent_to_api = true;
+    }
+
+    /// Return tool_result IDs that should be deleted (exceeding the keep window).
+    pub fn get_tool_results_to_delete(&self) -> Vec<String> {
+        if self.tool_order.len() <= CACHED_MC_KEEP_RECENT {
+            return Vec::new();
+        }
+
+        let cutoff = self.tool_order.len() - CACHED_MC_KEEP_RECENT;
+        self.tool_order[..cutoff]
+            .iter()
+            .filter(|id| !self.deleted_refs.contains(*id))
+            .cloned()
+            .collect()
+    }
+
+    /// Build a `CacheEditsBlock` for the IDs that need deletion.
+    /// Returns `None` if no deletions are needed or tools haven't been sent yet.
+    pub fn create_cache_edits_block(&mut self) -> Option<CacheEditsBlock> {
+        if !self.tools_sent_to_api {
+            return None;
+        }
+
+        let to_delete = self.get_tool_results_to_delete();
+        if to_delete.is_empty() {
+            return None;
+        }
+
+        for id in &to_delete {
+            self.deleted_refs.insert(id.clone());
+        }
+
+        Some(CacheEditsBlock {
+            tool_ids_to_delete: to_delete,
+        })
+    }
+
+    /// Number of currently tracked (not yet deleted) tool results.
+    #[allow(dead_code)]
+    pub fn tracked_count(&self) -> usize {
+        self.registered_tools.len() - self.deleted_refs.len()
+    }
+}
+
+/// Check if a model supports the `cache_edits` API for tool result deletion.
+#[allow(dead_code)]
+pub(crate) fn is_model_supported_for_cache_editing(model: &str) -> bool {
+    let lower = model.to_lowercase();
+    lower.contains("claude") && (lower.contains("-4") || lower.contains("claude-4"))
 }
 
 /// Per-agent visibility for scoped memory tools (`memory_search__{agent}` style).
@@ -1213,5 +1301,64 @@ mod tool_result_truncation_tests {
         let count = time_based_microcompact(&mut msgs, &[], Duration::from_secs(300));
         assert_eq!(count, 0, "no compaction with empty boundaries");
         assert_eq!(msgs[0].text_content().unwrap(), "some output");
+    }
+
+    #[test]
+    fn cached_mc_state_register_and_delete() {
+        use super::CachedMCState;
+
+        let mut state = CachedMCState::new();
+        for i in 0..10 {
+            state.register_tool_result(&format!("tool-{i}"));
+        }
+
+        let to_delete = state.get_tool_results_to_delete();
+        assert_eq!(to_delete.len(), 4, "should delete 10 - 6 = 4 oldest");
+        assert_eq!(to_delete[0], "tool-0");
+        assert_eq!(to_delete[3], "tool-3");
+    }
+
+    #[test]
+    fn cached_mc_state_create_block_marks_deleted() {
+        use super::CachedMCState;
+
+        let mut state = CachedMCState::new();
+        for i in 0..8 {
+            state.register_tool_result(&format!("tool-{i}"));
+        }
+
+        let block = state.create_cache_edits_block().expect("should produce block");
+        assert_eq!(block.tool_ids_to_delete.len(), 2, "8 - 6 = 2 to delete");
+
+        let block2 = state.create_cache_edits_block();
+        assert!(block2.is_none(), "already deleted, no new block needed");
+    }
+
+    #[test]
+    fn cached_mc_state_no_delete_below_threshold() {
+        use super::CachedMCState;
+
+        let mut state = CachedMCState::new();
+        for i in 0..5 {
+            state.register_tool_result(&format!("tool-{i}"));
+        }
+
+        assert!(
+            state.get_tool_results_to_delete().is_empty(),
+            "5 <= 6, nothing to delete"
+        );
+        assert!(state.create_cache_edits_block().is_none());
+    }
+
+    #[test]
+    fn is_model_supported_for_cache_editing() {
+        use super::is_model_supported_for_cache_editing;
+
+        assert!(is_model_supported_for_cache_editing("claude-4-sonnet-20260514"));
+        assert!(is_model_supported_for_cache_editing("claude-4-opus-20260514"));
+        assert!(is_model_supported_for_cache_editing("anthropic/claude-4-haiku"));
+        assert!(!is_model_supported_for_cache_editing("claude-3-5-sonnet-20241022"));
+        assert!(!is_model_supported_for_cache_editing("gpt-4o"));
+        assert!(!is_model_supported_for_cache_editing("deepseek-chat"));
     }
 }

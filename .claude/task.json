@@ -523,7 +523,8 @@
             "4 个测试",
             "预计 ~120 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 CachedMCState(~90行) + is_model_supported_for_cache_editing。追踪 tool_result ID 注册顺序，保留最近6个，超出部分可构造 CacheEditsBlock。4 测试通过，clippy 0 warnings，792 tests pass。待 LLM provider 层支持 cache_edits 参数后集成。"
         },
         {
           "id": "6E-04",
