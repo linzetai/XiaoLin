@@ -458,7 +458,8 @@
             "5 个集成测试",
             "cargo test -p fastclaw-agent 全通过"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "Integrated StreamingToolExecutor into execute_stream_inner. Config flag streaming_tool_execution controls behavior (default off). Tools submitted eagerly during streaming via index-based detection. Also fixed pre-existing CompactWarning match exhaustiveness in gateway/app. 15 total executor tests (10 original + 5 integration)."
         }
       ]
     },
