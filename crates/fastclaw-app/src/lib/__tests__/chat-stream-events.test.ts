@@ -4,7 +4,7 @@
  * Covers AC1 (streaming reply events arrive promptly) and AC3 (tool call
  * events are correctly processed).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import type { ChatStreamEvent, ChatStreamParams } from "../transport";
 
 type ChatEventHandler = (event: ChatStreamEvent) => void;
