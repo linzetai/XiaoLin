@@ -56,6 +56,8 @@ pub(crate) mod query_deps;
 #[allow(dead_code)]
 pub mod file_state_cache;
 #[allow(dead_code)]
+pub mod hook_config;
+#[allow(dead_code)]
 pub mod hook_events;
 #[allow(dead_code)]
 pub mod hook_executor;

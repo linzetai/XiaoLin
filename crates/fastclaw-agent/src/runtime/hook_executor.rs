@@ -244,7 +244,7 @@ async fn run_http_hook(url: &str, _method: &str, _event: &HookEvent) -> HookResu
 }
 
 /// Simple glob matching supporting `*` and `?`.
-fn glob_match(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
     let mut pat_chars = pattern.chars().peekable();
     let mut text_chars = text.chars().peekable();
 

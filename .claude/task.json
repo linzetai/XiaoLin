@@ -671,7 +671,8 @@
             "5 个测试",
             "预计 ~200 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 hook_config.rs ~210行。HookConfig/HookSpec/HookMatcher 完整。load_from_dir支持json/json5文件。merge合并多配置。matching_pre/post_hooks按工具名过滤。5个测试全通过。"
         },
         {
           "id": "7A-04",
