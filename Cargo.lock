@@ -1901,6 +1901,7 @@ dependencies = [
  "futures",
  "glob",
  "headless_chrome",
+ "metrics",
  "pdf-extract",
  "rand 0.8.5",
  "regex",
