@@ -81,7 +81,7 @@ function ModelFormModal({
       <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.25)" }} />
       <div
         className="relative w-full max-w-[480px] overflow-hidden rounded-[var(--radius-lg)]"
-        style={{ background: "var(--bg-elevated)", boxShadow: "var(--shadow-lg)", border: "0.5px solid var(--separator-opaque)", animation: "scale-in 0.15s ease-out" }}
+        style={{ background: "var(--bg-elevated)", boxShadow: "var(--shadow-lg)", border: "0.5px solid var(--separator-opaque)", animation: "scale-in var(--duration-fast) var(--ease-out)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "0.5px solid var(--separator)" }}>
@@ -203,7 +203,7 @@ function ModelFormModal({
               className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium transition-colors hover:opacity-80"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              <ChevronDown size={10} strokeWidth={2} style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }} />
+              <ChevronDown size={10} strokeWidth={2} style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0)", transition: "transform var(--duration-fast)" }} />
               高级设置
             </button>
             {showAdvanced && (
@@ -244,7 +244,7 @@ function ModelFormModal({
                                 fontSize: 11,
                                 fontWeight: isActive ? 600 : 400,
                                 cursor: "pointer",
-                                transition: "all 0.15s",
+                                transition: "all var(--duration-fast)",
                                 lineHeight: 1.3,
                               }}
                             >
@@ -477,7 +477,7 @@ export function ModelTab() {
           style={{
             background: toast.type === "ok" ? "color-mix(in srgb, var(--green) 15%, transparent)" : "color-mix(in srgb, var(--red) 15%, transparent)",
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
-            animation: "fade-in 0.15s ease-out",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
           }}
         >
           {toast.type === "ok" ? <CheckCircle size={13} strokeWidth={1.5} /> : <XCircle size={13} strokeWidth={1.5} />}

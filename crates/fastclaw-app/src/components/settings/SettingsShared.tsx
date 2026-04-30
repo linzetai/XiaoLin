@@ -94,7 +94,7 @@ export function ThemeCard({ preset, selected, resolved, onClick }: {
               width: 16, height: 16,
               background: p.accent,
               boxShadow: `0 1px 3px ${p.accent}60`,
-              animation: "pop 0.2s ease-out",
+              animation: "pop var(--duration-normal) var(--ease-spring)",
             }}
           >
             <Check size={9} strokeWidth={3} color="#fff" />

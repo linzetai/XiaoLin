@@ -15,7 +15,7 @@ export function DoneStep({ onComplete }: { onComplete: () => void }) {
         className="flex h-16 w-16 items-center justify-center rounded-full"
         style={{
           background: "color-mix(in srgb, var(--green) 12%, transparent)",
-          animation: "scale-in 0.4s ease-out",
+          animation: "scale-in var(--duration-slow) var(--ease-out)",
         }}
       >
         <Sparkles size={32} strokeWidth={1.5} style={{ color: "var(--green)" }} />

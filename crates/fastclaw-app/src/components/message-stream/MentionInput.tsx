@@ -85,7 +85,7 @@ function MentionPopup({
         border: "0.5px solid var(--separator)",
         boxShadow: "var(--shadow-lg)",
         borderRadius: "var(--radius-sm)",
-        animation: "slide-up 0.15s ease-out",
+        animation: "slide-up var(--duration-fast) var(--ease-out)",
       }}
     >
       <div className="py-1">

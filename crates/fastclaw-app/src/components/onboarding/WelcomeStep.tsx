@@ -4,7 +4,7 @@ import { ClawIcon } from "../layout/ClawIcon";
 export function WelcomeStep({ onNext, onImport }: { onNext: () => void; onImport: () => void }) {
   return (
     <div className="flex flex-col items-center text-center">
-      <div style={{ animation: "scale-in 0.5s ease-out" }}>
+      <div style={{ animation: "scale-in var(--duration-slower) var(--ease-out)" }}>
         <ClawIcon size={72} />
       </div>
       <h1

@@ -56,11 +56,21 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
 
   const loadingChats = useRef(new Set<string>());
   const loadedChats = useRef(new Set<string>());
+  const [animateMessages, setAnimateMessages] = useState(false);
+  useEffect(() => {
+    setAnimateMessages(false);
+  }, [activeChat?.id]);
   useEffect(() => {
     if (!activeChat) return;
-    if (activeChat.messageCount === 0 && activeChat.stream.length === 0) return;
+    if (activeChat.messageCount === 0 && activeChat.stream.length === 0) {
+      setAnimateMessages(true);
+      return;
+    }
     if (loadingChats.current.has(activeChat.id)) return;
-    if (loadedChats.current.has(activeChat.id) && activeChat.stream.length > 0) return;
+    if (loadedChats.current.has(activeChat.id) && activeChat.stream.length > 0) {
+      setAnimateMessages(true);
+      return;
+    }
 
     loadingChats.current.add(activeChat.id);
     transport.getSessionMessages(activeChat.id).then((messages) => {
@@ -70,6 +80,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       loadedChats.current.add(activeChat.id);
     }).catch(() => {}).finally(() => {
       loadingChats.current.delete(activeChat.id);
+      setAnimateMessages(true);
     });
   }, [activeChat?.id, activeChat?.messageCount, activeChat?.stream.length, activeAgentId, loadChatStream]);
 
@@ -301,7 +312,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       {isDragging && (
         <div
           className="absolute inset-0 z-30 flex items-center justify-center"
-          style={{ background: "rgba(0, 122, 255, 0.06)", animation: "fade-in 0.15s" }}
+          style={{ background: "rgba(0, 122, 255, 0.06)", animation: "fade-in var(--duration-fast)" }}
         >
           <div
             className="flex flex-col items-center gap-3 rounded-[var(--radius-xl)] border-2 border-dashed px-12 py-10"
@@ -381,7 +392,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       {searchOpen && (
         <div
           className="flex shrink-0 items-center gap-2 px-4 py-2"
-          style={{ background: "var(--bg-secondary)", borderBottom: `0.5px solid var(--separator)`, animation: "slide-down 0.15s ease-out" }}
+          style={{ background: "var(--bg-secondary)", borderBottom: `0.5px solid var(--separator)`, animation: "slide-down var(--duration-fast) var(--ease-out)" }}
         >
           <Search size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
           <input
@@ -463,6 +474,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
               streamSegments={streamSegments}
               subAgentRuns={activeChat?.subAgentRuns}
               bottomRef={bottomRef}
+              animate={animateMessages}
             />
           )}
           increaseViewportBy={VIEWPORT_INCREASE}

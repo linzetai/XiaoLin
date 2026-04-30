@@ -26,7 +26,7 @@ export function ThinkingIndicator() {
     <div
       className="pb-4 pl-2 flex items-center gap-2"
       style={{
-        animation: "slide-left 0.2s ease-out",
+        animation: "slide-left var(--duration-normal) var(--ease-out)",
         maxWidth: "75%",
       }}
     >
@@ -42,7 +42,7 @@ export function ThinkingIndicator() {
               background: "var(--tint)",
               opacity: dots > i ? 1 : 0.25,
               transform: dots > i ? "scale(1)" : "scale(0.7)",
-              transition: "opacity 0.3s ease, transform 0.3s ease",
+              transition: "opacity var(--duration-slow) var(--ease-in-out), transform var(--duration-slow) var(--ease-in-out)",
             }}
           />
         ))}

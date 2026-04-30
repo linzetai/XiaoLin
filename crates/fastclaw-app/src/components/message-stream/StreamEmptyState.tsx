@@ -10,8 +10,8 @@ export function StreamEmptyState({ onPick }: { onPick: (t: string) => void }) {
   ];
 
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8" style={{ animation: "scale-in 0.35s ease-out" }}>
-      <div className="mb-6" style={{ animation: "scale-in 0.5s ease-out" }}>
+    <div className="flex h-full flex-col items-center justify-center px-8" style={{ animation: "scale-in var(--duration-slow) var(--ease-out)" }}>
+      <div className="mb-6" style={{ animation: "scale-in var(--duration-slower) var(--ease-out)" }}>
         <ClawIcon size={56} />
       </div>
       <h2 className="mb-2 text-[18px] font-semibold tracking-[-0.02em]" style={{ color: "var(--fill-primary)" }}>
@@ -30,7 +30,7 @@ export function StreamEmptyState({ onPick }: { onPick: (t: string) => void }) {
               background: "var(--bg-secondary)",
               border: "0.5px solid var(--separator)",
               color: "var(--fill-secondary)",
-              animation: `slide-up 0.3s ease-out ${0.06 + i * 0.06}s backwards`,
+              animation: `slide-up var(--duration-slow) var(--ease-out) ${0.06 + i * 0.06}s backwards`,
             }}
           >
             <span

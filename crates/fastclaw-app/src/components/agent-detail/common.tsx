@@ -94,7 +94,7 @@ export function FormModal({ open, onClose, title, children }: {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ animation: "fade-in 0.15s ease-out" }}
+      style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
       role="dialog"
       aria-modal="true"
@@ -106,7 +106,7 @@ export function FormModal({ open, onClose, title, children }: {
         style={{
           background: "var(--bg-elevated)",
           boxShadow: "var(--shadow-lg)",
-          animation: "scale-in 0.2s ease-out",
+          animation: "scale-in var(--duration-normal) var(--ease-out)",
           border: "0.5px solid var(--separator)",
           maxHeight: "calc(100vh - 80px)",
         }}

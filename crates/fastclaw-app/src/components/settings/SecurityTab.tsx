@@ -201,7 +201,7 @@ export function SecurityTab() {
           style={{
             background: toast.type === "ok" ? "color-mix(in srgb, var(--green) 15%, transparent)" : "color-mix(in srgb, var(--red) 15%, transparent)",
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
-            animation: "fade-in 0.15s ease-out",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
           }}
         >
           {toast.type === "ok" ? <CheckCircle size={13} strokeWidth={1.5} /> : <XCircle size={13} strokeWidth={1.5} />}

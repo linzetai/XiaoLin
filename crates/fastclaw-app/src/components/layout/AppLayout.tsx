@@ -18,7 +18,7 @@ const AgentDetail = lazy(() =>
 function Loading({ error }: { error: string | null }) {
   return (
     <div className="flex h-full flex-col items-center justify-center" style={{ background: "var(--bg-primary)" }}>
-      <div style={{ animation: "scale-in 0.4s ease-out" }} className="text-center">
+      <div style={{ animation: "scale-in var(--duration-slow) var(--ease-out)" }} className="text-center">
         <div className="mx-auto mb-5" style={{ animation: error ? "none" : "pulse-subtle 2s ease-in-out infinite" }}>
           <ClawIcon size={64} />
         </div>
@@ -118,7 +118,7 @@ export function AppLayout() {
               style={{
                 background: "rgba(var(--bg-primary-rgb, 0, 0, 0), 0.85)",
                 backdropFilter: "blur(8px)",
-                animation: "fade-in 0.3s",
+                animation: "fade-in var(--duration-slow)",
               }}
             >
               <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>

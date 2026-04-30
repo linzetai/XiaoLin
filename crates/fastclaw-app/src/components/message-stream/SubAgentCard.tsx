@@ -85,7 +85,7 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
         background: isFailed
           ? "color-mix(in srgb, var(--red) 3%, var(--bg-secondary))"
           : "var(--bg-secondary)",
-        animation: "slide-up 0.15s ease-out",
+        animation: "slide-up var(--duration-fast) var(--ease-out)",
         maxWidth: "min(100%, 640px)",
       }}
     >
@@ -162,7 +162,7 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
           className="px-3 pb-3"
           style={{
             borderTop: "0.5px solid var(--separator)",
-            animation: "fade-in 0.12s ease-out",
+            animation: "fade-in var(--duration-instant) var(--ease-out)",
           }}
         >
           {/* Task */}

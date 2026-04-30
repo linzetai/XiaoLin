@@ -72,7 +72,7 @@ function McpToolsList() {
                 <span className="text-[13px] font-semibold font-mono" style={{ color: "var(--fill-primary)" }}>{serverId}</span>
                 <span className="text-[11px] font-mono" style={{ color: "var(--fill-quaternary)" }}>{tools.length} 工具</span>
               </div>
-              <ChevronDown size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)", transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }} />
+              <ChevronDown size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)", transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform var(--duration-fast)" }} />
             </button>
             {isOpen && (
               <div style={{ borderTop: "0.5px solid var(--separator)" }}>

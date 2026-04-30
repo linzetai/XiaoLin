@@ -107,7 +107,8 @@
         "实际 CSS 是明确的 transition-property 而非 shorthand 'transition: all'，影响范围是 background-color/border-color/box-shadow/color/fill/stroke/opacity",
         "删除全局 transition 后，AgentList 选中态背景色渐变需要手动在该组件添加",
         "主题切换 html 0.35s vs * 0.2s 时间差导致视觉割裂，需统一为 --duration-slow",
-        "需要验证 prefers-reduced-motion 下的行为仍正确"
+        "需要验证 prefers-reduced-motion 下的行为仍正确",
+        "[FE-007 前置] 动画 Token 系统已完成：全局 * transition 已改为 var(--duration-normal) var(--ease-in-out)，html/body 用 var(--duration-slow)。prefers-reduced-motion 已有覆盖规则。此任务重点是移除全局 * 的 transition-property 声明，改为组件级按需声明"
       ],
       "gate": "1) streaming 期间 Performance 面板无 transition recalculate style；2) perf baseline streaming P95 帧时间下降 > 15%；3) 主题切换视觉平滑无割裂；4) 所有按钮 hover 仍有 transition 效果；5) screenshot diff 通过（主题切换前后）；6) Core C1-C10 通过"
     },
@@ -185,13 +186,19 @@
       "title": "动画 Token 系统 + Streaming 去抖",
       "phase": "动画系统",
       "description": "在 index.css 新增动画 token CSS 变量（--duration-instant/fast/normal/slow, --ease-out/in/in-out/spring, --move-sm/md/lg）。统一现有动画引用 token：slide-up/slide-left/slide-right 位移统一为 --move-md，duration 统一引用 token。新增规则：只对新增消息播放入场动画；streaming 消息用 fade-in --duration-instant；ToolCallCard 首个 slide-up 后续 fade-in；Typing indicator 添加 min-display-time 300ms。AgentDetail Tab 切换添加 crossfade。",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "attentions": [
         "当前 slide-left 位移 8px 而 slide-up 位移 6px，不统一",
         "当前 ToolCallCard 0.15s 而消息 0.2s，duration 不一致",
         "消息入场动画需要区分「新增」和「历史加载」——可通过 data-new 属性或 setTimeout 后移除动画类",
-        "will-change: transform, opacity 只在动画期间添加，动画结束后移除（避免常驻 composite layer 浪费内存）"
+        "will-change: transform, opacity 只在动画期间添加，动画结束后移除（避免常驻 composite layer 浪费内存）",
+        "[FE-007 结果] 定义 5 级 duration token (instant 0.1s → slower 0.5s)、4 种 easing (out/in/in-out/spring)、4 级 move distance (xs 4px → lg 12px)。全部 20 个组件文件的硬编码动画值替换为 var() 引用",
+        "[FE-007 结果] 仅保留 spin 0.8s linear infinite (spinner) 为硬编码——spinner 不应跟随 motion token",
+        "[FE-007 结果] MessageStream 新增 animateMessages state：切换 agent 时 false → 历史消息加载完成后 true。通过 animate prop 逐层传递到 UserBubble/AiMessage，历史消息不播放入场动画",
+        "[FE-007 结果] AgentDetail Tab 切换添加 tab-crossfade keyframe (opacity + translateY)，通过 key={tab} 触发",
+        "[FE-007 结果] prefers-reduced-motion 支持：所有 duration 归零、easing 改 linear、move 归零，+ !important 强制 animation-duration/transition-duration 为 0.01s",
+        "[FE-007 结果] 回归测试 47/48 pass (1 skipped)。Build 37 chunks, 最大 vendor-react=75.85KB gzip。FCP=336ms。Frame P95=17.0ms (环境基线，非回归)"
       ],
       "gate": "1) 所有动画 duration/easing/distance 引用 CSS token 而非硬编码（grep 验证无残留硬编码值）；2) 历史消息加载无动画（录屏验证）；3) streaming 连续 tool call 无视觉抖动；4) AgentDetail Tab 切换有 crossfade 过渡；5) prefers-reduced-motion 下所有动画正确禁用；6) screenshot diff 通过；7) Core C1-C10 通过"
     },

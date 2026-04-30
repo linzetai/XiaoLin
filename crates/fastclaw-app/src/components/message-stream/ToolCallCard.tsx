@@ -276,7 +276,7 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
       style={{
         border: `0.5px solid ${isError ? "color-mix(in srgb, var(--red) 30%, transparent)" : "var(--separator)"}`,
         background: isError ? "color-mix(in srgb, var(--red) 4%, transparent)" : "var(--bg-secondary)",
-        animation: "slide-up 0.15s ease-out",
+        animation: "slide-up var(--duration-fast) var(--ease-out)",
         maxWidth: "min(100%, 600px)",
       }}
     >
@@ -368,7 +368,7 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
           className="px-3 pb-2.5"
           style={{
             borderTop: `0.5px solid var(--separator)`,
-            animation: "fade-in 0.12s ease-out",
+            animation: "fade-in var(--duration-instant) var(--ease-out)",
           }}
         >
           {tool.args && (

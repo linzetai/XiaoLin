@@ -69,12 +69,14 @@ export function AgentDetail({ open, onClose, agentName, agentInitial, agentColor
 
   return (
     <aside
-      className="flex shrink-0 flex-col overflow-hidden transition-all duration-300 ease-out"
+      className="flex shrink-0 flex-col overflow-hidden"
+      data-testid="agent-detail-panel"
       style={{
         width: open ? 320 : 0,
         opacity: open ? 1 : 0,
         borderLeft: open ? "0.5px solid var(--separator)" : "none",
         background: "var(--bg-secondary)",
+        transition: `width var(--duration-slow) var(--ease-out), opacity var(--duration-slow) var(--ease-out)`,
       }}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-3.5" style={{ borderBottom: "0.5px solid var(--separator)" }}>
@@ -90,13 +92,13 @@ export function AgentDetail({ open, onClose, agentName, agentInitial, agentColor
             ) : (
               agentInitial
             )}
-            <div className="absolute inset-0 flex items-center justify-center rounded-full opacity-0 transition-opacity duration-100 group-hover:opacity-100" style={{ background: "rgba(0,0,0,0.3)" }}>
+            <div className="absolute inset-0 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100" style={{ background: "rgba(0,0,0,0.3)", transition: `opacity var(--duration-instant) var(--ease-in-out)` }}>
               <Camera size={12} strokeWidth={1.5} color="white" />
             </div>
           </button>
           <span className="min-w-0 truncate text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }} title={agentName}>{agentName}</span>
         </div>
-        <button onClick={onClose} className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-100 hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-tertiary)" }} title="关闭面板">
+        <button onClick={onClose} className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-tertiary)", transition: `background var(--duration-instant) var(--ease-in-out)` }} title="关闭面板">
           <X size={14} strokeWidth={1.5} />
         </button>
       </div>
@@ -107,12 +109,13 @@ export function AgentDetail({ open, onClose, agentName, agentInitial, agentColor
             <button
               key={t}
               onClick={() => setTab(t)}
-              className="flex min-w-0 flex-1 cursor-pointer rounded-[4px] px-1.5 py-1.5 text-center text-[11px] font-medium transition-all duration-200 sm:px-2 sm:text-[12px]"
+              className="flex min-w-0 flex-1 cursor-pointer rounded-[4px] px-1.5 py-1.5 text-center text-[11px] font-medium sm:px-2 sm:text-[12px]"
               style={{
                 background: tab === t ? "var(--bg-elevated)" : "transparent",
                 color: tab === t ? "var(--fill-primary)" : "var(--fill-tertiary)",
                 boxShadow: tab === t ? "var(--shadow-sm)" : "none",
                 minWidth: "2.5rem",
+                transition: `background var(--duration-fast) var(--ease-in-out), color var(--duration-fast) var(--ease-in-out), box-shadow var(--duration-fast) var(--ease-in-out)`,
               }}
             >
               {tabLabel(t)}
@@ -123,9 +126,11 @@ export function AgentDetail({ open, onClose, agentName, agentInitial, agentColor
 
       <div className="flex-1 overflow-y-auto">
         <Suspense fallback={<div className="h-full" style={{ background: "var(--bg-secondary)" }} />}>
-          {tab === "chats" ? <ChatsTab /> : tab === "cron" ? <CronTab key={`cron-${activeAgentId}`} /> : (
-            <AgentConfigForm key={activeAgentId} section={tab} />
-          )}
+          <div key={tab} style={{ animation: "tab-crossfade var(--duration-normal) var(--ease-out)" }}>
+            {tab === "chats" ? <ChatsTab /> : tab === "cron" ? <CronTab key={`cron-${activeAgentId}`} /> : (
+              <AgentConfigForm key={activeAgentId} section={tab} />
+            )}
+          </div>
         </Suspense>
       </div>
     </aside>

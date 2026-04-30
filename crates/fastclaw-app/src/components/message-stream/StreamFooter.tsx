@@ -41,7 +41,7 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
         className="relative inline-block rounded-lg overflow-hidden"
         style={{
           border: `0.5px solid var(--separator)`,
-          animation: "pop 0.2s ease-out",
+          animation: "pop var(--duration-normal) var(--ease-spring)",
         }}
       >
         <img
@@ -66,7 +66,7 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
       style={{
         background: "var(--bg-secondary)",
         border: `0.5px solid var(--separator)`,
-        animation: "pop 0.2s ease-out",
+        animation: "pop var(--duration-normal) var(--ease-spring)",
       }}
     >
       <span className="shrink-0" style={{ color: "var(--fill-tertiary)" }}>{icon}</span>
@@ -151,7 +151,7 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.4s ease, stroke 0.3s ease" }}
+          style={{ transition: "stroke-dashoffset var(--duration-slower) var(--ease-in-out), stroke var(--duration-slow) var(--ease-in-out)" }}
         />
       </svg>
       <span
@@ -171,7 +171,7 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
             zIndex: 50,
             right: -8,
             minWidth: 180,
-            animation: "fade-in 0.1s ease-out",
+            animation: "fade-in var(--duration-instant) var(--ease-out)",
           }}
         >
           <div className="mb-1.5 text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
@@ -190,7 +190,7 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
               style={{
                 width: `${pct}%`,
                 background: color,
-                transition: "width 0.3s ease",
+                transition: "width var(--duration-slow) var(--ease-in-out)",
               }}
             />
           </div>
@@ -285,7 +285,7 @@ export function StreamFooter({
         }}
       >
         {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-4 pt-3" style={{ animation: "slide-up 0.15s ease-out" }}>
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3" style={{ animation: "slide-up var(--duration-fast) var(--ease-out)" }}>
             {attachedFiles.map((f, i) => (
               <FilePill key={`${f.name}-${i}`} file={f} onRemove={() => removeFile(i)} />
             ))}

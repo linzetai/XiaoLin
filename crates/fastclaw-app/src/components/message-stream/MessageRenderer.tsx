@@ -28,7 +28,7 @@ function parseUserContent(content: string): { text: string; tags: Array<{ type: 
   return { text, tags };
 }
 
-function UserBubble({ msg, copyable, selected, onToggleSelect }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void }) {
+function UserBubble({ msg, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
   const { text, tags } = useMemo(() => parseUserContent(msg.content), [msg.content]);
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -38,7 +38,7 @@ function UserBubble({ msg, copyable, selected, onToggleSelect }: { msg: ChatMess
     });
   }, [text]);
   return (
-    <div className="pb-5 flex justify-end group/message" style={{ animation: "slide-right 0.2s ease-out" }}>
+    <div className="pb-5 flex justify-end group/message" style={{ animation: animate ? "slide-right var(--duration-normal) var(--ease-out)" : "none" }}>
       <div className="flex flex-col items-end" style={{ maxWidth: "65%" }}>
         <div className="flex items-start gap-2">
           {onToggleSelect && (
@@ -121,7 +121,7 @@ function UserBubble({ msg, copyable, selected, onToggleSelect }: { msg: ChatMess
   );
 }
 
-function AiMessage({ msg, usage, copyable, selected, onToggleSelect }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void }) {
+function AiMessage({ msg, usage, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
   const toolCalls = msg.toolCalls;
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -131,7 +131,7 @@ function AiMessage({ msg, usage, copyable, selected, onToggleSelect }: { msg: Ch
     });
   }, [msg.content]);
   return (
-    <div className="pb-7 group/message" style={{ animation: "slide-left 0.2s ease-out", maxWidth: "75%" }}>
+    <div className="pb-7 group/message" style={{ animation: animate ? "slide-left var(--duration-normal) var(--ease-out)" : "none", maxWidth: "75%" }}>
       <div className="flex items-start gap-2">
         {onToggleSelect && (
           <button
@@ -298,7 +298,7 @@ export function QuestionPanel({
         background: "var(--bg-elevated)",
         border: "1px solid var(--separator-opaque)",
         boxShadow: "var(--shadow-sm)",
-        animation: reducedMotion ? "none" : "slide-up 0.2s ease-out",
+        animation: reducedMotion ? "none" : "slide-up var(--duration-normal) var(--ease-out)",
       }}
     >
       {hasTimeout && (
@@ -413,7 +413,7 @@ function formatTokens(n: number): string {
 
 function Typing() {
   return (
-    <div className="pb-6 flex items-center gap-1" style={{ animation: "fade-in 0.15s" }}>
+    <div className="pb-6 flex items-center gap-1" style={{ animation: "fade-in var(--duration-fast)" }}>
       {[0, 1, 2].map((i) => (
         <div
           key={i}
@@ -440,6 +440,7 @@ export interface MessageRendererRowProps {
   selectMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (fullIdx: number) => void;
+  animate?: boolean;
 }
 
 export function MessageRendererRow({
@@ -455,6 +456,7 @@ export function MessageRendererRow({
   selectMode,
   isSelected,
   onToggleSelect,
+  animate = true,
 }: MessageRendererRowProps) {
   const m = item.data as StreamableMsg;
 
@@ -520,6 +522,7 @@ export function MessageRendererRow({
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
+          animate={animate}
         />
       ) : cm.role === "system" ? (
         <SystemMsg msg={cm} />
@@ -530,6 +533,7 @@ export function MessageRendererRow({
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
+          animate={animate}
         />
       )}
     </div>

@@ -161,7 +161,7 @@ export function WebSearchTab() {
           style={{
             background: toast.type === "ok" ? "color-mix(in srgb, var(--green) 15%, transparent)" : "color-mix(in srgb, var(--red) 15%, transparent)",
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
-            animation: "fade-in 0.15s ease-out",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
           }}
         >
           {toast.type === "ok" ? <CheckCircle size={13} strokeWidth={1.5} /> : <XCircle size={13} strokeWidth={1.5} />}
@@ -191,7 +191,7 @@ export function WebSearchTab() {
                 style={{
                   border: `2px solid ${backend === opt.value ? "var(--tint)" : "var(--fill-quaternary)"}`,
                   background: backend === opt.value ? "var(--tint)" : "transparent",
-                  transition: "all 0.15s",
+                  transition: "all var(--duration-fast)",
                 }}
               >
                 {backend === opt.value && <div className="h-[6px] w-[6px] rounded-full bg-white" />}
@@ -236,7 +236,7 @@ export function WebSearchTab() {
                     style={{
                       border: `1.5px solid ${checked ? "var(--tint)" : "var(--fill-quaternary)"}`,
                       background: checked ? "var(--tint)" : "transparent",
-                      transition: "all 0.15s",
+                      transition: "all var(--duration-fast)",
                     }}
                   >
                     {checked && (

@@ -197,7 +197,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
         width: collapsed ? "72px" : "var(--sidebar-w)",
         background: "var(--bg-sidebar)",
         borderRight: "0.5px solid var(--separator)",
-        transition: "width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        transition: "width var(--duration-slow) var(--ease-in-out)",
         overflow: "hidden",
       }}
     >
@@ -300,7 +300,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
                 className="group relative mx-auto mb-1 flex h-[52px] w-[52px] items-center justify-center rounded-[var(--radius-sm)] transition-all duration-150 hover:bg-[var(--bg-hover)]"
                 style={{
                   background: active ? "var(--bg-active)" : "transparent",
-                  animation: `slide-up 0.3s ease-out ${i * 0.04}s backwards`,
+                  animation: `slide-up var(--duration-slow) var(--ease-out) ${i * 0.04}s backwards`,
                 }}
                 title={agent.name}
               >
@@ -324,7 +324,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
               className="mb-0.5 flex w-full cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-3 py-3 text-left transition-all duration-150 hover:bg-[var(--bg-hover)]"
               style={{
                 background: active ? "var(--bg-active)" : "transparent",
-                animation: `slide-up 0.3s ease-out ${i * 0.04}s backwards`,
+                animation: `slide-up var(--duration-slow) var(--ease-out) ${i * 0.04}s backwards`,
               }}
             >
               <div className="relative shrink-0">
@@ -394,14 +394,14 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
 
       {/* New Agent Modal — portaled to body to escape vibrancy containing block */}
       {showNewForm && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in 0.15s ease-out" }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
           <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={cancelNew} />
           <div
             className="relative w-full max-w-[380px] overflow-hidden rounded-[var(--radius-md)]"
             style={{
               background: "var(--bg-elevated)",
               boxShadow: "var(--shadow-lg)",
-              animation: "scale-in 0.2s ease-out",
+              animation: "scale-in var(--duration-normal) var(--ease-out)",
               border: "0.5px solid var(--separator)",
             }}
           >

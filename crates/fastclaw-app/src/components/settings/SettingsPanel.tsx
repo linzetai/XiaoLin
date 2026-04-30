@@ -46,7 +46,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in 0.15s ease-out" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
       <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={onClose} />
       <div
         className="relative flex overflow-hidden rounded-[var(--radius-xl)]"
@@ -55,7 +55,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           height: "min(520px, calc(100vh - 80px))",
           background: "var(--bg-elevated)",
           boxShadow: "var(--shadow-lg)",
-          animation: "scale-in 0.2s ease-out",
+          animation: "scale-in var(--duration-normal) var(--ease-out)",
           border: `0.5px solid var(--separator)`,
         }}
       >
