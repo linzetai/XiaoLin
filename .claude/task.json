@@ -689,7 +689,8 @@
             "阻止 ::ffff:<private-v4> 映射地址",
             "5 个测试"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 is_blocked_address() SSRF guard 函数，集成到 run_http_hook。阻止 10/172.16/192.168/169.254/100.64 等私有IP + fc00/fe80 IPv6 + ::ffff:private 映射。允许 127.0.0.1/::1 loopback。5个SSRF测试全通过。"
         }
       ]
     },
