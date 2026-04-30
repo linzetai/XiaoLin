@@ -487,6 +487,59 @@ impl Default for AutoModeClassifier {
     }
 }
 
+// ── Denial Tracking ──────────────────────────────────────────────────
+
+/// Records a user denial for a specific tool+pattern combination.
+#[derive(Debug, Clone)]
+pub struct DenialRecord {
+    pub tool_name: String,
+    pub input_pattern: String,
+    pub timestamp: std::time::Instant,
+}
+
+/// Tracks denied permissions within a session to avoid re-asking.
+#[derive(Debug, Clone, Default)]
+pub struct DenialTracker {
+    denials: Vec<DenialRecord>,
+}
+
+impl DenialTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a user denial.
+    pub fn record_denial(&mut self, tool_name: &str, input_pattern: &str) {
+        self.denials.push(DenialRecord {
+            tool_name: tool_name.to_string(),
+            input_pattern: input_pattern.to_string(),
+            timestamp: std::time::Instant::now(),
+        });
+    }
+
+    /// Check if a similar request was previously denied.
+    pub fn is_denied(&self, tool_name: &str, input_pattern: &str) -> bool {
+        self.denials
+            .iter()
+            .any(|d| d.tool_name == tool_name && d.input_pattern == input_pattern)
+    }
+
+    /// Check if any request for this tool was denied (broader match).
+    pub fn is_tool_denied(&self, tool_name: &str) -> bool {
+        self.denials.iter().any(|d| d.tool_name == tool_name)
+    }
+
+    /// Clear all denial records (e.g. on session end).
+    pub fn clear(&mut self) {
+        self.denials.clear();
+    }
+
+    /// Number of recorded denials.
+    pub fn count(&self) -> usize {
+        self.denials.len()
+    }
+}
+
 /// Basic shell tokenization (splits on whitespace, respects quotes).
 fn shell_tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -711,6 +764,40 @@ mod tests {
         assert_eq!(deserialized.scope, RuleScope::Session);
         assert!(deserialized.matcher.matches("git:force-push"));
         assert!(!deserialized.matcher.matches("git:pull"));
+    }
+
+    // ── Denial Tracking Tests ─────────────────────────────────────────
+
+    #[test]
+    fn denial_tracker_records_and_checks() {
+        let mut tracker = DenialTracker::new();
+        assert!(!tracker.is_denied("shell_exec", "rm -rf /"));
+
+        tracker.record_denial("shell_exec", "rm -rf /");
+        assert!(tracker.is_denied("shell_exec", "rm -rf /"));
+        assert!(!tracker.is_denied("shell_exec", "ls"));
+        assert_eq!(tracker.count(), 1);
+    }
+
+    #[test]
+    fn denial_tracker_session_scoped() {
+        let mut tracker = DenialTracker::new();
+        tracker.record_denial("shell_exec", "dangerous");
+        tracker.record_denial("file_write", "/etc/passwd");
+        assert_eq!(tracker.count(), 2);
+
+        tracker.clear();
+        assert_eq!(tracker.count(), 0);
+        assert!(!tracker.is_denied("shell_exec", "dangerous"));
+    }
+
+    #[test]
+    fn denial_tracker_tool_level_check() {
+        let mut tracker = DenialTracker::new();
+        tracker.record_denial("shell_exec", "rm -rf /");
+
+        assert!(tracker.is_tool_denied("shell_exec"));
+        assert!(!tracker.is_tool_denied("file_read"));
     }
 
     // ── Auto Mode Classifier Tests ────────────────────────────────────

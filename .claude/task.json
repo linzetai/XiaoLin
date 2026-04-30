@@ -772,7 +772,8 @@
             "不同 session 间不共享 denial 记录",
             "3 个测试"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 DenialTracker ~50行。record_denial/is_denied/is_tool_denied/clear 方法。session 范围内记录用户拒绝，避免重复询问。3个测试全通过。"
         },
         {
           "id": "7B-05",
