@@ -589,7 +589,8 @@
             "5 个测试",
             "预计 ~200 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 EnterWorktreeTool + ExitWorktreeTool (~280行)。WorktreeState 共享状态，git worktree add/remove，5个测试全部通过。"
         },
         {
           "id": "6F-03",

@@ -23,6 +23,7 @@ mod snip;
 mod tool_search;
 mod utility;
 pub mod workflow;
+pub mod worktree;
 
 #[cfg(feature = "browser")]
 pub mod browser;
@@ -72,6 +73,7 @@ pub use terminal::TerminalCaptureTool;
 pub use tool_search::ToolSearchTool;
 pub use utility::{CalculatorTool, CurrentTimeTool, SleepTool};
 pub use workflow::{WorkflowStore, WorkflowTool, WorkflowDefinition, WorkflowRun, WorkflowStatus};
+pub use worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
 
 #[cfg(feature = "browser")]
 pub use browser::{register_browser_tool, BrowserTool};
