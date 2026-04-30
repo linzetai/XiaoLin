@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type ReactNode } from "react";
 import {
   FileText, PenLine, Search, Terminal, Globe, Download, Monitor,
   Brain, Database, Image, Volume2, PackageSearch, PackagePlus,
@@ -257,12 +257,12 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   );
 }
 
-export function ToolCallCard({ tool }: { tool: ToolCall }) {
+export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? TOOL_META[tool.name] ?? DEFAULT_META;
   const label = meta.label ?? tool.name;
-  const keyInfo = extractKeyInfo(tool);
+  const keyInfo = useMemo(() => extractKeyInfo(tool), [tool.args]);
   const hasDetails = !!(tool.args || tool.result);
 
   const isRunning = tool.status === "running";
@@ -394,4 +394,4 @@ export function ToolCallCard({ tool }: { tool: ToolCall }) {
       )}
     </div>
   );
-}
+});

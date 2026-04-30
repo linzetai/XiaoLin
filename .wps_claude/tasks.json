@@ -164,14 +164,18 @@
       "title": "组件拆分与 memo 优化",
       "phase": "组件渲染",
       "description": "AgentList.tsx (529行) 拆分：抽取 AgentListItem (memo)、NewAgentModal、WelcomePanel 为独立组件。MessageRendererRow/UserBubble/AiMessage 用 memo 包裹。ChatTabsBar 抽取 ChatTab 为 memo 组件，openChats 用 useMemo 缓存，drag handler 稳定化。ElapsedTimer 用 memo 包裹仅更新计时部分，extractKeyInfo 结果用 useMemo 缓存。",
-      "status": "pending",
+      "status": "done",
       "dependencies": ["FE-003"],
       "attentions": [
         "TOOL_META icon 已是模块级常量，不是性能瓶颈，不需要额外优化",
         "真正的瓶颈是 ElapsedTimer 200ms interval 向上传播和 extractKeyInfo 的 JSON.parse",
         "memo 包裹后需要确保 props 引用稳定：内联箭头函数 () => onToggleSelect?.(fullIdx) 每次创建新引用",
         "ChatTabsBar 的 hoveredTab state 变化导致所有 tab 重渲染，需要隔离到 ChatTab 内部",
-        "[FE-003 约束] 不能使用 useShallow 衍生选择器（React19+Zustand5 死循环）。AgentList 的 re-render 优化应通过 React.memo 子组件 + 原始 props 对比实现，而非 store selector 层面"
+        "[FE-003 约束] 不能使用 useShallow 衍生选择器（React19+Zustand5 死循环）。AgentList 的 re-render 优化应通过 React.memo 子组件 + 原始 props 对比实现，而非 store selector 层面",
+        "[FE-005 结果] UserBubble + AiMessage 用 memo 包裹。ChatTabsBar 完全重构：抽取 ChatTab memo 组件，hover 状态隔离到 ChatTab 内部（不再触发全 bar 重渲染）。openChats 用 useMemo。drag/rename handlers 全部 useCallback 稳定化",
+        "[FE-005 结果] ToolCallCard 用 memo 包裹，extractKeyInfo 结果用 useMemo([tool.args]) 缓存避免重复 JSON.parse",
+        "[FE-005 结果] ElapsedTimer 已经是独立组件，200ms interval 不会传播到父级（结构已合理）",
+        "[FE-005 结果] 回归测试 47/48 pass (1 skipped)。Build 无回归"
       ],
       "gate": "1) perf baseline agent 切换重渲染计数 = 1 (仅目标 ListItem)；2) streaming 时 Profiler 仅当前 chat 的 Row + 活跃 ToolCallCard 重渲染；3) ChatTabsBar hover 不触发其他 tab 重渲染；4) Core C1-C10 通过；5) 新建 Agent Modal + 搜索 + 拖拽功能回归"
     },

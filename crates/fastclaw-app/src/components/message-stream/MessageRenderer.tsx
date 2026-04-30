@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
+import { memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
 import { ToolCallCard } from "./ToolCallCard";
 import { SubAgentCard } from "./SubAgentCard";
@@ -28,7 +28,7 @@ function parseUserContent(content: string): { text: string; tags: Array<{ type: 
   return { text, tags };
 }
 
-function UserBubble({ msg, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
+const UserBubble = memo(function UserBubble({ msg, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
   const { text, tags } = useMemo(() => parseUserContent(msg.content), [msg.content]);
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -119,9 +119,9 @@ function UserBubble({ msg, copyable, selected, onToggleSelect, animate = true }:
       </div>
     </div>
   );
-}
+});
 
-function AiMessage({ msg, usage, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
+const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
   const toolCalls = msg.toolCalls;
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -192,7 +192,7 @@ function AiMessage({ msg, usage, copyable, selected, onToggleSelect, animate = t
       </div>
     </div>
   );
-}
+});
 
 function SystemMsg({ msg }: { msg: ChatMessage }) {
   return (
