@@ -501,7 +501,11 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
           key={chatKey}
           data={displayData}
           initialTopMostItemIndex={Math.max(0, displayData.length - 1)}
-          followOutput={(isAtBottom) => (isAtBottom ? "smooth" : false)}
+          followOutput={(isAtBottom) => {
+            if (isAtBottom) return "smooth";
+            if (streaming && atBottomRef.current) return "smooth";
+            return false;
+          }}
           atBottomStateChange={handleAtBottomChange}
           atBottomThreshold={120}
           className="flex-1"

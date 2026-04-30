@@ -362,11 +362,11 @@ const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
         {tool.name.replace(/_/g, " ")}
       </span>
       {keyInfo && (
-        <span className="min-w-0 truncate font-mono text-[10px]" style={{ color: "var(--fill-quaternary)" }} title={keyInfo}>
+        <span className="min-w-0 flex-1 truncate font-mono text-[10px]" style={{ color: "var(--fill-quaternary)" }} title={keyInfo}>
           {keyInfo}
         </span>
       )}
-      <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+      <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: "var(--fill-quaternary)", minWidth: "3em" }}>
         {isRunning && tool.startTime && `${((Date.now() - tool.startTime) / 1000).toFixed(1)}s`}
         {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
       </span>
