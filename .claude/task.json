@@ -903,7 +903,8 @@
             "10 个测试",
             "预计 ~400 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 shell_snapshot.rs ~280行。ShellSnapshot (env isolation, --norc, wrapper functions, temp dir, cleanup)。ShellType (Bash/Zsh/PowerShell) 检测和 dispatch。build_preamble 注入 env overrides + wrapper functions。ShellSnapshotPool 模板+acquire。11 个测试全通过。"
         }
       ]
     },

@@ -17,6 +17,8 @@ mod shell;
 pub mod shell_path_validation;
 pub mod shell_readonly;
 pub mod shell_security;
+#[allow(dead_code)]
+pub mod shell_snapshot;
 mod skill;
 mod todo;
 mod snip;
