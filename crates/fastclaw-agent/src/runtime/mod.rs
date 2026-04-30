@@ -64,6 +64,8 @@ pub mod hook_executor;
 #[allow(dead_code)]
 pub mod permissions;
 mod query_state;
+#[allow(dead_code)]
+pub mod side_query;
 mod session_memory;
 #[allow(dead_code)]
 mod stop_hooks;

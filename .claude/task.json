@@ -817,7 +817,8 @@
             "5 个测试",
             "预计 ~200 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 side_query() ~160行。SideQueryOptions (model/system/messages/max_tokens/temperature/max_retries/query_source/optional/abort)。Background source 的 529 不重试 (max_529_retries=0)。optional=true 失败返回 Ok(None)。CancellationToken 可中断。5 个测试全通过。"
         },
         {
           "id": "7E-02",
