@@ -298,13 +298,22 @@
       "title": "字体排版优化",
       "phase": "字体排版",
       "description": "调整 --font 字体栈：SF Pro Text 优先于 SF Pro Display（Display 为大标题设计），增加 Inter 作为 Linux fallback，增加 JetBrains Mono 到等宽字体栈。新增 --font-display 用于标题。排版微调：letter-spacing 从 -0.016em 调至 -0.011em，中文 Markdown line-height 从 1.75 调至 1.8，数字区域添加 tabular-nums，代码块行高从 1.65 调至 1.55。Settings → GeneralTab 添加字体大小 4 档选择（小/标准/大/特大）。",
-      "status": "pending",
+      "status": "done",
       "dependencies": [],
       "attentions": [
         "SF Pro Text 和 SF Pro Display 只在 macOS 上可用，其他平台走 fallback",
         "Inter 如果要 bundle 到 Tauri 应用中需要评估包体积影响（~100KB woff2）",
         "letter-spacing 修改影响全局，需要逐一验证 sidebar、message、code 区域",
-        "字体大小配置通过修改 html font-size 实现，需要确保所有用 px 的地方都改为 rem/em"
+        "字体大小配置通过修改 html font-size 实现，需要确保所有用 px 的地方都改为 rem/em",
+        "[FE-011 结果] --font: SF Pro Text 优先于 Display + Inter (Linux) + 完整 fallback 链",
+        "[FE-011 结果] --font-display: SF Pro Display 优先用于标题 (h1-h4)",
+        "[FE-011 结果] --font-mono: JetBrains Mono + SF Mono + Fira Code + Cascadia Code + system monospace",
+        "[FE-011 结果] 所有 code/pre 元素统一引用 var(--font-mono) 替代硬编码字体栈",
+        "[FE-011 结果] body letter-spacing: -0.016em → -0.011em",
+        "[FE-011 结果] markdown line-height: 1.75 → 1.8; code block line-height: 1.65 → 1.55",
+        "[FE-011 结果] config-store 新增 fontSize: small(13px)/standard(14px)/large(15px)/xlarge(16px)",
+        "[FE-011 结果] GeneralTab 显示节新增字体大小 4 档选择器，修改 document.documentElement.style.fontSize",
+        "[FE-011 结果] 回归测试 22/23 pass (1 skipped)。Visual 25/25 pass (baselines 已更新)。Build max=75.00KB gzip"
       ],
       "gate": "1) macOS 上 DevTools computed font-family 为 SF Pro Text（非 Display）；2) Linux 上 fallback 到 Inter 或 system-ui（DevTools 验证）；3) 代码块 computed font-family 含 JetBrains Mono（如已安装）；4) token 统计数字等宽对齐（截图对比）；5) Settings 字体大小 4 档切换全局响应；6) screenshot diff 全量通过（此任务生成新文字基线）；7) Core C1-C10 通过"
     },

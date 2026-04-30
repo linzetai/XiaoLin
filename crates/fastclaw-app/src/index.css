@@ -4,8 +4,12 @@
 
 :root,
 [data-theme="light"] {
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Inter", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Inter", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", "Cascadia Code",
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f7;
@@ -350,7 +354,7 @@
     text-rendering: optimizeLegibility;
     font-size: 14px;
     line-height: 1.5;
-    letter-spacing: -0.016em;
+    letter-spacing: -0.011em;
     transition:
       background-color var(--duration-slow) var(--ease-in-out),
       color var(--duration-slow) var(--ease-in-out);
@@ -427,7 +431,7 @@
 @layer components {
   .markdown-body {
     font-size: 15px;
-    line-height: 1.75;
+    line-height: 1.8;
     color: var(--fill-primary);
     word-wrap: break-word;
     overflow-wrap: anywhere;
@@ -449,6 +453,7 @@
   .markdown-body em { font-style: italic; }
 
   .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+    font-family: var(--font-display);
     font-weight: 600;
     margin-top: 1.4em;
     margin-bottom: 0.6em;
@@ -477,7 +482,7 @@
 
   /* Inline code */
   .md-inline-code {
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.86em;
     background: var(--code-inline-bg, var(--bg-secondary));
     border: 0.5px solid var(--separator);
@@ -508,7 +513,7 @@
   }
 
   .md-code-lang {
-    font-family: "SF Mono", "Fira Code", monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 500;
     color: var(--fill-tertiary);
@@ -533,9 +538,9 @@
     border: none !important;
     box-shadow: none !important;
     border-radius: 0;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
-    line-height: 1.65;
+    line-height: 1.55;
     tab-size: 2;
     font-variant-ligatures: none;
     color: var(--fill-primary);
