@@ -735,7 +735,8 @@
             "rm:-rf 匹配 'rm -rf /tmp' 但不匹配 'rm file.txt'",
             "8 个测试"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 ShellRule 解析器和 matches_command 方法。支持 command:subcommand 和 command:-flag 语法。shell_tokenize 处理引号。extract_command_name 处理路径。8个测试全通过。"
         },
         {
           "id": "7B-03",

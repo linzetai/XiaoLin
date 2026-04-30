@@ -254,6 +254,133 @@ impl PermissionRule {
     }
 }
 
+// ── Shell Rule Matching ──────────────────────────────────────────────
+
+/// Parsed shell rule in the format "command:subcommand" or "command:-flag".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellRule {
+    pub command: String,
+    pub subcommand: Option<String>,
+    pub flag: Option<String>,
+}
+
+impl ShellRule {
+    /// Parse a shell rule string like "git:push", "rm:-rf", or "docker:compose:up".
+    pub fn parse(rule: &str) -> Option<Self> {
+        let parts: Vec<&str> = rule.splitn(3, ':').collect();
+        if parts.is_empty() || parts[0].is_empty() {
+            return None;
+        }
+
+        let command = parts[0].to_string();
+        let (subcommand, flag) = if parts.len() >= 2 {
+            let second = parts[1];
+            if second.starts_with('-') {
+                (None, Some(second.to_string()))
+            } else {
+                let sub = if parts.len() == 3 {
+                    format!("{}:{}", second, parts[2])
+                } else {
+                    second.to_string()
+                };
+                (Some(sub), None)
+            }
+        } else {
+            (None, None)
+        };
+
+        Some(Self { command, subcommand, flag })
+    }
+
+    /// Check whether a shell command line matches this rule.
+    /// Performs structural matching on parsed command components.
+    pub fn matches_command(&self, command_line: &str) -> bool {
+        let tokens = shell_tokenize(command_line);
+        if tokens.is_empty() {
+            return false;
+        }
+
+        // Match the base command (may be a path like /usr/bin/git → "git")
+        let base_cmd = extract_command_name(&tokens[0]);
+        if base_cmd != self.command {
+            return false;
+        }
+
+        // If we have a subcommand requirement, check it's present
+        if let Some(sub) = &self.subcommand {
+            let non_flag_args: Vec<&str> = tokens[1..]
+                .iter()
+                .filter(|t| !t.starts_with('-'))
+                .map(|s| s.as_str())
+                .collect();
+
+            if sub.contains(':') {
+                // Multi-level subcommand like "compose:up"
+                let sub_parts: Vec<&str> = sub.split(':').collect();
+                if non_flag_args.len() < sub_parts.len() {
+                    return false;
+                }
+                for (i, sp) in sub_parts.iter().enumerate() {
+                    if non_flag_args.get(i) != Some(sp) {
+                        return false;
+                    }
+                }
+            } else if !non_flag_args.contains(&sub.as_str()) {
+                return false;
+            }
+        }
+
+        // If we have a flag requirement, check it's present
+        if let Some(flag) = &self.flag {
+            let has_flag = tokens[1..].iter().any(|t| {
+                t == flag || (flag.len() > 2 && t.contains(&flag[1..]))
+            });
+            if !has_flag {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Basic shell tokenization (splits on whitespace, respects quotes).
+fn shell_tokenize(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+
+    for ch in input.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if !in_single_quote => escaped = true,
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            ' ' | '\t' if !in_single_quote && !in_double_quote => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Extract the command name from a potentially full path.
+fn extract_command_name(token: &str) -> &str {
+    token.rsplit('/').next().unwrap_or(token)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,5 +568,69 @@ mod tests {
         assert_eq!(deserialized.scope, RuleScope::Session);
         assert!(deserialized.matcher.matches("git:force-push"));
         assert!(!deserialized.matcher.matches("git:pull"));
+    }
+
+    // ── Shell Rule Matching Tests ────────────────────────────────────
+
+    #[test]
+    fn shell_rule_parse_basic() {
+        let rule = ShellRule::parse("git:push").unwrap();
+        assert_eq!(rule.command, "git");
+        assert_eq!(rule.subcommand, Some("push".into()));
+        assert_eq!(rule.flag, None);
+    }
+
+    #[test]
+    fn shell_rule_parse_flag() {
+        let rule = ShellRule::parse("rm:-rf").unwrap();
+        assert_eq!(rule.command, "rm");
+        assert_eq!(rule.subcommand, None);
+        assert_eq!(rule.flag, Some("-rf".into()));
+    }
+
+    #[test]
+    fn shell_rule_parse_command_only() {
+        let rule = ShellRule::parse("curl").unwrap();
+        assert_eq!(rule.command, "curl");
+        assert_eq!(rule.subcommand, None);
+        assert_eq!(rule.flag, None);
+    }
+
+    #[test]
+    fn shell_rule_git_push_matches() {
+        let rule = ShellRule::parse("git:push").unwrap();
+        assert!(rule.matches_command("git push origin main"));
+        assert!(rule.matches_command("git push"));
+        assert!(!rule.matches_command("git pull"));
+        assert!(!rule.matches_command("git commit -m 'msg'"));
+    }
+
+    #[test]
+    fn shell_rule_rm_rf_matches() {
+        let rule = ShellRule::parse("rm:-rf").unwrap();
+        assert!(rule.matches_command("rm -rf /tmp/foo"));
+        assert!(rule.matches_command("rm -rf ."));
+        assert!(!rule.matches_command("rm file.txt"));
+        assert!(!rule.matches_command("rm -r dir/"));
+    }
+
+    #[test]
+    fn shell_rule_path_command_matches() {
+        let rule = ShellRule::parse("git:push").unwrap();
+        assert!(rule.matches_command("/usr/bin/git push"));
+    }
+
+    #[test]
+    fn shell_rule_quoted_args() {
+        let rule = ShellRule::parse("git:commit").unwrap();
+        assert!(rule.matches_command("git commit -m 'hello world'"));
+        assert!(rule.matches_command("git commit --amend"));
+        assert!(!rule.matches_command("git push"));
+    }
+
+    #[test]
+    fn shell_tokenize_handles_quotes() {
+        let tokens = shell_tokenize("echo 'hello world' \"foo bar\"");
+        assert_eq!(tokens, vec!["echo", "hello world", "foo bar"]);
     }
 }
