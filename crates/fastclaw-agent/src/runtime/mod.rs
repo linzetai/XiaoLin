@@ -45,6 +45,8 @@ pub mod cache_break_detection;
 pub mod cost_tracker;
 #[allow(dead_code)]
 pub mod retry;
+#[allow(dead_code)]
+pub mod streaming_tool_executor;
 mod accumulator;
 pub mod query_engine;
 pub(crate) mod context_compressor;
