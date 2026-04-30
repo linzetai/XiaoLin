@@ -190,6 +190,33 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
     (a) => !query || a.name.toLowerCase().includes(query.toLowerCase()),
   );
 
+  const [focusIdx, setFocusIdx] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setFocusIdx(-1); }, [query]);
+
+  const handleSidebarKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "/" && !query && document.activeElement !== searchInputRef.current) {
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusIdx((i) => Math.min(i + 1, list.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" && focusIdx >= 0 && focusIdx < list.length) {
+      e.preventDefault();
+      setActiveAgent(list[focusIdx].id);
+    } else if (e.key === "Escape") {
+      setQuery("");
+      setFocusIdx(-1);
+      searchInputRef.current?.blur();
+    }
+  }, [query, list, focusIdx, setActiveAgent]);
+
   return (
     <aside
       className="vibrancy flex shrink-0 flex-col"
@@ -200,6 +227,8 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
         transition: "width var(--duration-slow) var(--ease-in-out)",
         overflow: "hidden",
       }}
+      onKeyDown={handleSidebarKeyDown}
+      tabIndex={0}
     >
       {/* Header: Search / Collapse toggle */}
       <div className="flex items-center gap-1 px-3 pb-2 pt-4" style={{ minHeight: 48 }}>
@@ -220,6 +249,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
             >
               <Search size={14} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />
               <input
+                ref={searchInputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -285,6 +315,21 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
             )}
           </div>
         )}
+        {!collapsed && query && list.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <Search size={20} strokeWidth={1.5} style={{ color: "var(--fill-quaternary)" }} />
+            <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+              未找到「{query}」相关 Agent
+            </span>
+            <button
+              onClick={() => setQuery("")}
+              className="cursor-pointer text-[12px] font-medium"
+              style={{ color: "var(--tint)" }}
+            >
+              清除搜索
+            </button>
+          </div>
+        )}
         {list.map((agent, i) => {
           const active = activeAgentId === agent.id;
           const ac = agentChats[agent.id];
@@ -317,13 +362,16 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
             );
           }
 
+          const focused = focusIdx === i;
           return (
             <button
               key={agent.id}
               onClick={() => setActiveAgent(agent.id)}
               className="mb-0.5 flex w-full cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-3 py-3 text-left hover:bg-[var(--bg-hover)]"
               style={{
-                background: active ? "var(--bg-active)" : "transparent",
+                background: active ? "var(--bg-active)" : focused ? "var(--bg-hover)" : "transparent",
+                outline: focused ? "2px solid var(--tint)" : "none",
+                outlineOffset: -2,
                 animation: `slide-up var(--duration-slow) var(--ease-out) ${i * 0.04}s backwards`,
               }}
             >

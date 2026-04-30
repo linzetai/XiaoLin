@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
+import { Component, memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense, type ReactNode, type ErrorInfo } from "react";
 import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
 import { ToolCallCard } from "./ToolCallCard";
 import { SubAgentCard } from "./SubAgentCard";
@@ -8,10 +8,52 @@ import {
   ToolCallGroupCard,
   ToolCallGroupTimeline,
 } from "./ToolCallGroup";
+import { AlertTriangle } from "lucide-react";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
 );
+
+class MessageErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[MessageErrorBoundary]", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          className="mx-6 my-2 flex items-center gap-2 rounded-lg px-3 py-2 text-[12px]"
+          style={{
+            background: "color-mix(in srgb, var(--red) 6%, transparent)",
+            border: "0.5px solid color-mix(in srgb, var(--red) 20%, transparent)",
+            color: "var(--red)",
+          }}
+        >
+          <AlertTriangle size={14} strokeWidth={1.5} />
+          <span>渲染出错：{this.state.error.message}</span>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="ml-auto cursor-pointer text-[11px] font-medium underline"
+            style={{ color: "var(--fill-tertiary)" }}
+          >
+            重试
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import {
   Clock, ArrowUpRight, ArrowDownRight, Copy, Check,
 } from "lucide-react";
@@ -486,6 +528,7 @@ export function MessageRendererRow({
     const lastIsText = lastSeg?.type === "text";
     const activeSubRuns = subAgentRuns ? Object.values(subAgentRuns) : [];
     return (
+      <MessageErrorBoundary>
       <div className="px-8 pb-4">
         {!hasContent && activeSubRuns.length === 0 && <Typing />}
         {grouped.map((group, gi) => {
@@ -533,6 +576,7 @@ export function MessageRendererRow({
         )}
         <div ref={bottomRef} />
       </div>
+      </MessageErrorBoundary>
     );
   }
 
@@ -541,6 +585,7 @@ export function MessageRendererRow({
   const isMatch = searchQuery && cm.content.toLowerCase().includes(searchQuery.toLowerCase());
   const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
   return (
+    <MessageErrorBoundary>
     <div
       className="px-8 transition-colors duration-200"
       style={{
@@ -568,5 +613,6 @@ export function MessageRendererRow({
         />
       )}
     </div>
+    </MessageErrorBoundary>
   );
 }
