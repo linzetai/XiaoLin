@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, type ComponentPropsWithoutRef } from "react";
+import { memo, useState, useCallback, useMemo, type ComponentPropsWithoutRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -6,10 +6,27 @@ import { Check, Copy } from "lucide-react";
 
 interface MarkdownContentProps {
   content: string;
+  streaming?: boolean;
 }
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeHighlight];
+const rehypePluginsFull = [rehypeHighlight];
+const rehypePluginsNone: never[] = [];
+
+function hasUnclosedCodeBlock(text: string): boolean {
+  let count = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '`' && text[i + 1] === '`' && text[i + 2] === '`') {
+      count++;
+      i += 3;
+      while (i < text.length && text[i] === '`') i++;
+    } else {
+      i++;
+    }
+  }
+  return count % 2 !== 0;
+}
 
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
@@ -151,7 +168,15 @@ const components = {
 
 export const MarkdownContent = memo(function MarkdownContent({
   content,
+  streaming = false,
 }: MarkdownContentProps) {
+  const unclosed = streaming && hasUnclosedCodeBlock(content);
+  const rehypePlugins = useMemo(() => {
+    if (!streaming) return rehypePluginsFull;
+    if (unclosed) return rehypePluginsNone;
+    return rehypePluginsFull;
+  }, [streaming, unclosed]);
+
   return (
     <div className="markdown-body">
       <Markdown

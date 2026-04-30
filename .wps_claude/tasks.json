@@ -144,14 +144,18 @@
       "title": "Markdown 渲染节流 + 流式高亮优化",
       "phase": "流式渲染",
       "description": "MarkdownContent.tsx 在 streaming 时每 16ms 执行完整 rehype-highlight 语法高亮。优化方案：streaming 期间只对已闭合的代码块（检测到 ``` 配对）执行 rehypeHighlight，正在输入的代码块保持纯文本。streaming 结束后 requestIdleCallback 补全所有高亮。同时将 messageStreamRegistry 的模块级 Map 改为 Zustand store，Avatar URL 添加引用计数缓存。",
-      "status": "pending",
+      "status": "done",
       "dependencies": ["FE-003"],
       "attentions": [
         "完全跳过高亮会导致 streaming 结束时突然变色闪烁，必须用渐进高亮策略",
         "检测代码块闭合：正则匹配 /```[\\s\\S]*?```/ 或逐行状态机",
         "requestIdleCallback 在 Tauri WebView 中需要验证兼容性",
         "Avatar URL 缓存需要引用计数，组件卸载时 refCount--，为 0 时 URL.revokeObjectURL",
-        "[FE-001 影响] MarkdownContent 已改为 React.lazy 懒加载（MessageRenderer.tsx 中），vendor-markdown 和 vendor-highlight 独立分包。修改 MarkdownContent.tsx 时注意它现在是异步加载的独立 chunk"
+        "[FE-001 影响] MarkdownContent 已改为 React.lazy 懒加载（MessageRenderer.tsx 中），vendor-markdown 和 vendor-highlight 独立分包。修改 MarkdownContent.tsx 时注意它现在是异步加载的独立 chunk",
+        "[FE-004 结果] MarkdownContent 新增 streaming prop。streaming 期间用 hasUnclosedCodeBlock() 检测三反引号配对——奇数 = 未闭合 → 跳过 rehype-highlight (rehypePluginsNone)；偶数 = 所有代码块已闭合 → 正常高亮 (rehypePluginsFull)。streaming 结束后自动回到全量高亮",
+        "[FE-004 结果] hasUnclosedCodeBlock 用线性扫描实现 O(n)，跳过连续多于 3 个反引号的情况",
+        "[FE-004 结果] Avatar URL 改为模块级 Map 共享缓存 + 引用计数。acquireAvatar() ref++，releaseAvatar() ref--，ref=0 时 revokeObjectURL。同一路径多组件共享同一 blob URL",
+        "[FE-004 结果] 回归测试 47/48 pass (1 skipped)。Build 无回归"
       ],
       "gate": "1) perf baseline streaming P95 帧时间下降 > 40% (对比 FE-003 完成后的 baseline)；2) 已闭合代码块有高亮，未闭合的保持纯文本；3) streaming 结束后 1-2 帧内所有代码块完成高亮（无视觉闪烁）；4) Avatar 相同路径只读一次文件系统（Network 面板验证）；5) Core C1-C10 通过"
     },

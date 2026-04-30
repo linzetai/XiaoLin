@@ -8,7 +8,9 @@ function mimeFromExt(path: string): string {
   return "image/png";
 }
 
-export async function loadAvatarBlobUrl(filePath: string): Promise<string | null> {
+const avatarCache = new Map<string, { url: string; refCount: number; loading?: Promise<string | null> }>();
+
+async function resolveAvatarUrl(filePath: string): Promise<string | null> {
   if (!transport.isTauri || !filePath) return null;
   try {
     const { readFile } = await import("@tauri-apps/plugin-fs");
@@ -25,36 +27,71 @@ export async function loadAvatarBlobUrl(filePath: string): Promise<string | null
   }
 }
 
+function acquireAvatar(filePath: string): Promise<string | null> {
+  const cached = avatarCache.get(filePath);
+  if (cached) {
+    cached.refCount++;
+    if (cached.url) return Promise.resolve(cached.url);
+    if (cached.loading) return cached.loading;
+  }
+  const entry = { url: "", refCount: cached ? cached.refCount : 1, loading: undefined as Promise<string | null> | undefined };
+  const p = resolveAvatarUrl(filePath).then((result) => {
+    if (result) entry.url = result;
+    entry.loading = undefined;
+    return result;
+  });
+  entry.loading = p;
+  avatarCache.set(filePath, entry);
+  return p;
+}
+
+function releaseAvatar(filePath: string) {
+  const cached = avatarCache.get(filePath);
+  if (!cached) return;
+  cached.refCount--;
+  if (cached.refCount <= 0) {
+    if (cached.url && cached.url.startsWith("blob:")) {
+      URL.revokeObjectURL(cached.url);
+    }
+    avatarCache.delete(filePath);
+  }
+}
+
+export async function loadAvatarBlobUrl(filePath: string): Promise<string | null> {
+  return acquireAvatar(filePath);
+}
+
 /**
  * Resolves a local file path to a displayable blob: URL.
- * Automatically cleans up the previous blob URL on path change or unmount.
+ * Uses shared reference-counted cache — same path across multiple
+ * components reads the file system only once.
  */
 export function useAvatarUrl(filePath: string | undefined | null): string | undefined {
   const [url, setUrl] = useState<string | undefined>(undefined);
-  const blobRef = useRef<string | null>(null);
+  const acquiredRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (blobRef.current) {
-      URL.revokeObjectURL(blobRef.current);
-      blobRef.current = null;
+    if (acquiredRef.current) {
+      releaseAvatar(acquiredRef.current);
+      acquiredRef.current = null;
     }
     setUrl(undefined);
 
     if (!filePath) return;
     let cancelled = false;
-    loadAvatarBlobUrl(filePath).then((result) => {
+    acquireAvatar(filePath).then((result) => {
       if (cancelled || !result) return;
-      blobRef.current = result;
+      acquiredRef.current = filePath;
       setUrl(result);
     });
-    return () => { cancelled = true; };
-  }, [filePath]);
-
-  useEffect(() => {
     return () => {
-      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+      cancelled = true;
+      if (acquiredRef.current) {
+        releaseAvatar(acquiredRef.current);
+        acquiredRef.current = null;
+      }
     };
-  }, []);
+  }, [filePath]);
 
   return url;
 }

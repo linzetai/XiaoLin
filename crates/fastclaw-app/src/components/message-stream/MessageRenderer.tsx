@@ -474,7 +474,7 @@ export function MessageRendererRow({
             return (
               <div key={seg.id} className="pb-1" style={{ maxWidth: "75%" }}>
                 <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
-                  <MarkdownContent content={seg.content} />
+                  <MarkdownContent content={seg.content} streaming />
                 </Suspense>
                 {isLast && (
                   <span
