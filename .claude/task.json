@@ -992,7 +992,8 @@
             "可通过配置关闭",
             "3 个测试"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "Added StreamEvent::Suggestions variant to fastclaw-core types. Created prompt_suggestion.rs module with generate_suggestions() using side-query (Background source), SuggestionConfig with enabled toggle, context summarization from last 6 messages, and response parsing (strips bullets/numbering, enforces length bounds). 3 tests covering parsing, max limit, and disabled config."
         },
         {
           "id": "7D-03",

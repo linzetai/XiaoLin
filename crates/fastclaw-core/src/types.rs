@@ -525,6 +525,11 @@ pub enum StreamEvent {
         usage: Option<Usage>,
         elapsed_ms: u64,
     },
+
+    /// Suggested next actions generated at the end of an assistant turn.
+    Suggestions {
+        items: Vec<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
