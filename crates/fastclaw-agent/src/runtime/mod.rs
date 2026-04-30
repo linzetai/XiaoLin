@@ -70,6 +70,8 @@ pub mod side_query;
 pub mod memory_selection;
 #[allow(dead_code)]
 pub mod prompt_suggestion;
+#[allow(dead_code)]
+pub mod magic_docs;
 mod session_memory;
 #[allow(dead_code)]
 mod stop_hooks;
