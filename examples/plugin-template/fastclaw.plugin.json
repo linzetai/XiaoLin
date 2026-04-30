@@ -1,8 +1,0 @@
-{
-  "name": "plugin-template",
-  "version": "0.1.0",
-  "description": "Example FastClaw WASM plugin",
-  "wasm": "fastclaw_plugin_template.wasm",
-  "capabilities": ["hello"],
-  "author": "FastClaw Team"
-}
