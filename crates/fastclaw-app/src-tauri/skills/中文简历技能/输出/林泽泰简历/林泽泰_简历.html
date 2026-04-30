@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>林泽泰 - Agent引擎工程师简历</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #f5f7fa;
+            color: #1a1a2e;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+        }
+        .header h1 {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .header .target {
+            font-size: 1.1em;
+            opacity: 0.9;
+            margin-bottom: 16px;
+        }
+        .contact {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            font-size: 0.95em;
+        }
+        .contact a {
+            color: white;
+            text-decoration: none;
+            opacity: 0.9;
+        }
+        .contact a:hover { opacity: 1; text-decoration: underline; }
+        .content { padding: 40px; }
+        .section { margin-bottom: 32px; }
+        .section-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+        }
+        .edu-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+        .edu-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .edu-item .name { font-weight: 600; font-size: 1.05em; }
+        .edu-item .detail { color: #666; font-size: 0.95em; }
+        .job { margin-bottom: 28px; }
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 6px;
+        }
+        .job-header .company { font-weight: 700; font-size: 1.15em; }
+        .job-header .period { color: #666; font-size: 0.95em; }
+        .job-header .role { color: #667eea; font-weight: 600; }
+        .job-desc { color: #555; margin-bottom: 12px; font-size: 0.95em; }
+        .achievement {
+            background: #f8f9ff;
+            border-left: 3px solid #667eea;
+            padding: 14px 18px;
+            margin-bottom: 14px;
+            border-radius: 0 8px 8px 0;
+        }
+        .achievement h4 {
+            font-size: 1em;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+        .achievement p {
+            font-size: 0.93em;
+            color: #444;
+            margin-bottom: 4px;
+        }
+        .achievement .tag {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            margin-right: 6px;
+        }
+        .project { margin-bottom: 20px; }
+        .project-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+        .project-header .name { font-weight: 700; font-size: 1.1em; }
+        .project-header .period { color: #666; font-size: 0.9em; }
+        .project .link { color: #667eea; font-size: 0.9em; text-decoration: none; }
+        .project .link:hover { text-decoration: underline; }
+        .project ul {
+            padding-left: 20px;
+            margin-top: 8px;
+        }
+        .project li {
+            font-size: 0.93em;
+            color: #444;
+            margin-bottom: 4px;
+        }
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .skill-card {
+            background: #f8f9ff;
+            padding: 14px 18px;
+            border-radius: 8px;
+        }
+        .skill-card h4 {
+            font-size: 0.9em;
+            color: #667eea;
+            margin-bottom: 6px;
+        }
+        .skill-card p {
+            font-size: 0.9em;
+            color: #444;
+        }
+        .note {
+            background: #fff8e1;
+            border-left: 3px solid #ffc107;
+            padding: 14px 18px;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+        @media (max-width: 600px) {
+            .container { margin: 0; border-radius: 0; }
+            .header, .content { padding: 24px; }
+            .skills-grid { grid-template-columns: 1fr; }
+            .contact { flex-direction: column; gap: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>林泽泰</h1>
+            <div class="target">求职意向：Agent 引擎工程师</div>
+            <div class="contact">
+                <span>📞 13415086121</span>
+                <span>✉ 1770232495@qq.com</span>
+                <a href="https://github.com/linzetai" target="_blank">🔗 github.com/linzetai</a>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- 教育背景 -->
+            <div class="section">
+                <h2 class="section-title">教育背景</h2>
+                <div class="edu-grid">
+                    <div class="edu-item">
+                        <span class="name">中国地质大学（武汉）</span>
+                        <span class="detail">网络工程 · 本科 · 2018.09 – 2022.06</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 工作经历 -->
+            <div class="section">
+                <h2 class="section-title">工作经历</h2>
+                <div class="job">
+                    <div class="job-header">
+                        <div>
+                            <span class="company">珠海金山办公</span>
+                            <span class="role"> · 软件工程师</span>
+                        </div>
+                        <span class="period">2022.07 – 至今</span>
+                    </div>
+                    <p class="job-desc">负责金山文档在线表格核心引擎开发（C++），聚焦协同编辑与分布式架构方向。</p>
+
+                    <div class="achievement">
+                        <h4><span class="tag">分布式架构</span>分布式多内核架构</h4>
+                        <p><strong>背景：</strong>在线表格单内核架构面临性能瓶颈，读写混合负载导致延迟高、扩展性差</p>
+                        <p><strong>方案：</strong>设计并实现一写多读的分布式多内核架构，将写操作与读操作分离到不同内核实例</p>
+                        <p><strong>角色：</strong>核心开发人员，负责关键模块实现</p>
+                        <p><strong>结果：</strong>支持多实例并发读取，显著提升系统吞吐量与横向扩展能力</p>
+                    </div>
+
+                    <div class="achievement">
+                        <h4><span class="tag">性能优化</span>视图按需更新机制</h4>
+                        <p><strong>背景：</strong>原有视图更新采用全量刷新策略，复杂度为 O(n²)，大数据量场景下性能严重下降</p>
+                        <p><strong>方案：</strong>主导设计增量更新算法，仅对变更区域进行视图重绘，将复杂度从 O(n²) 降至 O(n)</p>
+                        <p><strong>角色：</strong>项目负责人，独立完成方案设计与落地</p>
+                        <p><strong>结果：</strong>大幅降低渲染开销，表格操作响应速度显著提升</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 项目经历 -->
+            <div class="section">
+                <h2 class="section-title">项目经历</h2>
+                <div class="project">
+                    <div class="project-header">
+                        <div>
+                            <span class="name">FastClaw</span>
+                            <span class="period"> · 开源项目 · 独立开发者 · 2024 – 至今</span>
+                        </div>
+                    </div>
+                    <a class="link" href="https://github.com/linzetai/FastClaw" target="_blank">🔗 github.com/linzetai/FastClaw</a>
+                    <p style="font-size:0.93em; color:#555; margin-top:8px;">本地优先的 AI Agent 框架，支持 MCP 协议、多后端推理、跨平台桌面应用。</p>
+                    <ul>
+                        <li><strong>MCP 协议实现：</strong>完整实现 Model Context Protocol 服务端，支持 stdio / SSE / WebSocket 三种传输方式，实现 Tools / Prompts / Resources 三大核心能力</li>
+                        <li><strong>多 Agent 协作：</strong>设计多 Agent 调度架构，支持 Agent 消息总线、子 Agent 委派、工具共享等协作模式</li>
+                        <li><strong>LLM 推理引擎：</strong>实现多后端 LLM 集成（OpenAI API / Ollama / LM Studio），支持流式输出、并发请求、错误重试</li>
+                        <li><strong>跨平台桌面：</strong>基于 Tauri 2.0 构建 macOS / Linux / Windows 桌面应用，20+ Rust crates，模块化架构</li>
+                    </ul>
+                    <p style="font-size:0.88em; color:#888; margin-top:8px;">技术栈：Rust, TypeScript, Tauri, MCP, SQLite, Tokio</p>
+                </div>
+            </div>
+
+            <!-- 专业技能 -->
+            <div class="section">
+                <h2 class="section-title">专业技能</h2>
+                <div class="skills-grid">
+                    <div class="skill-card">
+                        <h4>编程语言</h4>
+                        <p>C++（精通，4年生产经验）<br>JavaScript / TypeScript<br>Rust（项目实践）</p>
+                    </div>
+                    <div class="skill-card">
+                        <h4>系统开发</h4>
+                        <p>分布式系统架构<br>高性能并发编程<br>算法复杂度优化</p>
+                    </div>
+                    <div class="skill-card">
+                        <h4>AI / Agent</h4>
+                        <p>MCP 协议<br>多 Agent 协作框架<br>LLM API 集成</p>
+                    </div>
+                    <div class="skill-card">
+                        <h4>工具 / 平台</h4>
+                        <p>Git, Tauri, SQLite<br>Docker<br>Linux / macOS 开发</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 备注 -->
+            <div class="section">
+                <div class="note">
+                    <strong>💡 个人简介：</strong>4年C++底层系统开发经验，具备分布式架构设计与性能优化能力。开源项目 FastClaw 独立开发者，持续探索 Agent 引擎与 AI 应用方向。技术栈从 C++ 向 Rust 延伸，具备快速学习和技术迁移能力。
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

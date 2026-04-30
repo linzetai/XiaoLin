@@ -1,0 +1,19 @@
+Agent引擎工程师
+
+岗位职责：
+1. 负责AI Agent引擎的架构设计与核心开发，构建高效、可扩展的Agent运行框架
+2. 实现Agent的规划（Planning）、记忆（Memory）、工具调用（Tool Use）等核心能力
+3. 支持多Agent协作模式，包括任务分解、Agent编排、通信协调等
+4. 优化Agent执行性能，提升并发处理能力和响应速度
+5. 集成LLM模型，实现Prompt工程、上下文管理、Token优化等
+6. 支持MCP（Model Context Protocol）等标准协议，实现工具生态接入
+
+任职要求：
+1. 扎实的编程基础，精通C++/Go/Rust/Python中至少一门语言
+2. 有分布式系统或高性能系统开发经验，理解并发编程和架构设计
+3. 了解大语言模型（LLM）原理和应用，有Agent框架开发经验者优先
+4. 熟悉MCP协议、LangChain、AutoGen等多Agent框架者优先
+5. 良好的系统设计能力，能处理复杂架构的技术挑战
+6. 有开源项目或技术博客者优先
+
+技术栈参考：Rust/Go/Python，LLM API集成，MCP协议，分布式系统，并发编程

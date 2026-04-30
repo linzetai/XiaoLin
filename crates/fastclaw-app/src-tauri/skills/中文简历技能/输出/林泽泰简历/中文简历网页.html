@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>林泽泰 | 中文简历</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    body {
+      color: #0f172a;
+      background-color: #fff;
+      font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      line-height: 1.6;
+    }
+    section { padding: 4.5rem 1.2rem; }
+    .container { max-width: 1040px; margin: 0 auto; }
+    .grid { display: grid; gap: 1.5rem; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    #hero {
+      min-height: 72vh;
+      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .hero-name { font-size: 2.8rem; margin-bottom: 0.6rem; }
+    .hero-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.8rem; }
+    .hero-info { color: #64748b; margin-bottom: 1rem; }
+    .hero-highlights { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.55rem; }
+    .highlight-tag {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 9999px;
+      padding: 0.35rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+
+    .section-title {
+      text-align: center;
+      font-size: 1.85rem;
+      margin-bottom: 2.2rem;
+      position: relative;
+    }
+    .section-title:after {
+      content: '';
+      display: block;
+      width: 62px;
+      height: 3px;
+      background: #0f172a;
+      margin: 0.9rem auto 0;
+    }
+
+    .experience-card, .project-card, .skill-category {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 1.35rem;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+      transition: all 0.2s ease;
+    }
+    .experience-card:hover, .project-card:hover, .skill-category:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    }
+    .experience-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin-bottom: 0.7rem;
+    }
+    @media (max-width: 640px) { .experience-header { flex-direction: column; } }
+
+    .experience-company { font-size: 1.13rem; font-weight: 600; }
+    .experience-position { font-size: 0.98rem; font-weight: 500; margin-top: 0.35rem; }
+    .experience-date, .experience-sub { color: #64748b; font-size: 0.88rem; }
+    .experience-sub { margin-bottom: 0.7rem; }
+
+    .experience-highlights, .project-highlights { list-style: disc; padding-left: 1.2rem; }
+    .experience-highlights li, .project-highlights li { margin-bottom: 0.52rem; color: #334155; line-height: 1.72; }
+    .metric-row { margin-top: 0.35rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .metric-pill {
+      border-radius: 9999px;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .project-date { color: #64748b; font-size: 0.85rem; margin-bottom: 0.45rem; }
+    .project-title { font-size: 1.1rem; margin-bottom: 0.65rem; }
+
+    .skills-section { background: #f8fafc; }
+    .skills-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .category-title { margin-bottom: 0.7rem; font-size: 1.03rem; font-weight: 600; }
+    .skill-tags { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .skill-tag {
+      display: inline-block;
+      border-radius: 9999px;
+      background: #eef2ff;
+      color: #0f172a;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      border: 1px solid #dbeafe;
+    }
+
+    .footer-note {
+      text-align: center;
+      color: #64748b;
+      padding: 1.4rem 1rem 2.2rem;
+      font-size: 0.84rem;
+    }
+  </style>
+</head>
+<body>
+  <section id="hero">
+    <div class="container">
+      <h1 class="hero-name">林泽泰</h1>
+      <p class="hero-title">意向岗位：Agent引擎工程师</p>
+      <p class="hero-info">电话：13415086121 ｜ 邮箱：1770232495@qq.com ｜ 地点：</p>
+      <div class="hero-highlights"><span class="highlight-tag">复盘优化</span><span class="highlight-tag">agent</span><span class="highlight-tag">llm</span><span class="highlight-tag">mcp</span><span class="highlight-tag">协议</span><span class="highlight-tag">实现</span><span class="highlight-tag">集成</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2 class="section-title">教育背景</h2>
+      
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2 class="section-title">实习/项目经历</h2>
+      
+            <div class="experience-card">
+              <div class="experience-header">
+                <div>
+                  <div class="experience-company">珠海金山办公</div>
+                  <div class="experience-position">软件工程师</div>
+                </div>
+                <div class="experience-date">2022.07 - 至今</div>
+              </div>
+              <div class="experience-sub"></div>
+              <ul class="experience-highlights"><li><strong>结果导向：</strong>主导分布式多内核架构设计，实现一写多读的分布式架构，是核心开发人员<div class="metric-row"></div></li><li><strong>结果导向：</strong>负责金山文档在线表格内核开发，主要技术栈为C++<div class="metric-row"></div></li><li><strong>结果导向：</strong>负责在线表格的协作功能模块开发<div class="metric-row"></div></li></ul>
+            </div>
+            
+            <div class="experience-card">
+              <div class="experience-header">
+                <div>
+                  <div class="experience-company">FastClaw</div>
+                  <div class="experience-position">开源项目，独立开发者</div>
+                </div>
+                <div class="experience-date">2024 - 至今</div>
+              </div>
+              <div class="experience-sub"></div>
+              <ul class="experience-highlights"><li><strong>结果导向：</strong>项目包含20+个Rust crates，涵盖LLM集成、MCP协议、系统工具等模块<div class="metric-row"><span class="metric-pill">20+</span></div></li><li><strong>结果导向：</strong>开发本地优先的AI Agent框架，支持MCP协议和多Agent协作<div class="metric-row"></div></li><li><strong>结果导向：</strong>实现基于Tauri的跨平台桌面应用，支持macOS/Linux/Windows<div class="metric-row"></div></li></ul>
+            </div>
+            
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <h2 class="section-title">项目补充</h2>
+      <div class="grid grid-2"></div>
+    </div>
+  </section>
+
+  <section class="skills-section">
+    <div class="container">
+      <h2 class="section-title">技能与工具</h2>
+      <div class="skills-grid"></div>
+    </div>
+  </section>
+
+  <div class="footer-note">说明：本页面为教学演示版，投递前请人工校验事实、量化数据与时间线一致性。</div>
+</body>
+</html>

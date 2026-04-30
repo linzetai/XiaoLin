@@ -331,6 +331,43 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
     const taRef = useRef<HTMLTextAreaElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    type HistoryEntry = { text: string; mentions: InlineMention[]; cursor: number };
+    const historyRef = useRef<HistoryEntry[]>([{ text: "", mentions: [], cursor: 0 }]);
+    const historyIdxRef = useRef(0);
+    const pushHistory = useCallback((t: string, m: InlineMention[], cursor: number) => {
+      const h = historyRef.current;
+      const idx = historyIdxRef.current;
+      if (h[idx]?.text === t) return;
+      historyRef.current = [...h.slice(0, idx + 1), { text: t, mentions: m, cursor }];
+      historyIdxRef.current = historyRef.current.length - 1;
+      if (historyRef.current.length > 100) {
+        historyRef.current = historyRef.current.slice(-80);
+        historyIdxRef.current = historyRef.current.length - 1;
+      }
+    }, []);
+    const undo = useCallback(() => {
+      if (historyIdxRef.current <= 0) return;
+      historyIdxRef.current--;
+      const entry = historyRef.current[historyIdxRef.current];
+      setText(entry.text);
+      setMentions(entry.mentions);
+      onContentChange?.(!!entry.text.trim());
+      setTimeout(() => {
+        taRef.current?.setSelectionRange(entry.cursor, entry.cursor);
+      }, 0);
+    }, [onContentChange]);
+    const redo = useCallback(() => {
+      if (historyIdxRef.current >= historyRef.current.length - 1) return;
+      historyIdxRef.current++;
+      const entry = historyRef.current[historyIdxRef.current];
+      setText(entry.text);
+      setMentions(entry.mentions);
+      onContentChange?.(!!entry.text.trim());
+      setTimeout(() => {
+        taRef.current?.setSelectionRange(entry.cursor, entry.cursor);
+      }, 0);
+    }, [onContentChange]);
+
     const { refs, floatingStyles } = useFloating({
       open: popupActive,
       placement: "top-start",
@@ -358,6 +395,8 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
       clear: () => {
         setText("");
         setMentions([]);
+        historyRef.current = [{ text: "", mentions: [], cursor: 0 }];
+        historyIdxRef.current = 0;
         if (taRef.current) taRef.current.style.height = "auto";
       },
       getText: () => text,
@@ -412,6 +451,7 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         });
         setMentions(validMentions);
         setText(newVal);
+        pushHistory(newVal, validMentions, cursorPos);
         onContentChange?.(!!newVal.trim());
 
         const beforeCursor = newVal.slice(0, cursorPos);
@@ -444,7 +484,7 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         setPopupQuery("");
         setPopupStart(-1);
       },
-      [text, updateMentionPositions, onContentChange],
+      [text, updateMentionPositions, onContentChange, pushHistory],
     );
 
     const insertMention = useCallback(
@@ -538,6 +578,17 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         if (extraKeyHandler?.(e)) return;
 
         const isMod = e.metaKey || e.ctrlKey;
+
+        if (isMod && e.key === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if (isMod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+          e.preventDefault();
+          redo();
+          return;
+        }
 
         if (popupActive) {
           if (e.key === "ArrowDown") {
@@ -649,6 +700,8 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         onAttach,
         onRecallLastMessage,
         extraKeyHandler,
+        undo,
+        redo,
       ],
     );
 

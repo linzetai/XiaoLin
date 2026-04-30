@@ -352,13 +352,25 @@ const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
 
   return (
     <div className="flex items-center gap-2 py-[3px] text-[11px]">
-      <span className="relative z-10 flex h-[7px] w-[7px] shrink-0 items-center justify-center rounded-full"
+      <span className="relative z-10 flex shrink-0 items-center justify-center rounded-full"
         style={{
+          width: isRunning ? 9 : 7,
+          height: isRunning ? 9 : 7,
           background: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-quaternary)",
-          boxShadow: isRunning ? "0 0 0 2px var(--bg-secondary)" : undefined,
+          boxShadow: isRunning ? "0 0 0 2px var(--bg-secondary), 0 0 0 3.5px color-mix(in srgb, var(--tint) 30%, transparent)" : undefined,
+          animation: isRunning ? "pulse 1.5s ease-in-out infinite" : undefined,
         }}
       />
-      <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}>
+      {isRunning && (
+        <span
+          className="inline-block h-3 w-3 shrink-0 rounded-full border-[1.5px]"
+          style={{
+            borderColor: "var(--tint) transparent transparent transparent",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+      )}
+      <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-secondary)" }}>
         {tool.name.replace(/_/g, " ")}
       </span>
       {keyInfo && (
@@ -366,7 +378,7 @@ const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
           {keyInfo}
         </span>
       )}
-      <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: "var(--fill-quaternary)", minWidth: "3em" }}>
+      <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: isRunning ? "var(--tint)" : "var(--fill-quaternary)", minWidth: "3em" }}>
         {isRunning && tool.startTime && `${((Date.now() - tool.startTime) / 1000).toFixed(1)}s`}
         {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
       </span>
