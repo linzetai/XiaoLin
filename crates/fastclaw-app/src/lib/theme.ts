@@ -6,9 +6,12 @@ type ResolvedTheme = "light" | "dark";
 
 export type AccentTheme =
   | "default"
+  | "monochrome"
   | "ocean"
   | "sunset"
-  | "midnight";
+  | "midnight"
+  | "sage"
+  | "rose";
 
 export interface AccentPreset {
   id: AccentTheme;
@@ -22,6 +25,13 @@ export interface AccentPreset {
 export const ACCENT_PRESETS: AccentPreset[] = [
   {
     id: "default", label: "经典",
+    preview: {
+      light: { bg: "#ffffff", sidebar: "#f5f5f7", accent: "#2563EB", text: "#6e6e73" },
+      dark:  { bg: "#000000", sidebar: "#1c1c1e", accent: "#60A5FA", text: "#98989d" },
+    },
+  },
+  {
+    id: "monochrome", label: "素雅",
     preview: {
       light: { bg: "#ffffff", sidebar: "#f5f5f7", accent: "#1d1d1f", text: "#6e6e73" },
       dark:  { bg: "#000000", sidebar: "#1c1c1e", accent: "#e5e5ea", text: "#98989d" },
@@ -46,6 +56,20 @@ export const ACCENT_PRESETS: AccentPreset[] = [
     preview: {
       light: { bg: "#F8FAFC", sidebar: "#F1F5F9", accent: "#3B82F6", text: "#334155" },
       dark:  { bg: "#020617", sidebar: "#0F172A", accent: "#60A5FA", text: "#94A3B8" },
+    },
+  },
+  {
+    id: "sage", label: "鼠尾草",
+    preview: {
+      light: { bg: "#F7FAF8", sidebar: "#EDF5F0", accent: "#16A34A", text: "#2D6B44" },
+      dark:  { bg: "#0A1A10", sidebar: "#0F261A", accent: "#4ADE80", text: "#6ECC8E" },
+    },
+  },
+  {
+    id: "rose", label: "玫瑰",
+    preview: {
+      light: { bg: "#FFF7F9", sidebar: "#FEEEF2", accent: "#E11D48", text: "#881337" },
+      dark:  { bg: "#1A0A10", sidebar: "#2D1220", accent: "#FB7185", text: "#FB7185" },
     },
   },
 ];

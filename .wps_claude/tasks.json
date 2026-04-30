@@ -184,13 +184,19 @@
       "title": "连续工具调用分组折叠",
       "phase": "UI/UX",
       "description": "新建 ToolCallGroup.tsx 组件。当连续 3+ 个 tool call 相邻时自动分组。折叠态显示摘要（工具类型分布、总耗时、错误数、关键路径）。Streaming 期间用竖向时间轴模式（每行 ~28px vs 当前 ~44px）。智能折叠策略：最近 2 个展开，之前折叠；error 始终展开。折叠阈值可配置。在 MessageRendererRow streaming 分支中用 groupConsecutiveTools(streamSegments) memo 化函数分组。AiMessage 对 msg.toolCalls 同理。",
-      "status": "pending",
+      "status": "done",
       "dependencies": ["FE-005"],
       "attentions": [
         "分组逻辑：连续 = segment 之间无 text 类型 segment 间隔",
         "SubAgentCard 内部的工具调用应嵌套在 sub-agent 时间轴中，不参与主消息流分组",
         "折叠/展开切换需要动画（--duration-fast fade-in），避免布局跳跃",
-        "DiffCard 和 TodoCard 是特殊展示卡片，分组时仍需独立展示"
+        "DiffCard 和 TodoCard 是特殊展示卡片，分组时仍需独立展示",
+        "[FE-006 结果] ToolCallGroup.tsx 实现两种视图：ToolCallGroupCard（历史消息折叠卡片）和 ToolCallGroupTimeline（streaming 竖向时间轴）",
+        "[FE-006 结果] groupConsecutiveSegments() 处理 streaming segments，groupConsecutiveToolCalls() 处理 AiMessage.toolCalls",
+        "[FE-006 结果] 智能折叠策略：timeline 默认只显示最后 2 个 + 所有 error；card 默认全折叠，error 始终可见",
+        "[FE-006 结果] isSpecialToolCall() 判断 DiffCard/TodoCard 工具——这些不参与分组，始终独立显示",
+        "[FE-006 结果] 阈值配置：config-store.ts 新增 DisplayConfig { toolCallGroupThreshold }，Settings > 显示 提供 2/3/5/10 四档",
+        "[FE-006 结果] 回归测试 22/23 pass (1 skipped)。Visual 25/25 pass。Build 无回归，index gzip=32.24KB"
       ],
       "gate": "1) 连续 10 个 tool call 折叠态高度 < 80px；2) 展开后恢复为独立卡片列表；3) error 状态工具始终可见；4) 分组摘要正确显示类型分布和总耗时；5) Settings 中阈值可调；6) screenshot diff 通过（tool call 消息场景）；7) Core C3/C4 通过"
     },
