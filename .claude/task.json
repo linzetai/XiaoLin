@@ -866,7 +866,8 @@
             "20+ 解析测试",
             "预计 ~800 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 shell_ast.rs ~750行。ShellAst enum 9 变体 (Command/Pipeline/And/Or/Sequence/Subshell/Function/If/For/While/Case/Assignment/CompoundList/Raw)。ShellArg 5 种引号上下文 (Literal/SingleQuoted/DoubleQuoted/CommandSubstitution/Heredoc)。Redirection 6 种操作。工具函数: extract_command_names, has_command_substitution, nesting_depth。24 个测试全通过。"
         },
         {
           "id": "6Av2-02",
