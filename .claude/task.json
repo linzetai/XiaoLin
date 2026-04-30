@@ -652,7 +652,8 @@
             "10 个测试",
             "预计 ~400 行"
           ],
-          "status": "pending"
+          "status": "done",
+          "completion_notes": "实现 HookExecutor ~330行。支持 Shell/Http/Internal 三种 handler。HookEventFilter 支持 All/EventType/ToolName/ToolPattern(glob)。timeout + CancellationToken abort。10个测试全通过。"
         },
         {
           "id": "7A-03",
