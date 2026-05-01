@@ -36,8 +36,8 @@
     "title": "SUMMARIZE_TOOL_RESULTS 提示词 + 行为心理学指导",
     "phase": "提示词工程",
     "description": "在 doing_tasks_en() 和 doing_tasks_zh() 中追加 4 条高阶行为指导（对齐 claude-code 经 A/B 验证的模型行为调优）：1) REPORT FAITHFULLY（忠实报告，禁止虚报 pass）；2) BE A COLLABORATOR（主动纠正误解、指出相邻 bug）；3) STAY STEADY（承认错误但不崩溃）；4) SAVE CONTEXT（工具结果可能被清除，先记住关键信息到回复文本中）。其中第 4 条是 microcompact 的必要配套——没有它，旧工具结果被清除后模型会丢失关键事实。",
-    "status": "pending",
-    "completion_note": "",
+    "status": "done",
+    "completion_note": "已完成：在 doing_tasks_en() 追加规则 7-10（REPORT FAITHFULLY / BE A COLLABORATOR / STAY STEADY / SAVE CONTEXT），在 doing_tasks_zh() 追加对应中文版（忠实报告/做协作者而非执行器/保持稳定/保存关键上下文）。中文版适配了中文用户习惯表述，非简单翻译。更新 2 个单元测试增加 8 条断言验证新关键词。全部 940+4+86 测试通过，cargo check --workspace 编译通过。",
     "dependencies": ["CTX-001"],
     "attentions": [
       "修改位置：crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs doing_tasks_en() 和 doing_tasks_zh()",
