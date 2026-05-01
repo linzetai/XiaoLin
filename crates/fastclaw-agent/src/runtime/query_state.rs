@@ -567,4 +567,101 @@ mod tests {
         assert_eq!(ContinueReason::ToolUse.to_string(), "tool_use");
         assert_eq!(ContinueReason::StreamResume.to_string(), "stream_resume");
     }
+
+    #[test]
+    fn basic_recovery_guidance_empty_streak_returns_none() {
+        use super::super::format_basic_recovery_guidance;
+        assert!(format_basic_recovery_guidance(&[]).is_none());
+    }
+
+    #[test]
+    fn basic_recovery_guidance_includes_tool_name_and_error() {
+        use super::super::format_basic_recovery_guidance;
+        let streak = vec![
+            ToolCallTrace {
+                tool_name: "read_file".into(),
+                success: false,
+                latency_ms: 0,
+                error: Some("No such file: /tmp/missing.txt".into()),
+            },
+            ToolCallTrace {
+                tool_name: "shell_exec".into(),
+                success: false,
+                latency_ms: 0,
+                error: Some("command not found: foobar".into()),
+            },
+        ];
+        let guidance = format_basic_recovery_guidance(&streak).unwrap();
+        assert!(guidance.contains("read_file"), "should mention failing tool name");
+        assert!(guidance.contains("No such file"), "should include error message");
+        assert!(guidance.contains("shell_exec"), "should mention second failing tool");
+        assert!(guidance.contains("command not found"), "should include second error");
+        assert!(guidance.contains("File/path errors"), "should have file-specific suggestion");
+        assert!(guidance.contains("Command errors"), "should have shell-specific suggestion");
+        assert!(guidance.contains("Do NOT repeat"), "should warn against retrying");
+    }
+
+    #[test]
+    fn basic_recovery_guidance_truncates_long_errors() {
+        use super::super::format_basic_recovery_guidance;
+        let long_error = "x".repeat(300);
+        let streak = vec![ToolCallTrace {
+            tool_name: "grep".into(),
+            success: false,
+            latency_ms: 0,
+            error: Some(long_error),
+        }];
+        let guidance = format_basic_recovery_guidance(&streak).unwrap();
+        assert!(guidance.contains("..."), "should truncate long error with ellipsis");
+        assert!(guidance.contains("Search errors"), "should have grep-specific suggestion");
+    }
+
+    #[test]
+    fn inject_recovery_guidance_appends_to_existing_system_msg() {
+        use super::super::inject_tool_recovery_guidance;
+        use fastclaw_core::types::{ChatMessage, Role};
+
+        let mut messages = vec![
+            ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String("You are a helpful assistant.".into())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("hello".into())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+
+        inject_tool_recovery_guidance(&mut messages, "Try a different approach.");
+        assert_eq!(messages.len(), 2, "should not insert new message");
+        let sys = messages[0].text_content().unwrap();
+        assert!(sys.contains("You are a helpful assistant"), "should preserve original");
+        assert!(sys.contains("Tool execution recovery"), "should have recovery header");
+        assert!(sys.contains("Try a different approach"), "should include guidance");
+    }
+
+    #[test]
+    fn inject_recovery_guidance_inserts_system_when_missing() {
+        use super::super::inject_tool_recovery_guidance;
+        use fastclaw_core::types::{ChatMessage, Role};
+
+        let mut messages = vec![ChatMessage {
+            role: Role::User,
+            content: Some(serde_json::Value::String("hello".into())),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        inject_tool_recovery_guidance(&mut messages, "Check permissions.");
+        assert_eq!(messages.len(), 2, "should insert a new system message");
+        assert!(matches!(messages[0].role, Role::System));
+        assert!(messages[0].text_content().unwrap().contains("Check permissions"));
+    }
 }

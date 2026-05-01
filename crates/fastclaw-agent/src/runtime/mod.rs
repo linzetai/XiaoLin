@@ -100,7 +100,6 @@ use tool_result_storage::{
     ContentReplacementState, ToolResultEntry, ToolResultStorage,
     MAX_TOOL_RESULTS_PER_MESSAGE_CHARS, reconstruct_state,
 };
-#[cfg(any(feature = "evolution", feature = "self-iter"))]
 use trajectory::append_text_to_chat_content;
 #[cfg(feature = "evolution")]
 use trajectory::last_user_turn_text;
@@ -273,6 +272,79 @@ pub struct ExecutionParams<'a> {
 pub struct StreamParams {
     pub tx: tokio::sync::mpsc::Sender<StreamEvent>,
     pub confirm_pending: Option<Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+}
+
+/// Build recovery guidance from a streak of consecutive tool failures.
+///
+/// Returns `None` if the streak is empty. Otherwise produces actionable
+/// suggestions tailored to the failing tool categories.
+pub(crate) fn format_basic_recovery_guidance(failure_streak: &[ToolCallTrace]) -> Option<String> {
+    if failure_streak.is_empty() {
+        return None;
+    }
+
+    let mut tool_errors: Vec<String> = Vec::new();
+    let mut seen_tools = std::collections::HashSet::new();
+    for trace in failure_streak {
+        let err = trace.error.as_deref().unwrap_or("unknown error");
+        let truncated = if err.len() > 150 {
+            format!("{}...", &err[..err.floor_char_boundary(150)])
+        } else {
+            err.to_string()
+        };
+        tool_errors.push(format!("- `{}`: {}", trace.tool_name, truncated));
+        seen_tools.insert(trace.tool_name.as_str());
+    }
+
+    let mut guidance = format!(
+        "The following tool calls have failed consecutively:\n{}\n\n",
+        tool_errors.join("\n")
+    );
+
+    guidance.push_str("Before retrying, consider:\n");
+    for tool in &seen_tools {
+        match *tool {
+            "read_file" | "list_dir" | "list_directory" =>
+                guidance.push_str("- File/path errors: verify the path exists, check spelling, use `glob` or `list_dir` to discover correct paths\n"),
+            "shell_exec" | "shell" | "run_command" =>
+                guidance.push_str("- Command errors: check command syntax, verify required tools are installed, try simpler alternatives\n"),
+            "write_file" | "edit_file" | "apply_patch" =>
+                guidance.push_str("- Write errors: ensure the target directory exists, check permissions, verify the file content/diff is correct\n"),
+            "grep" | "ripgrep" =>
+                guidance.push_str("- Search errors: simplify the pattern, check regex syntax, try broader search scope\n"),
+            _ =>
+                guidance.push_str(&format!("- `{tool}` errors: review the error message carefully and try a different approach\n")),
+        }
+    }
+    guidance.push_str("\nDo NOT repeat the same failing calls. Try an alternative approach or explain the issue to the user.");
+
+    Some(guidance)
+}
+
+/// Inject tool recovery guidance into the system message, or prepend a new
+/// system message if none exists.
+pub(crate) fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, guidance: &str) {
+    let block = format!(
+        "\n\n---\n[Tool execution recovery — review before your next tool_calls]\n{guidance}\n---\n"
+    );
+    if let Some(first) = messages.first_mut() {
+        if matches!(first.role, Role::System) {
+            append_text_to_chat_content(&mut first.content, &block);
+            return;
+        }
+    }
+    messages.insert(
+        0,
+        ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(format!(
+                "[Tool execution recovery — review before your next tool_calls]\n{guidance}"
+            ))),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+    );
 }
 
 /// Manages the execution of a single agent invocation, including
@@ -1564,48 +1636,27 @@ impl AgentRuntime {
         }
     }
 
-    #[cfg(feature = "self-iter")]
-    fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, guidance: &str) {
-        let block = format!(
-            "\n\n---\n[Tool execution recovery — review before your next tool_calls]\n{guidance}\n---\n"
-        );
-        if let Some(first) = messages.first_mut() {
-            if matches!(first.role, Role::System) {
-                append_text_to_chat_content(&mut first.content, &block);
-                return;
-            }
-        }
-        messages.insert(
-            0,
-            ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(format!(
-                    "[Tool execution recovery — review before your next tool_calls]\n{guidance}"
-                ))),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            },
-        );
-    }
-
-    #[cfg(feature = "self-iter")]
     #[allow(clippy::too_many_arguments)]
     fn try_self_iter_tool_recovery(
         &self,
         messages: &mut Vec<ChatMessage>,
         config: &AgentConfig,
-        request: &ChatRequest,
-        loop_iteration: u32,
+        #[cfg(feature = "self-iter")] request: &ChatRequest,
+        #[cfg(not(feature = "self-iter"))] _request: &ChatRequest,
+        #[cfg(feature = "self-iter")] loop_iteration: u32,
+        #[cfg(not(feature = "self-iter"))] _loop_iteration: u32,
         consecutive_errors: u32,
         max_errors: u32,
         failure_streak: &[ToolCallTrace],
         recovery_attempts: &mut u32,
     ) -> bool {
-        let Some(engine) = self.self_iter_engine.as_ref() else {
-            return false;
+        let max_attempts = {
+            #[cfg(feature = "self-iter")]
+            { self.self_iter_max_recovery_attempts }
+            #[cfg(not(feature = "self-iter"))]
+            { 3u32 }
         };
-        if *recovery_attempts >= self.self_iter_max_recovery_attempts {
+        if *recovery_attempts >= max_attempts {
             return false;
         }
         let trigger = std::cmp::min(2, max_errors.max(1));
@@ -1613,43 +1664,49 @@ impl AgentRuntime {
             return false;
         }
 
-        let session = request
-            .session_id
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
-        let diagnoses = engine.diagnose_tool_failure_streak(
-            &config.agent_id,
-            &session,
-            loop_iteration,
-            failure_streak,
-        );
-        let Some(guidance) = SelfIterEngine::format_recovery_guidance(&diagnoses) else {
-            return false;
-        };
+        // Try advanced SelfIterEngine diagnosis first (when available),
+        // then fall back to basic guidance.
+        let guidance: String;
 
-        Self::inject_tool_recovery_guidance(messages, &guidance);
+        #[cfg(feature = "self-iter")]
+        {
+            let advanced = self.self_iter_engine.as_ref().and_then(|engine| {
+                let session = request
+                    .session_id
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string());
+                let diagnoses = engine.diagnose_tool_failure_streak(
+                    &config.agent_id,
+                    &session,
+                    loop_iteration,
+                    failure_streak,
+                );
+                SelfIterEngine::format_recovery_guidance(&diagnoses)
+            });
+            match advanced {
+                Some(g) => guidance = g,
+                None => match format_basic_recovery_guidance(failure_streak) {
+                    Some(g) => guidance = g,
+                    None => return false,
+                },
+            }
+        }
+        #[cfg(not(feature = "self-iter"))]
+        {
+            match format_basic_recovery_guidance(failure_streak) {
+                Some(g) => guidance = g,
+                None => return false,
+            }
+        }
+
+        inject_tool_recovery_guidance(messages, &guidance);
         *recovery_attempts += 1;
         tracing::info!(
             agent_id = %config.agent_id,
             recovery_attempt = *recovery_attempts,
-            "self-iter: merged tool recovery guidance into system prompt"
+            "tool recovery guidance injected into system prompt"
         );
         true
-    }
-
-    #[cfg(not(feature = "self-iter"))]
-    fn try_self_iter_tool_recovery(
-        &self,
-        _messages: &mut Vec<ChatMessage>,
-        _config: &AgentConfig,
-        _request: &ChatRequest,
-        _loop_iteration: u32,
-        _consecutive_errors: u32,
-        _max_errors: u32,
-        _failure_streak: &[ToolCallTrace],
-        _recovery_attempts: &mut u32,
-    ) -> bool {
-        false
     }
 
     #[cfg(feature = "evolution")]

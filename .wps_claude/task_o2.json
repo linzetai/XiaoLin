@@ -70,8 +70,8 @@
     "title": "un-feature-gate self-iter 恢复指导",
     "phase": "失败容错",
     "description": "当前 inject_tool_recovery_guidance 和 try_self_iter_tool_recovery 被 #[cfg(feature = \"self-iter\")] 门控。不启用 self-iter 时，连续工具失败只有 grace_turn 给一次机会但无具体指导（模型不知道该怎么换方向）。将核心的「失败诊断 + 恢复指导注入」逻辑解耦为独立模块，始终可用。self-iter 的高级功能（SelfIterEngine 完整诊断）可保持 feature-gated，但基础的 system-reminder 注入应默认启用。",
-    "status": "pending",
-    "completion_note": "",
+    "status": "done",
+    "completion_note": "已完成：1) 将 inject_tool_recovery_guidance 和 format_basic_recovery_guidance 提取为独立的 pub(crate) 自由函数（不再 feature-gated）；2) 合并 self-iter 和 non-self-iter 两个 try_self_iter_tool_recovery 为单一函数，self-iter 路径先尝试 SelfIterEngine 高级诊断，失败时 fallback 到 format_basic_recovery_guidance；3) non-self-iter 路径直接使用 format_basic_recovery_guidance；4) format_basic_recovery_guidance 提供针对 read_file/shell/write_file/grep 等工具类别的特定恢复建议；5) 新增 5 个单元测试覆盖空输入、工具名+错误包含、长错误截断、追加/插入系统消息。全部 946+4+86 测试通过。",
     "dependencies": [],
     "attentions": [
       "当前 self-iter 路径：runtime/mod.rs try_self_iter_tool_recovery() → SelfIterEngine.diagnose_tool_failure_streak() → format_recovery_guidance() → inject_tool_recovery_guidance()",
