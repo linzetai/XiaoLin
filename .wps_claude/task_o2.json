@@ -86,8 +86,8 @@
     "title": "Compact Prompt 模板升级",
     "phase": "提示词工程",
     "description": "将 context_compressor.rs 的 COMPRESSION_SYSTEM_PROMPT 从当前 5 字段简短模板（goal/facts/files/progress/errors，~160 words）升级为更详细的结构化模板。参考 cc 的 9 段 compact prompt，关键改进：1) 加入 <analysis> 中间推理步骤（生成后 strip，提升摘要质量）；2) 显式要求列出所有 user messages；3) 要求保留代码片段（不再禁止 code blocks）；4) 加入 Next Step + 原文引用防漂移；5) NO_TOOLS 约束（max_tokens 不为摘要模型提供 tool definitions）。",
-    "status": "pending",
-    "completion_note": "",
+    "status": "done",
+    "completion_note": "已完成：1) COMPRESSION_SYSTEM_PROMPT 从 5 字段 ~160 words 升级为 9 段结构化模板（Primary Request/Key Technical Concepts/Files and Code/Errors/Problem Solving/All user messages/Pending Tasks/Current Work/Next Step）；2) 新增 <analysis> chain-of-thought：模型先在 <analysis> 标签中推理，然后输出摘要，strip_analysis_block() 自动移除推理部分；3) 移除 'no code blocks' 规则，改为要求保留代码片段；4) 历史文件保存提前到 LLM 调用前，路径通过 {{HISTORY_FILE_PATH}} 注入 prompt，包含 Transcript location 使用说明；5) tools=None 已确认，max_tokens 从 2048 提升到 4096。新增 7 个测试。全部 952+4 测试通过。",
     "dependencies": ["CTX-003"],
     "attentions": [
       "修改位置：crates/fastclaw-agent/src/runtime/context_compressor.rs COMPRESSION_SYSTEM_PROMPT (line 18)",

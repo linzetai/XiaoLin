@@ -15,17 +15,43 @@ const PRESERVE_FRACTION: f32 = 0.30;
 /// Minimum fraction of history that must be compressible to justify an LLM call.
 const MIN_COMPRESSIBLE_FRACTION: f32 = 0.05;
 
-const COMPRESSION_SYSTEM_PROMPT: &str = r#"You are a conversation compression engine. Produce a CONCISE state snapshot (target: ≤800 tokens). This snapshot will be the agent's ONLY memory of the compressed portion. Preserve critical facts; omit verbose tool outputs, code listings, and conversational filler.
+const COMPRESSION_SYSTEM_PROMPT: &str = r#"You are a conversation summarizer. Your task is to create a detailed summary of the conversation so far. This summary will replace the conversation history as context for the assistant, so it is CRUCIAL that you include ALL information needed for the assistant to continue its work.
 
-<state_snapshot>
-<goal>One sentence: the user's objective.</goal>
-<facts>Key constraints, decisions, tech stack. Bullet points, max 10.</facts>
-<files>Files touched: path → status (created/modified/read). Only list files still relevant.</files>
-<progress>Completed steps (one-liner each). Current step. Remaining TODO items.</progress>
-<errors>Unresolved issues or blockers, if any.</errors>
-</state_snapshot>
+You MUST include:
+1. Primary Request and Intent: What is the user fundamentally trying to accomplish?
+2. Key Technical Concepts: Important technical details, patterns, APIs, data structures, algorithms, or design decisions discussed.
+3. Files and Code Sections:
+   - List ALL files created, modified, or referenced (with their paths)
+   - For each file, note its importance and any changes made
+   - Include relevant code snippets (function signatures, struct definitions, key logic). Do NOT omit code — the assistant may need exact signatures and line references.
+4. Errors and fixes: Document any errors encountered and how they were resolved.
+5. Problem Solving: Summarize the problem-solving process — what approaches were tried, what worked, what didn't, and why.
+6. All user messages: List every distinct user message/instruction (including follow-up requests, corrections, and clarifications). Do NOT skip any.
+7. Pending Tasks: List all incomplete tasks, TODOs, or follow-up items.
+8. Current Work: Describe what the assistant was doing immediately before this summary — include the exact state of any in-progress operation.
+9. Optional Next Step: If the conversation implies a clear next action, state it with a relevant quote from the original conversation to prevent drift.
 
-Rules: no code blocks, no raw tool output, no filler. Pure information density."#;
+### Transcript location:
+  This is the full JSONL transcript of your past conversation with the user (pre- and post-summary): {{HISTORY_FILE_PATH}}
+
+  If anything about the task or current state is unclear (missing context, ambiguous requirements, uncertain decisions, exact wording, IDs/paths, errors/logs), you should consult this transcript.
+
+  How to use it:
+  - Search first for relevant keywords (task name, filenames, IDs, errors, tool names).
+  - Then read a small window around the matching lines to reconstruct intent and state.
+  - Avoid reading linearly end-to-end; the file can be very large and some single lines can be huge.
+  - Files contain one structured json event per line including user/assistant messages. Currently tool calls and results are excluded.
+
+Format your response as follows:
+1. First, write your analysis inside <analysis> tags. Think about what information is critical to preserve, which code snippets are essential, and what the assistant needs to continue seamlessly.
+2. Then write the summary in plain text (NOT inside tags). The summary will be used directly as context.
+
+IMPORTANT:
+- Be thorough: the assistant will have NO access to the original conversation after compression.
+- Include code snippets and file paths verbatim — do not paraphrase them.
+- Quote user instructions exactly when they contain specific requirements.
+- Preserve all numerical values, version numbers, configuration values, and IDs.
+- If a TODO list or task queue was being maintained, reproduce it in full."#;
 
 #[allow(dead_code)]
 pub struct CompressionResult {
@@ -128,6 +154,27 @@ fn has_tool_response(msg: &ChatMessage) -> bool {
     msg.tool_call_id.is_some()
 }
 
+/// Strip `<analysis>...</analysis>` blocks from LLM output (used for
+/// chain-of-thought that improves summary quality but shouldn't be included
+/// in the final compressed context).
+fn strip_analysis_block(text: &str) -> String {
+    let mut result = text.to_string();
+    while let Some(start) = result.find("<analysis>") {
+        if let Some(end) = result.find("</analysis>") {
+            let block_end = end + "</analysis>".len();
+            result = format!(
+                "{}{}",
+                &result[..start],
+                result[block_end..].trim_start()
+            );
+        } else {
+            result = result[..start].to_string();
+            break;
+        }
+    }
+    result.trim().to_string()
+}
+
 /// Attempt LLM-based compression of conversation history.
 ///
 /// Triggers when estimated tokens exceed `COMPRESSION_THRESHOLD * context_window`.
@@ -221,11 +268,25 @@ pub async fn try_compress_chat(
         };
     }
 
+    // Save history file before LLM call so we can reference it in the prompt.
+    let history_file = save_history_file(messages);
+    if let Some(ref path) = history_file {
+        tracing::info!(path, "saved pre-compression chat history to file");
+    }
+
+    let system_prompt = match &history_file {
+        Some(path) => COMPRESSION_SYSTEM_PROMPT.replace("{{HISTORY_FILE_PATH}}", path),
+        None => COMPRESSION_SYSTEM_PROMPT.replace(
+            "{{HISTORY_FILE_PATH}}",
+            "(history file not available)",
+        ),
+    };
+
     // Build the LLM compression request
     let mut compress_messages: Vec<ChatMessage> = Vec::new();
     compress_messages.push(ChatMessage {
         role: Role::System,
-        content: Some(serde_json::Value::String(COMPRESSION_SYSTEM_PROMPT.to_string())),
+        content: Some(serde_json::Value::String(system_prompt)),
         name: None,
         tool_calls: None,
         tool_call_id: None,
@@ -236,7 +297,9 @@ pub async fn try_compress_chat(
     compress_messages.push(ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String(
-            "First, reason in your scratchpad. Then, generate the <state_snapshot>.".to_string(),
+            "Summarize the conversation above. First, write your reasoning inside <analysis> tags, \
+             then write the final summary in plain text."
+                .to_string(),
         )),
         name: None,
         tool_calls: None,
@@ -247,11 +310,11 @@ pub async fn try_compress_chat(
         model,
         messages: &compress_messages,
         temperature: 0.0,
-        max_tokens: Some(2048),
+        max_tokens: Some(4096),
         tools: None,
     };
 
-    let summary = match provider.chat_completion(&params).await {
+    let raw_summary = match provider.chat_completion(&params).await {
         Ok(resp) => {
             resp.choices.first().and_then(|c| c.message.text_content()).unwrap_or_default()
         }
@@ -266,6 +329,8 @@ pub async fn try_compress_chat(
             };
         }
     };
+
+    let summary = strip_analysis_block(&raw_summary);
 
     if summary.trim().is_empty() {
         tracing::warn!("LLM compression returned empty summary");
@@ -324,14 +389,7 @@ pub async fn try_compress_chat(
         };
     }
 
-    // Save full pre-compression history to a file so the agent can search it later.
-    let history_file = save_history_file(messages);
-    if let Some(ref path) = history_file {
-        tracing::info!(path, "saved pre-compression chat history to file");
-    }
-
-    // If we saved a history file, add a reference in the assistant message
-    // so the agent knows it can search for details.
+    // Add history file reference to assistant message so agent can recover details.
     if let Some(ref path) = history_file {
         if let Some(last_asst) = new_messages.iter_mut().rev().find(|m| matches!(m.role, Role::Assistant)) {
             if let Some(serde_json::Value::String(ref mut text)) = last_asst.content {
@@ -623,5 +681,57 @@ mod tests {
         let ac = AutoCompactor::new();
         // snip freed more than estimated — effective = 0, which is under threshold.
         assert!(!ac.should_compact(30_000, 100_000, 50_000));
+    }
+
+    #[test]
+    fn strip_analysis_removes_block() {
+        let input = "<analysis>This is reasoning that should be removed.</analysis>\n\nSummary:\n1. The user wants X.\n2. Key facts.";
+        let result = super::strip_analysis_block(input);
+        assert!(!result.contains("<analysis>"), "analysis tags should be removed");
+        assert!(!result.contains("reasoning that should"), "analysis content should be removed");
+        assert!(result.contains("Summary:"), "actual summary preserved");
+        assert!(result.contains("Key facts"), "content after analysis preserved");
+    }
+
+    #[test]
+    fn strip_analysis_handles_no_block() {
+        let input = "Just a plain summary without analysis tags.";
+        let result = super::strip_analysis_block(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn strip_analysis_handles_unclosed_tag() {
+        let input = "<analysis>Unclosed reasoning block\nMore text here";
+        let result = super::strip_analysis_block(input);
+        assert!(!result.contains("<analysis>"));
+        assert!(result.is_empty() || !result.contains("Unclosed"));
+    }
+
+    #[test]
+    fn compression_prompt_has_9_sections() {
+        let prompt = super::COMPRESSION_SYSTEM_PROMPT;
+        assert!(prompt.contains("Primary Request"), "should include section 1");
+        assert!(prompt.contains("Key Technical Concepts"), "should include section 2");
+        assert!(prompt.contains("Files and Code Sections"), "should include section 3");
+        assert!(prompt.contains("Errors and fixes"), "should include section 4");
+        assert!(prompt.contains("Problem Solving"), "should include section 5");
+        assert!(prompt.contains("All user messages"), "should include section 6");
+        assert!(prompt.contains("Pending Tasks"), "should include section 7");
+        assert!(prompt.contains("Current Work"), "should include section 8");
+        assert!(prompt.contains("Next Step"), "should include section 9");
+    }
+
+    #[test]
+    fn compression_prompt_allows_code() {
+        let prompt = super::COMPRESSION_SYSTEM_PROMPT;
+        assert!(!prompt.contains("no code blocks"), "should NOT prohibit code blocks");
+        assert!(prompt.contains("code snippets"), "should encourage code preservation");
+    }
+
+    #[test]
+    fn compression_prompt_requires_analysis_then_strip() {
+        let prompt = super::COMPRESSION_SYSTEM_PROMPT;
+        assert!(prompt.contains("<analysis>"), "should instruct model to use analysis tags");
     }
 }
