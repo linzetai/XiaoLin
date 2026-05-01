@@ -6,9 +6,24 @@ use fastclaw_core::tool::{PostToolInfo, ToolDefinition, ToolHook, ToolHookContex
 use fastclaw_core::types::ToolCall;
 use serde::Serialize;
 
-use crate::builtin_tools::{with_file_access_mode, with_work_dir, ExecutionModeState};
+use crate::builtin_tools::{with_additional_allowed_paths, with_file_access_mode, with_work_dir, ExecutionModeState};
 
 use super::prompt_builder::memory_tool_suffix;
+
+fn resolve_additional_allowed_paths(raw: &[String]) -> Vec<std::path::PathBuf> {
+    let home = dirs::home_dir();
+    raw.iter()
+        .map(|s| {
+            if let Some(rest) = s.strip_prefix("~/") {
+                home.as_ref()
+                    .map(|h| h.join(rest))
+                    .unwrap_or_else(|| std::path::PathBuf::from(s))
+            } else {
+                std::path::PathBuf::from(s)
+            }
+        })
+        .collect()
+}
 
 /// Legacy fallback character limit for tool output.
 /// Now superseded by `Tool::max_result_size_chars()` (100_000 default).
@@ -962,6 +977,7 @@ async fn execute_single_tool(
         }
     }
 
+    let extra_paths = resolve_additional_allowed_paths(&behavior.additional_allowed_paths);
     let t0 = std::time::Instant::now();
     let result = match tool_registry.get(&tool_name) {
         Some(tool) => {
@@ -988,7 +1004,9 @@ async fn execute_single_tool(
 
                 let res = with_file_access_mode(
                     behavior.file_access,
-                    with_work_dir(work_dir_path, tool.execute_with_progress(&effective_args, progress_tx)),
+                    with_additional_allowed_paths(extra_paths.clone(),
+                        with_work_dir(work_dir_path, tool.execute_with_progress(&effective_args, progress_tx)),
+                    ),
                 )
                 .await;
                 bridge.abort();
@@ -996,7 +1014,9 @@ async fn execute_single_tool(
             } else {
                 with_file_access_mode(
                     behavior.file_access,
-                    with_work_dir(work_dir_path, tool.execute(&effective_args)),
+                    with_additional_allowed_paths(extra_paths,
+                        with_work_dir(work_dir_path, tool.execute(&effective_args)),
+                    ),
                 )
                 .await
             }

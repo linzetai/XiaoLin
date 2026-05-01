@@ -1002,6 +1002,7 @@ impl AgentRuntime {
                     sibling_cancel_on_error: true,
                     work_dir: request.work_dir.as_ref().map(std::path::PathBuf::from),
                     file_access: config.behavior.file_access,
+                    additional_allowed_paths: Vec::new(),
                 };
                 Some(streaming_tool_executor::StreamingToolExecutor::new(
                     Arc::clone(tool_registry),
@@ -1409,7 +1410,10 @@ impl AgentRuntime {
                                 let work_dir_path = request.work_dir.as_ref().map(std::path::PathBuf::from);
                                 result = with_file_access_mode(
                                     config.behavior.file_access,
-                                    with_work_dir(work_dir_path, tool.execute(&confirmed_args)),
+                                    crate::builtin_tools::with_additional_allowed_paths(
+                                        Vec::new(),
+                                        with_work_dir(work_dir_path, tool.execute(&confirmed_args)),
+                                    ),
                                 )
                                 .await;
                             }

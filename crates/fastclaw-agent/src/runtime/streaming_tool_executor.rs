@@ -14,7 +14,7 @@ use fastclaw_core::types::ToolCall;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::builtin_tools::{with_file_access_mode, with_work_dir};
+use crate::builtin_tools::{with_additional_allowed_paths, with_file_access_mode, with_work_dir};
 
 /// State of a tracked tool through its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +54,8 @@ pub struct StreamingExecutorConfig {
     pub work_dir: Option<PathBuf>,
     /// File access mode for the execution context.
     pub file_access: FileAccessMode,
+    /// Extra allowed filesystem paths beyond the workspace and well-known dirs.
+    pub additional_allowed_paths: Vec<PathBuf>,
 }
 
 impl Default for StreamingExecutorConfig {
@@ -62,6 +64,7 @@ impl Default for StreamingExecutorConfig {
             sibling_cancel_on_error: true,
             work_dir: None,
             file_access: FileAccessMode::default(),
+            additional_allowed_paths: Vec::new(),
         }
     }
 }
@@ -122,6 +125,7 @@ impl StreamingToolExecutor {
         let cancel_for_sibling = self.cancel_token.clone();
         let work_dir = self.config.work_dir.clone();
         let file_access = self.config.file_access;
+        let extra_allowed = self.config.additional_allowed_paths.clone();
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
@@ -164,7 +168,7 @@ impl StreamingToolExecutor {
                     }
                     return;
                 }
-                r = execute_single_tool_with_context(&call, &registry, work_dir, file_access) => r,
+                r = execute_single_tool_with_context(&call, &registry, work_dir, file_access, extra_allowed) => r,
             };
 
             // Store result
@@ -266,6 +270,7 @@ async fn execute_single_tool_with_context(
     registry: &ToolRegistry,
     work_dir: Option<PathBuf>,
     file_access: FileAccessMode,
+    extra_allowed_paths: Vec<PathBuf>,
 ) -> ToolResult {
     let tool_name = &call.function.name;
     let arguments = &call.function.arguments;
@@ -274,7 +279,9 @@ async fn execute_single_tool_with_context(
         Some(tool) => {
             with_file_access_mode(
                 file_access,
-                with_work_dir(work_dir, tool.execute(arguments)),
+                with_additional_allowed_paths(extra_allowed_paths,
+                    with_work_dir(work_dir, tool.execute(arguments)),
+                ),
             )
             .await
         }
@@ -657,6 +664,7 @@ mod tests {
             sibling_cancel_on_error: false,
             work_dir: Some(PathBuf::from("/tmp/test-workspace")),
             file_access: FileAccessMode::Full,
+            additional_allowed_paths: Vec::new(),
         };
         let mut executor = StreamingToolExecutor::new(registry, config);
 

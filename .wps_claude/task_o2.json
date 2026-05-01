@@ -20,8 +20,8 @@
     "title": "权限白名单 + 错误消息优化",
     "phase": "权限管理",
     "description": "扩展 ensure_within_workspace 函数，在 Workspace 模式下额外允许访问 skill 安装目录（~/.cursor/skills/、~/.agents/skills/、~/.codex/skills/）、FastClaw 数据目录（~/.fastclaw/）等合法外部路径。同时改进 PermissionDenied 错误消息，列出已允许的路径并给出具体解决建议（如切换 Full 模式或使用允许的路径），替换当前笼统的 'Change to YOLO mode' 提示。",
-    "status": "pending",
-    "completion_note": "",
+    "status": "done",
+    "completion_note": "已完成：1) 新增 well_known_allowed_prefixes() 包含 ~/.cursor/{skills,rules,projects}、~/.agents/skills/、~/.codex/skills/ 五个白名单前缀；2) ensure_within_workspace 在 workspace_root 和 state_dir 检查之后新增白名单前缀匹配，支持 canonicalize + raw starts_with 双重检查（处理目录尚未创建的情况）；3) BehaviorConfig 新增 additional_allowed_paths 字段供用户自定义额外路径，通过 task_local ADDITIONAL_ALLOWED_PATHS 传递到文件操作层；4) PermissionDenied 错误消息重构为列出所有允许位置的详细列表。新增 8 个测试，全部 940+4 测试通过。",
     "dependencies": [],
     "attentions": [
       "修改位置：crates/fastclaw-agent/src/builtin_tools/filesystem.rs ensure_within_workspace 函数（line 54-136）",

@@ -16,6 +16,7 @@ use tokio::io::AsyncWriteExt;
 tokio::task_local! {
     static FILE_ACCESS_MODE: FileAccessMode;
     static EFFECTIVE_WORK_DIR: Option<PathBuf>;
+    static ADDITIONAL_ALLOWED_PATHS: Vec<PathBuf>;
 }
 
 pub async fn with_file_access_mode<F, T>(mode: FileAccessMode, fut: F) -> T
@@ -30,6 +31,13 @@ where
     F: std::future::Future<Output = T>,
 {
     EFFECTIVE_WORK_DIR.scope(work_dir, fut).await
+}
+
+pub async fn with_additional_allowed_paths<F, T>(paths: Vec<PathBuf>, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    ADDITIONAL_ALLOWED_PATHS.scope(paths, fut).await
 }
 
 fn workspace_root() -> std::io::Result<PathBuf> {
@@ -49,6 +57,64 @@ fn current_file_access_mode() -> FileAccessMode {
     FILE_ACCESS_MODE
         .try_with(|m| *m)
         .unwrap_or(FileAccessMode::Workspace)
+}
+
+fn well_known_allowed_prefixes() -> Vec<PathBuf> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    vec![
+        home.join(".cursor").join("skills"),
+        home.join(".cursor").join("rules"),
+        home.join(".cursor").join("projects"),
+        home.join(".agents").join("skills"),
+        home.join(".codex").join("skills"),
+    ]
+}
+
+fn additional_allowed_paths_from_task_local() -> Vec<PathBuf> {
+    ADDITIONAL_ALLOWED_PATHS
+        .try_with(|p| p.clone())
+        .unwrap_or_default()
+}
+
+fn collect_all_allowed_prefixes() -> Vec<PathBuf> {
+    let mut prefixes = well_known_allowed_prefixes();
+    prefixes.extend(additional_allowed_paths_from_task_local());
+    prefixes
+}
+
+/// Check if `resolved` falls under any of the allowed prefixes.
+/// Uses canonicalize when the prefix directory exists, falls back to
+/// raw `starts_with` for directories that haven't been created yet.
+fn is_path_under_allowed_prefixes(resolved: &Path, raw_absolute: &Path) -> bool {
+    for prefix in collect_all_allowed_prefixes() {
+        if let Ok(canon_prefix) = prefix.canonicalize() {
+            if resolved.starts_with(&canon_prefix) {
+                return true;
+            }
+        }
+        if raw_absolute.starts_with(&prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+fn format_allowed_locations(root: &Path) -> String {
+    let mut locs = vec![format!("  • Workspace: {}", root.display())];
+    if let Some(state_root) = state_dir_root() {
+        locs.push(format!("  • FastClaw data: {}", state_root.display()));
+    }
+    for prefix in well_known_allowed_prefixes() {
+        locs.push(format!("  • {}", prefix.display()));
+    }
+    let extra = additional_allowed_paths_from_task_local();
+    for p in &extra {
+        locs.push(format!("  • {}", p.display()));
+    }
+    locs.join("\n")
 }
 
 fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<PathBuf> {
@@ -100,37 +166,70 @@ fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<Pat
     } else {
         root.join(path)
     };
-    let resolved = if must_exist || absolute.exists() {
-        absolute.canonicalize()?
+
+    let resolve_result: Result<PathBuf, std::io::Error> = if must_exist || absolute.exists() {
+        absolute.canonicalize()
     } else {
         let parent = absolute
             .parent()
             .map(Path::to_path_buf)
-            .unwrap_or_else(|| root.clone())
-            .canonicalize()?;
-        parent.join(
-            absolute
-                .file_name()
-                .map(PathBuf::from)
-                .unwrap_or_default(),
-        )
+            .unwrap_or_else(|| root.clone());
+        match parent.canonicalize() {
+            Ok(canon_parent) => Ok(canon_parent.join(
+                absolute.file_name().map(PathBuf::from).unwrap_or_default(),
+            )),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("parent directory '{}' does not exist", parent.display()),
+            )),
+        }
     };
-    if resolved.starts_with(&root) {
-        return Ok(resolved);
-    }
-    if let Some(state_root) = state_dir_root() {
-        if resolved.starts_with(&state_root) {
-            return Ok(resolved);
+
+    match resolve_result {
+        Ok(resolved) => {
+            if resolved.starts_with(&root) {
+                return Ok(resolved);
+            }
+            if let Some(state_root) = state_dir_root() {
+                if resolved.starts_with(&state_root) {
+                    return Ok(resolved);
+                }
+            }
+            if is_path_under_allowed_prefixes(&resolved, &absolute) {
+                if !must_exist {
+                    if let Some(parent) = resolved.parent() {
+                        if !parent.exists() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                    }
+                }
+                return Ok(resolved);
+            }
+        }
+        Err(e) if must_exist => return Err(e),
+        Err(_) => {
+            // Parent doesn't exist yet — check whitelist using raw absolute path
+            if is_path_under_allowed_prefixes(&absolute, &absolute) {
+                if let Some(parent) = absolute.parent() {
+                    if !parent.exists() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                }
+                return Ok(absolute);
+            }
         }
     }
+
+    let allowed_list = format_allowed_locations(&root);
     Err(std::io::Error::new(
         std::io::ErrorKind::PermissionDenied,
         format!(
-            "path '{}' resolves outside workspace root '{}'. \
-             Current execution mode restricts access to workspace only. \
-             Change to YOLO mode in Settings → Security to allow full filesystem access.",
+            "path '{}' is outside all allowed locations.\n\
+             Allowed locations:\n{}\n\
+             To access other paths, switch to Full (YOLO) mode in Settings → Security, \
+             or add custom paths via 'additional_allowed_paths' in your agent config.",
             path.display(),
-            root.display()
+            allowed_list,
         ),
     ))
 }
@@ -937,12 +1036,12 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
         }
         ToolErrorType::PermissionDenied => {
             format!(
-                "Permission denied accessing '{}'. \
+                "Permission denied accessing '{path}'. \
                  Possible causes: \
-                 (1) The execution mode is set to Plan (read-only) — the user can change this in Settings → Security → Execution Mode. \
-                 (2) OS-level file permissions prevent access — suggest the user check ownership/permissions. \
-                 (3) The file is locked by another process.",
-                path,
+                 (1) The path is outside all allowed locations (workspace, FastClaw data, skill directories). \
+                 (2) The execution mode is set to Plan (read-only) — the user can change this in Settings → Security → Execution Mode. \
+                 (3) OS-level file permissions prevent access. \
+                 Suggestion: use a path within the workspace, or ask the user to switch to Full (YOLO) mode in Settings → Security.",
             )
         }
         ToolErrorType::NoSpaceLeft => {
@@ -953,12 +1052,14 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
         }
         ToolErrorType::PathNotInWorkspace => {
             format!(
-                "Cannot access path '{}': it is outside the current workspace root. \
+                "Cannot access path '{path}': it is outside all allowed locations. \
+                 Allowed locations include: workspace root, FastClaw data directory (~/.fastclaw/), \
+                 skill directories (~/.cursor/skills/, ~/.agents/skills/, ~/.codex/skills/), \
+                 and any user-configured additional_allowed_paths. \
                  Solutions: \
-                 (1) Use a path relative to the workspace root. \
-                 (2) Ask the user to change the working directory via the folder icon (工作目录) at the bottom of the chat input. \
-                 (3) If full filesystem access is needed, the user can switch to YOLO execution mode in Settings → Security.",
-                path,
+                 (1) Use a path within an allowed location. \
+                 (2) Ask the user to change the working directory via the folder icon at the bottom of the chat input. \
+                 (3) If full filesystem access is needed, the user can switch to Full (YOLO) mode in Settings → Security.",
             )
         }
         ToolErrorType::SearchPathNotFound => {
@@ -3189,6 +3290,119 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn well_known_prefixes_include_skill_dirs() {
+        let prefixes = well_known_allowed_prefixes();
+        assert!(!prefixes.is_empty(), "should have well-known prefixes");
+        let names: Vec<String> = prefixes.iter().map(|p| p.display().to_string()).collect();
+        let joined = names.join(", ");
+        assert!(
+            names.iter().any(|n| n.contains(".cursor/skills")),
+            "should include .cursor/skills: {joined}"
+        );
+        assert!(
+            names.iter().any(|n| n.contains(".agents/skills")),
+            "should include .agents/skills: {joined}"
+        );
+        assert!(
+            names.iter().any(|n| n.contains(".codex/skills")),
+            "should include .codex/skills: {joined}"
+        );
+    }
+
+    #[test]
+    fn whitelist_allows_cursor_skills_path() {
+        let home = dirs::home_dir().expect("home dir");
+        let skill_dir = home.join(".cursor").join("skills");
+        std::fs::create_dir_all(&skill_dir).ok();
+        let skill_path = skill_dir.join("some-skill").join("SKILL.md");
+        // Even if the file doesn't exist, the prefix should match
+        assert!(
+            is_path_under_allowed_prefixes(&skill_path, &skill_path),
+            "~/.cursor/skills/some-skill/SKILL.md should be allowed"
+        );
+    }
+
+    #[test]
+    fn whitelist_rejects_random_home_path() {
+        let home = dirs::home_dir().expect("home dir");
+        let random_path = home.join("Desktop").join("random.txt");
+        assert!(
+            !is_path_under_allowed_prefixes(&random_path, &random_path),
+            "~/Desktop/random.txt should NOT be allowed"
+        );
+    }
+
+    #[test]
+    fn permission_error_includes_allowed_locations() {
+        let result = ensure_within_workspace(Path::new("/var/log/syslog"), true);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Allowed locations"),
+            "error should list allowed locations: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("Full (YOLO)"),
+            "error should suggest Full mode: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_allowed_in_cursor_skills_dir() {
+        let home = dirs::home_dir().expect("home dir");
+        let skill_dir = home.join(".cursor").join("skills").join("_test_whitelist_skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        let skill_file = skill_dir.join("SKILL.md");
+        tokio::fs::write(&skill_file, "# Test Skill\nContent here.").await.unwrap();
+
+        let tool = ReadFileTool;
+        let args = serde_json::json!({ "file_path": skill_file.to_string_lossy() }).to_string();
+        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(out.success, "workspace mode should allow reading ~/.cursor/skills/: {}", out.output);
+        assert!(out.output.contains("Test Skill"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&skill_dir);
+    }
+
+    #[tokio::test]
+    async fn write_file_allowed_in_cursor_skills_dir() {
+        let home = dirs::home_dir().expect("home dir");
+        let skill_dir = home.join(".cursor").join("skills").join("_test_whitelist_write");
+        let skill_file = skill_dir.join("SKILL.md");
+
+        let tool = WriteFileTool;
+        let args = serde_json::json!({
+            "file_path": skill_file.to_string_lossy(),
+            "content": "# New Skill\nCreated by test."
+        }).to_string();
+        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(out.success, "workspace mode should allow writing ~/.cursor/skills/: {}", out.output);
+
+        let content = tokio::fs::read_to_string(&skill_file).await.unwrap();
+        assert!(content.contains("New Skill"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&skill_dir);
+    }
+
+    #[tokio::test]
+    async fn desktop_path_still_rejected_in_workspace_mode() {
+        let home = dirs::home_dir().expect("home dir");
+        let desktop_file = home.join("Desktop").join("_test_whitelist_reject.txt");
+
+        let tool = ReadFileTool;
+        let args = serde_json::json!({ "file_path": desktop_file.to_string_lossy() }).to_string();
+        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(!out.success, "workspace mode should reject ~/Desktop/ access");
+        assert!(
+            out.output.contains("outside") || out.output.contains("Allowed locations"),
+            "should mention path restriction: {}",
+            out.output
+        );
+    }
+
     #[tokio::test]
     async fn search_in_files_finds_match_in_scoped_directory() {
         let cwd = std::env::current_dir().expect("current dir");
@@ -3268,7 +3482,7 @@ mod tests {
         let out = with_file_access_mode(FileAccessMode::None, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "read_file should be blocked in none mode");
         assert!(
-            out.output.contains("outside the current workspace root") || out.output.contains("file access is disabled"),
+            out.output.contains("outside") || out.output.contains("file access is disabled"),
             "unexpected error output: {}",
             out.output
         );
@@ -3299,7 +3513,7 @@ mod tests {
         let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "workspace mode should block outside path");
         assert!(
-            out.output.contains("outside the current workspace root"),
+            out.output.contains("outside") || out.output.contains("Allowed locations"),
             "unexpected error output: {}",
             out.output
         );
@@ -3332,7 +3546,7 @@ mod tests {
 
         let out = with_file_access_mode(FileAccessMode::None, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "write_file should be blocked in none mode");
-        assert!(out.output.contains("outside the current workspace root") || out.output.contains("file access is disabled"));
+        assert!(out.output.contains("outside") || out.output.contains("file access is disabled"));
     }
 
     #[tokio::test]
@@ -3350,7 +3564,7 @@ mod tests {
         .to_string();
         let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "workspace mode should block outside edit");
-        assert!(out.output.contains("outside the current workspace root"), "unexpected: {}", out.output);
+        assert!(out.output.contains("outside") || out.output.contains("Allowed locations"), "unexpected: {}", out.output);
     }
 
     #[tokio::test]
@@ -3368,7 +3582,7 @@ mod tests {
         .to_string();
         let out = with_file_access_mode(FileAccessMode::None, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "search_in_files should be blocked in none mode");
-        assert!(out.output.contains("outside the current workspace root") || out.output.contains("file access is disabled"),
+        assert!(out.output.contains("outside") || out.output.contains("file access is disabled"),
             "unexpected: {}", out.output);
     }
 }
@@ -3525,12 +3739,12 @@ mod user_friendly_error_tests {
 
         let perm_msg = create_user_friendly_error(ToolErrorType::PermissionDenied, path);
         assert!(perm_msg.contains("Permission denied"), "should mention denial: {perm_msg}");
-        assert!(perm_msg.contains("Execution Mode"), "should guide user to execution mode setting: {perm_msg}");
+        assert!(perm_msg.contains("allowed locations"), "should mention allowed locations: {perm_msg}");
 
         let workspace_msg = create_user_friendly_error(ToolErrorType::PathNotInWorkspace, path);
-        assert!(workspace_msg.contains("outside the current workspace root"), "should explain boundary: {workspace_msg}");
-        assert!(workspace_msg.contains("工作目录"), "should guide user to work_dir: {workspace_msg}");
-        assert!(workspace_msg.contains("YOLO"), "should guide user to YOLO mode: {workspace_msg}");
+        assert!(workspace_msg.contains("Allowed locations"), "should list allowed locations: {workspace_msg}");
+        assert!(workspace_msg.contains("skill directories"), "should mention skill dirs: {workspace_msg}");
+        assert!(workspace_msg.contains("Full (YOLO)"), "should guide user to YOLO mode: {workspace_msg}");
     }
 }
 

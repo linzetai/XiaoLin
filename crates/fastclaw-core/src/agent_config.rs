@@ -181,6 +181,11 @@ pub struct BehaviorConfig {
     pub tools_deny: Vec<String>,
     #[serde(default)]
     pub file_access: FileAccessMode,
+    /// Extra filesystem paths the agent may access in Workspace mode,
+    /// beyond the workspace root, state dir, and well-known skill directories.
+    /// Each entry is expanded with `~` → home and checked via prefix match.
+    #[serde(default)]
+    pub additional_allowed_paths: Vec<String>,
     #[serde(default)]
     pub subagent: SubAgentPolicy,
     /// When true, tools begin execution as soon as they are received during LLM
@@ -267,6 +272,7 @@ impl Default for BehaviorConfig {
             tools_allow: Vec::new(),
             tools_deny: Vec::new(),
             file_access: FileAccessMode::default(),
+            additional_allowed_paths: Vec::new(),
             subagent: SubAgentPolicy::default(),
             streaming_tool_execution: false,
         }
