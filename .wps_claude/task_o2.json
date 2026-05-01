@@ -52,8 +52,8 @@
     "title": "评估现有 microcompact 参数 + TOOL_RESULT_CLEARED_MESSAGE 接通",
     "phase": "上下文管理",
     "description": "评估 unified_pre_query_compact 中已有的 microcompact_tool_results(messages, 3) 效果：当前保留最近 3 个 full、3 个 faded、其余 one-liner。对比 cc 的策略（保留最近 5 个，其余完全清除为 '[Old tool result content cleared]'）。如果现有 3-tier 渐进策略效果足够（faded ~150 chars + one-liner ~50 chars 已经很小），则只需确认 TOOL_RESULT_CLEARED_MESSAGE 用在 time_based_microcompact 中。否则考虑将最旧 tier 从 one-liner 改为完全清除。",
-    "status": "pending",
-    "completion_note": "",
+    "status": "done",
+    "completion_note": "已完成：1) 将 microcompact_tool_results Tier 3 从 oneliner 改为 TOOL_RESULT_CLEARED_MESSAGE 完全清除，对齐 cc 策略（更激进但配合 SAVE CONTEXT 指导不影响模型行为）；2) time_based_microcompact 同样改为 TOOL_RESULT_CLEARED_MESSAGE；3) 保留 ONELINER_MARKER/TIME_COMPACTED_MARKER 的 skip 检查确保向后兼容已有会话；4) 移除 TOOL_RESULT_CLEARED_MESSAGE 的 #[allow(dead_code)]；5) 新增量化测试验证 20 条 1000 char 结果压缩率 ≥70%。全部 941+4+86 测试通过。",
     "dependencies": ["CTX-001"],
     "attentions": [
       "现有实现位置：crates/fastclaw-agent/src/runtime/tool_executor.rs microcompact_tool_results() line 313",

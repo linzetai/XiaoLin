@@ -14,7 +14,6 @@ pub const PREVIEW_SIZE_BYTES: usize = 2000;
 pub const PERSISTED_OUTPUT_TAG: &str = "<persisted-output>";
 pub const PERSISTED_OUTPUT_CLOSING_TAG: &str = "</persisted-output>";
 
-#[allow(dead_code)]
 pub const TOOL_RESULT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
 
 const TOOL_RESULTS_SUBDIR: &str = "tool-results";

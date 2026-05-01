@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::builtin_tools::{with_additional_allowed_paths, with_file_access_mode, with_work_dir, ExecutionModeState};
 
 use super::prompt_builder::memory_tool_suffix;
+use super::tool_result_storage::TOOL_RESULT_CLEARED_MESSAGE;
 
 fn resolve_additional_allowed_paths(raw: &[String]) -> Vec<std::path::PathBuf> {
     let home = dirs::home_dir();
@@ -211,6 +212,7 @@ fn is_error_tool_result(content: &str) -> bool {
 
 /// Build a one-liner summary for a fully faded tool result.
 /// If the content already contains a semantic header (§), reuse it directly.
+#[allow(dead_code)]
 fn one_liner_summary(tool_name: &str, content: &str) -> String {
     if content.starts_with(SEMANTIC_HEADER_MARKER) {
         if let Some(header_end) = content.find('\n') {
@@ -359,14 +361,15 @@ pub(crate) fn microcompact_tool_results(
             None => continue,
         };
 
-        if text.starts_with(ONELINER_MARKER) || text.starts_with(FADED_MARKER) {
+        if text.starts_with(ONELINER_MARKER)
+            || text.starts_with(FADED_MARKER)
+            || text == TOOL_RESULT_CLEARED_MESSAGE
+        {
             continue;
         }
         if is_error_tool_result(&text) {
             continue;
         }
-
-        let tool_name = msg.name.clone().unwrap_or_default();
 
         if rank_from_end < full_keep {
             // Tier 1: keep fully
@@ -375,9 +378,10 @@ pub(crate) fn microcompact_tool_results(
             let faded = format!("{FADED_MARKER} {}", fade_to_preview(&text, 150));
             msg.content = Some(serde_json::Value::String(faded));
         } else {
-            // Tier 3: collapse to one-liner
-            let summary = format!("{ONELINER_MARKER} {}", one_liner_summary(&tool_name, &text));
-            msg.content = Some(serde_json::Value::String(summary));
+            // Tier 3: fully clear (SAVE CONTEXT guidance ensures the model
+            // has already extracted key facts into its reply text)
+            msg.content =
+                Some(serde_json::Value::String(TOOL_RESULT_CLEARED_MESSAGE.to_string()));
         }
     }
 }
@@ -457,6 +461,7 @@ pub(crate) fn time_based_microcompact(
         if text.starts_with(ONELINER_MARKER)
             || text.starts_with(FADED_MARKER)
             || text.starts_with(TIME_COMPACTED_MARKER)
+            || text == TOOL_RESULT_CLEARED_MESSAGE
         {
             continue;
         }
@@ -466,12 +471,8 @@ pub(crate) fn time_based_microcompact(
             continue;
         }
 
-        let tool_name = messages[i].name.clone().unwrap_or_default();
-        let summary = format!(
-            "{TIME_COMPACTED_MARKER} {}",
-            one_liner_summary(&tool_name, &text)
-        );
-        messages[i].content = Some(serde_json::Value::String(summary));
+        messages[i].content =
+            Some(serde_json::Value::String(TOOL_RESULT_CLEARED_MESSAGE.to_string()));
         compacted += 1;
     }
 
@@ -1081,7 +1082,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn microcompact_progressive_fading() {
-        use super::{microcompact_tool_results, ONELINER_MARKER, FADED_MARKER};
+        use super::{microcompact_tool_results, FADED_MARKER, TOOL_RESULT_CLEARED_MESSAGE};
         use fastclaw_core::types::{ChatMessage, Role};
 
         // 10 tool results: indices 0..9, most recent = index 9
@@ -1097,10 +1098,10 @@ mod tool_result_truncation_tests {
 
         microcompact_tool_results(&mut msgs, 3);
 
-        // Tier 3 (oldest, indices 0..4): collapsed to one-liner
+        // Tier 3 (oldest, indices 0..4): fully cleared
         for msg in &msgs[..4] {
             let text = msg.text_content().unwrap();
-            assert!(text.starts_with(ONELINER_MARKER), "expected oneliner, got: {text}");
+            assert_eq!(text, TOOL_RESULT_CLEARED_MESSAGE, "expected cleared, got: {text}");
         }
         // Tier 2 (indices 4..7): faded to preview
         for msg in &msgs[4..7] {
@@ -1115,7 +1116,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn microcompact_preserves_error_results() {
-        use super::{microcompact_tool_results, FADED_MARKER, ONELINER_MARKER};
+        use super::{microcompact_tool_results, FADED_MARKER, TOOL_RESULT_CLEARED_MESSAGE};
         use fastclaw_core::types::{ChatMessage, Role};
 
         let mut msgs: Vec<ChatMessage> = vec![
@@ -1160,19 +1161,19 @@ mod tool_result_truncation_tests {
 
         // Error results preserved even though old
         assert!(msgs[0].text_content().unwrap().contains("Error: file not found"));
-        // Non-error old results get faded or onelined (not full)
+        // Non-error old results get faded or cleared (not full)
         let t1 = msgs[1].text_content().unwrap();
         assert!(
-            t1.starts_with(FADED_MARKER) || t1.starts_with(ONELINER_MARKER),
-            "expected faded/oneliner, got: {t1}"
+            t1.starts_with(FADED_MARKER) || t1 == TOOL_RESULT_CLEARED_MESSAGE,
+            "expected faded/cleared, got: {t1}"
         );
         // Error results preserved
         assert!(msgs[2].text_content().unwrap().contains("Failed to connect"));
-        // Non-error older results get faded
+        // Non-error older results get faded or cleared
         let t3 = msgs[3].text_content().unwrap();
         assert!(
-            t3.starts_with(FADED_MARKER) || t3.starts_with(ONELINER_MARKER),
-            "expected faded/oneliner, got: {t3}"
+            t3.starts_with(FADED_MARKER) || t3 == TOOL_RESULT_CLEARED_MESSAGE,
+            "expected faded/cleared, got: {t3}"
         );
         // Most recent result preserved fully
         assert!(msgs[4].text_content().unwrap().contains("recent output"));
@@ -1219,7 +1220,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn time_microcompact_collapses_stale_tool_results() {
-        use super::{time_based_microcompact, TIME_COMPACTED_MARKER};
+        use super::{time_based_microcompact, TOOL_RESULT_CLEARED_MESSAGE};
         use fastclaw_core::types::{ChatMessage, Role};
         use std::time::{Duration, Instant};
 
@@ -1246,9 +1247,9 @@ mod tool_result_truncation_tests {
         let count = time_based_microcompact(&mut msgs, &boundaries, Duration::from_secs(300));
         assert_eq!(count, 1, "should compact 1 stale tool result");
         let text = msgs[0].text_content().unwrap();
-        assert!(
-            text.starts_with(TIME_COMPACTED_MARKER),
-            "expected time-compacted marker, got: {text}"
+        assert_eq!(
+            text, TOOL_RESULT_CLEARED_MESSAGE,
+            "expected cleared message, got: {text}"
         );
         assert_eq!(
             msgs[1].text_content().unwrap(),
@@ -1259,7 +1260,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn time_microcompact_preserves_fresh_and_errors() {
-        use super::{time_based_microcompact, TIME_COMPACTED_MARKER};
+        use super::{time_based_microcompact, TOOL_RESULT_CLEARED_MESSAGE};
         use fastclaw_core::types::{ChatMessage, Role};
         use std::time::{Duration, Instant};
 
@@ -1295,7 +1296,7 @@ mod tool_result_truncation_tests {
         assert_eq!(count, 1, "only 1 stale non-error should be compacted");
 
         let t0 = msgs[0].text_content().unwrap();
-        assert!(t0.starts_with(TIME_COMPACTED_MARKER), "stale result compacted: {t0}");
+        assert_eq!(t0, TOOL_RESULT_CLEARED_MESSAGE, "stale result cleared: {t0}");
 
         let t1 = msgs[1].text_content().unwrap();
         assert!(t1.contains("Error"), "error result preserved: {t1}");
@@ -1321,6 +1322,42 @@ mod tool_result_truncation_tests {
         let count = time_based_microcompact(&mut msgs, &[], Duration::from_secs(300));
         assert_eq!(count, 0, "no compaction with empty boundaries");
         assert_eq!(msgs[0].text_content().unwrap(), "some output");
+    }
+
+    #[test]
+    fn microcompact_20_results_achieves_70_percent_reduction() {
+        use super::microcompact_tool_results;
+        use fastclaw_core::types::{ChatMessage, Role};
+
+        let large_content = "x".repeat(1000);
+        let mut msgs: Vec<ChatMessage> = (0..20)
+            .map(|i| ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String(large_content.clone())),
+                name: Some("read_file".into()),
+                tool_calls: None,
+                tool_call_id: Some(format!("id-{i}")),
+            })
+            .collect();
+
+        let before: usize = msgs.iter()
+            .filter_map(|m| m.text_content())
+            .map(|t| t.len())
+            .sum();
+
+        microcompact_tool_results(&mut msgs, 3);
+
+        let after: usize = msgs.iter()
+            .filter_map(|m| m.text_content())
+            .map(|t| t.len())
+            .sum();
+
+        let reduction = 1.0 - (after as f64 / before as f64);
+        assert!(
+            reduction >= 0.70,
+            "expected ≥70% reduction, got {:.1}% (before={before}, after={after})",
+            reduction * 100.0
+        );
     }
 
     #[test]
