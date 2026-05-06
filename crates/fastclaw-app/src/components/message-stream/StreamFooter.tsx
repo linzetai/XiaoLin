@@ -442,7 +442,6 @@ export function StreamFooter({
 
         <MentionInput
           ref={mentionInputRef}
-          disabled={streaming}
           placeholder="描述任务，或输入 @ 引用文件、/ 命令..."
           options={mentionOptions}
           slashCommands={slashCommands}
