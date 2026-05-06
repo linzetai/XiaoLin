@@ -94,12 +94,14 @@ export function NotificationDetailPanel({ notification, onClose }: Props) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {notification.body && (
-            <p
+            <div
               className="text-[13px] leading-relaxed mb-3"
               style={{ color: "var(--fill-primary)" }}
             >
-              {notification.body}
-            </p>
+              <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
+                <MarkdownContent content={notification.body} />
+              </Suspense>
+            </div>
           )}
 
           {notification.detail && (
