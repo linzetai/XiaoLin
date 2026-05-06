@@ -1,7 +1,10 @@
 import { X, Clock, AlertTriangle, Info, Zap } from "lucide-react";
 import type { AppNotification } from "../../lib/transport";
-import type { ReactNode } from "react";
-import { MarkdownContent } from "../message-stream/MarkdownContent";
+import { lazy, Suspense, type ReactNode } from "react";
+
+const MarkdownContent = lazy(() =>
+  import("../message-stream/MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
+);
 
 function parseUtc(ts: string): Date {
   if (!ts) return new Date();
@@ -108,7 +111,9 @@ export function NotificationDetailPanel({ notification, onClose }: Props) {
                 border: "0.5px solid var(--separator)",
               }}
             >
-              <MarkdownContent content={notification.detail} />
+              <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
+                <MarkdownContent content={notification.detail} />
+              </Suspense>
             </div>
           )}
         </div>
