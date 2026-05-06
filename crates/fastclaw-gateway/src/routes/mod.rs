@@ -6,7 +6,6 @@ pub mod common;
 mod cron;
 mod dynamic_routes;
 mod error;
-#[cfg(feature = "evolution")]
 mod evolution;
 mod health;
 mod memory;
@@ -28,7 +27,7 @@ pub use memory::auto_record_episode;
 pub use session::{resolve_session_context, ResolvedSession};
 
 pub fn api_routes() -> Router<AppState> {
-    let router = Router::new()
+    Router::new()
         .route("/", get(health::serve_ui))
         .route("/ui", get(health::serve_ui))
         .route("/health", get(health::health))
@@ -76,10 +75,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/memory/facts/:fact_id", delete(memory::delete_fact))
         .route("/api/v1/bus/agents", get(bus::bus_list_agents))
         .route("/api/v1/bus/send", post(bus::bus_send_message))
-        .route("/api/v1/bus/request", post(bus::bus_request_reply));
-
-        #[cfg(feature = "evolution")]
-        let router = router
+        .route("/api/v1/bus/request", post(bus::bus_request_reply))
         .route(
             "/api/v1/evolution/feedback",
             post(evolution::submit_feedback),
@@ -107,11 +103,7 @@ pub fn api_routes() -> Router<AppState> {
         .route(
             "/api/v1/evolution/candidates/:candidate_id/reject",
             post(evolution::reject_candidate),
-        );
-
-        
-
-    router
+        )
         .route("/api/v1/cron/jobs", get(cron::list_cron_jobs))
         .route("/api/v1/cron/jobs", post(cron::upsert_cron_job))
         .route("/api/v1/cron/jobs/:job_id", get(cron::get_cron_job))

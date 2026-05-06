@@ -13,7 +13,6 @@ use fastclaw_core::tool::{Tool, ToolRegistry};
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
-#[cfg(feature = "evolution")]
 use fastclaw_evolution::{
     FeedbackStore, PromptDistiller, SkillStore, TrajectoryStore,
 };
@@ -67,13 +66,9 @@ struct BuildPhase2Memory {
     agent_semantic_map: std::collections::HashMap<String, Arc<SemanticMemory>>,
     embedding_provider: Option<Arc<dyn EmbeddingProvider>>,
     message_bus: Arc<MessageBus>,
-    #[cfg(feature = "evolution")]
     feedback_store: FeedbackStore,
-    #[cfg(feature = "evolution")]
     prompt_distiller: PromptDistiller,
-    #[cfg(feature = "evolution")]
     trajectory_store: TrajectoryStore,
-    #[cfg(feature = "evolution")]
     skill_store: SkillStore,
     context_engine: fastclaw_context::ContextEngine,
     tool_count: usize,
@@ -401,7 +396,6 @@ impl StateBuilder {
             message_bus.clone(),
         );
 
-        #[cfg(feature = "evolution")]
         let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
             let evo_pool = helpers::open_memory_pool_named(&p4.phase3.phase1.db_path, "evolution.db").await?;
             let fs = FeedbackStore::open(evo_pool.clone()).await?;
@@ -487,21 +481,17 @@ impl StateBuilder {
             agent_semantic_map,
             embedding_provider,
             message_bus,
-            #[cfg(feature = "evolution")]
             feedback_store,
-            #[cfg(feature = "evolution")]
             prompt_distiller,
-            #[cfg(feature = "evolution")]
             trajectory_store,
-            #[cfg(feature = "evolution")]
             skill_store,
             context_engine,
             tool_count,
         })
     }
 
-    /// Phase 5: DAG checkpoints, cron, model router, WebSocket broadcast fanout.
-    async fn phase5_cron_dag(
+    /// Phase 5: cron, model router, WebSocket broadcast fanout.
+    async fn phase5_cron(
         config: &FastClawConfig,
         p2: BuildPhase2Memory,
     ) -> anyhow::Result<BuildPhase5> {
@@ -575,7 +565,7 @@ impl StateBuilder {
         let p3 = Self::phase3_agent_runtime_tools(&config, p1).await?;
         let p4 = Self::phase4_channels_mcp(&config, p3).await?;
         let p2 = Self::phase2_memory_evolution(&config, p4).await?;
-        let p5 = Self::phase5_cron_dag(&config, p2).await?;
+        let p5 = Self::phase5_cron(&config, p2).await?;
 
         let agent_count = p5.phase2.phase4.phase3.phase1.agent_count;
         let tool_count = p5.phase2.tool_count;
@@ -596,11 +586,8 @@ impl StateBuilder {
         );
 
         let inbound_rx = p5.phase2.phase4.inbound_rx;
-        #[cfg(feature = "evolution")]
         let trajectory_store = Arc::new(p5.phase2.trajectory_store);
-        #[cfg(feature = "evolution")]
         let skill_store = Arc::new(p5.phase2.skill_store);
-        #[cfg(feature = "evolution")]
         p5.phase2
             .phase4
             .phase3
@@ -644,13 +631,9 @@ impl StateBuilder {
                 cron_store: Arc::new(p5.cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(p5.notification_store),
-                #[cfg(feature = "evolution")]
                 feedback_store: Arc::new(p5.phase2.feedback_store),
-                #[cfg(feature = "evolution")]
                 prompt_distiller: Arc::new(p5.phase2.prompt_distiller),
-                #[cfg(feature = "evolution")]
                 trajectory_store,
-                #[cfg(feature = "evolution")]
                 skill_store,
                 context_engine: Arc::new(p5.phase2.context_engine),
             },
@@ -751,7 +734,6 @@ impl StateBuilder {
             )));
         tracing::info!("registered sub-agent tools (spawn_subagent, list_agents, get_agent_info)");
 
-        #[cfg(feature = "evolution")]
         state.spawn_skill_evolution_tasks();
 
         state.spawn_inbound_dispatcher(inbound_rx);
@@ -765,9 +747,7 @@ impl StateBuilder {
             let dream_scorer = Some(fastclaw_memory::ImportanceScorer::from(
                 state.cfg.config.memory.importance.clone(),
             ));
-            #[cfg(feature = "evolution")]
             let dream_skill_store = state.store.skill_store.clone();
-            #[cfg(feature = "evolution")]
             let dream_llm = Arc::new(super::LlmSkillExtraction {
                 provider: state.rt.runtime.default_provider_arc(),
                 model: state
@@ -812,7 +792,6 @@ impl StateBuilder {
                                             "dream cycle completed"
                                         );
                                     }
-                                    #[cfg(feature = "evolution")]
                                     if report.skill_candidates_found > 0 {
                                         promote_episodes_to_skills(
                                             ep.as_ref(),
@@ -859,7 +838,6 @@ impl StateBuilder {
     }
 }
 
-#[cfg(feature = "evolution")]
 async fn promote_episodes_to_skills(
     episodic: &EpisodicMemory,
     skill_store: &SkillStore,

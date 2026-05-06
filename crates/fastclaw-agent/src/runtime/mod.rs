@@ -11,22 +11,10 @@ use fastclaw_core::types::{
 use fastclaw_core::types::ExecutionMode;
 
 use prompt_engine::{PromptContext, PromptEngine, PromptSection};
-#[cfg(feature = "evolution")]
 use fastclaw_evolution::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, infer_task_type, SkillStatus,
     SkillStore, Trajectory, TrajectoryOutcome, TrajectoryStep, TrajectoryStore,
 };
-
-#[cfg(not(feature = "evolution"))]
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct TrajectoryStep {
-    role: String,
-    action_type: String,
-    tool_name: Option<String>,
-    summary: String,
-    success: Option<bool>,
-}
 #[cfg(feature = "self-iter")]
 use fastclaw_self_iter::{SelfIterEngine, ToolCallTrace};
 #[cfg(not(feature = "self-iter"))]
@@ -85,7 +73,6 @@ mod unified_compact;
 pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
 
 use accumulator::{accumulate_tool_call, ToolCallAccumulator};
-#[cfg(feature = "evolution")]
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
 use query_state::QueryLoopState;
 use query_deps::QueryDeps;
@@ -100,7 +87,6 @@ use tool_result_storage::{
     MAX_TOOL_RESULTS_PER_MESSAGE_CHARS, reconstruct_state,
 };
 use trajectory::append_text_to_chat_content;
-#[cfg(feature = "evolution")]
 use trajectory::last_user_turn_text;
 use trajectory::truncate_for_trajectory;
 
@@ -356,9 +342,7 @@ pub struct AgentRuntime {
     self_iter_engine: Option<Arc<SelfIterEngine>>,
     #[cfg(feature = "self-iter")]
     self_iter_max_recovery_attempts: u32,
-    #[cfg(feature = "evolution")]
     skill_store: ArcSwap<Option<Arc<SkillStore>>>,
-    #[cfg(feature = "evolution")]
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
 }
 
@@ -372,9 +356,7 @@ impl AgentRuntime {
             self_iter_engine: None,
             #[cfg(feature = "self-iter")]
             self_iter_max_recovery_attempts: 3,
-            #[cfg(feature = "evolution")]
             skill_store: ArcSwap::new(Arc::new(None)),
-            #[cfg(feature = "evolution")]
             trajectory_store: ArcSwap::new(Arc::new(None)),
         }
     }
@@ -412,19 +394,16 @@ impl AgentRuntime {
         PromptEngine::new(static_sections, dynamic_sections)
     }
 
-    #[cfg(feature = "evolution")]
     pub fn with_skill_store(self, store: Arc<SkillStore>) -> Self {
         self.skill_store.store(Arc::new(Some(store)));
         self
     }
 
-    #[cfg(feature = "evolution")]
     pub fn with_trajectory_store(self, store: Arc<TrajectoryStore>) -> Self {
         self.trajectory_store.store(Arc::new(Some(store)));
         self
     }
 
-    #[cfg(feature = "evolution")]
     pub fn attach_evolution_stores(&self, skill: Arc<SkillStore>, trajectory: Arc<TrajectoryStore>) {
         self.skill_store.store(Arc::new(Some(skill)));
         self.trajectory_store.store(Arc::new(Some(trajectory)));
@@ -508,9 +487,7 @@ impl AgentRuntime {
         let mut messages = self.build_messages(params);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages");
 
-        #[allow(unused_mut)]
         let mut injected_skill_ids: Vec<String> = Vec::new();
-        #[cfg(feature = "evolution")]
         {
             let t0_skills = std::time::Instant::now();
             if let Err(e) = self
@@ -1725,7 +1702,6 @@ impl AgentRuntime {
         true
     }
 
-    #[cfg(feature = "evolution")]
     async fn finalize_injected_skills(&self, injected_skill_ids: &[String], success: bool) {
         let store: Arc<SkillStore> = match (*self.skill_store.load()).as_ref() {
             Some(s) => s.clone(),
@@ -1738,10 +1714,6 @@ impl AgentRuntime {
         }
     }
 
-    #[cfg(not(feature = "evolution"))]
-    async fn finalize_injected_skills(&self, _injected_skill_ids: &[String], _success: bool) {}
-
-    #[cfg(feature = "evolution")]
     async fn record_completed_trajectory(
         &self,
         request: &ChatRequest,
@@ -1786,16 +1758,6 @@ impl AgentRuntime {
         }
     }
 
-    #[cfg(not(feature = "evolution"))]
-    async fn record_completed_trajectory(
-        &self,
-        _request: &ChatRequest,
-        _config: &AgentConfig,
-        _steps: &[TrajectoryStep],
-        _run_succeeded: bool,
-    ) {}
-
-    #[cfg(feature = "evolution")]
     async fn inject_relevant_skills(
         &self,
         messages: &mut Vec<ChatMessage>,
@@ -1858,17 +1820,6 @@ impl AgentRuntime {
         Ok(())
     }
 
-    #[cfg(not(feature = "evolution"))]
-    async fn inject_relevant_skills(
-        &self,
-        _messages: &mut Vec<ChatMessage>,
-        _request: &ChatRequest,
-        _injected_skill_ids: &mut Vec<String>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    #[cfg(feature = "evolution")]
     fn inject_skill_block_into_system(messages: &mut Vec<ChatMessage>, block: &str) {
         if block.trim().is_empty() {
             return;

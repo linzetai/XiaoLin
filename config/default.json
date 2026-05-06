@@ -179,17 +179,9 @@
     }
   },
 
-  "dag": {
-    "maxParallelNodes": 16,
-    "checkpointEnabled": true,
-    "checkpointDbPath": "data/dag_checkpoints.db",
-    "defaultNodeTimeoutSecs": 60
-  },
-
   "evolution": {
-    "enabled": false,
-    "evalThreshold": 50,
-    "autoActivate": false
+    "skillExtractionIntervalSecs": 600,
+    "skillMaintenanceIntervalSecs": 300
   },
 
 

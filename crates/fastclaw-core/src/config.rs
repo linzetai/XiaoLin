@@ -1239,7 +1239,6 @@ const KNOWN_TOP_KEYS: &[&str] = &[
     "modelRouter",
     "promptRouter",
     "plugins",
-    "dag",
     "evolution",
     "channels",
     "security",

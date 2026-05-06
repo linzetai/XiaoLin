@@ -551,11 +551,7 @@ async fn e2e_evolution_feedback_loop() {
 }
 
 // ===================================================================
-// Scenario 5: DAG validation
-// ===================================================================
-
-// ===================================================================
-// Scenario 6: WebSocket multi-turn conversation with streaming
+// Scenario 5: WebSocket multi-turn conversation with streaming
 // ===================================================================
 
 use futures::{SinkExt, StreamExt};

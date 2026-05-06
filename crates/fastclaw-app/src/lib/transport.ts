@@ -638,14 +638,13 @@ export async function removeMcpServer(
 // ─── Cron jobs ───
 
 export interface CronJobAction {
-  type: "agent_chat" | "dag_execute" | "webhook";
+  type: "agent_chat" | "webhook";
   agent_id?: string;
   message?: string;
   session_id?: string;
   url?: string;
   method?: string;
   body?: unknown;
-  dag?: unknown;
   input?: unknown;
 }
 

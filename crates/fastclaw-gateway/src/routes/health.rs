@@ -241,18 +241,6 @@ fn fastclaw_openapi_spec() -> serde_json::Value {
             json!({ "post": ep_param("Reject candidate", "rejectCandidate", "Evolution", "candidate_id") }),
         ),
         (
-            "/api/v1/dag/workflows",
-            json!({ "get": ep("List DAG workflows", "dagListWorkflows", "DAG") }),
-        ),
-        (
-            "/api/v1/dag/validate",
-            json!({ "post": ep("Validate DAG", "dagValidate", "DAG") }),
-        ),
-        (
-            "/api/v1/dag/execute",
-            json!({ "post": ep("Execute DAG", "dagExecute", "DAG") }),
-        ),
-        (
             "/api/v1/cron/jobs",
             json!({ "get": ep("List cron jobs", "listCronJobs", "Cron"), "post": ep_body("Upsert cron job", "upsertCronJob", "Cron", "CronJob") }),
         ),
@@ -338,7 +326,7 @@ mod tests {
         }
 
         for tag in &[
-            "Health", "Chat", "Agents", "Sessions", "Memory", "Traces", "Cron", "DAG",
+            "Health", "Chat", "Agents", "Sessions", "Memory", "Traces", "Cron",
         ] {
             assert!(all_tags.contains(*tag), "missing tag: {tag}");
         }

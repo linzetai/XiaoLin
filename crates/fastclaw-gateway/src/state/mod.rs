@@ -17,7 +17,6 @@ use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
-#[cfg(feature = "evolution")]
 use fastclaw_evolution::{
     FeedbackStore, LlmExtractionCallback, LlmExtractedPattern, PromptDistiller, SkillExtractor,
     SkillParam, SkillStore, TrajectoryStore,
@@ -91,24 +90,18 @@ pub struct StorageState {
     pub cron_store: Arc<CronJobStore>,
     pub cron_wake: Arc<tokio::sync::Notify>,
     pub notification_store: Arc<crate::notification_store::NotificationStore>,
-    #[cfg(feature = "evolution")]
     pub feedback_store: Arc<FeedbackStore>,
-    #[cfg(feature = "evolution")]
     pub prompt_distiller: Arc<PromptDistiller>,
-    #[cfg(feature = "evolution")]
     pub trajectory_store: Arc<TrajectoryStore>,
-    #[cfg(feature = "evolution")]
     pub skill_store: Arc<SkillStore>,
     pub context_engine: Arc<fastclaw_context::ContextEngine>,
 }
 
-#[cfg(feature = "evolution")]
 pub(crate) struct LlmSkillExtraction {
     pub(crate) provider: Arc<dyn fastclaw_agent::LlmProvider>,
     pub(crate) model: String,
 }
 
-#[cfg(feature = "evolution")]
 #[async_trait::async_trait]
 impl LlmExtractionCallback for LlmSkillExtraction {
     async fn extract_pattern(&self, trajectories_summary: &str) -> anyhow::Result<LlmExtractedPattern> {
@@ -348,7 +341,6 @@ impl AppState {
         Ok(())
     }
 
-    #[cfg(feature = "evolution")]
     fn spawn_skill_evolution_tasks(&self) {
         let skill_store = self.store.skill_store.clone();
         let maintenance_secs = self.cfg.config.evolution.skill_maintenance_interval_secs;
@@ -1212,7 +1204,6 @@ impl AppState {
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());
 
-        #[cfg(feature = "evolution")]
         let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
             let target = tmp.join("evolution.db");
             let opts = SqliteConnectOptions::new()
@@ -1233,7 +1224,6 @@ impl AppState {
 
         let runtime = Arc::new({
             let rt = AgentRuntime::new(Arc::from(provider));
-            #[cfg(feature = "evolution")]
             let rt = rt
                 .with_skill_store(skill_store.clone())
                 .with_trajectory_store(trajectory_store.clone());
@@ -1359,13 +1349,9 @@ impl AppState {
                 cron_store: Arc::new(cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(notification_store),
-                #[cfg(feature = "evolution")]
                 feedback_store: Arc::new(feedback_store),
-                #[cfg(feature = "evolution")]
                 prompt_distiller: Arc::new(prompt_distiller),
-                #[cfg(feature = "evolution")]
                 trajectory_store,
-                #[cfg(feature = "evolution")]
                 skill_store,
                 context_engine: Arc::new(context_engine),
             },

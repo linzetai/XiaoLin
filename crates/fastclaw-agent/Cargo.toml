@@ -4,15 +4,14 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["evolution", "self-iter"]
-evolution = ["dep:fastclaw-evolution"]
+default = ["self-iter"]
 self-iter = ["dep:fastclaw-self-iter"]
 browser = ["dep:headless_chrome"]
 
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
 fastclaw-context = { path = "../fastclaw-context" }
-fastclaw-evolution = { path = "../fastclaw-evolution", optional = true }
+fastclaw-evolution = { path = "../fastclaw-evolution" }
 fastclaw-session = { path = "../fastclaw-session" }
 fastclaw-self-iter = { path = "../fastclaw-self-iter", optional = true }
 fastclaw-memory = { path = "../fastclaw-memory", default-features = false }

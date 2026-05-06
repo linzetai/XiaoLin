@@ -1403,7 +1403,6 @@ fn cmd_onboard(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
     println!("  - WebSocket & HTTP APIs for real-time chat");
     println!("  - Interactive terminal UI (TUI)");
     println!("  - MCP server/client for interop");
-    println!("  - DAG workflow execution");
     println!("  - Session persistence & memory");
     println!("  - Plugin system (WASM)");
     println!();
