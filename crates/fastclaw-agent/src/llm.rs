@@ -101,6 +101,135 @@ fn is_retryable_reqwest_error(e: &reqwest::Error) -> bool {
     e.is_timeout() || e.is_connect()
 }
 
+/// Structured LLM error with both user-facing message and technical details.
+#[derive(Debug, Clone)]
+pub struct LlmApiError {
+    pub user_message: String,
+    pub technical_detail: String,
+    pub error_code: LlmErrorCode,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum LlmErrorCode {
+    RateLimited,
+    QuotaExceeded,
+    BalanceError,
+    ModelOverloaded,
+    InvalidRequest,
+    AuthenticationFailed,
+    ServerError,
+    Timeout,
+    NetworkError,
+    Unknown,
+}
+
+impl std::fmt::Display for LlmApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.user_message)
+    }
+}
+
+impl std::error::Error for LlmApiError {}
+
+/// Parse an HTTP error response into a structured, user-friendly error.
+pub fn classify_llm_error(status: StatusCode, body: &str) -> LlmApiError {
+    let parsed: Option<serde_json::Value> = serde_json::from_str(body).ok();
+
+    let error_code_str = parsed.as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+
+    let error_message = parsed.as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or(body);
+
+    let error_type = parsed.as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|e| e.get("type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+
+    let (code, user_msg, retryable) = match (status.as_u16(), error_code_str, error_type) {
+        (429, _, _) if error_message.contains("quota") || error_code_str == "insufficient_quota" => (
+            LlmErrorCode::QuotaExceeded,
+            "API 配额已用完，请检查账户余额或升级计划。".to_string(),
+            false,
+        ),
+        (429, _, _) => (
+            LlmErrorCode::RateLimited,
+            "请求频率过高，正在自动重试...".to_string(),
+            true,
+        ),
+        (_, "BalanceError", _) | (_, _, "BalanceError") => (
+            LlmErrorCode::BalanceError,
+            "模型服务暂时不可用（无可用集群）。这通常是临时性的，请稍后重试。".to_string(),
+            true,
+        ),
+        (500, _, _) if error_message.contains("no suitable cluster") || error_message.contains("No suitable") => (
+            LlmErrorCode::BalanceError,
+            "模型服务暂时不可用（无可用集群）。这通常是临时性的，请稍后重试。".to_string(),
+            true,
+        ),
+        (500, _, _) if error_message.contains("overloaded") || error_message.contains("capacity") => (
+            LlmErrorCode::ModelOverloaded,
+            "模型当前负载过高，请稍后重试。".to_string(),
+            true,
+        ),
+        (503, _, _) | (502, _, _) => (
+            LlmErrorCode::ModelOverloaded,
+            "模型服务暂时不可用，正在自动重试...".to_string(),
+            true,
+        ),
+        (500, _, _) | (504, _, _) => (
+            LlmErrorCode::ServerError,
+            "模型服务内部错误，正在自动重试...".to_string(),
+            true,
+        ),
+        (401, _, _) | (403, _, _) => (
+            LlmErrorCode::AuthenticationFailed,
+            "API 密钥无效或已过期，请在设置中检查并更新。".to_string(),
+            false,
+        ),
+        (400, _, _) if error_message.contains("context_length") || error_message.contains("token") => (
+            LlmErrorCode::InvalidRequest,
+            "对话内容超出模型上下文长度限制，请尝试清理历史消息或开始新对话。".to_string(),
+            false,
+        ),
+        (400, _, _) => (
+            LlmErrorCode::InvalidRequest,
+            format!("请求参数错误：{}", truncate_for_user(error_message, 100)),
+            false,
+        ),
+        _ => (
+            LlmErrorCode::Unknown,
+            format!("模型服务返回错误 (HTTP {})，请稍后重试。", status.as_u16()),
+            is_retryable_http_status(status),
+        ),
+    };
+
+    LlmApiError {
+        user_message: user_msg,
+        technical_detail: format!("HTTP {status}: {}", truncate_for_user(body, 500)),
+        error_code: code,
+        retryable,
+    }
+}
+
+fn truncate_for_user(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        s
+    } else {
+        let end = s.floor_char_boundary(max_len);
+        &s[..end]
+    }
+}
+
 async fn acquire_llm_semaphore_permit(
     sem: &Option<Arc<tokio::sync::Semaphore>>,
 ) -> anyhow::Result<Option<tokio::sync::OwnedSemaphorePermit>> {
@@ -230,22 +359,22 @@ impl OpenAiProvider {
                     }
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
-                    let err = anyhow::anyhow!("LLM API error: {status} — {text}");
-                    let retryable = is_retryable_http_status(status);
-                    if retryable && attempt + 1 < max_attempts {
+                    let classified = classify_llm_error(status, &text);
+                    if classified.retryable && attempt + 1 < max_attempts {
                         let delay_ms = openai_backoff_delay_ms(&self.retry, attempt as u32);
                         tracing::warn!(
                             retry_after_attempt = attempt + 1,
                             max_retries = self.retry.max_retries,
                             delay_ms,
                             status = %status,
-                            error = %err,
+                            error_code = ?classified.error_code,
+                            technical_detail = %classified.technical_detail,
                             "OpenAI chat stream connection failed, retrying"
                         );
                         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                         continue;
                     }
-                    return Err(err);
+                    return Err(classified.into());
                 }
                 Err(e) => {
                     let retryable = is_retryable_reqwest_error(&e);
@@ -330,22 +459,22 @@ impl LlmProvider for OpenAiProvider {
                     if !resp.status().is_success() {
                         let status = resp.status();
                         let text = resp.text().await.unwrap_or_default();
-                        let retryable = is_retryable_http_status(status);
-                        if retryable && attempt + 1 < max_attempts {
+                        let classified = classify_llm_error(status, &text);
+                        if classified.retryable && attempt + 1 < max_attempts {
                             let delay_ms = openai_backoff_delay_ms(&self.retry, attempt as u32);
-                            let err = format!("LLM API error: {status} — {text}");
                             tracing::warn!(
                                 retry_after_attempt = attempt + 1,
                                 max_retries = self.retry.max_retries,
                                 delay_ms,
                                 status = %status,
-                                error = %err,
+                                error_code = ?classified.error_code,
+                                technical_detail = %classified.technical_detail,
                                 "OpenAI chat completion failed, retrying"
                             );
                             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                             continue;
                         }
-                        anyhow::bail!("LLM API error: {status} — {text}");
+                        return Err(classified.into());
                     }
 
                     let bytes = match resp.bytes().await {

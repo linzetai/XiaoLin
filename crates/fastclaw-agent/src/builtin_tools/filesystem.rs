@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -13,10 +14,13 @@ use regex::RegexBuilder;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
+use crate::runtime::file_state_cache::{FileStateCache, StaleCheckResult};
+
 tokio::task_local! {
     static FILE_ACCESS_MODE: FileAccessMode;
     static EFFECTIVE_WORK_DIR: Option<PathBuf>;
     static ADDITIONAL_ALLOWED_PATHS: Vec<PathBuf>;
+    static FILE_STATE_CACHE: Arc<FileStateCache>;
 }
 
 pub async fn with_file_access_mode<F, T>(mode: FileAccessMode, fut: F) -> T
@@ -39,6 +43,23 @@ where
 {
     ADDITIONAL_ALLOWED_PATHS.scope(paths, fut).await
 }
+
+pub async fn with_file_state_cache<F, T>(cache: Arc<FileStateCache>, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    FILE_STATE_CACHE.scope(cache, fut).await
+}
+
+fn get_file_state_cache() -> Option<Arc<FileStateCache>> {
+    FILE_STATE_CACHE.try_with(|c| c.clone()).ok()
+}
+
+/// Stub message returned when the file hasn't changed since last read.
+/// The LLM should refer to the earlier Read result in context.
+const FILE_UNCHANGED_STUB: &str =
+    "File unchanged since last read. The content from the earlier read_file \
+     result in this conversation is still current — refer to that instead of re-reading.";
 
 fn workspace_root() -> std::io::Result<PathBuf> {
     if let Ok(Some(dir)) = EFFECTIVE_WORK_DIR.try_with(|d| d.clone()) {
@@ -1019,6 +1040,20 @@ fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
         }
     }
 
+    // Pass 5: Literal escape sequence mismatch recovery.
+    // When LLM sends real newlines but the file has literal `\n`, or vice versa.
+    // This handles a common failure mode: files with literal escape sequences
+    // (e.g., JSON-like content stored as single-line with `\n` literals).
+    let escaped_old = old_string.replace('\n', "\\n").replace('\t', "\\t");
+    if escaped_old != old_string {
+        if let Some(pos) = file_content.find(&escaped_old) {
+            let end = pos + escaped_old.len();
+            if file_content[end..].find(&escaped_old).is_none() {
+                return FuzzyMatchResult::UniqueMatch { start: pos, end };
+            }
+        }
+    }
+
     if count > 1 {
         return FuzzyMatchResult::MultipleMatches(count);
     }
@@ -1432,6 +1467,7 @@ Usage:\n\
 - By default, it reads up to 2000 lines starting from the beginning of the file\n\
 - You can optionally specify a line offset and limit (especially handy for long files), \
 but it's recommended to read the whole file by not providing these parameters\n\
+- When you already know which part of the file you need, only read that part. This is important for larger files\n\
 - Results are returned with line numbers starting at 1, using the format: LINE_NUMBER|LINE_CONTENT\n\
 - This tool can read images (PNG, JPG, GIF, WEBP, SVG, BMP). When reading an image file \
 the contents are presented visually as the model is multimodal\n\
@@ -1439,9 +1475,17 @@ the contents are presented visually as the model is multimodal\n\
 the pages parameter to read specific page ranges (e.g., pages: \"1-5\"). Maximum 20 pages per request\n\
 - This tool can read Jupyter notebooks (.ipynb) and returns all cells with their outputs\n\
 - This tool can only read files, not directories. To list a directory, use `list_directory` or `shell_exec`\n\
-- If you read a file that exists but has empty contents you will receive a system reminder warning\n\
-- When you already know which part of the file you need, only read that part using offset/limit. \
-This is important for larger files".to_string()
+- If you read a file that exists but has empty contents you will receive a system reminder warning\n\n\
+Large file strategy:\n\
+- If the file is truncated, the output will show exactly where truncation happened and \
+suggest the offset/limit values for continuation\n\
+- For targeted edits on large files: first read the section you need (offset + limit), \
+then use edit_file with the EXACT text from the output\n\
+- Use offset=-N to read the last N lines (e.g., offset=-100 for last 100 lines)\n\
+- NEVER fall back to shell scripts when the file is large. Instead, use offset/limit to read \
+the precise section, then edit_file to modify it\n\n\
+IMPORTANT: Do NOT use shell commands (cat, head, tail, less) to read files. Always use this tool instead — \
+it provides structured output with line numbers, handles encoding detection, and works with binary/image/PDF files".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -1517,6 +1561,22 @@ This is important for larger files".to_string()
                 )
             }
         };
+
+        // Dedup: if we've already read this exact range and the file hasn't
+        // changed on disk, return a stub instead of re-sending the full content.
+        // The earlier read_file result is still in context — two full copies
+        // waste tokens on every subsequent turn.
+        if let Some(cache) = get_file_state_cache() {
+            if cache.is_unchanged_for_range(&validated, args.offset, args.limit) {
+                let mut result = ToolResult::ok(FILE_UNCHANGED_STUB);
+                result.metadata = Some(serde_json::json!({
+                    "fileType": "unchanged",
+                    "filePath": path,
+                    "dedup": true,
+                }));
+                return result;
+            }
+        }
 
         let raw_bytes = match tokio::fs::read(&validated).await {
             Ok(b) => b,
@@ -1613,10 +1673,13 @@ This is important for larger files".to_string()
                 .take(DEFAULT_READ_FILE_MAX_LINES)
                 .collect::<Vec<_>>()
                 .join("\n");
+            let next_offset = DEFAULT_READ_FILE_MAX_LINES + 1;
             format!(
                 "{truncated_text}\n\
-                 [File content truncated: showing lines 1-{DEFAULT_READ_FILE_MAX_LINES} of {total_lines} total lines. \
-                 Use offset/limit parameters to read remaining content.]"
+                 [File truncated: showing lines 1-{DEFAULT_READ_FILE_MAX_LINES} of {total_lines}. \
+                 To continue reading: use offset={next_offset}. \
+                 To read a specific section: use offset=<line> limit=<count>. \
+                 To read the end: use offset=-100.]"
             )
         } else {
             lines_shown = total_lines;
@@ -1627,12 +1690,22 @@ This is important for larger files".to_string()
         let char_truncated = char_count > max_chars;
         let text = if char_truncated {
             let head: String = content.chars().take(max_chars).collect();
-            format!("{head}\n[truncated, showing {max_chars} of {char_count} chars, {total_lines} total lines]")
+            let approx_line = head.lines().count();
+            format!(
+                "{head}\n[Content truncated at ~line {approx_line}: showing {max_chars} of {char_count} chars, \
+                 {total_lines} total lines. Use offset={} limit=500 to continue reading.]",
+                approx_line + 1
+            )
         } else {
             content
         };
 
         let is_truncated = line_truncated || char_truncated;
+
+        // Record file state for dedup (next read) and stale detection (next edit/write).
+        if let Some(cache) = get_file_state_cache() {
+            cache.update_with_range(&validated, &text, args.offset, args.limit);
+        }
 
         let mut result = ToolResult::ok(text);
         result.metadata = Some(serde_json::json!({
@@ -1673,12 +1746,14 @@ Usage:\n\
 - If this is an existing file, you MUST use the `read_file` tool first to read the file's contents. \
 This tool will fail if you did not read the file first\n\
 - Prefer the `edit_file` tool for modifying existing files — it only sends the diff. \
-Only use this tool to create new files or for complete rewrites\n\
+Only use write_file to create NEW files or for complete file rewrites where edit_file would be impractical\n\
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User\n\
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked\n\
 - Parent directories are created automatically if they don't exist\n\
 - Modes: overwrite (default — replaces entire file), append (add to end), create_new (fail if exists)\n\
-- Preserves existing file encoding (BOM, UTF-16, line endings) when overwriting".to_string()
+- Preserves existing file encoding (BOM, UTF-16, line endings) when overwriting\n\
+- IMPORTANT: Do NOT use shell commands (echo/cat with redirection, tee) to write files. \
+Always use this tool or edit_file — they provide atomic writes, encoding preservation, and stale-file detection".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -1752,6 +1827,30 @@ Only use this tool to create new files or for complete rewrites\n\
                     ToolErrorType::FileWriteFailure,
                     format!("Could not create parent directories for '{path}'. Check directory permissions."),
                 );
+            }
+        }
+
+        // Stale detection: reject overwrites if file changed since we last read it.
+        // Only applies when overwriting existing files (not append or create_new).
+        if mode == "overwrite" && validated.exists() {
+            if let Some(cache) = get_file_state_cache() {
+                match cache.check_stale(&validated) {
+                    StaleCheckResult::Stale => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::FileWriteFailure,
+                            format!(
+                                "File '{path}' has been modified since you last read it (by the user, \
+                                 a linter, or another tool). Read the file again with read_file before \
+                                 attempting to write. This prevents accidental data loss."
+                            ),
+                        );
+                    }
+                    StaleCheckResult::NeverRead => {
+                        // CC requires read-before-write for existing files.
+                        // We warn in the prompt but don't hard-block here.
+                    }
+                    StaleCheckResult::Fresh => {}
+                }
             }
         }
 
@@ -1831,6 +1930,11 @@ Only use this tool to create new files or for complete rewrites\n\
 
         match write_result {
             Ok(()) => {
+                // Update file state cache after successful write.
+                if let Some(cache) = get_file_state_cache() {
+                    cache.update(&validated, content);
+                }
+
                 let final_bytes = match tokio::fs::metadata(&validated).await {
                     Ok(meta) => meta.len() as usize,
                     Err(_) => content.len(),
@@ -1886,8 +1990,8 @@ impl Tool for EditFileTool {
     fn prompt(&self) -> String {
         "Performs exact string replacements in files.\n\n\
 Usage:\n\
-- You must use the `read_file` tool at least once in the conversation before editing. \
-This tool will error if you attempt an edit without reading the file first\n\
+- You MUST use `read_file` at least once before editing. This tool will error if you attempt \
+an edit without reading the file first. The file may have been modified since you last saw it\n\
 - When editing text from read_file output, ensure you preserve the exact indentation (tabs/spaces) \
 as it appears AFTER the line number prefix. The line number prefix format is: LINE_NUMBER|LINE_CONTENT. \
 Everything after the pipe is the actual file content to match. Never include any part of the line number prefix \
@@ -1899,7 +2003,18 @@ with more surrounding context to make it unique or use `replace_all` to change e
 - Use the smallest old_string that's clearly unique — usually 2-4 adjacent lines is sufficient. \
 Avoid including 10+ lines of context when less uniquely identifies the target\n\
 - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful \
-if you want to rename a variable for instance".to_string()
+if you want to rename a variable for instance\n\n\
+When edit_file fails with 'not found':\n\
+1. Use read_file with offset/limit to re-read the EXACT target section\n\
+2. Copy the precise text from read_file output (after line number prefix)\n\
+3. Retry edit_file with the corrected old_string\n\
+NEVER fall back to shell scripts (sed, awk, Python) — always retry with the correct text from read_file.\n\n\
+Handling files with literal escape sequences:\n\
+- Some files contain literal \\n, \\t characters (not actual newlines/tabs)\n\
+- The fuzzy matcher handles this automatically by trying escape-aware matching\n\
+- If you see single-line content with \\n literals, that IS the file format — do not try to \"fix\" it\n\n\
+IMPORTANT: Do NOT use shell commands (sed, awk, perl -i) to edit files. Always use this tool — \
+it provides atomic writes, encoding preservation, fuzzy matching, and stale-file detection".to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -2037,6 +2152,42 @@ if you want to rename a variable for instance".to_string()
             }
         };
 
+        // File size guard: prevent OOM on multi-GB files (matches CC's 1 GiB limit).
+        const MAX_EDIT_FILE_SIZE: u64 = 1024 * 1024 * 1024;
+        if let Ok(meta) = tokio::fs::metadata(&validated).await {
+            if meta.len() > MAX_EDIT_FILE_SIZE {
+                return ToolResult::typed_err(
+                    ToolErrorType::FileTooLarge,
+                    format!(
+                        "File '{}' is too large to edit ({:.1} MB). Maximum editable file size is 1 GB. \
+                         Use shell_exec with sed/awk for targeted edits on very large files.",
+                        args.file_path,
+                        meta.len() as f64 / (1024.0 * 1024.0)
+                    ),
+                );
+            }
+        }
+
+        // Stale detection: reject if the file was modified externally since we last read it.
+        if let Some(cache) = get_file_state_cache() {
+            match cache.check_stale(&validated) {
+                StaleCheckResult::Stale => {
+                    return ToolResult::typed_err(
+                        ToolErrorType::EditPreparationFailure,
+                        format!(
+                            "File '{}' has been modified since you last read it (by the user, a linter, \
+                             or another tool). Read the file again with read_file before attempting to edit.",
+                            args.file_path
+                        ),
+                    );
+                }
+                StaleCheckResult::NeverRead => {
+                    // Allow the edit but it's risky — the prompt encourages read-before-edit.
+                }
+                StaleCheckResult::Fresh => {}
+            }
+        }
+
         let raw_bytes = match tokio::fs::read(&validated).await {
             Ok(b) => b,
             Err(e) => {
@@ -2111,9 +2262,14 @@ if you want to rename a variable for instance".to_string()
                         format!(
                             "In file '{}': Could not find the specified text to replace \
                              (neither exact nor whitespace/Unicode-normalized match). \
-                             The file may have changed or the old_string is incorrect.\n\
-                             Hint: re-read the file with read_file to get the current content, \
-                             then retry with the exact text.\n\
+                             The file may have changed or the old_string is incorrect.\n\n\
+                             Recovery steps:\n\
+                             1. Use read_file with offset/limit to read the exact section you want to edit\n\
+                             2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
+                             3. Retry edit_file with the exact text as old_string\n\n\
+                             Common causes: literal escape sequences (\\n, \\t) in the file, \
+                             trailing whitespace differences, or the file was modified since last read.\n\
+                             DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
                              File preview (first 20 lines):\n{file_preview}",
                             args.file_path
                         ),
@@ -2192,6 +2348,11 @@ if you want to rename a variable for instance".to_string()
 
         match atomic_write_bytes(&validated, &write_bytes).await {
             Ok(()) => {
+                // Update file state cache so subsequent edits detect external changes.
+                if let Some(cache) = get_file_state_cache() {
+                    cache.update(&validated, &updated_normalized);
+                }
+
                 let diff_stat = format!("+{} -{} lines", added, removed);
                 let mut result = ToolResult::ok(
                     serde_json::json!({
@@ -3746,9 +3907,9 @@ mod new_feature_tests {
         let out = Tool::execute(&tool, &args).await;
         assert!(out.success, "read should succeed: {}", out.output);
         assert!(
-            out.output.contains("File content truncated"),
+            out.output.contains("File truncated"),
             "should contain truncation message: ...{}...",
-            &out.output[out.output.len().saturating_sub(200)..],
+            &out.output[out.output.len().saturating_sub(300)..],
         );
         if let Some(meta) = &out.metadata {
             assert_eq!(meta["isTruncated"], true);

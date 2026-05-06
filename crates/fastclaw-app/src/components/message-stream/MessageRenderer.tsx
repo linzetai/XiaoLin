@@ -255,8 +255,17 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
 });
 
 function SystemMsg({ msg }: { msg: ChatMessage }) {
+  const isError = typeof msg.content === "string" && msg.content.startsWith("错误:");
   return (
-    <div className="pb-4 break-words rounded-xl px-3 py-2 text-[13px]" style={{ background: "var(--tint-subtle)", color: "var(--fill-secondary)", overflowWrap: "anywhere" }}>
+    <div
+      className="pb-4 break-words rounded-xl px-3 py-2 text-[13px]"
+      style={{
+        background: isError ? "var(--error-subtle, rgba(239,68,68,0.08))" : "var(--tint-subtle)",
+        color: isError ? "var(--error-text, #dc2626)" : "var(--fill-secondary)",
+        borderLeft: isError ? "3px solid var(--error-border, #f87171)" : "none",
+        overflowWrap: "anywhere",
+      }}
+    >
       {msg.content}
     </div>
   );

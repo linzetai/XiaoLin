@@ -43,7 +43,7 @@ use fastclaw_session::SessionStore;
 pub use filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
 };
-pub use filesystem::{get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode, with_work_dir};
+pub use filesystem::{get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
 pub use network::{

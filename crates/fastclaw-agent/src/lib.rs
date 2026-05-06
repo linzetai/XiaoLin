@@ -14,8 +14,9 @@ pub use builtin_tools::{
     BuiltinMetaEngine, engine_by_id, BUILTIN_ENGINE_IDS,
 };
 pub use llm::{
-    create_provider, create_provider_chain, create_provider_with_credentials, AnthropicProvider,
-    CircuitBreaker, CircuitState, CompletionParams, FallbackProvider, LlmProvider, OpenAiProvider,
+    classify_llm_error, create_provider, create_provider_chain, create_provider_with_credentials,
+    AnthropicProvider, CircuitBreaker, CircuitState, CompletionParams, FallbackProvider,
+    LlmApiError, LlmErrorCode, LlmProvider, OpenAiProvider,
 };
 pub use runtime::{AgentRuntime, ExecutionResult, SubAgentPromptContext, build_subagent_prompt_block};
 pub use runtime::prompt_engine::{McpServerInfo, PromptContext, PromptEngine, PromptSection, SectionCompute};

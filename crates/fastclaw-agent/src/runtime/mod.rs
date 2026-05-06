@@ -53,7 +53,6 @@ pub mod prompt_engine;
 pub mod prompt_sections;
 mod prompt_builder;
 pub(crate) mod query_deps;
-#[allow(dead_code)]
 pub mod file_state_cache;
 #[allow(dead_code)]
 pub mod hook_config;

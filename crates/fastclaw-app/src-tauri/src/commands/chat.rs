@@ -350,9 +350,20 @@ pub async fn chat_stream(
                     };
                     let _ = after_chat(&app, &setup, &assistant_msg, false).await;
                 }
+                let error_msg = e.to_string();
+                let error_system_msg = ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(format!("[error] {error_msg}"))),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                };
+                if let Err(persist_err) = app.store.session_store.append_message(&session_id, &error_system_msg).await {
+                    tracing::error!(session_id = %session_id, error = %persist_err, "failed to persist error message");
+                }
                 let _ = channel.send(json!({
                     "type": "chat.error",
-                    "error": {"message": e.to_string()}
+                    "error": {"message": error_msg}
                 }));
             }
 
@@ -474,9 +485,18 @@ pub async fn chat_stream(
                 };
                 let _ = after_chat(&app, &setup, &assistant_msg, false).await;
             }
+            let error_msg = format!("{e}");
+            let error_system_msg = ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(format!("[error] {error_msg}"))),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            };
+            let _ = app.store.session_store.append_message(&session_id, &error_system_msg).await;
             let _ = channel.send(json!({
                 "type": "chat.error",
-                "error": {"message": format!("{e}")}
+                "error": {"message": error_msg}
             }));
         }
         Err(e) => {
@@ -494,9 +514,18 @@ pub async fn chat_stream(
                 };
                 let _ = after_chat(&app, &setup, &assistant_msg, false).await;
             }
+            let error_msg = format!("task panic: {e}");
+            let error_system_msg = ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(format!("[error] {error_msg}"))),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            };
+            let _ = app.store.session_store.append_message(&session_id, &error_system_msg).await;
             let _ = channel.send(json!({
                 "type": "chat.error",
-                "error": {"message": format!("task panic: {e}")}
+                "error": {"message": error_msg}
             }));
         }
         _ => {}

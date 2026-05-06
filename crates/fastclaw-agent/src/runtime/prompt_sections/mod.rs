@@ -449,10 +449,20 @@ Prefer specialized tools over {shell}:
 - Listing directories → {list_dir}
 Specialized tools are faster, safer, and produce better-structured output.
 
+**CRITICAL: NEVER use {shell} for file operations that have dedicated tools:**
+- NEVER use `cat`, `head`, `tail`, `less`, `more` to read → use {read}
+- NEVER use `sed`, `awk`, `perl -i`, `ed` to edit → use {edit}
+- NEVER use `echo >`, `cat >`, `tee`, heredoc to write → use {write}
+- NEVER use `find` to locate files → use {glob}
+- NEVER use `grep` in shell → use {grep}
+- NEVER use `ls` in shell → use {list_dir}
+These dedicated tools provide structured output, encoding detection, stale-file protection, \
+and atomic operations that shell commands cannot match.
+
 **Step 2 — Can I express this as a single shell command?**
 If no specialized tool fits, use {shell}. Prefer one-liners over multi-step scripts.
-Never use shell for tasks a specialized tool handles better (e.g. don't use `cat` to read, \
-don't use `sed` to edit, don't use `find` when {glob} works).
+{shell} is appropriate for: git operations, running tests, building projects, \
+installing dependencies, and other system commands that have no dedicated tool.
 
 **Step 3 — Can I parallelize?**
 If you need multiple independent pieces of information, batch tool calls in a single response.
@@ -562,6 +572,17 @@ For complex investigations, combine tools progressively:
 4. Only then proceed to {edit} or {write}
 
 Never skip step 3 — always read before editing.
+
+## When edit_file Fails — Recovery Protocol
+
+If {edit} fails with \"string not found\":
+1. Use {read} with offset/limit to read the EXACT section of the file around the target
+2. Copy the exact text from the read output (strip line number prefixes)
+3. Retry {edit} with the corrected old_string
+
+NEVER fall back to shell scripts (sed, awk, Python) when {edit} fails. \
+The dedicated tools have fuzzy matching, encoding detection, and atomic operations. \
+If you can't match the text, the issue is always solvable by re-reading the exact content first.
 </using_tools>"
     )
 }
@@ -608,10 +629,18 @@ fn using_tools_zh(ctx: &PromptContext) -> String {
 - 列出目录 → {list_dir}
 专用工具更快、更安全、输出结构更好。
 
+**严格禁止：绝对不要用 {shell} 执行有专用工具的文件操作：**
+- 绝不用 `cat`、`head`、`tail`、`less`、`more` 读取文件 → 用 {read}
+- 绝不用 `sed`、`awk`、`perl -i`、`ed` 编辑文件 → 用 {edit}
+- 绝不用 `echo >`、`cat >`、`tee`、heredoc 写入文件 → 用 {write}
+- 绝不用 `find` 查找文件 → 用 {glob}
+- 绝不用 shell 中的 `grep` → 用 {grep}
+- 绝不用 shell 中的 `ls` → 用 {list_dir}
+专用工具提供结构化输出、编码检测、过时文件保护和原子操作，这些是 shell 命令无法提供的。
+
 **Step 2 — 能否用一条 shell 命令完成？**
 如果没有合适的专用工具，使用 {shell}。优先单行命令而非多步脚本。
-绝不用 shell 做专用工具能更好完成的任务（如不要用 `cat` 读文件、不要用 `sed` 编辑、\
-{glob} 能用时不要用 `find`）。
+{shell} 适用于：git 操作、运行测试、构建项目、安装依赖，以及其他没有专用工具的系统命令。
 
 **Step 3 — 能否并行？**
 如果需要多个独立的信息，在一次回复中批量调用工具。
@@ -721,6 +750,17 @@ fn using_tools_zh(ctx: &PromptContext) -> String {
 4. 然后才进行 {edit} 或 {write}
 
 绝不跳过第 3 步 — 编辑前始终先读取。
+
+## edit_file 失败时的恢复协议
+
+如果 {edit} 报「找不到匹配文本」：
+1. 用 {read} 的 offset/limit 读取目标位置的精确内容
+2. 从 read 输出复制精确文本（去掉行号前缀）
+3. 用修正后的 old_string 重试 {edit}
+
+绝对不要在 {edit} 失败后退化到 shell 脚本（sed、awk、Python）。\
+专用工具具有模糊匹配、编码检测和原子操作能力。\
+如果匹配不上，问题总能通过重新精确读取文件内容来解决。
 </using_tools>"
     )
 }

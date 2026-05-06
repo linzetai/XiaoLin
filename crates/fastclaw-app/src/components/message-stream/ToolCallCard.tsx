@@ -201,6 +201,101 @@ function ImageViewer({ src }: { src: string }) {
   );
 }
 
+function isEditLikeTool(name: string): boolean {
+  return name === "edit_file" || name === "write_file" || name === "file_write";
+}
+
+function StreamingDiffPreview({ args }: { args: string }) {
+  const parsed = useMemo(() => {
+    try {
+      const a = JSON.parse(args);
+      const oldStr = a.old_string ?? a.oldString ?? "";
+      const newStr = a.new_string ?? a.newString ?? a.content ?? "";
+      const filePath = a.file_path ?? a.path ?? a.file ?? "";
+      if (!newStr) return null;
+      return { oldStr, newStr, filePath };
+    } catch { return null; }
+  }, [args]);
+
+  if (!parsed) return null;
+  const { oldStr, newStr, filePath } = parsed;
+  const fileName = filePath.split("/").pop() || filePath;
+  const isCreate = !oldStr;
+
+  return (
+    <div
+      className="mx-3 mb-2 overflow-hidden rounded-md"
+      style={{ border: "0.5px solid var(--separator)", background: "var(--bg-primary)" }}
+    >
+      <div className="flex items-center gap-2 px-2.5 py-1.5" style={{ borderBottom: "0.5px solid var(--separator)" }}>
+        <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--tint, #4299E1)" }}>
+          {isCreate ? "创建" : "变更预览"}
+        </span>
+        {fileName && (
+          <span className="truncate text-[10px]" style={{ color: "var(--fill-quaternary)" }}>{fileName}</span>
+        )}
+      </div>
+      <pre
+        className="overflow-x-auto text-[10.5px] leading-[1.6]"
+        style={{ fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace', maxHeight: "200px", overflowY: "auto" }}
+      >
+        {isCreate ? (
+          newStr.split("\n").slice(0, 20).map((line: string, i: number) => (
+            <div key={i} className="px-2" style={{ background: "color-mix(in srgb, var(--green, #48BB78) 8%, transparent)", color: "var(--green, #48BB78)" }}>
+              <span className="mr-2 inline-block w-3 select-none text-right opacity-50">+</span>
+              {line || " "}
+            </div>
+          ))
+        ) : (
+          renderSimpleDiff(oldStr, newStr)
+        )}
+        {(isCreate ? newStr : oldStr + newStr).split("\n").length > 20 && (
+          <div className="px-2 py-0.5" style={{ color: "var(--fill-quaternary)" }}>...</div>
+        )}
+      </pre>
+    </div>
+  );
+}
+
+function renderSimpleDiff(oldStr: string, newStr: string): ReactNode[] {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  const result: ReactNode[] = [];
+  const maxLines = 20;
+  let count = 0;
+
+  let oi = 0;
+  let ni = 0;
+  while ((oi < oldLines.length || ni < newLines.length) && count < maxLines) {
+    if (oi < oldLines.length && ni < newLines.length && oldLines[oi] === newLines[ni]) {
+      result.push(
+        <div key={`c${count}`} className="px-2" style={{ color: "var(--fill-tertiary)" }}>
+          <span className="mr-2 inline-block w-3 select-none text-right opacity-50"> </span>
+          {oldLines[oi] || " "}
+        </div>
+      );
+      oi++; ni++; count++;
+    } else if (oi < oldLines.length) {
+      result.push(
+        <div key={`r${count}`} className="px-2" style={{ background: "color-mix(in srgb, var(--red, #FC8181) 8%, transparent)", color: "var(--red, #FC8181)" }}>
+          <span className="mr-2 inline-block w-3 select-none text-right opacity-50">-</span>
+          {oldLines[oi] || " "}
+        </div>
+      );
+      oi++; count++;
+    } else {
+      result.push(
+        <div key={`a${count}`} className="px-2" style={{ background: "color-mix(in srgb, var(--green, #48BB78) 8%, transparent)", color: "var(--green, #48BB78)" }}>
+          <span className="mr-2 inline-block w-3 select-none text-right opacity-50">+</span>
+          {newLines[ni] || " "}
+        </div>
+      );
+      ni++; count++;
+    }
+  }
+  return result;
+}
+
 const MAX_OUTPUT_LINES = 16;
 const MAX_OUTPUT_CHARS = 1200;
 
@@ -359,6 +454,11 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
             <ImageViewer key={i} src={src} />
           ))}
         </div>
+      )}
+
+      {/* Streaming diff preview — show while edit_file/write_file is running */}
+      {isRunning && isEditLikeTool(tool.name) && tool.args && (
+        <StreamingDiffPreview args={tool.args} />
       )}
 
       {/* Specialized tool result cards — shown without expanding */}

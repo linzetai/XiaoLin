@@ -10,10 +10,30 @@ struct FileState {
     content_hash: u64,
     modified_at: SystemTime,
     content_preview: String,
+    /// The offset/limit range that was read. Used for dedup detection.
+    read_offset: Option<i64>,
+    read_limit: Option<usize>,
 }
 
-/// Cache that tracks file content hashes and modification times to avoid
-/// redundant re-reads of unchanged files during an agent session.
+/// Stale-detection result when comparing file state before a write/edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaleCheckResult {
+    /// File has not been modified since we last read it — safe to proceed.
+    Fresh,
+    /// File was modified externally since we last read it.
+    Stale,
+    /// We have no cached state for this file (never read it in this session).
+    NeverRead,
+}
+
+/// Cache that tracks file content hashes and modification times.
+///
+/// Provides three key capabilities inspired by Claude Code's `readFileState`:
+/// 1. **Dedup detection**: Skip re-reading files that haven't changed on disk.
+/// 2. **Stale detection**: Reject edits/writes when the file was modified externally
+///    after we last read it (prevents data loss from concurrent edits).
+/// 3. **Post-write update**: Record new state after we write, so subsequent
+///    stale checks compare against our write (not the earlier read).
 #[derive(Debug, Clone)]
 pub struct FileStateCache {
     cache: DashMap<PathBuf, FileState>,
@@ -50,9 +70,60 @@ impl FileStateCache {
         entry.modified_at == current_mtime
     }
 
+    /// Check if the same read range was used and the file is unchanged.
+    /// Used by ReadFileTool to skip re-sending unchanged content.
+    pub fn is_unchanged_for_range(&self, path: &Path, offset: Option<i64>, limit: Option<usize>) -> bool {
+        let entry = match self.cache.get(path) {
+            Some(e) => e,
+            None => return false,
+        };
+
+        if entry.read_offset != offset || entry.read_limit != limit {
+            return false;
+        }
+
+        let current_mtime = match std::fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+
+        entry.modified_at == current_mtime
+    }
+
+    /// Perform a stale check before write/edit: has the file been modified
+    /// since we last read (or wrote) it?
+    ///
+    /// Returns:
+    /// - `Fresh` — safe to proceed with the write/edit
+    /// - `Stale` — file changed externally; must re-read before editing
+    /// - `NeverRead` — we have no record; the tool should decide whether to
+    ///   require a read-first or allow the operation
+    pub fn check_stale(&self, path: &Path) -> StaleCheckResult {
+        let entry = match self.cache.get(path) {
+            Some(e) => e,
+            None => return StaleCheckResult::NeverRead,
+        };
+
+        let current_mtime = match std::fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => return StaleCheckResult::Fresh,
+        };
+
+        if current_mtime > entry.modified_at {
+            StaleCheckResult::Stale
+        } else {
+            StaleCheckResult::Fresh
+        }
+    }
+
     /// Record the current state of a file's content.
     /// Stores the content hash, modification time, and a preview (first 200 lines).
     pub fn update(&self, path: &Path, content: &str) {
+        self.update_with_range(path, content, None, None);
+    }
+
+    /// Record the current state with offset/limit metadata (from a read operation).
+    pub fn update_with_range(&self, path: &Path, content: &str, offset: Option<i64>, limit: Option<usize>) {
         let mtime = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
@@ -70,8 +141,23 @@ impl FileStateCache {
                 content_hash: hash,
                 modified_at: mtime,
                 content_preview: preview,
+                read_offset: offset,
+                read_limit: limit,
             },
         );
+    }
+
+    /// Update cached modification time after a successful write/edit.
+    /// Keeps the content hash intact so subsequent edits to the same
+    /// content are detected as stale if something else modifies the file.
+    pub fn refresh_mtime(&self, path: &Path) {
+        if let Some(mut entry) = self.cache.get_mut(path) {
+            if let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified()) {
+                entry.modified_at = mtime;
+                entry.read_offset = None;
+                entry.read_limit = None;
+            }
+        }
     }
 
     /// Remove a single path from the cache (e.g. after a write/edit operation).
@@ -96,6 +182,11 @@ impl FileStateCache {
     /// Get the content hash for a path, if cached.
     pub fn content_hash(&self, path: &Path) -> Option<u64> {
         self.cache.get(path).map(|e| e.content_hash)
+    }
+
+    /// Check if we have ever read this file in the current session.
+    pub fn has_read(&self, path: &Path) -> bool {
+        self.cache.contains_key(path)
     }
 
     /// Number of entries currently cached.
