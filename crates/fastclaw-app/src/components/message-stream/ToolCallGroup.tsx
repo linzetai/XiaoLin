@@ -341,8 +341,13 @@ export const ToolCallGroupTimeline = memo(function ToolCallGroupTimeline({
 });
 
 const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
+  const [expanded, setExpanded] = useState(false);
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
+  const hasDetails = !!(tool.args || tool.result);
+  const handleToggle = useCallback(() => {
+    if (hasDetails) setExpanded((v) => !v);
+  }, [hasDetails]);
   const keyInfo = useMemo(() => {
     if (!tool.args) return null;
     try {
@@ -354,37 +359,61 @@ const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
   }, [tool.args]);
 
   return (
-    <div className="flex items-center gap-2 py-[3px] text-[11px]">
-      <span className="relative z-10 flex shrink-0 items-center justify-center rounded-full"
-        style={{
-          width: isRunning ? 9 : 7,
-          height: isRunning ? 9 : 7,
-          background: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-quaternary)",
-          boxShadow: isRunning ? "0 0 0 2px var(--bg-secondary), 0 0 0 3.5px color-mix(in srgb, var(--tint) 30%, transparent)" : undefined,
-          animation: isRunning ? "pulse 1.5s ease-in-out infinite" : undefined,
-        }}
-      />
-      {isRunning && (
-        <span
-          className="inline-block h-3 w-3 shrink-0 rounded-full border-[1.5px]"
+    <div>
+      <div
+        className="flex items-center gap-2 py-[3px] text-[11px]"
+        style={{ cursor: hasDetails ? "pointer" : "default" }}
+        onClick={handleToggle}
+        role={hasDetails ? "button" : undefined}
+        aria-expanded={hasDetails ? expanded : undefined}
+      >
+        <span className="relative z-10 flex shrink-0 items-center justify-center rounded-full"
           style={{
-            borderColor: "var(--tint) transparent transparent transparent",
-            animation: "spin 0.8s linear infinite",
+            width: isRunning ? 9 : 7,
+            height: isRunning ? 9 : 7,
+            background: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-quaternary)",
+            boxShadow: isRunning ? "0 0 0 2px var(--bg-secondary), 0 0 0 3.5px color-mix(in srgb, var(--tint) 30%, transparent)" : undefined,
+            animation: isRunning ? "pulse 1.5s ease-in-out infinite" : undefined,
           }}
         />
-      )}
-      <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-secondary)" }}>
-        {tool.name.replace(/_/g, " ")}
-      </span>
-      {keyInfo && (
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px]" style={{ color: "var(--fill-quaternary)" }} title={keyInfo}>
-          {keyInfo}
+        {isRunning && (
+          <span
+            className="inline-block h-3 w-3 shrink-0 rounded-full border-[1.5px]"
+            style={{
+              borderColor: "var(--tint) transparent transparent transparent",
+              animation: "spin 0.8s linear infinite",
+            }}
+          />
+        )}
+        <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : isRunning ? "var(--tint)" : "var(--fill-secondary)" }}>
+          {tool.name.replace(/_/g, " ")}
         </span>
+        {keyInfo && (
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px]" style={{ color: "var(--fill-quaternary)" }} title={keyInfo}>
+            {keyInfo}
+          </span>
+        )}
+        <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: isRunning ? "var(--tint)" : "var(--fill-quaternary)", minWidth: "3em" }}>
+          {isRunning && tool.startTime && `${((Date.now() - tool.startTime) / 1000).toFixed(1)}s`}
+          {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
+        </span>
+        {hasDetails && (
+          <ChevronRight
+            size={9}
+            strokeWidth={2}
+            className="shrink-0 transition-transform duration-150"
+            style={{
+              color: "var(--fill-quaternary)",
+              transform: expanded ? "rotate(90deg)" : "rotate(0)",
+            }}
+          />
+        )}
+      </div>
+      {expanded && hasDetails && (
+        <div className="ml-4 mb-1">
+          <ToolCallCard tool={tool} />
+        </div>
       )}
-      <span className="ml-auto shrink-0 tabular-nums text-[10px]" style={{ color: isRunning ? "var(--tint)" : "var(--fill-quaternary)", minWidth: "3em" }}>
-        {isRunning && tool.startTime && `${((Date.now() - tool.startTime) / 1000).toFixed(1)}s`}
-        {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
-      </span>
     </div>
   );
 });
