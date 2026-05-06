@@ -83,7 +83,7 @@ export const MOCK_TOOL_CALL_MESSAGES = [
   {
     id: 3,
     role: "tool",
-    content: '{"name": "fastclaw-app", "version": "0.0.4"}',
+    content: '{"name": "fastclaw-app", "version": "0.0.5"}',
     name: "read_file",
     toolCallId: "tc-001",
     toolCallsJson: null,
@@ -92,7 +92,7 @@ export const MOCK_TOOL_CALL_MESSAGES = [
   {
     id: 4,
     role: "assistant",
-    content: "package.json 的内容如下：项目名称是 fastclaw-app，版本号 0.0.4。",
+    content: "package.json 的内容如下：项目名称是 fastclaw-app，版本号 0.0.5。",
     name: null,
     toolCallId: null,
     toolCallsJson: null,
@@ -111,7 +111,7 @@ export const MOCK_STREAMING_CHUNKS = [
 ];
 
 export function buildHealthResponse() {
-  return { status: "ok", version: "0.0.4-test" };
+  return { status: "ok", version: "0.0.5-test" };
 }
 
 export function buildGatewayInfo() {

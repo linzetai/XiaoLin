@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-agent"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1919,7 +1919,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-app"
-version = "0.0.2"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1958,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-cli"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-context"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-core"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2033,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-cron"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-evolution"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2066,7 +2066,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-feishu"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-gateway"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-mcp"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-memory"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-model-router"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "criterion",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-observe"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -2201,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-security"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -2219,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-self-iter"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2234,7 +2234,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-session"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "fastclaw-treesitter"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "dashmap",

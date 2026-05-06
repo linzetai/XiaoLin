@@ -1,6 +1,6 @@
 # FastClaw 使用手册
 
-> **版本**: 0.0.4 &nbsp;|&nbsp; **最后更新**: 2026-04-30
+> **版本**: 0.0.5 &nbsp;|&nbsp; **最后更新**: 2026-04-30
 
 ---
 
@@ -76,7 +76,7 @@ cross build --release --target aarch64-unknown-linux-gnu
 
 ```bash
 fastclaw --version
-# FastClaw 0.0.4
+# FastClaw 0.0.5
 
 fastclaw doctor
 ```
@@ -338,7 +338,7 @@ fastclaw serve
 输出：
 
 ```
-  ⚡ FastClaw v0.0.4
+  ⚡ FastClaw v5
   ➜  Local:   http://localhost:18789/
   ➜  Network: http://0.0.0.0:18789/
 

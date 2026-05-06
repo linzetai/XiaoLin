@@ -65,7 +65,7 @@ pub(super) async fn metrics_endpoint() -> impl IntoResponse {
     (
         [(
             header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
+            "text/plain; version=0.0.5; charset=utf-8",
         )],
         body,
     )
@@ -77,7 +77,7 @@ pub(super) async fn structured_metrics_v1() -> impl IntoResponse {
     (
         [(
             header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
+            "text/plain; version=0.0.5; charset=utf-8",
         )],
         body,
     )

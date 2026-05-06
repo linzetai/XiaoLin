@@ -158,7 +158,7 @@ impl MetricsCollector {
         (p50, p95, p99)
     }
 
-    /// Renders all recorded metrics in Prometheus text exposition format (0.0.4).
+    /// Renders all recorded metrics in Prometheus text exposition format (0.0.5).
     pub fn render_prometheus(&self) -> String {
         let mut out = String::new();
 
