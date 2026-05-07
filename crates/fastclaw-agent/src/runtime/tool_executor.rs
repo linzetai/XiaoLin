@@ -171,10 +171,13 @@ pub(crate) fn truncate_tool_result_output_with_limit(
 }
 
 /// Compactable tool names whose old results can be progressively faded.
+/// Uses `starts_with` matching so MCP tool prefixes (e.g. "mcp_") also work.
 const COMPACTABLE_TOOLS: &[&str] = &[
     "read_file", "shell_exec", "shell", "grep", "glob", "web_search",
     "web_fetch", "write_file", "edit_file", "list_dir", "list_directory",
     "run_command", "ripgrep", "fetch_url",
+    "search_in_files", "apply_patch", "multi_edit",
+    "mcp_",
 ];
 
 /// Extract the "command" field from shell_exec tool arguments JSON.

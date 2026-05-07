@@ -1621,9 +1621,12 @@ impl AgentRuntime {
                 continue;
             }
 
-            // Post-tool-call context usage update — re-estimate after tool
-            // results have been appended so the frontend stays current.
+            // Post-tool-call context usage update — run lightweight microcompact
+            // first so the reported token count reflects what the next LLM call
+            // will actually see, rather than the raw uncompressed accumulation.
             {
+                tool_executor::microcompact_tool_results(&mut messages, 3);
+                tool_executor::dedup_repeated_tool_calls(&mut messages);
                 let post_tool_tokens = fastclaw_context::estimate_messages_tokens(&messages);
                 state.last_estimated_tokens = post_tool_tokens;
                 let _ = send_stream_event(
