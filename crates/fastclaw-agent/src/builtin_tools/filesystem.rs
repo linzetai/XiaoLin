@@ -253,7 +253,20 @@ fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<Pat
                 return Ok(resolved);
             }
         }
-        Err(e) if must_exist => return Err(e),
+        Err(e) if must_exist => {
+            // Before returning NotFound, verify the path would be within an
+            // allowed location.  If not, the real error is "outside workspace"
+            // — returning NotFound would mislead the LLM into thinking it just
+            // needs to fix the filename.
+            let cleaned = lexical_clean(&absolute);
+            let allowed = cleaned.starts_with(&root)
+                || state_dir_root().map_or(false, |sr| cleaned.starts_with(&sr))
+                || is_path_under_allowed_prefixes(&cleaned, &absolute);
+            if allowed {
+                return Err(e);
+            }
+            // Fall through to the "outside all allowed locations" error below.
+        }
         Err(_) => {
             // Parent doesn't exist yet — normalize the path lexically
             // (resolve `..` without touching the filesystem) before
@@ -1084,12 +1097,35 @@ fn build_diff_snippet(old_text: &str, new_text: &str, file_path: &str) -> String
     diff
 }
 
+/// Map an `io::Error` from `ensure_within_workspace` to the correct
+/// `ToolErrorType`, so callers don't blindly report `PathNotInWorkspace`
+/// for files that simply don't exist.
+fn classify_workspace_error(e: &std::io::Error) -> ToolErrorType {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => ToolErrorType::FileNotFound,
+        std::io::ErrorKind::PermissionDenied => {
+            let msg = e.to_string();
+            if msg.contains("outside all allowed locations") || msg.contains("file access is disabled") {
+                ToolErrorType::PathNotInWorkspace
+            } else {
+                ToolErrorType::PermissionDenied
+            }
+        }
+        _ => ToolErrorType::PathNotInWorkspace,
+    }
+}
+
 /// Creates user-friendly error messages based on the error type.
 /// This helps prevent exposing internal system details to the LLM.
 fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
     match error_type {
         ToolErrorType::FileNotFound => {
-            format!("The file '{}' does not exist. Please verify the file path.", path)
+            format!(
+                "The file '{}' does not exist. \
+                 Recovery: run list_directory on the parent directory to see available files, \
+                 or use glob (e.g. glob pattern \"*快问*\" or \"*keyword*\") to search by partial name.",
+                path
+            )
         }
         ToolErrorType::FileWriteFailure => {
             format!("Could not write to file '{}'. Check file permissions or disk space.", path)
@@ -1554,11 +1590,12 @@ it provides structured output with line numbers, handles encoding detection, and
 
         let validated = match ensure_within_workspace(Path::new(path), true) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, path),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, path),
+                );
             }
         };
 
@@ -1594,7 +1631,7 @@ it provides structured output with line numbers, handles encoding detection, and
                         "read_file failed for path '{path}': {e}. \
                          Recovery: {recovery}",
                         recovery = match err_type {
-                            ToolErrorType::FileNotFound => "Run list_directory on the parent to find the correct filename.",
+                            ToolErrorType::FileNotFound => "Run list_directory on the parent to find the correct filename, or use glob with a partial name pattern (e.g. \"*keyword*\") to search recursively.",
                             ToolErrorType::PermissionDenied => "The user may need to switch execution mode in Settings → Security, or set a different working directory via the folder icon at the bottom of the chat.",
                             _ => "Check file permissions or retry. For binary files, use shell_exec to inspect."
                         }
@@ -1813,11 +1850,12 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
 
         let validated = match ensure_within_workspace(Path::new(path), false) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, path),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, path),
+                );
             }
         };
         let file_path = validated.as_path();
@@ -2086,11 +2124,12 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             }
             let validated = match ensure_within_workspace(Path::new(&args.file_path), false) {
                 Ok(p) => p,
-                Err(_) => {
+                Err(e) => {
+                    let err_type = classify_workspace_error(&e);
                     return ToolResult::typed_err(
-                        ToolErrorType::PathNotInWorkspace,
-                        create_user_friendly_error(ToolErrorType::PathNotInWorkspace, &args.file_path),
-                    )
+                        err_type,
+                        create_user_friendly_error(err_type, &args.file_path),
+                    );
                 }
             };
             if validated.exists() {
@@ -2144,11 +2183,12 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
 
         let validated = match ensure_within_workspace(Path::new(&args.file_path), true) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, &args.file_path),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, &args.file_path),
+                );
             }
         };
 
@@ -2691,11 +2731,12 @@ like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`\n\
         let scope = args.path.as_deref().unwrap_or(".");
         let validated = match ensure_within_workspace(Path::new(scope), true) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, scope),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, scope),
+                );
             }
         };
         let root = match workspace_root().and_then(|p| p.canonicalize()) {
@@ -2885,11 +2926,12 @@ impl Tool for ApplyPatchTool {
 
         let validated = match ensure_within_workspace(Path::new(&args.file_path), true) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, &args.file_path),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, &args.file_path),
+                );
             }
         };
 
@@ -3070,11 +3112,12 @@ impl Tool for ListDirectoryTool {
         let mut entries = Vec::new();
         let validated = match ensure_within_workspace(Path::new(path), true) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
                 return ToolResult::typed_err(
-                    ToolErrorType::PathNotInWorkspace,
-                    create_user_friendly_error(ToolErrorType::PathNotInWorkspace, path),
-                )
+                    err_type,
+                    create_user_friendly_error(err_type, path),
+                );
             }
         };
 
@@ -3188,10 +3231,13 @@ Examples:\n\
 
         let base_dir = match ensure_within_workspace(Path::new(base), true) {
             Ok(p) => p,
-            Err(_) => return ToolResult::typed_err(
-                ToolErrorType::PathNotInWorkspace,
-                create_user_friendly_error(ToolErrorType::PathNotInWorkspace, base),
-            ),
+            Err(e) => {
+                let err_type = classify_workspace_error(&e);
+                return ToolResult::typed_err(
+                    err_type,
+                    create_user_friendly_error(err_type, base),
+                );
+            }
         };
 
         let root = workspace_root().and_then(|p| p.canonicalize()).unwrap_or_else(|_| base_dir.clone());
@@ -3341,10 +3387,15 @@ impl Tool for MultiEditTool {
         for (file_idx, entry) in args.edits.iter().enumerate() {
             let validated = match ensure_within_workspace(Path::new(&entry.file_path), true) {
                 Ok(p) => p,
-                Err(_) => return ToolResult::err(format!(
-                    "multi_edit: file #{file_idx} '{}' is outside the workspace. Transaction aborted, no files modified.",
-                    entry.file_path
-                )),
+                Err(e) => {
+                    let err_type = classify_workspace_error(&e);
+                    let reason = if err_type == ToolErrorType::FileNotFound {
+                        format!("multi_edit: file #{file_idx} '{}' does not exist. Transaction aborted, no files modified.", entry.file_path)
+                    } else {
+                        format!("multi_edit: file #{file_idx} '{}' is outside the workspace. Transaction aborted, no files modified.", entry.file_path)
+                    };
+                    return ToolResult::typed_err(err_type, reason);
+                }
             };
 
             let raw_bytes = match tokio::fs::read(&validated).await {
@@ -3537,6 +3588,78 @@ mod tests {
         assert!(
             err_msg.contains("Full (YOLO)"),
             "error should suggest Full mode: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn classify_workspace_error_returns_not_found_for_missing_files() {
+        let e = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
+        assert_eq!(classify_workspace_error(&e), ToolErrorType::FileNotFound);
+    }
+
+    #[test]
+    fn classify_workspace_error_returns_path_not_in_workspace_for_outside_path() {
+        let e = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "path '/tmp/evil.txt' is outside all allowed locations.",
+        );
+        assert_eq!(classify_workspace_error(&e), ToolErrorType::PathNotInWorkspace);
+    }
+
+    #[test]
+    fn classify_workspace_error_returns_permission_denied_for_os_perm() {
+        let e = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Operation not permitted",
+        );
+        assert_eq!(classify_workspace_error(&e), ToolErrorType::PermissionDenied);
+    }
+
+    #[test]
+    fn classify_workspace_error_returns_path_not_in_workspace_for_plan_mode() {
+        let e = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "file access is disabled (execution mode = Plan).",
+        );
+        assert_eq!(classify_workspace_error(&e), ToolErrorType::PathNotInWorkspace);
+    }
+
+    #[tokio::test]
+    async fn read_file_nonexistent_in_workspace_returns_not_found() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let missing = cwd.join("_definitely_missing_file_xyz.txt");
+        assert!(!missing.exists());
+
+        let tool = ReadFileTool;
+        let args = serde_json::json!({ "file_path": missing.to_string_lossy() }).to_string();
+        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(!out.success);
+        assert!(
+            out.output.contains("does not exist"),
+            "should say 'does not exist', not 'outside workspace': {}",
+            out.output
+        );
+        assert_eq!(
+            out.error_type,
+            Some(ToolErrorType::FileNotFound),
+            "error_type should be FileNotFound, not PathNotInWorkspace"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_dir_nonexistent_in_workspace_returns_not_found() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let missing = cwd.join("_definitely_missing_dir_xyz");
+        assert!(!missing.exists());
+
+        let tool = ListDirectoryTool;
+        let args = serde_json::json!({ "path": missing.to_string_lossy() }).to_string();
+        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(!out.success);
+        assert_eq!(
+            out.error_type,
+            Some(ToolErrorType::FileNotFound),
+            "error_type should be FileNotFound for missing dir, not PathNotInWorkspace"
         );
     }
 

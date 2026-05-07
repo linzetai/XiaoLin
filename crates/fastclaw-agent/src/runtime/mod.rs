@@ -630,8 +630,10 @@ impl AgentRuntime {
                 tool_calls, tool_registry, &config.behavior, &request.work_dir, "", mode_state.as_ref(),
             ).await;
 
+            let mut force_stop_loop = false;
             for (tool_name, call_id, arguments, result) in results {
                 state.total_tool_calls += 1;
+                let rep_action = state.record_tool_call(&tool_name, &arguments);
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -645,6 +647,21 @@ impl AgentRuntime {
                     state.record_tool_error(&tool_name, &result.output);
                 } else {
                     state.clear_error_streak();
+                }
+
+                match rep_action {
+                    query_state::ToolRepetitionAction::ForceStop => {
+                        if let Some(nudge) = state.build_repetition_nudge(true) {
+                            inject_tool_recovery_guidance(&mut messages, &nudge);
+                        }
+                        force_stop_loop = true;
+                    }
+                    query_state::ToolRepetitionAction::Warn => {
+                        if let Some(nudge) = state.build_repetition_nudge(false) {
+                            inject_tool_recovery_guidance(&mut messages, &nudge);
+                        }
+                    }
+                    query_state::ToolRepetitionAction::None => {}
                 }
 
                 let max_chars = tool_registry
@@ -723,6 +740,14 @@ impl AgentRuntime {
                     });
                     break;
                 }
+            }
+
+            if force_stop_loop {
+                tracing::warn!(
+                    agent_id = %config.agent_id,
+                    "tool repetition hard limit reached — giving LLM one final turn to explain (non-stream)"
+                );
+                continue;
             }
 
             if choice.finish_reason.as_deref() == Some("length") {
@@ -1404,8 +1429,10 @@ impl AgentRuntime {
                 ).await
             };
 
+            let mut force_stop_loop = false;
             for (tool_name, call_id, arguments, mut result) in stream_results {
                 state.total_tool_calls += 1;
+                let rep_action = state.record_tool_call(&tool_name, &arguments);
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -1414,6 +1441,21 @@ impl AgentRuntime {
                     summary: truncate_for_trajectory(&arguments),
                     success: None,
                 });
+
+                match rep_action {
+                    query_state::ToolRepetitionAction::ForceStop => {
+                        if let Some(nudge) = state.build_repetition_nudge(true) {
+                            inject_tool_recovery_guidance(&mut messages, &nudge);
+                        }
+                        force_stop_loop = true;
+                    }
+                    query_state::ToolRepetitionAction::Warn => {
+                        if let Some(nudge) = state.build_repetition_nudge(false) {
+                            inject_tool_recovery_guidance(&mut messages, &nudge);
+                        }
+                    }
+                    query_state::ToolRepetitionAction::None => {}
+                }
 
                 // ── Runtime-driven confirmation flow (sequential, requires user interaction) ──
                 if result.needs_confirmation {
@@ -1569,6 +1611,14 @@ impl AgentRuntime {
                     });
                     break;
                 }
+            }
+
+            if force_stop_loop {
+                tracing::warn!(
+                    agent_id = %config.agent_id,
+                    "tool repetition hard limit reached — giving LLM one final turn to explain (stream)"
+                );
+                continue;
             }
 
             // Post-tool-call context usage update — re-estimate after tool

@@ -4,11 +4,32 @@
 //! [`QueryLoopState`] struct, and provides type-safe [`LoopTransition`] to
 //! drive loop flow instead of implicit `break`/`return`.
 
+use std::collections::HashMap;
+
 use super::stream_engine::ToolCallTrace;
 
 /// Max attempts to recover from `max_output_tokens` (finish_reason=length)
 /// by escalating the token limit before giving up.
 pub(crate) const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT: u32 = 3;
+
+/// When the same tool+args pair is called this many times, inject a
+/// "change your approach" nudge into the system message.
+const TOOL_REPEAT_WARN_THRESHOLD: u32 = 3;
+
+/// Hard limit: force-terminate the tool loop when the same tool+args
+/// pair is called this many times.
+const TOOL_REPEAT_HARD_LIMIT: u32 = 5;
+
+/// What action the runtime should take after recording a tool call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolRepetitionAction {
+    /// No repetition issue detected.
+    None,
+    /// Threshold reached — inject a guidance nudge and continue.
+    Warn,
+    /// Hard limit reached — terminate the tool loop immediately.
+    ForceStop,
+}
 
 /// Token limit used when escalating after a max_output_tokens truncation.
 /// 16 384 is a safe upper bound that most models support.
@@ -62,6 +83,14 @@ pub(crate) struct QueryLoopState {
     /// Message count at the start of each iteration, paired with wall-clock time.
     /// Used to determine which tool results are outside the cache window.
     pub iteration_msg_boundaries: Vec<(usize, std::time::Instant)>,
+
+    // ── Tool repetition detection ────────────────────────────────────
+    /// Per-(tool_name, arguments) call count within this query.
+    /// Key = "tool_name\0arguments" to detect exact-same calls across turns.
+    tool_call_exact_counts: HashMap<String, u32>,
+    /// Tracks the highest escalation level we've already applied,
+    /// so each level fires at most once.
+    repetition_escalation: u32,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -133,6 +162,9 @@ impl QueryLoopState {
             compact_warning_sent: false,
 
             iteration_msg_boundaries: Vec::new(),
+
+            tool_call_exact_counts: HashMap::new(),
+            repetition_escalation: 0,
         }
     }
 
@@ -142,6 +174,75 @@ impl QueryLoopState {
             self.grace_turn_active = false;
         }
         self.iteration += 1;
+    }
+
+    /// Record a tool call with its arguments and return what action the
+    /// runtime should take.
+    ///
+    /// - `Warn` at [`TOOL_REPEAT_WARN_THRESHOLD`] identical calls (fires once).
+    /// - `ForceStop` at [`TOOL_REPEAT_HARD_LIMIT`] identical calls.
+    /// - Different arguments for the same tool are perfectly fine.
+    pub fn record_tool_call(&mut self, tool_name: &str, arguments: &str) -> ToolRepetitionAction {
+        let key = format!("{}\0{}", tool_name, arguments);
+        let count = self.tool_call_exact_counts.entry(key).or_insert(0);
+        *count += 1;
+
+        if *count >= TOOL_REPEAT_HARD_LIMIT && self.repetition_escalation < 2 {
+            self.repetition_escalation = 2;
+            return ToolRepetitionAction::ForceStop;
+        }
+        if *count >= TOOL_REPEAT_WARN_THRESHOLD && self.repetition_escalation < 1 {
+            self.repetition_escalation = 1;
+            return ToolRepetitionAction::Warn;
+        }
+        ToolRepetitionAction::None
+    }
+
+    /// Build a guidance message when exact tool call repetition is detected.
+    ///
+    /// The message adapts based on escalation level:
+    /// - Level 1 (Warn): suggests changing approach.
+    /// - Level 2 (ForceStop): explains the loop is being terminated.
+    pub fn build_repetition_nudge(&self, force_stop: bool) -> Option<String> {
+        let repeated: Vec<_> = self.tool_call_exact_counts
+            .iter()
+            .filter(|(_, &count)| count >= TOOL_REPEAT_WARN_THRESHOLD)
+            .map(|(key, &count)| {
+                let (name, _args) = key.split_once('\0').unwrap_or((key.as_str(), ""));
+                (name, count)
+            })
+            .collect();
+        if repeated.is_empty() {
+            return None;
+        }
+
+        let mut msg = String::from(
+            "[Tool loop detected] You have called the same tool with identical arguments repeatedly:\n"
+        );
+        for (name, count) in &repeated {
+            msg.push_str(&format!("  - `{}`: {} identical calls\n", name, count));
+        }
+
+        if force_stop {
+            msg.push_str(
+                "\nThe tool loop has been TERMINATED because you exceeded the repetition hard limit.\n\
+                 You MUST stop calling these tools and instead:\n\
+                 1. Summarize what you were trying to do and why it failed.\n\
+                 2. Explain the situation to the user clearly.\n\
+                 3. Suggest alternative approaches the user could try.\n\
+                 Do NOT attempt any more tool calls for this failed approach."
+            );
+        } else {
+            msg.push_str(
+                "\nYou appear to be stuck in a loop. STOP and change your approach:\n\
+                 - If a file was not found, use `list_directory` or `glob` with a partial name pattern to discover the correct path.\n\
+                 - If permission was denied, ask the user to adjust the working directory or execution mode.\n\
+                 - If a command keeps failing, explain the issue to the user instead of retrying.\n\
+                 - Do NOT repeat the exact same tool call. Try a fundamentally different strategy.\n\
+                 WARNING: If you continue repeating, the loop will be force-terminated."
+            );
+        }
+        Some(msg)
     }
 
     pub fn record_tool_error(&mut self, tool_name: &str, error_output: &str) {
@@ -644,6 +745,97 @@ mod tests {
         assert!(sys.contains("You are a helpful assistant"), "should preserve original");
         assert!(sys.contains("Tool execution recovery"), "should have recovery header");
         assert!(sys.contains("Try a different approach"), "should include guidance");
+    }
+
+    #[test]
+    fn record_tool_call_warns_at_threshold_same_args() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::Warn,
+            "3rd identical call should trigger Warn"
+        );
+    }
+
+    #[test]
+    fn record_tool_call_force_stops_at_hard_limit() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        for _ in 0..(TOOL_REPEAT_HARD_LIMIT - 1) {
+            s.record_tool_call("read_file", args);
+        }
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::ForceStop,
+            "5th identical call should trigger ForceStop"
+        );
+    }
+
+    #[test]
+    fn record_tool_call_does_not_trigger_for_different_args() {
+        let mut s = QueryLoopState::new(10);
+        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"a.txt"}"#), ToolRepetitionAction::None);
+        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"b.txt"}"#), ToolRepetitionAction::None);
+        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"c.txt"}"#), ToolRepetitionAction::None);
+        assert!(s.build_repetition_nudge(false).is_none(), "different args should not trigger");
+    }
+
+    #[test]
+    fn record_tool_call_warn_fires_once_then_force_stop() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        s.record_tool_call("read_file", args);
+        s.record_tool_call("read_file", args);
+        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::Warn);
+        // After Warn, escalation=1, so subsequent calls return None until hard limit
+        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::ForceStop,
+            "5th call should escalate to ForceStop"
+        );
+        // After ForceStop, escalation=2, no more actions
+        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+    }
+
+    #[test]
+    fn build_repetition_nudge_warn_message() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        for _ in 0..4 {
+            s.record_tool_call("read_file", args);
+        }
+        s.record_tool_call("write_file", r#"{"file_path":"out.txt"}"#);
+        let nudge = s.build_repetition_nudge(false).expect("should build nudge");
+        assert!(nudge.contains("read_file"), "should mention the repeated tool");
+        assert!(nudge.contains("4 identical"), "should show call count");
+        assert!(!nudge.contains("`write_file`"), "write_file called only once, should not be listed");
+        assert!(nudge.contains("change your approach"), "should advise changing approach");
+        assert!(nudge.contains("force-terminated"), "should warn about escalation");
+    }
+
+    #[test]
+    fn build_repetition_nudge_force_stop_message() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        for _ in 0..5 {
+            s.record_tool_call("read_file", args);
+        }
+        let nudge = s.build_repetition_nudge(true).expect("should build nudge");
+        assert!(nudge.contains("TERMINATED"), "force_stop message should mention termination");
+        assert!(nudge.contains("Summarize"), "should advise summarizing the issue");
+    }
+
+    #[test]
+    fn build_repetition_nudge_none_when_below_threshold() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"test.txt"}"#;
+        s.record_tool_call("read_file", args);
+        s.record_tool_call("read_file", args);
+        assert!(s.build_repetition_nudge(false).is_none());
     }
 
     #[test]

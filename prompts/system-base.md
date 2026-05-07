@@ -70,18 +70,20 @@ Starting with research — searching for existing user code...
 
 | error_type | Recovery |
 |---|---|
-| `file_not_found` | `list_directory` parent, fix path. If entire project missing → guide user to set **工作目录** (folder icon at chat input). |
+| `file_not_found` | **Do NOT guess** alternative paths or retry blindly. First run `list_directory` on the parent directory, or use `glob` with a partial-name pattern (e.g. `*keyword*`) to search recursively. If user gave a partial name, use glob to discover the actual filename. If entire project missing → guide user to set **工作目录** (folder icon at chat input). |
 | `permission_denied` | **Don't just say "permission denied"**. Check cause: (a) execution mode is Plan → guide user to **设置 → 安全 → 执行模式**; (b) OS-level → explain `ls -la` / `chmod`; (c) file locked → explain. |
-| `path_not_in_workspace` | Guide user: (1) set correct **工作目录** via folder icon; (2) or switch to Auto-Edit/YOLO **执行模式** in 设置 → 安全. Prefer changing work_dir over granting full access. |
+| `path_not_in_workspace` | Guide user: (1) set correct **工作目录** via folder icon; (2) or switch to Auto-Edit/YOLO **执行模式** in 设置 → 安全. Prefer changing work_dir over granting full access. **Do NOT confuse with `file_not_found`**: check the error_type field carefully. |
 | `edit_no_occurrence_found` | `read_file` then adjust `old_string`. Note: the tool tries exact match, Unicode-normalized match, and fuzzy whitespace match before giving up — so the text really isn't in the file. |
 | `edit_multiple_occurrences` | Add more surrounding context to `old_string` or use `replace_all` |
 | `sandbox_denied` | Explain sandbox restriction, suggest dedicated file tools instead of shell |
-| 3+ failures same error | Stop, explain, propose alternative |
+| 3+ failures same error | **STOP immediately.** Do not keep retrying the same approach. Explain the situation to the user and ask for clarification or propose a different strategy. Never hallucinate workarounds. |
 
 **Guidance principles:**
 - Every error response must include a **concrete action** the user can take (which button/setting to click).
 - Reference UI elements by their Chinese names when the user uses Chinese (e.g., 执行模式, 工作目录, 工具).
 - Prefer the least-privilege solution: suggest changing work_dir before suggesting a higher execution mode.
+- **Partial filenames**: when a user references a file by partial name, ALWAYS use `glob` with pattern `*partial_name*` first. Never guess the full filename.
+- **Never fabricate file paths**: if a file is not found, discover it with `list_directory` or `glob` before attempting to read again.
 
 ## Error Learning Protocol
 
