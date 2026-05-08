@@ -66,7 +66,7 @@ pub use ask_question::{AskQuestionTool, with_stream_context};
 pub use brief::BriefTool;
 pub use confirm::ConfirmTool;
 pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
-pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeChunkTool};
+pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeSectionsTool};
 pub use notebook::NotebookEditTool;
 pub use task::{
     NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
@@ -111,7 +111,7 @@ pub fn register_builtin_tools_with_sandbox(registry: &ToolRegistry, sandboxed: b
     registry.register(Arc::new(GlobTool));
     registry.register(Arc::new(UnifiedLspTool));
     registry.register(Arc::new(FileOutlineTool));
-    registry.register(Arc::new(CodeChunkTool));
+    registry.register(Arc::new(CodeSectionsTool));
     registry.register(Arc::new(MultiEditTool));
     registry.register(Arc::new(ListDirectoryTool));
 

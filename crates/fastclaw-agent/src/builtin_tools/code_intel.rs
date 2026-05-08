@@ -895,7 +895,10 @@ impl Tool for FileOutlineTool {
 
     fn description(&self) -> &str {
         "Extract a structured outline of symbols (functions, classes, structs, etc.) \
-         from a source file using AST parsing. Faster and more accurate than regex."
+         from a source file using AST parsing. Returns symbol names, kinds, line \
+         ranges, and signatures — but NOT the source code itself. Use this to \
+         quickly understand file structure before targeted reading. \
+         For reading actual code in semantic blocks, use `code_sections` instead."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -969,17 +972,20 @@ impl Tool for FileOutlineTool {
     }
 }
 
-pub struct CodeChunkTool;
+pub struct CodeSectionsTool;
 
 #[async_trait]
-impl Tool for CodeChunkTool {
+impl Tool for CodeSectionsTool {
     fn kind(&self) -> ToolKind { ToolKind::Search }
-    fn name(&self) -> &str { "code_chunk" }
+    fn name(&self) -> &str { "code_sections" }
 
     fn description(&self) -> &str {
-        "Split a source file into semantic code chunks using AST parsing. \
-         Each chunk represents a logical unit (function, class, impl block, etc.). \
-         Useful for targeted reading of large files."
+        "Split a source file into semantic sections using AST parsing. \
+         Each section is a logical unit (function, class, impl block, etc.) \
+         with its line range and label. Use this to plan targeted `read_file` \
+         calls on large files — first get the section map, then read only the \
+         sections you need. Unlike `file_outline` which lists symbol metadata, \
+         this tool shows how the file is divided into readable blocks."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -990,7 +996,7 @@ impl Tool for CodeChunkTool {
         }));
         props.insert("max_chunk_lines".to_string(), serde_json::json!({
             "type": "integer",
-            "description": "Maximum lines per chunk before splitting. Default 80."
+            "description": "Maximum lines per section before splitting. Default 80."
         }));
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -1007,24 +1013,24 @@ impl Tool for CodeChunkTool {
         }
         let args: Args = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("code_chunk invalid JSON: {e}")),
+            Err(e) => return ToolResult::err(format!("code_sections invalid JSON: {e}")),
         };
         let file_path = std::path::Path::new(&args.path);
         let lang = match fastclaw_treesitter::CodeParser::detect_language(file_path) {
             Some(l) => l,
             None => return ToolResult::err(format!(
-                "code_chunk: unsupported file type '{}'",
+                "code_sections: unsupported file type '{}'",
                 file_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown")
             )),
         };
 
         if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
-            return ToolResult::err(format!("code_chunk: tree-sitter language '{lang}' not available"));
+            return ToolResult::err(format!("code_sections: tree-sitter language '{lang}' not available"));
         }
 
         let parsed = match fastclaw_treesitter::CodeParser::parse_file(file_path) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("code_chunk parse error: {e}")),
+            Err(e) => return ToolResult::err(format!("code_sections parse error: {e}")),
         };
 
         let max_lines = args.max_chunk_lines.unwrap_or(80).clamp(10, 500);

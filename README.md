@@ -467,7 +467,7 @@ Global Flags:
 **代码智能**
 - `lsp` — 统一 LSP 工具（Go to Definition / Find References / Workspace Symbols）
 - `file_outline` — 文件结构大纲
-- `code_chunk` — 代码块提取
+- `code_sections` — 语义代码分段
 
 **网络**
 - `web_search` — 网页搜索（支持 Tavily / SearXNG / Google / Baidu / Bing 等）
