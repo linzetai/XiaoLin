@@ -293,7 +293,7 @@ pub(crate) fn format_basic_recovery_guidance(failure_streak: &[ToolCallTrace]) -
                 guidance.push_str("- File/path errors: verify the path exists, check spelling, use `glob` or `list_dir` to discover correct paths\n"),
             "shell_exec" | "shell" | "run_command" =>
                 guidance.push_str("- Command errors: check command syntax, verify required tools are installed, try simpler alternatives\n"),
-            "write_file" | "edit_file" | "apply_patch" =>
+            "write_file" | "edit_file" | "apply_patch" | "multi_edit" =>
                 guidance.push_str("- Write errors: ensure the target directory exists, check permissions, verify the file content/diff is correct\n"),
             "grep" | "ripgrep" =>
                 guidance.push_str("- Search errors: simplify the pattern, check regex syntax, try broader search scope\n"),
@@ -756,9 +756,9 @@ impl AgentRuntime {
             }
 
             if choice.finish_reason.as_deref() == Some("length") {
-                let has_write_tools = tool_calls.iter().any(|tc| {
+                    let has_write_tools = tool_calls.iter().any(|tc| {
                     let n = tc.function.name.as_str();
-                    n == "write_file" || n == "edit_file" || n == "apply_patch"
+                    n == "write_file" || n == "edit_file" || n == "multi_edit"
                 });
                 if has_write_tools {
                     tracing::warn!(
@@ -1679,7 +1679,7 @@ impl AgentRuntime {
                 if reason == "length" {
                     let has_write_tools = assembled_calls.iter().any(|tc| {
                         let n = tc.function.name.as_str();
-                        n == "write_file" || n == "edit_file" || n == "apply_patch"
+                        n == "write_file" || n == "edit_file" || n == "multi_edit"
                     });
                     if has_write_tools {
                         tracing::warn!(

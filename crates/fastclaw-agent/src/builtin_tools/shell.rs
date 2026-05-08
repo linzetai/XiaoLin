@@ -275,16 +275,12 @@ fn shell_parameter_schema(include_is_background: bool) -> ToolParameterSchema {
             "is_background".to_string(),
             serde_json::json!({
                 "type": "boolean",
-                "description": "Whether to run the command in background. Required. \
-                 Set true for long-running processes (dev servers, watchers, daemons). \
-                 Set false for one-time commands that should complete before proceeding."
+                "description": "Run in background for long-running processes (dev servers, watchers). \
+                 Default false (foreground, waits for completion)."
             }),
         );
     }
-    let mut required = vec!["command".to_string()];
-    if include_is_background {
-        required.push("is_background".to_string());
-    }
+    let required = vec!["command".to_string()];
     ToolParameterSchema {
         schema_type: "object".to_string(),
         properties: props,

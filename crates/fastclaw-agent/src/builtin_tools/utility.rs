@@ -33,6 +33,8 @@ impl Tool for CurrentTimeTool {
 }
 
 /// Simple calculator for basic arithmetic.
+/// Removed from default tool registration (LLMs can do arithmetic natively).
+#[allow(dead_code)]
 pub struct CalculatorTool;
 
 #[async_trait]
@@ -168,6 +170,7 @@ impl Tool for SleepTool {
     }
 }
 
+#[allow(dead_code)]
 fn eval_simple_expr(expr: &str) -> Option<f64> {
     let expr = expr.trim();
     let mut result: f64 = 0.0;

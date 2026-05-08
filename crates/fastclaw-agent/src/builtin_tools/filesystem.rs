@@ -759,6 +759,15 @@ struct WriteFileArgs {
     expected_content: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum MatchMode {
+    #[default]
+    Exact,
+    Fuzzy,
+    Contains,
+}
+
 #[derive(Debug, Deserialize)]
 struct EditFileArgs {
     #[serde(alias = "path")]
@@ -768,6 +777,8 @@ struct EditFileArgs {
     #[serde(default)]
     replace_all: bool,
     expected_replacements: Option<usize>,
+    #[serde(default)]
+    match_mode: MatchMode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -780,6 +791,7 @@ struct SearchInFilesArgs {
     context_lines: Option<usize>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ApplyPatchArgs {
     #[serde(alias = "path")]
@@ -788,6 +800,7 @@ struct ApplyPatchArgs {
     expected_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ApplyPatchEdit {
     old_string: String,
@@ -1072,6 +1085,60 @@ fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
     }
 
     FuzzyMatchResult::NoMatch
+}
+
+/// Contains-mode matching: find `needle` as a contiguous substring of `haystack`.
+/// Uses whitespace-normalized matching line by line like fuzzy, but allows partial
+/// coverage (the needle doesn't have to span from the start of a line to the end).
+fn try_contains_match(haystack: &str, needle: &str) -> FuzzyMatchResult {
+    if needle.is_empty() {
+        return FuzzyMatchResult::NoMatch;
+    }
+
+    // Simple substring search; count occurrences for uniqueness.
+    let mut positions = Vec::new();
+    let mut search_from = 0;
+    while let Some(pos) = haystack[search_from..].find(needle) {
+        let abs_pos = search_from + pos;
+        positions.push(abs_pos);
+        search_from = abs_pos + 1;
+    }
+
+    if positions.len() == 1 {
+        let start = positions[0];
+        return FuzzyMatchResult::UniqueMatch {
+            start,
+            end: start + needle.len(),
+        };
+    }
+    if positions.len() > 1 {
+        return FuzzyMatchResult::MultipleMatches(positions.len());
+    }
+
+    // Exact substring not found — try whitespace-normalized line-by-line contains.
+    let hay_lines: Vec<&str> = haystack.lines().collect();
+    let needle_lines: Vec<&str> = needle.lines().collect();
+
+    if needle_lines.is_empty() || needle_lines.iter().all(|l| l.trim().is_empty()) {
+        return FuzzyMatchResult::NoMatch;
+    }
+
+    let (count, first) = count_line_sequence(&hay_lines, &needle_lines, normalize_line);
+    match count {
+        0 => FuzzyMatchResult::NoMatch,
+        1 => {
+            let start_line = first.unwrap();
+            let (start, end) = compute_byte_range(
+                &hay_lines,
+                start_line,
+                needle_lines.len(),
+                needle.ends_with('\n'),
+                haystack.len(),
+            );
+            FuzzyMatchResult::UniqueMatch { start, end }
+        }
+        n => FuzzyMatchResult::MultipleMatches(n),
+    }
 }
 
 /// Build a unified-diff style snippet using a proper Myers diff algorithm.
@@ -2022,7 +2089,9 @@ impl Tool for EditFileTool {
          old_string MUST be the exact literal text from the file including all whitespace and indentation. \
          Include at least 3 lines of context BEFORE and AFTER for unique identification. \
          Preserves file encoding (BOM, line endings) automatically. \
-         Falls back to Unicode-normalized and whitespace-normalized fuzzy matching if exact match fails."
+         Falls back to Unicode-normalized and whitespace-normalized fuzzy matching if exact match fails. \
+         Use match_mode='fuzzy' to skip exact match and directly use whitespace-tolerant matching. \
+         Use match_mode='contains' when old_string is a partial substring of the actual file text."
     }
 
     fn prompt(&self) -> String {
@@ -2091,6 +2160,16 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             serde_json::json!({
                 "type": "integer",
                 "description": "Optional strict check for number of matches before editing."
+            }),
+        );
+        props.insert(
+            "match_mode".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["exact", "fuzzy", "contains"],
+                "description": "Matching mode. 'exact'=verbatim match (default, falls back to fuzzy automatically). \
+                                'fuzzy'=skip exact, ignores whitespace/indentation differences directly. \
+                                'contains'=old_string is a substring of the file text; matches if unique."
             }),
         );
         ToolParameterSchema {
@@ -2257,123 +2336,189 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
 
         let old_augmented = maybe_augment_old_string_for_deletion(&normalized, &old_normalized, &new_normalized);
 
-        let mut match_count = normalized.matches(old_augmented.as_ref()).count();
-
-        let unicode_match = if match_count == 0 {
-            let norm_hay = normalize_unicode_text(&normalized);
-            let norm_needle = normalize_unicode_text(&old_augmented);
-            let c = norm_hay.matches(&norm_needle).count();
-            if c > 0 {
-                match_count = c;
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        if let Some(expected) = args.expected_replacements {
-            if match_count != expected {
-                return ToolResult::typed_err(
-                    ToolErrorType::EditMultipleOccurrences,
-                    create_user_friendly_error(ToolErrorType::EditMultipleOccurrences, &args.file_path),
-                );
-            }
-        }
-
-        let (updated_normalized, replaced, fuzzy_used) = if match_count == 0 {
-            match try_fuzzy_match(&normalized, &old_normalized) {
-                FuzzyMatchResult::UniqueMatch { start, end } => {
-                    let mut result = String::with_capacity(normalized.len());
-                    result.push_str(&normalized[..start]);
-                    result.push_str(&new_normalized);
-                    result.push_str(&normalized[end..]);
-                    (result, 1usize, true)
+        let (updated_normalized, replaced, fuzzy_used) = match args.match_mode {
+            MatchMode::Contains => {
+                match try_contains_match(&normalized, &old_normalized) {
+                    FuzzyMatchResult::UniqueMatch { start, end } => {
+                        let mut result = String::with_capacity(normalized.len());
+                        result.push_str(&normalized[..start]);
+                        result.push_str(&new_normalized);
+                        result.push_str(&normalized[end..]);
+                        (result, 1usize, true)
+                    }
+                    FuzzyMatchResult::NoMatch => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditNoOccurrenceFound,
+                            format!(
+                                "In file '{}': Could not find old_string as a substring (contains mode). \
+                                 Verify the text exists in the file.",
+                                args.file_path
+                            ),
+                        );
+                    }
+                    FuzzyMatchResult::MultipleMatches(n) => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditMultipleOccurrences,
+                            format!(
+                                "In file '{}': Found {n} substring matches (contains mode). \
+                                 Provide more surrounding context to uniquely identify the location.",
+                                args.file_path
+                            ),
+                        );
+                    }
                 }
-                FuzzyMatchResult::NoMatch => {
-                    let file_preview: String = normalized.lines().take(20)
-                        .enumerate()
-                        .map(|(i, l)| format!("{}|{}", i + 1, l))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    return ToolResult::typed_err(
-                        ToolErrorType::EditNoOccurrenceFound,
-                        format!(
-                            "In file '{}': Could not find the specified text to replace \
-                             (neither exact nor whitespace/Unicode-normalized match). \
-                             The file may have changed or the old_string is incorrect.\n\n\
-                             Recovery steps:\n\
-                             1. Use read_file with offset/limit to read the exact section you want to edit\n\
-                             2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
-                             3. Retry edit_file with the exact text as old_string\n\n\
-                             Common causes: literal escape sequences (\\n, \\t) in the file, \
-                             trailing whitespace differences, or the file was modified since last read.\n\
-                             DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
-                             File preview (first 20 lines):\n{file_preview}",
-                            args.file_path
-                        ),
-                    );
+            }
+            MatchMode::Fuzzy => {
+                match try_fuzzy_match(&normalized, &old_normalized) {
+                    FuzzyMatchResult::UniqueMatch { start, end } => {
+                        let mut result = String::with_capacity(normalized.len());
+                        result.push_str(&normalized[..start]);
+                        result.push_str(&new_normalized);
+                        result.push_str(&normalized[end..]);
+                        (result, 1usize, true)
+                    }
+                    FuzzyMatchResult::NoMatch => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditNoOccurrenceFound,
+                            format!(
+                                "In file '{}': Could not find old_string with fuzzy matching \
+                                 (whitespace/Unicode-normalized). The file may have changed.",
+                                args.file_path
+                            ),
+                        );
+                    }
+                    FuzzyMatchResult::MultipleMatches(n) => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditMultipleOccurrences,
+                            format!(
+                                "In file '{}': Found {n} fuzzy matches. \
+                                 Provide more surrounding context to uniquely identify the location.",
+                                args.file_path
+                            ),
+                        );
+                    }
                 }
-                FuzzyMatchResult::MultipleMatches(n) => {
+            }
+            MatchMode::Exact => {
+                let mut match_count = normalized.matches(old_augmented.as_ref()).count();
+
+                let unicode_match = if match_count == 0 {
+                    let norm_hay = normalize_unicode_text(&normalized);
+                    let norm_needle = normalize_unicode_text(&old_augmented);
+                    let c = norm_hay.matches(&norm_needle).count();
+                    if c > 0 {
+                        match_count = c;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if let Some(expected) = args.expected_replacements {
+                    if match_count != expected {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditMultipleOccurrences,
+                            create_user_friendly_error(ToolErrorType::EditMultipleOccurrences, &args.file_path),
+                        );
+                    }
+                }
+
+                if match_count == 0 {
+                    match try_fuzzy_match(&normalized, &old_normalized) {
+                        FuzzyMatchResult::UniqueMatch { start, end } => {
+                            let mut result = String::with_capacity(normalized.len());
+                            result.push_str(&normalized[..start]);
+                            result.push_str(&new_normalized);
+                            result.push_str(&normalized[end..]);
+                            (result, 1usize, true)
+                        }
+                        FuzzyMatchResult::NoMatch => {
+                            let file_preview: String = normalized.lines().take(20)
+                                .enumerate()
+                                .map(|(i, l)| format!("{}|{}", i + 1, l))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            return ToolResult::typed_err(
+                                ToolErrorType::EditNoOccurrenceFound,
+                                format!(
+                                    "In file '{}': Could not find the specified text to replace \
+                                     (neither exact nor whitespace/Unicode-normalized match). \
+                                     The file may have changed or the old_string is incorrect.\n\n\
+                                     Recovery steps:\n\
+                                     1. Use read_file with offset/limit to read the exact section you want to edit\n\
+                                     2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
+                                     3. Retry edit_file with the exact text as old_string\n\n\
+                                     Common causes: literal escape sequences (\\n, \\t) in the file, \
+                                     trailing whitespace differences, or the file was modified since last read.\n\
+                                     DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
+                                     File preview (first 20 lines):\n{file_preview}",
+                                    args.file_path
+                                ),
+                            );
+                        }
+                        FuzzyMatchResult::MultipleMatches(n) => {
+                            return ToolResult::typed_err(
+                                ToolErrorType::EditMultipleOccurrences,
+                                format!(
+                                    "In file '{}': Found {n} whitespace-normalized matches \
+                                     (exact match found 0). Provide more surrounding context \
+                                     to uniquely identify the location to edit, \
+                                     or set replace_all=true to replace all occurrences.",
+                                    args.file_path
+                                ),
+                            );
+                        }
+                    }
+                } else if !args.replace_all && args.expected_replacements.is_none() && match_count > 1 {
                     return ToolResult::typed_err(
                         ToolErrorType::EditMultipleOccurrences,
                         format!(
-                            "In file '{}': Found {n} whitespace-normalized matches \
-                             (exact match found 0). Provide more surrounding context \
-                             to uniquely identify the location to edit, \
-                             or set replace_all=true to replace all occurrences.",
-                            args.file_path
+                            "In file '{}': Found {} {} matches. Provide more surrounding context \
+                             to uniquely identify the location, or set replace_all=true.",
+                            args.file_path, match_count,
+                            if unicode_match { "Unicode-normalized" } else { "exact" }
                         ),
                     );
+                } else if unicode_match {
+                    match try_fuzzy_match(&normalized, &old_augmented) {
+                        FuzzyMatchResult::UniqueMatch { start, end } => {
+                            let mut result = String::with_capacity(normalized.len());
+                            result.push_str(&normalized[..start]);
+                            result.push_str(&new_normalized);
+                            result.push_str(&normalized[end..]);
+                            (result, 1usize, true)
+                        }
+                        FuzzyMatchResult::NoMatch => {
+                            return ToolResult::typed_err(
+                                ToolErrorType::EditNoOccurrenceFound,
+                                format!(
+                                    "In file '{}': Unicode-normalized count found matches but fuzzy replace failed.",
+                                    args.file_path
+                                ),
+                            );
+                        }
+                        FuzzyMatchResult::MultipleMatches(n) => {
+                            return ToolResult::typed_err(
+                                ToolErrorType::EditMultipleOccurrences,
+                                format!(
+                                    "In file '{}': Found {n} Unicode-normalized matches. Provide more context.",
+                                    args.file_path
+                                ),
+                            );
+                        }
+                    }
+                } else {
+                    let result = if args.replace_all {
+                        normalized.replace(old_augmented.as_ref(), &new_normalized)
+                    } else {
+                        normalized.replacen(old_augmented.as_ref(), &new_normalized, 1)
+                    };
+                    let count = if args.replace_all { match_count } else { 1 };
+                    (result, count, false)
                 }
             }
-        } else if !args.replace_all && args.expected_replacements.is_none() && match_count > 1 {
-            return ToolResult::typed_err(
-                ToolErrorType::EditMultipleOccurrences,
-                format!(
-                    "In file '{}': Found {} {} matches. Provide more surrounding context \
-                     to uniquely identify the location, or set replace_all=true.",
-                    args.file_path, match_count,
-                    if unicode_match { "Unicode-normalized" } else { "exact" }
-                ),
-            );
-        } else if unicode_match {
-            match try_fuzzy_match(&normalized, &old_augmented) {
-                FuzzyMatchResult::UniqueMatch { start, end } => {
-                    let mut result = String::with_capacity(normalized.len());
-                    result.push_str(&normalized[..start]);
-                    result.push_str(&new_normalized);
-                    result.push_str(&normalized[end..]);
-                    (result, 1usize, true)
-                }
-                FuzzyMatchResult::NoMatch => {
-                    return ToolResult::typed_err(
-                        ToolErrorType::EditNoOccurrenceFound,
-                        format!(
-                            "In file '{}': Unicode-normalized count found matches but fuzzy replace failed.",
-                            args.file_path
-                        ),
-                    );
-                }
-                FuzzyMatchResult::MultipleMatches(n) => {
-                    return ToolResult::typed_err(
-                        ToolErrorType::EditMultipleOccurrences,
-                        format!(
-                            "In file '{}': Found {n} Unicode-normalized matches. Provide more context.",
-                            args.file_path
-                        ),
-                    );
-                }
-            }
-        } else {
-            let result = if args.replace_all {
-                normalized.replace(old_augmented.as_ref(), &new_normalized)
-            } else {
-                normalized.replacen(old_augmented.as_ref(), &new_normalized, 1)
-            };
-            let count = if args.replace_all { match_count } else { 1 };
-            (result, count, false)
         };
 
         let old_lines = normalized.lines().count();
@@ -2864,6 +3009,8 @@ like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`\n\
 }
 
 /// Apply multiple string replacement edits to one file atomically.
+/// Superseded by MultiEditTool but kept for backward compatibility in tests.
+#[allow(dead_code)]
 pub struct ApplyPatchTool;
 
 #[async_trait]
@@ -3333,6 +3480,9 @@ struct MultiEditChange {
     new_string: String,
     #[serde(default)]
     replace_all: bool,
+    expected_replacements: Option<usize>,
+    #[serde(default)]
+    match_mode: MatchMode,
 }
 
 /// Atomically apply edits across multiple files.
@@ -3348,16 +3498,18 @@ impl Tool for MultiEditTool {
     fn name(&self) -> &str { "multi_edit" }
 
     fn description(&self) -> &str {
-        "Atomically apply edits across multiple files. All edits are validated in memory first; \
+        "Atomically apply edits across one or more files. All edits are validated in memory first; \
          only if every edit succeeds are results written to disk. If any edit fails, no files are \
-         modified (all-or-nothing transaction). Supports dry_run mode to preview changes."
+         modified (all-or-nothing transaction). Use for: single-file multi-edit (replaces apply_patch), \
+         or cross-file atomic edits. Supports dry_run, match_mode (exact/fuzzy/contains), and replace_all."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert("edits".to_string(), serde_json::json!({
             "type": "array",
-            "description": "List of file edit entries. Each entry has 'path' and 'changes' (array of {old_string, new_string, replace_all?})."
+            "description": "List of file edit entries. Each entry: { path: string, changes: [{ old_string, new_string, replace_all?, expected_replacements?, match_mode? }] }. \
+                            match_mode per change: 'exact' (default), 'fuzzy' (whitespace-tolerant), 'contains' (substring)."
         }));
         props.insert("dry_run".to_string(), serde_json::json!({
             "type": "boolean",
@@ -3427,35 +3579,123 @@ impl Tool for MultiEditTool {
 
                 let old_norm = change.old_string.replace("\r\n", "\n");
                 let new_norm = change.new_string.replace("\r\n", "\n");
-                let match_count = current.matches(&old_norm).count();
 
-                if match_count == 0 {
-                    return ToolResult::err(format!(
-                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found. \
-                         Transaction aborted, no files modified. Re-read the file to get current content.",
-                        entry.file_path
-                    ));
+                match change.match_mode {
+                    MatchMode::Contains => {
+                        match try_contains_match(&current, &old_norm) {
+                            FuzzyMatchResult::UniqueMatch { start, end } => {
+                                let mut result = String::with_capacity(current.len());
+                                result.push_str(&current[..start]);
+                                result.push_str(&new_norm);
+                                result.push_str(&current[end..]);
+                                current = result;
+                                change_log.push(serde_json::json!({
+                                    "change_index": change_idx,
+                                    "replacements": 1,
+                                    "match_mode": "contains",
+                                }));
+                            }
+                            FuzzyMatchResult::NoMatch => {
+                                return ToolResult::err(format!(
+                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found (contains mode). \
+                                     Transaction aborted.",
+                                    entry.file_path
+                                ));
+                            }
+                            FuzzyMatchResult::MultipleMatches(n) => {
+                                return ToolResult::err(format!(
+                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {n} substring matches. \
+                                     Provide more context. Transaction aborted.",
+                                    entry.file_path
+                                ));
+                            }
+                        }
+                    }
+                    MatchMode::Fuzzy => {
+                        match try_fuzzy_match(&current, &old_norm) {
+                            FuzzyMatchResult::UniqueMatch { start, end } => {
+                                let mut result = String::with_capacity(current.len());
+                                result.push_str(&current[..start]);
+                                result.push_str(&new_norm);
+                                result.push_str(&current[end..]);
+                                current = result;
+                                change_log.push(serde_json::json!({
+                                    "change_index": change_idx,
+                                    "replacements": 1,
+                                    "match_mode": "fuzzy",
+                                }));
+                            }
+                            FuzzyMatchResult::NoMatch => {
+                                return ToolResult::err(format!(
+                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found (fuzzy mode). \
+                                     Transaction aborted.",
+                                    entry.file_path
+                                ));
+                            }
+                            FuzzyMatchResult::MultipleMatches(n) => {
+                                return ToolResult::err(format!(
+                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {n} fuzzy matches. \
+                                     Provide more context. Transaction aborted.",
+                                    entry.file_path
+                                ));
+                            }
+                        }
+                    }
+                    MatchMode::Exact => {
+                        let match_count = current.matches(&old_norm).count();
+
+                        if let Some(expected) = change.expected_replacements {
+                            if match_count != expected {
+                                return ToolResult::err(format!(
+                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: expected {expected} matches but found {match_count}. \
+                                     Transaction aborted.",
+                                    entry.file_path
+                                ));
+                            }
+                        }
+
+                        if match_count == 0 {
+                            match try_fuzzy_match(&current, &old_norm) {
+                                FuzzyMatchResult::UniqueMatch { start, end } => {
+                                    let mut result = String::with_capacity(current.len());
+                                    result.push_str(&current[..start]);
+                                    result.push_str(&new_norm);
+                                    result.push_str(&current[end..]);
+                                    current = result;
+                                    change_log.push(serde_json::json!({
+                                        "change_index": change_idx,
+                                        "replacements": 1,
+                                        "fuzzy": true,
+                                    }));
+                                }
+                                _ => {
+                                    return ToolResult::err(format!(
+                                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found. \
+                                         Transaction aborted, no files modified. Re-read the file to get current content.",
+                                        entry.file_path
+                                    ));
+                                }
+                            }
+                        } else if !change.replace_all && change.expected_replacements.is_none() && match_count > 1 {
+                            return ToolResult::err(format!(
+                                "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {match_count} matches. \
+                                 Set replace_all=true or provide more context. Transaction aborted.",
+                                entry.file_path
+                            ));
+                        } else {
+                            let replaced = if change.replace_all { match_count } else { 1 };
+                            current = if change.replace_all {
+                                current.replace(&old_norm, &new_norm)
+                            } else {
+                                current.replacen(&old_norm, &new_norm, 1)
+                            };
+                            change_log.push(serde_json::json!({
+                                "change_index": change_idx,
+                                "replacements": replaced,
+                            }));
+                        }
+                    }
                 }
-
-                if !change.replace_all && match_count > 1 {
-                    return ToolResult::err(format!(
-                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {match_count} matches. \
-                         Set replace_all=true or provide more context. Transaction aborted.",
-                        entry.file_path
-                    ));
-                }
-
-                let replaced = if change.replace_all { match_count } else { 1 };
-                current = if change.replace_all {
-                    current.replace(&old_norm, &new_norm)
-                } else {
-                    current.replacen(&old_norm, &new_norm, 1)
-                };
-
-                change_log.push(serde_json::json!({
-                    "change_index": change_idx,
-                    "replacements": replaced,
-                }));
             }
 
             let final_bytes = encode_with_meta(&current, &enc_meta);

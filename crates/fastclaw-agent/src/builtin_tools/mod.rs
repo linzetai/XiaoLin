@@ -41,7 +41,7 @@ use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_session::SessionStore;
 
 pub use filesystem::{
-    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
+    EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
 };
 pub use filesystem::{get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir};
 pub use media::{ImageGenerateTool, TtsTool};
@@ -75,7 +75,7 @@ pub use plan_mode::{EnterPlanModeTool, ExitPlanModeTool, ExecutionModeState, Ver
 pub use snip::SnipTool;
 pub use terminal::TerminalCaptureTool;
 pub use tool_search::ToolSearchTool;
-pub use utility::{CalculatorTool, CurrentTimeTool, SleepTool};
+pub use utility::{CurrentTimeTool, SleepTool};
 pub use workflow::{WorkflowStore, WorkflowTool, WorkflowDefinition, WorkflowRun, WorkflowStatus};
 pub use worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
 
@@ -90,7 +90,6 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
 /// Register built-in tools, optionally with sandbox enforcement on shell_exec.
 pub fn register_builtin_tools_with_sandbox(registry: &ToolRegistry, sandboxed: bool) {
     registry.register(Arc::new(CurrentTimeTool));
-    registry.register(Arc::new(CalculatorTool));
     registry.register(Arc::new(SleepTool));
     registry.register(Arc::new(HttpFetchTool::new()));
     registry.register(Arc::new(WebSearchTool::unconfigured()));
@@ -105,7 +104,6 @@ pub fn register_builtin_tools_with_sandbox(registry: &ToolRegistry, sandboxed: b
     registry.register(Arc::new(ReadFileTool));
     registry.register(Arc::new(WriteFileTool));
     registry.register(Arc::new(EditFileTool));
-    registry.register(Arc::new(ApplyPatchTool));
     registry.register(Arc::new(SearchInFilesTool));
     registry.register(Arc::new(GlobTool));
     registry.register(Arc::new(UnifiedLspTool));

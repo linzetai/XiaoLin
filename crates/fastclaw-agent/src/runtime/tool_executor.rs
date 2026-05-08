@@ -263,7 +263,7 @@ pub(crate) fn semantic_header(
 
     let target = match tool_name {
         "read_file" => extract_str(&v, &["path", "file_path"]),
-        "write_file" | "edit_file" | "apply_patch" | "create_file" => {
+        "write_file" | "edit_file" | "apply_patch" | "multi_edit" | "create_file" => {
             extract_str(&v, &["path", "file_path"])
         }
         "create_directory" => extract_str(&v, &["path"]),

@@ -122,7 +122,7 @@ pub fn build_child_registry(
                 "shell_exec" | "shell" | "read_file" | "file_read"
                     | "write_file" | "file_write" | "edit_file"
                     | "list_directory" | "search_in_files" | "file_search"
-                    | "apply_patch" | "get_current_time"
+                    | "multi_edit" | "get_current_time"
             )
         }),
         SubAgentType::Browser => Box::new(|name: &str| {
@@ -156,9 +156,10 @@ impl Tool for SubAgentTool {
 
     fn description(&self) -> &str {
         "Spawn a sub-agent to handle a delegated task. The sub-agent runs independently \
-         with its own context and tools. Use this to break complex tasks into smaller \
-         pieces handled by specialized agents. Supports types: general, explore (read-only), \
-         shell, browser."
+         with its own context and tools. agent_id selects the model/behavior config; \
+         subagent_type controls the tool set (e.g. agent_id='main' + subagent_type='explore' \
+         = main model with read-only tools). Types: general (full), explore (read-only), \
+         shell (commands only), browser (web automation)."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -188,7 +189,11 @@ impl Tool for SubAgentTool {
             "agent_id".to_string(),
             serde_json::json!({
                 "type": "string",
-                "description": format!("Agent ID to delegate to. Available: {}", agent_list.join(", ")),
+                "description": format!(
+                    "Agent identity — determines the model and behavior config used. Available: {}. \
+                     This is independent of subagent_type (tool set).",
+                    agent_list.join(", ")
+                ),
                 "default": first_agent_id
             }),
         );
@@ -197,7 +202,12 @@ impl Tool for SubAgentTool {
             serde_json::json!({
                 "type": "string",
                 "enum": ["general", "explore", "shell", "browser"],
-                "description": "Type of sub-agent determining its tool set. 'explore' = read-only research, 'shell' = command execution, 'browser' = web automation, 'general' = full capability.",
+                "description": "Tool set scope for this sub-agent (independent of agent_id). \
+                 'general': full tool set. \
+                 'explore': read-only (read_file, search_in_files, glob, web_search, web_fetch). \
+                 'shell': only shell_exec for build/test. \
+                 'browser': only browser automation tools. \
+                 Example: agent_id='main' + subagent_type='explore' = main model with read-only tools.",
                 "default": "general"
             }),
         );

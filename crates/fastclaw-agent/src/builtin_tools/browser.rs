@@ -1619,6 +1619,24 @@ impl Tool for BrowserTool {
          **DevTools**: evaluate (JS), list_network_requests, get_network_request (reqid), list_console_messages, get_console_message (msgid)\n\
          **Emulation**: emulate (userAgent, colorScheme), resize_page\n\
          **Cookies**: cookies (operation: get/set/delete/clear)\n\n\
+         ## Action-Parameter Quick Reference\n\
+         | action | required params | optional params |\n\
+         |--------|-----------------|------------------|\n\
+         | navigate | url (or type=back/forward/reload) | timeout |\n\
+         | click | uid or selector | dblClick, includeSnapshot |\n\
+         | fill | uid + value | — |\n\
+         | fill_form | elements (array) | — |\n\
+         | type_text | text | submitKey |\n\
+         | press_key | key | — |\n\
+         | screenshot | — | uid, fullPage, format, quality |\n\
+         | take_snapshot | — | verbose |\n\
+         | wait_for | text or selector | timeout |\n\
+         | scroll | direction (up/down) | uid, amount |\n\
+         | evaluate | expression | — |\n\
+         | cookies | operation (get/set/delete/clear) | name, value, domain |\n\
+         | select | uid + value(s) | — |\n\
+         | drag | from_uid + to_uid | — |\n\
+         | upload_file | uid + filePath | — |\n\n\
          ## Key Rules\n\
          - Prefer take_snapshot + uid over CSS selectors — UIDs are stable and unambiguous\n\
          - Use screenshot FREQUENTLY: after every navigation, after interactions, before making decisions about page content\n\
