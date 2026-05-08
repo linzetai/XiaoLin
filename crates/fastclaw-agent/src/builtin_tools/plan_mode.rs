@@ -213,6 +213,8 @@ impl Tool for ExitPlanModeTool {
 
     fn description(&self) -> &str {
         "Exit plan mode and return to agent mode with full tool access. \
+         Optionally verify plan execution by providing plan_summary and \
+         all_steps_completed (combines former verify_plan_execution). \
          Call this after designing your approach to start implementation."
     }
 
@@ -246,30 +248,96 @@ impl Tool for ExitPlanModeTool {
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "plan_summary".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional summary of the plan being executed. Enables verification."
+            }),
+        );
+        props.insert(
+            "all_steps_completed".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Optional. Whether all planned steps are completed. \
+                 If false, warns about incomplete work instead of exiting. \
+                 Only relevant when plan_summary is provided."
+            }),
+        );
+        props.insert(
+            "verification_notes".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional notes about skipped or changed steps."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
-            properties: HashMap::new(),
+            properties: props,
             required: vec![],
         }
     }
 
-    async fn execute(&self, _arguments: &str) -> ToolResult {
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: serde_json::Value =
+            serde_json::from_str(arguments).unwrap_or(serde_json::json!({}));
+
+        let plan_summary = args.get("plan_summary").and_then(|v| v.as_str());
+        let all_completed = args
+            .get("all_steps_completed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let notes = args
+            .get("verification_notes")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if let Some(summary) = plan_summary {
+            if !all_completed {
+                let notes_part = if notes.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\nVerification notes: {notes}")
+                };
+                return ToolResult::ok(format!(
+                    "⚠ Plan verification: INCOMPLETE\n\n\
+                     Plan: {summary}\n\n\
+                     Not all steps have been completed. Complete remaining \
+                     steps before exiting plan mode.{notes_part}"
+                ));
+            }
+        }
+
         let (from, _to) = self.mode_state.transition(ExecutionMode::Agent);
 
         if from == ExecutionMode::Agent {
             return ToolResult::ok("Already in agent mode.");
         }
 
-        ToolResult::ok(
-            "Exited plan mode → agent mode. All tools are now available.\n\
-             You can proceed with implementation."
-                .to_string(),
-        )
+        let verify_msg = if let Some(summary) = plan_summary {
+            let notes_part = if notes.is_empty() {
+                String::new()
+            } else {
+                format!("\nVerification notes: {notes}")
+            };
+            format!(
+                "\n✓ Plan verified: {summary}{notes_part}"
+            )
+        } else {
+            String::new()
+        };
+
+        ToolResult::ok(format!(
+            "Exited plan mode → agent mode. All tools are now available.\
+             {verify_msg}\nYou can proceed with implementation."
+        ))
     }
 }
 
 // ─── VerifyPlanExecutionTool ─────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct VerifyPlanArgs {
     plan_summary: String,
@@ -280,9 +348,9 @@ struct VerifyPlanArgs {
 
 /// Validates that a plan has been fully executed before exiting plan mode.
 ///
-/// The agent should call this tool before `exit_plan_mode` to confirm
-/// all planned steps have been carried out. When `all_steps_completed`
-/// is false, the tool warns the agent about incomplete work.
+/// Superseded: verification logic is now merged into ExitPlanModeTool.
+/// Kept for backward compatibility in tests.
+#[allow(dead_code)]
 pub struct VerifyPlanExecutionTool {
     mode_state: ExecutionModeState,
 }

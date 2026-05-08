@@ -72,7 +72,7 @@ pub use task::{
     NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
     TaskManagerError, TaskStatus, TaskStopTool, TaskUpdateTool, TaskWorkFactory,
 };
-pub use plan_mode::{EnterPlanModeTool, ExitPlanModeTool, ExecutionModeState, VerifyPlanExecutionTool};
+pub use plan_mode::{EnterPlanModeTool, ExitPlanModeTool, ExecutionModeState};
 pub use snip::SnipTool;
 pub use terminal::TerminalCaptureTool;
 pub use tool_search::ToolSearchTool;
@@ -195,11 +195,10 @@ pub fn register_task_tools(
     registry.register_deferred(Arc::new(TaskStopTool::new(manager)));
 }
 
-/// Register plan mode tools (enter/exit/verify) with shared execution mode state.
+/// Register plan mode tools (enter/exit) with shared execution mode state.
 pub fn register_plan_mode_tools(registry: &ToolRegistry, mode_state: ExecutionModeState) {
     registry.register_deferred(Arc::new(EnterPlanModeTool::new(mode_state.clone())));
-    registry.register_deferred(Arc::new(ExitPlanModeTool::new(mode_state.clone())));
-    registry.register_deferred(Arc::new(VerifyPlanExecutionTool::new(mode_state)));
+    registry.register_deferred(Arc::new(ExitPlanModeTool::new(mode_state)));
 }
 
 pub fn register_session_tools(
