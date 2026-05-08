@@ -826,6 +826,10 @@ struct EditFileArgs {
     edits: Option<Vec<EditChangeItem>>,
     #[serde(default)]
     dry_run: bool,
+    /// Line-range hint for fallback: 1-indexed start line of the region to edit.
+    start_line: Option<usize>,
+    /// Line-range hint for fallback: 1-indexed end line (inclusive) of the region to edit.
+    end_line: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -837,6 +841,8 @@ struct EditChangeItem {
     expected_replacements: Option<usize>,
     #[serde(default)]
     match_mode: MatchMode,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1196,6 +1202,269 @@ fn try_contains_match(haystack: &str, needle: &str) -> FuzzyMatchResult {
             FuzzyMatchResult::UniqueMatch { start, end }
         }
         n => FuzzyMatchResult::MultipleMatches(n),
+    }
+}
+
+/// Line-range-based matching result.
+#[allow(dead_code)]
+enum LineRangeMatchResult {
+    /// old_string matched a subset of the line range — use byte offsets from the match.
+    ContextMatch { start: usize, end: usize },
+    /// old_string didn't match at all — overwrite the entire line range.
+    Overwrite { start: usize, end: usize, extracted: String },
+    /// Line range is out of bounds.
+    OutOfBounds { total_lines: usize },
+}
+
+/// Try to locate `old_string` within the given line range, or fall back to
+/// direct line-range overwrite.
+///
+/// Strategy:
+/// 1. Extract the text at `[start_line, end_line]` (1-indexed, inclusive).
+/// 2. Try exact match of `old_string` within the extracted region.
+/// 3. Try fuzzy match of `old_string` within the extracted region (whitespace-
+///    tolerant), scoped to a ±3 line buffer around the range for robustness.
+/// 4. If neither succeeds, return `Overwrite` with the byte range of the full
+///    line span so the caller can splice `new_string` directly.
+fn try_line_range_match(
+    file_content: &str,
+    old_string: &str,
+    start_line_1idx: usize,
+    end_line_1idx: usize,
+) -> LineRangeMatchResult {
+    let lines: Vec<&str> = file_content.lines().collect();
+    let total = lines.len();
+
+    if start_line_1idx == 0 || start_line_1idx > total || end_line_1idx < start_line_1idx {
+        return LineRangeMatchResult::OutOfBounds { total_lines: total };
+    }
+
+    let clamped_end = end_line_1idx.min(total);
+    let start_0 = start_line_1idx - 1;
+
+    let buffer = 3usize;
+    let region_start = start_0.saturating_sub(buffer);
+    let region_end = (clamped_end + buffer).min(total);
+
+    let (region_byte_start, _) = compute_byte_range(&lines, region_start, 0, false, file_content.len());
+    let (_, region_byte_end) = compute_byte_range(&lines, region_start, region_end - region_start, true, file_content.len());
+    let region_text = &file_content[region_byte_start..region_byte_end];
+
+    if !old_string.is_empty() {
+        if let Some(pos) = region_text.find(old_string) {
+            let abs_start = region_byte_start + pos;
+            let abs_end = abs_start + old_string.len();
+            if region_text[pos + old_string.len()..].find(old_string).is_none() {
+                return LineRangeMatchResult::ContextMatch { start: abs_start, end: abs_end };
+            }
+        }
+
+        let region_lines: Vec<&str> = region_text.lines().collect();
+        let old_lines: Vec<&str> = old_string.lines().collect();
+        if !old_lines.is_empty() {
+            let (count, first) = count_line_sequence(&region_lines, &old_lines, |l| l.trim_end().to_string());
+            if count == 1 {
+                let region_line_start = first.unwrap();
+                let (local_start, local_end) = compute_byte_range(
+                    &region_lines, region_line_start, old_lines.len(),
+                    old_string.ends_with('\n'), region_text.len(),
+                );
+                return LineRangeMatchResult::ContextMatch {
+                    start: region_byte_start + local_start,
+                    end: region_byte_start + local_end,
+                };
+            }
+
+            let (count2, first2) = count_line_sequence(&region_lines, &old_lines, normalize_line);
+            if count2 == 1 {
+                let region_line_start = first2.unwrap();
+                let (local_start, local_end) = compute_byte_range(
+                    &region_lines, region_line_start, old_lines.len(),
+                    old_string.ends_with('\n'), region_text.len(),
+                );
+                return LineRangeMatchResult::ContextMatch {
+                    start: region_byte_start + local_start,
+                    end: region_byte_start + local_end,
+                };
+            }
+        }
+    }
+
+    let (overwrite_start, overwrite_end) = compute_byte_range(
+        &lines, start_0, clamped_end - start_0, true, file_content.len(),
+    );
+    let extracted = file_content[overwrite_start..overwrite_end].to_string();
+    LineRangeMatchResult::Overwrite {
+        start: overwrite_start,
+        end: overwrite_end,
+        extracted,
+    }
+}
+
+/// Apply a line-range replacement: splice `new_string` into `content` at byte range.
+fn apply_line_range_splice(content: &str, start: usize, end: usize, new_string: &str) -> String {
+    let mut result = String::with_capacity(content.len() + new_string.len());
+    result.push_str(&content[..start]);
+    result.push_str(new_string);
+    if !new_string.ends_with('\n') && end < content.len() && content.as_bytes()[end..].first() != Some(&b'\n') {
+        result.push('\n');
+    }
+    result.push_str(&content[end..]);
+    result
+}
+
+/// Result of attempting to apply a single edit change with the full fallback chain.
+enum ApplyChangeResult {
+    Ok {
+        new_content: String,
+        log_entry: serde_json::Value,
+    },
+    Err(String),
+}
+
+/// Apply one edit change with the full fallback chain: exact → fuzzy → line-range.
+/// Shared by `execute_batch` and `multi_edit`.
+fn apply_single_change(
+    current: &str,
+    old_string: &str,
+    new_string: &str,
+    replace_all: bool,
+    expected_replacements: Option<usize>,
+    match_mode: MatchMode,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    label: &str,
+) -> ApplyChangeResult {
+    if old_string.is_empty() {
+        return ApplyChangeResult::Err(format!("{label}: empty old_string."));
+    }
+
+    let old_norm = old_string.replace("\r\n", "\n");
+    let new_norm = new_string.replace("\r\n", "\n");
+
+    match match_mode {
+        MatchMode::Contains => {
+            match try_contains_match(current, &old_norm) {
+                FuzzyMatchResult::UniqueMatch { start, end } => {
+                    let result = apply_line_range_splice(current, start, end, &new_norm);
+                    ApplyChangeResult::Ok {
+                        new_content: result,
+                        log_entry: serde_json::json!({"replacements": 1, "mode": "contains"}),
+                    }
+                }
+                FuzzyMatchResult::NoMatch => {
+                    ApplyChangeResult::Err(format!("{label}: old_string not found (contains mode)."))
+                }
+                FuzzyMatchResult::MultipleMatches(n) => {
+                    ApplyChangeResult::Err(format!("{label}: found {n} matches (contains mode). Provide more context."))
+                }
+            }
+        }
+        MatchMode::Fuzzy => {
+            match try_fuzzy_match(current, &old_norm) {
+                FuzzyMatchResult::UniqueMatch { start, end } => {
+                    let result = apply_line_range_splice(current, start, end, &new_norm);
+                    ApplyChangeResult::Ok {
+                        new_content: result,
+                        log_entry: serde_json::json!({"replacements": 1, "mode": "fuzzy"}),
+                    }
+                }
+                FuzzyMatchResult::NoMatch => {
+                    if let (Some(sl), Some(el)) = (start_line, end_line) {
+                        apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
+                    } else {
+                        ApplyChangeResult::Err(format!("{label}: old_string not found (fuzzy mode)."))
+                    }
+                }
+                FuzzyMatchResult::MultipleMatches(n) => {
+                    if let (Some(sl), Some(el)) = (start_line, end_line) {
+                        apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
+                    } else {
+                        ApplyChangeResult::Err(format!("{label}: found {n} fuzzy matches. Provide more context."))
+                    }
+                }
+            }
+        }
+        MatchMode::Exact => {
+            let match_count = current.matches(&old_norm).count();
+
+            if let Some(expected) = expected_replacements {
+                if match_count != expected {
+                    return ApplyChangeResult::Err(format!(
+                        "{label}: expected {expected} matches but found {match_count}."
+                    ));
+                }
+            }
+
+            if match_count == 0 {
+                match try_fuzzy_match(current, &old_norm) {
+                    FuzzyMatchResult::UniqueMatch { start, end } => {
+                        let result = apply_line_range_splice(current, start, end, &new_norm);
+                        return ApplyChangeResult::Ok {
+                            new_content: result,
+                            log_entry: serde_json::json!({"replacements": 1, "fuzzy": true}),
+                        };
+                    }
+                    _ => {
+                        if let (Some(sl), Some(el)) = (start_line, end_line) {
+                            return apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label);
+                        }
+                        return ApplyChangeResult::Err(format!(
+                            "{label}: old_string not found. Re-read the file to get current content."
+                        ));
+                    }
+                }
+            } else if !replace_all && expected_replacements.is_none() && match_count > 1 {
+                if let (Some(sl), Some(el)) = (start_line, end_line) {
+                    return apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label);
+                }
+                return ApplyChangeResult::Err(format!(
+                    "{label}: found {match_count} matches. Set replace_all=true or provide start_line/end_line."
+                ));
+            } else {
+                let replaced = if replace_all { match_count } else { 1 };
+                let new_content = if replace_all {
+                    current.replace(&old_norm, &new_norm)
+                } else {
+                    current.replacen(&old_norm, &new_norm, 1)
+                };
+                ApplyChangeResult::Ok {
+                    new_content,
+                    log_entry: serde_json::json!({"replacements": replaced}),
+                }
+            }
+        }
+    }
+}
+
+fn apply_line_range_fallback(
+    content: &str,
+    old_norm: &str,
+    new_norm: &str,
+    start_line: usize,
+    end_line: usize,
+    label: &str,
+) -> ApplyChangeResult {
+    match try_line_range_match(content, old_norm, start_line, end_line) {
+        LineRangeMatchResult::ContextMatch { start, end } => {
+            let result = apply_line_range_splice(content, start, end, new_norm);
+            ApplyChangeResult::Ok {
+                new_content: result,
+                log_entry: serde_json::json!({"replacements": 1, "line_range_context": true}),
+            }
+        }
+        LineRangeMatchResult::Overwrite { start, end, .. } => {
+            let result = apply_line_range_splice(content, start, end, new_norm);
+            ApplyChangeResult::Ok {
+                new_content: result,
+                log_entry: serde_json::json!({"replacements": 1, "line_range_overwrite": true, "lines": format!("{start_line}-{end_line}")}),
+            }
+        }
+        LineRangeMatchResult::OutOfBounds { total_lines } => {
+            ApplyChangeResult::Err(format!(
+                "{label}: start_line={start_line}/end_line={end_line} out of bounds (file has {total_lines} lines)."
+            ))
+        }
     }
 }
 
@@ -2212,102 +2481,25 @@ impl EditFileTool {
         let mut change_log: Vec<serde_json::Value> = Vec::new();
 
         for (idx, change) in edits.iter().enumerate() {
-            if change.old_string.is_empty() {
-                return ToolResult::err(format!(
-                    "edit_file batch: edit #{idx} has empty old_string. All edits aborted, file unchanged."
-                ));
-            }
-
-            let old_norm = change.old_string.replace("\r\n", "\n");
-            let new_norm = change.new_string.replace("\r\n", "\n");
-
-            match change.match_mode {
-                MatchMode::Contains => {
-                    match try_contains_match(&current, &old_norm) {
-                        FuzzyMatchResult::UniqueMatch { start, end } => {
-                            let mut result = String::with_capacity(current.len());
-                            result.push_str(&current[..start]);
-                            result.push_str(&new_norm);
-                            result.push_str(&current[end..]);
-                            current = result;
-                            change_log.push(serde_json::json!({"index": idx, "replacements": 1, "mode": "contains"}));
-                        }
-                        FuzzyMatchResult::NoMatch => {
-                            return ToolResult::err(format!(
-                                "edit_file batch: edit #{idx} old_string not found (contains mode). All edits aborted."
-                            ));
-                        }
-                        FuzzyMatchResult::MultipleMatches(n) => {
-                            return ToolResult::err(format!(
-                                "edit_file batch: edit #{idx} found {n} matches (contains mode). Provide more context. All edits aborted."
-                            ));
-                        }
-                    }
+            let label = format!("edit_file batch: edit #{idx}");
+            match apply_single_change(
+                &current,
+                &change.old_string,
+                &change.new_string,
+                change.replace_all,
+                change.expected_replacements,
+                change.match_mode,
+                change.start_line,
+                change.end_line,
+                &label,
+            ) {
+                ApplyChangeResult::Ok { new_content, mut log_entry } => {
+                    current = new_content;
+                    log_entry.as_object_mut().unwrap().insert("index".to_string(), serde_json::json!(idx));
+                    change_log.push(log_entry);
                 }
-                MatchMode::Fuzzy => {
-                    match try_fuzzy_match(&current, &old_norm) {
-                        FuzzyMatchResult::UniqueMatch { start, end } => {
-                            let mut result = String::with_capacity(current.len());
-                            result.push_str(&current[..start]);
-                            result.push_str(&new_norm);
-                            result.push_str(&current[end..]);
-                            current = result;
-                            change_log.push(serde_json::json!({"index": idx, "replacements": 1, "mode": "fuzzy"}));
-                        }
-                        FuzzyMatchResult::NoMatch => {
-                            return ToolResult::err(format!(
-                                "edit_file batch: edit #{idx} old_string not found (fuzzy mode). All edits aborted."
-                            ));
-                        }
-                        FuzzyMatchResult::MultipleMatches(n) => {
-                            return ToolResult::err(format!(
-                                "edit_file batch: edit #{idx} found {n} fuzzy matches. Provide more context. All edits aborted."
-                            ));
-                        }
-                    }
-                }
-                MatchMode::Exact => {
-                    let match_count = current.matches(&*old_norm).count();
-
-                    if let Some(expected) = change.expected_replacements {
-                        if match_count != expected {
-                            return ToolResult::err(format!(
-                                "edit_file batch: edit #{idx} expected {expected} matches but found {match_count}. All edits aborted."
-                            ));
-                        }
-                    }
-
-                    if match_count == 0 {
-                        match try_fuzzy_match(&current, &old_norm) {
-                            FuzzyMatchResult::UniqueMatch { start, end } => {
-                                let mut result = String::with_capacity(current.len());
-                                result.push_str(&current[..start]);
-                                result.push_str(&new_norm);
-                                result.push_str(&current[end..]);
-                                current = result;
-                                change_log.push(serde_json::json!({"index": idx, "replacements": 1, "fuzzy": true}));
-                            }
-                            _ => {
-                                return ToolResult::err(format!(
-                                    "edit_file batch: edit #{idx} old_string not found. All edits aborted, file unchanged. \
-                                     Re-read the file to get current content."
-                                ));
-                            }
-                        }
-                    } else if !change.replace_all && change.expected_replacements.is_none() && match_count > 1 {
-                        return ToolResult::err(format!(
-                            "edit_file batch: edit #{idx} found {match_count} matches. \
-                             Set replace_all=true or provide more context. All edits aborted."
-                        ));
-                    } else {
-                        let replaced = if change.replace_all { match_count } else { 1 };
-                        current = if change.replace_all {
-                            current.replace(&*old_norm, &new_norm)
-                        } else {
-                            current.replacen(&*old_norm, &new_norm, 1)
-                        };
-                        change_log.push(serde_json::json!({"index": idx, "replacements": replaced}));
-                    }
+                ApplyChangeResult::Err(msg) => {
+                    return ToolResult::err(format!("{msg} All edits aborted, file unchanged."));
                 }
             }
         }
@@ -2368,6 +2560,8 @@ impl Tool for EditFileTool {
          Falls back to Unicode-normalized and whitespace-normalized fuzzy matching if exact match fails. \
          Use match_mode='fuzzy' to skip exact match and directly use whitespace-tolerant matching. \
          Use match_mode='contains' when old_string is a partial substring of the actual file text. \
+         Use start_line + end_line as a safety net: when exact+fuzzy both fail, the tool \
+         locates old_string within ±3 lines of the range, or directly overwrites the range as last resort. \
          Use dry_run=true to validate edits without writing."
     }
 
@@ -2453,7 +2647,7 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             "edits".to_string(),
             serde_json::json!({
                 "type": "array",
-                "description": "Optional: batch mode. Array of {old_string, new_string, replace_all?, match_mode?} \
+                "description": "Optional: batch mode. Array of {old_string, new_string, replace_all?, match_mode?, start_line?, end_line?} \
                                 for multiple edits on the same file, applied atomically in order. \
                                 When provided, top-level old_string/new_string are ignored."
             }),
@@ -2463,6 +2657,23 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             serde_json::json!({
                 "type": "boolean",
                 "description": "Optional: if true, validate all edits but do not write to disk. Default false."
+            }),
+        );
+        props.insert(
+            "start_line".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Optional line-range hint (1-indexed). When exact+fuzzy matching both fail, \
+                                the tool will use start_line..end_line to locate the edit region. \
+                                First tries to find old_string within ±3 lines of the range; \
+                                if that fails, overwrites the entire range with new_string."
+            }),
+        );
+        props.insert(
+            "end_line".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Optional end of the line-range hint (1-indexed, inclusive). Used with start_line."
             }),
         );
         ToolParameterSchema {
@@ -2731,40 +2942,87 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             (result, 1usize, true)
                         }
                         FuzzyMatchResult::NoMatch => {
-                            let file_preview: String = normalized.lines().take(20)
-                                .enumerate()
-                                .map(|(i, l)| format!("{}|{}", i + 1, l))
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            return ToolResult::typed_err(
-                                ToolErrorType::EditNoOccurrenceFound,
-                                format!(
-                                    "In file '{}': Could not find the specified text to replace \
-                                     (neither exact nor whitespace/Unicode-normalized match). \
-                                     The file may have changed or the old_string is incorrect.\n\n\
-                                     Recovery steps:\n\
-                                     1. Use read_file with offset/limit to read the exact section you want to edit\n\
-                                     2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
-                                     3. Retry edit_file with the exact text as old_string\n\n\
-                                     Common causes: literal escape sequences (\\n, \\t) in the file, \
-                                     trailing whitespace differences, or the file was modified since last read.\n\
-                                     DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
-                                     File preview (first 20 lines):\n{file_preview}",
-                                    args.file_path
-                                ),
-                            );
+                            if let (Some(sl), Some(el)) = (args.start_line, args.end_line) {
+                                match try_line_range_match(&normalized, &old_normalized, sl, el) {
+                                    LineRangeMatchResult::ContextMatch { start, end } => {
+                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        (result, 1usize, true)
+                                    }
+                                    LineRangeMatchResult::Overwrite { start, end, .. } => {
+                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        (result, 1usize, true)
+                                    }
+                                    LineRangeMatchResult::OutOfBounds { total_lines } => {
+                                        return ToolResult::typed_err(
+                                            ToolErrorType::EditNoOccurrenceFound,
+                                            format!(
+                                                "In file '{}': start_line={sl}/end_line={el} is out of bounds \
+                                                 (file has {total_lines} lines). Fix the line range and retry.",
+                                                args.file_path
+                                            ),
+                                        );
+                                    }
+                                }
+                            } else {
+                                let file_preview: String = normalized.lines().take(20)
+                                    .enumerate()
+                                    .map(|(i, l)| format!("{}|{}", i + 1, l))
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                return ToolResult::typed_err(
+                                    ToolErrorType::EditNoOccurrenceFound,
+                                    format!(
+                                        "In file '{}': Could not find the specified text to replace \
+                                         (neither exact nor whitespace/Unicode-normalized match). \
+                                         The file may have changed or the old_string is incorrect.\n\n\
+                                         Recovery steps:\n\
+                                         1. Use read_file with offset/limit to read the exact section you want to edit\n\
+                                         2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
+                                         3. Retry edit_file with the exact text as old_string\n\n\
+                                         Tip: provide start_line and end_line to enable line-range fallback \
+                                         when the text has drifted.\n\
+                                         DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
+                                         File preview (first 20 lines):\n{file_preview}",
+                                        args.file_path
+                                    ),
+                                );
+                            }
                         }
                         FuzzyMatchResult::MultipleMatches(n) => {
-                            return ToolResult::typed_err(
-                                ToolErrorType::EditMultipleOccurrences,
-                                format!(
-                                    "In file '{}': Found {n} whitespace-normalized matches \
-                                     (exact match found 0). Provide more surrounding context \
-                                     to uniquely identify the location to edit, \
-                                     or set replace_all=true to replace all occurrences.",
-                                    args.file_path
-                                ),
-                            );
+                            if let (Some(sl), Some(el)) = (args.start_line, args.end_line) {
+                                match try_line_range_match(&normalized, &old_normalized, sl, el) {
+                                    LineRangeMatchResult::ContextMatch { start, end } => {
+                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        (result, 1usize, true)
+                                    }
+                                    LineRangeMatchResult::Overwrite { start, end, .. } => {
+                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        (result, 1usize, true)
+                                    }
+                                    LineRangeMatchResult::OutOfBounds { total_lines } => {
+                                        return ToolResult::typed_err(
+                                            ToolErrorType::EditNoOccurrenceFound,
+                                            format!(
+                                                "In file '{}': start_line={sl}/end_line={el} is out of bounds \
+                                                 (file has {total_lines} lines).",
+                                                args.file_path
+                                            ),
+                                        );
+                                    }
+                                }
+                            } else {
+                                return ToolResult::typed_err(
+                                    ToolErrorType::EditMultipleOccurrences,
+                                    format!(
+                                        "In file '{}': Found {n} whitespace-normalized matches \
+                                         (exact match found 0). Provide more surrounding context \
+                                         to uniquely identify the location to edit, \
+                                         or set replace_all=true to replace all occurrences. \
+                                         Tip: provide start_line/end_line to disambiguate.",
+                                        args.file_path
+                                    ),
+                                );
+                            }
                         }
                     }
                 } else if !args.replace_all && args.expected_replacements.is_none() && match_count > 1 {
@@ -3761,6 +4019,10 @@ struct MultiEditArgs {
     edits: Vec<MultiEditFileEntry>,
     #[serde(default)]
     dry_run: bool,
+    /// If true, run `git stash push` before the transaction and `git stash pop`
+    /// if all writes succeed. On failure, the stash remains for manual recovery.
+    #[serde(default)]
+    auto_snapshot: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3779,6 +4041,8 @@ struct MultiEditChange {
     expected_replacements: Option<usize>,
     #[serde(default)]
     match_mode: MatchMode,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
 }
 
 /// Atomically apply edits across multiple files.
@@ -3794,9 +4058,12 @@ impl Tool for MultiEditTool {
     fn name(&self) -> &str { "multi_edit" }
 
     fn description(&self) -> &str {
-        "Atomically apply edits across MULTIPLE files. All edits are validated in memory first; \
-         only if every edit succeeds are results written to disk. If any edit fails, no files are \
-         modified (all-or-nothing transaction). Use when you need cross-file atomic guarantees. \
+        "Atomically apply edits across MULTIPLE files with rollback safety. All edits are validated \
+         in memory first; only if every edit succeeds are results written to disk. If any write fails \
+         after partial commit, previously written files are automatically restored from backup. \
+         Each change supports start_line/end_line for line-range fallback when text matching fails. \
+         Set auto_snapshot=true to create a git stash before the transaction. \
+         Use dry_run=true to validate without writing. \
          For single-file multi-edit, prefer edit_file with the 'edits' array parameter instead."
     }
 
@@ -3812,12 +4079,18 @@ impl Tool for MultiEditTool {
         let mut props = HashMap::new();
         props.insert("edits".to_string(), serde_json::json!({
             "type": "array",
-            "description": "List of file edit entries. Each entry: { path: string, changes: [{ old_string, new_string, replace_all?, expected_replacements?, match_mode? }] }. \
-                            match_mode per change: 'exact' (default), 'fuzzy' (whitespace-tolerant), 'contains' (substring)."
+            "description": "List of file edit entries. Each entry: { path: string, changes: [{ old_string, new_string, replace_all?, expected_replacements?, match_mode?, start_line?, end_line? }] }. \
+                            match_mode per change: 'exact' (default), 'fuzzy' (whitespace-tolerant), 'contains' (substring). \
+                            start_line/end_line: optional 1-indexed line-range hint for fallback when text matching fails."
         }));
         props.insert("dry_run".to_string(), serde_json::json!({
             "type": "boolean",
             "description": "If true, validate all edits but do not write. Default false."
+        }));
+        props.insert("auto_snapshot".to_string(), serde_json::json!({
+            "type": "boolean",
+            "description": "If true, create a git stash snapshot before writing. On success the stash is popped; \
+                            on failure the stash remains for manual recovery via `git stash pop`. Default false."
         }));
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -3874,130 +4147,25 @@ impl Tool for MultiEditTool {
             let mut change_log = Vec::new();
 
             for (change_idx, change) in entry.changes.iter().enumerate() {
-                if change.old_string.is_empty() {
-                    return ToolResult::err(format!(
-                        "multi_edit: file #{file_idx} '{}', change #{change_idx} has empty old_string. Transaction aborted.",
-                        entry.file_path
-                    ));
-                }
-
-                let old_norm = change.old_string.replace("\r\n", "\n");
-                let new_norm = change.new_string.replace("\r\n", "\n");
-
-                match change.match_mode {
-                    MatchMode::Contains => {
-                        match try_contains_match(&current, &old_norm) {
-                            FuzzyMatchResult::UniqueMatch { start, end } => {
-                                let mut result = String::with_capacity(current.len());
-                                result.push_str(&current[..start]);
-                                result.push_str(&new_norm);
-                                result.push_str(&current[end..]);
-                                current = result;
-                                change_log.push(serde_json::json!({
-                                    "change_index": change_idx,
-                                    "replacements": 1,
-                                    "match_mode": "contains",
-                                }));
-                            }
-                            FuzzyMatchResult::NoMatch => {
-                                return ToolResult::err(format!(
-                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found (contains mode). \
-                                     Transaction aborted.",
-                                    entry.file_path
-                                ));
-                            }
-                            FuzzyMatchResult::MultipleMatches(n) => {
-                                return ToolResult::err(format!(
-                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {n} substring matches. \
-                                     Provide more context. Transaction aborted.",
-                                    entry.file_path
-                                ));
-                            }
-                        }
+                let label = format!("multi_edit: file #{file_idx} '{}', change #{change_idx}", entry.file_path);
+                match apply_single_change(
+                    &current,
+                    &change.old_string,
+                    &change.new_string,
+                    change.replace_all,
+                    change.expected_replacements,
+                    change.match_mode,
+                    change.start_line,
+                    change.end_line,
+                    &label,
+                ) {
+                    ApplyChangeResult::Ok { new_content, mut log_entry } => {
+                        current = new_content;
+                        log_entry.as_object_mut().unwrap().insert("change_index".to_string(), serde_json::json!(change_idx));
+                        change_log.push(log_entry);
                     }
-                    MatchMode::Fuzzy => {
-                        match try_fuzzy_match(&current, &old_norm) {
-                            FuzzyMatchResult::UniqueMatch { start, end } => {
-                                let mut result = String::with_capacity(current.len());
-                                result.push_str(&current[..start]);
-                                result.push_str(&new_norm);
-                                result.push_str(&current[end..]);
-                                current = result;
-                                change_log.push(serde_json::json!({
-                                    "change_index": change_idx,
-                                    "replacements": 1,
-                                    "match_mode": "fuzzy",
-                                }));
-                            }
-                            FuzzyMatchResult::NoMatch => {
-                                return ToolResult::err(format!(
-                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found (fuzzy mode). \
-                                     Transaction aborted.",
-                                    entry.file_path
-                                ));
-                            }
-                            FuzzyMatchResult::MultipleMatches(n) => {
-                                return ToolResult::err(format!(
-                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {n} fuzzy matches. \
-                                     Provide more context. Transaction aborted.",
-                                    entry.file_path
-                                ));
-                            }
-                        }
-                    }
-                    MatchMode::Exact => {
-                        let match_count = current.matches(&old_norm).count();
-
-                        if let Some(expected) = change.expected_replacements {
-                            if match_count != expected {
-                                return ToolResult::err(format!(
-                                    "multi_edit: file #{file_idx} '{}', change #{change_idx}: expected {expected} matches but found {match_count}. \
-                                     Transaction aborted.",
-                                    entry.file_path
-                                ));
-                            }
-                        }
-
-                        if match_count == 0 {
-                            match try_fuzzy_match(&current, &old_norm) {
-                                FuzzyMatchResult::UniqueMatch { start, end } => {
-                                    let mut result = String::with_capacity(current.len());
-                                    result.push_str(&current[..start]);
-                                    result.push_str(&new_norm);
-                                    result.push_str(&current[end..]);
-                                    current = result;
-                                    change_log.push(serde_json::json!({
-                                        "change_index": change_idx,
-                                        "replacements": 1,
-                                        "fuzzy": true,
-                                    }));
-                                }
-                                _ => {
-                                    return ToolResult::err(format!(
-                                        "multi_edit: file #{file_idx} '{}', change #{change_idx}: old_string not found. \
-                                         Transaction aborted, no files modified. Re-read the file to get current content.",
-                                        entry.file_path
-                                    ));
-                                }
-                            }
-                        } else if !change.replace_all && change.expected_replacements.is_none() && match_count > 1 {
-                            return ToolResult::err(format!(
-                                "multi_edit: file #{file_idx} '{}', change #{change_idx}: found {match_count} matches. \
-                                 Set replace_all=true or provide more context. Transaction aborted.",
-                                entry.file_path
-                            ));
-                        } else {
-                            let replaced = if change.replace_all { match_count } else { 1 };
-                            current = if change.replace_all {
-                                current.replace(&old_norm, &new_norm)
-                            } else {
-                                current.replacen(&old_norm, &new_norm, 1)
-                            };
-                            change_log.push(serde_json::json!({
-                                "change_index": change_idx,
-                                "replacements": replaced,
-                            }));
-                        }
+                    ApplyChangeResult::Err(msg) => {
+                        return ToolResult::err(format!("{msg} Transaction aborted, no files modified."));
                     }
                 }
             }
@@ -4024,10 +4192,43 @@ impl Tool for MultiEditTool {
             }).to_string());
         }
 
+        // Git stash snapshot (optional pre-transaction safety net).
+        let stash_created = if args.auto_snapshot {
+            match create_git_stash_snapshot().await {
+                Ok(created) => created,
+                Err(e) => {
+                    return ToolResult::err(format!(
+                        "multi_edit: auto_snapshot failed to create git stash: {e}. Transaction aborted."
+                    ));
+                }
+            }
+        } else {
+            false
+        };
+
+        // Back up original bytes for each file before writing, for rollback.
+        let mut backups: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        for (validated_path, _, _, _) in &staged {
+            match tokio::fs::read(validated_path).await {
+                Ok(original_bytes) => backups.push((validated_path.clone(), original_bytes)),
+                Err(e) => {
+                    return ToolResult::err(format!(
+                        "multi_edit: could not back up '{}' before writing: {e}. Transaction aborted.",
+                        validated_path.display()
+                    ));
+                }
+            }
+        }
+
         let mut written = Vec::new();
         for (validated_path, display_path, bytes, change_log) in &staged {
             match atomic_write_bytes(validated_path, bytes).await {
                 Ok(()) => {
+                    if let Some(cache) = get_file_state_cache() {
+                        if let Ok(text) = String::from_utf8(bytes.clone()) {
+                            cache.update(validated_path, &text);
+                        }
+                    }
                     written.push(serde_json::json!({
                         "file_path": display_path,
                         "changes_applied": change_log,
@@ -4035,27 +4236,99 @@ impl Tool for MultiEditTool {
                     }));
                 }
                 Err(e) => {
-                    return ToolResult::err(format!(
-                        "multi_edit: CRITICAL — failed to write '{}' after {} files already written: {e}. \
-                         Earlier files in the transaction ({}) were already modified. \
-                         Manual recovery may be needed.",
-                        display_path,
-                        written.len(),
-                        written.iter()
-                            .filter_map(|w| w.get("file_path").and_then(|p| p.as_str()))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
+                    let mut restored = Vec::new();
+                    let mut restore_failed = Vec::new();
+                    for (backup_path, backup_bytes) in &backups {
+                        if written.iter().any(|w| {
+                            w.get("file_path").and_then(|p| p.as_str())
+                                .map_or(false, |fp| backup_path.ends_with(fp))
+                        }) {
+                            match atomic_write_bytes(backup_path, backup_bytes).await {
+                                Ok(()) => restored.push(backup_path.display().to_string()),
+                                Err(re) => restore_failed.push(format!("{}: {re}", backup_path.display())),
+                            }
+                        }
+                    }
+                    let mut msg = format!(
+                        "multi_edit: failed to write '{display_path}': {e}."
+                    );
+                    if !restored.is_empty() {
+                        msg.push_str(&format!(
+                            " Rolled back {} file(s): {}.",
+                            restored.len(), restored.join(", ")
+                        ));
+                    }
+                    if !restore_failed.is_empty() {
+                        msg.push_str(&format!(
+                            " WARNING: rollback failed for: {}.",
+                            restore_failed.join("; ")
+                        ));
+                    }
+                    if stash_created {
+                        msg.push_str(" A git stash was created before the transaction — use `git stash pop` to restore.");
+                    }
+                    return ToolResult::err(msg);
                 }
             }
+        }
+
+        // If auto_snapshot was used and everything succeeded, pop the stash.
+        if stash_created {
+            let _ = pop_git_stash_snapshot().await;
         }
 
         ToolResult::ok(serde_json::json!({
             "success": true,
             "files": written,
             "count": written.len(),
+            "auto_snapshot": stash_created,
         }).to_string())
     }
+}
+
+/// Create a git stash as a pre-transaction snapshot.
+/// Returns `true` if a new stash entry was created, `false` if working tree was clean.
+async fn create_git_stash_snapshot() -> Result<bool, String> {
+    let root = workspace_root().map_err(|e| format!("could not determine workspace root: {e}"))?;
+
+    let output = tokio::process::Command::new("git")
+        .args(["stash", "push", "-m", "fastclaw-multi-edit-snapshot", "--include-untracked"])
+        .current_dir(&root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("git stash push failed: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("No local changes") || stdout.contains("No local changes") {
+            return Ok(false);
+        }
+        return Err(format!("git stash push returned {}: {stderr}", output.status));
+    }
+    Ok(!stdout.contains("No local changes"))
+}
+
+/// Pop the most recent git stash (the snapshot we created).
+async fn pop_git_stash_snapshot() -> Result<(), String> {
+    let root = workspace_root().map_err(|e| format!("could not determine workspace root: {e}"))?;
+
+    let output = tokio::process::Command::new("git")
+        .args(["stash", "pop"])
+        .current_dir(&root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("git stash pop failed: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git stash pop returned {}: {stderr}", output.status));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -4755,5 +5028,143 @@ mod multi_edit_tests {
         // File should NOT be modified
         let content = tokio::fs::read_to_string(&file_a).await.unwrap();
         assert_eq!(content, "dry run content\n", "dry_run should not modify files");
+    }
+
+    // ── Line-range matching tests ──────────────────────────────────
+
+    #[test]
+    fn line_range_context_match_finds_old_string_near_range() {
+        let content = "line1\nline2\nfn foo() {\n    bar()\n}\nline6\n";
+        let result = try_line_range_match(content, "fn foo() {", 3, 5);
+        match result {
+            LineRangeMatchResult::ContextMatch { start, end } => {
+                assert_eq!(&content[start..end], "fn foo() {");
+            }
+            other => panic!("expected ContextMatch, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn line_range_overwrite_when_old_string_not_found() {
+        let content = "aaa\nbbb\nccc\nddd\neee\n";
+        let result = try_line_range_match(content, "NONEXISTENT", 2, 3);
+        match result {
+            LineRangeMatchResult::Overwrite { extracted, .. } => {
+                assert!(extracted.contains("bbb"), "extracted={extracted}");
+                assert!(extracted.contains("ccc"), "extracted={extracted}");
+            }
+            other => panic!("expected Overwrite, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn line_range_out_of_bounds() {
+        let content = "one\ntwo\nthree\n";
+        let result = try_line_range_match(content, "anything", 10, 20);
+        assert!(matches!(result, LineRangeMatchResult::OutOfBounds { .. }));
+    }
+
+    #[test]
+    fn line_range_splice_replaces_correctly() {
+        let content = "aaa\nbbb\nccc\nddd\n";
+        // Overwrite lines 2-3 (bbb\nccc\n) with "XXX\n"
+        let lines: Vec<&str> = content.lines().collect();
+        let (start, end) = compute_byte_range(&lines, 1, 2, true, content.len());
+        let result = apply_line_range_splice(content, start, end, "XXX\n");
+        assert_eq!(result, "aaa\nXXX\nddd\n");
+    }
+
+    #[test]
+    fn apply_single_change_exact_match_works() {
+        let content = "fn main() {\n    println!(\"hello\");\n}\n";
+        match apply_single_change(
+            content,
+            "    println!(\"hello\");",
+            "    println!(\"world\");",
+            false, None, MatchMode::Exact, None, None, "test",
+        ) {
+            ApplyChangeResult::Ok { new_content, .. } => {
+                assert!(new_content.contains("println!(\"world\")"));
+                assert!(!new_content.contains("println!(\"hello\")"));
+            }
+            ApplyChangeResult::Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+
+    #[test]
+    fn apply_single_change_falls_back_to_line_range() {
+        let content = "alpha\nbeta\ngamma\ndelta\n";
+        match apply_single_change(
+            content,
+            "NONEXISTENT",
+            "REPLACEMENT\n",
+            false, None, MatchMode::Exact,
+            Some(2), Some(3),
+            "test",
+        ) {
+            ApplyChangeResult::Ok { new_content, log_entry } => {
+                assert!(new_content.contains("REPLACEMENT"));
+                assert!(!new_content.contains("beta"));
+                assert!(!new_content.contains("gamma"));
+                let json_str = log_entry.to_string();
+                assert!(
+                    json_str.contains("line_range"),
+                    "log should indicate line_range fallback: {json_str}"
+                );
+            }
+            ApplyChangeResult::Err(e) => panic!("expected line-range fallback to succeed: {e}"),
+        }
+    }
+
+    #[test]
+    fn apply_single_change_no_line_range_returns_error() {
+        let content = "alpha\nbeta\ngamma\n";
+        match apply_single_change(
+            content,
+            "NONEXISTENT",
+            "REPLACEMENT",
+            false, None, MatchMode::Exact,
+            None, None,
+            "test",
+        ) {
+            ApplyChangeResult::Err(e) => {
+                assert!(e.contains("not found"), "error should say not found: {e}");
+            }
+            ApplyChangeResult::Ok { .. } => panic!("should have failed without line range hint"),
+        }
+    }
+
+    #[tokio::test]
+    async fn edit_file_line_range_fallback_single_edit() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
+        let file_path = tmp.path().join("lr_edit.txt");
+        tokio::fs::write(&file_path, "line1\nline2\nline3\nline4\nline5\n")
+            .await
+            .unwrap();
+
+        // First read the file to populate the cache
+        let read_tool = ReadFileTool;
+        let read_args = serde_json::json!({ "file_path": file_path.to_string_lossy() }).to_string();
+        let _ = Tool::execute(&read_tool, &read_args).await;
+
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "file_path": file_path.to_string_lossy(),
+            "old_string": "DOES_NOT_EXIST",
+            "new_string": "REPLACED\n",
+            "start_line": 2,
+            "end_line": 3
+        }).to_string();
+
+        let result = Tool::execute(&tool, &args).await;
+        assert!(result.success, "should succeed via line-range fallback: {}", result.output);
+
+        let content = tokio::fs::read_to_string(&file_path).await.unwrap();
+        assert!(content.contains("REPLACED"));
+        assert!(!content.contains("line2"));
+        assert!(!content.contains("line3"));
+        assert!(content.contains("line1"));
+        assert!(content.contains("line4"));
     }
 }
