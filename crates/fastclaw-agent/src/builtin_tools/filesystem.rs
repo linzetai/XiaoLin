@@ -2848,7 +2848,7 @@ like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`\n\
             "context_lines".to_string(),
             serde_json::json!({
                 "type": "integer",
-                "description": "Optional number of lines to show before and after each match (0-5). Default 0. Useful for understanding match context without a separate read_file call."
+                "description": "Optional number of lines to show before and after each match (0-15). Default 0. Useful for understanding match context without a separate read_file call."
             }),
         );
         ToolParameterSchema {
@@ -2895,7 +2895,7 @@ like `struct \\\\{[\\\\s\\\\S]*?field`, use `multiline: true`\n\
 
         let case_sensitive = args.case_sensitive.unwrap_or(false);
         let max_results = args.max_results.unwrap_or(200).clamp(1, 2000);
-        let ctx = args.context_lines.unwrap_or(0).min(5);
+        let ctx = args.context_lines.unwrap_or(0).min(15);
 
         // Try ripgrep first for speed (respects .gitignore natively)
         let use_rg = is_ripgrep_available();
