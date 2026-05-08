@@ -1656,10 +1656,10 @@ impl Tool for BrowserTool {
                 "list_pages", "select_page", "new_page", "close_page",
                 "cookies", "list_network_requests", "list_console_messages",
                 "get_console_message", "get_network_request",
-                "upload_file", "emulate", "resize_page",
-                "type", "go_back", "go_forward", "reload"
+                "upload_file", "emulate", "resize_page"
             ],
-            "description": "Action to perform. Workflow: screenshot → take_snapshot → uid-based actions → screenshot to verify."
+            "description": "Action to perform. Workflow: screenshot → take_snapshot → uid-based actions → screenshot to verify. \
+             Use navigate with type=back/forward/reload instead of separate go_back/go_forward/reload actions."
         }));
         props.insert("type".to_string(), serde_json::json!({
             "type": "string", "enum": ["url", "back", "forward", "reload"],
@@ -1711,11 +1711,7 @@ impl Tool for BrowserTool {
         }));
         props.insert("script".to_string(), serde_json::json!({
             "type": "string",
-            "description": "JS code for evaluate. Alias: 'function'."
-        }));
-        props.insert("function".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "JS function for evaluate (chrome-devtools-mcp compatible)."
+            "description": "JS code for evaluate action."
         }));
         props.insert("key".to_string(), serde_json::json!({
             "type": "string",
@@ -1758,9 +1754,6 @@ impl Tool for BrowserTool {
         props.insert("filePath".to_string(), serde_json::json!({
             "type": "string",
             "description": "File path to save screenshot/snapshot output."
-        }));
-        props.insert("output_path".to_string(), serde_json::json!({
-            "type": "string", "description": "Alias for filePath (screenshot PNG or PDF output)."
         }));
         props.insert("ignoreCache".to_string(), serde_json::json!({
             "type": "boolean", "description": "For navigate(reload): bypass cache."
@@ -1887,7 +1880,6 @@ mod tests {
         assert!(schema.properties.contains_key("uid"));
         assert!(schema.properties.contains_key("selector"));
         assert!(schema.properties.contains_key("script"));
-        assert!(schema.properties.contains_key("function"));
         assert!(schema.required.contains(&"action".to_string()));
     }
 
