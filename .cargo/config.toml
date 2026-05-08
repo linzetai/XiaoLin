@@ -1,5 +1,10 @@
 # Workspace-wide Cargo configuration.
 
+# Use mold linker for significantly faster linking on Linux.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
 # Uncomment to enable sccache for faster incremental builds:
 # [build]
 # rustc-wrapper = "sccache"
