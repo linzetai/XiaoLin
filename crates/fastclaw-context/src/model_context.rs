@@ -210,6 +210,22 @@ pub fn has_explicit_output_limit(model: &str) -> bool {
     find_limit(model, TokenLimitType::Output).is_some()
 }
 
+/// Known text-only model families that do NOT support multimodal (image) input.
+/// If a model matches any prefix here, `image_url` content parts must be
+/// stripped before sending the request.
+static TEXT_ONLY_PREFIXES: &[&str] = &[
+    "deepseek",
+    "seed-oss",
+];
+
+/// Returns `true` when the model is known to accept `image_url` content parts.
+/// For unknown models we assume vision is supported (safe for OpenAI, Anthropic,
+/// Google, etc.) so images are only stripped for explicitly text-only families.
+pub fn model_supports_vision(model: &str) -> bool {
+    let norm = normalize_model_name(model);
+    !TEXT_ONLY_PREFIXES.iter().any(|p| norm.starts_with(p))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +320,29 @@ mod tests {
     fn has_explicit_vs_not() {
         assert!(has_explicit_output_limit("gpt-4o"));
         assert!(!has_explicit_output_limit("some-random-model"));
+    }
+
+    // ─── vision support tests ─────────────────────────────────────
+
+    #[test]
+    fn deepseek_no_vision() {
+        assert!(!model_supports_vision("deepseek-r1"));
+        assert!(!model_supports_vision("deepseek-chat"));
+        assert!(!model_supports_vision("deepseek-v4-pro"));
+        assert!(!model_supports_vision("deepseek-v4-flash"));
+    }
+
+    #[test]
+    fn vision_models() {
+        assert!(model_supports_vision("gpt-4o"));
+        assert!(model_supports_vision("gpt-5"));
+        assert!(model_supports_vision("claude-sonnet-4-6"));
+        assert!(model_supports_vision("gemini-2.0-flash"));
+        assert!(model_supports_vision("qwen-vl-max-latest"));
+    }
+
+    #[test]
+    fn unknown_model_assumes_vision() {
+        assert!(model_supports_vision("some-random-model"));
     }
 }

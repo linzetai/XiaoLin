@@ -562,6 +562,10 @@ impl AgentRuntime {
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
 
+            if !fastclaw_context::model_supports_vision(model) {
+                fastclaw_context::compressor::strip_image_content(&mut messages);
+            }
+
             let params = CompletionParams {
                 model,
                 messages: &messages,
@@ -1068,6 +1072,10 @@ impl AgentRuntime {
             Self::persist_replacement_records(session_store, request.session_id.as_deref(), &newly_replaced).await;
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
+
+            if !fastclaw_context::model_supports_vision(&model) {
+                fastclaw_context::compressor::strip_image_content(&mut messages);
+            }
 
             let mut accumulated_content = String::new();
             let mut accumulated_reasoning = String::new();

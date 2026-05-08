@@ -34,5 +34,5 @@ pub use collapse::{
 };
 pub use model_context::{
     has_explicit_output_limit, infer_context_window_from_model, infer_output_limit_from_model,
-    normalize_model_name, TokenLimitType,
+    model_supports_vision, normalize_model_name, TokenLimitType,
 };

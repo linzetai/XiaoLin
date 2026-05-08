@@ -107,6 +107,49 @@ pub struct CompactionResult {
     pub evicted_count: usize,
 }
 
+/// Strip `image_url` content parts from all messages.
+///
+/// For models that don't support multimodal input (e.g. DeepSeek), `image_url`
+/// parts in content arrays cause deserialization errors on the API side.
+///
+/// This function:
+/// - Removes `image_url` parts from content arrays, keeping only text parts.
+/// - If a content array becomes a single text part, collapses it back to a
+///   plain string for cleaner serialization.
+/// - If all parts were images (no text), replaces content with "[image omitted]".
+pub fn strip_image_content(messages: &mut [ChatMessage]) {
+    let mut count = 0usize;
+    for msg in messages.iter_mut() {
+        let arr = match &msg.content {
+            Some(serde_json::Value::Array(a)) if a.iter().any(|p| {
+                p.get("type").and_then(|v| v.as_str()) == Some("image_url")
+            }) => a.clone(),
+            _ => continue,
+        };
+
+        let text_parts: Vec<&serde_json::Value> = arr
+            .iter()
+            .filter(|p| p.get("type").and_then(|v| v.as_str()) != Some("image_url"))
+            .collect();
+
+        msg.content = if text_parts.is_empty() {
+            Some(serde_json::Value::String("[image omitted]".to_string()))
+        } else if text_parts.len() == 1 {
+            if let Some(t) = text_parts[0].get("text").and_then(|v| v.as_str()) {
+                Some(serde_json::Value::String(t.to_string()))
+            } else {
+                Some(serde_json::Value::Array(text_parts.into_iter().cloned().collect()))
+            }
+        } else {
+            Some(serde_json::Value::Array(text_parts.into_iter().cloned().collect()))
+        };
+        count += 1;
+    }
+    if count > 0 {
+        tracing::debug!(count, "strip_image_content: removed image_url parts from messages");
+    }
+}
+
 /// Repair broken `Assistant(tool_calls) → Tool` pairing in a message sequence.
 ///
 /// Some APIs (notably DeepSeek) strictly require every assistant message that
