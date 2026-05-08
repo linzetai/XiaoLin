@@ -73,10 +73,10 @@ impl Tool for HttpFetchTool {
     }
 
     fn description(&self) -> &str {
-        "HTTP request to an absolute URL. Returns JSON {status, body}. \
-         Supports GET (default), POST, PUT, DELETE, PATCH, HEAD. \
-         Body truncated at ~4096 bytes; timeout 10s. For HTML content, prefer web_fetch. \
-         SSRF protection blocks localhost and private IPs."
+        "General-purpose HTTP client for API calls. Use for REST APIs, webhooks, and \
+         non-HTML responses. Supports GET/POST/PUT/DELETE/PATCH/HEAD with custom headers and body. \
+         Body truncated at ~4KB; timeout 10s. For reading web pages (HTML → text/markdown), \
+         use web_fetch instead. SSRF protection blocks localhost and private IPs."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -1122,9 +1122,10 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a web page and extract content. Returns JSON {url, status, content_type, content, content_length}. \
-         extract_mode: 'text' (default, strips HTML), 'raw' (raw HTML), 'markdown'. \
-         No JS execution. Content truncated at ~32KB."
+        "Fetch and read web page content (HTML → clean text/markdown). Use for documentation, \
+         articles, READMEs, and any HTML page. GET-only; extract_mode: 'text' (default, strips \
+         HTML tags), 'markdown' (preserves structure), 'raw' (HTML). Content up to ~32KB. \
+         For API calls needing POST/PUT/headers, use http_fetch instead. No JS execution."
     }
 
     fn prompt(&self) -> String {
