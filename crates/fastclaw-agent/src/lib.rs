@@ -1,4 +1,5 @@
 pub mod agent_discovery;
+pub(crate) mod autofix;
 pub mod builtin_tools;
 pub mod code_graph;
 mod llm;

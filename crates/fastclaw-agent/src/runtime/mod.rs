@@ -729,6 +729,31 @@ impl AgentRuntime {
                     success: Some(result.success),
                 });
 
+                // ── Auto-fix loop: detect compiler errors and inject fix guidance ──
+                if !result.success {
+                    if let Some(build_cmd) = crate::autofix::extract_build_command(&tool_name, &arguments) {
+                        if let Some(guide) = crate::autofix::detect_and_plan(
+                            &build_cmd,
+                            &result.output,
+                            -1, // non-zero exit
+                            state.autofix.iteration,
+                        ) {
+                            let error_count_for_state = guide.diagnostics.len();
+                            state.autofix.record_build_result(&build_cmd, -1, error_count_for_state);
+                            inject_tool_recovery_guidance(&mut messages, &guide.formatted);
+                            tracing::info!(
+                                compiler = %crate::autofix::compiler_name(guide.compiler),
+                                errors = error_count_for_state,
+                                iteration = guide.iteration,
+                                "auto-fix guidance injected"
+                            );
+                        }
+                    }
+                } else if crate::autofix::extract_build_command(&tool_name, &arguments).is_some() {
+                    // Build succeeded — reset auto-fix state.
+                    state.autofix.reset();
+                }
+
                 if self.try_self_iter_tool_recovery(
                     &mut messages,
                     config,
@@ -1623,6 +1648,30 @@ impl AgentRuntime {
                     tool_calls: None,
                     tool_call_id: Some(call_id),
                 });
+
+                // ── Auto-fix loop (streaming path) ──
+                if !result.success {
+                    if let Some(build_cmd) = crate::autofix::extract_build_command(&tool_name, &arguments) {
+                        if let Some(guide) = crate::autofix::detect_and_plan(
+                            &build_cmd,
+                            &result.output,
+                            -1,
+                            state.autofix.iteration,
+                        ) {
+                            let error_count_for_state = guide.diagnostics.len();
+                            state.autofix.record_build_result(&build_cmd, -1, error_count_for_state);
+                            inject_tool_recovery_guidance(&mut messages, &guide.formatted);
+                            tracing::info!(
+                                compiler = %crate::autofix::compiler_name(guide.compiler),
+                                errors = error_count_for_state,
+                                iteration = guide.iteration,
+                                "auto-fix guidance injected (stream)"
+                            );
+                        }
+                    }
+                } else if crate::autofix::extract_build_command(&tool_name, &arguments).is_some() {
+                    state.autofix.reset();
+                }
 
                 if self.try_self_iter_tool_recovery(
                     &mut messages,

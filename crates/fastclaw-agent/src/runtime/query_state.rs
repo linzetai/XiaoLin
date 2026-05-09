@@ -91,6 +91,9 @@ pub(crate) struct QueryLoopState {
     /// Tracks the highest escalation level we've already applied,
     /// so each level fires at most once.
     repetition_escalation: u32,
+
+    // ── Auto-fix loop state ───────────────────────────────────────────
+    pub autofix: crate::autofix::AutoFixState,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -165,6 +168,8 @@ impl QueryLoopState {
 
             tool_call_exact_counts: HashMap::new(),
             repetition_escalation: 0,
+
+            autofix: crate::autofix::AutoFixState::default(),
         }
     }
 
