@@ -593,7 +593,7 @@ impl AgentRuntime {
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
 
-            if !fastclaw_context::model_supports_vision(model) {
+            if !fastclaw_context::model_supports_vision_with_caps(model, config.model.capabilities.as_ref()) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);
             }
 
@@ -1129,7 +1129,7 @@ impl AgentRuntime {
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
 
-            if !fastclaw_context::model_supports_vision(&model) {
+            if !fastclaw_context::model_supports_vision_with_caps(&model, config.model.capabilities.as_ref()) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);
             }
 
@@ -1196,7 +1196,9 @@ impl AgentRuntime {
 
                 let mut first_chunk = true;
                 let mut should_resume = false;
+                let mut delta_count: u64 = 0;
                 while let Some(result) = stream.next().await {
+                    delta_count += 1;
                     if first_chunk {
                         tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: time_to_first_chunk");
                         first_chunk = false;
@@ -1249,6 +1251,23 @@ impl AgentRuntime {
                             break;
                         }
                     };
+
+                    if delta_count <= 3 || delta.choices.is_empty() {
+                        let preview_content = delta.choices.first().and_then(|c| c.delta.content.as_deref());
+                        let preview_rc = delta.choices.first().and_then(|c| c.delta.reasoning_content.as_deref());
+                        let has_tc = delta.choices.first().map(|c| c.delta.tool_calls.is_some()).unwrap_or(false);
+                        let fr = delta.choices.first().and_then(|c| c.finish_reason.as_deref());
+                        tracing::info!(
+                            delta_count,
+                            choices_len = delta.choices.len(),
+                            content_preview = ?preview_content.map(|s| &s[..s.len().min(60)]),
+                            reasoning_preview = ?preview_rc.map(|s| &s[..s.len().min(60)]),
+                            has_tool_calls = has_tc,
+                            finish_reason = ?fr,
+                            has_usage = delta.usage.is_some(),
+                            "stream delta inspect"
+                        );
+                    }
 
                     if let Some(choice) = delta.choices.first() {
                         if let Some(ref content) = choice.delta.content {
@@ -1308,6 +1327,17 @@ impl AgentRuntime {
                 }
                 break 'stream_try;
             }
+
+            tracing::info!(
+                agent_id = %config.agent_id,
+                iteration = state.iteration,
+                accumulated_content_len = accumulated_content.len(),
+                accumulated_reasoning_len = accumulated_reasoning.len(),
+                tool_calls_count = tool_call_accum.len(),
+                last_finish_reason = ?last_finish_reason,
+                stream_errored,
+                "perf: stream_consumed"
+            );
 
             // Withheld prompt_too_long recovery: attempt reactive compact
             // before surfacing the error to the client.
@@ -1398,6 +1428,14 @@ impl AgentRuntime {
                             "streaming tool call limit reached"
                         );
                     }
+                    tracing::info!(
+                        agent_id = %config.agent_id,
+                        reason = %reason,
+                        iterations = state.iteration,
+                        total_tool_calls = state.total_tool_calls,
+                        content_len = accumulated_content.len(),
+                        "streaming execution complete — sending Done"
+                    );
                     let _ = send_stream_event(
                         tx,
                         StreamEvent::Done {
@@ -2204,6 +2242,7 @@ mod stream_resume_tests {
                 cost_per_1k_input: None,
                 cost_per_1k_output: None,
                 supports_reasoning: None,
+                capabilities: None,
                 fallbacks: Vec::new(),
                 max_concurrent_requests: 10,
             },
