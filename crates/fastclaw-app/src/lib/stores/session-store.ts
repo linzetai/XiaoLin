@@ -391,14 +391,17 @@ export function buildSessionSlice({ set, get }: SetGet) {
                 if (c.id !== chatId) return c;
                 const prev = c.usage;
                 const updatedStream = [...c.stream];
-                for (let i = updatedStream.length - 1; i >= 0; i--) {
-                  const item = updatedStream[i];
-                  if (item.type === "message" && item.data.role === "assistant") {
-                    updatedStream[i] = {
-                      ...item,
-                      data: { ...item.data, usage: incoming },
-                    };
-                    break;
+                const hasTokenData = incoming.promptTokens > 0 || incoming.completionTokens > 0 || incoming.elapsedMs > 0;
+                if (hasTokenData) {
+                  for (let i = updatedStream.length - 1; i >= 0; i--) {
+                    const item = updatedStream[i];
+                    if (item.type === "message" && item.data.role === "assistant") {
+                      updatedStream[i] = {
+                        ...item,
+                        data: { ...item.data, usage: incoming },
+                      };
+                      break;
+                    }
                   }
                 }
                 return {
