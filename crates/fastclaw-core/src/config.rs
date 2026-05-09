@@ -4,6 +4,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
 use crate::error::{FastClawError, FastClawResult};
+use crate::types::ModelCapabilities;
 
 /// Selects which state directory and config search paths to use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +74,10 @@ pub struct ModelProviderConfig {
     pub supports_tool_calling: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_reasoning: Option<bool>,
+    /// Structured capability declaration. Takes precedence over the individual
+    /// `supports_*` booleans above when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_per_1k_input: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

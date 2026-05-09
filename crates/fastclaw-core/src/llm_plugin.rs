@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::ModelCapabilities;
+
 /// Top-level configuration for an LLM provider plugin.
 ///
 /// Plugins live as individual JSON files inside the plugins directory
@@ -215,6 +217,8 @@ pub struct LlmPluginModelEntry {
     pub description: String,
     #[serde(default)]
     pub context_window: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +226,7 @@ pub struct LlmPluginModelEntry {
 // ---------------------------------------------------------------------------
 
 /// Section inside `FastClawConfig` governing LLM provider plugins.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmPluginsConfig {
     #[serde(default = "default_true")]
@@ -230,6 +234,15 @@ pub struct LlmPluginsConfig {
     /// Override for the plugins directory path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_dir: Option<String>,
+}
+
+impl Default for LlmPluginsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            plugins_dir: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

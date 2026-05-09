@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::complexity::ComplexityTier;
 use crate::config::ChannelConfig;
-use crate::types::AgentId;
+use crate::types::{AgentId, ModelCapabilities};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +81,10 @@ pub struct AgentModelConfig {
     pub cost_per_1k_output: Option<f64>,
     #[serde(default)]
     pub supports_reasoning: Option<bool>,
+    /// Explicit model capability declaration. When set, overrides heuristic
+    /// detection (e.g. `model_supports_vision`). Multi-select for input/output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
     #[serde(default)]
     pub fallbacks: Vec<FallbackModelConfig>,
     /// Max in-flight LLM HTTP requests for this provider chain entry (default 10).
@@ -128,6 +132,7 @@ impl Default for AgentModelConfig {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             supports_reasoning: None,
+            capabilities: None,
             fallbacks: Vec::new(),
             max_concurrent_requests: default_max_concurrent_requests(),
         }

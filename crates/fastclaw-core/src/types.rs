@@ -75,6 +75,71 @@ pub type ThreadId = String;
 pub type MessageId = String;
 pub type ToolCallId = String;
 
+// ---------------------------------------------------------------------------
+// Model capability declarations
+// ---------------------------------------------------------------------------
+
+/// What kind of content the model can accept as input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputModality {
+    Text,
+    Image,
+    Audio,
+    Video,
+}
+
+/// What kind of output the model can produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputModality {
+    Text,
+    ToolCalls,
+    Reasoning,
+}
+
+/// Declared capabilities of a model. When absent the system falls back to
+/// heuristic detection based on model name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCapabilities {
+    #[serde(default = "default_input_modalities")]
+    pub input: Vec<InputModality>,
+    #[serde(default = "default_output_modalities")]
+    pub output: Vec<OutputModality>,
+}
+
+fn default_input_modalities() -> Vec<InputModality> {
+    vec![InputModality::Text]
+}
+
+fn default_output_modalities() -> Vec<OutputModality> {
+    vec![OutputModality::Text, OutputModality::ToolCalls]
+}
+
+impl Default for ModelCapabilities {
+    fn default() -> Self {
+        Self {
+            input: default_input_modalities(),
+            output: default_output_modalities(),
+        }
+    }
+}
+
+impl ModelCapabilities {
+    pub fn supports_vision(&self) -> bool {
+        self.input.contains(&InputModality::Image)
+    }
+
+    pub fn supports_tool_calling(&self) -> bool {
+        self.output.contains(&OutputModality::ToolCalls)
+    }
+
+    pub fn supports_reasoning(&self) -> bool {
+        self.output.contains(&OutputModality::Reasoning)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -235,7 +300,11 @@ pub struct StreamChoice {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeltaContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_lenient_role",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub role: Option<Role>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
@@ -244,6 +313,24 @@ pub struct DeltaContent {
     pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<StreamToolCallDelta>>,
+}
+
+/// Deserialize `role` leniently: unknown or empty string values become `None`
+/// instead of causing a deserialization error. Some APIs (e.g. ZhiPu) send
+/// `"role": ""` in streaming delta chunks.
+fn deserialize_lenient_role<'de, D>(deserializer: D) -> Result<Option<Role>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some("system") => Ok(Some(Role::System)),
+        Some("user") => Ok(Some(Role::User)),
+        Some("assistant") => Ok(Some(Role::Assistant)),
+        Some("tool") => Ok(Some(Role::Tool)),
+        Some(_) => Ok(None),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

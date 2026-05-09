@@ -210,20 +210,33 @@ pub fn has_explicit_output_limit(model: &str) -> bool {
     find_limit(model, TokenLimitType::Output).is_some()
 }
 
-/// Known text-only model families that do NOT support multimodal (image) input.
-/// If a model matches any prefix here, `image_url` content parts must be
-/// stripped before sending the request.
+/// Minimal last-resort heuristic for models that are definitely text-only.
+/// Prefer declaring `ModelCapabilities` in config/plugin definitions instead
+/// of adding entries here.
 static TEXT_ONLY_PREFIXES: &[&str] = &[
     "deepseek",
     "seed-oss",
 ];
 
-/// Returns `true` when the model is known to accept `image_url` content parts.
-/// For unknown models we assume vision is supported (safe for OpenAI, Anthropic,
-/// Google, etc.) so images are only stripped for explicitly text-only families.
+/// Heuristic fallback: returns `true` when the model is likely to accept
+/// `image_url` content parts based on name patterns. Only used when no
+/// explicit `ModelCapabilities` is configured for the model.
 pub fn model_supports_vision(model: &str) -> bool {
     let norm = normalize_model_name(model);
     !TEXT_ONLY_PREFIXES.iter().any(|p| norm.starts_with(p))
+}
+
+/// Like `model_supports_vision` but respects an explicit `ModelCapabilities`
+/// override. When `caps` is `Some`, its declaration takes precedence over the
+/// heuristic prefix list.
+pub fn model_supports_vision_with_caps(
+    model: &str,
+    caps: Option<&fastclaw_core::types::ModelCapabilities>,
+) -> bool {
+    if let Some(c) = caps {
+        return c.supports_vision();
+    }
+    model_supports_vision(model)
 }
 
 #[cfg(test)]
@@ -344,5 +357,30 @@ mod tests {
     #[test]
     fn unknown_model_assumes_vision() {
         assert!(model_supports_vision("some-random-model"));
+    }
+
+    #[test]
+    fn caps_override_heuristic() {
+        use fastclaw_core::types::{InputModality, ModelCapabilities, OutputModality};
+
+        let text_only = ModelCapabilities {
+            input: vec![InputModality::Text],
+            output: vec![OutputModality::Text, OutputModality::ToolCalls],
+        };
+        // Explicit caps override heuristic: gpt-4o normally has vision,
+        // but config says text-only.
+        assert!(!model_supports_vision_with_caps("gpt-4o", Some(&text_only)));
+
+        let multimodal = ModelCapabilities {
+            input: vec![InputModality::Text, InputModality::Image],
+            output: vec![OutputModality::Text],
+        };
+        // Explicit caps override heuristic: deepseek is normally text-only,
+        // but config declares image support.
+        assert!(model_supports_vision_with_caps("deepseek-chat", Some(&multimodal)));
+
+        // None falls back to heuristic.
+        assert!(!model_supports_vision_with_caps("deepseek-chat", None));
+        assert!(model_supports_vision_with_caps("gpt-4o", None));
     }
 }
