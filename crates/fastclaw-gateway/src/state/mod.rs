@@ -1395,6 +1395,9 @@ impl AppState {
                     std::collections::HashMap::new(),
                 )),
                 channel_inbound_tx,
+                llm_plugin_registry: Arc::new(tokio::sync::RwLock::new(
+                    fastclaw_agent::LlmPluginRegistry::new(),
+                )),
             },
             obs: ObserveState {
                 metrics_collector: Arc::new(fastclaw_observe::MetricsCollector::new()),

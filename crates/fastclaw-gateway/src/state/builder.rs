@@ -116,17 +116,21 @@ impl StateBuilder {
             &config.llm_plugins,
             &config.paths,
         );
+        tracing::info!(
+            enabled = config.llm_plugins.enabled,
+            dir = %llm_plugins_dir.display(),
+            "resolving LLM provider plugins"
+        );
         let llm_plugins = if config.llm_plugins.enabled {
             let plugins = fastclaw_core::llm_plugin::load_llm_plugins(&llm_plugins_dir);
-            if !plugins.is_empty() {
-                tracing::info!(
-                    count = plugins.len(),
-                    dir = %llm_plugins_dir.display(),
-                    "loaded LLM provider plugins"
-                );
-            }
+            tracing::info!(
+                count = plugins.len(),
+                dir = %llm_plugins_dir.display(),
+                "loaded LLM provider plugins"
+            );
             plugins
         } else {
+            tracing::info!("LLM provider plugins disabled");
             Vec::new()
         };
         let llm_plugin_registry = fastclaw_agent::LlmPluginRegistry::from_configs(llm_plugins);

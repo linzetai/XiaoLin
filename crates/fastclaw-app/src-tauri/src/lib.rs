@@ -76,7 +76,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    fastclaw_observe::init_observability("pretty");
+    let default_level = if cfg!(debug_assertions) { Some("info") } else { None };
+    fastclaw_observe::init_observability_with_level("pretty", default_level);
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
