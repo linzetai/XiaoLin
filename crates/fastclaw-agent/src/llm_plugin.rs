@@ -1009,7 +1009,7 @@ struct ProcessError {
 pub struct ProcessLlmProvider {
     plugin_id: String,
     config: ProcessPluginConfig,
-    process: RwLock<Option<ProcessHandle>>,
+    process: std::sync::Arc<tokio::sync::Mutex<Option<ProcessHandle>>>,
 }
 
 struct ProcessHandle {
@@ -1024,18 +1024,12 @@ impl ProcessLlmProvider {
         Self {
             plugin_id: plugin_id.to_string(),
             config: config.clone(),
-            process: RwLock::new(None),
+            process: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
     async fn ensure_process(&self) -> anyhow::Result<()> {
-        let guard = self.process.read().await;
-        if guard.is_some() {
-            return Ok(());
-        }
-        drop(guard);
-
-        let mut guard = self.process.write().await;
+        let mut guard = self.process.lock().await;
         if guard.is_some() {
             return Ok(());
         }
@@ -1083,7 +1077,7 @@ impl ProcessLlmProvider {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
         self.ensure_process().await?;
-        let mut guard = self.process.write().await;
+        let mut guard = self.process.lock().await;
         let handle = guard
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("plugin process not running"))?;
@@ -1098,12 +1092,20 @@ impl ProcessLlmProvider {
         handle.stdin.flush().await?;
 
         let mut response_line = String::new();
-        handle
+        let bytes_read = handle
             .stdout
             .read_line(&mut response_line)
             .await
             .map_err(|e| anyhow::anyhow!("failed to read from plugin process stdout: {e}"))?;
 
+        if bytes_read == 0 {
+            anyhow::bail!("plugin process closed stdout (EOF) without responding");
+        }
+        tracing::debug!(
+            plugin_id = %self.plugin_id,
+            bytes_read,
+            "plugin: read response line"
+        );
         Ok(response_line)
     }
 }
@@ -1142,15 +1144,183 @@ impl LlmProvider for ProcessLlmProvider {
         &self,
         params: &CompletionParams<'_>,
     ) -> anyhow::Result<BoxStream<'static, anyhow::Result<StreamDelta>>> {
-        use futures::stream;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
-        // Process plugins use a simplified streaming approach:
-        // perform a non-streaming call and convert the full response into
-        // a sequence of StreamDelta chunks. A future enhancement could implement
-        // true line-by-line streaming from the child process stdout.
-        let chat_resp = self.chat_completion(params).await?;
-        let deltas = chat_response_to_stream_deltas(chat_resp);
-        Ok(Box::pin(stream::iter(deltas.into_iter().map(Ok))))
+        self.ensure_process().await?;
+
+        // Try the streaming method first; if the process returns an
+        // "unsupported_method" error, fall back to non-streaming.
+        let stream_req = ProcessRequest {
+            method: "chat_completion_stream",
+            params: ProcessRequestParams {
+                model: params.model,
+                messages: params.messages,
+                temperature: params.temperature,
+                max_tokens: params.max_tokens,
+                tools: params.tools,
+            },
+        };
+        let mut req_line = serde_json::to_string(&stream_req)?;
+        req_line.push('\n');
+
+        // Probe: send the stream request and read the first response line.
+        // If it's an error (especially unsupported_method), fall back.
+        let first_line = {
+            let mut guard = self.process.lock().await;
+            let handle = guard
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("plugin process not running"))?;
+            handle
+                .stdin
+                .write_all(req_line.as_bytes())
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to write to plugin stdin: {e}"))?;
+            handle.stdin.flush().await?;
+
+            let mut first = String::new();
+            let bytes_read = handle
+                .stdout
+                .read_line(&mut first)
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to read from plugin stdout: {e}"))?;
+
+            tracing::info!(
+                plugin_id = %self.plugin_id,
+                bytes_read,
+                first_line_len = first.trim().len(),
+                "plugin stream: read first response line"
+            );
+
+            if bytes_read == 0 {
+                anyhow::bail!("plugin process closed stdout (EOF) without a response");
+            }
+
+            first
+        };
+
+        let trimmed = first_line.trim();
+
+        // Check if the first line is an error indicating unsupported streaming.
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(err) = v.get("error") {
+                let code = err.get("code").and_then(|c| c.as_str()).unwrap_or("");
+                let msg = err
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown error");
+                tracing::warn!(
+                    plugin_id = %self.plugin_id,
+                    error = msg,
+                    code,
+                    raw_line = &trimmed[..trimmed.len().min(500)],
+                    "plugin process stream: first line is error"
+                );
+                if code == "unknown_method" || code == "unsupported_method" {
+                    tracing::info!(
+                        plugin_id = %self.plugin_id,
+                        "falling back to chat_completion"
+                    );
+                    let chat_resp = self.chat_completion(params).await?;
+                    let deltas = chat_response_to_stream_deltas(chat_resp);
+                    return Ok(Box::pin(futures::stream::iter(deltas.into_iter().map(Ok))));
+                }
+                anyhow::bail!("plugin process error: {msg}");
+            }
+        }
+
+        // The first line is a valid streaming response. Start the stream reader.
+        let first_owned = trimmed.to_string();
+        let process = self.process.clone();
+        let plugin_id = self.plugin_id.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel::<anyhow::Result<StreamDelta>>(64);
+
+        tokio::spawn(async move {
+            let mut line_count: u64 = 0;
+
+            // Process the already-read first line.
+            line_count += 1;
+            if let Err(should_stop) =
+                process_stream_line(&first_owned, &plugin_id, &tx).await
+            {
+                tracing::info!(
+                    plugin_id = %plugin_id,
+                    line_count,
+                    should_stop,
+                    "plugin stream task: first line caused stop"
+                );
+                if should_stop {
+                    return;
+                }
+            }
+
+            // Continue reading subsequent lines.
+            let mut guard = process.lock().await;
+            let handle = match guard.as_mut() {
+                Some(h) => h,
+                None => {
+                    let _ = tx
+                        .send(Err(anyhow::anyhow!("plugin process not running")))
+                        .await;
+                    return;
+                }
+            };
+
+            loop {
+                let mut line = String::new();
+                match handle.stdout.read_line(&mut line).await {
+                    Ok(0) => {
+                        tracing::info!(
+                            plugin_id = %plugin_id,
+                            line_count,
+                            "plugin stream task: EOF from process"
+                        );
+                        break;
+                    }
+                    Ok(n) => {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        line_count += 1;
+                        if let Err(should_stop) =
+                            process_stream_line(trimmed, &plugin_id, &tx).await
+                        {
+                            tracing::info!(
+                                plugin_id = %plugin_id,
+                                line_count,
+                                bytes = n,
+                                should_stop,
+                                "plugin stream task: line caused stop"
+                            );
+                            if should_stop {
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            plugin_id = %plugin_id,
+                            line_count,
+                            error = %e,
+                            "plugin stream task: stdout read error"
+                        );
+                        let _ = tx
+                            .send(Err(anyhow::anyhow!(
+                                "plugin process stdout read error: {e}"
+                            )))
+                            .await;
+                        break;
+                    }
+                }
+            }
+            tracing::info!(
+                plugin_id = %plugin_id,
+                line_count,
+                "plugin stream task: finished"
+            );
+        });
+
+        Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 
     fn provider_name(&self) -> &str {
@@ -1158,8 +1328,172 @@ impl LlmProvider for ProcessLlmProvider {
     }
 }
 
-/// Convert a ChatResponse into a sequence of StreamDelta for process plugins
-/// that don't natively support streaming.
+/// Process one JSON line from a streaming process plugin.
+/// Returns `Ok(())` to continue reading, `Err(true)` to stop normally, `Err(false)` to skip.
+async fn process_stream_line(
+    trimmed: &str,
+    plugin_id: &str,
+    tx: &tokio::sync::mpsc::Sender<anyhow::Result<StreamDelta>>,
+) -> Result<(), bool> {
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                plugin_id = %plugin_id,
+                error = %e,
+                line_preview = &trimmed[..trimmed.len().min(120)],
+                "plugin stream: line is not valid JSON, skipping"
+            );
+            return Ok(());
+        }
+    };
+
+    // Done signal: {"done": true, ...}
+    if v.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+        if let Some(usage_val) = v.get("usage") {
+            if let Ok(usage) = serde_json::from_value::<Usage>(usage_val.clone()) {
+                let model = v
+                    .get("model")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let _ = tx
+                    .send(Ok(StreamDelta {
+                        id: String::new(),
+                        object: "chat.completion.chunk".to_string(),
+                        created: now_secs(),
+                        model,
+                        choices: vec![StreamChoice {
+                            index: 0,
+                            delta: DeltaContent {
+                                role: None,
+                                content: None,
+                                reasoning_content: None,
+                                tool_calls: None,
+                            },
+                            finish_reason: Some("stop".to_string()),
+                        }],
+                        usage: Some(usage),
+                    }))
+                    .await;
+            }
+        }
+        return Err(true);
+    }
+
+    // Error signal: {"error": {...}}
+    if let Some(err) = v.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            error = msg,
+            "plugin process stream error"
+        );
+        let _ = tx
+            .send(Err(anyhow::anyhow!("plugin process error: {msg}")))
+            .await;
+        return Err(true);
+    }
+
+    // Try strict parse first.
+    match serde_json::from_str::<StreamDelta>(trimmed) {
+        Ok(delta) => {
+            if tx.send(Ok(delta)).await.is_err() {
+                return Err(true);
+            }
+            return Ok(());
+        }
+        Err(strict_err) => {
+            tracing::info!(
+                plugin_id = %plugin_id,
+                error = %strict_err,
+                line_preview = &trimmed[..trimmed.len().min(200)],
+                "plugin stream: strict StreamDelta parse failed, trying lenient"
+            );
+        }
+    }
+
+    // Strict parse failed — build StreamDelta leniently from the Value.
+    // Many OpenAI-compatible APIs omit optional top-level fields.
+    let delta = stream_delta_from_value(&v);
+    if delta.choices.is_empty() && delta.usage.is_none() {
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            line_preview = &trimmed[..trimmed.len().min(300)],
+            "plugin stream: unparseable line with no choices/usage, skipping"
+        );
+        return Ok(());
+    }
+
+    if tx.send(Ok(delta)).await.is_err() {
+        return Err(true);
+    }
+    Ok(())
+}
+
+/// Build a `StreamDelta` from a raw JSON Value, tolerating missing top-level
+/// fields that strict deserialization would reject.
+fn stream_delta_from_value(v: &serde_json::Value) -> StreamDelta {
+    let id = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let object = v
+        .get("object")
+        .and_then(|x| x.as_str())
+        .unwrap_or("chat.completion.chunk")
+        .to_string();
+    let created = v
+        .get("created")
+        .and_then(|x| x.as_u64())
+        .unwrap_or_else(now_secs);
+    let model = v
+        .get("model")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let choices: Vec<StreamChoice> = match v.get("choices") {
+        Some(c) => match serde_json::from_value::<Vec<StreamChoice>>(c.clone()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    choices_raw = %c,
+                    "stream_delta_from_value: failed to parse choices"
+                );
+                Vec::new()
+            }
+        },
+        None => Vec::new(),
+    };
+
+    let usage: Option<Usage> = v
+        .get("usage")
+        .and_then(|u| {
+            if u.is_null() {
+                None
+            } else {
+                serde_json::from_value(u.clone()).ok()
+            }
+        });
+
+    StreamDelta {
+        id,
+        object,
+        created,
+        model,
+        choices,
+        usage,
+    }
+}
+
+/// Convert a ChatResponse into a sequence of StreamDelta.
+/// Used as a fallback when a process plugin does not support streaming natively.
 fn chat_response_to_stream_deltas(resp: ChatResponse) -> Vec<StreamDelta> {
     let mut deltas = Vec::new();
     for choice in &resp.choices {

@@ -1925,6 +1925,7 @@ dependencies = [
  "similar",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "url",
