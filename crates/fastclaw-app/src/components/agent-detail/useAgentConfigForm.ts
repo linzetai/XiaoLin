@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAgentStore } from "../../lib/agent-store";
 import { useGatewayStore } from "../../lib/store";
 import * as api from "../../lib/api";
+import { getAllProviders } from "../../lib/model-registry";
 
 export function encodeModelOption(provider: string, model: string) {
   return `${provider}::${model}`;
@@ -96,6 +97,12 @@ export function useAgentConfigForm() {
     const selectedModelMeta = models.find((m) =>
       m.model === selectedModel && (!selectedProvider || m.provider === selectedProvider),
     );
+    // Look up capabilities from preset definitions (built-in + plugin).
+    let presetCaps = currentModelObj?.capabilities;
+    for (const p of getAllProviders()) {
+      const found = p.models.find((m) => m.id === selectedModel);
+      if (found?.capabilities) { presetCaps = found.capabilities; break; }
+    }
     const modelConfig: api.AgentModelConfig = {
       provider:
         selectedProvider ??
@@ -105,10 +112,17 @@ export function useAgentConfigForm() {
       model: selectedModel,
       temperature: currentModelObj?.temperature ?? 0,
       maxTokens: currentModelObj?.maxTokens,
-      contextWindow: currentModelObj?.contextWindow,
+      contextWindow:
+        selectedModelMeta?.contextWindow ||
+        currentModelObj?.contextWindow,
       costPer1kInput: currentModelObj?.costPer1kInput,
       costPer1kOutput: currentModelObj?.costPer1kOutput,
-      supportsReasoning: currentModelObj?.supportsReasoning,
+      supportsReasoning:
+        selectedModelMeta?.supportsReasoning ??
+        currentModelObj?.supportsReasoning,
+      capabilities:
+        presetCaps ??
+        selectedModelMeta?.capabilities,
       fallbacks: currentModelObj?.fallbacks,
       maxConcurrentRequests: currentModelObj?.maxConcurrentRequests,
     };

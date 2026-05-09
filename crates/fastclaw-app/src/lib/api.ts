@@ -228,6 +228,7 @@ export interface AgentModelConfig {
   costPer1kInput?: number;
   costPer1kOutput?: number;
   supportsReasoning?: boolean;
+  capabilities?: import("./model-registry").ModelCapabilities;
   fallbacks?: Array<{ provider: string; model: string }>;
   maxConcurrentRequests?: number;
 }

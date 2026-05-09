@@ -209,6 +209,7 @@ export interface ModelInfo {
   costPer1kInput: number;
   costPer1kOutput: number;
   supportsReasoning: boolean;
+  capabilities?: import("./model-registry").ModelCapabilities;
 }
 
 export async function listModels(): Promise<ModelInfo[]> {

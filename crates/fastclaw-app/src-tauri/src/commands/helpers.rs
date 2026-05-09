@@ -20,8 +20,6 @@ pub fn collect_available_models(app: &AppState) -> Vec<serde_json::Value> {
             if model.is_empty() {
                 continue;
             }
-            // Use the config key (e.g. "dashscope") as provider — it matches
-            // credential lookup keys and is recognized by create_provider_chain.
             let provider = key.clone();
             let dedupe_key = format!("{provider}::{model}");
             if !seen.insert(dedupe_key) {
@@ -35,7 +33,34 @@ pub fn collect_available_models(app: &AppState) -> Vec<serde_json::Value> {
                 "costPer1kInput": cfg.get("costPer1kInput").cloned().unwrap_or(serde_json::Value::Null),
                 "costPer1kOutput": cfg.get("costPer1kOutput").cloned().unwrap_or(serde_json::Value::Null),
                 "supportsReasoning": cfg.get("supportsReasoning").cloned().unwrap_or(serde_json::Value::Null),
+                "capabilities": cfg.get("capabilities").cloned().unwrap_or(serde_json::Value::Null),
             }));
+        }
+    }
+
+    if let Ok(registry) = app.ext.llm_plugin_registry.try_read() {
+        for plugin in registry.list() {
+            if !plugin.enabled {
+                continue;
+            }
+            let provider_id = format!("plugin:{}", plugin.id);
+            for m in &plugin.models {
+                let dedupe_key = format!("{provider_id}::{}", m.id);
+                if !seen.insert(dedupe_key) {
+                    continue;
+                }
+                out.push(json!({
+                    "agentId": format!("plugin:{}", plugin.id),
+                    "model": m.id,
+                    "provider": provider_id,
+                    "contextWindow": m.context_window,
+                    "costPer1kInput": serde_json::Value::Null,
+                    "costPer1kOutput": serde_json::Value::Null,
+                    "supportsReasoning": serde_json::Value::Null,
+                    "capabilities": m.capabilities,
+                    "pluginName": plugin.name,
+                }));
+            }
         }
     }
 
