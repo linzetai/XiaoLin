@@ -38,6 +38,9 @@ pub struct ChannelCapabilities {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboundMessage {
     pub channel_id: String,
+    /// Which account this message came from (for multi-account routing).
+    #[serde(default)]
+    pub account_id: Option<String>,
     pub sender_id: String,
     pub chat_id: String,
     pub message_id: String,
@@ -224,4 +227,56 @@ impl Default for ChannelRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Resolved account configuration after merging top-level defaults with account-specific overrides.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedAccountConfig {
+    /// Account ID (None for single-account channels).
+    pub account_id: Option<String>,
+    pub app_id: Option<String>,
+    pub app_secret: Option<String>,
+    pub verification_token: Option<String>,
+    pub encrypt_key: Option<String>,
+    pub domain: Option<String>,
+    pub reply_mode: Option<String>,
+}
+
+/// Resolve merged config for a specific account.
+/// Top-level fields are defaults; account fields override.
+pub fn resolve_account_config(
+    channel_config: &crate::config::ChannelConfig,
+    account_id: Option<&str>,
+) -> Option<ResolvedAccountConfig> {
+    // If no accounts defined, use top-level as single account
+    if channel_config.accounts.is_empty() {
+        return Some(ResolvedAccountConfig {
+            account_id: None,
+            app_id: channel_config.app_id.clone(),
+            app_secret: channel_config.app_secret.clone(),
+            verification_token: channel_config.verification_token.clone(),
+            encrypt_key: channel_config.encrypt_key.clone(),
+            domain: channel_config.domain.clone(),
+            reply_mode: channel_config.reply_mode.clone(),
+        });
+    }
+
+    // Resolve account_id: explicit → default_account → first account
+    let resolved_id = account_id
+        .or(channel_config.default_account.as_deref())
+        .or_else(|| channel_config.accounts.keys().next().map(|s| s.as_str()));
+
+    let acc_id = resolved_id?;
+    let acc = channel_config.accounts.get(acc_id)?;
+
+    // Merge: top-level defaults + account overrides
+    Some(ResolvedAccountConfig {
+        account_id: Some(acc_id.to_string()),
+        app_id: acc.app_id.clone().or(channel_config.app_id.clone()),
+        app_secret: acc.app_secret.clone().or(channel_config.app_secret.clone()),
+        verification_token: acc.verification_token.clone().or(channel_config.verification_token.clone()),
+        encrypt_key: acc.encrypt_key.clone().or(channel_config.encrypt_key.clone()),
+        domain: acc.domain.clone().or(channel_config.domain.clone()),
+        reply_mode: acc.reply_mode.clone().or(channel_config.reply_mode.clone()),
+    })
 }

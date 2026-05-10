@@ -109,7 +109,7 @@ impl StateBuilder {
     /// Phase 3: LLM runtime, core tools, WASM/plugins, skills, workspaces.
     async fn phase3_agent_runtime_tools(
         config: &FastClawConfig,
-        p1: BuildPhase1,
+        mut p1: BuildPhase1,
     ) -> anyhow::Result<BuildPhase3> {
         // Load LLM provider plugins from the plugins directory.
         let llm_plugins_dir = fastclaw_core::llm_plugin::resolve_plugins_dir(
@@ -141,6 +141,7 @@ impl StateBuilder {
         } else {
             Some(&llm_plugin_registry)
         };
+        fastclaw_agent::patch_agent_context_windows(&mut p1.agents, plugin_ref);
         let runtime = super::AppState::build_runtime(&p1.agents, &creds, plugin_ref)?;
         let router = AgentRouter::new(p1.agents.clone());
         let tool_registry = super::AppState::build_tools_core(config).await?;

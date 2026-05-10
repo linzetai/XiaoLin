@@ -137,6 +137,9 @@ pub struct FastClawConfig {
     /// LLM provider plugin system configuration.
     #[serde(default, rename = "llmPlugins")]
     pub llm_plugins: crate::llm_plugin::LlmPluginsConfig,
+    /// Channel plugin system configuration.
+    #[serde(default, rename = "channelPlugins")]
+    pub channel_plugins: crate::channel_plugin::ChannelPluginsConfig,
 }
 
 /// Controls conversation tracing for the harness / eval subsystem.
@@ -362,6 +365,32 @@ pub struct ChannelConfig {
     /// User OAuth access token for user-scoped channel APIs (e.g. Feishu tasks, docs, calendar).
     #[serde(default)]
     pub user_access_token: Option<String>,
+    /// Per-account overrides. Each key is an account ID used in bindings.
+    #[serde(default)]
+    pub accounts: std::collections::HashMap<String, ChannelAccountConfig>,
+    /// Which account to use when none is specified in binding.
+    #[serde(default)]
+    pub default_account: Option<String>,
+}
+
+/// Account-specific overrides for a channel (all fields optional, merge with top-level).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAccountConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub app_id: Option<String>,
+    #[serde(default)]
+    pub app_secret: Option<String>,
+    #[serde(default)]
+    pub verification_token: Option<String>,
+    #[serde(default)]
+    pub encrypt_key: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub reply_mode: Option<String>,
 }
 
 impl ChannelConfig {

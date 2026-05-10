@@ -4,6 +4,8 @@ pub mod builtin_tools;
 pub mod code_graph;
 pub mod llm;
 pub mod llm_plugin;
+pub mod process_channel;
+pub mod rpc;
 mod runtime;
 pub mod subagent;
 pub mod subagent_manager;
@@ -20,7 +22,8 @@ pub use builtin_tools::{
 pub use llm::{
     classify_llm_error, create_provider, create_provider_chain,
     create_provider_chain_with_plugins, create_provider_with_credentials,
-    create_provider_with_plugins, AnthropicProvider, CircuitBreaker, CircuitState,
+    create_provider_with_plugins, patch_agent_context_windows, resolve_context_window,
+    AnthropicProvider, CircuitBreaker, CircuitState,
     CompletionParams, FallbackProvider, LlmApiError, LlmErrorCode, LlmProvider, OpenAiProvider,
 };
 pub use llm_plugin::{LlmPluginRegistry, MiddlewareLlmProvider, ProcessLlmProvider};

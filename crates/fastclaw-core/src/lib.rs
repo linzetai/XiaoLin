@@ -1,6 +1,7 @@
 pub mod agent_config;
 pub mod bus;
 pub mod channel;
+pub mod channel_plugin;
 pub mod complexity;
 pub mod config;
 pub mod config_access;
