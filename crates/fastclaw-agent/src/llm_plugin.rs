@@ -1622,6 +1622,20 @@ impl LlmPluginRegistry {
         self.plugins.is_empty()
     }
 
+    /// Look up the context window for a model exposed by a specific plugin.
+    ///
+    /// Returns `Some(window)` when the plugin declares the model with a
+    /// non-zero `context_window`; `None` otherwise.
+    pub fn find_model_context_window(&self, plugin_id: &str, model: &str) -> Option<u32> {
+        let config = self.plugins.get(plugin_id)?;
+        config
+            .models
+            .iter()
+            .find(|m| m.id == model)
+            .map(|m| m.context_window)
+            .filter(|&w| w > 0)
+    }
+
     /// Create a provider instance for the given plugin.
     pub fn create_provider(
         &self,
@@ -1698,6 +1712,7 @@ mod tests {
                 name: "Custom GPT-4".to_string(),
                 description: "".to_string(),
                 context_window: 128000,
+                capabilities: None,
             }],
         }
     }
@@ -2020,6 +2035,45 @@ mod tests {
             None,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_model_context_window_found() {
+        let mut reg = LlmPluginRegistry::new();
+        reg.register(middleware_plugin_config());
+        assert_eq!(
+            reg.find_model_context_window("test-mw", "custom-gpt4"),
+            Some(128000)
+        );
+    }
+
+    #[test]
+    fn find_model_context_window_unknown_model() {
+        let mut reg = LlmPluginRegistry::new();
+        reg.register(middleware_plugin_config());
+        assert_eq!(
+            reg.find_model_context_window("test-mw", "nonexistent-model"),
+            None
+        );
+    }
+
+    #[test]
+    fn find_model_context_window_unknown_plugin() {
+        let reg = LlmPluginRegistry::new();
+        assert_eq!(
+            reg.find_model_context_window("nonexistent", "any"),
+            None
+        );
+    }
+
+    #[test]
+    fn find_model_context_window_zero_is_none() {
+        let reg = LlmPluginRegistry::new();
+        // No plugins registered — anything returns None.
+        assert_eq!(
+            reg.find_model_context_window("nonexistent", "anything"),
+            None
+        );
     }
 
     #[test]

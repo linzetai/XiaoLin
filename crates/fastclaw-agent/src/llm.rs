@@ -1664,6 +1664,66 @@ pub fn create_provider_chain_with_plugins(
     Ok(Box::new(FallbackProvider::new(chain)))
 }
 
+/// Resolve the effective context window for an agent model config.
+///
+/// Priority chain (first non-None wins):
+///   1. Explicit `config.context_window` from agent JSON
+///   2. Plugin model entry `context_window` (when provider is `plugin:<id>`)
+///   3. Model-name heuristic via [`infer_context_window_from_model`]
+pub fn resolve_context_window(
+    config: &fastclaw_core::agent_config::AgentModelConfig,
+    plugin_registry: Option<&crate::llm_plugin::LlmPluginRegistry>,
+) -> u32 {
+    if let Some(w) = config.context_window {
+        return w;
+    }
+    if let (Some(plugin_id), Some(registry)) = (
+        config.provider.strip_prefix("plugin:"),
+        plugin_registry,
+    ) {
+        if let Some(w) = registry.find_model_context_window(plugin_id, &config.model) {
+            tracing::debug!(
+                plugin_id,
+                model = %config.model,
+                context_window = w,
+                "resolved context_window from plugin model entry"
+            );
+            return w;
+        }
+    }
+    fastclaw_context::infer_context_window_from_model(&config.model)
+}
+
+/// Fill in `context_window` for every agent whose config leaves it `None`
+/// and whose provider is a plugin with a known model entry.
+///
+/// Call this once after loading / hot-reloading agent configs so the runtime
+/// picks up the plugin-declared limit instead of falling back to model-name
+/// heuristics.
+pub fn patch_agent_context_windows(
+    agents: &mut [fastclaw_core::agent_config::AgentConfig],
+    plugin_registry: Option<&crate::llm_plugin::LlmPluginRegistry>,
+) {
+    for agent in agents.iter_mut() {
+        if agent.model.context_window.is_some() {
+            continue;
+        }
+        let resolved = resolve_context_window(&agent.model, plugin_registry);
+        let inferred = fastclaw_context::infer_context_window_from_model(&agent.model.model);
+        if resolved != inferred {
+            tracing::info!(
+                agent_id = %agent.agent_id,
+                provider = %agent.model.provider,
+                model = %agent.model.model,
+                resolved_context_window = resolved,
+                inferred_context_window = inferred,
+                "patched context_window from plugin model entry"
+            );
+            agent.model.context_window = Some(resolved);
+        }
+    }
+}
+
 #[cfg(test)]
 mod semaphore_tests {
     use super::*;
@@ -1811,5 +1871,114 @@ mod circuit_breaker_tests {
 
         assert_eq!(cb.state("anthropic"), CircuitState::Closed);
         assert!(cb.is_available("anthropic"));
+    }
+}
+
+#[cfg(test)]
+mod context_window_resolution_tests {
+    use super::*;
+    use fastclaw_core::agent_config::{AgentConfig, AgentModelConfig};
+    use fastclaw_core::llm_plugin::LlmPluginConfig;
+
+    fn make_plugin_registry() -> crate::llm_plugin::LlmPluginRegistry {
+        let plugin_json = serde_json::json!({
+            "id": "test-llm",
+            "name": "Test LLM Plugin",
+            "version": "1.0",
+            "type": "middleware",
+            "middleware": {
+                "baseUrl": "https://api.test-llm.example.com"
+            },
+            "models": [
+                { "id": "qwen3.5-plus", "name": "Qwen 3.5 Plus", "contextWindow": 32000 }
+            ]
+        });
+        let cfg: LlmPluginConfig = serde_json::from_value(plugin_json).unwrap();
+        let mut reg = crate::llm_plugin::LlmPluginRegistry::new();
+        reg.register(cfg);
+        reg
+    }
+
+    fn make_agent(provider: &str, model: &str, cw: Option<u32>) -> AgentConfig {
+        use fastclaw_core::agent_config::BehaviorConfig;
+        AgentConfig {
+            agent_id: "test".into(),
+            name: None,
+            description: None,
+            model: AgentModelConfig {
+                provider: provider.to_string(),
+                model: model.to_string(),
+                context_window: cw,
+                ..Default::default()
+            },
+            system_prompt: None,
+            tools: Vec::new(),
+            behavior: BehaviorConfig::default(),
+            mcp_servers: Vec::new(),
+            min_tier: None,
+            max_tier: None,
+            avatar: None,
+            channels: Default::default(),
+        }
+    }
+
+    #[test]
+    fn explicit_config_wins() {
+        let reg = make_plugin_registry();
+        let cfg = AgentModelConfig {
+            provider: "plugin:test-llm".to_string(),
+            model: "qwen3.5-plus".to_string(),
+            context_window: Some(50000),
+            ..Default::default()
+        };
+        assert_eq!(resolve_context_window(&cfg, Some(&reg)), 50000);
+    }
+
+    #[test]
+    fn plugin_model_entry_used_when_config_is_none() {
+        let reg = make_plugin_registry();
+        let cfg = AgentModelConfig {
+            provider: "plugin:test-llm".to_string(),
+            model: "qwen3.5-plus".to_string(),
+            context_window: None,
+            ..Default::default()
+        };
+        assert_eq!(resolve_context_window(&cfg, Some(&reg)), 32000);
+    }
+
+    #[test]
+    fn falls_back_to_model_heuristic_without_plugin() {
+        let cfg = AgentModelConfig {
+            provider: "dashscope".to_string(),
+            model: "qwen3.5-plus".to_string(),
+            context_window: None,
+            ..Default::default()
+        };
+        let inferred = fastclaw_context::infer_context_window_from_model("qwen3.5-plus");
+        assert_eq!(resolve_context_window(&cfg, None), inferred);
+    }
+
+    #[test]
+    fn patch_fills_plugin_context_window() {
+        let reg = make_plugin_registry();
+        let mut agents = vec![make_agent("plugin:test-llm", "qwen3.5-plus", None)];
+        patch_agent_context_windows(&mut agents, Some(&reg));
+        assert_eq!(agents[0].model.context_window, Some(32000));
+    }
+
+    #[test]
+    fn patch_skips_explicit_config() {
+        let reg = make_plugin_registry();
+        let mut agents = vec![make_agent("plugin:test-llm", "qwen3.5-plus", Some(64000))];
+        patch_agent_context_windows(&mut agents, Some(&reg));
+        assert_eq!(agents[0].model.context_window, Some(64000));
+    }
+
+    #[test]
+    fn patch_skips_non_plugin_providers() {
+        let reg = make_plugin_registry();
+        let mut agents = vec![make_agent("dashscope", "qwen3.5-plus", None)];
+        patch_agent_context_windows(&mut agents, Some(&reg));
+        assert_eq!(agents[0].model.context_window, None);
     }
 }

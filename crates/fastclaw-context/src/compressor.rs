@@ -209,8 +209,11 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
     }
 
     // Pass 2b: Remove assistant messages that became empty after stripping tool_calls.
-    // An empty assistant message (no content, no tool_calls) causes 400 errors from LLM APIs.
+    // LLM APIs require assistant messages to have `content` or `tool_calls`;
+    // `reasoning_content` alone does NOT satisfy this constraint (it's metadata,
+    // not a valid substitute), so we only check content and tool_calls here.
     if !strip_tool_calls_at.is_empty() {
+        let before = messages.len();
         messages.retain(|m| {
             if m.role != Role::Assistant {
                 return true;
@@ -223,9 +226,15 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
                     _ => false,
                 }
             });
-            let has_reasoning = m.reasoning_content.as_ref().is_some_and(|r| !r.trim().is_empty());
-            has_tool_calls || has_content || has_reasoning
+            has_tool_calls || has_content
         });
+        let removed = before - messages.len();
+        if removed > 0 {
+            tracing::debug!(
+                removed,
+                "sanitize_tool_call_pairing: removed empty assistant messages after tool_call strip"
+            );
+        }
     }
 
     // Pass 3: remove orphan Tool messages whose tool_call_id doesn't match
@@ -250,6 +259,34 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
     let removed = before_len - messages.len();
     if removed > 0 {
         tracing::debug!(removed, "sanitize_tool_call_pairing: removed orphan tool messages");
+    }
+}
+
+/// Defence-in-depth: remove any assistant message that has neither `content`
+/// nor `tool_calls`.  Most LLM APIs (OpenAI, DeepSeek, etc.) return 400 for
+/// such messages.  This function is cheap (single pass, no allocations when
+/// nothing is removed) and should be called right before the LLM request.
+pub fn ensure_valid_assistant_messages(messages: &mut Vec<ChatMessage>) {
+    let before = messages.len();
+    messages.retain(|m| {
+        if m.role != Role::Assistant {
+            return true;
+        }
+        let has_content = m.content.as_ref().is_some_and(|c| match c {
+            serde_json::Value::String(s) => !s.trim().is_empty(),
+            serde_json::Value::Array(arr) => !arr.is_empty(),
+            _ => false,
+        });
+        let has_tool_calls = m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty());
+        has_content || has_tool_calls
+    });
+    let removed = before - messages.len();
+    if removed > 0 {
+        tracing::warn!(
+            removed,
+            "ensure_valid_assistant_messages: dropped invalid assistant messages \
+             (no content, no tool_calls)"
+        );
     }
 }
 
@@ -1168,5 +1205,123 @@ mod tests {
             result.messages.last().unwrap().text_content().as_deref(),
             Some("third")
         );
+    }
+
+    fn assistant_with_tool_calls(content: Option<&str>, reasoning: Option<&str>, tc_ids: &[&str]) -> ChatMessage {
+        use fastclaw_core::types::{ToolCall, FunctionCall};
+        ChatMessage {
+            role: Role::Assistant,
+            content: content.map(|s| serde_json::Value::String(s.to_string())),
+            reasoning_content: reasoning.map(|s| s.to_string()),
+            name: None,
+            tool_calls: if tc_ids.is_empty() {
+                None
+            } else {
+                Some(tc_ids.iter().map(|id| ToolCall {
+                    id: id.to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "test_tool".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                }).collect())
+            },
+            tool_call_id: None,
+        }
+    }
+
+    fn tool_result(call_id: &str, output: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Tool,
+            content: Some(serde_json::Value::String(output.to_string())),
+            reasoning_content: None,
+            name: Some("test_tool".to_string()),
+            tool_calls: None,
+            tool_call_id: Some(call_id.to_string()),
+        }
+    }
+
+    #[test]
+    fn sanitize_removes_reasoning_only_assistant_after_strip() {
+        let mut messages = vec![
+            user("do something"),
+            assistant_with_tool_calls(None, Some("thinking about tools..."), &["tc1"]),
+            user("next question"),
+        ];
+        sanitize_tool_call_pairing(&mut messages);
+        assert_eq!(messages.len(), 2, "assistant with only reasoning_content should be removed");
+        assert!(messages.iter().all(|m| m.role != Role::Assistant));
+    }
+
+    #[test]
+    fn sanitize_keeps_assistant_with_content_after_strip() {
+        let mut messages = vec![
+            user("do something"),
+            assistant_with_tool_calls(Some("I'll help"), Some("thinking..."), &["tc1"]),
+            user("next question"),
+        ];
+        sanitize_tool_call_pairing(&mut messages);
+        assert_eq!(messages.len(), 3, "assistant with content should be kept");
+        let asst = messages.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert!(asst.tool_calls.is_none(), "orphaned tool_calls should be stripped");
+        assert_eq!(asst.text_content().as_deref(), Some("I'll help"));
+    }
+
+    #[test]
+    fn sanitize_keeps_paired_tool_calls_with_reasoning() {
+        let mut messages = vec![
+            user("do something"),
+            assistant_with_tool_calls(None, Some("thinking..."), &["tc1"]),
+            tool_result("tc1", "result"),
+            user("next question"),
+        ];
+        sanitize_tool_call_pairing(&mut messages);
+        assert_eq!(messages.len(), 4, "fully paired tool calls should be kept");
+        let asst = messages.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert!(asst.tool_calls.is_some());
+    }
+
+    #[test]
+    fn ensure_valid_drops_reasoning_only_assistant() {
+        let mut messages = vec![
+            user("hi"),
+            ChatMessage {
+                role: Role::Assistant,
+                content: None,
+                reasoning_content: Some("deep thoughts".to_string()),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            user("next"),
+        ];
+        ensure_valid_assistant_messages(&mut messages);
+        assert_eq!(messages.len(), 2);
+        assert!(messages.iter().all(|m| m.role != Role::Assistant));
+    }
+
+    #[test]
+    fn ensure_valid_keeps_assistant_with_content() {
+        let mut messages = vec![
+            user("hi"),
+            assistant("hello"),
+            user("next"),
+        ];
+        ensure_valid_assistant_messages(&mut messages);
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn ensure_valid_keeps_assistant_with_tool_calls() {
+        let mut messages = vec![
+            user("do something"),
+            assistant_with_tool_calls(None, None, &["tc1"]),
+            tool_result("tc1", "done"),
+        ];
+        ensure_valid_assistant_messages(&mut messages);
+        assert_eq!(messages.len(), 3);
     }
 }

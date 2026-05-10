@@ -9,11 +9,11 @@ pub mod reactive;
 pub mod snip;
 
 pub use compressor::{
-    estimate_messages_tokens, CompactionResult, CompactionStrategy, CompressorConfig,
-    ContextCompactor, LlmLayerSummarizer, DEFAULT_IMPORTANCE_MAX_MESSAGES,
-    DEFAULT_IMPORTANCE_RECENT_WINDOW, IMPORTANCE_ASSISTANT_WITH_TOOL_CALLS,
-    IMPORTANCE_DEFAULT_CONVERSATION, IMPORTANCE_RECENT_MESSAGES, IMPORTANCE_SYSTEM,
-    IMPORTANCE_TOOL_RESULTS,
+    ensure_valid_assistant_messages, estimate_messages_tokens, CompactionResult,
+    CompactionStrategy, CompressorConfig, ContextCompactor, LlmLayerSummarizer,
+    DEFAULT_IMPORTANCE_MAX_MESSAGES, DEFAULT_IMPORTANCE_RECENT_WINDOW,
+    IMPORTANCE_ASSISTANT_WITH_TOOL_CALLS, IMPORTANCE_DEFAULT_CONVERSATION,
+    IMPORTANCE_RECENT_MESSAGES, IMPORTANCE_SYSTEM, IMPORTANCE_TOOL_RESULTS,
 };
 pub use engine::{
     assemble_context, build_default_engine, AgentMemoryIngestHook, AgentPersonalityHook,

@@ -1140,6 +1140,7 @@ impl ContextEngine {
         Self::truncate_system_messages(messages, budget);
 
         crate::compressor::sanitize_tool_call_pairing(messages);
+        crate::compressor::ensure_valid_assistant_messages(messages);
 
         crate::compressor::estimate_messages_tokens(messages)
     }

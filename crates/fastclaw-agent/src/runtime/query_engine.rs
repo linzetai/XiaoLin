@@ -261,6 +261,7 @@ mod tests {
                 cost_per_1k_input: None,
                 cost_per_1k_output: None,
                 supports_reasoning: None,
+                capabilities: None,
                 fallbacks: Vec::new(),
                 max_concurrent_requests: 10,
             },
