@@ -42,6 +42,7 @@ pub(crate) async fn unified_pre_query_compact(
     model: &str,
     last_estimated_tokens: usize,
     iteration_boundaries: &[(usize, std::time::Instant)],
+    todo_store: Option<&crate::builtin_tools::TodoStore>,
 ) -> UnifiedCompactResult {
     // Step 0: Time-based microcompact — collapse tool results outside the prompt
     // cache window (default 5 min). These won't get cache hits so keeping them
@@ -159,6 +160,7 @@ pub(crate) async fn unified_pre_query_compact(
             provider,
             model,
             last_estimated_tokens,
+            todo_store,
         )
         .await;
 

@@ -32,5 +32,5 @@ pub use runtime::prompt_engine::{McpServerInfo, PromptContext, PromptEngine, Pro
 pub use runtime::prompt_sections as prompt_sections;
 pub use runtime::query_engine::QueryEngine;
 pub use agent_discovery::{GetAgentInfoTool, ListAgentsTool};
-pub use subagent::SubAgentTool;
+pub use subagent::{SubAgentTool, SubAgentGetTool, SubAgentListTool};
 pub use subagent_manager::SubAgentManager;

@@ -62,7 +62,6 @@ pub mod magic_docs;
 #[allow(dead_code)]
 pub mod file_persistence;
 mod session_memory;
-#[allow(dead_code)]
 mod stop_hooks;
 mod stream_engine;
 mod tool_executor;
@@ -252,6 +251,8 @@ pub struct ExecutionParams<'a> {
     /// Optional session store for persisting content replacement records.
     /// When provided with a session_id, enables byte-stable resume.
     pub session_store: Option<Arc<fastclaw_session::SessionStore>>,
+    /// Shared todo store so stop-hooks can check for incomplete todos.
+    pub todo_store: Option<crate::builtin_tools::TodoStore>,
 }
 
 /// Additional parameters specific to the streaming execution path.
@@ -491,7 +492,7 @@ impl AgentRuntime {
         tool_registry: &Arc<ToolRegistry>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None };
+        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None, todo_store: None };
         self.execute_inner(&params).await
     }
 
@@ -503,7 +504,7 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None };
+        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None, todo_store: None };
         self.execute_inner(&params).await
     }
 
@@ -511,7 +512,7 @@ impl AgentRuntime {
         &self,
         params: &ExecutionParams<'_>,
     ) -> anyhow::Result<ExecutionResult> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store } = *params;
+        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store, todo_store: _ } = *params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
@@ -864,7 +865,7 @@ impl AgentRuntime {
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None };
+        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None, todo_store: None };
         let stream = StreamParams { tx, confirm_pending: None };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -878,7 +879,7 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None };
+        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None, todo_store: None };
         let stream = StreamParams { tx, confirm_pending: None };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -895,8 +896,9 @@ impl AgentRuntime {
         subagent_prompt: Option<String>,
         mode_state: Option<crate::builtin_tools::ExecutionModeState>,
         session_store: Option<Arc<fastclaw_session::SessionStore>>,
+        todo_store: Option<crate::builtin_tools::TodoStore>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state, session_store };
+        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state, session_store, todo_store };
         let stream = StreamParams { tx, confirm_pending: Some(confirm_pending) };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -906,7 +908,7 @@ impl AgentRuntime {
         params: &ExecutionParams<'_>,
         stream_params: StreamParams,
     ) -> anyhow::Result<(u32, u32)> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store } = *params;
+        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store, ref todo_store } = *params;
         let StreamParams { ref tx, ref confirm_pending } = stream_params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
@@ -1035,6 +1037,7 @@ impl AgentRuntime {
                 &model,
                 state.last_estimated_tokens,
                 &state.iteration_msg_boundaries,
+                todo_store.as_ref(),
             ).await;
             state.last_estimated_tokens = compact_result.estimated_tokens;
             let estimated_tokens = compact_result.estimated_tokens;
@@ -1419,6 +1422,35 @@ impl AgentRuntime {
 
             match transition {
                 query_state::LoopTransition::Terminal(ref reason) => {
+                    if matches!(reason, query_state::TerminalReason::EndTurn) {
+                        let hook_result = stop_hooks::evaluate_stop_hooks(
+                            &accumulated_content,
+                            last_finish_reason.as_deref(),
+                            todo_store.as_ref(),
+                            &[],
+                        )
+                        .await;
+
+                        if hook_result.should_continue {
+                            tracing::info!(
+                                agent_id = %config.agent_id,
+                                reason = hook_result.reason,
+                                "stop hook triggered continuation"
+                            );
+                            if let Some(msg) = hook_result.continuation_message {
+                                messages.push(ChatMessage {
+                                    role: Role::User,
+                                    content: Some(serde_json::Value::String(msg)),
+                                    reasoning_content: None,
+                                    name: None,
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                            continue;
+                        }
+                    }
+
                     let final_tc: Option<Vec<ToolCall>> = if matches!(reason, query_state::TerminalReason::MaxIterations) {
                         let tc: Vec<ToolCall> = tool_call_accum
                             .iter()
@@ -1433,8 +1465,55 @@ impl AgentRuntime {
                         tracing::warn!(
                             agent_id = %config.agent_id,
                             max_iterations,
-                            "streaming tool call limit reached"
+                            "streaming tool call limit reached — requesting progress summary"
                         );
+
+                        messages.push(ChatMessage {
+                            role: Role::User,
+                            content: Some(serde_json::Value::String(
+                                "[SYSTEM] Tool call limit reached. You MUST now:\n\
+                                 1. Summarize your progress so far\n\
+                                 2. List any unfinished tasks\n\
+                                 3. Explain what remains to be done\n\
+                                 Do NOT call any tools — just output text."
+                                    .to_string(),
+                            )),
+                            reasoning_content: None,
+                            name: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                        });
+
+                        let summary_params = CompletionParams {
+                            model: &model,
+                            messages: &messages,
+                            temperature: 0.0,
+                            max_tokens: Some(2048),
+                            tools: None,
+                        };
+                        if let Ok(resp) = self.provider().chat_completion(&summary_params).await {
+                            if let Some(text) = resp.choices.first().and_then(|c| c.message.text_content()) {
+                                use fastclaw_core::types::{StreamDelta, StreamChoice, DeltaContent};
+                                let summary_delta = StreamDelta {
+                                    id: String::new(),
+                                    object: "chat.completion.chunk".to_string(),
+                                    created: 0,
+                                    model: model.clone(),
+                                    choices: vec![StreamChoice {
+                                        index: 0,
+                                        delta: DeltaContent {
+                                            role: Some(Role::Assistant),
+                                            content: Some(text),
+                                            reasoning_content: None,
+                                            tool_calls: None,
+                                        },
+                                        finish_reason: Some("stop".to_string()),
+                                    }],
+                                    usage: None,
+                                };
+                                let _ = send_stream_event(tx, StreamEvent::Delta(summary_delta), false).await;
+                            }
+                        }
                     }
                     tracing::info!(
                         agent_id = %config.agent_id,

@@ -349,10 +349,11 @@ impl QueryLoopState {
     }
 
     /// After the LLM response: should the loop continue or terminate?
+    /// When `max_iterations == 0` the iteration cap is disabled (unlimited).
     pub fn determine_post_llm_transition(&self, has_tool_calls: bool) -> LoopTransition {
         if !has_tool_calls {
             LoopTransition::Terminal(TerminalReason::EndTurn)
-        } else if self.iteration >= self.max_iterations {
+        } else if self.max_iterations > 0 && self.iteration >= self.max_iterations {
             LoopTransition::Terminal(TerminalReason::MaxIterations)
         } else {
             LoopTransition::Continue(ContinueReason::ToolUse)
@@ -500,6 +501,17 @@ mod tests {
         assert_eq!(
             s.determine_post_llm_transition(true),
             LoopTransition::Terminal(TerminalReason::MaxIterations)
+        );
+    }
+
+    #[test]
+    fn determine_post_llm_transition_unlimited_when_zero() {
+        let mut s = QueryLoopState::new(0);
+        s.iteration = 9999;
+        assert_eq!(
+            s.determine_post_llm_transition(true),
+            LoopTransition::Continue(ContinueReason::ToolUse),
+            "max_iterations=0 means unlimited"
         );
     }
 

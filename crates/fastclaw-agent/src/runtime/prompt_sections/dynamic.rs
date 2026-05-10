@@ -56,14 +56,22 @@ You are currently in **Plan Mode**. In this mode:
             "\
 ## Sub-Agent / Task Delegation
 
-You have access to sub-agent or task tools. Use them when:
+You have access to sub-agent tools for parallel task execution:
+- `spawn_subagent` — fire-and-forget: spawns a child agent and returns a `run_id` immediately
+- `subagent_get` — check the status/result of a previously spawned sub-agent by `run_id`
+- `subagent_list` — list all sub-agent runs and their statuses
+
+**Parallel execution pattern**: You can call `spawn_subagent` multiple times in a single response \
+to launch several sub-agents concurrently. Continue with your own work while they run. \
+Use `subagent_get` later to retrieve their results when needed.
+
+Use sub-agents when:
 - The task is complex and benefits from decomposition
 - You need to run independent work streams in parallel
 - A sub-task requires a different context or specialized focus
 
 Do NOT delegate when:
 - The task is simple enough to handle directly
-- You need the result immediately in the current turn
 - The overhead of delegation outweighs the benefit"
                 .to_string(),
         );
@@ -136,14 +144,21 @@ fn session_guidance_zh(ctx: &PromptContext) -> String {
             "\
 ## 子代理 / 任务委派
 
-你可以使用子代理或任务工具。适用场景：
+你可以使用子代理工具进行并行任务执行：
+- `spawn_subagent` — 即发即忘：启动子代理后立即返回 `run_id`
+- `subagent_get` — 通过 `run_id` 查询子代理的状态和结果
+- `subagent_list` — 列出所有子代理运行及其状态
+
+**并行执行模式**：你可以在一次回复中多次调用 `spawn_subagent` 来同时启动多个子代理。\
+在它们运行期间继续做你自己的工作，需要结果时再用 `subagent_get` 获取。
+
+适用场景：
 - 任务复杂，适合分解
 - 需要并行运行独立的工作流
 - 子任务需要不同的上下文或专业聚焦
 
 不应委派的情况：
 - 任务简单，可以直接处理
-- 当前轮次需要立即获得结果
 - 委派的开销大于收益"
                 .to_string(),
         );

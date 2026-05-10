@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -24,6 +25,7 @@ pub enum TodoStatus {
     Pending,
     InProgress,
     Completed,
+    Cancelled,
 }
 
 impl std::fmt::Display for TodoStatus {
@@ -32,19 +34,44 @@ impl std::fmt::Display for TodoStatus {
             Self::Pending => write!(f, "pending"),
             Self::InProgress => write!(f, "in_progress"),
             Self::Completed => write!(f, "completed"),
+            Self::Cancelled => write!(f, "cancelled"),
         }
     }
 }
 
 /// In-session todo storage shared across tool invocations.
+///
+/// Optionally backed by a JSON file for persistence across process restarts.
 #[derive(Debug, Clone, Default)]
 pub struct TodoStore {
     items: Arc<RwLock<Vec<TodoItem>>>,
+    session_path: Option<Arc<PathBuf>>,
 }
 
 impl TodoStore {
     pub fn new() -> Self {
-        Self { items: Arc::new(RwLock::new(Vec::new())) }
+        Self { items: Arc::new(RwLock::new(Vec::new())), session_path: None }
+    }
+
+    /// Create a store that auto-persists to the given JSON file.
+    pub fn with_session_path(path: PathBuf) -> Self {
+        Self {
+            items: Arc::new(RwLock::new(Vec::new())),
+            session_path: Some(Arc::new(path)),
+        }
+    }
+
+    /// Restore a store from a session file, falling back to empty if the file
+    /// doesn't exist or is malformed.
+    pub fn from_session(path: PathBuf) -> Self {
+        let items = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<TodoItem>>(&s).ok())
+            .unwrap_or_default();
+        Self {
+            items: Arc::new(RwLock::new(items)),
+            session_path: Some(Arc::new(path)),
+        }
     }
 
     pub async fn snapshot(&self) -> Vec<TodoItem> {
@@ -62,6 +89,7 @@ impl TodoStore {
             }
         }
         *self.items.write().await = items;
+        self.persist().await;
     }
 
     pub async fn merge(&self, updates: Vec<TodoItem>) {
@@ -86,6 +114,28 @@ impl TodoStore {
             } else {
                 current.push(update);
             }
+        }
+        drop(current);
+        self.persist().await;
+    }
+
+    async fn persist(&self) {
+        let Some(path) = &self.session_path else { return };
+        let items = self.items.read().await;
+        let json = match serde_json::to_string_pretty(&*items) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to serialize todo list for persistence");
+                return;
+            }
+        };
+        drop(items);
+
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(path.as_ref(), json) {
+            tracing::warn!(path = %path.display(), error = %e, "failed to persist todo list");
         }
     }
 }
@@ -259,7 +309,7 @@ Both execute in the same turn, saving a round-trip.\n\n\
                     "content": { "type": "string" },
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "in_progress", "completed"],
+                        "enum": ["pending", "in_progress", "completed", "cancelled"],
                         "default": "pending"
                     }
                 },
@@ -334,10 +384,11 @@ fn format_todo_display(items: &[TodoItem]) -> String {
     let completed = items.iter().filter(|t| t.status == TodoStatus::Completed).count();
     let in_progress = items.iter().filter(|t| t.status == TodoStatus::InProgress).count();
     let pending = items.iter().filter(|t| t.status == TodoStatus::Pending).count();
+    let cancelled = items.iter().filter(|t| t.status == TodoStatus::Cancelled).count();
 
     let mut lines = Vec::with_capacity(total + 3);
     lines.push(format!(
-        "Todos: {total} total | {completed} completed | {in_progress} in_progress | {pending} pending | 0 cancelled"
+        "Todos: {total} total | {completed} completed | {in_progress} in_progress | {pending} pending | {cancelled} cancelled"
     ));
     lines.push(String::new());
 
@@ -346,6 +397,7 @@ fn format_todo_display(items: &[TodoItem]) -> String {
             TodoStatus::Completed => "[x]",
             TodoStatus::InProgress => "[>]",
             TodoStatus::Pending => "[ ]",
+            TodoStatus::Cancelled => "[-]",
         };
         lines.push(format!("{marker} {} — {}", item.id, item.content));
     }
@@ -366,8 +418,7 @@ You have no pending tasks in your todo list.\n\
     let todos_json = serde_json::to_string(items).unwrap_or_default();
 
     let has_in_progress = items.iter().any(|t| t.status == TodoStatus::InProgress);
-    let has_pending = items.iter().any(|t| t.status == TodoStatus::Pending);
-    let all_done = !has_in_progress && !has_pending;
+    let all_done = items.iter().all(|t| matches!(t.status, TodoStatus::Completed | TodoStatus::Cancelled));
 
     let guidance = if all_done {
         "All tasks completed. Verify the overall result against the original request, then present a summary to the user."
@@ -386,6 +437,48 @@ Here are the latest contents of your todo list:\n\n\
 {guidance}\n\
 </system-reminder>"
     )
+}
+
+// ---------------------------------------------------------------------------
+// TodoReadTool — read current todo list snapshot
+// ---------------------------------------------------------------------------
+
+pub struct TodoReadTool {
+    store: TodoStore,
+}
+
+impl TodoReadTool {
+    pub fn new(store: TodoStore) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl Tool for TodoReadTool {
+    fn kind(&self) -> ToolKind { ToolKind::Read }
+    fn name(&self) -> &str { "todo_read" }
+
+    fn description(&self) -> &str {
+        "Read the current todo list. Returns all todo items with their status."
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+        }
+    }
+
+    async fn execute(&self, _arguments: &str) -> ToolResult {
+        let items = self.store.snapshot().await;
+        if items.is_empty() {
+            return ToolResult::ok("No todos in the current session.".to_string());
+        }
+        let display = format_todo_display(&items);
+        let json = serde_json::to_string(&items).unwrap_or_default();
+        ToolResult::ok_split(json, display)
+    }
 }
 
 #[cfg(test)]

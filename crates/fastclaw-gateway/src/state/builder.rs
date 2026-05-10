@@ -44,6 +44,7 @@ struct BuildPhase3 {
     agent_skill_registries: std::collections::HashMap<String, Arc<SkillRegistry>>,
     workspaces: std::collections::HashMap<String, AgentWorkspace>,
     llm_plugin_registry: fastclaw_agent::LlmPluginRegistry,
+    todo_store: fastclaw_agent::builtin_tools::TodoStore,
 }
 
 struct BuildPhase4 {
@@ -144,7 +145,7 @@ impl StateBuilder {
         fastclaw_agent::patch_agent_context_windows(&mut p1.agents, plugin_ref);
         let runtime = super::AppState::build_runtime(&p1.agents, &creds, plugin_ref)?;
         let router = AgentRouter::new(p1.agents.clone());
-        let tool_registry = super::AppState::build_tools_core(config).await?;
+        let (tool_registry, todo_store) = super::AppState::build_tools_core(config).await?;
 
         let paths_cfg = &config.paths;
 
@@ -281,6 +282,7 @@ impl StateBuilder {
             agent_skill_registries,
             workspaces,
             llm_plugin_registry,
+            todo_store,
         })
     }
 
@@ -657,6 +659,7 @@ impl StateBuilder {
                     Arc::new(pg)
                 },
                 mode_state: p5.phase2.phase4.mode_state,
+                todo_store: p5.phase2.phase4.phase3.todo_store,
             },
             store: super::StorageState {
                 session_store: p5.phase2.phase4.phase3.phase1.session_store,
@@ -764,6 +767,18 @@ impl StateBuilder {
         state
             .rt
             .tool_registry
+            .register(Arc::new(fastclaw_agent::SubAgentGetTool::new(
+                state.strm.subagent_manager.clone(),
+            )));
+        state
+            .rt
+            .tool_registry
+            .register(Arc::new(fastclaw_agent::SubAgentListTool::new(
+                state.strm.subagent_manager.clone(),
+            )));
+        state
+            .rt
+            .tool_registry
             .register(Arc::new(fastclaw_agent::ListAgentsTool::new(
                 state.strm.subagent_manager.clone(),
             )));
@@ -773,7 +788,7 @@ impl StateBuilder {
             .register(Arc::new(fastclaw_agent::GetAgentInfoTool::new(
                 state.strm.subagent_manager.clone(),
             )));
-        tracing::info!("registered sub-agent tools (spawn_subagent, list_agents, get_agent_info)");
+        tracing::info!("registered sub-agent tools (spawn_subagent, subagent_get, subagent_list, list_agents, get_agent_info)");
 
         state.spawn_skill_evolution_tasks();
 

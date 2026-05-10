@@ -169,6 +169,8 @@ pub enum ToolPermission {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BehaviorConfig {
+    /// Maximum tool calls per turn. 0 = unlimited (runs until the LLM
+    /// stops issuing tool_calls or the context window is exhausted).
     #[serde(default = "default_max_tool_calls")]
     pub max_tool_calls_per_turn: u32,
     #[serde(default = "default_max_errors")]
@@ -260,8 +262,10 @@ pub enum FileAccessMode {
     Full,
 }
 
+/// 0 = unlimited (the loop runs until the LLM stops issuing tool_calls
+/// or the context window is exhausted). Any positive value is a hard cap.
 fn default_max_tool_calls() -> u32 {
-    50
+    0
 }
 fn default_max_errors() -> u32 {
     3

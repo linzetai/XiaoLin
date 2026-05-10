@@ -82,6 +82,7 @@ pub struct RuntimeState {
     pub workspaces: Arc<std::collections::HashMap<String, AgentWorkspace>>,
     pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
     pub mode_state: fastclaw_agent::builtin_tools::ExecutionModeState,
+    pub todo_store: fastclaw_agent::builtin_tools::TodoStore,
 }
 
 /// Persistent stores.
@@ -635,13 +636,16 @@ impl AppState {
     }
 
     /// Built-ins and web/media tools (no MCP, no subagent).
-    async fn build_tools_core(config: &FastClawConfig) -> anyhow::Result<ToolRegistry> {
+    /// Returns the `ToolRegistry` together with the shared `TodoStore` so
+    /// stop-hooks can inspect incomplete todos at runtime.
+    async fn build_tools_core(config: &FastClawConfig) -> anyhow::Result<(ToolRegistry, fastclaw_agent::builtin_tools::TodoStore)> {
         let creds = &config.credentials;
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
+        let todo_store = fastclaw_agent::builtin_tools::TodoStore::new();
         fastclaw_agent::builtin_tools::register_todo_tools(
             &tool_registry,
-            fastclaw_agent::builtin_tools::TodoStore::new(),
+            todo_store.clone(),
         );
 
         let ws_cfg = &config.web_search;
@@ -704,7 +708,7 @@ impl AppState {
             tracing::info!("registered image_generate and text_to_speech tools");
         }
 
-        Ok(tool_registry)
+        Ok((tool_registry, todo_store))
     }
 
     /// MCP servers and the subagent tool (must run after [`Self::build_tools_core`]).
@@ -1343,9 +1347,10 @@ impl AppState {
 
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
+        let todo_store = fastclaw_agent::builtin_tools::TodoStore::new();
         fastclaw_agent::builtin_tools::register_todo_tools(
             &tool_registry,
-            fastclaw_agent::builtin_tools::TodoStore::new(),
+            todo_store.clone(),
         );
 
         let subagent_manager = Arc::new(fastclaw_agent::SubAgentManager::new(
@@ -1359,6 +1364,12 @@ impl AppState {
             fastclaw_core::agent_config::SubAgentPolicy::default(),
         );
         tool_registry.register(Arc::new(subagent_tool));
+        tool_registry.register(Arc::new(fastclaw_agent::SubAgentGetTool::new(
+            subagent_manager.clone(),
+        )));
+        tool_registry.register(Arc::new(fastclaw_agent::SubAgentListTool::new(
+            subagent_manager.clone(),
+        )));
         tool_registry.register(Arc::new(fastclaw_agent::ListAgentsTool::new(
             subagent_manager.clone(),
         )));
@@ -1454,6 +1465,7 @@ impl AppState {
                 workspaces: Arc::new(std::collections::HashMap::new()),
                 prompt_guard: Arc::new(fastclaw_security::PromptGuard::new()),
                 mode_state: fastclaw_agent::builtin_tools::ExecutionModeState::new(),
+                todo_store,
             },
             store: StorageState {
                 session_store,

@@ -189,6 +189,7 @@ pub async fn try_compress_chat(
     provider: &Arc<dyn LlmProvider>,
     model: &str,
     api_prompt_tokens: usize,
+    todo_store: Option<&crate::builtin_tools::TodoStore>,
 ) -> CompressionResult {
     let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
     // Prefer API-reported tokens; fall back to local estimate.
@@ -274,13 +275,25 @@ pub async fn try_compress_chat(
         tracing::info!(path, "saved pre-compression chat history to file");
     }
 
-    let system_prompt = match &history_file {
+    let mut system_prompt = match &history_file {
         Some(path) => COMPRESSION_SYSTEM_PROMPT.replace("{{HISTORY_FILE_PATH}}", path),
         None => COMPRESSION_SYSTEM_PROMPT.replace(
             "{{HISTORY_FILE_PATH}}",
             "(history file not available)",
         ),
     };
+
+    if let Some(store) = todo_store {
+        let items = store.snapshot().await;
+        if !items.is_empty() {
+            let todo_json = serde_json::to_string_pretty(&items).unwrap_or_default();
+            system_prompt.push_str(&format!(
+                "\n\n## MUST PRESERVE: Current Todo List\n\
+                 The following todo list is actively being tracked. \
+                 You MUST include it verbatim in your summary:\n\n```json\n{todo_json}\n```"
+            ));
+        }
+    }
 
     // Build the LLM compression request
     let mut compress_messages: Vec<ChatMessage> = Vec::new();
@@ -518,7 +531,7 @@ impl AutoCompactor {
             return AutoCompactOutcome::NotNeeded;
         }
 
-        let result = try_compress_chat(messages, context_window, provider, model, api_prompt_tokens).await;
+        let result = try_compress_chat(messages, context_window, provider, model, api_prompt_tokens, None).await;
 
         if result.compressed {
             self.consecutive_failures = 0;

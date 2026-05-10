@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use fastclaw_core::agent_config::SubAgentPolicy;
-use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
+use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolRegistry, ToolResult};
 use fastclaw_core::types::{StreamEvent, SubAgentType};
 
 use crate::subagent_manager::SubAgentManager;
@@ -81,16 +81,6 @@ fn parse_subagent_type(s: Option<&str>) -> SubAgentType {
     }
 }
 
-#[derive(Serialize)]
-struct SpawnResult {
-    run_id: String,
-    agent_id: String,
-    subagent_type: String,
-    task: String,
-    response: String,
-    tool_calls_made: u32,
-    iterations: u32,
-}
 
 /// Build a child tool registry filtered by sub-agent type.
 ///
@@ -341,37 +331,145 @@ impl Tool for SubAgentTool {
             Err(e) => return ToolResult::err(format!("failed to spawn sub-agent: {e}")),
         };
 
-        let poll_interval = std::time::Duration::from_millis(200);
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(self.policy.timeout_seconds);
+        ToolResult::ok(serde_json::json!({
+            "run_id": run_id,
+            "agent_id": params.agent_id,
+            "subagent_type": subagent_type.to_string(),
+            "status": "running",
+            "message": "Sub-agent spawned and running in background. Use subagent_get with this run_id to check results when ready, or continue with other work."
+        }).to_string())
+    }
+}
 
-        loop {
-            tokio::time::sleep(poll_interval).await;
+// ---------------------------------------------------------------------------
+// SubAgentGetTool — query a specific run by ID (non-blocking)
+// ---------------------------------------------------------------------------
 
-            if std::time::Instant::now() > deadline {
-                self.manager.cancel(&run_id);
-                return ToolResult::err("sub-agent timed out while waiting for result".to_string());
-            }
+pub struct SubAgentGetTool {
+    manager: Arc<SubAgentManager>,
+}
 
-            if let Some(run) = self.manager.get_run(&run_id) {
-                if run.status.is_terminal() {
-                    let response = run.result.unwrap_or_else(|| "(no response)".to_string());
-                    let out = SpawnResult {
-                        run_id: run.run_id,
-                        agent_id: params.agent_id,
-                        subagent_type: subagent_type.to_string(),
-                        task: params.task,
-                        response,
-                        tool_calls_made: run.tool_calls_made,
-                        iterations: run.iterations,
-                    };
-                    return match serde_json::to_string(&out) {
-                        Ok(json) => ToolResult::ok(json),
-                        Err(e) => ToolResult::err(format!("serialization error: {e}")),
-                    };
-                }
-            }
+impl SubAgentGetTool {
+    pub fn new(manager: Arc<SubAgentManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[async_trait]
+impl Tool for SubAgentGetTool {
+    fn name(&self) -> &str {
+        "subagent_get"
+    }
+
+    fn description(&self) -> &str {
+        "Check the status and result of a previously spawned sub-agent by its run_id. Returns the current status (running/completed/failed/cancelled) and, if finished, the sub-agent's response."
+    }
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "run_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The run_id returned by spawn_subagent."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["run_id".to_string()],
         }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        #[derive(Deserialize)]
+        struct Params {
+            run_id: String,
+        }
+        let params: Params = match serde_json::from_str(arguments) {
+            Ok(p) => p,
+            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+        };
+
+        match self.manager.get_run(&params.run_id) {
+            Some(run) => {
+                let json = serde_json::json!({
+                    "run_id": run.run_id,
+                    "agent_id": run.agent_id.to_string(),
+                    "subagent_type": run.subagent_type.to_string(),
+                    "task": run.task,
+                    "status": format!("{:?}", run.status),
+                    "result": run.result,
+                    "tool_calls_made": run.tool_calls_made,
+                    "iterations": run.iterations,
+                    "elapsed_ms": run.completed_at.map(|c| c.saturating_sub(run.created_at)),
+                });
+                ToolResult::ok(json.to_string())
+            }
+            None => ToolResult::err(format!("no sub-agent run found with id '{}'", params.run_id)),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SubAgentListTool — list all sub-agent runs for the session
+// ---------------------------------------------------------------------------
+
+pub struct SubAgentListTool {
+    manager: Arc<SubAgentManager>,
+}
+
+impl SubAgentListTool {
+    pub fn new(manager: Arc<SubAgentManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[async_trait]
+impl Tool for SubAgentListTool {
+    fn name(&self) -> &str {
+        "subagent_list"
+    }
+
+    fn description(&self) -> &str {
+        "List all sub-agent runs in the current session with their status and summary."
+    }
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+        }
+    }
+
+    async fn execute(&self, _arguments: &str) -> ToolResult {
+        let runs = self.manager.list_runs(None);
+        let summaries: Vec<serde_json::Value> = runs
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "run_id": r.run_id,
+                    "agent_id": r.agent_id.to_string(),
+                    "subagent_type": r.subagent_type.to_string(),
+                    "status": format!("{:?}", r.status),
+                    "task": if r.task.len() > 100 { format!("{}…", &r.task[..100]) } else { r.task.clone() },
+                    "has_result": r.result.is_some(),
+                })
+            })
+            .collect();
+        ToolResult::ok(serde_json::json!({
+            "total": runs.len(),
+            "runs": summaries,
+        }).to_string())
     }
 }
 

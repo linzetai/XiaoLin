@@ -37,6 +37,7 @@ pub(crate) trait QueryDeps: Send + Sync {
         model: &str,
         last_estimated_tokens: usize,
         iteration_boundaries: &[(usize, std::time::Instant)],
+        todo_store: Option<&crate::builtin_tools::TodoStore>,
     ) -> UnifiedCompactResult;
 
     /// Emergency reactive compaction (prompt_too_long recovery).
@@ -94,6 +95,7 @@ impl QueryDeps for ProductionDeps {
         model: &str,
         last_estimated_tokens: usize,
         iteration_boundaries: &[(usize, std::time::Instant)],
+        todo_store: Option<&crate::builtin_tools::TodoStore>,
     ) -> UnifiedCompactResult {
         let mut pipeline = self.pipeline.lock().await;
         unified_pre_query_compact(
@@ -105,6 +107,7 @@ impl QueryDeps for ProductionDeps {
             model,
             last_estimated_tokens,
             iteration_boundaries,
+            todo_store,
         )
         .await
     }
@@ -185,6 +188,7 @@ pub(crate) mod mock {
             _model: &str,
             _last_estimated_tokens: usize,
             _iteration_boundaries: &[(usize, std::time::Instant)],
+            _todo_store: Option<&crate::builtin_tools::TodoStore>,
         ) -> UnifiedCompactResult {
             let mut results = self.compact_results.lock().await;
             if results.is_empty() {
@@ -302,7 +306,7 @@ mod tests {
         }];
 
         let result = deps
-            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[])
+            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[], None)
             .await;
         assert!(!result.compressed_by_llm);
         assert!(!result.pipeline_applied);

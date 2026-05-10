@@ -65,7 +65,7 @@ pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool}
 pub use ask_question::{AskQuestionTool, with_stream_context};
 pub use brief::BriefTool;
 pub use confirm::ConfirmTool;
-pub use todo::{TodoStore, TodoWriteTool, TodoStatus, TodoItem};
+pub use todo::{TodoStore, TodoWriteTool, TodoReadTool, TodoStatus, TodoItem};
 pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeSectionsTool};
 pub use notebook::NotebookEditTool;
 pub use task::{
@@ -177,7 +177,8 @@ pub fn register_brief_tool(
 }
 
 pub fn register_todo_tools(registry: &ToolRegistry, store: TodoStore) {
-    registry.register(Arc::new(TodoWriteTool::new(store)));
+    registry.register(Arc::new(TodoWriteTool::new(store.clone())));
+    registry.register(Arc::new(TodoReadTool::new(store)));
 }
 
 /// Register task management tools (create, list, get, stop).
