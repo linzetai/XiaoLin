@@ -533,7 +533,10 @@ impl AgentRuntime {
 
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
-        let all_tool_defs = tool_registry.eager_definitions();
+        let mut all_tool_defs = tool_registry.eager_definitions();
+        if let Some(extra) = &request.tools {
+            all_tool_defs.extend(extra.iter().cloned());
+        }
         let tool_defs = filter_tool_definitions(&all_tool_defs, config);
         tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions");
         let tools_for_llm = if tool_defs.is_empty() {
@@ -592,6 +595,7 @@ impl AgentRuntime {
             Self::persist_replacement_records(session_store, request.session_id.as_deref(), &newly_replaced).await;
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
+            fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
 
             if !fastclaw_context::model_supports_vision_with_caps(model, config.model.capabilities.as_ref()) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);
@@ -923,7 +927,10 @@ impl AgentRuntime {
 
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
-        let all_tool_defs = tool_registry.eager_definitions();
+        let mut all_tool_defs = tool_registry.eager_definitions();
+        if let Some(extra) = &request.tools {
+            all_tool_defs.extend(extra.iter().cloned());
+        }
         let tool_defs = filter_tool_definitions(&all_tool_defs, config);
         let tool_defs_json_chars: usize = tool_defs.iter().map(|td| {
             serde_json::to_string(td).map(|s| s.len()).unwrap_or(0)
@@ -1128,6 +1135,7 @@ impl AgentRuntime {
             Self::persist_replacement_records(session_store, request.session_id.as_deref(), &newly_replaced).await;
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
+            fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
 
             if !fastclaw_context::model_supports_vision_with_caps(&model, config.model.capabilities.as_ref()) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);

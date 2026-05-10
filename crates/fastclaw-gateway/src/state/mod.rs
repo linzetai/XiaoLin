@@ -4,11 +4,12 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use fastclaw_agent::{
     create_provider, create_provider_with_credentials, AgentRuntime,
-    FallbackProvider,
+    FallbackProvider, process_channel::ProcessChannelPlugin,
 };
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::bus::MessageBus;
 use fastclaw_core::channel::{ChannelPlugin, ChannelRegistry};
+use fastclaw_core::channel_plugin::{self, ChannelPluginConfig};
 use fastclaw_core::config::FastClawConfig;
 use fastclaw_core::routing::RuntimeRouteBinding;
 use fastclaw_core::skill::SkillRegistry;
@@ -525,7 +526,7 @@ impl AppState {
     /// Register channel plugins and return the registry plus the inbound message pipe.
     async fn build_channels(
         config: &FastClawConfig,
-        _tool_registry: &ToolRegistry,
+        tool_registry: &ToolRegistry,
     ) -> anyhow::Result<(
         ChannelRegistry,
         tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
@@ -535,6 +536,7 @@ impl AppState {
         let (inbound_tx, inbound_rx) =
             tokio::sync::mpsc::unbounded_channel::<fastclaw_core::channel::InboundMessage>();
 
+        // Load built-in Feishu plugin.
         let feishu_config = config.channels.get("feishu").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -548,16 +550,88 @@ impl AppState {
             if let Err(e) = feishu_plugin.start(inbound_tx.clone()).await {
                 tracing::error!(error = %e, "failed to start Feishu channel plugin");
             }
+
+            let llm_tools = feishu_plugin.llm_tools();
+            let tool_count = llm_tools.len();
+            for tool in llm_tools {
+                tool_registry.register_channel_scoped(tool);
+            }
+
             channel_registry.register(feishu_plugin);
             tracing::info!(
                 mode,
-                "Feishu channel plugin registered (tools not exposed as system tools)"
+                tool_count,
+                "Feishu channel plugin registered (tools channel-scoped, not globally visible)"
             );
         } else {
             tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
+        // Load process-based channel plugins from config files.
+        if config.channel_plugins.enabled {
+            let plugins_dir = channel_plugin::resolve_channel_plugins_dir(
+                &config.channel_plugins,
+                &config.paths,
+            );
+            let plugin_configs = channel_plugin::load_channel_plugins(&plugins_dir);
+
+            for pc in plugin_configs {
+                if !pc.enabled {
+                    tracing::info!(plugin_id = %pc.id, "channel plugin disabled, skipping");
+                    continue;
+                }
+
+                let plugin_id = pc.id.clone();
+                let account_config = config
+                    .channels
+                    .get(&pc.id)
+                    .map(|ch| serde_json::to_value(ch).unwrap_or(serde_json::Value::Null))
+                    .unwrap_or(serde_json::Value::Null);
+
+                match Self::start_process_channel(pc, account_config, &inbound_tx).await {
+                    Ok(plugin) => {
+                        channel_registry.register(Arc::new(plugin));
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            plugin_id = %plugin_id,
+                            error = %e,
+                            "failed to start process channel plugin"
+                        );
+                    }
+                }
+            }
+        }
+
         Ok((channel_registry, inbound_tx, inbound_rx))
+    }
+
+    /// Start a process-based channel plugin.
+    async fn start_process_channel(
+        config: ChannelPluginConfig,
+        account_config: serde_json::Value,
+        inbound_tx: &tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
+    ) -> anyhow::Result<ProcessChannelPlugin> {
+        let plugin_id = config.id.clone();
+        let plugin = ProcessChannelPlugin::new(config);
+
+        if let Err(e) = plugin.initialize(account_config).await {
+            tracing::error!(plugin_id = %plugin_id, error = %e, "failed to initialize process channel plugin");
+            anyhow::bail!("failed to initialize process channel plugin '{}': {e}", plugin_id);
+        }
+
+        if let Err(e) = plugin.start(inbound_tx.clone()).await {
+            tracing::error!(plugin_id = %plugin_id, error = %e, "failed to start process channel plugin");
+            anyhow::bail!("failed to start process channel plugin '{}': {e}", plugin_id);
+        }
+
+        tracing::info!(
+            plugin_id = %plugin_id,
+            mode = plugin.connection_mode(),
+            "process channel plugin registered"
+        );
+
+        Ok(plugin)
     }
 
     /// Built-ins and web/media tools (no MCP, no subagent).
@@ -900,6 +974,8 @@ impl AppState {
                 let chat_id = msg.chat_id.clone();
                 let message_id = msg.message_id.clone();
                 let text = msg.text.clone();
+                let account_id = msg.account_id.clone();
+                let chat_type = msg.chat_type.clone();
 
                 let registry = state.ext.channel_registry.read().await;
                 let channel = match registry.get(&channel_id) {
@@ -920,6 +996,8 @@ impl AppState {
                         &chat_id,
                         &message_id,
                         &text,
+                        account_id.as_deref(),
+                        &chat_type,
                     )
                     .await
                     {
@@ -1132,9 +1210,15 @@ impl AppState {
     /// [`Self::last_good_agents`] in one logical step (router swap is a single write).
     pub async fn apply_validated_agent_reload(
         &self,
-        agents: Vec<AgentConfig>,
+        mut agents: Vec<AgentConfig>,
     ) -> anyhow::Result<usize> {
         validate_agents_for_reload(&agents)?;
+        // Resolve plugin-declared context windows before storing configs.
+        {
+            let plugin_guard = self.ext.llm_plugin_registry.try_read();
+            let plugin_ref = plugin_guard.as_ref().map(|g| &**g).ok();
+            fastclaw_agent::patch_agent_context_windows(&mut agents, plugin_ref);
+        }
         self.refresh_runtime_agent_providers(&agents);
         let count = agents.len();
         let new_router = AgentRouter::new(agents.clone());

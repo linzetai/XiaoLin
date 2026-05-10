@@ -209,11 +209,11 @@ impl Tool for AddChannelTool {
             Ok(()) => {
                 status_parts.push("Plugin started successfully.".to_string());
 
-                // Register channel-specific tools so agents can use them
+                // Register channel-specific tools as channel-scoped (visible only to channel requests)
                 let registry = self.state.ext.channel_registry.read().await;
                 if let Some(plugin) = registry.get(&channel) {
                     for tool in plugin.tools() {
-                        self.state.rt.tool_registry.register(tool);
+                        self.state.rt.tool_registry.register_channel_scoped(tool);
                     }
                 }
             }

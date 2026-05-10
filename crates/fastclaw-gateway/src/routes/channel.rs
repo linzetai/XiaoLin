@@ -61,6 +61,8 @@ pub(super) async fn channel_webhook(
             for msg in messages {
                 let state_clone = state.clone();
                 let channel_clone = channel.clone();
+                let account_id = msg.account_id.clone();
+                let chat_type = msg.chat_type.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_channel_message(
                         state_clone,
@@ -69,6 +71,8 @@ pub(super) async fn channel_webhook(
                         &msg.chat_id,
                         &msg.message_id,
                         &msg.text,
+                        account_id.as_deref(),
+                        &chat_type,
                     )
                     .await
                     {
@@ -98,6 +102,8 @@ async fn handle_slash_command(
     channel_id: &str,
     chat_id: &str,
     text: &str,
+    account_id: Option<&str>,
+    chat_type: &str,
 ) -> Option<String> {
     let trimmed = text.trim();
 
@@ -107,8 +113,8 @@ async fn handle_slash_command(
             &bindings,
             &state.cfg.config.agents,
             channel_id,
-            None,
-            None,
+            account_id,
+            Some(chat_type),
             Some(chat_id),
         );
         let agent_id = route.agent_id.as_str();
@@ -153,8 +159,8 @@ async fn handle_slash_command(
             &bindings,
             &state.cfg.config.agents,
             channel_id,
-            None,
-            None,
+            account_id,
+            Some(chat_type),
             Some(chat_id),
         );
         let agent_id = route.agent_id.as_str();
@@ -167,7 +173,7 @@ async fn handle_slash_command(
             .clone()
             .unwrap_or(fastclaw_core::config::DmScope::PerChannelPeer);
         let session_key =
-            fastclaw_core::routing::build_session_key(&dm_scope, agent_id, channel_id, None, chat_id, "p2p");
+            fastclaw_core::routing::build_session_key(&dm_scope, agent_id, channel_id, account_id, chat_id, chat_type);
 
         let deleted = state
             .store
@@ -206,11 +212,13 @@ pub(crate) async fn handle_channel_message(
     chat_id: &str,
     message_id: &str,
     text: &str,
+    account_id: Option<&str>,
+    chat_type: &str,
 ) -> anyhow::Result<()> {
     use fastclaw_core::config::DmScope;
     use fastclaw_core::routing::{build_session_key, resolve_route};
 
-    if let Some(response) = handle_slash_command(&state, channel_id, chat_id, text).await {
+    if let Some(response) = handle_slash_command(&state, channel_id, chat_id, text, account_id, chat_type).await {
         channel.reply_message(message_id, &response).await?;
         return Ok(());
     }
@@ -220,8 +228,8 @@ pub(crate) async fn handle_channel_message(
         &bindings,
         &state.cfg.config.agents,
         channel_id,
-        None,
-        None,
+        account_id,
+        Some(chat_type),
         Some(chat_id),
     );
     let agent_id = route.agent_id.as_str();
@@ -248,7 +256,7 @@ pub(crate) async fn handle_channel_message(
         .dm_scope
         .clone()
         .unwrap_or(DmScope::PerChannelPeer);
-    let session_key = build_session_key(&dm_scope, agent_id, channel_id, None, chat_id, "p2p");
+    let session_key = build_session_key(&dm_scope, agent_id, channel_id, account_id, chat_id, chat_type);
 
     if state
         .store
@@ -328,6 +336,12 @@ pub(crate) async fn handle_channel_message(
     // Inject channel context so the agent knows it is operating from IM
     let mut enriched_request = setup.enriched_request.clone();
     inject_channel_context(&mut enriched_request.messages, channel_id, chat_id);
+
+    // Inject channel-scoped tool definitions so the LLM can see them
+    let ch_tools = state.rt.tool_registry.channel_scoped_definitions();
+    if !ch_tools.is_empty() {
+        enriched_request.tools = Some(ch_tools);
+    }
 
     if use_streaming {
         let reply_text = handle_channel_streaming(

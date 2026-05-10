@@ -371,6 +371,7 @@ pub trait Tool: Send + Sync {
 pub struct ToolRegistry {
     tools: std::sync::RwLock<HashMap<String, Arc<dyn Tool>>>,
     deferred: std::sync::RwLock<HashSet<String>>,
+    channel_scoped: std::sync::RwLock<HashSet<String>>,
     version: std::sync::atomic::AtomicU64,
     def_cache: std::sync::RwLock<(u64, Arc<Vec<ToolDefinition>>)>,
 }
@@ -379,11 +380,13 @@ impl Clone for ToolRegistry {
     fn clone(&self) -> Self {
         let guard = self.tools.read().expect("ToolRegistry poisoned");
         let deferred = self.deferred.read().expect("deferred set poisoned");
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
         let ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
         let cache = self.def_cache.read().expect("def_cache poisoned");
         Self {
             tools: std::sync::RwLock::new(guard.clone()),
             deferred: std::sync::RwLock::new(deferred.clone()),
+            channel_scoped: std::sync::RwLock::new(ch_scoped.clone()),
             version: std::sync::atomic::AtomicU64::new(ver),
             def_cache: std::sync::RwLock::new(cache.clone()),
         }
@@ -395,6 +398,7 @@ impl ToolRegistry {
         Self {
             tools: std::sync::RwLock::new(HashMap::new()),
             deferred: std::sync::RwLock::new(HashSet::new()),
+            channel_scoped: std::sync::RwLock::new(HashSet::new()),
             version: std::sync::atomic::AtomicU64::new(0),
             def_cache: std::sync::RwLock::new((u64::MAX, Arc::new(Vec::new()))),
         }
@@ -487,13 +491,39 @@ impl ToolRegistry {
         guard.insert(name);
     }
 
-    /// Returns definitions for tools that are **not** deferred (eager tools).
-    pub fn eager_definitions(&self) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
+    /// Register a tool as channel-scoped. Channel-scoped tools are stored in
+    /// the registry (so `get()` can find them for execution) but excluded from
+    /// `eager_definitions()`. They are only injected into requests originating
+    /// from the corresponding channel via `request.tools`.
+    pub fn register_channel_scoped(&self, tool: Arc<dyn Tool>) {
+        let name = tool.name().to_string();
+        self.register(tool);
+        let mut guard = self.channel_scoped.write().expect("channel_scoped poisoned");
+        guard.insert(name);
+    }
+
+    /// Returns definitions for channel-scoped tools only.
+    pub fn channel_scoped_definitions(&self) -> Vec<ToolDefinition> {
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
         let tools = self.tools.read().expect("ToolRegistry poisoned");
         tools
             .values()
-            .filter(|t| !deferred.contains(t.name()))
+            .filter(|t| ch_scoped.contains(t.name()))
+            .map(|t| t.to_definition())
+            .collect()
+    }
+
+    /// Returns definitions for tools that are **not** deferred and **not** channel-scoped.
+    pub fn eager_definitions(&self) -> Vec<ToolDefinition> {
+        let deferred = self.deferred.read().expect("deferred set poisoned");
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
+        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        tools
+            .values()
+            .filter(|t| {
+                let n = t.name();
+                !deferred.contains(n) && !ch_scoped.contains(n)
+            })
             .map(|t| t.to_definition())
             .collect()
     }
@@ -502,21 +532,29 @@ impl ToolRegistry {
     /// Useful for reducing the tool set exposed to the model based on task context.
     pub fn eager_definitions_for_groups(&self, groups: &[ToolGroup]) -> Vec<ToolDefinition> {
         let deferred = self.deferred.read().expect("deferred set poisoned");
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
         let tools = self.tools.read().expect("ToolRegistry poisoned");
         tools
             .values()
-            .filter(|t| !deferred.contains(t.name()) && groups.contains(&t.group()))
+            .filter(|t| {
+                let n = t.name();
+                !deferred.contains(n) && !ch_scoped.contains(n) && groups.contains(&t.group())
+            })
             .map(|t| t.to_definition())
             .collect()
     }
 
-    /// Returns the set of all groups present among eager (non-deferred) tools.
+    /// Returns the set of all groups present among eager (non-deferred, non-channel-scoped) tools.
     pub fn available_groups(&self) -> HashSet<ToolGroup> {
         let deferred = self.deferred.read().expect("deferred set poisoned");
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
         let tools = self.tools.read().expect("ToolRegistry poisoned");
         tools
             .values()
-            .filter(|t| !deferred.contains(t.name()))
+            .filter(|t| {
+                let n = t.name();
+                !deferred.contains(n) && !ch_scoped.contains(n)
+            })
             .map(|t| t.group())
             .collect()
     }
