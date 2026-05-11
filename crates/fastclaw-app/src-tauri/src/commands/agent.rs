@@ -370,5 +370,6 @@ pub async fn read_identity_files(
         "soul": read("SOUL.md"),
         "user": read("USER.md"),
         "agents": read("AGENTS.md"),
+        "tools": read("TOOLS.md"),
     }))
 }

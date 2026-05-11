@@ -369,7 +369,7 @@ export async function uploadAgentAvatarIpc(
 
 export async function readIdentityFilesIpc(
   agentId: string,
-): Promise<{ soul: string | null; user: string | null; agents: string | null }> {
+): Promise<{ soul: string | null; user: string | null; agents: string | null; tools: string | null }> {
   if (isTauri) {
     return tauriInvoke("read_identity_files", { agentId });
   }

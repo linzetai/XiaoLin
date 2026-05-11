@@ -676,26 +676,40 @@ impl ContextHook for PersonalityHook {
         messages: &mut Vec<ChatMessage>,
         _agent_id: &str,
     ) -> anyhow::Result<()> {
+        let insert_pos = messages
+            .iter()
+            .position(|m| !matches!(m.role, Role::System))
+            .unwrap_or(messages.len());
+        let mut offset = 0;
+
         if let Some(ref soul) = self.soul_content {
             messages.insert(
-                0,
+                insert_pos + offset,
                 ChatMessage {
-                    role: fastclaw_core::types::Role::System,
-                    content: Some(soul.clone().into()),
+                    role: Role::User,
+                    content: Some(format!(
+                        "<user_provided_context type=\"personality\" file=\"SOUL.md\" editable=\"true\">\n\
+                         {soul}\n\
+                         </user_provided_context>"
+                    ).into()),
                     reasoning_content: None,
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
                 },
             );
+            offset += 1;
         }
         if let Some(ref user) = self.user_content {
-            let insert_at = if self.soul_content.is_some() { 1 } else { 0 };
             messages.insert(
-                insert_at,
+                insert_pos + offset,
                 ChatMessage {
-                    role: fastclaw_core::types::Role::System,
-                    content: Some(format!("[User Profile]\n{user}").into()),
+                    role: Role::User,
+                    content: Some(format!(
+                        "<user_provided_context type=\"user_profile\" file=\"USER.md\" editable=\"true\">\n\
+                         {user}\n\
+                         </user_provided_context>"
+                    ).into()),
                     reasoning_content: None,
                     name: None,
                     tool_calls: None,
@@ -871,40 +885,58 @@ impl ContextHook for AgentPersonalityHook {
         let user = Self::read_file(root, fastclaw_core::workspace::DEFAULT_USER_FILENAME);
         let agents = Self::read_file(root, fastclaw_core::workspace::DEFAULT_AGENTS_FILENAME);
 
+        let insert_pos = messages
+            .iter()
+            .position(|m| !matches!(m.role, Role::System))
+            .unwrap_or(messages.len());
+        let mut offset = 0;
+
         if let Some(ref soul_content) = soul {
             messages.insert(
-                0,
+                insert_pos + offset,
                 ChatMessage {
-                    role: fastclaw_core::types::Role::System,
-                    content: Some(soul_content.clone().into()),
+                    role: Role::User,
+                    content: Some(format!(
+                        "<user_provided_context type=\"personality\" file=\"SOUL.md\" editable=\"true\">\n\
+                         {soul_content}\n\
+                         </user_provided_context>"
+                    ).into()),
                     reasoning_content: None,
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
                 },
             );
+            offset += 1;
         }
-        let mut pos = if soul.is_some() { 1 } else { 0 };
         if let Some(ref agents_content) = agents {
             messages.insert(
-                pos,
+                insert_pos + offset,
                 ChatMessage {
-                    role: fastclaw_core::types::Role::System,
-                    content: Some(format!("[Operating Rules]\n{agents_content}").into()),
+                    role: Role::User,
+                    content: Some(format!(
+                        "<user_provided_context type=\"operating_preferences\" file=\"AGENTS.md\" editable=\"true\">\n\
+                         {agents_content}\n\
+                         </user_provided_context>"
+                    ).into()),
                     reasoning_content: None,
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
                 },
             );
-            pos += 1;
+            offset += 1;
         }
         if let Some(ref user_content) = user {
             messages.insert(
-                pos,
+                insert_pos + offset,
                 ChatMessage {
-                    role: fastclaw_core::types::Role::System,
-                    content: Some(format!("[User Profile]\n{user_content}").into()),
+                    role: Role::User,
+                    content: Some(format!(
+                        "<user_provided_context type=\"user_profile\" file=\"USER.md\" editable=\"true\">\n\
+                         {user_content}\n\
+                         </user_provided_context>"
+                    ).into()),
                     reasoning_content: None,
                     name: None,
                     tool_calls: None,

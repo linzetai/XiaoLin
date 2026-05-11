@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ChevronRight, FileText, User, Shield } from "lucide-react";
+import { ChevronRight, FileText, User, Shield, Wrench } from "lucide-react";
 import * as api from "../../lib/api";
 import { ListContainer, SectionHeader } from "./common";
 
@@ -7,10 +7,11 @@ const IDENTITY_FILES = [
   { key: "soul" as const, name: "SOUL.md", desc: "人格与语气", icon: <User size={13} strokeWidth={1.5} /> },
   { key: "user" as const, name: "USER.md", desc: "用户画像", icon: <FileText size={13} strokeWidth={1.5} /> },
   { key: "agents" as const, name: "AGENTS.md", desc: "规则与约束", icon: <Shield size={13} strokeWidth={1.5} /> },
+  { key: "tools" as const, name: "TOOLS.md", desc: "工具使用指南", icon: <Wrench size={13} strokeWidth={1.5} /> },
 ] as const;
 
 export function AgentIdentity({ agentId, ready }: { agentId: string; ready: boolean }) {
-  const [files, setFiles] = useState<api.IdentityFiles>({ soul: null, user: null, agents: null });
+  const [files, setFiles] = useState<api.IdentityFiles>({ soul: null, user: null, agents: null, tools: null });
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {

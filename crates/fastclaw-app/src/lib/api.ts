@@ -354,6 +354,7 @@ export interface IdentityFiles {
   soul: string | null;
   user: string | null;
   agents: string | null;
+  tools: string | null;
 }
 
 export async function getIdentityFiles(agentId: string): Promise<IdentityFiles> {
@@ -361,7 +362,7 @@ export async function getIdentityFiles(agentId: string): Promise<IdentityFiles> 
     return await transport.readIdentityFilesIpc(agentId);
   } catch (e) {
     console.warn("[api] getIdentityFiles error:", e);
-    return { soul: null, user: null, agents: null };
+    return { soul: null, user: null, agents: null, tools: null };
   }
 }
 

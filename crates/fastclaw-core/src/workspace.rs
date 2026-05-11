@@ -27,7 +27,6 @@ fn validate_skill_id(skill_id: &str) -> anyhow::Result<()> {
 pub const DEFAULT_SOUL_FILENAME: &str = "SOUL.md";
 pub const DEFAULT_USER_FILENAME: &str = "USER.md";
 pub const DEFAULT_AGENTS_FILENAME: &str = "AGENTS.md";
-pub const DEFAULT_MEMORY_FILENAME: &str = "MEMORY.md";
 pub const DEFAULT_TOOLS_FILENAME: &str = "TOOLS.md";
 /// Workspace copy of the repo `prompts/system-base.md` (created by [`AgentWorkspace::ensure_bootstrap`]).
 pub const DEFAULT_SYSTEM_BASE_FILENAME: &str = "SYSTEM_BASE.md";
@@ -47,7 +46,6 @@ const BOOTSTRAP_FILES: &[&str] = &[
     DEFAULT_AGENTS_FILENAME,
     DEFAULT_SOUL_FILENAME,
     DEFAULT_USER_FILENAME,
-    DEFAULT_MEMORY_FILENAME,
     DEFAULT_TOOLS_FILENAME,
 ];
 
@@ -58,7 +56,6 @@ const CONTEXT_FILE_ORDER: &[(&str, u32)] = &[
     ("soul.md", 20),
     ("user.md", 40),
     ("tools.md", 50),
-    ("memory.md", 60),
 ];
 
 /// Loaded bootstrap files for an agent workspace.
@@ -68,7 +65,6 @@ pub struct WorkspaceBootstrap {
     pub soul: Option<String>,
     pub user: Option<String>,
     pub agents: Option<String>,
-    pub memory: Option<String>,
     pub tools: Option<String>,
     pub extras: Vec<(String, String)>,
 }
@@ -112,9 +108,6 @@ impl WorkspaceBootstrap {
         }
         if let Some(ref tools) = self.tools {
             sections.push((Self::context_priority("tools.md"), "Tool Usage", tools));
-        }
-        if let Some(ref memory) = self.memory {
-            sections.push((Self::context_priority("memory.md"), "Memory", memory));
         }
 
         for (idx, (name, content)) in self.extras.iter().enumerate() {
@@ -164,7 +157,6 @@ impl AgentWorkspace {
                 f if f == DEFAULT_SOUL_FILENAME => bs.soul = content,
                 f if f == DEFAULT_USER_FILENAME => bs.user = content,
                 f if f == DEFAULT_AGENTS_FILENAME => bs.agents = content,
-                f if f == DEFAULT_MEMORY_FILENAME => bs.memory = content,
                 f if f == DEFAULT_TOOLS_FILENAME => bs.tools = content,
                 _ => {}
             }
@@ -534,15 +526,11 @@ pub fn write_global_skill(skill_id: &str, content: &str) -> anyhow::Result<PathB
     Ok(path)
 }
 
-const DEFAULT_SOUL_TEMPLATE: &str = r#"# SOUL — personality layer
-
-You are an AI assistant powered by FastClaw; full engineering defaults (principles, tool rules, anti-patterns) live in **`prompts/system-base.md`**, and the detailed tool decision tree in **`prompts/tool-usage-guide.md`**.
-
-All agents inherit those layers from the repo (workspace copies: **`SYSTEM_BASE.md`**, **`TOOLS.md`**). [`AgentWorkspace::ensure_bootstrap`] materializes them when missing. At runtime, if the agent has no `systemPrompt` in config, [`default_runtime_system_prompt_for_agent`] injects base + tool guide (live `FASTCLAW_PROMPTS_DIR` / `./prompts` when readable, else the embedded build copy from `include_str!`).
+const DEFAULT_SOUL_TEMPLATE: &str = r#"# SOUL — 个性层
 
 ## 你是谁
 
-有立场的智能体，不是客套聊天机器人。
+FastClaw 全能助手。根据用户的配置文件适应不同领域——编程、写作、研究、数据分析，或任何用户需要的方向。
 
 ## 风格
 
