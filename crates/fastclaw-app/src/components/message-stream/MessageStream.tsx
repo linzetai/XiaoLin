@@ -398,12 +398,12 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       )}
 
       <div
-        className="vibrancy flex shrink-0 items-center justify-between px-6 py-3"
+        className="vibrancy flex shrink-0 items-center justify-between px-6 py-2"
         style={{ background: "var(--bg-sidebar)", borderBottom: `0.5px solid var(--separator)` }}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[13px] font-semibold"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[12px] font-semibold"
             style={{ background: agent.color, color: "white" }}
           >
             {agentAvatarUrl ? (
@@ -411,14 +411,15 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
             ) : (
               agent.initial
             )}
+            <span
+              className="absolute bottom-0 right-0 h-[8px] w-[8px] rounded-full"
+              style={{
+                background: agent.online ? "var(--green)" : "var(--fill-quaternary)",
+                border: "1.5px solid var(--bg-sidebar)",
+              }}
+            />
           </div>
-          <div className="min-w-0">
-            <div className="truncate text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }} title={agent.name}>{agent.name}</div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-              <span className="inline-block h-[6px] w-[6px] rounded-full" style={{ background: agent.online ? "var(--green)" : "var(--fill-quaternary)" }} />
-              {agent.online ? "在线" : "离线"}
-            </div>
-          </div>
+          <div className="truncate text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }} title={agent.name}>{agent.name}</div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -505,7 +506,7 @@ export function MessageStream({ onToggleDetail, detailOpen }: MessageStreamProps
       )}
 
       {isEmpty ? (
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
           <StreamEmptyState onPick={(t) => {
             if (mentionInputRef.current) {
               mentionInputRef.current.clear();

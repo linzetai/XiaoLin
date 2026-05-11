@@ -172,11 +172,11 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, o
 
   return (
     <div
-      className="hide-scrollbar flex shrink-0 items-center gap-0 overflow-x-auto px-1"
+      className="hide-scrollbar flex shrink-0 items-center gap-0 overflow-x-auto px-2"
       style={{
-        background: "var(--bg-secondary)",
+        background: "var(--bg-primary)",
         borderBottom: `0.5px solid var(--separator)`,
-        height: 36,
+        height: 32,
       }}
     >
       {openChats.map((chat) => (

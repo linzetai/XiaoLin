@@ -55,7 +55,7 @@ class MessageErrorBoundary extends Component<
   }
 }
 import {
-  Clock, ArrowUpRight, ArrowDownRight, Copy, Check,
+  Clock, Copy, Check,
 } from "lucide-react";
 import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
@@ -103,7 +103,7 @@ const UserBubble = memo(function UserBubble({ msg, copyable, selected, onToggleS
             </button>
           )}
           <div
-            className="user-bubble-content rounded-2xl px-4 py-3 text-[15px] leading-[1.6] break-words relative"
+            className="user-bubble-content rounded-2xl px-4 py-2 text-[15px] leading-[1.6] break-words relative"
             style={{
               background: "var(--bubble-user)",
               color: "var(--bubble-user-text)",
@@ -186,7 +186,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
     return groupConsecutiveToolCalls(typed, aiThreshold);
   }, [toolCalls, aiThreshold]);
   return (
-    <div className="pb-7 group/message" style={{ animation: animate ? "slide-left var(--duration-normal) var(--ease-out)" : "none", maxWidth: "75%" }}>
+    <div className="pb-5 group/message" style={{ animation: animate ? "slide-left var(--duration-normal) var(--ease-out)" : "none", maxWidth: "75%" }}>
       <div className="flex items-start gap-2">
         {onToggleSelect && (
           <button
@@ -220,23 +220,18 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         <MarkdownContent content={msg.content} />
       </Suspense>
       <div className="mt-1 flex items-center gap-2.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-        <span>{ts(msg.timestamp)}</span>
-        {usage && (
-          <>
-            <span className="flex items-center gap-0.5" title="耗时">
-              <Clock size={9} strokeWidth={1.5} />
+        <span
+          className="cursor-default"
+          title={usage ? `耗时 ${formatElapsed(usage.elapsedMs)} · 上行 ${formatTokens(usage.promptTokens)} · 下行 ${formatTokens(usage.completionTokens)}` : undefined}
+        >
+          {ts(msg.timestamp)}
+          {usage && (
+            <span className="ml-1.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100">
+              <Clock size={9} strokeWidth={1.5} className="mr-0.5 inline-block translate-y-[-0.5px]" />
               {formatElapsed(usage.elapsedMs)}
             </span>
-            <span className="flex items-center gap-0.5" title="上行 Token">
-              <ArrowUpRight size={9} strokeWidth={1.5} />
-              {formatTokens(usage.promptTokens)}
-            </span>
-            <span className="flex items-center gap-0.5" title="下行 Token">
-              <ArrowDownRight size={9} strokeWidth={1.5} />
-              {formatTokens(usage.completionTokens)}
-            </span>
-          </>
-        )}
+          )}
+        </span>
       </div>
         </div>
         {copyable && (
@@ -538,7 +533,7 @@ export function MessageRendererRow({
     const activeSubRuns = subAgentRuns ? Object.values(subAgentRuns) : [];
     return (
       <MessageErrorBoundary>
-      <div className="px-8 pb-4">
+      <div className="px-6 pb-4">
         {!hasContent && activeSubRuns.length === 0 && <Typing />}
         {grouped.map((group, gi) => {
           if (group.type === "text" && group.segment.content) {
@@ -596,7 +591,7 @@ export function MessageRendererRow({
   return (
     <MessageErrorBoundary>
     <div
-      className="px-8 transition-colors duration-200"
+      className="px-6 transition-colors duration-200"
       style={{
         background: isCurrent ? "var(--tint-bg)" : isMatch ? "var(--tint-subtle)" : "transparent",
       }}

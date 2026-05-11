@@ -84,6 +84,12 @@ function QueueItem({
       }}
     >
       <div className="flex items-center gap-2">
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold tabular-nums"
+          style={{ color: "var(--fill-tertiary)", background: "var(--bg-tertiary, rgba(0,0,0,0.05))" }}
+        >
+          {index + 1}
+        </span>
         <div className="flex flex-col gap-0.5">
           <button
             onClick={() => onReorder(index, index - 1)}
@@ -184,7 +190,7 @@ export function QueuePanel({
 
   return (
     <div
-      className="flex flex-col gap-1.5 overflow-auto px-1 py-2"
+      className="flex flex-col gap-1.5 overflow-auto px-3 py-2"
       style={{
         background: "var(--bg-elevated)",
         borderBottom: "0.5px solid var(--separator)",

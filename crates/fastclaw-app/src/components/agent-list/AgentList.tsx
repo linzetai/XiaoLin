@@ -280,7 +280,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-3 py-1.5">
+      <div className="flex-1 overflow-y-auto px-2 py-1.5">
         {!collapsed && list.length === 0 && !query && (
           <div
             className="mx-2 mt-3 rounded-[var(--radius-sm)] p-4"
@@ -367,7 +367,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
             <button
               key={agent.id}
               onClick={() => setActiveAgent(agent.id)}
-              className="mb-0.5 flex w-full cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-3 py-3 text-left hover:bg-[var(--bg-hover)]"
+              className="mb-0.5 flex w-full cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-2.5 py-2.5 text-left hover:bg-[var(--bg-hover)]"
               style={{
                 background: active ? "var(--bg-active)" : focused ? "var(--bg-hover)" : "transparent",
                 outline: focused ? "2px solid var(--tint)" : "none",

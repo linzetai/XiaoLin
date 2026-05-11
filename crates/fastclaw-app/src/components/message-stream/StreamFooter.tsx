@@ -86,18 +86,6 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
   );
 }
 
-function ShortcutsHint() {
-  return (
-    <div
-      className="flex items-center gap-3 text-[11px]"
-      style={{ color: "var(--fill-quaternary)" }}
-    >
-      <span><kbd className="font-mono text-[10px]">Enter</kbd> 发送</span>
-      <span><kbd className="font-mono text-[10px]">Shift+Enter</kbd> 换行</span>
-      <span><kbd className="font-mono text-[10px]">{MOD_LABEL}+K</kbd> 新话题</span>
-    </div>
-  );
-}
 
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
@@ -167,7 +155,7 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
       </span>
       {hover && createPortal(
         <div
-          className="fixed rounded-xl px-3 py-2.5"
+          className="fixed rounded-xl px-3.5 py-3"
           style={{
             background: "var(--bg-elevated)",
             border: "1px solid var(--separator)",
@@ -176,19 +164,19 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
             zIndex: 9999,
             bottom: window.innerHeight - (ringRef.current?.getBoundingClientRect().top ?? 0) + 8,
             right: window.innerWidth - (ringRef.current?.getBoundingClientRect().right ?? 0) - 8,
-            minWidth: 200,
+            minWidth: 220,
             animation: "fade-in var(--duration-instant) var(--ease-out)",
           }}
         >
-          <div className="mb-1.5 text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
+          <div className="mb-2 text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
             上下文窗口
           </div>
-          <div className="mb-2 flex items-baseline gap-1">
-            <span className="text-[16px] font-bold tabular-nums" style={{ color }}>{formatTokens(used)}</span>
+          <div className="mb-2.5 flex items-baseline gap-1.5">
+            <span className="text-[15px] font-bold tabular-nums" style={{ color }}>{formatTokens(used)}</span>
             <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>/ {formatTokens(limit)} tokens</span>
           </div>
           <div
-            className="mb-2 h-[4px] w-full overflow-hidden rounded-full"
+            className="mb-2.5 h-[4px] w-full overflow-hidden rounded-full"
             style={{ background: "var(--separator-opaque, #E2E8F0)" }}
           >
             <div
@@ -200,7 +188,7 @@ function ContextRing({ used, limit }: { used: number; limit: number }) {
               }}
             />
           </div>
-          <div className="flex justify-between text-[10px]" style={{ color: "var(--fill-tertiary)" }}>
+          <div className="flex justify-between text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
             <span>已用 {pct.toFixed(1)}%</span>
             <span>剩余 {formatTokens(remaining)}</span>
           </div>
@@ -355,7 +343,7 @@ export function StreamFooter({
   }, [processFiles]);
 
   return (
-    <div className="relative shrink-0 px-6 pb-5 pt-2">
+    <div className="relative shrink-0 px-4 pb-3 pt-2">
       {dragOver && (
         <div
           className="fixed inset-0 z-[9998] flex items-center justify-center"
@@ -433,7 +421,7 @@ export function StreamFooter({
           />
         )}
         {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-4 pt-3" style={{ animation: "slide-up var(--duration-fast) var(--ease-out)" }}>
+          <div className="flex flex-wrap gap-2 px-4 pt-3" style={{ animation: "slide-up var(--duration-fast) var(--ease-out)" }}>
             {attachedFiles.map((f, i) => (
               <FilePill key={`${f.name}-${i}`} file={f} onRemove={() => removeFile(i)} />
             ))}
@@ -491,8 +479,13 @@ export function StreamFooter({
               </span>
             </button>
 
-            <div className="mx-1 h-4 w-px shrink-0" style={{ background: "var(--separator)" }} />
-            <ShortcutsHint />
+            <div
+              className="hidden items-center gap-3 text-[11px] sm:flex"
+              style={{ color: "var(--fill-quaternary)", opacity: 0.7 }}
+            >
+              <span><kbd className="font-mono text-[10px]">Enter</kbd> 发送</span>
+              <span><kbd className="font-mono text-[10px]">Shift+Enter</kbd> 换行</span>
+            </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
