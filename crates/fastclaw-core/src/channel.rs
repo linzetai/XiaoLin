@@ -173,6 +173,34 @@ pub trait ChannelPlugin: Send + Sync {
         Ok(())
     }
 
+    /// Send an interactive card message for ask_question support.
+    /// `target_id` is the chat/user ID, `target_type` hints the ID type (e.g. "chat_id", "open_id").
+    /// Returns the message_id of the sent card.
+    /// Default implementation returns an error (not supported).
+    async fn send_interactive_card(
+        &self,
+        _target_id: &str,
+        _target_type: &str,
+        _card: &serde_json::Value,
+    ) -> anyhow::Result<String> {
+        anyhow::bail!("Interactive cards not supported by this channel")
+    }
+
+    /// Update an interactive card message (e.g., after user answers).
+    /// Default implementation returns an error (not supported).
+    async fn update_interactive_card(
+        &self,
+        _message_id: &str,
+        _card: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Interactive cards not supported by this channel")
+    }
+
+    /// Check if this channel supports interactive questions (ask_question).
+    fn supports_interactive_questions(&self) -> bool {
+        false
+    }
+
     /// Connection mode this channel uses. Informational.
     fn connection_mode(&self) -> &str {
         "webhook"

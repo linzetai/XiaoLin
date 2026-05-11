@@ -350,6 +350,7 @@ pub(crate) async fn handle_channel_message(
             &setup.agent_config,
             &enriched_request,
             message_id,
+            chat_id,
             setup.llm_override.clone(),
         )
         .await?;
@@ -452,14 +453,18 @@ fn inject_channel_context(messages: &mut Vec<ChatMessage>, channel_id: &str, cha
 }
 
 /// Streaming handler for channels that support message editing (e.g. Feishu).
+/// Supports ask_question: when the agent emits an AskQuestion event, an interactive
+/// card is sent to the chat and the handler waits for the user's button click.
 async fn handle_channel_streaming(
     state: &AppState,
     channel: &Arc<dyn fastclaw_core::channel::ChannelPlugin>,
     agent_config: &fastclaw_core::agent_config::AgentConfig,
     request: &fastclaw_core::types::ChatRequest,
     original_message_id: &str,
+    chat_id: &str,
     llm_override: Option<Arc<dyn fastclaw_agent::LlmProvider>>,
 ) -> anyhow::Result<String> {
+    use crate::ask_question_card::{AskQuestionCardBuilder, QuestionOption};
     use fastclaw_core::types::StreamEvent;
 
     let placeholder_resp = channel
@@ -520,12 +525,32 @@ async fn handle_channel_streaming(
     let req = request.clone();
     let llm_spawn = llm_override.clone();
     let state_budget = state.clone();
+    let confirm_pending = state.strm.ask_question_pending.clone();
+    let stream_event_tx_map = state.strm.stream_event_tx.clone();
+    let stream_context_key = uuid::Uuid::new_v4().to_string();
 
+    stream_event_tx_map.insert(stream_context_key.clone(), tx.clone());
+
+    let stream_key_for_task = stream_context_key.clone();
+    let confirm_pending_for_task = confirm_pending.clone();
     tokio::spawn(async move {
-        if let Err(e) = runtime
-            .execute_stream(&config, &req, &tool_reg, tx.clone(), llm_spawn)
-            .await
-        {
+        let result = fastclaw_agent::builtin_tools::with_stream_context(
+            stream_key_for_task,
+            runtime.execute_stream_with_confirm(
+                &config,
+                &req,
+                &tool_reg,
+                tx.clone(),
+                llm_spawn,
+                confirm_pending_for_task,
+                None,
+                None,
+                None,
+                None,
+            ),
+        )
+        .await;
+        if let Err(e) = result {
             let _ = tx.send(StreamEvent::Error(e.to_string())).await;
         }
     });
@@ -534,6 +559,11 @@ async fn handle_channel_streaming(
     let mut last_update = std::time::Instant::now();
     let update_interval = std::time::Duration::from_millis(800);
     let channel_for_update = channel.clone();
+    let supports_cards = channel.supports_interactive_questions();
+    let session_id = request
+        .session_id
+        .clone()
+        .unwrap_or_default();
 
     while let Some(event) = rx.recv().await {
         match event {
@@ -567,6 +597,57 @@ async fn handle_channel_streaming(
                     .await;
                 last_update = std::time::Instant::now();
             }
+            StreamEvent::AskQuestion {
+                request_id,
+                question,
+                options,
+                timeout_secs,
+                allow_multiple,
+            } => {
+                if supports_cards {
+                    let card_options: Vec<QuestionOption> = options
+                        .iter()
+                        .map(|o| QuestionOption {
+                            id: o.id.clone(),
+                            label: o.label.clone(),
+                        })
+                        .collect();
+                    let mut builder = AskQuestionCardBuilder::new(
+                        question.clone(),
+                        card_options,
+                        session_id.clone(),
+                        request_id.clone(),
+                    );
+                    builder = builder.allow_multiple(allow_multiple);
+                    if timeout_secs > 0 {
+                        builder = builder.timeout_secs(timeout_secs);
+                    }
+                    let card = builder.build();
+                    match channel_for_update
+                        .send_interactive_card(chat_id, "chat_id", &card)
+                        .await
+                    {
+                        Ok(card_msg_id) => {
+                            tracing::info!(
+                                request_id = %request_id,
+                                card_msg_id = %card_msg_id,
+                                "streaming: sent ask_question card"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "streaming: failed to send ask_question card, answering with fallback");
+                            if let Some((_, tx)) = confirm_pending.remove(&request_id) {
+                                let _ = tx.send(options.first().map(|o| o.id.clone()).unwrap_or_default());
+                            }
+                        }
+                    }
+                } else {
+                    tracing::debug!("streaming: channel does not support interactive cards, auto-selecting first option");
+                    if let Some((_, tx)) = confirm_pending.remove(&request_id) {
+                        let _ = tx.send(options.first().map(|o| o.id.clone()).unwrap_or_default());
+                    }
+                }
+            }
             StreamEvent::Done { .. } => {
                 record_chat_budget_stream_estimate(
                     &state_budget,
@@ -586,6 +667,8 @@ async fn handle_channel_streaming(
             _ => {}
         }
     }
+
+    stream_event_tx_map.remove(&stream_context_key);
 
     if accumulated.is_empty() {
         accumulated = "(no response)".to_string();

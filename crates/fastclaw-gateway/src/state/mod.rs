@@ -974,6 +974,37 @@ impl AppState {
         let state = self.clone();
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
+                // Handle card action callbacks (ask_question answers)
+                if msg.msg_type == "card_action" {
+                    let request_id = msg
+                        .extra
+                        .get("request_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&msg.message_id)
+                        .to_string();
+                    let answer = msg
+                        .extra
+                        .get("option_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&msg.text)
+                        .to_string();
+
+                    if let Some((_, tx)) = state.strm.ask_question_pending.remove(&request_id) {
+                        tracing::info!(
+                            request_id = %request_id,
+                            answer = %answer,
+                            "resolved ask_question from card callback"
+                        );
+                        let _ = tx.send(answer);
+                    } else {
+                        tracing::debug!(
+                            request_id = %request_id,
+                            "card action callback for unknown request_id (may have timed out)"
+                        );
+                    }
+                    continue;
+                }
+
                 let channel_id = msg.channel_id.clone();
                 let chat_id = msg.chat_id.clone();
                 let message_id = msg.message_id.clone();
