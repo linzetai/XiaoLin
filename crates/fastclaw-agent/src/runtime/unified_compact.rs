@@ -7,8 +7,10 @@ use super::context_compressor;
 use super::context_budget::{apply_token_budget, BudgetConfig};
 use super::session_memory;
 use super::tool_executor::{
-    dedup_repeated_tool_calls, keep_recent_for_context_window, microcompact_tool_results,
-    time_based_microcompact, rebuild_recall_registry, DEFAULT_CACHE_WINDOW_DURATION,
+    cache_window_for_occupancy, collect_eviction_manifest, compute_protected_indices,
+    dedup_repeated_tool_calls, keep_recent_for_context_window,
+    microcompact_tool_results_with_protection, snapshot_tool_contents,
+    time_based_microcompact_with_protection, rebuild_recall_registry, ProtectionWindowConfig,
 };
 
 /// Result of the unified pre-query compression pipeline.
@@ -43,14 +45,36 @@ pub(crate) async fn unified_pre_query_compact(
     last_estimated_tokens: usize,
     iteration_boundaries: &[(usize, std::time::Instant)],
     todo_store: Option<&crate::builtin_tools::TodoStore>,
+    enable_smart_compression: bool,
 ) -> UnifiedCompactResult {
-    // Step 0: Time-based microcompact — collapse tool results outside the prompt
-    // cache window (default 5 min). These won't get cache hits so keeping them
-    // verbatim wastes context budget.
-    let time_compacted = time_based_microcompact(
+    // Compute the protection window — tool results from the last N iterations
+    // are immune to all forms of compression.
+    let protected = if enable_smart_compression {
+        let protection_config = ProtectionWindowConfig::default();
+        compute_protected_indices(messages, iteration_boundaries, &protection_config)
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    // Snapshot tool contents before compression for eviction manifest.
+    let pre_snapshot = if enable_smart_compression {
+        snapshot_tool_contents(messages)
+    } else {
+        Vec::new()
+    };
+
+    // Step 0: Time-based microcompact — use occupancy-aware cache window.
+    let pre_estimate = fastclaw_context::estimate_messages_tokens(messages);
+    let dynamic_cache_window = if enable_smart_compression {
+        cache_window_for_occupancy(pre_estimate, context_window)
+    } else {
+        super::tool_executor::DEFAULT_CACHE_WINDOW_DURATION
+    };
+    let time_compacted = time_based_microcompact_with_protection(
         messages,
         iteration_boundaries,
-        DEFAULT_CACHE_WINDOW_DURATION,
+        dynamic_cache_window,
+        &protected,
     );
     if time_compacted > 0 {
         tracing::debug!(time_compacted, "time-based microcompact collapsed stale tool results");
@@ -58,7 +82,7 @@ pub(crate) async fn unified_pre_query_compact(
 
     // Step 1: Tier-aware microcompact of old tool results.
     let keep_recent = keep_recent_for_context_window(context_window);
-    microcompact_tool_results(messages, keep_recent);
+    microcompact_tool_results_with_protection(messages, keep_recent, &protected);
 
     // Step 1.5: Token budget allocation — enforce the 30/40/20/10 split
     // so that older tool results don't crowd out recent ones.
@@ -75,10 +99,54 @@ pub(crate) async fn unified_pre_query_compact(
     // Step 2: Deduplicate repeated tool calls on the same target
     dedup_repeated_tool_calls(messages);
 
+    // Step 2.5: Build eviction manifest from what was compressed above,
+    // then inject as a system message so the agent knows what was evicted.
+    if enable_smart_compression {
+        let eviction_manifest = collect_eviction_manifest(&pre_snapshot, messages);
+        if !eviction_manifest.is_empty() {
+            let manifest_text = eviction_manifest.to_system_message();
+            tracing::debug!(
+                evicted_count = eviction_manifest.entries.len(),
+                "injecting eviction manifest"
+            );
+            let manifest_msg = ChatMessage {
+                role: fastclaw_core::types::Role::System,
+                content: Some(serde_json::Value::String(manifest_text)),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            };
+            let insert_pos = messages
+                .iter()
+                .rposition(|m| matches!(m.role, fastclaw_core::types::Role::User))
+                .unwrap_or(messages.len());
+            messages.insert(insert_pos, manifest_msg);
+        }
+    }
+
     // Step 3: Content filter — truncate oversized tool results, remove empty,
     // deduplicate consecutive identical system messages.
+    // When smart compression is enabled, threshold is occupancy-aware.
     {
-        let filter = fastclaw_context::ContentFilterHook::new(2000);
+        let max_tool_chars = if enable_smart_compression {
+            let current_estimate = fastclaw_context::estimate_messages_tokens(messages);
+            let occupancy = if context_window > 0 {
+                current_estimate as f64 / context_window as f64
+            } else {
+                0.5
+            };
+            if occupancy < 0.50 {
+                8000
+            } else if occupancy < 0.80 {
+                4000
+            } else {
+                2000
+            }
+        } else {
+            2000
+        };
+        let filter = fastclaw_context::ContentFilterHook::new(max_tool_chars);
         let _ = fastclaw_context::ContextHook::on_assemble(&filter, messages).await;
     }
 
@@ -149,19 +217,38 @@ pub(crate) async fn unified_pre_query_compact(
     let compress_result = if force_compact || pipeline.should_attempt_autocompact() {
         let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
         let effective_window = if force_compact { 1 } else { context_window };
+
+        let dynamic_threshold = if force_compact {
+            0.0_f32
+        } else if enable_smart_compression {
+            let (sys_tok, tool_tok, conv_tok) = estimate_token_distribution(messages);
+            let has_active_task = todo_store.map_or(false, |t| t.has_in_progress_items());
+            context_compressor::compute_compression_threshold(
+                sys_tok,
+                tool_tok,
+                conv_tok,
+                context_window,
+                has_active_task,
+            )
+        } else {
+            context_compressor::COMPRESSION_THRESHOLD
+        };
+
         tracing::debug!(
             local_estimate,
             api_prompt_tokens = last_estimated_tokens,
             force_compact,
+            dynamic_threshold,
             "pre-compact: entering LLM compression"
         );
-        let result = context_compressor::try_compress_chat(
+        let result = context_compressor::try_compress_chat_with_threshold(
             messages,
             effective_window,
             provider,
             model,
             last_estimated_tokens,
             todo_store,
+            dynamic_threshold,
         )
         .await;
 
@@ -215,4 +302,31 @@ pub(crate) async fn unified_pre_query_compact(
         pipeline_applied,
         session_memory_extracted,
     }
+}
+
+/// Estimate token distribution across system, tool, and conversation messages.
+/// Returns (system_tokens, tool_tokens, conversation_tokens).
+fn estimate_token_distribution(messages: &[ChatMessage]) -> (usize, usize, usize) {
+    use fastclaw_core::types::Role;
+
+    let mut system_tokens = 0usize;
+    let mut tool_tokens = 0usize;
+    let mut conversation_tokens = 0usize;
+
+    for msg in messages {
+        let chars = msg
+            .content
+            .as_ref()
+            .map(|c| c.to_string().len())
+            .unwrap_or(0);
+        let tok_estimate = chars / 4 + 4; // rough token heuristic
+
+        match msg.role {
+            Role::System => system_tokens += tok_estimate,
+            Role::Tool => tool_tokens += tok_estimate,
+            Role::User | Role::Assistant => conversation_tokens += tok_estimate,
+        }
+    }
+
+    (system_tokens, tool_tokens, conversation_tokens)
 }

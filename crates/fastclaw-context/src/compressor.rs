@@ -749,7 +749,20 @@ impl ContextCompactor {
                     assistant_responses += 1;
                     if let Some(tc) = &msg.tool_calls {
                         for call in tc {
-                            tool_calls_seen.push(call.function.name.clone());
+                            let args_preview = if call.function.arguments.len() > 60 {
+                                let end = call.function.arguments
+                                    .char_indices()
+                                    .map(|(i, _)| i)
+                                    .take_while(|&i| i <= 57)
+                                    .last()
+                                    .unwrap_or(0);
+                                format!("{}...", &call.function.arguments[..end])
+                            } else {
+                                call.function.arguments.clone()
+                            };
+                            tool_calls_seen.push(format!(
+                                "{}({})", call.function.name, args_preview
+                            ));
                         }
                     }
                     if let Some(content) = msg.text_content() {
@@ -786,7 +799,18 @@ impl ContextCompactor {
                     .filter(|t| seen.insert(t.clone()))
                     .collect()
             };
-            summary.push_str(&format!("\nTools used: {}.", unique.join(", ")));
+            let max_tool_entries = 15;
+            let tool_display: Vec<_> = if unique.len() > max_tool_entries {
+                let mut v = unique[..max_tool_entries].to_vec();
+                v.push(format!("...+{} more", unique.len() - max_tool_entries));
+                v
+            } else {
+                unique
+            };
+            summary.push_str("\nTool calls:\n");
+            for tc in &tool_display {
+                summary.push_str(&format!("  - {tc}\n"));
+            }
         }
 
         if !topics.is_empty() {

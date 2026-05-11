@@ -366,6 +366,158 @@ pub(crate) fn build_cleared_with_recall(
     }
 }
 
+/// A single entry in the eviction manifest, tracking one compressed/cleared tool result.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct EvictionEntry {
+    pub tool_name: String,
+    pub args_summary: String,
+    pub content_digest: String,
+    pub original_chars: usize,
+    pub recall_hint: String,
+}
+
+/// Manifest of all tool results evicted during a compression pass.
+/// Injected as a system message so the agent knows what was lost and how to recover.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EvictionManifest {
+    pub entries: Vec<EvictionEntry>,
+}
+
+impl EvictionManifest {
+    pub fn new() -> Self {
+        Self { entries: Vec::new() }
+    }
+
+    pub fn record(
+        &mut self,
+        tool_name: &str,
+        args_json: Option<&str>,
+        original_content: &str,
+    ) {
+        let args_summary = args_json
+            .map(|a| {
+                if a.len() > 80 {
+                    format!("{}…", &a[..a.floor_char_boundary(80)])
+                } else {
+                    a.to_string()
+                }
+            })
+            .unwrap_or_default();
+
+        let content_digest = if original_content.len() > 120 {
+            format!(
+                "{}…",
+                &original_content[..original_content.floor_char_boundary(120)]
+            )
+        } else {
+            original_content.to_string()
+        };
+
+        let recall_hint = format!("Re-call {tool_name}({args_summary}) to retrieve");
+
+        self.entries.push(EvictionEntry {
+            tool_name: tool_name.to_string(),
+            args_summary,
+            content_digest,
+            original_chars: original_content.len(),
+            recall_hint,
+        });
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Render the manifest as a concise system message for context injection.
+    pub fn to_system_message(&self) -> String {
+        if self.entries.is_empty() {
+            return String::new();
+        }
+        let mut lines = vec!["[Context Eviction Index] The following tool results were compressed this turn:".to_string()];
+        for (i, entry) in self.entries.iter().enumerate() {
+            lines.push(format!(
+                "  {}. {} | {} chars | digest: \"{}\" | {}",
+                i + 1,
+                entry.tool_name,
+                entry.original_chars,
+                entry.content_digest.replace('\n', " "),
+                entry.recall_hint,
+            ));
+        }
+        lines.push("To recover any result, re-call the corresponding tool with the same arguments.".to_string());
+        lines.join("\n")
+    }
+}
+
+/// Build an eviction manifest by comparing pre-compression content snapshots
+/// with the current message state. Any message that was full content before
+/// but is now a recall marker or summary gets added to the manifest.
+pub(crate) fn collect_eviction_manifest(
+    pre_contents: &[(usize, String, String, Option<String>)], // (idx, tool_name, original_content, args)
+    messages: &[fastclaw_core::types::ChatMessage],
+) -> EvictionManifest {
+    let mut manifest = EvictionManifest::new();
+
+    for (idx, tool_name, original_content, args) in pre_contents {
+        if *idx >= messages.len() {
+            continue;
+        }
+        let current_text = messages[*idx]
+            .text_content()
+            .unwrap_or_default();
+
+        let was_evicted = current_text.starts_with(RECALL_HINT_MARKER)
+            || current_text.starts_with("[summarized]")
+            || current_text.starts_with(FADED_MARKER)
+            || current_text.starts_with(TIME_COMPACTED_MARKER)
+            || current_text == TOOL_RESULT_CLEARED_MESSAGE;
+
+        if was_evicted && !original_content.starts_with(RECALL_HINT_MARKER)
+            && !original_content.starts_with("[summarized]")
+            && !original_content.starts_with(FADED_MARKER)
+            && !original_content.starts_with(TIME_COMPACTED_MARKER)
+            && *original_content != TOOL_RESULT_CLEARED_MESSAGE
+        {
+            manifest.record(tool_name, args.as_deref(), original_content);
+        }
+    }
+
+    manifest
+}
+
+/// Snapshot tool result messages for later eviction manifest comparison.
+pub(crate) fn snapshot_tool_contents(
+    messages: &[fastclaw_core::types::ChatMessage],
+) -> Vec<(usize, String, String, Option<String>)> {
+    use fastclaw_core::types::Role;
+
+    messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| matches!(m.role, Role::Tool))
+        .filter_map(|(i, m)| {
+            let name = m.name.as_deref()?.to_string();
+            let content = m.text_content()?;
+            let args = m.tool_call_id.as_deref().and_then(|call_id| {
+                messages[..i]
+                    .iter()
+                    .rev()
+                    .filter(|msg| matches!(msg.role, Role::Assistant))
+                    .find_map(|msg| {
+                        msg.tool_calls.as_ref()?.iter().find_map(|tc| {
+                            if tc.id == call_id {
+                                Some(tc.function.arguments.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    })
+            });
+            Some((i, name, content, args))
+        })
+        .collect()
+}
+
 /// Extract the "command" field from shell_exec tool arguments JSON.
 fn extract_command_from_args(args: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(args)
@@ -532,6 +684,15 @@ pub(crate) fn microcompact_tool_results(
     messages: &mut [fastclaw_core::types::ChatMessage],
     keep_recent: usize,
 ) {
+    microcompact_tool_results_with_protection(messages, keep_recent, &std::collections::HashSet::new())
+}
+
+/// Like [`microcompact_tool_results`] but skips messages in the `protected` set.
+pub(crate) fn microcompact_tool_results_with_protection(
+    messages: &mut [fastclaw_core::types::ChatMessage],
+    keep_recent: usize,
+    protected: &std::collections::HashSet<usize>,
+) {
     use fastclaw_core::types::Role;
 
     let base_keep = keep_recent.max(1);
@@ -582,6 +743,10 @@ pub(crate) fn microcompact_tool_results(
             (r, (entry_idx, e))
         })
     {
+        if protected.contains(&idx) {
+            continue;
+        }
+
         let msg = &mut messages[idx];
         let text = match msg.text_content() {
             Some(t) => t,
@@ -645,6 +810,26 @@ pub(crate) fn microcompact_tool_results(
 pub(crate) const DEFAULT_CACHE_WINDOW_DURATION: std::time::Duration =
     std::time::Duration::from_secs(5 * 60);
 
+/// Compute the cache window duration dynamically based on context occupancy.
+///
+/// Under low occupancy there's no reason to evict cached results; as pressure
+/// increases the window shrinks to free space more aggressively.
+pub(crate) fn cache_window_for_occupancy(
+    current_tokens: usize,
+    context_window: u32,
+) -> std::time::Duration {
+    if context_window == 0 {
+        return DEFAULT_CACHE_WINDOW_DURATION;
+    }
+    let occupancy = current_tokens as f64 / context_window as f64;
+    match occupancy {
+        o if o < 0.50 => std::time::Duration::from_secs(u64::MAX / 2), // effectively infinite
+        o if o < 0.70 => std::time::Duration::from_secs(10 * 60),
+        o if o < 0.90 => std::time::Duration::from_secs(5 * 60),
+        _ => std::time::Duration::from_secs(2 * 60),
+    }
+}
+
 /// Compute the `keep_recent` window for `microcompact_tool_results`
 /// based on the model's context window size.
 ///
@@ -660,6 +845,55 @@ pub(crate) fn keep_recent_for_context_window(context_window: u32) -> usize {
     }
 }
 
+/// Configuration for the protection window that prevents premature
+/// compression of recent tool results.
+#[derive(Debug, Clone)]
+pub(crate) struct ProtectionWindowConfig {
+    /// Number of most recent agent iterations whose tool results are immune
+    /// to any form of compression (microcompact, time-based, budget trim).
+    pub protected_iterations: usize,
+}
+
+impl Default for ProtectionWindowConfig {
+    fn default() -> Self {
+        Self {
+            protected_iterations: 3,
+        }
+    }
+}
+
+/// Compute the set of message indices that are "protected" from compression.
+///
+/// Protected messages are tool results that belong to one of the last N agent
+/// iterations (as delineated by `iteration_boundaries`).
+pub(crate) fn compute_protected_indices(
+    messages: &[fastclaw_core::types::ChatMessage],
+    iteration_boundaries: &[(usize, std::time::Instant)],
+    config: &ProtectionWindowConfig,
+) -> std::collections::HashSet<usize> {
+    use fastclaw_core::types::Role;
+
+    let mut protected = std::collections::HashSet::new();
+
+    if iteration_boundaries.is_empty() || config.protected_iterations == 0 {
+        return protected;
+    }
+
+    let protect_from_boundary = if iteration_boundaries.len() > config.protected_iterations {
+        iteration_boundaries[iteration_boundaries.len() - config.protected_iterations].0
+    } else {
+        0
+    };
+
+    for (i, msg) in messages.iter().enumerate() {
+        if i >= protect_from_boundary && matches!(msg.role, Role::Tool) {
+            protected.insert(i);
+        }
+    }
+
+    protected
+}
+
 const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 
 /// Time-driven microcompact with tier awareness.
@@ -671,10 +905,26 @@ const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 /// - **Ephemeral**: cleared with a recall hint.
 ///
 /// Error results are always preserved regardless of tier.
+#[allow(dead_code)]
 pub(crate) fn time_based_microcompact(
     messages: &mut [fastclaw_core::types::ChatMessage],
     iteration_boundaries: &[(usize, std::time::Instant)],
     cache_window: std::time::Duration,
+) -> usize {
+    time_based_microcompact_with_protection(
+        messages,
+        iteration_boundaries,
+        cache_window,
+        &std::collections::HashSet::new(),
+    )
+}
+
+/// Like [`time_based_microcompact`] but skips messages in the `protected` set.
+pub(crate) fn time_based_microcompact_with_protection(
+    messages: &mut [fastclaw_core::types::ChatMessage],
+    iteration_boundaries: &[(usize, std::time::Instant)],
+    cache_window: std::time::Duration,
+    protected: &std::collections::HashSet<usize>,
 ) -> usize {
     use fastclaw_core::types::Role;
 
@@ -699,6 +949,10 @@ pub(crate) fn time_based_microcompact(
     let mut compacted = 0;
 
     for i in 0..fresh_boundary_idx.min(messages.len()) {
+        if protected.contains(&i) {
+            continue;
+        }
+
         let msg = &messages[i];
         if !matches!(msg.role, Role::Tool) {
             continue;
@@ -2308,5 +2562,45 @@ mod tool_result_truncation_tests {
         assert_eq!(keep_recent_for_context_window(128_000), 4);
         assert_eq!(keep_recent_for_context_window(200_000), 5);
         assert_eq!(keep_recent_for_context_window(1_000_000), 6);
+    }
+
+    #[test]
+    fn cache_window_infinite_under_low_occupancy() {
+        use super::cache_window_for_occupancy;
+        let dur = cache_window_for_occupancy(10_000, 128_000);
+        assert!(dur.as_secs() > 3600, "under 50% should be effectively infinite");
+    }
+
+    #[test]
+    fn cache_window_shrinks_with_high_occupancy() {
+        use super::cache_window_for_occupancy;
+        let dur_mid = cache_window_for_occupancy(80_000, 128_000); // ~62%
+        let dur_high = cache_window_for_occupancy(100_000, 128_000); // ~78%
+        let dur_critical = cache_window_for_occupancy(122_000, 128_000); // ~95%
+        assert_eq!(dur_mid.as_secs(), 10 * 60, "62% occupancy should be 10min");
+        assert_eq!(dur_high.as_secs(), 5 * 60, "78% occupancy should be 5min");
+        assert_eq!(dur_critical.as_secs(), 2 * 60, "95% occupancy should be 2min");
+    }
+
+    #[test]
+    fn protection_window_protects_recent_iterations() {
+        use super::{compute_protected_indices, ProtectionWindowConfig};
+        use fastclaw_core::types::{ChatMessage, Role};
+
+        let msgs: Vec<ChatMessage> = vec![
+            ChatMessage { role: Role::User, content: Some(serde_json::Value::String("q".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
+            ChatMessage { role: Role::Tool, content: Some(serde_json::Value::String("old result".into())), reasoning_content: None, name: Some("read_file".into()), tool_calls: None, tool_call_id: Some("c1".into()) },
+            ChatMessage { role: Role::Assistant, content: Some(serde_json::Value::String("a".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
+            ChatMessage { role: Role::User, content: Some(serde_json::Value::String("q2".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
+            ChatMessage { role: Role::Tool, content: Some(serde_json::Value::String("new result".into())), reasoning_content: None, name: Some("read_file".into()), tool_calls: None, tool_call_id: Some("c2".into()) },
+        ];
+
+        let now = std::time::Instant::now();
+        let boundaries = vec![(0, now - std::time::Duration::from_secs(60)), (3, now)];
+        let config = ProtectionWindowConfig { protected_iterations: 1 };
+
+        let protected = compute_protected_indices(&msgs, &boundaries, &config);
+        assert!(!protected.contains(&1), "old iteration tool result should NOT be protected");
+        assert!(protected.contains(&4), "recent iteration tool result should be protected");
     }
 }

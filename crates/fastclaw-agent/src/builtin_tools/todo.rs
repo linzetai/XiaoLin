@@ -78,6 +78,15 @@ impl TodoStore {
         self.items.read().await.clone()
     }
 
+    /// Non-async check for whether there are any in-progress items.
+    /// Returns `false` if the lock is contended (safe default: don't raise threshold).
+    pub fn has_in_progress_items(&self) -> bool {
+        self.items
+            .try_read()
+            .map(|items| items.iter().any(|t| t.status == TodoStatus::InProgress))
+            .unwrap_or(false)
+    }
+
     pub async fn replace_all(&self, mut items: Vec<TodoItem>) {
         let now = chrono::Utc::now().to_rfc3339();
         for item in &mut items {

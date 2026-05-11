@@ -200,6 +200,11 @@ pub struct BehaviorConfig {
     /// execution. Concurrent-safe tools run in parallel; mutating tools serialize.
     #[serde(default)]
     pub streaming_tool_execution: bool,
+    /// Enable the smart compression pipeline: dynamic thresholds, protection
+    /// windows, eviction manifests, and semantic importance scoring.
+    /// When false, falls back to the legacy fixed-threshold behavior.
+    #[serde(default = "default_true")]
+    pub enable_smart_compression: bool,
 }
 
 /// Policy governing sub-agent delegation for an agent.
@@ -284,6 +289,7 @@ impl Default for BehaviorConfig {
             additional_allowed_paths: Vec::new(),
             subagent: SubAgentPolicy::default(),
             streaming_tool_execution: false,
+            enable_smart_compression: true,
         }
     }
 }

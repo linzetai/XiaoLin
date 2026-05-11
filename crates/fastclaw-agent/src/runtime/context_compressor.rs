@@ -4,10 +4,51 @@ use fastclaw_core::types::{ChatMessage, Role};
 
 use crate::llm::{CompletionParams, LlmProvider};
 
-/// Fraction of context window at which LLM compression triggers.
-/// Set to 0.50 — compressing at half-full gives the agent substantial
-/// headroom and avoids the hard-truncation cliff that causes 100% stuck states.
+/// Default fraction of context window at which LLM compression triggers.
+/// Used as fallback when dynamic threshold computation is disabled.
 pub const COMPRESSION_THRESHOLD: f32 = 0.50;
+
+/// Compute a dynamic compression threshold based on the actual token distribution
+/// in the current context. Adapts to workload characteristics:
+/// - Large system prompts (>30% of window): lower threshold to 0.40
+/// - Tool-result-heavy contexts (>50% of non-system): compress tools first (0.55)
+/// - Active multi-step task: raise threshold to 0.60 to delay disruptive compression
+pub fn compute_compression_threshold(
+    system_tokens: usize,
+    tool_tokens: usize,
+    conversation_tokens: usize,
+    context_window: u32,
+    has_active_task: bool,
+) -> f32 {
+    let window = context_window as f32;
+    if window < 1.0 {
+        return COMPRESSION_THRESHOLD;
+    }
+
+    let system_ratio = system_tokens as f32 / window;
+    let non_system_total = (tool_tokens + conversation_tokens) as f32;
+    let tool_dominance = if non_system_total > 0.0 {
+        tool_tokens as f32 / non_system_total
+    } else {
+        0.0
+    };
+
+    let mut threshold = COMPRESSION_THRESHOLD;
+
+    if system_ratio > 0.30 {
+        threshold = (threshold - 0.10).max(0.35);
+    }
+
+    if tool_dominance > 0.50 {
+        threshold += 0.05;
+    }
+
+    if has_active_task {
+        threshold = (threshold + 0.10).min(0.70);
+    }
+
+    threshold.clamp(0.35, 0.70)
+}
 
 /// Fraction of recent history to preserve (the rest gets compressed).
 const PRESERVE_FRACTION: f32 = 0.30;
@@ -177,7 +218,7 @@ fn strip_analysis_block(text: &str) -> String {
 
 /// Attempt LLM-based compression of conversation history.
 ///
-/// Triggers when estimated tokens exceed `COMPRESSION_THRESHOLD * context_window`.
+/// Triggers when estimated tokens exceed `threshold_fraction * context_window`.
 /// Calls the LLM with a compression prompt to generate a state snapshot,
 /// then replaces the compressed portion with the snapshot.
 /// `api_prompt_tokens`: if >0, use the API-reported prompt token count
@@ -191,10 +232,32 @@ pub async fn try_compress_chat(
     api_prompt_tokens: usize,
     todo_store: Option<&crate::builtin_tools::TodoStore>,
 ) -> CompressionResult {
+    try_compress_chat_with_threshold(
+        messages,
+        context_window,
+        provider,
+        model,
+        api_prompt_tokens,
+        todo_store,
+        COMPRESSION_THRESHOLD,
+    )
+    .await
+}
+
+/// Like [`try_compress_chat`] but accepts a custom threshold fraction,
+/// enabling dynamic threshold computation by the caller.
+pub async fn try_compress_chat_with_threshold(
+    messages: &mut Vec<ChatMessage>,
+    context_window: u32,
+    provider: &Arc<dyn LlmProvider>,
+    model: &str,
+    api_prompt_tokens: usize,
+    todo_store: Option<&crate::builtin_tools::TodoStore>,
+    threshold_fraction: f32,
+) -> CompressionResult {
     let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
-    // Prefer API-reported tokens; fall back to local estimate.
     let estimated = if api_prompt_tokens > 0 { api_prompt_tokens } else { local_estimate };
-    let threshold = (context_window as f32 * COMPRESSION_THRESHOLD) as usize;
+    let threshold = (context_window as f32 * threshold_fraction) as usize;
 
     if estimated <= threshold {
         return CompressionResult {
@@ -752,5 +815,31 @@ mod tests {
     fn compression_prompt_requires_analysis_then_strip() {
         let prompt = super::COMPRESSION_SYSTEM_PROMPT;
         assert!(prompt.contains("<analysis>"), "should instruct model to use analysis tags");
+    }
+
+    #[test]
+    fn dynamic_threshold_defaults_to_static_on_balanced_load() {
+        let threshold = super::compute_compression_threshold(1000, 1000, 1000, 10_000, false);
+        assert!((threshold - 0.50).abs() < 0.01, "balanced load should stay near default");
+    }
+
+    #[test]
+    fn dynamic_threshold_lowers_with_large_system_prompt() {
+        let threshold = super::compute_compression_threshold(4000, 500, 500, 10_000, false);
+        assert!(threshold < 0.50, "large system prompt should lower threshold, got {threshold}");
+    }
+
+    #[test]
+    fn dynamic_threshold_raises_with_active_task() {
+        let threshold = super::compute_compression_threshold(1000, 1000, 1000, 10_000, true);
+        assert!(threshold > 0.55, "active task should raise threshold, got {threshold}");
+    }
+
+    #[test]
+    fn dynamic_threshold_clamped_to_valid_range() {
+        let low = super::compute_compression_threshold(9000, 0, 0, 10_000, false);
+        assert!(low >= 0.35, "threshold should not go below 0.35, got {low}");
+        let high = super::compute_compression_threshold(100, 100, 100, 10_000, true);
+        assert!(high <= 0.70, "threshold should not exceed 0.70, got {high}");
     }
 }

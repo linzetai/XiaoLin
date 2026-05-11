@@ -1038,6 +1038,7 @@ impl AgentRuntime {
                 state.last_estimated_tokens,
                 &state.iteration_msg_boundaries,
                 todo_store.as_ref(),
+                config.behavior.enable_smart_compression,
             ).await;
             state.last_estimated_tokens = compact_result.estimated_tokens;
             let estimated_tokens = compact_result.estimated_tokens;

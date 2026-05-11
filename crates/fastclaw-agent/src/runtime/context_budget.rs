@@ -5,6 +5,127 @@ use super::tool_executor::{
     RECALL_HINT_MARKER,
 };
 
+/// Semantic importance score for a tool result.
+///
+/// Higher scores mean the result is more important to retain.
+/// The score combines multiple signals beyond just tool name / retention tier.
+#[derive(Debug, Clone)]
+pub(crate) struct ToolResultImportance {
+    pub score: f32,
+}
+
+impl ToolResultImportance {
+    /// Score a tool result based on content signals, recency, and context.
+    ///
+    /// Factors:
+    /// - Base score from retention tier (0.2 Ephemeral, 0.5 Summarize, 0.7 FullRetain)
+    /// - Content complexity (code blocks, error messages, struct definitions)
+    /// - Length bonus for substantial results (diminishing returns)
+    /// - Recency bonus (recently generated results score higher)
+    /// - Reference bonus (results whose content appears referenced in assistant msgs)
+    pub fn score_tool_result(
+        msg: &ChatMessage,
+        msg_index: usize,
+        total_messages: usize,
+        assistant_messages: &[&ChatMessage],
+    ) -> Self {
+        let tool_name = msg.name.as_deref().unwrap_or("");
+        let content = msg.text_content().unwrap_or_default();
+        let tier = classify_retention_tier(tool_name);
+
+        let base_score = match tier {
+            RetentionTier::Ephemeral => 0.2,
+            RetentionTier::Summarize => 0.5,
+            RetentionTier::FullRetain => 0.7,
+        };
+
+        let content_signal_bonus = Self::content_signals(&content);
+        let length_bonus = Self::length_bonus(content.len());
+        let recency_bonus = Self::recency_bonus(msg_index, total_messages);
+        let reference_bonus = Self::reference_bonus(&content, assistant_messages);
+
+        let score = (base_score + content_signal_bonus + length_bonus + recency_bonus + reference_bonus)
+            .clamp(0.0, 1.0);
+
+        Self { score }
+    }
+
+    fn content_signals(content: &str) -> f32 {
+        let mut bonus = 0.0_f32;
+
+        if content.contains("```") || content.contains("fn ") || content.contains("def ")
+            || content.contains("class ") || content.contains("impl ")
+        {
+            bonus += 0.10;
+        }
+
+        if content.contains("error") || content.contains("Error") || content.contains("FAILED")
+            || content.contains("panic") || content.contains("exception")
+        {
+            bonus += 0.08;
+        }
+
+        if content.contains("struct ") || content.contains("enum ") || content.contains("interface ")
+            || content.contains("type ") || content.contains("trait ")
+        {
+            bonus += 0.05;
+        }
+
+        if content.contains(".rs") || content.contains(".ts") || content.contains(".py")
+            || content.contains(".go") || content.contains("src/")
+        {
+            bonus += 0.03;
+        }
+
+        bonus.min(0.20)
+    }
+
+    fn length_bonus(char_count: usize) -> f32 {
+        match char_count {
+            0..=100 => 0.0,
+            101..=500 => 0.02,
+            501..=2000 => 0.05,
+            2001..=5000 => 0.07,
+            _ => 0.08,
+        }
+    }
+
+    fn recency_bonus(msg_index: usize, total_messages: usize) -> f32 {
+        if total_messages == 0 {
+            return 0.0;
+        }
+        let position_ratio = msg_index as f32 / total_messages as f32;
+        (position_ratio * 0.15).min(0.15)
+    }
+
+    fn reference_bonus(content: &str, assistant_messages: &[&ChatMessage]) -> f32 {
+        if content.len() < 10 || assistant_messages.is_empty() {
+            return 0.0;
+        }
+
+        let key_fragments: Vec<&str> = content
+            .lines()
+            .take(5)
+            .filter(|l| l.len() > 15)
+            .take(3)
+            .collect();
+
+        if key_fragments.is_empty() {
+            return 0.0;
+        }
+
+        let referenced = assistant_messages.iter().any(|asst_msg| {
+            let asst_text = asst_msg.text_content().unwrap_or_default();
+            key_fragments.iter().any(|frag| {
+                let check = if frag.len() > 40 { &frag[..40] } else { frag };
+                asst_text.contains(check)
+            })
+        });
+
+        if referenced { 0.12 } else { 0.0 }
+    }
+}
+
 /// Budget allocation fractions for the context window.
 ///
 /// These fractions determine how the context window is divided among
@@ -124,8 +245,14 @@ pub(crate) fn apply_token_budget(
         let overshoot = older_tool_tokens - older_tool_budget;
         let mut freed = 0;
 
-        // Sort older tool indices by tier (Ephemeral first, then Summarize, then FullRetain)
-        // to compress least-valuable results first.
+        // Collect assistant messages for reference scoring.
+        let assistant_msgs: Vec<&ChatMessage> = messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::Assistant))
+            .collect();
+        let total_msgs = messages.len();
+
+        // Sort older tool indices by semantic importance (lowest score = evicted first).
         let mut sorted_older: Vec<(usize, RetentionTier)> = classified
             .older_tool_indices
             .iter()
@@ -134,7 +261,15 @@ pub(crate) fn apply_token_budget(
                 Some((i, classify_retention_tier(name)))
             })
             .collect();
-        sorted_older.sort_by_key(|(_, tier)| *tier as u8);
+        sorted_older.sort_by(|(idx_a, _), (idx_b, _)| {
+            let score_a = ToolResultImportance::score_tool_result(
+                &messages[*idx_a], *idx_a, total_msgs, &assistant_msgs,
+            ).score;
+            let score_b = ToolResultImportance::score_tool_result(
+                &messages[*idx_b], *idx_b, total_msgs, &assistant_msgs,
+            ).score;
+            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         for (idx, tier) in sorted_older {
             if freed >= overshoot {
