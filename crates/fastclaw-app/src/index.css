@@ -688,6 +688,40 @@
     box-shadow: 0 0 0 3px var(--tint-bg);
     border-color: var(--tint);
   }
+
+  /* Styled select — premium native dropdown */
+  .select-premium {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--bg-elevated);
+    border: 0.5px solid var(--separator-opaque);
+    border-radius: var(--radius-xs);
+    padding: 8px 32px 8px 12px;
+    font-size: 13px;
+    color: var(--fill-primary);
+    cursor: pointer;
+    outline: none;
+    width: 100%;
+    transition: border-color var(--duration-fast) var(--ease-in-out), box-shadow var(--duration-fast) var(--ease-in-out), background var(--duration-fast) var(--ease-in-out);
+  }
+  .select-premium:hover {
+    border-color: var(--border-emphasis);
+    background: color-mix(in srgb, var(--bg-elevated) 90%, var(--bg-hover));
+  }
+  .select-premium:focus {
+    box-shadow: 0 0 0 3px var(--tint-bg);
+    border-color: var(--tint);
+  }
+  .select-premium:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .select-premium.select-mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0;
+  }
 }
 
 /* ━━━ Streaming Performance ━━━ */

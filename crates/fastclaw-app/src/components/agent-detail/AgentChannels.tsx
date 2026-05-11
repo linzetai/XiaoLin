@@ -68,8 +68,7 @@ function ChannelForm({
               <select
                 value={id}
                 onChange={(e) => setId(e.target.value)}
-                className={inputCls + " cursor-pointer pr-8"}
-                style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+                className="select-premium"
               >
                 {CHANNEL_TYPES.map((t) => (
                   <option key={t.id} value={t.id}>{t.label}</option>
@@ -99,8 +98,7 @@ function ChannelForm({
             <select
               value={form.connectionMode ?? "websocket"}
               onChange={(e) => patch("connectionMode", e.target.value)}
-              className={inputCls + " cursor-pointer pr-8"}
-              style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+              className="select-premium"
             >
               <option value="websocket">WebSocket</option>
               <option value="webhook">Webhook</option>
@@ -114,8 +112,7 @@ function ChannelForm({
             <select
               value={form.replyMode ?? "mention_only"}
               onChange={(e) => patch("replyMode", e.target.value)}
-              className={inputCls + " cursor-pointer pr-8"}
-              style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+              className="select-premium"
             >
               <option value="all">全部消息</option>
               <option value="mention_only">仅 @提及</option>

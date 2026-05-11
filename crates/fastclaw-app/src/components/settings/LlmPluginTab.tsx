@@ -134,8 +134,7 @@ function Select({ value, onChange, options }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-[var(--radius-xs)] px-3 py-2 text-[13px] outline-none"
-      style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)", color: "var(--fill-primary)" }}
+      className="select-premium"
     >
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>

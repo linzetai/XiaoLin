@@ -101,7 +101,7 @@ function ModelFormModal({
             <div>
               <label className={labelCls} style={labelStyle}>Provider</label>
               <div className="relative">
-                <select value={form.provider} onChange={(e) => patch("provider", e.target.value)} className={`${inputCls} cursor-pointer pr-8`} style={{ ...inputStyle, appearance: "none" }}>
+                <select value={form.provider} onChange={(e) => patch("provider", e.target.value)} className="select-premium select-mono">
                   <option value="openai_compatible">OpenAI Compatible</option>
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>

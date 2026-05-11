@@ -42,8 +42,7 @@ export function AgentBasicInfo({
           <select
             value={selectedModelValue}
             onChange={(e) => onModelSelect(e.target.value)}
-            className="w-full cursor-pointer rounded-[var(--radius-sm)] px-3 py-2.5 pr-8 text-[13px] outline-none transition-colors duration-150 focus:outline-none"
-            style={{ background: "var(--bg-elevated)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)", WebkitAppearance: "none", MozAppearance: "none", appearance: "none" }}
+            className="select-premium select-mono"
           >
             {models.map((m) => (
               <option key={`${m.provider}/${m.model}`} value={encodeModelOption(m.provider, m.model)}>{m.model} ({m.provider})</option>

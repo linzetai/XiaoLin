@@ -535,8 +535,7 @@ export function AgentList({ collapsed = false, onToggleCollapse }: AgentListProp
                   <select
                     value={newModel}
                     onChange={(e) => setNewModel(e.target.value)}
-                    className="w-full cursor-pointer rounded-[var(--radius-xs)] px-3 py-2 pr-8 text-[13px] outline-none transition-colors focus:outline-none"
-                    style={{ background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)", WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+                    className="select-premium select-mono"
                     disabled={creating || modelsLoading || models.length === 0}
                   >
                     {modelsLoading && <option value="">加载中...</option>}

@@ -57,8 +57,8 @@ function SchedulePicker({ schedule, onChange }: { schedule: string; onChange: (s
     onChange(modeToSchedule(m, o));
   }, [onChange]);
 
-  const selectCls = "w-full rounded-[6px] px-3 py-2 text-[13px] outline-none cursor-pointer pr-8 transition-colors focus:outline-none";
-  const selectStyle = { background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)", WebkitAppearance: "none" as const, appearance: "none" as const };
+  const selectCls = "select-premium";
+  const selectStyle = {} as React.CSSProperties;
   const inlineCls = "rounded-[6px] px-2.5 py-1.5 text-[13px] outline-none text-center transition-colors focus:outline-none";
   const inlineStyle = { background: "var(--bg-base)", color: "var(--fill-primary)", border: "0.5px solid var(--separator-opaque)" };
   const labelStyle = { color: "var(--fill-tertiary)" };
@@ -242,8 +242,7 @@ function CronJobForm({
           <select
             value={actionType}
             onChange={(e) => setActionType(e.target.value as "agent_chat" | "webhook")}
-            className={inputCls + " cursor-pointer pr-8"}
-            style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+            className="select-premium"
           >
             <option value="agent_chat">Agent 对话</option>
             <option value="webhook">Webhook</option>
@@ -288,8 +287,7 @@ function CronJobForm({
                 onChange={(e) =>
                   setForm((f) => ({ ...f, action: { ...f.action, method: e.target.value } }))
                 }
-                className={inputCls + " cursor-pointer pr-8"}
-                style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+                className="select-premium select-mono"
               >
                 <option value="POST">POST</option>
                 <option value="GET">GET</option>
@@ -368,8 +366,7 @@ function CronJobForm({
                 <select
                   value={newChannel.channel_id}
                   onChange={(e) => setNewChannel({...newChannel, channel_id: e.target.value})}
-                  className={inputCls + " cursor-pointer pr-6 text-[11px]"}
-                  style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+                  className="select-premium text-[11px]"
                 >
                   <option value="">渠道类型</option>
                   <option value="feishu">飞书</option>
@@ -387,8 +384,7 @@ function CronJobForm({
                 <select
                   value={newChannel.target_type}
                   onChange={(e) => setNewChannel({...newChannel, target_type: e.target.value as "p2p" | "group"})}
-                  className={inputCls + " cursor-pointer pr-5 text-[11px]"}
-                  style={{ ...inputStyle, WebkitAppearance: "none", appearance: "none" } as React.CSSProperties}
+                  className="select-premium text-[11px]"
                 >
                   <option value="p2p">私聊</option>
                   <option value="group">群组</option>
