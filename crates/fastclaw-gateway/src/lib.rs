@@ -283,7 +283,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 .state
                 .store
                 .session_store
-                .create_session(&sid, agent_id, Some(&title))
+                .create_session_full(&sid, agent_id, Some(&title), None, Some("cron"))
                 .await;
 
             let user_msg = fastclaw_core::types::ChatMessage {

@@ -11,6 +11,7 @@ function makeChat(overrides: Partial<Chat> = {}): Chat {
     localKey: id,
     title: "新对话",
     workDir: null,
+    source: "client",
     stream: [],
     createdAt: new Date(),
     messageCount: 0,

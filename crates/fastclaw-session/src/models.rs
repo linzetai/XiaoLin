@@ -13,6 +13,8 @@ pub struct Session {
     pub agent_id: String,
     pub title: Option<String>,
     pub work_dir: Option<String>,
+    #[serde(default = "default_source")]
+    pub source: String,
     pub created_at: String,
     pub updated_at: String,
     pub message_count: i64,
@@ -22,6 +24,10 @@ pub struct Session {
     pub total_completion_tokens: i64,
     #[serde(default)]
     pub total_elapsed_ms: i64,
+}
+
+fn default_source() -> String {
+    "client".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -71,6 +77,8 @@ pub struct SessionSummary {
     pub agent_id: String,
     pub title: Option<String>,
     pub work_dir: Option<String>,
+    #[serde(default = "default_source")]
+    pub source: String,
     pub message_count: i64,
     pub created_at: String,
     pub updated_at: String,

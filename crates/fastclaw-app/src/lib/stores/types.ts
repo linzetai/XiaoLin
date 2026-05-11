@@ -89,6 +89,7 @@ export interface Chat {
   localKey: string;
   title: string;
   workDir: string | null;
+  source: string;
   stream: StreamItem[];
   createdAt: Date;
   messageCount: number;
@@ -154,6 +155,7 @@ export interface BackendSession {
   agentId: string;
   title: string | null;
   workDir?: string | null;
+  source?: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;

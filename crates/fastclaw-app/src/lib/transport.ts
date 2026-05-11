@@ -87,6 +87,7 @@ export interface SessionSummary {
   agentId: string;
   title: string | null;
   workDir?: string | null;
+  source?: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;

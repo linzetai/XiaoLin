@@ -258,6 +258,32 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
+        // Migration: add source column to track session origin (client/feishu/api/cron)
+        let has_source: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'source'"
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_source {
+            sqlx::query("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'client'")
+                .execute(&self.pool)
+                .await?;
+            // Backfill: infer source from session ID patterns
+            sqlx::query(
+                "UPDATE sessions SET source = 'feishu' WHERE id LIKE 'agent:%:feishu:%' OR id LIKE 'agent:%:group:feishu:%'"
+            )
+            .execute(&self.pool)
+            .await?;
+            sqlx::query(
+                "UPDATE sessions SET source = 'cron' WHERE title LIKE '[定时]%'"
+            )
+            .execute(&self.pool)
+            .await?;
+            tracing::info!("migrated sessions table: added source column with backfill");
+        }
+
         Ok(())
     }
 
@@ -271,7 +297,7 @@ impl SessionStore {
         agent_id: &str,
         title: Option<&str>,
     ) -> anyhow::Result<SessionCreateOutcome> {
-        self.create_session_with_work_dir(session_id, agent_id, title, None).await
+        self.create_session_full(session_id, agent_id, title, None, None).await
     }
 
     pub async fn create_session_with_work_dir(
@@ -281,6 +307,17 @@ impl SessionStore {
         title: Option<&str>,
         work_dir: Option<&str>,
     ) -> anyhow::Result<SessionCreateOutcome> {
+        self.create_session_full(session_id, agent_id, title, work_dir, None).await
+    }
+
+    pub async fn create_session_full(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        title: Option<&str>,
+        work_dir: Option<&str>,
+        source: Option<&str>,
+    ) -> anyhow::Result<SessionCreateOutcome> {
         let mut tx = self.pool.begin().await?;
 
         let existed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
@@ -289,13 +326,14 @@ impl SessionStore {
             .await?;
 
         sqlx::query(
-            "INSERT INTO sessions (id, agent_id, title, work_dir) VALUES (?, ?, ?, ?)
+            "INSERT INTO sessions (id, agent_id, title, work_dir, source) VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')",
         )
         .bind(session_id)
         .bind(agent_id)
         .bind(title)
         .bind(work_dir)
+        .bind(source.unwrap_or("client"))
         .execute(&mut *tx)
         .await?;
 
@@ -324,7 +362,7 @@ impl SessionStore {
     /// Get a session by ID, or None if it doesn't exist.
     pub async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<Session>> {
         let session = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count,
+            "SELECT id, agent_id, title, work_dir, source, created_at, updated_at, message_count,
                     total_prompt_tokens, total_completion_tokens, total_elapsed_ms
              FROM sessions WHERE id = ?",
         )
@@ -342,7 +380,7 @@ impl SessionStore {
         offset: i64,
     ) -> anyhow::Result<Vec<SessionSummary>> {
         let rows = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, created_at, updated_at, message_count,
+            "SELECT id, agent_id, title, work_dir, source, created_at, updated_at, message_count,
                     total_prompt_tokens, total_completion_tokens, total_elapsed_ms
              FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         )
@@ -358,6 +396,7 @@ impl SessionStore {
                 agent_id: s.agent_id,
                 title: s.title,
                 work_dir: s.work_dir,
+                source: s.source,
                 message_count: s.message_count,
                 created_at: s.created_at,
                 updated_at: s.updated_at,

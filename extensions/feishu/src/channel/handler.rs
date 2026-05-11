@@ -67,7 +67,7 @@ impl FeishuMessageHandler for FeishuChannel {
             .is_none()
         {
             self.session_store
-                .create_session(&session_key, &self.config.agent_id, None)
+                .create_session_full(&session_key, &self.config.agent_id, None, None, Some("feishu"))
                 .await?;
         }
         let session = self

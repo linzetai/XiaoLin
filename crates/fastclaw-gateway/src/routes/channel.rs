@@ -268,7 +268,7 @@ pub(crate) async fn handle_channel_message(
         state
             .store
             .session_store
-            .create_session(&session_key, agent_id, None)
+            .create_session_full(&session_key, agent_id, None, None, Some(channel_id))
             .await?;
     }
 

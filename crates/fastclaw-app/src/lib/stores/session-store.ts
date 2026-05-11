@@ -234,6 +234,7 @@ export function buildSessionSlice({ set, get }: SetGet) {
             const updates: Partial<Chat> = {};
             if (backend.messageCount > c.messageCount) updates.messageCount = backend.messageCount;
             if (backend.workDir && !c.workDir) updates.workDir = backend.workDir;
+            if (backend.source && backend.source !== c.source) updates.source = backend.source;
             if (Object.keys(updates).length > 0) return { ...c, ...updates };
           }
           return c;
@@ -246,6 +247,7 @@ export function buildSessionSlice({ set, get }: SetGet) {
             localKey: s.id,
             title: s.title || "未命名会话",
             workDir: s.workDir ?? null,
+            source: s.source ?? "client",
             stream: [],
             createdAt: parseUtcTimestamp(s.createdAt),
             messageCount: s.messageCount,

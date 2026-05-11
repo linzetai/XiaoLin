@@ -17,6 +17,7 @@ export function createChat(workDir?: string): Chat {
     localKey: chatId,
     title: "新对话",
     workDir: workDir ?? null,
+    source: "client",
     stream: [],
     createdAt: new Date(),
     messageCount: 0,
