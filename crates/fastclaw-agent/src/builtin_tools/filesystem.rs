@@ -914,12 +914,25 @@ fn render_line_slice(content: &str, offset: Option<i64>, limit: Option<usize>, n
         }
     }
     if offset.is_some() || limit.is_some() {
-        rendered.push_str(&format!(
-            "\n[Showing lines {}-{} of {} total]",
-            start + 1,
-            end,
-            total
-        ));
+        let next_start = end + 1;
+        if end < total {
+            rendered.push_str(&format!(
+                "\n[Showing lines {}-{} of {} total. \
+                 To continue: lines=\"{}-{}\"]",
+                start + 1,
+                end,
+                total,
+                next_start,
+                (next_start + 99).min(total),
+            ));
+        } else {
+            rendered.push_str(&format!(
+                "\n[Showing lines {}-{} of {} total (end of file)]",
+                start + 1,
+                end,
+                total,
+            ));
+        }
     }
     rendered
 }
@@ -1881,7 +1894,10 @@ impl Tool for ReadFileTool {
         "read_file"
     }
 
-    fn max_result_size_chars(&self) -> usize { DEFAULT_READ_FILE_MAX_CHARS }
+    // Opt out of per-message budget persistence. read_file already self-limits
+    // via DEFAULT_READ_FILE_MAX_CHARS / DEFAULT_READ_FILE_MAX_LINES. Persisting
+    // its output to a file for the model to re-read is circular.
+    fn max_result_size_chars(&self) -> usize { usize::MAX }
 
     fn description(&self) -> &str {
         "Reads and returns the content of a specified file. If the file is large, the content \
@@ -2108,19 +2124,66 @@ it provides structured output with line numbers, handles encoding detection, and
         let line_ending = detect_line_ending(&content);
 
         if args.offset.is_some() || args.limit.is_some() || args.number_lines {
-            let mut result = ToolResult::ok(render_line_slice(
+            let (slice_start, slice_end) = compute_slice_bounds(
+                total_lines,
+                args.offset,
+                args.limit,
+            );
+
+            let nav = if total_lines >= SMART_READ_OUTLINE_THRESHOLD {
+                generate_navigation_context(
+                    &validated,
+                    slice_start + 1,
+                    slice_end,
+                    total_lines,
+                )
+            } else {
+                None
+            };
+
+            let rendered = render_line_slice(
                 &content,
                 args.offset,
                 args.limit,
                 args.number_lines,
-            ));
-            result.metadata = Some(serde_json::json!({
+            );
+
+            let output = match nav {
+                Some(ref ctx) => {
+                    let header = format_navigation_header(
+                        ctx,
+                        slice_start + 1,
+                        slice_end,
+                        total_lines,
+                    );
+                    format!("{header}{rendered}")
+                }
+                None => rendered,
+            };
+
+            let mut meta = serde_json::json!({
                 "fileType": "text",
                 "totalLines": total_lines,
                 "fileSize": file_size,
                 "lineEnding": line_ending,
                 "encoding": encoding,
-            }));
+                "readRange": {
+                    "start": slice_start + 1,
+                    "end": slice_end,
+                },
+            });
+
+            if let Some(ref ctx) = nav {
+                if let Some(ref enc) = ctx.enclosing_symbol {
+                    meta["enclosingSymbol"] = enc.clone();
+                }
+                if !ctx.nearby_symbols.is_empty() {
+                    meta["nearbySymbols"] = serde_json::json!(ctx.nearby_symbols);
+                }
+            }
+
+            let mut result = ToolResult::ok(output);
+            result.metadata = Some(meta);
             return result;
         }
 
@@ -2193,6 +2256,17 @@ it provides structured output with line numbers, handles encoding detection, and
             }
         } else {
             (text, false)
+        };
+
+        // For large truncated files, append a routing tip so the LLM uses
+        // structural tools on subsequent interactions instead of blind reads.
+        let text = if is_truncated && total_lines >= SMART_READ_OUTLINE_THRESHOLD {
+            format!(
+                "{text}\n[Tip: use file_outline or code_sections to see this file's structure, \
+                 then read_file with lines=\"start-end\" for the section you need.]"
+            )
+        } else {
+            text
         };
 
         let mut result = ToolResult::ok(text);
@@ -3296,6 +3370,30 @@ fn extract_file_symbols(file_path: &str) -> Vec<(String, String, usize, usize)> 
 /// Threshold (lines) above which read_file auto-prepends a file outline.
 const SMART_READ_OUTLINE_THRESHOLD: usize = 200;
 
+fn symbol_kind_label(kind: &fastclaw_treesitter::SymbolKind) -> &'static str {
+    match kind {
+        fastclaw_treesitter::SymbolKind::Function => "fn",
+        fastclaw_treesitter::SymbolKind::Method => "method",
+        fastclaw_treesitter::SymbolKind::Class => "class",
+        fastclaw_treesitter::SymbolKind::Struct => "struct",
+        fastclaw_treesitter::SymbolKind::Enum => "enum",
+        fastclaw_treesitter::SymbolKind::Trait => "trait",
+        fastclaw_treesitter::SymbolKind::Interface => "interface",
+        fastclaw_treesitter::SymbolKind::Module => "mod",
+        fastclaw_treesitter::SymbolKind::Constant => "const",
+        fastclaw_treesitter::SymbolKind::Variable => "var",
+        _ => "other",
+    }
+}
+
+fn truncate_signature(sig: &str, max_len: usize) -> String {
+    if sig.len() > max_len {
+        format!("{}…", &sig[..sig.floor_char_boundary(max_len)])
+    } else {
+        sig.to_string()
+    }
+}
+
 /// Generate a compact file outline string for prepending to large file reads.
 fn generate_compact_outline(file_path: &Path, total_lines: usize) -> Option<String> {
     let lang = fastclaw_treesitter::CodeParser::detect_language(file_path)?;
@@ -3318,25 +3416,9 @@ fn generate_compact_outline(file_path: &Path, total_lines: usize) -> Option<Stri
         if matches!(s.kind, fastclaw_treesitter::SymbolKind::Import) {
             continue;
         }
-        let kind_label = match s.kind {
-            fastclaw_treesitter::SymbolKind::Function => "fn",
-            fastclaw_treesitter::SymbolKind::Method => "method",
-            fastclaw_treesitter::SymbolKind::Class => "class",
-            fastclaw_treesitter::SymbolKind::Struct => "struct",
-            fastclaw_treesitter::SymbolKind::Enum => "enum",
-            fastclaw_treesitter::SymbolKind::Trait => "trait",
-            fastclaw_treesitter::SymbolKind::Interface => "interface",
-            fastclaw_treesitter::SymbolKind::Module => "mod",
-            fastclaw_treesitter::SymbolKind::Constant => "const",
-            fastclaw_treesitter::SymbolKind::Variable => "var",
-            _ => "other",
-        };
+        let kind_label = symbol_kind_label(&s.kind);
         let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
-        let sig_short = if sig.len() > 80 {
-            format!("{}…", &sig[..sig.floor_char_boundary(80)])
-        } else {
-            sig.to_string()
-        };
+        let sig_short = truncate_signature(sig, 80);
         outline.push_str(&format!(
             "  L{}-{}: {kind_label} {sig_short}\n",
             s.start_line, s.end_line
@@ -3344,6 +3426,123 @@ fn generate_compact_outline(file_path: &Path, total_lines: usize) -> Option<Stri
     }
     outline.push_str("──────────────────────\n\n");
     Some(outline)
+}
+
+/// Navigation context returned for partial reads on large files.
+/// Tells the LLM where the read range sits relative to surrounding symbols.
+struct NavigationContext {
+    enclosing: Option<String>,
+    nearby_before: Vec<String>,
+    nearby_after: Vec<String>,
+    /// Structured data for metadata enrichment.
+    enclosing_symbol: Option<serde_json::Value>,
+    nearby_symbols: Vec<serde_json::Value>,
+}
+
+/// Generate a compact navigation header for partial reads on large files.
+///
+/// Shows the enclosing symbol (the one whose line range contains the read range)
+/// plus 1-2 symbols immediately before and after.
+fn generate_navigation_context(
+    file_path: &Path,
+    read_start: usize,
+    read_end: usize,
+    _total_lines: usize,
+) -> Option<NavigationContext> {
+    let lang = fastclaw_treesitter::CodeParser::detect_language(file_path)?;
+    if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
+        return None;
+    }
+    let parsed = fastclaw_treesitter::CodeParser::parse_file(file_path).ok()?;
+    let symbols = fastclaw_treesitter::extract_symbols(&parsed.tree, &parsed.source, &lang);
+
+    let symbols: Vec<_> = symbols
+        .into_iter()
+        .filter(|s| !matches!(s.kind, fastclaw_treesitter::SymbolKind::Import))
+        .collect();
+
+    if symbols.is_empty() {
+        return None;
+    }
+
+    let mut enclosing: Option<&fastclaw_treesitter::Symbol> = None;
+    let mut before: Vec<&fastclaw_treesitter::Symbol> = Vec::new();
+    let mut after: Vec<&fastclaw_treesitter::Symbol> = Vec::new();
+
+    for s in &symbols {
+        if s.start_line <= read_start && s.end_line >= read_end {
+            if enclosing.map_or(true, |e| {
+                (s.end_line - s.start_line) < (e.end_line - e.start_line)
+            }) {
+                enclosing = Some(s);
+            }
+        } else if s.end_line < read_start {
+            before.push(s);
+        } else if s.start_line > read_end {
+            after.push(s);
+        }
+    }
+
+    let nearby_before: Vec<_> = before.iter().rev().take(2).rev().cloned().collect();
+    let nearby_after: Vec<_> = after.iter().take(2).cloned().collect();
+
+    fn format_sym(s: &fastclaw_treesitter::Symbol) -> String {
+        let kind = symbol_kind_label(&s.kind);
+        let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
+        let sig_short = truncate_signature(sig, 60);
+        format!("{kind} {sig_short} (L{}-{})", s.start_line, s.end_line)
+    }
+
+    fn sym_to_json(s: &fastclaw_treesitter::Symbol) -> serde_json::Value {
+        let kind = symbol_kind_label(&s.kind);
+        let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
+        serde_json::json!({
+            "name": format!("{kind} {}", s.name),
+            "startLine": s.start_line,
+            "endLine": s.end_line,
+            "signature": truncate_signature(sig, 80),
+        })
+    }
+
+    let enclosing_str = enclosing.map(format_sym);
+    let enclosing_json = enclosing.map(sym_to_json);
+    let before_strs: Vec<String> = nearby_before.iter().map(|s| format_sym(s)).collect();
+    let after_strs: Vec<String> = nearby_after.iter().map(|s| format_sym(s)).collect();
+    let all_nearby_json: Vec<serde_json::Value> = nearby_before
+        .iter()
+        .chain(nearby_after.iter())
+        .map(|s| sym_to_json(s))
+        .collect();
+
+    if enclosing_str.is_none() && before_strs.is_empty() && after_strs.is_empty() {
+        return None;
+    }
+
+    Some(NavigationContext {
+        enclosing: enclosing_str,
+        nearby_before: before_strs,
+        nearby_after: after_strs,
+        enclosing_symbol: enclosing_json,
+        nearby_symbols: all_nearby_json,
+    })
+}
+
+/// Format a NavigationContext into a compact text header for prepending to read output.
+fn format_navigation_header(nav: &NavigationContext, _read_start: usize, _read_end: usize, _total_lines: usize) -> String {
+    let mut header = String::from("── Navigation ──\n");
+    if let Some(ref enc) = nav.enclosing {
+        header.push_str(&format!("  Enclosing: {enc}\n"));
+    }
+    if !nav.nearby_before.is_empty() {
+        let items: Vec<&str> = nav.nearby_before.iter().map(|s| s.as_str()).collect();
+        header.push_str(&format!("  Before: {}\n", items.join(", ")));
+    }
+    if !nav.nearby_after.is_empty() {
+        let items: Vec<&str> = nav.nearby_after.iter().map(|s| s.as_str()).collect();
+        header.push_str(&format!("  After: {}\n", items.join(", ")));
+    }
+    header.push_str("────────────────\n");
+    header
 }
 
 /// Search text across files under a directory.
