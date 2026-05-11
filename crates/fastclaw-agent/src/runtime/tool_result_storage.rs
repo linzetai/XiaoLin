@@ -740,21 +740,21 @@ mod tests {
     }
 
     #[test]
-    fn enforce_budget_read_file_participates_in_budget() {
+    fn enforce_budget_read_file_skipped_when_in_skip_set() {
         let (storage, _tmp) = make_storage();
         let mut state = ContentReplacementState::new();
         let big = "z".repeat(150_000);
         let small = "a".repeat(30_000);
+        let mut skip = HashSet::new();
+        skip.insert("read_file".into());
         let entries = vec![
             ToolResultEntry { tool_use_id: "rf1".into(), tool_name: "read_file".into(), content: big },
             ToolResultEntry { tool_use_id: "rf2".into(), tool_name: "read_file".into(), content: small },
         ];
         let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 100_000,
+            entries, &mut state, &skip, 100_000,
         );
-        assert_eq!(result.newly_replaced.len(), 1);
-        assert_eq!(result.newly_replaced[0].tool_use_id, "rf1");
-        assert!(result.replacements.contains_key("rf1"));
+        assert!(result.newly_replaced.is_empty(), "read_file should be skipped");
         assert!(state.seen_ids.contains("rf1"));
         assert!(state.seen_ids.contains("rf2"));
     }

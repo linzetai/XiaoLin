@@ -7,8 +7,8 @@ use super::context_compressor;
 use super::context_budget::{apply_token_budget, BudgetConfig};
 use super::session_memory;
 use super::tool_executor::{
-    dedup_repeated_tool_calls, microcompact_tool_results, time_based_microcompact,
-    rebuild_recall_registry, DEFAULT_CACHE_WINDOW_DURATION,
+    dedup_repeated_tool_calls, keep_recent_for_context_window, microcompact_tool_results,
+    time_based_microcompact, rebuild_recall_registry, DEFAULT_CACHE_WINDOW_DURATION,
 };
 
 /// Result of the unified pre-query compression pipeline.
@@ -57,7 +57,8 @@ pub(crate) async fn unified_pre_query_compact(
     }
 
     // Step 1: Tier-aware microcompact of old tool results.
-    microcompact_tool_results(messages, 3);
+    let keep_recent = keep_recent_for_context_window(context_window);
+    microcompact_tool_results(messages, keep_recent);
 
     // Step 1.5: Token budget allocation — enforce the 30/40/20/10 split
     // so that older tool results don't crowd out recent ones.

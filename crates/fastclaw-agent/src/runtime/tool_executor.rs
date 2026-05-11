@@ -334,11 +334,10 @@ pub(crate) fn build_cleared_with_recall(
     original_content: &str,
     arguments_json: Option<&str>,
 ) -> String {
-    let stats = format!(
-        "{} lines, {} chars",
-        original_content.lines().count(),
-        original_content.len()
-    );
+    let line_count = original_content.lines().count();
+    let char_count = original_content.len();
+    let est_tokens = char_count / 4;
+    let stats = format!("{line_count} lines, {char_count} chars, ~{est_tokens} tokens");
 
     let tier_label = match tier {
         RetentionTier::Ephemeral => "ephemeral",
@@ -428,7 +427,13 @@ fn fade_to_preview(content: &str, max_chars: usize) -> String {
         return content.to_string();
     }
     let safe_end = safe_char_boundary(content, max_chars.saturating_sub(20));
-    format!("{}…\n[{} more chars faded]", &content[..safe_end], content.len() - safe_end)
+    let remaining = content.len() - safe_end;
+    let est_tokens = content.len() / 4;
+    format!(
+        "{}…\n[{remaining} more chars faded. Original: {} chars / ~{est_tokens} tokens]",
+        &content[..safe_end],
+        content.len(),
+    )
 }
 
 const FADED_MARKER: &str = "[faded]";
@@ -640,6 +645,21 @@ pub(crate) fn microcompact_tool_results(
 pub(crate) const DEFAULT_CACHE_WINDOW_DURATION: std::time::Duration =
     std::time::Duration::from_secs(5 * 60);
 
+/// Compute the `keep_recent` window for `microcompact_tool_results`
+/// based on the model's context window size.
+///
+/// Larger context windows can afford to keep more recent tool results
+/// in full, while smaller windows need more aggressive compaction.
+pub(crate) fn keep_recent_for_context_window(context_window: u32) -> usize {
+    match context_window {
+        0..=32_000 => 2,
+        32_001..=64_000 => 3,
+        64_001..=128_000 => 4,
+        128_001..=200_000 => 5,
+        _ => 6,
+    }
+}
+
 const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 
 /// Time-driven microcompact with tier awareness.
@@ -709,17 +729,21 @@ pub(crate) fn time_based_microcompact(
         }
 
         let tier = classify_retention_tier(&tool_name);
-        let replacement = match tier {
-            RetentionTier::FullRetain => {
-                let summary = summarize_tool_result(&tool_name, &text, 600);
-                format!("{TIME_COMPACTED_MARKER} {summary}")
-            }
-            RetentionTier::Summarize => {
-                let summary = summarize_tool_result(&tool_name, &text, 300);
-                format!("{TIME_COMPACTED_MARKER} {summary}")
-            }
-            RetentionTier::Ephemeral => {
-                build_cleared_with_recall(&tool_name, tier, &text, None)
+        let replacement = if tool_name == "read_file" {
+            time_compact_read_file(messages, i, &text, tier)
+        } else {
+            match tier {
+                RetentionTier::FullRetain => {
+                    let summary = summarize_tool_result(&tool_name, &text, 600);
+                    format!("{TIME_COMPACTED_MARKER} {summary}")
+                }
+                RetentionTier::Summarize => {
+                    let summary = summarize_tool_result(&tool_name, &text, 300);
+                    format!("{TIME_COMPACTED_MARKER} {summary}")
+                }
+                RetentionTier::Ephemeral => {
+                    build_cleared_with_recall(&tool_name, tier, &text, None)
+                }
             }
         };
 
@@ -728,6 +752,72 @@ pub(crate) fn time_based_microcompact(
     }
 
     compacted
+}
+
+/// Specialized time-compaction for read_file results.
+///
+/// Instead of a generic summary, checks the file's current mtime on disk
+/// to tell the LLM whether the file has changed since the read, enabling
+/// better decisions about whether to re-read.
+fn time_compact_read_file(
+    messages: &[fastclaw_core::types::ChatMessage],
+    tool_msg_idx: usize,
+    original_text: &str,
+    _tier: RetentionTier,
+) -> String {
+    use fastclaw_core::types::Role;
+    use std::path::Path;
+
+    let line_count = original_text.lines().count();
+    let char_count = original_text.len();
+    let est_tokens = char_count / 4;
+
+    let call_id = messages[tool_msg_idx].tool_call_id.as_deref().unwrap_or("");
+    let file_path = messages[..tool_msg_idx]
+        .iter()
+        .rev()
+        .filter(|m| matches!(m.role, Role::Assistant))
+        .find_map(|m| {
+            m.tool_calls.as_ref()?.iter().find_map(|tc| {
+                if tc.id == call_id {
+                    extract_target_key("read_file", &tc.function.arguments)
+                } else {
+                    None
+                }
+            })
+        });
+
+    let file_path = match file_path {
+        Some(p) => p,
+        None => {
+            let summary = summarize_tool_result("read_file", original_text, 600);
+            return format!("{TIME_COMPACTED_MARKER} {summary}");
+        }
+    };
+
+    let path = Path::new(&file_path);
+    let short_path = if file_path.len() > 80 {
+        format!("…{}", &file_path[file_path.len().saturating_sub(77)..])
+    } else {
+        file_path.clone()
+    };
+
+    let status = match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(_mtime) => {
+            // We can't precisely compare Instant (monotonic) vs SystemTime (wall clock),
+            // but the file's existence is confirmed. Since this result is outside the
+            // cache window (5+ min old), we report the file as "previously read" and
+            // let the LLM decide whether to re-read.
+            "file exists on disk"
+        }
+        Err(_) => "file may have been moved or deleted",
+    };
+
+    format!(
+        "{TIME_COMPACTED_MARKER} [read_file: {short_path} — {status}. \
+         Original: {line_count} lines, {char_count} chars, ~{est_tokens} tokens. \
+         Use read_file to get current content if needed.]"
+    )
 }
 
 /// Deduplicate repeated tool calls on the same target.
@@ -739,6 +829,11 @@ pub(crate) fn time_based_microcompact(
 /// Detection is based on extracting a "target key" from the tool arguments in
 /// the preceding assistant message's tool_call. For `read_file` the key is
 /// the file path; for `shell` it is the command string.
+struct DedupToolEntry {
+    msg_idx: usize,
+    arguments_json: String,
+}
+
 pub(crate) fn dedup_repeated_tool_calls(
     messages: &mut [fastclaw_core::types::ChatMessage],
 ) {
@@ -763,55 +858,175 @@ pub(crate) fn dedup_repeated_tool_calls(
         .collect();
 
     // For each tool entry, find the matching tool_call in the preceding assistant message
-    // and extract a "target key" (e.g., file path or command)
-    let mut target_map: HashMap<(String, String), Vec<usize>> = HashMap::new(); // (tool_name, target_key) -> [indices]
+    // and extract a "target key" (e.g., file path or command) and full arguments
+    let mut target_map: HashMap<(String, String), Vec<DedupToolEntry>> = HashMap::new();
 
     for (call_id, tool_name, msg_idx) in &tool_entries {
-        // Search backwards for the assistant message containing this tool_call
-        let target_key = messages[..*msg_idx]
+        let (target_key, args_json) = messages[..*msg_idx]
             .iter()
             .rev()
             .filter(|m| matches!(m.role, Role::Assistant))
             .find_map(|m| {
                 m.tool_calls.as_ref()?.iter().find_map(|tc| {
                     if tc.id == *call_id {
-                        extract_target_key(tool_name, &tc.function.arguments)
+                        let key = extract_target_key(tool_name, &tc.function.arguments)?;
+                        Some((key, tc.function.arguments.clone()))
                     } else {
                         None
                     }
                 })
-            });
+            })
+            .unzip();
 
-        if let Some(key) = target_key {
-            target_map.entry((tool_name.clone(), key)).or_default().push(*msg_idx);
+        if let (Some(key), Some(args)) = (target_key, args_json) {
+            target_map
+                .entry((tool_name.clone(), key))
+                .or_default()
+                .push(DedupToolEntry { msg_idx: *msg_idx, arguments_json: args });
         }
     }
 
     // For groups with >1 entry, replace all but the last with a short pointer
-    for ((_tool_name, target_key), indices) in &target_map {
-        if indices.len() <= 1 {
+    for ((tool_name, target_key), entries) in &target_map {
+        if entries.len() <= 1 {
             continue;
         }
-        // Keep the last (most recent) result, supersede the rest
-        for &idx in &indices[..indices.len() - 1] {
-            let msg = &mut messages[idx];
-            if let Some(text) = msg.text_content() {
-                if text.starts_with("[superseded") {
-                    continue;
+
+        if tool_name == "read_file" {
+            dedup_overlapping_reads(messages, entries, target_key);
+        } else {
+            for entry in &entries[..entries.len() - 1] {
+                supersede_message(messages, entry.msg_idx, target_key);
+            }
+        }
+    }
+}
+
+/// Supersede a tool result message with a short pointer, skipping errors and
+/// already-superseded messages.
+fn supersede_message(
+    messages: &mut [fastclaw_core::types::ChatMessage],
+    idx: usize,
+    target_key: &str,
+) {
+    if let Some(text) = messages[idx].text_content() {
+        if text.starts_with("[superseded") || is_error_tool_result(&text) {
+            return;
+        }
+    }
+    let short_key = if target_key.len() > 60 {
+        format!("{}…", &target_key[..target_key.floor_char_boundary(57)])
+    } else {
+        target_key.to_string()
+    };
+    messages[idx].content = Some(serde_json::Value::String(
+        format!("[superseded: re-executed on \"{short_key}\", see latest result below]"),
+    ));
+}
+
+/// Extract the line range from read_file arguments as (start, end) 1-indexed inclusive.
+/// Returns `None` for full-file reads.
+fn extract_read_range(args: &str) -> Option<(usize, usize)> {
+    let v: serde_json::Value = serde_json::from_str(args).ok()?;
+
+    if let Some(lines_str) = v.get("lines").and_then(|l| l.as_str()) {
+        return parse_lines_range(lines_str);
+    }
+
+    let offset = v.get("offset").and_then(|o| o.as_i64());
+    let limit = v.get("limit").and_then(|l| l.as_u64());
+    match (offset, limit) {
+        (Some(off), Some(lim)) if off > 0 => {
+            Some((off as usize, off as usize + lim as usize - 1))
+        }
+        (Some(off), None) if off > 0 => Some((off as usize, usize::MAX)),
+        _ => None,
+    }
+}
+
+fn parse_lines_range(s: &str) -> Option<(usize, usize)> {
+    let s = s.trim();
+    if let Some((a, b)) = s.split_once('-') {
+        let start: usize = a.trim().parse().ok()?;
+        let end: usize = if b.trim().is_empty() {
+            usize::MAX
+        } else {
+            b.trim().parse().ok()?
+        };
+        Some((start, end))
+    } else {
+        let line: usize = s.parse().ok()?;
+        Some((line, line))
+    }
+}
+
+/// Returns true if range `a` is fully contained within range `b`.
+fn range_contained(a: (usize, usize), b: (usize, usize)) -> bool {
+    b.0 <= a.0 && a.1 <= b.1
+}
+
+/// Deduplicate overlapping read_file calls on the same file path.
+///
+/// Strategy: iterate from newest to oldest. For each older read, if its range
+/// is fully contained by any newer read's range, supersede it. Full-file reads
+/// supersede all partial reads of the same file.
+fn dedup_overlapping_reads(
+    messages: &mut [fastclaw_core::types::ChatMessage],
+    entries: &[DedupToolEntry],
+    file_path: &str,
+) {
+    struct ReadInfo {
+        msg_idx: usize,
+        range: Option<(usize, usize)>,
+    }
+
+    let reads: Vec<ReadInfo> = entries
+        .iter()
+        .map(|e| ReadInfo {
+            msg_idx: e.msg_idx,
+            range: extract_read_range(&e.arguments_json),
+        })
+        .collect();
+
+    // Work from newest to oldest: for each older read, check if any newer read
+    // covers its range. `reads` is ordered by position in messages (ascending),
+    // so newer reads are at the end.
+    for i in 0..reads.len().saturating_sub(1) {
+        let older = &reads[i];
+        let older_range = match older.range {
+            Some(r) => r,
+            None => {
+                // Full-file read: only superseded if a newer full-file read exists
+                let has_newer_full = reads[i + 1..].iter().any(|r| r.range.is_none());
+                if has_newer_full {
+                    supersede_message(messages, older.msg_idx, file_path);
                 }
-                if is_error_tool_result(&text) {
+                continue;
+            }
+        };
+
+        let covered_by_newer = reads[i + 1..].iter().any(|newer| {
+            match newer.range {
+                None => true, // newer full-file read covers everything
+                Some(newer_range) => range_contained(older_range, newer_range),
+            }
+        });
+
+        if covered_by_newer {
+            if let Some(text) = messages[older.msg_idx].text_content() {
+                if text.starts_with("[superseded") || is_error_tool_result(&text) {
                     continue;
                 }
             }
-            msg.content = Some(serde_json::Value::String(
-                format!("[superseded: re-executed on \"{}\", see latest result below]",
-                    if target_key.len() > 60 {
-                        format!("{}…", &target_key[..57])
-                    } else {
-                        target_key.clone()
-                    }
-                ),
-            ));
+            let short_path = if file_path.len() > 50 {
+                format!("…{}", &file_path[file_path.len().saturating_sub(47)..])
+            } else {
+                file_path.to_string()
+            };
+            messages[older.msg_idx].content = Some(serde_json::Value::String(format!(
+                "[superseded: lines {}-{} of \"{short_path}\" covered by a later read]",
+                older_range.0, older_range.1
+            )));
         }
     }
 }
@@ -1951,5 +2166,147 @@ mod tool_result_truncation_tests {
         let meta = meta.unwrap();
         assert_eq!(meta.tool_name, "read_file");
         assert!(meta.arguments_json.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn dedup_overlapping_reads_supersedes_covered_range() {
+        use super::dedup_repeated_tool_calls;
+        use fastclaw_core::types::{ChatMessage, Role, ToolCall, FunctionCall};
+
+        fn assistant_with_read(call_id: &str, path: &str, lines: Option<&str>) -> ChatMessage {
+            let mut args = serde_json::json!({ "path": path });
+            if let Some(l) = lines {
+                args["lines"] = serde_json::json!(l);
+            }
+            ChatMessage {
+                role: Role::Assistant,
+                content: Some(serde_json::Value::String("reading file".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: Some(vec![ToolCall {
+                    id: call_id.into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "read_file".into(),
+                        arguments: args.to_string(),
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                }]),
+                tool_call_id: None,
+            }
+        }
+
+        fn tool_result(call_id: &str, content: &str) -> ChatMessage {
+            ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String(content.into())),
+                reasoning_content: None,
+                name: Some("read_file".into()),
+                tool_calls: None,
+                tool_call_id: Some(call_id.into()),
+            }
+        }
+
+        let mut msgs = vec![
+            assistant_with_read("c1", "src/main.rs", Some("1-50")),
+            tool_result("c1", "lines 1 through 50"),
+            assistant_with_read("c2", "src/main.rs", Some("20-80")),
+            tool_result("c2", "lines 20 through 80"),
+            assistant_with_read("c3", "src/main.rs", Some("1-100")),
+            tool_result("c3", "lines 1 through 100"),
+        ];
+
+        dedup_repeated_tool_calls(&mut msgs);
+
+        let t1 = msgs[1].text_content().unwrap();
+        assert!(t1.contains("[superseded"), "read 1-50 should be superseded by 1-100: got {t1}");
+
+        let t2 = msgs[3].text_content().unwrap();
+        assert!(t2.contains("[superseded"), "read 20-80 should be superseded by 1-100: got {t2}");
+
+        let t3 = msgs[5].text_content().unwrap();
+        assert_eq!(t3, "lines 1 through 100", "newest read should be preserved");
+    }
+
+    #[test]
+    fn dedup_non_overlapping_reads_preserved() {
+        use super::dedup_repeated_tool_calls;
+        use fastclaw_core::types::{ChatMessage, Role, ToolCall, FunctionCall};
+
+        fn assistant_with_read(call_id: &str, path: &str, lines: &str) -> ChatMessage {
+            ChatMessage {
+                role: Role::Assistant,
+                content: Some(serde_json::Value::String("reading".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: Some(vec![ToolCall {
+                    id: call_id.into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({ "path": path, "lines": lines }).to_string(),
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                }]),
+                tool_call_id: None,
+            }
+        }
+
+        fn tool_result(call_id: &str, content: &str) -> ChatMessage {
+            ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String(content.into())),
+                reasoning_content: None,
+                name: Some("read_file".into()),
+                tool_calls: None,
+                tool_call_id: Some(call_id.into()),
+            }
+        }
+
+        let mut msgs = vec![
+            assistant_with_read("c1", "src/main.rs", "1-50"),
+            tool_result("c1", "first chunk"),
+            assistant_with_read("c2", "src/main.rs", "100-200"),
+            tool_result("c2", "second chunk"),
+        ];
+
+        dedup_repeated_tool_calls(&mut msgs);
+
+        assert_eq!(msgs[1].text_content().unwrap(), "first chunk", "non-overlapping read 1 preserved");
+        assert_eq!(msgs[3].text_content().unwrap(), "second chunk", "non-overlapping read 2 preserved");
+    }
+
+    #[test]
+    fn extract_read_range_parses_lines_and_offset() {
+        use super::{extract_read_range, parse_lines_range};
+
+        assert_eq!(parse_lines_range("10-30"), Some((10, 30)));
+        assert_eq!(parse_lines_range("50-"), Some((50, usize::MAX)));
+        assert_eq!(parse_lines_range("100"), Some((100, 100)));
+
+        let args = r#"{"path":"foo.rs","lines":"1-50"}"#;
+        assert_eq!(extract_read_range(args), Some((1, 50)));
+
+        let args = r#"{"path":"foo.rs","offset":10,"limit":20}"#;
+        assert_eq!(extract_read_range(args), Some((10, 29)));
+
+        let args = r#"{"path":"foo.rs"}"#;
+        assert_eq!(extract_read_range(args), None);
+    }
+
+    #[test]
+    fn keep_recent_scales_with_context_window() {
+        use super::keep_recent_for_context_window;
+
+        assert_eq!(keep_recent_for_context_window(16_000), 2);
+        assert_eq!(keep_recent_for_context_window(32_000), 2);
+        assert_eq!(keep_recent_for_context_window(64_000), 3);
+        assert_eq!(keep_recent_for_context_window(128_000), 4);
+        assert_eq!(keep_recent_for_context_window(200_000), 5);
+        assert_eq!(keep_recent_for_context_window(1_000_000), 6);
     }
 }

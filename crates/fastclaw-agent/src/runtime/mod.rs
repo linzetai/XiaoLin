@@ -1863,7 +1863,8 @@ impl AgentRuntime {
             // first so the reported token count reflects what the next LLM call
             // will actually see, rather than the raw uncompressed accumulation.
             {
-                tool_executor::microcompact_tool_results(&mut messages, 3);
+                let keep_recent = tool_executor::keep_recent_for_context_window(context_window);
+                tool_executor::microcompact_tool_results(&mut messages, keep_recent);
                 tool_executor::dedup_repeated_tool_calls(&mut messages);
                 let post_tool_tokens = fastclaw_context::estimate_messages_tokens(&messages);
                 state.last_estimated_tokens = post_tool_tokens;
