@@ -80,7 +80,7 @@ pub struct RuntimeState {
     pub agent_skill_registries: Arc<ArcSwap<std::collections::HashMap<String, Arc<SkillRegistry>>>>,
     pub workspaces: Arc<std::collections::HashMap<String, AgentWorkspace>>,
     pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
-    pub mode_state: fastclaw_agent::builtin_tools::ExecutionModeState,
+    pub session_modes: fastclaw_agent::builtin_tools::SessionModeRegistry,
     pub todo_store: fastclaw_agent::builtin_tools::TodoStore,
     pub plan_file_store: fastclaw_agent::builtin_tools::PlanFileStore,
 }
@@ -1501,7 +1501,7 @@ impl AppState {
                 ))),
                 workspaces: Arc::new(std::collections::HashMap::new()),
                 prompt_guard: Arc::new(fastclaw_security::PromptGuard::new()),
-                mode_state: fastclaw_agent::builtin_tools::ExecutionModeState::new(),
+                session_modes: fastclaw_agent::builtin_tools::SessionModeRegistry::new(),
                 todo_store,
                 plan_file_store: fastclaw_agent::builtin_tools::PlanFileStore::default(),
             },

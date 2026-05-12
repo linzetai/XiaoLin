@@ -111,12 +111,13 @@ pub async fn handle_chat_answer(
     .await;
 }
 
-/// Switches execution mode between agent and plan.
+/// Switches execution mode between agent and plan for a given session.
 pub async fn handle_chat_set_mode(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
     params: serde_json::Value,
+    bg_tx: &Option<tokio::sync::mpsc::Sender<WsResponse>>,
 ) {
     let Some(mode_str) = params.get("mode").and_then(|v| v.as_str()) else {
         send_resp(
@@ -133,6 +134,11 @@ pub async fn handle_chat_set_mode(
         .await;
         return;
     };
+
+    let session_id = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
 
     use fastclaw_core::types::ExecutionMode;
     let target = match mode_str {
@@ -153,8 +159,9 @@ pub async fn handle_chat_set_mode(
         }
     };
 
-    let (from, to) = state.rt.mode_state.transition(target);
+    let (from, to) = state.rt.session_modes.transition(session_id, target);
 
+    // RPC response
     send_resp(
         sender,
         &WsResponse {
@@ -165,6 +172,22 @@ pub async fn handle_chat_set_mode(
         },
     )
     .await;
+
+    // Broadcast mode_change event so other listeners (multi-window) stay in sync
+    if from != to {
+        if let Some(tx) = bg_tx {
+            let _ = tx
+                .send(WsResponse {
+                    id: None,
+                    msg_type: "chat.mode_change".into(),
+                    data: Some(
+                        json!({"from": format!("{from}"), "to": format!("{to}"), "session_id": session_id}),
+                    ),
+                    error: None,
+                })
+                .await;
+        }
+    }
 }
 
 /// Spawns streaming chat on a background task that sends WsResponse messages
@@ -383,14 +406,18 @@ pub async fn spawn_chat(
             fastclaw_agent::build_subagent_prompt_block(&ctx)
         };
 
-        let mode_state_for_task = state.rt.mode_state.clone();
+        let mode_state_for_task = state.rt.session_modes.get_or_create(&session_id);
         let session_store_for_task = Some(state.store.session_store.clone());
         let todo_store_for_task = Some(state.rt.todo_store.clone());
         let task = tokio::spawn(async move {
+            let ms_clone = mode_state_for_task.clone();
             tokio::select! {
                 result = fastclaw_agent::builtin_tools::with_stream_context(
                     stream_context_key_for_task.clone(),
-                    runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task),
+                    fastclaw_agent::builtin_tools::with_session_mode(
+                        ms_clone,
+                        runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task),
+                    ),
                 ) => result,
                 _ = cancel2.cancelled() => Err(anyhow::anyhow!("cancelled")),
             }

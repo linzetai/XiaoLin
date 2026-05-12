@@ -69,7 +69,10 @@ pub use network::{
 };
 pub use notebook::NotebookEditTool;
 pub use plan_file::PlanFileStore;
-pub use plan_mode::{EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool};
+pub use plan_mode::{
+    with_session_mode, EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool,
+    SessionModeRegistry,
+};
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
 pub use shell::{

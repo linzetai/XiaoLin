@@ -631,15 +631,11 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
                 "method": "chat.set_mode",
                 "params": {"mode": new_mode}
             });
-            let _ = ws_tx.send(Message::Text(req.to_string())).await;
-            app.execution_mode = new_mode.to_string();
-            let label = if new_mode == "plan" {
-                "Plan (read-only)"
+            if ws_tx.send(Message::Text(req.to_string())).await.is_err() {
+                app.push_system("Failed to send mode switch request.".into());
             } else {
-                "Agent (full access)"
-            };
-            app.push_system(format!("Switched to {label} mode."));
-            app.status = format!("Mode: {}", new_mode);
+                app.push_system(format!("Switching to {new_mode} mode..."));
+            }
         }
         "/cancel" => {
             if app.streaming {
@@ -1043,6 +1039,26 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 options,
             });
             app.status = "Agent is waiting for your answer...".into();
+        }
+        "chat.set_mode" => {
+            if let Some(true) = msg["data"]["ok"].as_bool() {
+                let to = msg["data"]["to"].as_str().unwrap_or("agent");
+                app.execution_mode = to.to_string();
+                let label = if to == "plan" {
+                    "Plan (read-only)"
+                } else {
+                    "Agent (full access)"
+                };
+                app.push_system(format!("Switched to {label} mode."));
+                app.status = format!("Mode: {to}");
+            }
+        }
+        "chat.mode_change" => {
+            let to = msg["data"]["to"].as_str().unwrap_or("agent");
+            if to != app.execution_mode {
+                app.execution_mode = to.to_string();
+                app.status = format!("Mode: {to}");
+            }
         }
         "chat.cancel" => {
             let cancelled = msg["data"]["cancelled"].as_bool().unwrap_or(false);

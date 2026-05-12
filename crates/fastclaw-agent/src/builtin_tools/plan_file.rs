@@ -22,6 +22,16 @@ const NOUNS: &[&str] = &[
     "quay", "rune", "silo", "thorn",
 ];
 
+/// Write to a temp file in the same directory, then rename for atomicity.
+fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, data).map_err(|e| format!("Failed to write temp file: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to rename temp file: {e}")
+    })
+}
+
 fn generate_slug() -> String {
     let mut rng = thread_rng();
     let adj = ADJECTIVES[rng.gen_range(0..ADJECTIVES.len())];
@@ -69,8 +79,22 @@ impl PlanFileStore {
     pub fn get_or_create_slug(&self, session_id: &str) -> String {
         self.slugs
             .entry(session_id.to_string())
-            .or_insert_with(generate_slug)
+            .or_insert_with(|| self.generate_unique_slug())
             .clone()
+    }
+
+    fn generate_unique_slug(&self) -> String {
+        let used: std::collections::HashSet<String> =
+            self.slugs.iter().map(|e| e.value().clone()).collect();
+        for _ in 0..10 {
+            let slug = generate_slug();
+            if !used.contains(&slug) {
+                return slug;
+            }
+        }
+        let base = generate_slug();
+        let mut rng = thread_rng();
+        format!("{base}-{}", rng.gen_range(100..999))
     }
 
     pub fn set_slug(&self, session_id: &str, slug: &str) {
@@ -96,7 +120,7 @@ impl PlanFileStore {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create plans directory: {e}"))?;
         }
-        std::fs::write(&path, content).map_err(|e| format!("Failed to write plan file: {e}"))?;
+        atomic_write(&path, content.as_bytes())?;
         let _ = self.save_index();
         Ok(path)
     }
@@ -127,9 +151,7 @@ impl PlanFileStore {
             .collect();
         let json = serde_json::to_string_pretty(&map)
             .map_err(|e| format!("Failed to serialize index: {e}"))?;
-        std::fs::write(self.index_path(), json)
-            .map_err(|e| format!("Failed to write index: {e}"))?;
-        Ok(())
+        atomic_write(&self.index_path(), json.as_bytes())
     }
 
     /// Load session-to-slug mapping from disk.

@@ -56,7 +56,7 @@ struct BuildPhase4 {
     ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
     mcp_status_init: std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>,
-    mode_state: fastclaw_agent::builtin_tools::ExecutionModeState,
+    session_modes: fastclaw_agent::builtin_tools::SessionModeRegistry,
 }
 
 struct BuildPhase2Memory {
@@ -377,10 +377,13 @@ impl StateBuilder {
             )));
         tracing::info!("registered ask_question + confirm tools");
 
-        let mode_state = fastclaw_agent::builtin_tools::ExecutionModeState::new();
+        let session_modes = fastclaw_agent::builtin_tools::SessionModeRegistry::new();
+        // Plan tools are registered with a default mode state; at runtime the
+        // task-local `CURRENT_SESSION_MODE` provides the per-session state.
+        let default_mode = fastclaw_agent::builtin_tools::ExecutionModeState::new();
         fastclaw_agent::builtin_tools::register_plan_mode_tools(
             &p3.tool_registry,
-            mode_state.clone(),
+            default_mode,
         );
         tracing::info!("registered plan mode tools (enter/exit_plan_mode)");
 
@@ -394,7 +397,7 @@ impl StateBuilder {
             ask_question_pending,
             mcp_status_init,
             mcp_handles_init,
-            mode_state,
+            session_modes,
         })
     }
 
@@ -655,7 +658,7 @@ impl StateBuilder {
                     pg.set_enabled(prompt_injection_enabled);
                     Arc::new(pg)
                 },
-                mode_state: p5.phase2.phase4.mode_state,
+                session_modes: p5.phase2.phase4.session_modes,
                 todo_store: p5.phase2.phase4.phase3.todo_store,
                 plan_file_store: fastclaw_agent::builtin_tools::PlanFileStore::default(),
             },

@@ -285,9 +285,10 @@ export async function submitToolAnswerIpc(
 
 export async function setExecutionModeIpc(
   mode: "agent" | "plan",
+  sessionId?: string,
 ): Promise<{ ok: boolean; from: string; to: string }> {
   if (isTauri) {
-    return tauriInvoke("set_execution_mode", { mode });
+    return tauriInvoke("set_execution_mode", { mode, sessionId });
   }
   return { ok: false, from: "", to: "" };
 }

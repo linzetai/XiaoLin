@@ -317,14 +317,15 @@ export function StreamFooter({
   const handleToggleMode = useCallback(async () => {
     if (streaming) return;
     const newMode = executionMode === "plan" ? "agent" : "plan";
-    const resp = await transport.setExecutionModeIpc(newMode);
+    const sessionId = activeChat?.backendId;
+    const resp = await transport.setExecutionModeIpc(newMode, sessionId ?? undefined);
     if (resp.ok) {
       const state = useAgentStore.getState();
       const agentId = state.activeAgentId;
       const chatId = state.agentChats[agentId]?.activeChatId ?? "";
       state.setChatExecutionMode(agentId, chatId, newMode);
     }
-  }, [streaming, executionMode]);
+  }, [streaming, executionMode, activeChat?.backendId]);
 
   const handlePlanSlash = useCallback(() => {
     if (streaming) return;

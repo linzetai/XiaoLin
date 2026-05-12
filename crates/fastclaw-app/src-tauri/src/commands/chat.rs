@@ -155,15 +155,19 @@ pub async fn chat_stream(
     let stream_request_id_for_task = stream_request_id.clone();
     let stream_cancel_map_for_task = state.stream_cancels.clone();
     let confirm_pending_for_task = app.strm.ask_question_pending.clone();
-    let mode_state_for_task = app.rt.mode_state.clone();
+    let mode_state_for_task = app.rt.session_modes.get_or_create(&session_id);
     let session_store_for_task = Some(app.store.session_store.clone());
     let todo_store_for_task = Some(app.rt.todo_store.clone());
 
     let task = tokio::spawn(async move {
+        let ms_clone = mode_state_for_task.clone();
         let result = tokio::select! {
             result = fastclaw_agent::builtin_tools::with_stream_context(
                 stream_context_key_for_task.clone(),
-                runtime.execute_stream_with_confirm(&agent_config, &enriched, &tool_reg, tx, llm_override, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task),
+                fastclaw_agent::builtin_tools::with_session_mode(
+                    ms_clone,
+                    runtime.execute_stream_with_confirm(&agent_config, &enriched, &tool_reg, tx, llm_override, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task),
+                ),
             ) => result,
             _ = &mut cancel_rx => Err(anyhow::anyhow!("cancelled")),
         };
@@ -743,6 +747,7 @@ pub async fn submit_tool_answer(
 pub async fn set_execution_mode(
     state: tauri::State<'_, AppData>,
     mode: String,
+    session_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use fastclaw_core::types::ExecutionMode;
 
@@ -752,9 +757,10 @@ pub async fn set_execution_mode(
         _ => return Err(format!("Invalid mode: {mode}. Expected 'plan' or 'agent'.")),
     };
 
+    let sid = session_id.as_deref().unwrap_or("default");
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
-    let (from, to) = app.rt.mode_state.transition(target);
+    let (from, to) = app.rt.session_modes.transition(sid, target);
     Ok(json!({
         "ok": true,
         "from": format!("{from}"),

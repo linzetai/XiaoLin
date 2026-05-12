@@ -300,7 +300,10 @@ async fn dispatch(
             chat::handle_chat_cancel(sender, id, req.params, active_chat_cancels.clone()).await
         }
         "chat.answer" => chat::handle_chat_answer(sender, state, id, req.params).await,
-        "chat.set_mode" => chat::handle_chat_set_mode(sender, state, id, req.params).await,
+        "chat.set_mode" => {
+            chat::handle_chat_set_mode(sender, state, id, req.params, &Some(bg_tx.clone()))
+                .await
+        }
         "sessions.list" => session::handle_sessions_list(sender, state, id, req.params).await,
         "sessions.get" => {
             session::handle_session_scoped(sender, state, owned_sessions, id, req.params, "get")

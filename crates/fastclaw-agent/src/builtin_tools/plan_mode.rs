@@ -3,12 +3,26 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use fastclaw_core::types::ExecutionMode;
-use serde::Deserialize;
 
 const MODE_AGENT: u8 = 0;
 const MODE_PLAN: u8 = 1;
+
+tokio::task_local! {
+    /// Per-session mode state set by the runtime before tool execution.
+    /// Plan mode tools read this to mutate the correct session's state.
+    static CURRENT_SESSION_MODE: ExecutionModeState;
+}
+
+/// Wrap a future so plan mode tools can access the session-specific mode state.
+pub async fn with_session_mode<F, T>(mode_state: ExecutionModeState, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    CURRENT_SESSION_MODE.scope(mode_state, fut).await
+}
 
 fn mode_from_u8(v: u8) -> ExecutionMode {
     if v == MODE_PLAN {
@@ -93,6 +107,61 @@ impl ExecutionModeState {
     }
 }
 
+// ─── SessionModeRegistry ─────────────────────────────────────────────
+
+/// Per-session execution mode registry.
+///
+/// Each chat session gets its own independent `ExecutionModeState`, so
+/// switching one session to Plan mode doesn't affect other sessions.
+#[derive(Debug, Clone)]
+pub struct SessionModeRegistry {
+    modes: Arc<DashMap<String, ExecutionModeState>>,
+}
+
+impl Default for SessionModeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SessionModeRegistry {
+    pub fn new() -> Self {
+        Self {
+            modes: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Get (or create) the mode state for a session.
+    pub fn get_or_create(&self, session_id: &str) -> ExecutionModeState {
+        self.modes
+            .entry(session_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Convenience: transition a session's mode directly.
+    pub fn transition(
+        &self,
+        session_id: &str,
+        target: ExecutionMode,
+    ) -> (ExecutionMode, ExecutionMode) {
+        self.get_or_create(session_id).transition(target)
+    }
+
+    /// Current mode for a session (defaults to Agent if unknown).
+    pub fn current_mode(&self, session_id: &str) -> ExecutionMode {
+        self.modes
+            .get(session_id)
+            .map(|ms| ms.current_mode())
+            .unwrap_or(ExecutionMode::Agent)
+    }
+
+    /// Remove a session's mode state (e.g. on session delete).
+    pub fn remove(&self, session_id: &str) {
+        self.modes.remove(session_id);
+    }
+}
+
 // ─── EnterPlanModeTool ───────────────────────────────────────────────
 
 /// Switches the agent to plan mode (read-only exploration).
@@ -171,7 +240,10 @@ impl Tool for EnterPlanModeTool {
     }
 
     async fn execute(&self, _arguments: &str) -> ToolResult {
-        let (from, _to) = self.mode_state.transition(ExecutionMode::Plan);
+        let ms = CURRENT_SESSION_MODE
+            .try_with(|s| s.clone())
+            .unwrap_or_else(|_| self.mode_state.clone());
+        let (from, _to) = ms.transition(ExecutionMode::Plan);
 
         if from == ExecutionMode::Plan {
             return ToolResult::ok("Already in plan mode.");
@@ -311,7 +383,10 @@ impl Tool for ExitPlanModeTool {
             }
         }
 
-        let (from, _to) = self.mode_state.transition(ExecutionMode::Agent);
+        let ms = CURRENT_SESSION_MODE
+            .try_with(|s| s.clone())
+            .unwrap_or_else(|_| self.mode_state.clone());
+        let (from, _to) = ms.transition(ExecutionMode::Agent);
 
         if from == ExecutionMode::Agent {
             return ToolResult::ok("Already in agent mode.");
@@ -335,147 +410,126 @@ impl Tool for ExitPlanModeTool {
     }
 }
 
-// ─── VerifyPlanExecutionTool ─────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
 
-#[allow(dead_code)]
-#[derive(Deserialize)]
-struct VerifyPlanArgs {
-    plan_summary: String,
-    all_steps_completed: bool,
-    #[serde(default)]
-    verification_notes: Option<String>,
-}
+    // ─── VerifyPlanExecutionTool (test-only, superseded by ExitPlanModeTool) ──
 
-/// Validates that a plan has been fully executed before exiting plan mode.
-///
-/// Superseded: verification logic is now merged into ExitPlanModeTool.
-/// Kept for backward compatibility in tests.
-#[allow(dead_code)]
-pub struct VerifyPlanExecutionTool {
-    mode_state: ExecutionModeState,
-}
-
-#[allow(dead_code)]
-impl VerifyPlanExecutionTool {
-    pub fn new(mode_state: ExecutionModeState) -> Self {
-        Self { mode_state }
-    }
-}
-
-#[async_trait]
-impl Tool for VerifyPlanExecutionTool {
-    fn kind(&self) -> ToolKind {
-        ToolKind::Think
+    #[derive(Deserialize)]
+    struct VerifyPlanArgs {
+        plan_summary: String,
+        all_steps_completed: bool,
+        #[serde(default)]
+        verification_notes: Option<String>,
     }
 
-    fn name(&self) -> &str {
-        "verify_plan_execution"
+    struct VerifyPlanExecutionTool {
+        mode_state: ExecutionModeState,
     }
 
-    fn description(&self) -> &str {
-        "Verify that a plan has been fully executed before exiting plan mode. \
-         Provide a summary, whether all steps are completed, and optional notes."
-    }
-
-    fn search_hint(&self) -> &str {
-        "verify plan execution check steps completed before exit"
-    }
-
-    fn is_deferred(&self) -> bool {
-        true
-    }
-
-    fn parameters_schema(&self) -> ToolParameterSchema {
-        let mut props = HashMap::new();
-        props.insert(
-            "plan_summary".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "A brief summary of the plan that was being executed."
-            }),
-        );
-        props.insert(
-            "all_steps_completed".to_string(),
-            serde_json::json!({
-                "type": "boolean",
-                "description": "Whether all planned steps have been completed."
-            }),
-        );
-        props.insert(
-            "verification_notes".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Optional notes about the verification (e.g. what was skipped or changed)."
-            }),
-        );
-        ToolParameterSchema {
-            schema_type: "object".to_string(),
-            properties: props,
-            required: vec![
-                "plan_summary".to_string(),
-                "all_steps_completed".to_string(),
-            ],
+    impl VerifyPlanExecutionTool {
+        fn new(mode_state: ExecutionModeState) -> Self {
+            Self { mode_state }
         }
     }
 
-    async fn execute(&self, arguments: &str) -> ToolResult {
-        let args: VerifyPlanArgs = match serde_json::from_str(arguments) {
-            Ok(v) => v,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Invalid arguments: {e}. Expected \
-                     {{\"plan_summary\": \"...\", \"all_steps_completed\": true/false, \
-                     \"verification_notes\": \"...\"}}"
-                ))
+    #[async_trait]
+    impl Tool for VerifyPlanExecutionTool {
+        fn kind(&self) -> ToolKind {
+            ToolKind::Think
+        }
+        fn name(&self) -> &str {
+            "verify_plan_execution"
+        }
+        fn description(&self) -> &str {
+            "Verify that a plan has been fully executed before exiting plan mode."
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            let mut props = HashMap::new();
+            props.insert(
+                "plan_summary".to_string(),
+                serde_json::json!({"type": "string"}),
+            );
+            props.insert(
+                "all_steps_completed".to_string(),
+                serde_json::json!({"type": "boolean"}),
+            );
+            props.insert(
+                "verification_notes".to_string(),
+                serde_json::json!({"type": "string"}),
+            );
+            ToolParameterSchema {
+                schema_type: "object".to_string(),
+                properties: props,
+                required: vec![
+                    "plan_summary".to_string(),
+                    "all_steps_completed".to_string(),
+                ],
             }
-        };
-
-        let current = self.mode_state.current_mode();
-        let mode_note = if current != ExecutionMode::Plan {
-            "\n\nNote: You are not currently in plan mode."
-        } else {
-            ""
-        };
-
-        if !args.all_steps_completed {
+        }
+        async fn execute(&self, arguments: &str) -> ToolResult {
+            let args: VerifyPlanArgs = match serde_json::from_str(arguments) {
+                Ok(v) => v,
+                Err(e) => return ToolResult::err(format!("Invalid arguments: {e}")),
+            };
+            let current = self.mode_state.current_mode();
+            let mode_note = if current != ExecutionMode::Plan {
+                "\n\nNote: You are not currently in plan mode."
+            } else {
+                ""
+            };
+            if !args.all_steps_completed {
+                let notes_section = args
+                    .verification_notes
+                    .as_deref()
+                    .filter(|n| !n.is_empty())
+                    .map(|n| format!("\n\nVerification notes: {n}"))
+                    .unwrap_or_default();
+                return ToolResult::ok(format!(
+                    "⚠ Plan verification: INCOMPLETE\n\nPlan: {}\n\n\
+                     Not all steps have been completed. Please review your plan \
+                     and complete the remaining steps before exiting plan mode.\
+                     {notes_section}{mode_note}",
+                    args.plan_summary
+                ));
+            }
             let notes_section = args
                 .verification_notes
                 .as_deref()
                 .filter(|n| !n.is_empty())
                 .map(|n| format!("\n\nVerification notes: {n}"))
                 .unwrap_or_default();
-
-            return ToolResult::ok(format!(
-                "⚠ Plan verification: INCOMPLETE\n\n\
-                 Plan: {summary}\n\n\
-                 Not all steps have been completed. Please review your plan \
-                 and complete the remaining steps before exiting plan mode.\
+            ToolResult::ok(format!(
+                "✓ Plan verification: COMPLETE\n\nPlan: {}\n\n\
+                 All steps have been completed. You may now safely call \
+                 exit_plan_mode to return to agent mode and begin implementation.\
                  {notes_section}{mode_note}",
-                summary = args.plan_summary
-            ));
+                args.plan_summary
+            ))
         }
-
-        let notes_section = args
-            .verification_notes
-            .as_deref()
-            .filter(|n| !n.is_empty())
-            .map(|n| format!("\n\nVerification notes: {n}"))
-            .unwrap_or_default();
-
-        ToolResult::ok(format!(
-            "✓ Plan verification: COMPLETE\n\n\
-             Plan: {summary}\n\n\
-             All steps have been completed. You may now safely call \
-             exit_plan_mode to return to agent mode and begin implementation.\
-             {notes_section}{mode_note}",
-            summary = args.plan_summary
-        ))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    // ─── SessionModeRegistry tests ───────────────────────────────────
+
+    #[test]
+    fn session_mode_registry_independent_sessions() {
+        let reg = SessionModeRegistry::new();
+        reg.transition("sess-1", ExecutionMode::Plan);
+        assert_eq!(reg.current_mode("sess-1"), ExecutionMode::Plan);
+        assert_eq!(reg.current_mode("sess-2"), ExecutionMode::Agent);
+    }
+
+    #[test]
+    fn session_mode_registry_remove() {
+        let reg = SessionModeRegistry::new();
+        reg.get_or_create("sess-1");
+        reg.remove("sess-1");
+        assert_eq!(reg.current_mode("sess-1"), ExecutionMode::Agent);
+    }
+
+    // ─── ExecutionModeState tests ────────────────────────────────────
 
     #[test]
     fn mode_state_default_is_agent() {
