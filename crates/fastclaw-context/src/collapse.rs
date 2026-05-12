@@ -193,8 +193,8 @@ pub struct CollapseEngineConfig {
 impl Default for CollapseEngineConfig {
     fn default() -> Self {
         Self {
-            async_threshold: 0.90,
-            blocking_threshold: 0.95,
+            async_threshold: 0.75,
+            blocking_threshold: 0.90,
             preserve_recent_rounds: 5,
             min_collapse_batch: 3,
         }
@@ -771,23 +771,30 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_mode_noop_below_90() {
+    fn evaluate_mode_noop_below_75() {
         let engine = CollapseEngine::new(CollapseEngineConfig::default());
-        let mode = engine.evaluate_mode(80_000, 100_000);
+        let mode = engine.evaluate_mode(70_000, 100_000);
         assert_eq!(mode, CollapseMode::NoOp);
     }
 
     #[test]
-    fn evaluate_mode_async_at_90() {
+    fn evaluate_mode_async_at_75() {
         let engine = CollapseEngine::new(CollapseEngineConfig::default());
-        let mode = engine.evaluate_mode(90_000, 100_000);
+        let mode = engine.evaluate_mode(75_000, 100_000);
         assert_eq!(mode, CollapseMode::Async);
     }
 
     #[test]
-    fn evaluate_mode_blocking_at_95() {
+    fn evaluate_mode_async_at_85() {
         let engine = CollapseEngine::new(CollapseEngineConfig::default());
-        let mode = engine.evaluate_mode(95_000, 100_000);
+        let mode = engine.evaluate_mode(85_000, 100_000);
+        assert_eq!(mode, CollapseMode::Async);
+    }
+
+    #[test]
+    fn evaluate_mode_blocking_at_90() {
+        let engine = CollapseEngine::new(CollapseEngineConfig::default());
+        let mode = engine.evaluate_mode(90_000, 100_000);
         assert_eq!(mode, CollapseMode::Blocking);
     }
 

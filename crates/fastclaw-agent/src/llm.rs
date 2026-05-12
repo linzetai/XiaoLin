@@ -69,8 +69,8 @@ impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
             connect_timeout_ms: 10000,
-            request_timeout_ms: 300000, // 5 minutes (was 2 minutes)
-            stream_timeout_ms: 600000, // 10 minutes for streaming
+            request_timeout_ms: 600000, // 10 minutes for complex multi-tool agent turns
+            stream_timeout_ms: 600000,  // 10 minutes for streaming
         }
     }
 }

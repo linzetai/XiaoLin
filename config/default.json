@@ -146,7 +146,7 @@
       "providerType": "openai_compatible",
       "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
       "defaultModel": "qwen3.5-plus",
-      "contextWindow": 131072,
+      "contextWindow": 1000000,
       "supportsVision": true,
       "supportsToolCalling": true,
       "supportsReasoning": true,

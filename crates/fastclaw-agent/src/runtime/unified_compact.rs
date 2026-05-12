@@ -210,16 +210,35 @@ pub(crate) async fn unified_pre_query_compact(
         session_memory::inject_session_memory(messages, mem);
     }
 
+    // Step 5.6: Periodic cleanup — for long-running tasks, proactively compress
+    // every PERIODIC_CLEANUP_INTERVAL iterations even if threshold isn't reached.
+    // This prevents unbounded context growth in large context windows (e.g., 1M).
+    const PERIODIC_CLEANUP_INTERVAL: usize = 15;
+    let iteration_count = iteration_boundaries.len();
+    let periodic_cleanup = iteration_count > 0
+        && iteration_count % PERIODIC_CLEANUP_INTERVAL == 0
+        && !force_compact;
+    if periodic_cleanup {
+        tracing::info!(
+            iteration = iteration_count,
+            "periodic context cleanup triggered (every {} iterations)",
+            PERIODIC_CLEANUP_INTERVAL,
+        );
+    }
+
     // Step 6: LLM-based compression
     // When force_compact is set (user ran /compact), bypass the circuit breaker
     // and use a context_window of 1 so the threshold is effectively 0 — this
     // guarantees compression triggers regardless of current token usage.
-    let compress_result = if force_compact || pipeline.should_attempt_autocompact() {
+    // periodic_cleanup uses a lowered threshold (0.25) to proactively compress.
+    let compress_result = if force_compact || periodic_cleanup || pipeline.should_attempt_autocompact() {
         let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
         let effective_window = if force_compact { 1 } else { context_window };
 
         let dynamic_threshold = if force_compact {
             0.0_f32
+        } else if periodic_cleanup {
+            0.25_f32
         } else if enable_smart_compression {
             let (sys_tok, tool_tok, conv_tok) = estimate_token_distribution(messages);
             let has_active_task = todo_store.map_or(false, |t| t.has_in_progress_items());

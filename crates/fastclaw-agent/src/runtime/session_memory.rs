@@ -50,7 +50,9 @@ const MIN_MESSAGES_FOR_EXTRACTION: usize = 10;
 /// Fraction of context window at which session memory extraction triggers.
 /// Set below the LLM compression threshold (0.50) so that session memory
 /// is extracted first, enabling more aggressive compression afterward.
-pub(crate) const SESSION_MEMORY_THRESHOLD: f32 = 0.40;
+/// Lowered from 0.40 to 0.30 to ensure extraction happens earlier for
+/// large context windows (e.g., 1M tokens for qwen3.5-plus).
+pub(crate) const SESSION_MEMORY_THRESHOLD: f32 = 0.30;
 
 /// Try to extract session memory from the conversation.
 ///

@@ -202,6 +202,9 @@ impl Tool for UnifiedMemoryTool {
          action 'store': persist a fact (subject/predicate/object) or episode (summary). \
          Use search for user preferences, prior decisions, project rules. \
          Use store for durable knowledge worth recalling across sessions. \
+         LONG TASK PROTOCOL: for tasks spanning 10+ turns, store a progress checkpoint every 5 turns \
+         (decisions made, files changed, current status, next steps). Before resuming after compression, \
+         search memory first to rebuild context. \
          Never store secrets (passwords, API keys, tokens)."
     }
 
