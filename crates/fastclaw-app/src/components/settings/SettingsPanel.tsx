@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Settings2, Box, Wrench, Server, Info, Search, Shield, Plug, X, RotateCcw, Puzzle } from "lucide-react";
+import { Settings2, Box, Wrench, Server, Info, Search, Shield, Plug, X, RotateCcw } from "lucide-react";
 
 const GeneralTab = lazy(() => import("./GeneralTab").then((m) => ({ default: m.GeneralTab })));
 const ModelTab = lazy(() => import("./ModelTab").then((m) => ({ default: m.ModelTab })));
@@ -10,14 +10,13 @@ const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m
 const GatewayTab = lazy(() => import("./GatewayTab").then((m) => ({ default: m.GatewayTab })));
 const AboutTab = lazy(() => import("./AboutTab").then((m) => ({ default: m.AboutTab })));
 const MigrationTab = lazy(() => import("./MigrationTab").then((m) => ({ default: m.MigrationTab })));
-const LlmPluginTab = lazy(() => import("./LlmPluginTab").then((m) => ({ default: m.LlmPluginTab })));
 
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
 }
 
-type SettingsTab = "general" | "models" | "web-search" | "skills" | "mcp" | "llm-plugins" | "security" | "gateway" | "about" | "migration";
+type SettingsTab = "general" | "models" | "web-search" | "skills" | "mcp" | "security" | "gateway" | "about" | "migration";
 
 const ICON_PROPS = { size: 16, strokeWidth: 1.5 } as const;
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -26,7 +25,6 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "web-search", label: "联网搜索", icon: <Search {...ICON_PROPS} /> },
   { id: "skills", label: "Skills", icon: <Wrench {...ICON_PROPS} /> },
   { id: "mcp", label: "MCP", icon: <Plug {...ICON_PROPS} /> },
-  { id: "llm-plugins", label: "LLM 插件", icon: <Puzzle {...ICON_PROPS} /> },
   { id: "security", label: "安全", icon: <Shield {...ICON_PROPS} /> },
   { id: "gateway", label: "网关", icon: <Server {...ICON_PROPS} /> },
   { id: "migration", label: "迁移", icon: <RotateCcw {...ICON_PROPS} /> },
@@ -49,16 +47,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
-      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.4)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }} onClick={onClose} />
+      <div className="absolute inset-0" style={{ background: "rgba(0, 0, 0, 0.3)" }} onClick={onClose} />
       <div
         className="relative flex overflow-hidden rounded-[var(--radius-xl)]"
         style={{
           width: "min(720px, calc(100vw - 64px))",
           height: "min(520px, calc(100vh - 80px))",
           background: "var(--bg-elevated)",
-          boxShadow: "var(--shadow-lg), inset 0 1px 0 var(--highlight-top)",
-          animation: "scale-spring var(--duration-normal) var(--ease-spring-subtle)",
-          border: `0.5px solid var(--border-subtle)`,
+          boxShadow: "var(--shadow-lg)",
+          animation: "scale-in var(--duration-normal) var(--ease-out)",
+          border: `0.5px solid var(--separator)`,
         }}
       >
         <div className="flex w-[160px] shrink-0 flex-col py-3" style={{ background: "var(--bg-secondary)", borderRight: `0.5px solid var(--separator)` }}>
@@ -67,12 +65,10 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className="mx-2 flex cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-[13px] font-medium transition-all duration-150 hover:bg-[var(--bg-hover)]"
+              className="mx-2 flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-xs)] px-3 py-2 text-left text-[13px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
               style={{
-                background: tab === t.id ? "var(--tint-bg)" : "transparent",
-                color: tab === t.id ? "var(--tint)" : "var(--fill-secondary)",
-                borderRadius: tab === t.id ? "0 6px 6px 0" : "6px",
-                borderLeft: tab === t.id ? "2.5px solid var(--tint)" : "2.5px solid transparent",
+                background: tab === t.id ? "var(--bg-active)" : "transparent",
+                color: tab === t.id ? "var(--fill-primary)" : "var(--fill-secondary)",
               }}
             >
               {t.icon}
@@ -91,18 +87,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <Suspense fallback={<div className="h-full" style={{ background: "var(--bg-elevated)" }} />}>
-              <div key={tab} style={{ animation: "tab-crossfade var(--duration-normal) var(--ease-out)" }}>
-                {tab === "general" && <GeneralTab />}
-                {tab === "models" && <ModelTab />}
-                {tab === "web-search" && <WebSearchTab />}
-                {tab === "skills" && <SkillsTab />}
-                {tab === "mcp" && <McpTab />}
-                {tab === "llm-plugins" && <LlmPluginTab />}
-                {tab === "security" && <SecurityTab />}
-                {tab === "gateway" && <GatewayTab />}
-                {tab === "migration" && <MigrationTab />}
-                {tab === "about" && <AboutTab />}
-              </div>
+              {tab === "general" && <GeneralTab />}
+              {tab === "models" && <ModelTab />}
+              {tab === "web-search" && <WebSearchTab />}
+              {tab === "skills" && <SkillsTab />}
+              {tab === "mcp" && <McpTab />}
+              {tab === "security" && <SecurityTab />}
+              {tab === "gateway" && <GatewayTab />}
+              {tab === "migration" && <MigrationTab />}
+              {tab === "about" && <AboutTab />}
             </Suspense>
           </div>
         </div>
