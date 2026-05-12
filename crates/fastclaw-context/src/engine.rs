@@ -110,9 +110,7 @@ const DEFAULT_CHARS_PER_TOKEN: usize = 4;
 
 fn estimate_message_tokens(msg: &ChatMessage, chars_per_token: usize) -> usize {
     let content_len = msg.content.as_ref().map_or(0, |c| {
-        serde_json::to_string(c)
-            .map(|s| s.len())
-            .unwrap_or(0)
+        serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
     });
     let tool_len = msg.tool_calls.as_ref().map_or(0, |tc| {
         tc.iter()
@@ -535,12 +533,15 @@ pub struct SandboxAwarenessHook {
 
 impl SandboxAwarenessHook {
     pub fn new(sandboxed: bool, sandbox_type: Option<String>) -> Self {
-        Self { sandboxed, sandbox_type }
+        Self {
+            sandboxed,
+            sandbox_type,
+        }
     }
 
     pub fn detect() -> Self {
-        let is_sandboxed = std::env::var("FASTCLAW_SANDBOX").is_ok()
-            || std::env::var("SANDBOX").is_ok();
+        let is_sandboxed =
+            std::env::var("FASTCLAW_SANDBOX").is_ok() || std::env::var("SANDBOX").is_ok();
         let sandbox_type = std::env::var("FASTCLAW_SANDBOX")
             .or_else(|_| std::env::var("SANDBOX"))
             .ok();
@@ -580,7 +581,10 @@ impl ContextHook for SandboxAwarenessHook {
                 .to_string()
         };
 
-        if let Some(sys_msg) = messages.first_mut().filter(|m| matches!(m.role, Role::System)) {
+        if let Some(sys_msg) = messages
+            .first_mut()
+            .filter(|m| matches!(m.role, Role::System))
+        {
             if let Some(serde_json::Value::String(ref mut text)) = sys_msg.content {
                 text.push_str("\n\n");
                 text.push_str(&awareness_text);
@@ -1150,7 +1154,9 @@ impl ContextEngine {
         if !conversation.is_empty() && kept.len() < conversation.len() {
             final_msgs.push(ChatMessage {
                 role: Role::System,
-                content: Some("[Earlier conversation history was truncated to fit context window]".into()),
+                content: Some(
+                    "[Earlier conversation history was truncated to fit context window]".into(),
+                ),
                 reasoning_content: None,
                 name: None,
                 tool_calls: None,
@@ -1183,7 +1189,7 @@ impl ContextEngine {
     /// Remaining system messages are sorted by size and truncated from
     /// largest first, capping each at a progressively smaller per-message
     /// allowance until the total fits.
-    fn truncate_system_messages(messages: &mut Vec<ChatMessage>, budget: usize) {
+    fn truncate_system_messages(messages: &mut [ChatMessage], budget: usize) {
         let sys_indices: Vec<usize> = messages
             .iter()
             .enumerate()
@@ -1197,7 +1203,9 @@ impl ContextEngine {
 
         let sys_total: usize = sys_indices
             .iter()
-            .map(|&i| crate::compressor::estimate_messages_tokens(std::slice::from_ref(&messages[i])))
+            .map(|&i| {
+                crate::compressor::estimate_messages_tokens(std::slice::from_ref(&messages[i]))
+            })
             .sum();
         let non_sys_total: usize = messages
             .iter()
@@ -1219,9 +1227,9 @@ impl ContextEngine {
         );
 
         let sys_budget = budget.saturating_sub(non_sys_total);
-        let first_sys_tokens = crate::compressor::estimate_messages_tokens(
-            std::slice::from_ref(&messages[sys_indices[0]]),
-        );
+        let first_sys_tokens = crate::compressor::estimate_messages_tokens(std::slice::from_ref(
+            &messages[sys_indices[0]],
+        ));
         let remaining_budget = sys_budget.saturating_sub(first_sys_tokens);
         let truncatable_count = sys_indices.len() - 1;
         if truncatable_count == 0 {
@@ -1467,9 +1475,7 @@ mod tests {
     async fn system_reminder_injected_every_n_user_turns() {
         let mut engine = ContextEngine::new(10_000);
         engine.add_hook(Arc::new(SystemReminderHook::new(3)));
-        let mut msgs: Vec<ChatMessage> = (0..9)
-            .map(|i| user(&format!("u{i}")))
-            .collect();
+        let mut msgs: Vec<ChatMessage> = (0..9).map(|i| user(&format!("u{i}"))).collect();
         engine.process(&mut msgs).await.unwrap();
         let reminders = msgs
             .iter()
@@ -1605,7 +1611,11 @@ mod tests {
         };
         let mut msgs = vec![user("run it"), asst_with_tool];
         hook.on_assemble(&mut msgs).await.unwrap();
-        assert_eq!(msgs.len(), 2, "assistant with tool_calls must not be dropped");
+        assert_eq!(
+            msgs.len(),
+            2,
+            "assistant with tool_calls must not be dropped"
+        );
     }
 
     // ── fit_to_context_window tests ──────────────────────────────────
@@ -1647,10 +1657,16 @@ mod tests {
             est <= window as usize,
             "estimated {est} should be <= context_window {window} after phase 4"
         );
-        let sys_msgs: Vec<_> = msgs.iter().filter(|m| matches!(m.role, Role::System)).collect();
+        let sys_msgs: Vec<_> = msgs
+            .iter()
+            .filter(|m| matches!(m.role, Role::System))
+            .collect();
         assert!(sys_msgs.len() >= 2, "should still have system messages");
         let first_sys = sys_msgs[0].text_content().unwrap();
-        assert_eq!(first_sys, "primary persona prompt", "first system msg preserved");
+        assert_eq!(
+            first_sys, "primary persona prompt",
+            "first system msg preserved"
+        );
         for s in &sys_msgs[1..] {
             let text = s.text_content().unwrap_or_default();
             if text.contains("truncated to fit context window") {
@@ -1670,7 +1686,10 @@ mod tests {
 
         let window = 2_000u32;
         ContextEngine::fit_to_context_window(&mut msgs, window, Some(200));
-        let sys_msgs: Vec<_> = msgs.iter().filter(|m| matches!(m.role, Role::System)).collect();
+        let sys_msgs: Vec<_> = msgs
+            .iter()
+            .filter(|m| matches!(m.role, Role::System))
+            .collect();
         assert!(!sys_msgs.is_empty());
         let first_text = sys_msgs[0].text_content().unwrap();
         assert!(

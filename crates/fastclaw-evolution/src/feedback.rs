@@ -149,11 +149,10 @@ impl FeedbackStore {
 
     /// Count total feedback entries for an agent (uncapped).
     pub async fn count(&self, agent_id: &str) -> Result<i64> {
-        let (count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM feedback WHERE agent_id = ?")
-                .bind(agent_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM feedback WHERE agent_id = ?")
+            .bind(agent_id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 

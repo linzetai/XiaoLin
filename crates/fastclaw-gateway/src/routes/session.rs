@@ -62,7 +62,11 @@ pub(super) async fn delete_session(
     Path(session_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     ensure_session_http_auth(&auth)?;
-    let deleted = state.store.session_store.delete_session(&session_id).await?;
+    let deleted = state
+        .store
+        .session_store
+        .delete_session(&session_id)
+        .await?;
     if deleted {
         Ok(Json(json!({ "deleted": true })))
     } else {

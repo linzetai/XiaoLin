@@ -217,10 +217,7 @@ mod tests {
             assert_eq!(options[1].id, "deny");
             assert!(!allow_multiple);
 
-            let tx = pending
-                .remove(&request_id)
-                .map(|(_k, v)| v)
-                .unwrap();
+            let tx = pending.remove(&request_id).map(|(_k, v)| v).unwrap();
             tx.send("allow".to_string()).unwrap();
         } else {
             panic!("expected AskQuestion event");
@@ -247,10 +244,7 @@ mod tests {
 
         let event = rx.recv().await.unwrap();
         if let StreamEvent::AskQuestion { request_id, .. } = event {
-            let tx = pending
-                .remove(&request_id)
-                .map(|(_k, v)| v)
-                .unwrap();
+            let tx = pending.remove(&request_id).map(|(_k, v)| v).unwrap();
             tx.send("deny".to_string()).unwrap();
         }
 

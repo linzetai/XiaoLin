@@ -114,7 +114,10 @@ impl Tool for SetIdentityTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("file".to_string(), json!({"type": "string", "enum": ["soul", "user", "agents", "tools"]}));
+        props.insert(
+            "file".to_string(),
+            json!({"type": "string", "enum": ["soul", "user", "agents", "tools"]}),
+        );
         props.insert("content".to_string(), json!({"type": "string"}));
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -131,7 +134,11 @@ impl Tool for SetIdentityTool {
 
         let file = match args.get("file").and_then(|v| v.as_str()) {
             Some(f) => f,
-            None => return ToolResult::err("set_identity requires 'file': soul, user, agents, or tools.".to_string()),
+            None => {
+                return ToolResult::err(
+                    "set_identity requires 'file': soul, user, agents, or tools.".to_string(),
+                )
+            }
         };
         let content = match args.get("content").and_then(|v| v.as_str()) {
             Some(c) => c,
@@ -143,7 +150,11 @@ impl Tool for SetIdentityTool {
             "user" => "USER.md",
             "agents" => "AGENTS.md",
             "tools" => "TOOLS.md",
-            other => return ToolResult::err(format!("Unknown file '{other}'. Use soul, user, agents, or tools.")),
+            other => {
+                return ToolResult::err(format!(
+                    "Unknown file '{other}'. Use soul, user, agents, or tools."
+                ))
+            }
         };
 
         match self.workspace.write_file(filename, content) {
@@ -174,7 +185,9 @@ impl UnifiedIdentityTool {
 
 #[async_trait]
 impl Tool for UnifiedIdentityTool {
-    fn name(&self) -> &str { "identity" }
+    fn name(&self) -> &str {
+        "identity"
+    }
 
     fn description(&self) -> &str {
         "Read or write agent identity files (SOUL.md, USER.md, AGENTS.md, TOOLS.md). \
@@ -186,20 +199,29 @@ impl Tool for UnifiedIdentityTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("action".to_string(), json!({
-            "type": "string",
-            "enum": ["get", "set"],
-            "description": "get: read identity files; set: overwrite one identity file."
-        }));
-        props.insert("file".to_string(), json!({
-            "type": "string",
-            "enum": ["soul", "user", "agents", "tools", "all"],
-            "description": "Which file. 'all' only valid for get."
-        }));
-        props.insert("content".to_string(), json!({
-            "type": "string",
-            "description": "Full replacement Markdown (required for set)."
-        }));
+        props.insert(
+            "action".to_string(),
+            json!({
+                "type": "string",
+                "enum": ["get", "set"],
+                "description": "get: read identity files; set: overwrite one identity file."
+            }),
+        );
+        props.insert(
+            "file".to_string(),
+            json!({
+                "type": "string",
+                "enum": ["soul", "user", "agents", "tools", "all"],
+                "description": "Which file. 'all' only valid for get."
+            }),
+        );
+        props.insert(
+            "content".to_string(),
+            json!({
+                "type": "string",
+                "description": "Full replacement Markdown (required for set)."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -215,16 +237,22 @@ impl Tool for UnifiedIdentityTool {
 
         let action = match args.get("action").and_then(|v| v.as_str()) {
             Some(a) => a,
-            None => return ToolResult::err("identity requires 'action': 'get' or 'set'.".to_string()),
+            None => {
+                return ToolResult::err("identity requires 'action': 'get' or 'set'.".to_string())
+            }
         };
 
         match action {
             "get" => {
-                let inner = json!({"file": args.get("file").and_then(|v| v.as_str()).unwrap_or("all")}).to_string();
+                let inner =
+                    json!({"file": args.get("file").and_then(|v| v.as_str()).unwrap_or("all")})
+                        .to_string();
                 self.get.execute(&inner).await
             }
             "set" => self.set.execute(arguments).await,
-            other => ToolResult::err(format!("identity: unknown action '{other}'. Use 'get' or 'set'.")),
+            other => ToolResult::err(format!(
+                "identity: unknown action '{other}'. Use 'get' or 'set'."
+            )),
         }
     }
 }

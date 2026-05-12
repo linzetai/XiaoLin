@@ -150,7 +150,8 @@ impl Tool for EnterPlanModeTool {
 2. Read relevant code, search for patterns, check tests\n\
 3. Propose approach to user with trade-offs\n\
 4. Exit plan mode when ready to implement\n\
-5. Execute the agreed-upon plan in agent mode".to_string()
+5. Execute the agreed-upon plan in agent mode"
+            .to_string()
     }
 
     fn search_hint(&self) -> &str {
@@ -236,7 +237,8 @@ impl Tool for ExitPlanModeTool {
 ## Anti-Patterns\n\
 - Don't exit plan mode just because you're impatient\n\
 - Don't exit without a clear direction\n\
-- Don't ask the user 'should I exit plan mode?' — just do it when ready".to_string()
+- Don't ask the user 'should I exit plan mode?' — just do it when ready"
+            .to_string()
     }
 
     fn search_hint(&self) -> &str {
@@ -321,9 +323,7 @@ impl Tool for ExitPlanModeTool {
             } else {
                 format!("\nVerification notes: {notes}")
             };
-            format!(
-                "\n✓ Plan verified: {summary}{notes_part}"
-            )
+            format!("\n✓ Plan verified: {summary}{notes_part}")
         } else {
             String::new()
         };
@@ -411,7 +411,10 @@ impl Tool for VerifyPlanExecutionTool {
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
-            required: vec!["plan_summary".to_string(), "all_steps_completed".to_string()],
+            required: vec![
+                "plan_summary".to_string(),
+                "all_steps_completed".to_string(),
+            ],
         }
     }
 
@@ -447,8 +450,8 @@ impl Tool for VerifyPlanExecutionTool {
                  Plan: {summary}\n\n\
                  Not all steps have been completed. Please review your plan \
                  and complete the remaining steps before exiting plan mode.\
-                 {notes_section}{mode_note}"
-                , summary = args.plan_summary
+                 {notes_section}{mode_note}",
+                summary = args.plan_summary
             ));
         }
 
@@ -464,8 +467,8 @@ impl Tool for VerifyPlanExecutionTool {
              Plan: {summary}\n\n\
              All steps have been completed. You may now safely call \
              exit_plan_mode to return to agent mode and begin implementation.\
-             {notes_section}{mode_note}"
-            , summary = args.plan_summary
+             {notes_section}{mode_note}",
+            summary = args.plan_summary
         ))
     }
 }

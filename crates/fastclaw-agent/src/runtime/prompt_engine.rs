@@ -61,10 +61,7 @@ pub struct PromptEngine {
 }
 
 impl PromptEngine {
-    pub fn new(
-        static_sections: Vec<PromptSection>,
-        dynamic_sections: Vec<PromptSection>,
-    ) -> Self {
+    pub fn new(static_sections: Vec<PromptSection>, dynamic_sections: Vec<PromptSection>) -> Self {
         Self {
             static_sections,
             dynamic_sections,
@@ -195,7 +192,6 @@ mod tests {
             pending_todo_summary: None,
         }
     }
-
 
     #[test]
     fn build_system_prompt_order() {
@@ -339,8 +335,7 @@ mod tests {
         let engine = PromptEngine::new(vec![], vec![]);
         let ctx = make_ctx();
 
-        let result =
-            engine.build_effective_prompt(&ctx, None, Some("AGENT"), Some("CUSTOM"), None);
+        let result = engine.build_effective_prompt(&ctx, None, Some("AGENT"), Some("CUSTOM"), None);
         assert_eq!(result, vec!["AGENT"]);
     }
 
@@ -372,8 +367,7 @@ mod tests {
         );
         let ctx = make_ctx();
 
-        let result =
-            engine.build_effective_prompt(&ctx, None, None, None, Some("SUBAGENT_BLOCK"));
+        let result = engine.build_effective_prompt(&ctx, None, None, None, Some("SUBAGENT_BLOCK"));
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], "BASE");
         assert_eq!(result[1], DYNAMIC_BOUNDARY);
@@ -429,13 +423,13 @@ mod tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::runtime::prompt_sections::{
-        actions_section, doing_tasks_section, intro_section, output_efficiency_section,
-        system_section, tone_and_style_section, using_tools_section,
-    };
     use crate::runtime::prompt_sections::dynamic::{
         environment_section, frc_section, language_section, mcp_instructions_section,
         memory_section, session_guidance_section, token_budget_section,
+    };
+    use crate::runtime::prompt_sections::{
+        actions_section, doing_tasks_section, intro_section, output_efficiency_section,
+        system_section, tone_and_style_section, using_tools_section,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -497,9 +491,18 @@ mod integration_tests {
     }
 
     const FULL_TOOLS: &[&str] = &[
-        "read_file", "write_file", "edit_file", "shell_exec",
-        "search_in_files", "glob", "list_directory", "tool_search",
-        "todo_write", "ask_question", "memory_store", "memory_search",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "shell_exec",
+        "search_in_files",
+        "glob",
+        "list_directory",
+        "tool_search",
+        "todo_write",
+        "ask_question",
+        "memory_store",
+        "memory_search",
     ];
 
     // ── 1. Plan mode prompt contains readonly restriction ──
@@ -530,12 +533,27 @@ mod integration_tests {
         let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
         let joined = prompt.join("\n");
 
-        assert!(joined.contains("using_tools"), "must include using_tools section");
-        assert!(joined.contains("Decision Tree"), "must include tool decision tree");
-        assert!(joined.contains("`read_file`"), "must reference actual tool names");
+        assert!(
+            joined.contains("using_tools"),
+            "must include using_tools section"
+        );
+        assert!(
+            joined.contains("Decision Tree"),
+            "must include tool decision tree"
+        );
+        assert!(
+            joined.contains("`read_file`"),
+            "must reference actual tool names"
+        );
         assert!(joined.contains("`edit_file`"), "must reference edit_file");
-        assert!(joined.contains("Anti-Patterns"), "must include anti-patterns");
-        assert!(!joined.contains("Plan Mode"), "Agent mode must not include Plan mode block");
+        assert!(
+            joined.contains("Anti-Patterns"),
+            "must include anti-patterns"
+        );
+        assert!(
+            !joined.contains("Plan Mode"),
+            "Agent mode must not include Plan mode block"
+        );
     }
 
     // ── 3. Different enabled_tools produce different session_guidance ──
@@ -545,11 +563,13 @@ mod integration_tests {
         let engine = default_engine();
 
         let ctx_with_subagent = full_ctx(ExecutionMode::Agent, &["task_create", "read_file"], None);
-        let ctx_without_subagent = full_ctx(ExecutionMode::Agent, &["read_file", "edit_file"], None);
+        let ctx_without_subagent =
+            full_ctx(ExecutionMode::Agent, &["read_file", "edit_file"], None);
 
         let prompt_with = engine.build_effective_prompt(&ctx_with_subagent, None, None, None, None);
         engine.clear_cache();
-        let prompt_without = engine.build_effective_prompt(&ctx_without_subagent, None, None, None, None);
+        let prompt_without =
+            engine.build_effective_prompt(&ctx_without_subagent, None, None, None, None);
 
         let joined_with = prompt_with.join("\n");
         let joined_without = prompt_without.join("\n");
@@ -562,7 +582,10 @@ mod integration_tests {
             !joined_without.contains("Sub-Agent"),
             "without task_create should not have sub-agent guidance"
         );
-        assert_ne!(joined_with, joined_without, "different tools must produce different prompts");
+        assert_ne!(
+            joined_with, joined_without,
+            "different tools must produce different prompts"
+        );
     }
 
     // ── 4. language_preference='Chinese' produces language section ──
@@ -622,7 +645,11 @@ mod integration_tests {
         let p2 = engine.build_system_prompt(&ctx);
         let p3 = engine.build_system_prompt(&ctx);
 
-        assert_eq!(counter.load(Ordering::SeqCst), 3, "MCP must recompute every call");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            3,
+            "MCP must recompute every call"
+        );
         assert!(p1.iter().any(|s| s.contains("MCP call #1")));
         assert!(p2.iter().any(|s| s.contains("MCP call #2")));
         assert!(p3.iter().any(|s| s.contains("MCP call #3")));
@@ -657,16 +684,14 @@ mod integration_tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
         let engine = PromptEngine::new(
-            vec![
-                PromptSection {
-                    name: "static_counted",
-                    compute: Box::new(move |_| {
-                        c.fetch_add(1, Ordering::SeqCst);
-                        Some("STATIC".into())
-                    }),
-                    cache_break: false,
-                },
-            ],
+            vec![PromptSection {
+                name: "static_counted",
+                compute: Box::new(move |_| {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Some("STATIC".into())
+                }),
+                cache_break: false,
+            }],
             vec![],
         );
         let ctx = full_ctx(ExecutionMode::Agent, &["read_file"], None);
@@ -679,11 +704,19 @@ mod integration_tests {
 
         engine.clear_cache();
         engine.build_system_prompt(&ctx);
-        assert_eq!(counter.load(Ordering::SeqCst), 2, "clear_cache forced recompute");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "clear_cache forced recompute"
+        );
 
         engine.clear_cache();
         engine.build_system_prompt(&ctx);
-        assert_eq!(counter.load(Ordering::SeqCst), 3, "clear_cache works repeatedly");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            3,
+            "clear_cache works repeatedly"
+        );
     }
 
     // ── 7. override_prompt overrides all other sections ──
@@ -726,13 +759,8 @@ mod integration_tests {
         let engine = default_engine();
         let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
 
-        let result = engine.build_effective_prompt(
-            &ctx,
-            None,
-            None,
-            None,
-            Some("SUBAGENT BLOCK APPENDED"),
-        );
+        let result =
+            engine.build_effective_prompt(&ctx, None, None, None, Some("SUBAGENT BLOCK APPENDED"));
 
         let last = result.last().unwrap();
         assert_eq!(last, "SUBAGENT BLOCK APPENDED");
@@ -749,7 +777,10 @@ mod integration_tests {
         let joined = prompt.join("\n");
 
         assert!(joined.contains("FastClaw"), "intro section must be present");
-        assert!(joined.contains("security"), "security directives must be present");
+        assert!(
+            joined.contains("security"),
+            "security directives must be present"
+        );
         assert!(
             joined.contains("system_communication") || joined.contains("auto_compression"),
             "system section must be present"
@@ -774,9 +805,18 @@ mod integration_tests {
             joined.contains("output_efficiency") || joined.contains("沟通规范"),
             "output_efficiency section must be present"
         );
-        assert!(joined.contains("environment"), "environment section must be present");
-        assert!(joined.contains("session_guidance"), "session_guidance must be present");
-        assert!(joined.contains("language_preference"), "language section must be present");
+        assert!(
+            joined.contains("environment"),
+            "environment section must be present"
+        );
+        assert!(
+            joined.contains("session_guidance"),
+            "session_guidance must be present"
+        );
+        assert!(
+            joined.contains("language_preference"),
+            "language section must be present"
+        );
         assert!(
             joined.contains("function_result_clearing") || joined.contains("工具调用结果"),
             "frc section must be present"
@@ -793,7 +833,9 @@ mod integration_tests {
         let ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
         let prompt = engine.build_system_prompt(&ctx);
 
-        let boundary_idx = prompt.iter().position(|s| s == DYNAMIC_BOUNDARY)
+        let boundary_idx = prompt
+            .iter()
+            .position(|s| s == DYNAMIC_BOUNDARY)
             .expect("boundary must exist");
 
         for part in &prompt[..boundary_idx] {

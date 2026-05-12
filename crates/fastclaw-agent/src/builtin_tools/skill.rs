@@ -120,12 +120,14 @@ impl Tool for ReadSkillTool {
 
         let skill_id = match args.get("skill_id").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "read_skill is missing required string field 'skill_id'. \
+            None => {
+                return ToolResult::err(
+                    "read_skill is missing required string field 'skill_id'. \
                  Example: {\"skill_id\": \"greeting\"}. \
                  Call list_skills first if you do not know valid ids."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         match self.registry.get(skill_id) {
@@ -216,12 +218,14 @@ impl Tool for WriteSkillTool {
 
         let skill_id = match args.get("skill_id").and_then(|v| v.as_str()) {
             Some(s) if !s.is_empty() => s,
-            _ => return ToolResult::err(
-                "write_skill is missing or empty required string field 'skill_id'. \
+            _ => {
+                return ToolResult::err(
+                    "write_skill is missing or empty required string field 'skill_id'. \
                  Example: {\"skill_id\": \"my-checklist\", \"content\": \"# My Skill\\n...\"}. \
                  Pick a stable id; it becomes the on-disk folder name under skills/."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let content = match args.get("content").and_then(|v| v.as_str()) {
@@ -271,7 +275,10 @@ pub struct UnifiedSkillTool {
 }
 
 impl UnifiedSkillTool {
-    pub fn new(registry: Arc<fastclaw_core::skill::SkillRegistry>, workspace: Option<Arc<AgentWorkspace>>) -> Self {
+    pub fn new(
+        registry: Arc<fastclaw_core::skill::SkillRegistry>,
+        workspace: Option<Arc<AgentWorkspace>>,
+    ) -> Self {
         Self {
             list: ListSkillsTool::new(registry.clone()),
             read: ReadSkillTool::new(registry),
@@ -290,7 +297,9 @@ impl UnifiedSkillTool {
 
 #[async_trait]
 impl Tool for UnifiedSkillTool {
-    fn name(&self) -> &str { "skill" }
+    fn name(&self) -> &str {
+        "skill"
+    }
 
     fn description(&self) -> &str {
         "Manage agent skills: list available skills, read a skill's full content, or write/update a skill. \
@@ -305,19 +314,28 @@ impl Tool for UnifiedSkillTool {
             "enum": ["list", "read", "write"],
             "description": "list: return all enabled skills; read: fetch one skill by id; write: create/overwrite a SKILL.md."
         }));
-        props.insert("skill_id".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Required for read and write. Copy exactly from list output."
-        }));
-        props.insert("content".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Required for write. Full SKILL.md content (use \\n for newlines)."
-        }));
-        props.insert("target".to_string(), serde_json::json!({
-            "type": "string",
-            "enum": ["workspace", "global"],
-            "description": "For write only. 'workspace' (default) or 'global'."
-        }));
+        props.insert(
+            "skill_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Required for read and write. Copy exactly from list output."
+            }),
+        );
+        props.insert(
+            "content".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Required for write. Full SKILL.md content (use \\n for newlines)."
+            }),
+        );
+        props.insert(
+            "target".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["workspace", "global"],
+                "description": "For write only. 'workspace' (default) or 'global'."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -333,9 +351,11 @@ impl Tool for UnifiedSkillTool {
 
         let action = match args.get("action").and_then(|v| v.as_str()) {
             Some(a) => a,
-            None => return ToolResult::err(
-                "skill requires 'action': 'list', 'read', or 'write'.".to_string()
-            ),
+            None => {
+                return ToolResult::err(
+                    "skill requires 'action': 'list', 'read', or 'write'.".to_string(),
+                )
+            }
         };
 
         match action {
@@ -343,17 +363,16 @@ impl Tool for UnifiedSkillTool {
             "read" => {
                 let inner = serde_json::json!({
                     "skill_id": args.get("skill_id")
-                }).to_string();
+                })
+                .to_string();
                 self.read.execute(&inner).await
             }
-            "write" => {
-                match &self.write {
-                    Some(w) => w.execute(arguments).await,
-                    None => ToolResult::err(
-                        "skill write is not available in read-only mode.".to_string()
-                    ),
+            "write" => match &self.write {
+                Some(w) => w.execute(arguments).await,
+                None => {
+                    ToolResult::err("skill write is not available in read-only mode.".to_string())
                 }
-            }
+            },
             other => ToolResult::err(format!(
                 "skill: unknown action '{other}'. Use 'list', 'read', or 'write'."
             )),
@@ -499,7 +518,10 @@ impl SearchSkillTool {
             .filter(|s| s.frontmatter.enabled.unwrap_or(true))
             .filter(|s| {
                 if let Some(tag) = tag_filter {
-                    s.frontmatter.tags.iter().any(|t| t.eq_ignore_ascii_case(tag))
+                    s.frontmatter
+                        .tags
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(tag))
                 } else {
                     true
                 }
@@ -519,7 +541,11 @@ impl SearchSkillTool {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(10);
         results
     }
@@ -548,7 +574,12 @@ fn compute_relevance(keywords: &[&str], skill: &fastclaw_core::skill::SkillEntry
         if desc_lower.contains(kw) {
             score += 2.0;
         }
-        if skill.frontmatter.tags.iter().any(|t: &String| t.to_lowercase().contains(kw)) {
+        if skill
+            .frontmatter
+            .tags
+            .iter()
+            .any(|t: &String| t.to_lowercase().contains(kw))
+        {
             score += 2.5;
         }
         if content_lower.contains(kw) {
@@ -603,10 +634,13 @@ impl Tool for SearchSkillTool {
 
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q,
-            _ => return ToolResult::err(
-                "search_skills requires a non-empty 'query' string. \
-                 Example: {\"query\": \"deploy\"}".to_string()
-            ),
+            _ => {
+                return ToolResult::err(
+                    "search_skills requires a non-empty 'query' string. \
+                 Example: {\"query\": \"deploy\"}"
+                        .to_string(),
+                )
+            }
         };
         let tag = args.get("tag").and_then(|v| v.as_str());
 
@@ -810,7 +844,11 @@ mod skill_tool_tests {
 
         let defs = tool_reg.definitions();
         let names: Vec<&str> = defs.iter().map(|d| d.function.name.as_str()).collect();
-        assert!(names.contains(&"skill"), "should register unified 'skill' tool, got: {:?}", names);
+        assert!(
+            names.contains(&"skill"),
+            "should register unified 'skill' tool, got: {:?}",
+            names
+        );
     }
 
     #[test]
@@ -827,7 +865,11 @@ mod skill_tool_tests {
 
         let defs = tool_reg.definitions();
         let names: Vec<&str> = defs.iter().map(|d| d.function.name.as_str()).collect();
-        assert!(names.contains(&"skill"), "should register unified 'skill' tool, got: {:?}", names);
+        assert!(
+            names.contains(&"skill"),
+            "should register unified 'skill' tool, got: {:?}",
+            names
+        );
     }
 
     // ── WriteSkillTool ─────────────────────────────────────────────
@@ -933,7 +975,10 @@ mod skill_tool_tests {
         };
         let keywords = vec!["deploy"];
         let score = compute_relevance(&keywords, &skill);
-        assert!(score >= 6.0, "name + desc + content should score high: {score}");
+        assert!(
+            score >= 6.0,
+            "name + desc + content should score high: {score}"
+        );
     }
 
     #[test]

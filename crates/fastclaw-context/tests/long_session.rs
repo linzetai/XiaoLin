@@ -72,8 +72,7 @@ fn long_session_200_turns_stays_within_context_window() {
         "200 turns should exceed context window before compaction (raw={raw_tokens})"
     );
 
-    let final_tokens =
-        ContextEngine::fit_to_context_window(&mut messages, CONTEXT_WINDOW, None);
+    let final_tokens = ContextEngine::fit_to_context_window(&mut messages, CONTEXT_WINDOW, None);
 
     let budget = CONTEXT_WINDOW - CONTEXT_WINDOW / 4;
     assert!(
@@ -123,7 +122,7 @@ fn long_session_preserves_system_message() {
         m.content
             .as_ref()
             .and_then(|c| c.as_str())
-            .map_or(false, |s| s.contains("CRITICAL: You are a security auditor"))
+            .is_some_and(|s| s.contains("CRITICAL: You are a security auditor"))
     });
     assert!(
         has_original_system,
@@ -150,16 +149,14 @@ fn long_session_preserves_recent_turns() {
             && m.content
                 .as_ref()
                 .and_then(|c| c.as_str())
-                .map_or(false, |s| s == last_user_content)
+                .is_some_and(|s| s == last_user_content)
     });
     assert!(
         has_last_user,
         "The most recent user message must be preserved after compaction"
     );
 
-    let recent_5_markers: Vec<String> = (196..=200)
-        .map(|i| format!("Turn {i}:"))
-        .collect();
+    let recent_5_markers: Vec<String> = (196..=200).map(|i| format!("Turn {i}:")).collect();
     let all_content: String = messages
         .iter()
         .filter_map(|m| m.content.as_ref()?.as_str().map(String::from))
@@ -197,7 +194,7 @@ fn importance_based_compaction_evicts_old_first() {
         m.content
             .as_ref()
             .and_then(|c| c.as_str())
-            .map_or(false, |s| s.contains("Turn 100"))
+            .is_some_and(|s| s.contains("Turn 100"))
     });
     assert!(has_turn_100, "Most recent turn (100) must be preserved");
 
@@ -206,7 +203,7 @@ fn importance_based_compaction_evicts_old_first() {
             && m.content
                 .as_ref()
                 .and_then(|c| c.as_str())
-                .map_or(false, |s| s.contains("Turn 1:"))
+                .is_some_and(|s| s.contains("Turn 1:"))
     });
     assert!(
         !has_turn_1_user,
@@ -220,8 +217,7 @@ fn sliding_window_preserves_exact_recent_count() {
     let messages = build_long_conversation(system_prompt, 50);
 
     let keep_recent = 10;
-    let compactor =
-        ContextCompactor::new(CompactionStrategy::SlidingWindow { keep_recent });
+    let compactor = ContextCompactor::new(CompactionStrategy::SlidingWindow { keep_recent });
     let result = compactor.compact(&messages);
 
     let non_system: Vec<_> = result
@@ -239,7 +235,7 @@ fn sliding_window_preserves_exact_recent_count() {
         m.content
             .as_ref()
             .and_then(|c| c.as_str())
-            .map_or(false, |s| s.contains("Turn 50"))
+            .is_some_and(|s| s.contains("Turn 50"))
     });
     assert!(has_turn_50, "Latest turn must always be preserved");
 }
@@ -264,11 +260,7 @@ fn incremental_compaction_never_exceeds_budget() {
         )));
 
         if i % 10 == 0 {
-            ContextEngine::fit_to_context_window(
-                &mut messages,
-                CONTEXT_WINDOW,
-                None,
-            );
+            ContextEngine::fit_to_context_window(&mut messages, CONTEXT_WINDOW, None);
             let tokens = estimate_messages_tokens(&messages);
             assert!(
                 tokens <= budget,

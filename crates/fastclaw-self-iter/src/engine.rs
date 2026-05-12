@@ -416,7 +416,6 @@ mod tests {
                 expected_not_contains: None,
                 max_latency_ms: None,
             }],
-            ..Default::default()
         };
 
         let runner: std::sync::Arc<dyn SandboxRunner> = std::sync::Arc::new(
@@ -448,9 +447,7 @@ mod tests {
             estimated_cost: 0.01,
         };
 
-        let result = engine
-            .iterate("agent-test", "base prompt", &trace)
-            .await;
+        let result = engine.iterate("agent-test", "base prompt", &trace).await;
 
         assert_ne!(result.status, IterationStatus::DiagnosisOnly);
         assert!(

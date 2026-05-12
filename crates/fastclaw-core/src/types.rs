@@ -195,9 +195,9 @@ impl ChatMessage {
     /// Check if this message contains any image content parts.
     pub fn has_images(&self) -> bool {
         match &self.content {
-            Some(serde_json::Value::Array(arr)) => arr.iter().any(|item| {
-                item.get("type").and_then(|v| v.as_str()) == Some("image_url")
-            }),
+            Some(serde_json::Value::Array(arr)) => arr
+                .iter()
+                .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("image_url")),
             _ => false,
         }
     }
@@ -459,7 +459,9 @@ pub struct AskQuestionOption {
 }
 
 /// Execution mode controlling which tools are available and how the agent behaves.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
     /// Full execution mode: all tools available.
@@ -580,7 +582,6 @@ pub enum StreamEvent {
     },
 
     // ── Sub-agent streaming events ──────────────────────────────────
-
     /// A sub-agent has been spawned and is starting execution.
     SubAgentStart {
         run_id: String,

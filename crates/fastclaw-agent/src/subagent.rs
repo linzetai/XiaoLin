@@ -81,7 +81,6 @@ fn parse_subagent_type(s: Option<&str>) -> SubAgentType {
     }
 }
 
-
 /// Build a child tool registry filtered by sub-agent type.
 ///
 /// - `General`: inherits all parent tools except `spawn_subagent` (added back if depth allows)
@@ -99,27 +98,47 @@ pub fn build_child_registry(
         SubAgentType::Explore => Box::new(|name: &str| {
             matches!(
                 name,
-                "read_file" | "file_read" | "search_in_files" | "file_search"
-                    | "list_directory" | "workspace_symbols" | "go_to_definition"
-                    | "find_references" | "web_search" | "web_fetch" | "http_fetch"
-                    | "memory_search" | "get_current_time" | "calculator"
-                    | "list_skills" | "read_skill"
+                "read_file"
+                    | "file_read"
+                    | "search_in_files"
+                    | "file_search"
+                    | "list_directory"
+                    | "workspace_symbols"
+                    | "go_to_definition"
+                    | "find_references"
+                    | "web_search"
+                    | "web_fetch"
+                    | "http_fetch"
+                    | "memory_search"
+                    | "get_current_time"
+                    | "calculator"
+                    | "list_skills"
+                    | "read_skill"
             ) || name.starts_with("mcp_")
         }),
         SubAgentType::Shell => Box::new(|name: &str| {
             matches!(
                 name,
-                "shell_exec" | "shell" | "read_file" | "file_read"
-                    | "write_file" | "file_write" | "edit_file"
-                    | "list_directory" | "search_in_files" | "file_search"
-                    | "multi_edit" | "get_current_time"
+                "shell_exec"
+                    | "shell"
+                    | "read_file"
+                    | "file_read"
+                    | "write_file"
+                    | "file_write"
+                    | "edit_file"
+                    | "list_directory"
+                    | "search_in_files"
+                    | "file_search"
+                    | "multi_edit"
+                    | "get_current_time"
             )
         }),
         SubAgentType::Browser => Box::new(|name: &str| {
-            name.starts_with("browser") || matches!(
-                name,
-                "web_fetch" | "http_fetch" | "web_search" | "get_current_time"
-            )
+            name.starts_with("browser")
+                || matches!(
+                    name,
+                    "web_fetch" | "http_fetch" | "web_search" | "get_current_time"
+                )
         }),
         SubAgentType::General | SubAgentType::Custom(_) => {
             Box::new(|name: &str| name != "spawn_subagent")
@@ -163,10 +182,12 @@ impl Tool for SubAgentTool {
         );
 
         let agent_descs = self.manager.agent_descriptions();
-        let first_agent_id = agent_descs.first()
+        let first_agent_id = agent_descs
+            .first()
             .map(|(id, _)| id.clone())
             .unwrap_or_else(|| "default".to_string());
-        let agent_list: Vec<String> = agent_descs.iter()
+        let agent_list: Vec<String> = agent_descs
+            .iter()
             .map(|(id, desc)| {
                 if let Some(d) = desc {
                     format!("{id} ({d})")
@@ -273,7 +294,9 @@ impl Tool for SubAgentTool {
                 }
             }
             None => {
-                let available: Vec<String> = self.manager.agent_descriptions()
+                let available: Vec<String> = self
+                    .manager
+                    .agent_descriptions()
                     .into_iter()
                     .map(|(id, _)| id)
                     .collect();
@@ -314,19 +337,23 @@ impl Tool for SubAgentTool {
             }
         };
 
-        let run_id = match self.manager.spawn(
-            agent_config,
-            subagent_type.clone(),
-            params.task.clone(),
-            params.context.clone(),
-            self.parent_session_id.clone(),
-            String::new(),
-            self.current_depth,
-            &self.policy,
-            child_registry,
-            parent_tx,
-            None,
-        ).await {
+        let run_id = match self
+            .manager
+            .spawn(
+                agent_config,
+                subagent_type.clone(),
+                params.task.clone(),
+                params.context.clone(),
+                self.parent_session_id.clone(),
+                String::new(),
+                self.current_depth,
+                &self.policy,
+                child_registry,
+                parent_tx,
+                None,
+            )
+            .await
+        {
             Ok(id) => id,
             Err(e) => return ToolResult::err(format!("failed to spawn sub-agent: {e}")),
         };
@@ -410,7 +437,10 @@ impl Tool for SubAgentGetTool {
                 });
                 ToolResult::ok(json.to_string())
             }
-            None => ToolResult::err(format!("no sub-agent run found with id '{}'", params.run_id)),
+            None => ToolResult::err(format!(
+                "no sub-agent run found with id '{}'",
+                params.run_id
+            )),
         }
     }
 }
@@ -466,10 +496,13 @@ impl Tool for SubAgentListTool {
                 })
             })
             .collect();
-        ToolResult::ok(serde_json::json!({
-            "total": runs.len(),
-            "runs": summaries,
-        }).to_string())
+        ToolResult::ok(
+            serde_json::json!({
+                "total": runs.len(),
+                "runs": summaries,
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -480,10 +513,9 @@ mod tests {
 
     #[test]
     fn subagent_tool_definition() {
-        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(crate::OpenAiProvider::new(
-            "http://example.com",
-            "fake",
-        ))));
+        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
+            crate::OpenAiProvider::new("http://example.com", "fake"),
+        )));
         let tool_reg = Arc::new(ToolRegistry::new());
         let agents = vec![AgentConfig {
             agent_id: "test".into(),

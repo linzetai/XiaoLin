@@ -128,16 +128,15 @@ impl WorkflowStore {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        self.runs.write().await.insert(run.run_id.clone(), run.clone());
+        self.runs
+            .write()
+            .await
+            .insert(run.run_id.clone(), run.clone());
         Ok(run)
     }
 
     /// Advance a running workflow to the next step.
-    pub async fn advance(
-        &self,
-        run_id: &str,
-        step_result: &str,
-    ) -> Result<WorkflowRun, String> {
+    pub async fn advance(&self, run_id: &str, step_result: &str) -> Result<WorkflowRun, String> {
         let mut runs = self.runs.write().await;
         let run = runs
             .get_mut(run_id)
@@ -235,23 +234,35 @@ impl Tool for WorkflowTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("action".into(), json!({
-            "type": "string",
-            "enum": ["list", "start", "status", "advance", "cancel"],
-            "description": "One of: list, start, status, advance, cancel"
-        }));
-        props.insert("workflow_name".into(), json!({
-            "type": "string",
-            "description": "Name of the workflow to start"
-        }));
-        props.insert("run_id".into(), json!({
-            "type": "string",
-            "description": "ID of an active workflow run"
-        }));
-        props.insert("step_result".into(), json!({
-            "type": "string",
-            "description": "Result/output of the current step when advancing"
-        }));
+        props.insert(
+            "action".into(),
+            json!({
+                "type": "string",
+                "enum": ["list", "start", "status", "advance", "cancel"],
+                "description": "One of: list, start, status, advance, cancel"
+            }),
+        );
+        props.insert(
+            "workflow_name".into(),
+            json!({
+                "type": "string",
+                "description": "Name of the workflow to start"
+            }),
+        );
+        props.insert(
+            "run_id".into(),
+            json!({
+                "type": "string",
+                "description": "ID of an active workflow run"
+            }),
+        );
+        props.insert(
+            "step_result".into(),
+            json!({
+                "type": "string",
+                "description": "Result/output of the current step when advancing"
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties: props,
@@ -322,7 +333,10 @@ impl WorkflowTool {
         }
 
         out.push_str("\n## Active Runs\n\n");
-        let active: Vec<_> = runs.iter().filter(|r| r.status == WorkflowStatus::Running).collect();
+        let active: Vec<_> = runs
+            .iter()
+            .filter(|r| r.status == WorkflowStatus::Running)
+            .collect();
         if active.is_empty() {
             out.push_str("No active runs.\n");
         } else {
@@ -396,10 +410,7 @@ impl WorkflowTool {
                     .map(|s| format!("\n**Next step**: {} — {}", s.name, s.prompt))
                     .unwrap_or_default();
 
-                ToolResult::ok(format!(
-                    "Advanced to step {}.{next_step}",
-                    run.current_step
-                ))
+                ToolResult::ok(format!("Advanced to step {}.{next_step}", run.current_step))
             }
             Err(e) => ToolResult::err(e),
         }

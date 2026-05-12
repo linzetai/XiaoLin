@@ -588,9 +588,7 @@ async fn ws_send_json(
     >,
     val: Value,
 ) {
-    tx.send(Message::Text(val.to_string().into()))
-        .await
-        .unwrap();
+    tx.send(Message::Text(val.to_string())).await.unwrap();
 }
 
 /// Helper: drive a WS chat to completion, returning (session_id, event_types).
@@ -731,10 +729,8 @@ async fn e2e_observability_endpoints() {
     let structured_resp = client.get(srv.url("/api/v1/metrics")).send().await.unwrap();
     assert_eq!(structured_resp.status(), 200);
     let body = structured_resp.text().await.unwrap();
-    assert!(
-        !body.is_empty() || body == "",
-        "structured metrics endpoint should be reachable"
-    );
+    // Endpoint should be reachable (body may or may not be empty).
+    let _ = &body;
 }
 
 // ===================================================================
@@ -1002,7 +998,7 @@ async fn memory_episode_record_and_keyword_search() {
         .unwrap();
     let episodes = search["episodes"].as_array();
     assert!(
-        episodes.map_or(false, |e| !e.is_empty()),
+        episodes.is_some_and(|e| !e.is_empty()),
         "keyword search should find episodes about dark mode: {search}"
     );
 }
@@ -1041,7 +1037,7 @@ async fn memory_fact_crud_cycle() {
         .unwrap();
     let facts = search["facts"].as_array().or(search["results"].as_array());
     assert!(
-        facts.map_or(false, |f| !f.is_empty()),
+        facts.is_some_and(|f| !f.is_empty()),
         "search should find the TypeScript fact: {search}"
     );
 
@@ -1069,7 +1065,7 @@ async fn memory_fact_crud_cycle() {
     let remaining = search_after["facts"]
         .as_array()
         .or(search_after["results"].as_array());
-    let has_deleted = remaining.map_or(false, |r| r.iter().any(|f| f["id"] == "fact-crud-test"));
+    let has_deleted = remaining.is_some_and(|r| r.iter().any(|f| f["id"] == "fact-crud-test"));
     assert!(
         !has_deleted,
         "deleted fact should not appear in search: {search_after}"

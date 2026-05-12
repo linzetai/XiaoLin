@@ -15,6 +15,12 @@ use fastclaw_core::tool::{Tool, ToolImage, ToolKind, ToolParameterSchema, ToolRe
 ///   Windows — PowerShell [System.Windows.Forms.Screen] + System.Drawing
 pub struct ScreenshotTool;
 
+impl Default for ScreenshotTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScreenshotTool {
     pub fn new() -> Self {
         Self
@@ -26,7 +32,12 @@ impl ScreenshotTool {
 enum CaptureMode {
     FullScreen,
     ActiveWindow,
-    Region { x: u32, y: u32, width: u32, height: u32 },
+    Region {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
 }
 
 struct CaptureRequest {
@@ -59,7 +70,12 @@ fn parse_request(args: &serde_json::Value) -> Result<CaptureRequest, String> {
             if width == 0 || height == 0 {
                 return Err("screenshot region: width and height must be > 0".into());
             }
-            CaptureMode::Region { x, y, width, height }
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            }
         }
         other => {
             return Err(format!(
@@ -68,14 +84,18 @@ fn parse_request(args: &serde_json::Value) -> Result<CaptureRequest, String> {
         }
     };
 
-    let delay_secs = args
-        .get("delay")
+    let delay_secs = args.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+    let display = args
+        .get("display")
         .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
+        .map(|d| d as u32);
 
-    let display = args.get("display").and_then(|v| v.as_u64()).map(|d| d as u32);
-
-    Ok(CaptureRequest { mode, delay_secs, display })
+    Ok(CaptureRequest {
+        mode,
+        delay_secs,
+        display,
+    })
 }
 
 // ── Platform-specific capture implementations ───────────────────────────────
@@ -138,12 +158,12 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                 }
             }
         }
-        if !matches!(&req.mode, CaptureMode::Region { .. })
-            || (!which("maim") && !which("scrot") && !which("import"))
+        if (!matches!(&req.mode, CaptureMode::Region { .. })
+            || (!which("maim") && !which("scrot") && !which("import")))
+            && run_capture("gnome-screenshot", &args).is_ok()
+            && out.exists()
         {
-            if run_capture("gnome-screenshot", &args).is_ok() && out.exists() {
-                return Ok(());
-            }
+            return Ok(());
         }
     }
 
@@ -155,7 +175,12 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                     return Ok(());
                 }
             }
-            CaptureMode::Region { x, y, width, height } => {
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let geom = format!("{x},{y} {width}x{height}");
                 if run_capture("grim", &["-g", &geom, &out_str]).is_ok() && out.exists() {
                     return Ok(());
@@ -164,7 +189,8 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
             CaptureMode::ActiveWindow => {
                 // grim + swaymsg/jq for focused window geometry
                 if which("swaymsg") {
-                    let jq_filter = r#".. | select(.focused?) | .rect | "\(.x),\(.y) \(.width)x\(.height)"#;
+                    let jq_filter =
+                        r#".. | select(.focused?) | .rect | "\(.x),\(.y) \(.width)x\(.height)"#;
                     let geom_output = std::process::Command::new("sh")
                         .args(["-c", &format!("swaymsg -t get_tree | jq -r '{jq_filter}'")])
                         .output();
@@ -194,7 +220,12 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
             CaptureMode::ActiveWindow => {
                 args.insert(0, "-u".to_string());
             }
-            CaptureMode::Region { x, y, width, height } => {
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 args.insert(0, "-a".to_string());
                 args.insert(1, format!("{x},{y},{width},{height}"));
             }
@@ -221,12 +252,14 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                         .output()
                         .ok()
                         .and_then(|o| {
-                            String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok()
+                            String::from_utf8_lossy(&o.stdout)
+                                .trim()
+                                .parse::<u64>()
+                                .ok()
                         });
                     if let Some(wid) = wid {
                         let wid_s = wid.to_string();
-                        if run_capture("maim", &["-i", &wid_s, &out_str]).is_ok() && out.exists()
-                        {
+                        if run_capture("maim", &["-i", &wid_s, &out_str]).is_ok() && out.exists() {
                             return Ok(());
                         }
                     }
@@ -236,7 +269,12 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                     return Ok(());
                 }
             }
-            CaptureMode::Region { x, y, width, height } => {
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let geom = format!("{width},{height},{x},{y}");
                 if run_capture("maim", &["-g", &geom, &out_str]).is_ok() && out.exists() {
                     return Ok(());
@@ -258,7 +296,12 @@ fn capture_linux(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                     return Ok(());
                 }
             }
-            CaptureMode::Region { x, y, width, height } => {
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let geom = format!("{width}x{height}+{x}+{y}");
                 if run_capture("import", &["-window", "root", "-crop", &geom, &out_str]).is_ok()
                     && out.exists()
@@ -302,7 +345,12 @@ fn capture_macos(req: &CaptureRequest, out: &Path) -> Result<(), String> {
                 args.push("-w".to_string());
             }
         }
-        CaptureMode::Region { x, y, width, height } => {
+        CaptureMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => {
             args.push("-R".to_string());
             args.push(format!("{x},{y},{width},{height}"));
         }
@@ -364,7 +412,12 @@ $bmp.Save('{out_str}', [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
 "#
         ),
-        CaptureMode::Region { x, y, width, height } => format!(
+        CaptureMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } => format!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 $bmp = New-Object System.Drawing.Bitmap({width}, {height})
@@ -394,7 +447,7 @@ $g.Dispose(); $bmp.Dispose()
 fn capture(req: &CaptureRequest, out: &Path) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        return capture_linux(req, out);
+        capture_linux(req, out)
     }
     #[cfg(target_os = "macos")]
     {
@@ -556,9 +609,7 @@ impl Tool for ScreenshotTool {
         match result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return ToolResult::err(e),
-            Err(e) => {
-                return ToolResult::err(format!("screenshot: capture task panicked: {e}"))
-            }
+            Err(e) => return ToolResult::err(format!("screenshot: capture task panicked: {e}")),
         }
 
         let png_data = match std::fs::read(&out_path) {
@@ -567,9 +618,7 @@ impl Tool for ScreenshotTool {
                 data
             }
             Err(e) => {
-                return ToolResult::err(format!(
-                    "screenshot: could not read captured image: {e}"
-                ))
+                return ToolResult::err(format!("screenshot: could not read captured image: {e}"))
             }
         };
 
@@ -579,7 +628,11 @@ impl Tool for ScreenshotTool {
             }
         }
 
-        let mode_label = match args.get("mode").and_then(|v| v.as_str()).unwrap_or("screen") {
+        let mode_label = match args
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("screen")
+        {
             "window" | "active_window" => "active window",
             "region" => "region",
             _ => "full screen",
@@ -651,10 +704,16 @@ mod tests {
 
     #[test]
     fn parse_request_region_mode() {
-        let args = serde_json::json!({"mode": "region", "x": 10, "y": 20, "width": 800, "height": 600});
+        let args =
+            serde_json::json!({"mode": "region", "x": 10, "y": 20, "width": 800, "height": 600});
         let req = parse_request(&args).unwrap();
         match req.mode {
-            CaptureMode::Region { x, y, width, height } => {
+            CaptureMode::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 assert_eq!((x, y, width, height), (10, 20, 800, 600));
             }
             _ => panic!("expected Region mode"),

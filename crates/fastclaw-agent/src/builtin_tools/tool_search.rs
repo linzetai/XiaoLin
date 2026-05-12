@@ -55,7 +55,8 @@ impl Tool for ToolSearchTool {
 ## After Activation\n\
 - The activated tool appears in your available tools immediately\n\
 - You can call it in the same turn\n\
-- Don't re-search for tools you've already activated".to_string()
+- Don't re-search for tools you've already activated"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -151,8 +152,12 @@ mod tests {
 
     #[async_trait]
     impl Tool for FakeTool {
-        fn name(&self) -> &str { self.name_str }
-        fn description(&self) -> &str { self.desc }
+        fn name(&self) -> &str {
+            self.name_str
+        }
+        fn description(&self) -> &str {
+            self.desc
+        }
         fn parameters_schema(&self) -> ToolParameterSchema {
             ToolParameterSchema {
                 schema_type: "object".into(),
@@ -160,8 +165,12 @@ mod tests {
                 required: vec![],
             }
         }
-        fn search_hint(&self) -> &str { self.hint }
-        async fn execute(&self, _: &str) -> ToolResult { ToolResult::ok("ok") }
+        fn search_hint(&self) -> &str {
+            self.hint
+        }
+        async fn execute(&self, _: &str) -> ToolResult {
+            ToolResult::ok("ok")
+        }
     }
 
     fn setup() -> (Arc<ToolRegistry>, ToolSearchTool) {

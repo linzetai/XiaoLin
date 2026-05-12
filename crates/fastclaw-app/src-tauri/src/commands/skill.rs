@@ -1,6 +1,6 @@
+use super::helpers::{copy_dir_recursive, get_state};
 use crate::AppData;
 use serde_json::json;
-use super::helpers::{copy_dir_recursive, get_state};
 
 // ─── Skills & Tools ───
 
@@ -32,9 +32,7 @@ pub async fn list_skills(
 }
 
 #[tauri::command]
-pub async fn refresh_skills(
-    state: tauri::State<'_, AppData>,
-) -> Result<serde_json::Value, String> {
+pub async fn refresh_skills(state: tauri::State<'_, AppData>) -> Result<serde_json::Value, String> {
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
     let count = app.reload_skills().map_err(|e| e.to_string())?;
@@ -66,7 +64,8 @@ pub async fn upload_skill(
             .ok_or("invalid directory name")?;
         let dest = skills_dir.join(dir_name);
         if dest.exists() {
-            std::fs::remove_dir_all(&dest).map_err(|e| format!("failed to clean existing skill dir: {e}"))?;
+            std::fs::remove_dir_all(&dest)
+                .map_err(|e| format!("failed to clean existing skill dir: {e}"))?;
         }
         copy_dir_recursive(src, &dest).map_err(|e| format!("failed to copy skill dir: {e}"))?;
         let count = app.reload_skills().map_err(|e| e.to_string())?;
@@ -84,7 +83,10 @@ pub async fn upload_skill(
                 .by_index(i)
                 .map_err(|e| format!("failed to read zip entry at index {i}: {e}"))?;
             let Some(enclosed) = f.enclosed_name() else {
-                return Err(format!("zip contains unsafe path traversal entry: {}", f.name()));
+                return Err(format!(
+                    "zip contains unsafe path traversal entry: {}",
+                    f.name()
+                ));
             };
             if enclosed
                 .file_name()
@@ -115,7 +117,10 @@ pub async fn upload_skill(
                 .by_index(i)
                 .map_err(|e| format!("failed to read zip entry at index {i}: {e}"))?;
             let Some(enclosed) = f.enclosed_name().map(|p| p.to_path_buf()) else {
-                return Err(format!("zip contains unsafe path traversal entry: {}", f.name()));
+                return Err(format!(
+                    "zip contains unsafe path traversal entry: {}",
+                    f.name()
+                ));
             };
             let out_path = extract_to.join(enclosed);
             if f.is_dir() {
@@ -123,8 +128,9 @@ pub async fn upload_skill(
                     .map_err(|e| format!("failed to create dir during extraction: {e}"))?;
             } else {
                 if let Some(parent) = out_path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| format!("failed to create parent dir during extraction: {e}"))?;
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        format!("failed to create parent dir during extraction: {e}")
+                    })?;
                 }
                 let mut out_file = std::fs::File::create(&out_path)
                     .map_err(|e| format!("failed to create extracted file: {e}"))?;
@@ -145,5 +151,7 @@ pub async fn upload_skill(
         return Ok(json!({ "installed": skill_name, "count": count }));
     }
 
-    Err(format!("unsupported file type: .{ext} (expected a folder or .zip)"))
+    Err(format!(
+        "unsupported file type: .{ext} (expected a folder or .zip)"
+    ))
 }

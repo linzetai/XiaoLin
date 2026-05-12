@@ -3,7 +3,9 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use dashmap::DashMap;
-use fastclaw_treesitter::{CodeParser, SymbolKind, extract_callees, extract_symbols, extract_trait_impls};
+use fastclaw_treesitter::{
+    extract_callees, extract_symbols, extract_trait_impls, CodeParser, SymbolKind,
+};
 
 static GLOBAL_CACHE: OnceLock<CodeGraphCache> = OnceLock::new();
 
@@ -18,6 +20,12 @@ pub struct FileCodeContext {
 
 pub struct CodeGraphCache {
     cache: DashMap<PathBuf, FileCodeContext>,
+}
+
+impl Default for CodeGraphCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CodeGraphCache {
@@ -188,8 +196,7 @@ fn is_pub_symbol(sym: &fastclaw_treesitter::Symbol, source: &str, language: &str
             let lines: Vec<&str> = source.lines().collect();
             if sym.start_line > 0 && sym.start_line <= lines.len() {
                 let line = lines[sym.start_line - 1];
-                line.trim_start().starts_with("pub ")
-                    || line.trim_start().starts_with("pub(")
+                line.trim_start().starts_with("pub ") || line.trim_start().starts_with("pub(")
             } else {
                 false
             }
@@ -204,13 +211,12 @@ fn is_pub_symbol(sym: &fastclaw_treesitter::Symbol, source: &str, language: &str
                 false
             }
         }
-        "go" => {
-            sym.name
-                .chars()
-                .next()
-                .map(|c| c.is_uppercase())
-                .unwrap_or(false)
-        }
+        "go" => sym
+            .name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false),
         _ => true,
     }
 }
@@ -247,9 +253,18 @@ impl Default for Config {
 "#;
         let ctx = CodeGraphCache::extract_context(Path::new("test.rs"), source, "rust");
         let pub_names: Vec<&str> = ctx.pub_symbols.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(pub_names.contains(&"Config"), "missing Config: {pub_names:?}");
-        assert!(pub_names.contains(&"process"), "missing process: {pub_names:?}");
-        assert!(!pub_names.contains(&"private_helper"), "private should be excluded: {pub_names:?}");
+        assert!(
+            pub_names.contains(&"Config"),
+            "missing Config: {pub_names:?}"
+        );
+        assert!(
+            pub_names.contains(&"process"),
+            "missing process: {pub_names:?}"
+        );
+        assert!(
+            !pub_names.contains(&"private_helper"),
+            "private should be excluded: {pub_names:?}"
+        );
         assert!(!ctx.callees.is_empty(), "should have callees");
         assert!(!ctx.trait_impls.is_empty(), "should have trait impls");
     }

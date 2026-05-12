@@ -148,7 +148,9 @@ pub(super) async fn get_agent(
                     .and_then(|v| v.as_str());
                 if let Some(ch_id) = ch_id {
                     if !cfg.channels.contains_key(ch_id) {
-                        if let Ok(ch_cfg) = serde_json::from_value(ch_obj.get(ch_id).cloned().unwrap_or_default()) {
+                        if let Ok(ch_cfg) =
+                            serde_json::from_value(ch_obj.get(ch_id).cloned().unwrap_or_default())
+                        {
                             cfg.channels.insert(ch_id.to_string(), ch_cfg);
                         }
                     }

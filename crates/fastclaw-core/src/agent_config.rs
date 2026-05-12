@@ -308,7 +308,11 @@ pub fn tool_pattern_matches(pattern: &str, tool_name: &str) -> bool {
     } else {
         tool_name == pat
     };
-    if negated { !base_match } else { base_match }
+    if negated {
+        !base_match
+    } else {
+        base_match
+    }
 }
 
 impl BehaviorConfig {
@@ -318,17 +322,29 @@ impl BehaviorConfig {
     /// When `tools_allow` is non-empty, unlisted tools are implicitly denied.
     pub fn tool_permission(&self, tool_name: &str) -> ToolPermission {
         if !self.tools_deny.is_empty()
-            && self.tools_deny.iter().any(|d| tool_pattern_matches(d, tool_name))
+            && self
+                .tools_deny
+                .iter()
+                .any(|d| tool_pattern_matches(d, tool_name))
         {
             return ToolPermission::Deny;
         }
         if !self.tools_allow.is_empty()
-            && !self.tools_allow.iter().any(|a| tool_pattern_matches(a, tool_name))
+            && !self
+                .tools_allow
+                .iter()
+                .any(|a| tool_pattern_matches(a, tool_name))
         {
             return ToolPermission::Deny;
         }
-        let ask_patterns = self.tools_ask.iter().chain(self.require_confirmation_for.iter());
-        if ask_patterns.clone().any(|p| tool_pattern_matches(p, tool_name)) {
+        let ask_patterns = self
+            .tools_ask
+            .iter()
+            .chain(self.require_confirmation_for.iter());
+        if ask_patterns
+            .clone()
+            .any(|p| tool_pattern_matches(p, tool_name))
+        {
             return ToolPermission::Ask;
         }
         ToolPermission::Allow
@@ -390,7 +406,10 @@ mod tests {
         assert!(tool_pattern_matches("mcp_*", "mcp_chrome_screenshot"));
         assert!(tool_pattern_matches("mcp_*", "mcp_relay_feedback"));
         assert!(!tool_pattern_matches("mcp_*", "http_fetch"));
-        assert!(tool_pattern_matches("mcp_chrome_*", "mcp_chrome_screenshot"));
+        assert!(tool_pattern_matches(
+            "mcp_chrome_*",
+            "mcp_chrome_screenshot"
+        ));
         assert!(!tool_pattern_matches("mcp_chrome_*", "mcp_relay_feedback"));
     }
 
@@ -435,11 +454,7 @@ mod tests {
     #[test]
     fn behavior_allow_glob_includes_mcp() {
         let b = BehaviorConfig {
-            tools_allow: vec![
-                "http_fetch".into(),
-                "web_search".into(),
-                "mcp_*".into(),
-            ],
+            tools_allow: vec!["http_fetch".into(), "web_search".into(), "mcp_*".into()],
             ..Default::default()
         };
         assert!(b.is_tool_allowed("http_fetch"));
@@ -509,11 +524,13 @@ mod tests {
     #[test]
     fn behavior_config_file_access_from_camel_case() {
         // This is what the JSON config file contains
-        let json = r#"{"fileAccess": "full", "maxToolCallsPerTurn": 50, "maxConsecutiveErrors": 3}"#;
+        let json =
+            r#"{"fileAccess": "full", "maxToolCallsPerTurn": 50, "maxConsecutiveErrors": 3}"#;
         let behavior: BehaviorConfig = json5::from_str(json).unwrap();
         assert_eq!(behavior.file_access, FileAccessMode::Full);
 
-        let json2 = r#"{"fileAccess": "workspace", "maxToolCallsPerTurn": 50, "maxConsecutiveErrors": 3}"#;
+        let json2 =
+            r#"{"fileAccess": "workspace", "maxToolCallsPerTurn": 50, "maxConsecutiveErrors": 3}"#;
         let behavior2: BehaviorConfig = json5::from_str(json2).unwrap();
         assert_eq!(behavior2.file_access, FileAccessMode::Workspace);
     }

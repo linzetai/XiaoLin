@@ -191,10 +191,7 @@ impl Tool for AddChannelTool {
             if set_nested_key(&mut live, &ch_key, config.clone()).is_err() {
                 return ToolResult::err("failed to update config".to_string());
             }
-            self.state
-                .cfg
-                .config_live
-                .store(Arc::new(live));
+            self.state.cfg.config_live.store(Arc::new(live));
         }
         if let Err(e) = persist_config_key(&ch_key, &config) {
             tracing::warn!(channel = %channel, error = %e, "add_channel: failed to persist channel config");
@@ -241,10 +238,7 @@ impl Tool for AddChannelTool {
 impl AddChannelTool {
     async fn ensure_binding(&self, channel: &str, agent_id: &str) {
         let live_snapshot = self.state.cfg.config_live.load();
-        let bindings = live_snapshot
-            .get("bindings")
-            .cloned()
-            .unwrap_or(json!([]));
+        let bindings = live_snapshot.get("bindings").cloned().unwrap_or(json!([]));
         if let Some(arr) = bindings.as_array() {
             let already = arr.iter().any(|b| {
                 b.get("match")
@@ -267,10 +261,7 @@ impl AddChannelTool {
         let bindings_val = serde_json::Value::Array(new_bindings);
 
         if set_nested_key(&mut live, "bindings", bindings_val.clone()).is_ok() {
-            self.state
-                .cfg
-                .config_live
-                .store(Arc::new(live));
+            self.state.cfg.config_live.store(Arc::new(live));
             let _ = persist_config_key("bindings", &bindings_val);
             tracing::info!(channel, agent_id, "auto-created binding for channel");
         }
@@ -334,10 +325,7 @@ impl Tool for RemoveChannelTool {
             if set_nested_key(&mut live, &key, disabled.clone()).is_err() {
                 return ToolResult::err("failed to update config".to_string());
             }
-            self.state
-                .cfg
-                .config_live
-                .store(Arc::new(live));
+            self.state.cfg.config_live.store(Arc::new(live));
         }
 
         if let Err(e) = persist_config_key(&key, &disabled) {

@@ -90,14 +90,20 @@ impl Tool for EnterWorktreeTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("branch".into(), json!({
-            "type": "string",
-            "description": "Branch name for the worktree (auto-generated if omitted)"
-        }));
-        props.insert("path".into(), json!({
-            "type": "string",
-            "description": "Directory path for the worktree (auto-generated in /tmp if omitted)"
-        }));
+        props.insert(
+            "branch".into(),
+            json!({
+                "type": "string",
+                "description": "Branch name for the worktree (auto-generated if omitted)"
+            }),
+        );
+        props.insert(
+            "path".into(),
+            json!({
+                "type": "string",
+                "description": "Directory path for the worktree (auto-generated in /tmp if omitted)"
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties: props,
@@ -107,9 +113,7 @@ impl Tool for EnterWorktreeTool {
 
     async fn execute(&self, args: &str) -> ToolResult {
         if self.state.is_in_worktree().await {
-            return ToolResult::err(
-                "Already inside a worktree. Exit the current one first.",
-            );
+            return ToolResult::err("Already inside a worktree. Exit the current one first.");
         }
 
         let parsed: EnterArgs = match serde_json::from_str(args) {
@@ -132,12 +136,12 @@ impl Tool for EnterWorktreeTool {
             .branch
             .unwrap_or_else(|| format!("worktree-{}", &uuid::Uuid::new_v4().to_string()[..8]));
 
-        let worktree_path = parsed
-            .path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                std::env::temp_dir().join(format!("fastclaw-wt-{}", &uuid::Uuid::new_v4().to_string()[..8]))
-            });
+        let worktree_path = parsed.path.map(PathBuf::from).unwrap_or_else(|| {
+            std::env::temp_dir().join(format!(
+                "fastclaw-wt-{}",
+                &uuid::Uuid::new_v4().to_string()[..8]
+            ))
+        });
 
         let path_str = worktree_path.display().to_string();
         let output = match run_git_command(
@@ -217,7 +221,11 @@ impl Tool for ExitWorktreeTool {
     async fn execute(&self, args: &str) -> ToolResult {
         let (original_dir, worktree_path, branch_name) = {
             let inner = self.state.inner.read().await;
-            match (&inner.original_dir, &inner.worktree_path, &inner.branch_name) {
+            match (
+                &inner.original_dir,
+                &inner.worktree_path,
+                &inner.branch_name,
+            ) {
                 (Some(orig), Some(wt), Some(br)) => (orig.clone(), wt.clone(), br.clone()),
                 _ => return ToolResult::err("Not currently in a worktree."),
             }
@@ -234,17 +242,19 @@ impl Tool for ExitWorktreeTool {
         if should_cleanup {
             if let Err(e) = run_git_command(
                 &original_dir,
-                &["worktree", "remove", &worktree_path.display().to_string(), "--force"],
+                &[
+                    "worktree",
+                    "remove",
+                    &worktree_path.display().to_string(),
+                    "--force",
+                ],
             )
             .await
             {
                 cleanup_msg = format!("\nWarning: worktree removal failed: {e}");
             } else {
-                if let Err(e) = run_git_command(
-                    &original_dir,
-                    &["branch", "-D", &branch_name],
-                )
-                .await
+                if let Err(e) =
+                    run_git_command(&original_dir, &["branch", "-D", &branch_name]).await
                 {
                     cleanup_msg = format!("\nWorktree removed. Branch deletion failed: {e}");
                 } else {

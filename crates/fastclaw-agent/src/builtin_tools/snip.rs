@@ -20,10 +20,7 @@ impl SnipTool {
 }
 
 fn estimate_tokens(msg: &ChatMessage) -> usize {
-    let text_len = msg
-        .text_content()
-        .map(|s| s.len())
-        .unwrap_or(0);
+    let text_len = msg.text_content().map(|s| s.len()).unwrap_or(0);
     text_len / 4 + 4
 }
 
@@ -37,7 +34,9 @@ impl Tool for SnipTool {
         "snip"
     }
 
-    fn max_result_size_chars(&self) -> usize { 5_000 }
+    fn max_result_size_chars(&self) -> usize {
+        5_000
+    }
 
     fn description(&self) -> &str {
         "Remove specific messages from conversation context to free tokens. \
@@ -59,7 +58,8 @@ Guidelines:\n\
 - Only snip messages you're confident you won't need verbatim again\n\
 - The summary replacement preserves key facts (file paths, decisions, errors found)\n\
 - You cannot un-snip — the original content is gone from context\n\
-- System messages (index 0) and the last user turn cannot be snipped".to_string()
+- System messages (index 0) and the last user turn cannot be snipped"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -125,9 +125,7 @@ Guidelines:\n\
         let mut guard = self.messages.lock().expect("snip messages poisoned");
         let msg_count = guard.len();
 
-        let last_user_idx = guard
-            .iter()
-            .rposition(|m| matches!(m.role, Role::User));
+        let last_user_idx = guard.iter().rposition(|m| matches!(m.role, Role::User));
 
         let mut tokens_freed: usize = 0;
         let mut skipped: Vec<String> = Vec::new();
@@ -220,7 +218,9 @@ mod tests {
             },
             ChatMessage {
                 role: Role::Assistant,
-                content: Some(serde_json::Value::String("Hi there! How can I help?".into())),
+                content: Some(serde_json::Value::String(
+                    "Hi there! How can I help?".into(),
+                )),
                 reasoning_content: None,
                 name: None,
                 tool_calls: None,
@@ -284,7 +284,10 @@ mod tests {
         assert!(result.success);
         let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(v["snipped_count"], 0);
-        assert!(v["skipped"].as_array().unwrap()[0].as_str().unwrap().contains("system"));
+        assert!(v["skipped"].as_array().unwrap()[0]
+            .as_str()
+            .unwrap()
+            .contains("system"));
 
         let guard = msgs.lock().unwrap();
         assert_eq!(guard.len(), 6);
@@ -299,7 +302,10 @@ mod tests {
         assert!(result.success);
         let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(v["snipped_count"], 0);
-        assert!(v["skipped"].as_array().unwrap()[0].as_str().unwrap().contains("last_user"));
+        assert!(v["skipped"].as_array().unwrap()[0]
+            .as_str()
+            .unwrap()
+            .contains("last_user"));
     }
 
     #[tokio::test]
@@ -347,7 +353,11 @@ mod tests {
                 .unwrap_or(false)
         });
         assert!(summary.is_some());
-        assert!(summary.unwrap().text_content().unwrap().contains("cleaned old exchange"));
+        assert!(summary
+            .unwrap()
+            .text_content()
+            .unwrap()
+            .contains("cleaned old exchange"));
     }
 
     #[tokio::test]
@@ -385,7 +395,11 @@ mod tests {
                 .unwrap_or(false)
         });
         assert!(summary.is_some());
-        assert!(summary.unwrap().text_content().unwrap().contains("removed by agent"));
+        assert!(summary
+            .unwrap()
+            .text_content()
+            .unwrap()
+            .contains("removed by agent"));
     }
 
     #[tokio::test]

@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use super::side_query::{side_query, SideQueryOptions, SideQuerySource};
 use crate::llm::LlmProvider;
-use super::side_query::{SideQueryOptions, SideQuerySource, side_query};
 
 const CANDIDATE_LIMIT: usize = 20;
 const SELECT_LIMIT: usize = 5;

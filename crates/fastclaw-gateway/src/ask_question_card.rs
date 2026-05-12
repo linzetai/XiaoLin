@@ -215,7 +215,10 @@ pub fn parse_card_callback(value: &Value) -> Option<CardCallback> {
     let session_id = value.get("session_id")?.as_str()?.to_string();
     let message_id = value.get("message_id")?.as_str()?.to_string();
     let action = value.get("action")?.as_str()?.to_string();
-    let option_id = value.get("option_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let option_id = value
+        .get("option_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     Some(CardCallback {
         session_id,

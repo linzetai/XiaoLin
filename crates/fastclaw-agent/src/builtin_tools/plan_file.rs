@@ -5,25 +5,21 @@ use dashmap::DashMap;
 use rand::prelude::*;
 
 const ADJECTIVES: &[&str] = &[
-    "brave", "calm", "dark", "eager", "fair", "glad", "keen", "loud",
-    "mild", "neat", "pale", "quick", "rich", "safe", "tall", "vast",
-    "warm", "bold", "cool", "deep", "fine", "good", "high", "just",
-    "kind", "lean", "next", "open", "pure", "rare", "slim", "true",
-    "wide", "able", "busy", "crisp", "dry", "even", "fast", "gold",
-    "hard", "iron", "jade", "live", "main", "new", "old", "raw",
-    "soft", "thin", "used", "void", "wild", "aged", "bare", "cold",
-    "dull", "easy", "flat", "gray", "half", "icy", "long", "mini",
+    "brave", "calm", "dark", "eager", "fair", "glad", "keen", "loud", "mild", "neat", "pale",
+    "quick", "rich", "safe", "tall", "vast", "warm", "bold", "cool", "deep", "fine", "good",
+    "high", "just", "kind", "lean", "next", "open", "pure", "rare", "slim", "true", "wide", "able",
+    "busy", "crisp", "dry", "even", "fast", "gold", "hard", "iron", "jade", "live", "main", "new",
+    "old", "raw", "soft", "thin", "used", "void", "wild", "aged", "bare", "cold", "dull", "easy",
+    "flat", "gray", "half", "icy", "long", "mini",
 ];
 
 const NOUNS: &[&str] = &[
-    "lion", "wolf", "bear", "hawk", "deer", "fish", "frog", "swan",
-    "moon", "star", "wind", "rain", "wave", "leaf", "seed", "rock",
-    "tree", "hill", "lake", "dawn", "dusk", "tide", "mesa", "glen",
-    "arch", "bolt", "calm", "dart", "edge", "flux", "gate", "haze",
-    "iris", "jade", "knot", "lark", "mist", "node", "opal", "peak",
-    "reef", "sage", "vale", "wren", "axis", "beam", "cove", "dome",
-    "echo", "fern", "glow", "hive", "isle", "jewel", "kite", "loom",
-    "mint", "nest", "orb", "pyre", "quay", "rune", "silo", "thorn",
+    "lion", "wolf", "bear", "hawk", "deer", "fish", "frog", "swan", "moon", "star", "wind", "rain",
+    "wave", "leaf", "seed", "rock", "tree", "hill", "lake", "dawn", "dusk", "tide", "mesa", "glen",
+    "arch", "bolt", "calm", "dart", "edge", "flux", "gate", "haze", "iris", "jade", "knot", "lark",
+    "mist", "node", "opal", "peak", "reef", "sage", "vale", "wren", "axis", "beam", "cove", "dome",
+    "echo", "fern", "glow", "hive", "isle", "jewel", "kite", "loom", "mint", "nest", "orb", "pyre",
+    "quay", "rune", "silo", "thorn",
 ];
 
 fn generate_slug() -> String {
@@ -100,8 +96,7 @@ impl PlanFileStore {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create plans directory: {e}"))?;
         }
-        std::fs::write(&path, content)
-            .map_err(|e| format!("Failed to write plan file: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write plan file: {e}"))?;
         let _ = self.save_index();
         Ok(path)
     }
@@ -143,10 +138,10 @@ impl PlanFileStore {
         if !path.exists() {
             return Ok(0);
         }
-        let data = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read index: {e}"))?;
-        let map: std::collections::HashMap<String, String> = serde_json::from_str(&data)
-            .map_err(|e| format!("Failed to parse index: {e}"))?;
+        let data =
+            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read index: {e}"))?;
+        let map: std::collections::HashMap<String, String> =
+            serde_json::from_str(&data).map_err(|e| format!("Failed to parse index: {e}"))?;
         let count = map.len();
         for (session_id, slug) in map {
             self.slugs.insert(session_id, slug);
@@ -192,7 +187,9 @@ mod tests {
         let store = PlanFileStore::new(Some(dir.clone()));
         store.set_slug("test", "test-plan");
 
-        let path = store.write_plan("test", "# My Plan\n\n- Step 1\n- Step 2\n").unwrap();
+        let path = store
+            .write_plan("test", "# My Plan\n\n- Step 1\n- Step 2\n")
+            .unwrap();
         assert!(path.exists());
 
         let content = store.read_plan("test").unwrap();

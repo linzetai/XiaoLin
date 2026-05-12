@@ -100,11 +100,7 @@ impl WorkspaceBootstrap {
             sections.push((Self::context_priority("soul.md"), "Personality", soul));
         }
         if let Some(ref user) = self.user {
-            sections.push((
-                Self::context_priority("user.md"),
-                "User Context",
-                user,
-            ));
+            sections.push((Self::context_priority("user.md"), "User Context", user));
         }
         if let Some(ref tools) = self.tools {
             sections.push((Self::context_priority("tools.md"), "Tool Usage", tools));
@@ -201,7 +197,10 @@ impl AgentWorkspace {
             anyhow::bail!("filename must not contain '..'");
         }
         let joined = self.root.join(filename);
-        let canon_root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        let canon_root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
         let canon_target = if joined.exists() {
             joined.canonicalize()?
         } else {

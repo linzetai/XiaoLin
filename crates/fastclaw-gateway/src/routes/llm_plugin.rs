@@ -158,9 +158,7 @@ pub(super) async fn delete_plugin(
     let file_path = plugins_dir.join(format!("{}.json", plugin_id));
     if file_path.exists() {
         std::fs::remove_file(&file_path).map_err(|e| {
-            AppError::Internal(anyhow::anyhow!(
-                "failed to delete plugin file: {e}"
-            ))
+            AppError::Internal(anyhow::anyhow!("failed to delete plugin file: {e}"))
         })?;
     }
 
@@ -180,9 +178,9 @@ pub(super) async fn test_plugin(
     Path(plugin_id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let guard = state.ext.llm_plugin_registry.read().await;
-    let provider = guard.create_provider(&plugin_id).map_err(|e| {
-        AppError::BadRequest(format!("failed to create provider from plugin: {e}"))
-    })?;
+    let provider = guard
+        .create_provider(&plugin_id)
+        .map_err(|e| AppError::BadRequest(format!("failed to create provider from plugin: {e}")))?;
 
     let model = guard
         .get(&plugin_id)
@@ -196,7 +194,9 @@ pub(super) async fn test_plugin(
         model: &model,
         messages: &[fastclaw_core::types::ChatMessage {
             role: fastclaw_core::types::Role::User,
-            content: Some(serde_json::Value::String("Say hello in one word.".to_string())),
+            content: Some(serde_json::Value::String(
+                "Say hello in one word.".to_string(),
+            )),
             reasoning_content: None,
             name: None,
             tool_calls: None,

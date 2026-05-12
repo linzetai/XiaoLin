@@ -57,9 +57,8 @@ pub fn signing_material(msg: &AgentMessage) -> FastClawResult<Vec<u8>> {
 
 fn compute_hmac(secret: &[u8], msg: &AgentMessage) -> FastClawResult<[u8; 32]> {
     let material = signing_material(msg)?;
-    let mut mac = HmacSha256::new_from_slice(secret).map_err(|_| {
-        FastClawError::Config("bus HMAC key must be non-empty".to_string())
-    })?;
+    let mut mac = HmacSha256::new_from_slice(secret)
+        .map_err(|_| FastClawError::Config("bus HMAC key must be non-empty".to_string()))?;
     mac.update(&material);
     Ok(mac.finalize().into_bytes().into())
 }
@@ -246,7 +245,9 @@ impl MessageBus {
             topic_subscribers: DashMap::new(),
             pending_replies: RwLock::new(HashMap::new()),
             hmac_key: None,
-            seen_ids: std::sync::Mutex::new(std::collections::VecDeque::with_capacity(REPLAY_CACHE_CAPACITY)),
+            seen_ids: std::sync::Mutex::new(std::collections::VecDeque::with_capacity(
+                REPLAY_CACHE_CAPACITY,
+            )),
         }
     }
 
@@ -414,10 +415,7 @@ impl MessageBus {
     pub fn subscribe_topic(&self, topic: &str) -> mpsc::Receiver<AgentMessage> {
         const MAX_SUBSCRIBERS_PER_TOPIC: usize = 256;
         let (tx, rx) = mpsc::channel(256);
-        let mut entry = self
-            .topic_subscribers
-            .entry(topic.to_string())
-            .or_default();
+        let mut entry = self.topic_subscribers.entry(topic.to_string()).or_default();
         entry.retain(|s| !s.is_closed());
         if entry.len() >= MAX_SUBSCRIBERS_PER_TOPIC {
             tracing::warn!(topic, "topic subscriber limit reached, dropping oldest");
@@ -651,12 +649,7 @@ mod tests {
     async fn bus_with_hmac_rejects_unsigned() {
         let bus = MessageBus::new_with_hmac(8, b"sekrit".to_vec());
         let mut rx = bus.register("b").await;
-        let msg = AgentMessage::new(
-            "a".into(),
-            MessageTarget::Agent("b".into()),
-            "x",
-            json!({}),
-        );
+        let msg = AgentMessage::new("a".into(), MessageTarget::Agent("b".into()), "x", json!({}));
         let err = bus.send(msg).await.unwrap_err();
         assert!(matches!(err, FastClawError::BusInvalidSignature));
         let recv = tokio::time::timeout(std::time::Duration::from_millis(30), rx.recv()).await;

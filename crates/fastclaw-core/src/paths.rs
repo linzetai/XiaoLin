@@ -7,11 +7,11 @@ pub fn resolve_state_dir_from(cfg: Option<&PathsConfig>) -> PathBuf {
     if let Some(p) = cfg.and_then(|c| c.state_dir.as_deref()) {
         return PathBuf::from(p);
     }
-    
+
     // 如果没有在配置中指定状态目录，则根据当前构建模式决定
     let mode = crate::config::ConfigMode::from_flags(false, None);
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    
+
     match mode {
         crate::config::ConfigMode::Development => home.join(".fastclaw-dev"),
         crate::config::ConfigMode::Profile(name) => home.join(format!(".fastclaw-{name}")),
@@ -180,7 +180,10 @@ pub fn ensure_state_dir_at(state: &Path) -> anyhow::Result<()> {
 
     let cfg_file = state.join("config").join("default.json");
     if !cfg_file.exists() {
-        std::fs::write(&cfg_file, "{\n  \"gateway\": {\n    \"port\": 18789\n  }\n}\n")?;
+        std::fs::write(
+            &cfg_file,
+            "{\n  \"gateway\": {\n    \"port\": 18789\n  }\n}\n",
+        )?;
         tracing::info!(path = %cfg_file.display(), "created default config/default.json");
     }
 

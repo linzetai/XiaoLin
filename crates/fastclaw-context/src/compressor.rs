@@ -54,9 +54,7 @@ pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
 
 fn estimate_single_message_tokens(msg: &ChatMessage) -> usize {
     let content_chars = msg.content.as_ref().map_or(0, |c| {
-        serde_json::to_string(c)
-            .map(|s| s.len())
-            .unwrap_or(0)
+        serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
     });
     let tool_chars = msg.tool_calls.as_ref().map_or(0, |tc| {
         tc.iter()
@@ -121,9 +119,12 @@ pub fn strip_image_content(messages: &mut [ChatMessage]) {
     let mut count = 0usize;
     for msg in messages.iter_mut() {
         let arr = match &msg.content {
-            Some(serde_json::Value::Array(a)) if a.iter().any(|p| {
-                p.get("type").and_then(|v| v.as_str()) == Some("image_url")
-            }) => a.clone(),
+            Some(serde_json::Value::Array(a))
+                if a.iter()
+                    .any(|p| p.get("type").and_then(|v| v.as_str()) == Some("image_url")) =>
+            {
+                a.clone()
+            }
             _ => continue,
         };
 
@@ -138,15 +139,22 @@ pub fn strip_image_content(messages: &mut [ChatMessage]) {
             if let Some(t) = text_parts[0].get("text").and_then(|v| v.as_str()) {
                 Some(serde_json::Value::String(t.to_string()))
             } else {
-                Some(serde_json::Value::Array(text_parts.into_iter().cloned().collect()))
+                Some(serde_json::Value::Array(
+                    text_parts.into_iter().cloned().collect(),
+                ))
             }
         } else {
-            Some(serde_json::Value::Array(text_parts.into_iter().cloned().collect()))
+            Some(serde_json::Value::Array(
+                text_parts.into_iter().cloned().collect(),
+            ))
         };
         count += 1;
     }
     if count > 0 {
-        tracing::debug!(count, "strip_image_content: removed image_url parts from messages");
+        tracing::debug!(
+            count,
+            "strip_image_content: removed image_url parts from messages"
+        );
     }
 }
 
@@ -187,11 +195,11 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
     let mut strip_tool_calls_at: Vec<usize> = Vec::new();
     for &(asst_idx, ref expected_ids) in &asst_indices {
         let mut answered: HashSet<&str> = HashSet::new();
-        for j in (asst_idx + 1)..messages.len() {
-            if messages[j].role != Role::Tool {
+        for msg in &messages[(asst_idx + 1)..] {
+            if msg.role != Role::Tool {
                 break;
             }
-            if let Some(ref tcid) = messages[j].tool_call_id {
+            if let Some(ref tcid) = msg.tool_call_id {
                 answered.insert(tcid.as_str());
             }
         }
@@ -219,12 +227,10 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
                 return true;
             }
             let has_tool_calls = m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty());
-            let has_content = m.content.as_ref().is_some_and(|c| {
-                match c {
-                    serde_json::Value::String(s) => !s.trim().is_empty(),
-                    serde_json::Value::Array(arr) => !arr.is_empty(),
-                    _ => false,
-                }
+            let has_content = m.content.as_ref().is_some_and(|c| match c {
+                serde_json::Value::String(s) => !s.trim().is_empty(),
+                serde_json::Value::Array(arr) => !arr.is_empty(),
+                _ => false,
             });
             has_tool_calls || has_content
         });
@@ -258,7 +264,10 @@ pub fn sanitize_tool_call_pairing(messages: &mut Vec<ChatMessage>) {
     });
     let removed = before_len - messages.len();
     if removed > 0 {
-        tracing::debug!(removed, "sanitize_tool_call_pairing: removed orphan tool messages");
+        tracing::debug!(
+            removed,
+            "sanitize_tool_call_pairing: removed orphan tool messages"
+        );
     }
 }
 
@@ -750,7 +759,9 @@ impl ContextCompactor {
                     if let Some(tc) = &msg.tool_calls {
                         for call in tc {
                             let args_preview = if call.function.arguments.len() > 60 {
-                                let end = call.function.arguments
+                                let end = call
+                                    .function
+                                    .arguments
                                     .char_indices()
                                     .map(|(i, _)| i)
                                     .take_while(|&i| i <= 57)
@@ -760,9 +771,8 @@ impl ContextCompactor {
                             } else {
                                 call.function.arguments.clone()
                             };
-                            tool_calls_seen.push(format!(
-                                "{}({})", call.function.name, args_preview
-                            ));
+                            tool_calls_seen
+                                .push(format!("{}({})", call.function.name, args_preview));
                         }
                     }
                     if let Some(content) = msg.text_content() {
@@ -1198,12 +1208,10 @@ mod tests {
         assert!(result.evicted_count >= 1);
         assert!(result.compacted_count <= msgs.len() + 2);
         assert!(
-            result.messages.iter().any(|m| {
-                m.text_content()
-                    .as_deref()
-                    .unwrap_or("")
-                    .contains("q4")
-            }),
+            result
+                .messages
+                .iter()
+                .any(|m| { m.text_content().as_deref().unwrap_or("").contains("q4") }),
             "recent user message should survive"
         );
     }
@@ -1231,8 +1239,12 @@ mod tests {
         );
     }
 
-    fn assistant_with_tool_calls(content: Option<&str>, reasoning: Option<&str>, tc_ids: &[&str]) -> ChatMessage {
-        use fastclaw_core::types::{ToolCall, FunctionCall};
+    fn assistant_with_tool_calls(
+        content: Option<&str>,
+        reasoning: Option<&str>,
+        tc_ids: &[&str],
+    ) -> ChatMessage {
+        use fastclaw_core::types::{FunctionCall, ToolCall};
         ChatMessage {
             role: Role::Assistant,
             content: content.map(|s| serde_json::Value::String(s.to_string())),
@@ -1241,17 +1253,22 @@ mod tests {
             tool_calls: if tc_ids.is_empty() {
                 None
             } else {
-                Some(tc_ids.iter().map(|id| ToolCall {
-                    id: id.to_string(),
-                    call_type: "function".to_string(),
-                    function: FunctionCall {
-                        name: "test_tool".to_string(),
-                        arguments: "{}".to_string(),
-                    },
-                    output: None,
-                    success: None,
-                    duration_ms: None,
-                }).collect())
+                Some(
+                    tc_ids
+                        .iter()
+                        .map(|id| ToolCall {
+                            id: id.to_string(),
+                            call_type: "function".to_string(),
+                            function: FunctionCall {
+                                name: "test_tool".to_string(),
+                                arguments: "{}".to_string(),
+                            },
+                            output: None,
+                            success: None,
+                            duration_ms: None,
+                        })
+                        .collect(),
+                )
             },
             tool_call_id: None,
         }
@@ -1276,7 +1293,11 @@ mod tests {
             user("next question"),
         ];
         sanitize_tool_call_pairing(&mut messages);
-        assert_eq!(messages.len(), 2, "assistant with only reasoning_content should be removed");
+        assert_eq!(
+            messages.len(),
+            2,
+            "assistant with only reasoning_content should be removed"
+        );
         assert!(messages.iter().all(|m| m.role != Role::Assistant));
     }
 
@@ -1290,7 +1311,10 @@ mod tests {
         sanitize_tool_call_pairing(&mut messages);
         assert_eq!(messages.len(), 3, "assistant with content should be kept");
         let asst = messages.iter().find(|m| m.role == Role::Assistant).unwrap();
-        assert!(asst.tool_calls.is_none(), "orphaned tool_calls should be stripped");
+        assert!(
+            asst.tool_calls.is_none(),
+            "orphaned tool_calls should be stripped"
+        );
         assert_eq!(asst.text_content().as_deref(), Some("I'll help"));
     }
 
@@ -1329,11 +1353,7 @@ mod tests {
 
     #[test]
     fn ensure_valid_keeps_assistant_with_content() {
-        let mut messages = vec![
-            user("hi"),
-            assistant("hello"),
-            user("next"),
-        ];
+        let mut messages = vec![user("hi"), assistant("hello"), user("next")];
         ensure_valid_assistant_messages(&mut messages);
         assert_eq!(messages.len(), 3);
     }

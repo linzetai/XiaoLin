@@ -175,9 +175,7 @@ impl DocIndex {
             let snippet = if entry.content.len() <= remaining {
                 entry.content.clone()
             } else {
-                let boundary = entry.content[..remaining]
-                    .rfind('\n')
-                    .unwrap_or(remaining);
+                let boundary = entry.content[..remaining].rfind('\n').unwrap_or(remaining);
                 format!("{}...\n", &entry.content[..boundary])
             };
             remaining = remaining.saturating_sub(snippet.len());

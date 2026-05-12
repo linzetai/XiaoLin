@@ -161,7 +161,12 @@ mod tests {
     fn under_90_percent_continue_no_nudge() {
         let mut tracker = TokenBudgetTracker::new(10_000);
         let d = tracker.record(5_000); // 50%
-        assert_eq!(d, BudgetDecision::Continue { nudge_message: None });
+        assert_eq!(
+            d,
+            BudgetDecision::Continue {
+                nudge_message: None
+            }
+        );
         assert_eq!(tracker.consumed(), 5_000);
         assert_eq!(tracker.remaining(), 5_000);
     }
@@ -233,7 +238,7 @@ mod tests {
         tracker.record(100); // small
         tracker.record(100); // small
         tracker.record(5_000); // large — resets the window
-        // Need 3 consecutive small turns again.
+                               // Need 3 consecutive small turns again.
         assert!(matches!(
             tracker.record(100),
             BudgetDecision::Continue { .. }
@@ -298,7 +303,12 @@ mod tests {
 
         // Should behave as fresh — no diminishing history.
         let d = tracker.record(1_000);
-        assert_eq!(d, BudgetDecision::Continue { nudge_message: None });
+        assert_eq!(
+            d,
+            BudgetDecision::Continue {
+                nudge_message: None
+            }
+        );
     }
 
     #[test]
@@ -310,7 +320,12 @@ mod tests {
         assert_eq!(tracker.consumed(), 0);
 
         let d = tracker.record(5_000);
-        assert_eq!(d, BudgetDecision::Continue { nudge_message: None });
+        assert_eq!(
+            d,
+            BudgetDecision::Continue {
+                nudge_message: None
+            }
+        );
     }
 
     #[test]
@@ -343,7 +358,12 @@ mod tests {
         let mut tracker = TokenBudgetTracker::new(10_000);
         for _ in 0..8 {
             let d = tracker.record(1_000);
-            assert_eq!(d, BudgetDecision::Continue { nudge_message: None });
+            assert_eq!(
+                d,
+                BudgetDecision::Continue {
+                    nudge_message: None
+                }
+            );
         }
         assert_eq!(tracker.consumed(), 8_000); // 80%
 
@@ -370,6 +390,11 @@ mod tests {
     fn just_below_nudge_threshold() {
         let mut tracker = TokenBudgetTracker::new(10_000);
         let d = tracker.record(8_999); // 89.99% — just below 90%
-        assert_eq!(d, BudgetDecision::Continue { nudge_message: None });
+        assert_eq!(
+            d,
+            BudgetDecision::Continue {
+                nudge_message: None
+            }
+        );
     }
 }

@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use fastclaw_core::llm_plugin::{
-    AuthConfig, LlmPluginConfig, LlmPluginType, LlmProtocol, MiddlewareConfig,
-    ProcessPluginConfig,
+    AuthConfig, LlmPluginConfig, LlmPluginType, LlmProtocol, MiddlewareConfig, ProcessPluginConfig,
 };
 use fastclaw_core::types::{
     ChatChoice, ChatMessage, ChatResponse, DeltaContent, StreamChoice, StreamDelta,
@@ -22,9 +21,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::llm::{
-    classify_llm_error, CompletionParams, LlmProvider, RetryConfig,
-};
+use crate::llm::{classify_llm_error, CompletionParams, LlmProvider, RetryConfig};
 
 // =========================================================================
 // Auth middleware
@@ -177,10 +174,7 @@ impl AuthMiddleware {
                     if let Some(ref tok) = *guard {
                         if Instant::now() < tok.expires_at {
                             let val = format!("{} {}", token_prefix, tok.value);
-                            return Ok(vec![(
-                                token_header.clone(),
-                                HeaderValue::from_str(&val)?,
-                            )]);
+                            return Ok(vec![(token_header.clone(), HeaderValue::from_str(&val)?)]);
                         }
                     }
                 }
@@ -215,7 +209,7 @@ impl AuthMiddleware {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(3600);
                 // Cache with safety margin
-                let margin = (expires_in / 10).max(30).min(300);
+                let margin = (expires_in / 10).clamp(30, 300);
                 let ttl = Duration::from_secs(expires_in.saturating_sub(margin));
                 {
                     let mut guard = cached.write().await;
@@ -225,10 +219,7 @@ impl AuthMiddleware {
                     });
                 }
                 let val = format!("{} {}", token_prefix, access_token);
-                Ok(vec![(
-                    token_header.clone(),
-                    HeaderValue::from_str(&val)?,
-                )])
+                Ok(vec![(token_header.clone(), HeaderValue::from_str(&val)?)])
             }
             Self::PreRequestHook {
                 client,
@@ -248,14 +239,13 @@ impl AuthMiddleware {
                     if let Some(ref tok) = *guard {
                         if Instant::now() < tok.expires_at {
                             let val = format!("{} {}", token_prefix, tok.value);
-                            return Ok(vec![(
-                                token_header.clone(),
-                                HeaderValue::from_str(&val)?,
-                            )]);
+                            return Ok(vec![(token_header.clone(), HeaderValue::from_str(&val)?)]);
                         }
                     }
                 }
-                let mut req = client.request(method.clone(), url).headers(request_headers.clone());
+                let mut req = client
+                    .request(method.clone(), url)
+                    .headers(request_headers.clone());
                 if let Some(ref b) = body {
                     req = req.json(b);
                 }
@@ -272,10 +262,7 @@ impl AuthMiddleware {
                 let mut current = &json;
                 for key in extract_path {
                     current = current.get(key).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "pre-request hook: key '{}' not found in response",
-                            key
-                        )
+                        anyhow::anyhow!("pre-request hook: key '{}' not found in response", key)
                     })?;
                 }
                 let token_str = current
@@ -297,10 +284,7 @@ impl AuthMiddleware {
                 } else {
                     format!("{} {}", token_prefix, token_str)
                 };
-                Ok(vec![(
-                    token_header.clone(),
-                    HeaderValue::from_str(&val)?,
-                )])
+                Ok(vec![(token_header.clone(), HeaderValue::from_str(&val)?)])
             }
         }
     }
@@ -370,7 +354,10 @@ impl MiddlewareLlmProvider {
     }
 
     fn map_model<'a>(&'a self, model: &'a str) -> &'a str {
-        self.model_mapping.get(model).map(|s| s.as_str()).unwrap_or(model)
+        self.model_mapping
+            .get(model)
+            .map(|s| s.as_str())
+            .unwrap_or(model)
     }
 
     async fn build_headers(&self) -> anyhow::Result<HeaderMap> {
@@ -433,10 +420,7 @@ struct PluginOpenAiUsage {
 
 #[async_trait]
 impl LlmProvider for MiddlewareLlmProvider {
-    async fn chat_completion(
-        &self,
-        params: &CompletionParams<'_>,
-    ) -> anyhow::Result<ChatResponse> {
+    async fn chat_completion(&self, params: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
         match self.protocol {
             LlmProtocol::Openai => self.openai_chat_completion(params).await,
             LlmProtocol::Anthropic => {
@@ -611,12 +595,11 @@ impl MiddlewareLlmProvider {
         let mapped_model = self.map_model(params.model);
         let url = format!("{}/v1/messages", self.base_url);
 
-        let (system, messages) =
-            crate::llm::AnthropicProvider::convert_messages(params.messages);
+        let (system, messages) = crate::llm::AnthropicProvider::convert_messages(params.messages);
         let tools = params
             .tools
             .filter(|t| !t.is_empty())
-            .map(|t| crate::llm::AnthropicProvider::convert_tools(t));
+            .map(crate::llm::AnthropicProvider::convert_tools);
 
         let body = serde_json::json!({
             "model": mapped_model,
@@ -663,12 +646,11 @@ impl MiddlewareLlmProvider {
         let mapped_model = self.map_model(params.model);
         let url = format!("{}/v1/messages", self.base_url);
 
-        let (system, messages) =
-            crate::llm::AnthropicProvider::convert_messages(params.messages);
+        let (system, messages) = crate::llm::AnthropicProvider::convert_messages(params.messages);
         let tools = params
             .tools
             .filter(|t| !t.is_empty())
-            .map(|t| crate::llm::AnthropicProvider::convert_tools(t));
+            .map(crate::llm::AnthropicProvider::convert_tools);
 
         let body = serde_json::json!({
             "model": mapped_model,
@@ -741,10 +723,22 @@ impl MiddlewareLlmProvider {
                             "message_start" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                                     if let Some(m) = v.get("message") {
-                                        msg_id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                        model_name = m.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                        msg_id = m
+                                            .get("id")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        model_name = m
+                                            .get("model")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
                                         if let Some(u) = m.get("usage") {
-                                            input_tokens = u.get("input_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                                            input_tokens = u
+                                                .get("input_tokens")
+                                                .and_then(|x| x.as_u64())
+                                                .unwrap_or(0)
+                                                as u32;
                                         }
                                     }
                                 }
@@ -752,26 +746,45 @@ impl MiddlewareLlmProvider {
                             "message_delta" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                                     if let Some(delta) = v.get("delta") {
-                                        if let Some(sr) = delta.get("stop_reason").and_then(|x| x.as_str()) {
+                                        if let Some(sr) =
+                                            delta.get("stop_reason").and_then(|x| x.as_str())
+                                        {
                                             stop_reason = Some(sr.to_string());
                                         }
                                     }
                                     if let Some(u) = v.get("usage") {
-                                        output_tokens = u.get("output_tokens").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                                        output_tokens = u
+                                            .get("output_tokens")
+                                            .and_then(|x| x.as_u64())
+                                            .unwrap_or(0)
+                                            as u32;
                                     }
                                 }
                             }
                             "content_block_start" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                                    let index = v.get("index").and_then(|x| x.as_u64()).map(|u| u as u32);
-                                    if let (Some(idx), Some(block)) = (index, v.get("content_block")) {
-                                        let typ = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                    let index =
+                                        v.get("index").and_then(|x| x.as_u64()).map(|u| u as u32);
+                                    if let (Some(idx), Some(block)) =
+                                        (index, v.get("content_block"))
+                                    {
+                                        let typ = block
+                                            .get("type")
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("");
                                         if matches!(typ, "tool_use" | "server_tool_use") {
                                             if let (Some(id), Some(name)) = (
                                                 block.get("id").and_then(|x| x.as_str()),
                                                 block.get("name").and_then(|x| x.as_str()),
                                             ) {
-                                                tool_streams.insert(idx, (id.to_string(), name.to_string(), String::new()));
+                                                tool_streams.insert(
+                                                    idx,
+                                                    (
+                                                        id.to_string(),
+                                                        name.to_string(),
+                                                        String::new(),
+                                                    ),
+                                                );
                                             }
                                         }
                                     }
@@ -779,12 +792,19 @@ impl MiddlewareLlmProvider {
                             }
                             "content_block_delta" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                                    let index = v.get("index").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                                    let index =
+                                        v.get("index").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
                                     if let Some(delta_obj) = v.get("delta") {
-                                        let dt = delta_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                        let dt = delta_obj
+                                            .get("type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
                                         match dt {
                                             "text_delta" => {
-                                                let t = delta_obj.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                                let t = delta_obj
+                                                    .get("text")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("");
                                                 if !t.is_empty() {
                                                     let now = now_secs();
                                                     deltas.push(Ok(StreamDelta {
@@ -807,7 +827,10 @@ impl MiddlewareLlmProvider {
                                                 }
                                             }
                                             "input_json_delta" => {
-                                                let partial = delta_obj.get("partial_json").and_then(|x| x.as_str()).unwrap_or("");
+                                                let partial = delta_obj
+                                                    .get("partial_json")
+                                                    .and_then(|x| x.as_str())
+                                                    .unwrap_or("");
                                                 if let Some(entry) = tool_streams.get_mut(&index) {
                                                     entry.2.push_str(partial);
                                                 }
@@ -819,7 +842,8 @@ impl MiddlewareLlmProvider {
                             }
                             "content_block_stop" => {
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                                    let index = v.get("index").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+                                    let index =
+                                        v.get("index").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
                                     if let Some((id, name, args)) = tool_streams.remove(&index) {
                                         if !name.is_empty() {
                                             let now = now_secs();
@@ -834,15 +858,21 @@ impl MiddlewareLlmProvider {
                                                         role: None,
                                                         content: None,
                                                         reasoning_content: None,
-                                                        tool_calls: Some(vec![StreamToolCallDelta {
-                                                            index,
-                                                            id: Some(id),
-                                                            call_type: Some("function".to_string()),
-                                                            function: Some(StreamFunctionDelta {
-                                                                name: Some(name),
-                                                                arguments: Some(args),
-                                                            }),
-                                                        }]),
+                                                        tool_calls: Some(vec![
+                                                            StreamToolCallDelta {
+                                                                index,
+                                                                id: Some(id),
+                                                                call_type: Some(
+                                                                    "function".to_string(),
+                                                                ),
+                                                                function: Some(
+                                                                    StreamFunctionDelta {
+                                                                        name: Some(name),
+                                                                        arguments: Some(args),
+                                                                    },
+                                                                ),
+                                                            },
+                                                        ]),
                                                     },
                                                     finish_reason: None,
                                                 }],
@@ -861,7 +891,11 @@ impl MiddlewareLlmProvider {
                                 };
                                 let total = input_tokens + output_tokens;
                                 let usage = if total > 0 {
-                                    Some(Usage { prompt_tokens: input_tokens, completion_tokens: output_tokens, total_tokens: total })
+                                    Some(Usage {
+                                        prompt_tokens: input_tokens,
+                                        completion_tokens: output_tokens,
+                                        total_tokens: total,
+                                    })
                                 } else {
                                     None
                                 };
@@ -872,7 +906,12 @@ impl MiddlewareLlmProvider {
                                     model: model_name.clone(),
                                     choices: vec![StreamChoice {
                                         index: 0,
-                                        delta: DeltaContent { role: None, content: None, reasoning_content: None, tool_calls: None },
+                                        delta: DeltaContent {
+                                            role: None,
+                                            content: None,
+                                            reasoning_content: None,
+                                            tool_calls: None,
+                                        },
                                         finish_reason: finish,
                                     }],
                                     usage,
@@ -899,11 +938,26 @@ fn now_secs() -> u64 {
 
 /// Convert a raw Anthropic Messages API JSON response into a `ChatResponse`.
 fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<ChatResponse> {
-    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let model = v.get("model").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let stop_reason = v.get("stop_reason").and_then(|x| x.as_str()).unwrap_or("stop");
+    let id = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let model = v
+        .get("model")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let stop_reason = v
+        .get("stop_reason")
+        .and_then(|x| x.as_str())
+        .unwrap_or("stop");
 
-    let content_blocks = v.get("content").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    let content_blocks = v
+        .get("content")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .unwrap_or_default();
     let mut content_parts = Vec::new();
     let mut tool_calls = Vec::new();
     for block in &content_blocks {
@@ -915,9 +969,20 @@ fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<Chat
                 }
             }
             "tool_use" => {
-                let tc_id = block.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let name = block.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let input = block.get("input").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+                let tc_id = block
+                    .get("id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let input = block
+                    .get("input")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
                 tool_calls.push(fastclaw_core::types::ToolCall {
                     id: tc_id,
                     call_type: "function".to_string(),
@@ -940,8 +1005,14 @@ fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<Chat
     };
 
     let usage_obj = v.get("usage");
-    let input_tokens = usage_obj.and_then(|u| u.get("input_tokens")).and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-    let output_tokens = usage_obj.and_then(|u| u.get("output_tokens")).and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let input_tokens = usage_obj
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let output_tokens = usage_obj
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
 
     Ok(ChatResponse {
         id,
@@ -952,10 +1023,18 @@ fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<Chat
             index: 0,
             message: ChatMessage {
                 role: fastclaw_core::types::Role::Assistant,
-                content: if content_parts.is_empty() { None } else { Some(serde_json::Value::String(content_parts.join(""))) },
+                content: if content_parts.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::String(content_parts.join("")))
+                },
                 reasoning_content: None,
                 name: None,
-                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                tool_calls: if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls)
+                },
                 tool_call_id: None,
             },
             finish_reason: Some(finish_reason),
@@ -1145,10 +1224,7 @@ impl ProcessLlmProvider {
 
 #[async_trait]
 impl LlmProvider for ProcessLlmProvider {
-    async fn chat_completion(
-        &self,
-        params: &CompletionParams<'_>,
-    ) -> anyhow::Result<ChatResponse> {
+    async fn chat_completion(&self, params: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
         let req = ProcessRequest {
             method: "chat_completion",
             params: ProcessRequestParams {
@@ -1279,9 +1355,7 @@ impl LlmProvider for ProcessLlmProvider {
 
             // Process the already-read first line.
             line_count += 1;
-            if let Err(should_stop) =
-                process_stream_line(&first_owned, &plugin_id, &tx).await
-            {
+            if let Err(should_stop) = process_stream_line(&first_owned, &plugin_id, &tx).await {
                 tracing::info!(
                     plugin_id = %plugin_id,
                     line_count,
@@ -1512,15 +1586,13 @@ fn stream_delta_from_value(v: &serde_json::Value) -> StreamDelta {
         None => Vec::new(),
     };
 
-    let usage: Option<Usage> = v
-        .get("usage")
-        .and_then(|u| {
-            if u.is_null() {
-                None
-            } else {
-                serde_json::from_value(u.clone()).ok()
-            }
-        });
+    let usage: Option<Usage> = v.get("usage").and_then(|u| {
+        if u.is_null() {
+            None
+        } else {
+            serde_json::from_value(u.clone()).ok()
+        }
+    });
 
     StreamDelta {
         id,
@@ -1620,6 +1692,12 @@ pub struct LlmPluginRegistry {
     plugins: HashMap<String, LlmPluginConfig>,
 }
 
+impl Default for LlmPluginRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlmPluginRegistry {
     pub fn new() -> Self {
         Self {
@@ -1677,10 +1755,7 @@ impl LlmPluginRegistry {
     }
 
     /// Create a provider instance for the given plugin.
-    pub fn create_provider(
-        &self,
-        plugin_id: &str,
-    ) -> anyhow::Result<Box<dyn LlmProvider>> {
+    pub fn create_provider(&self, plugin_id: &str) -> anyhow::Result<Box<dyn LlmProvider>> {
         let config = self
             .plugins
             .get(plugin_id)
@@ -1873,7 +1948,12 @@ mod tests {
 
         assert!(provider.static_headers.contains_key("x-custom"));
         assert_eq!(
-            provider.static_headers.get("x-custom").unwrap().to_str().unwrap(),
+            provider
+                .static_headers
+                .get("x-custom")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "val"
         );
     }
@@ -1939,10 +2019,16 @@ mod tests {
         let deltas = chat_response_to_stream_deltas(resp);
         assert_eq!(deltas.len(), 2);
         assert!(deltas[0].choices[0].delta.content.is_some());
-        assert_eq!(deltas[0].choices[0].delta.content.as_deref().unwrap(), "Hello!");
+        assert_eq!(
+            deltas[0].choices[0].delta.content.as_deref().unwrap(),
+            "Hello!"
+        );
         assert!(deltas[0].choices[0].finish_reason.is_none());
         assert!(deltas[1].choices[0].delta.content.is_none());
-        assert_eq!(deltas[1].choices[0].finish_reason.as_deref().unwrap(), "stop");
+        assert_eq!(
+            deltas[1].choices[0].finish_reason.as_deref().unwrap(),
+            "stop"
+        );
         assert!(deltas[1].usage.is_some());
     }
 
@@ -1982,7 +2068,10 @@ mod tests {
         assert_eq!(deltas.len(), 2);
         let tc_delta = &deltas[0].choices[0].delta.tool_calls.as_ref().unwrap()[0];
         assert_eq!(tc_delta.id.as_deref().unwrap(), "call_123");
-        assert_eq!(tc_delta.function.as_ref().unwrap().name.as_deref().unwrap(), "search");
+        assert_eq!(
+            tc_delta.function.as_ref().unwrap().name.as_deref().unwrap(),
+            "search"
+        );
     }
 
     #[test]
@@ -2023,7 +2112,10 @@ mod tests {
         });
 
         let resp = anthropic_value_to_chat_response(v).unwrap();
-        assert_eq!(resp.choices[0].finish_reason.as_deref().unwrap(), "tool_calls");
+        assert_eq!(
+            resp.choices[0].finish_reason.as_deref().unwrap(),
+            "tool_calls"
+        );
         let msg = &resp.choices[0].message;
         assert!(msg.tool_calls.is_some());
         let tcs = msg.tool_calls.as_ref().unwrap();
@@ -2100,10 +2192,7 @@ mod tests {
     #[test]
     fn find_model_context_window_unknown_plugin() {
         let reg = LlmPluginRegistry::new();
-        assert_eq!(
-            reg.find_model_context_window("nonexistent", "any"),
-            None
-        );
+        assert_eq!(reg.find_model_context_window("nonexistent", "any"), None);
     }
 
     #[test]

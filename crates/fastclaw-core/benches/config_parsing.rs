@@ -76,22 +76,16 @@ fn bench_config_parsing(c: &mut Criterion) {
     let json_str = realistic_config_json();
 
     c.bench_function("config_from_json_str", |b| {
-        b.iter(|| {
-            serde_json::from_str::<FastClawConfig>(black_box(&json_str)).unwrap()
-        })
+        b.iter(|| serde_json::from_str::<FastClawConfig>(black_box(&json_str)).unwrap())
     });
 
     let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     c.bench_function("config_from_value", |b| {
-        b.iter(|| {
-            serde_json::from_value::<FastClawConfig>(black_box(value.clone())).unwrap()
-        })
+        b.iter(|| serde_json::from_value::<FastClawConfig>(black_box(value.clone())).unwrap())
     });
 
     c.bench_function("config_json5_parse", |b| {
-        b.iter(|| {
-            json5::from_str::<serde_json::Value>(black_box(&json_str)).unwrap()
-        })
+        b.iter(|| json5::from_str::<serde_json::Value>(black_box(&json_str)).unwrap())
     });
 }
 

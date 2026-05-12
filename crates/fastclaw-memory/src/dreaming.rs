@@ -171,8 +171,10 @@ fn extract_entity_relations(text: &str) -> Vec<(String, String, String)> {
     static DEPENDS_RE: OnceLock<Regex> = OnceLock::new();
 
     let is_re = IS_RE.get_or_init(|| {
-        Regex::new(r"(?i)([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48}?)\s+is\s+([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48})")
-            .expect("regex")
+        Regex::new(
+            r"(?i)([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48}?)\s+is\s+([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48})",
+        )
+        .expect("regex")
     });
     let uses_re = USES_RE.get_or_init(|| {
         Regex::new(r"(?i)([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48}?)\s+uses\s+([A-Za-z0-9][A-Za-z0-9 _.\-]{0,48})")
@@ -225,15 +227,12 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
 
     let ent = r"[A-Za-z0-9\u{4e00}-\u{9fff}][A-Za-z0-9 _.\-\u{4e00}-\u{9fff}]{0,48}?";
 
-    let prefers_re = PREFERS_RE.get_or_init(|| {
-        Regex::new(&format!(r"(?i)({ent})\s+prefers?\s+({ent})")).expect("regex")
-    });
-    let chose_re = CHOSE_RE.get_or_init(|| {
-        Regex::new(&format!(r"(?i)({ent})\s+chose\s+({ent})")).expect("regex")
-    });
-    let selected_re = SELECTED_RE.get_or_init(|| {
-        Regex::new(&format!(r"(?i)({ent})\s+selected\s+({ent})")).expect("regex")
-    });
+    let prefers_re = PREFERS_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+prefers?\s+({ent})")).expect("regex"));
+    let chose_re = CHOSE_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+chose\s+({ent})")).expect("regex"));
+    let selected_re = SELECTED_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+selected\s+({ent})")).expect("regex"));
 
     for (re, pred) in [
         (prefers_re, "prefers"),
@@ -255,10 +254,23 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
 /// if it describes multi-step actions, error fixes, or setup workflows.
 fn is_procedural_episode(summary: &str) -> bool {
     let lower = summary.to_lowercase();
-    let step_indicators = ["then", "next", "after", "finally", "step", "first",
-        "然后", "接着", "最后", "步骤", "首先"];
-    let action_indicators = ["fix", "setup", "install", "configure", "migrate",
-        "deploy", "build", "修复", "安装", "配置", "迁移", "部署"];
+    let step_indicators = [
+        "then", "next", "after", "finally", "step", "first", "然后", "接着", "最后", "步骤", "首先",
+    ];
+    let action_indicators = [
+        "fix",
+        "setup",
+        "install",
+        "configure",
+        "migrate",
+        "deploy",
+        "build",
+        "修复",
+        "安装",
+        "配置",
+        "迁移",
+        "部署",
+    ];
 
     let has_steps = step_indicators.iter().any(|w| lower.contains(w));
     let has_actions = action_indicators.iter().any(|w| lower.contains(w));
@@ -292,8 +304,7 @@ mod tests {
                 id: "e1".into(),
                 session_id: "s".into(),
                 agent_id: "main".into(),
-                summary: "The API service depends on Redis and the worker uses Postgres."
-                    .into(),
+                summary: "The API service depends on Redis and the worker uses Postgres.".into(),
                 importance: 0.9,
                 tags: String::new(),
                 created_at: "2026-04-18T10:00:00Z".into(),
@@ -391,7 +402,10 @@ mod tests {
         assert_eq!(r.episodes_marked, 2);
         assert_eq!(r.relationships_added, 2);
 
-        let rels_cache = semantic.get_relationships("The cache service").await.unwrap();
+        let rels_cache = semantic
+            .get_relationships("The cache service")
+            .await
+            .unwrap();
         assert!(rels_cache.iter().any(|x| x.relation == "is"));
 
         let rels_worker = semantic.get_relationships("The worker").await.unwrap();

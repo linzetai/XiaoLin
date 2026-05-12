@@ -1,4 +1,4 @@
-use super::shell_security::{ShellSecurityChecker, SecurityVerdict};
+use super::shell_security::{SecurityVerdict, ShellSecurityChecker};
 
 /// Three-level classification of a shell command's side-effect risk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,138 +108,310 @@ impl ReadOnlyClassifier {
 
 const READONLY_COMMANDS: &[&str] = &[
     // File inspection
-    "ls", "ll", "la", "dir", "exa", "eza", "lsd",
-    "cat", "bat", "head", "tail", "less", "more",
-    "wc", "file", "stat", "du", "df",
+    "ls",
+    "ll",
+    "la",
+    "dir",
+    "exa",
+    "eza",
+    "lsd",
+    "cat",
+    "bat",
+    "head",
+    "tail",
+    "less",
+    "more",
+    "wc",
+    "file",
+    "stat",
+    "du",
+    "df",
     // Search
-    "grep", "rg", "ag", "ack", "fgrep", "egrep",
-    "find", "fd", "fdfind", "locate", "which", "whereis", "type",
+    "grep",
+    "rg",
+    "ag",
+    "ack",
+    "fgrep",
+    "egrep",
+    "find",
+    "fd",
+    "fdfind",
+    "locate",
+    "which",
+    "whereis",
+    "type",
     // Text processing (readonly — sed -i checked separately)
-    "sort", "uniq", "tr", "cut", "paste", "column",
-    "awk", "sed",
-    "diff", "comm", "cmp",
-    "jq", "yq", "xq",
+    "sort",
+    "uniq",
+    "tr",
+    "cut",
+    "paste",
+    "column",
+    "awk",
+    "sed",
+    "diff",
+    "comm",
+    "cmp",
+    "jq",
+    "yq",
+    "xq",
     // System info
-    "echo", "printf", "date", "whoami", "hostname", "uname",
-    "env", "printenv", "id", "groups",
-    "ps", "top", "htop", "free", "uptime", "lsof",
-    "pwd", "realpath", "dirname", "basename",
+    "echo",
+    "printf",
+    "date",
+    "whoami",
+    "hostname",
+    "uname",
+    "env",
+    "printenv",
+    "id",
+    "groups",
+    "ps",
+    "top",
+    "htop",
+    "free",
+    "uptime",
+    "lsof",
+    "pwd",
+    "realpath",
+    "dirname",
+    "basename",
     // Network (readonly)
-    "ping", "traceroute", "dig", "nslookup", "host", "curl", "wget",
-    "ss", "netstat", "ip",
+    "ping",
+    "traceroute",
+    "dig",
+    "nslookup",
+    "host",
+    "curl",
+    "wget",
+    "ss",
+    "netstat",
+    "ip",
     // Development tools
-    "tree", "tokei", "cloc", "scc",
-    "python3", "python", "node", "ruby",
-    "cargo", "npm", "npx", "yarn", "pnpm",
-    "git", "gh",
-    "docker", "kubectl",
-    "rustc", "gcc", "g++", "clang",
-    "make", "cmake",
+    "tree",
+    "tokei",
+    "cloc",
+    "scc",
+    "python3",
+    "python",
+    "node",
+    "ruby",
+    "cargo",
+    "npm",
+    "npx",
+    "yarn",
+    "pnpm",
+    "git",
+    "gh",
+    "docker",
+    "kubectl",
+    "rustc",
+    "gcc",
+    "g++",
+    "clang",
+    "make",
+    "cmake",
     // Misc safe
-    "test", "[", "true", "false", "sleep",
-    "xargs", "tput", "clear", "reset",
-    "man", "help", "info",
-    "md5sum", "sha256sum", "sha1sum", "shasum",
-    "base64", "xxd", "hexdump", "od",
+    "test",
+    "[",
+    "true",
+    "false",
+    "sleep",
+    "xargs",
+    "tput",
+    "clear",
+    "reset",
+    "man",
+    "help",
+    "info",
+    "md5sum",
+    "sha256sum",
+    "sha1sum",
+    "shasum",
+    "base64",
+    "xxd",
+    "hexdump",
+    "od",
     "tar", // only listing (checked separately when extracting)
 ];
 
 // ─── Subcommand whitelists ──────────────────────────────────────────────────
 
 const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
-    "status", "log", "diff", "show", "branch", "tag",
-    "describe", "shortlog", "blame", "ls-files", "ls-tree",
-    "rev-parse", "rev-list", "remote", "config",
-    "stash", "reflog", "worktree",
+    "status",
+    "log",
+    "diff",
+    "show",
+    "branch",
+    "tag",
+    "describe",
+    "shortlog",
+    "blame",
+    "ls-files",
+    "ls-tree",
+    "rev-parse",
+    "rev-list",
+    "remote",
+    "config",
+    "stash",
+    "reflog",
+    "worktree",
 ];
 
 const GIT_WRITE_SUBCOMMANDS: &[&str] = &[
-    "add", "commit", "push", "pull", "fetch",
-    "merge", "rebase", "cherry-pick",
-    "checkout", "switch", "restore",
-    "reset", "revert", "clean",
-    "rm", "mv",
+    "add",
+    "commit",
+    "push",
+    "pull",
+    "fetch",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "checkout",
+    "switch",
+    "restore",
+    "reset",
+    "revert",
+    "clean",
+    "rm",
+    "mv",
 ];
 
-const GIT_DANGEROUS_SUBCOMMANDS: &[&str] = &[
-    "push --force", "reset --hard", "clean -fd",
-];
+const GIT_DANGEROUS_SUBCOMMANDS: &[&str] = &["push --force", "reset --hard", "clean -fd"];
 
 const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
-    "check", "clippy", "test", "bench", "doc",
-    "tree", "metadata", "pkgid", "verify-project",
-    "version", "help", "search", "fmt",
+    "check",
+    "clippy",
+    "test",
+    "bench",
+    "doc",
+    "tree",
+    "metadata",
+    "pkgid",
+    "verify-project",
+    "version",
+    "help",
+    "search",
+    "fmt",
 ];
 
 const CARGO_WRITE_SUBCOMMANDS: &[&str] = &[
-    "install", "uninstall", "add", "remove",
-    "publish", "yank", "init", "new",
-    "build", "run",
+    "install",
+    "uninstall",
+    "add",
+    "remove",
+    "publish",
+    "yank",
+    "init",
+    "new",
+    "build",
+    "run",
 ];
 
 const NPM_READONLY_SUBCOMMANDS: &[&str] = &[
-    "list", "ls", "info", "show", "view", "outdated",
-    "audit", "explain", "why", "help", "version",
+    "list", "ls", "info", "show", "view", "outdated", "audit", "explain", "why", "help", "version",
     "test", "run", "exec",
 ];
 
 const NPM_WRITE_SUBCOMMANDS: &[&str] = &[
-    "install", "i", "ci", "uninstall", "remove",
-    "publish", "unpublish", "link",
-    "init", "create", "update", "upgrade",
+    "install",
+    "i",
+    "ci",
+    "uninstall",
+    "remove",
+    "publish",
+    "unpublish",
+    "link",
+    "init",
+    "create",
+    "update",
+    "upgrade",
 ];
 
 const DOCKER_READONLY_SUBCOMMANDS: &[&str] = &[
-    "ps", "images", "inspect", "logs", "stats", "top",
-    "port", "diff", "history", "version", "info",
-    "network", "volume",
+    "ps", "images", "inspect", "logs", "stats", "top", "port", "diff", "history", "version",
+    "info", "network", "volume",
 ];
 
 const DOCKER_WRITE_SUBCOMMANDS: &[&str] = &[
-    "run", "exec", "build", "push", "pull",
-    "rm", "rmi", "stop", "kill", "restart",
-    "create", "compose",
+    "run", "exec", "build", "push", "pull", "rm", "rmi", "stop", "kill", "restart", "create",
+    "compose",
 ];
 
 const KUBECTL_READONLY_SUBCOMMANDS: &[&str] = &[
-    "get", "describe", "logs", "top",
-    "explain", "api-resources", "api-versions",
-    "cluster-info", "version", "config",
+    "get",
+    "describe",
+    "logs",
+    "top",
+    "explain",
+    "api-resources",
+    "api-versions",
+    "cluster-info",
+    "version",
+    "config",
 ];
 
 const KUBECTL_WRITE_SUBCOMMANDS: &[&str] = &[
-    "apply", "create", "delete", "patch",
-    "edit", "replace", "scale", "rollout",
-    "expose", "run", "exec",
+    "apply", "create", "delete", "patch", "edit", "replace", "scale", "rollout", "expose", "run",
+    "exec",
 ];
 
 // ─── Write commands ─────────────────────────────────────────────────────────
 
 const WRITE_COMMANDS: &[&str] = &[
-    "rm", "rmdir", "mv", "cp",
-    "mkdir", "mktemp",
-    "touch", "truncate",
-    "chmod", "chown", "chgrp",
-    "ln", "unlink", "shred",
+    "rm",
+    "rmdir",
+    "mv",
+    "cp",
+    "mkdir",
+    "mktemp",
+    "touch",
+    "truncate",
+    "chmod",
+    "chown",
+    "chgrp",
+    "ln",
+    "unlink",
+    "shred",
     "tee",
     "dd",
     "install",
     "patch",
-    "pip", "pip3",
-    "apt", "apt-get", "yum", "dnf", "brew", "pacman",
-    "systemctl", "service",
+    "pip",
+    "pip3",
+    "apt",
+    "apt-get",
+    "yum",
+    "dnf",
+    "brew",
+    "pacman",
+    "systemctl",
+    "service",
     "crontab",
-    "useradd", "userdel", "usermod", "groupadd",
-    "mount", "umount",
+    "useradd",
+    "userdel",
+    "usermod",
+    "groupadd",
+    "mount",
+    "umount",
 ];
 
 // ─── Dangerous commands ─────────────────────────────────────────────────────
 
 const DANGEROUS_COMMANDS: &[&str] = &[
-    "mkfs", "fdisk", "parted",
-    "iptables", "ip6tables", "nft",
-    "reboot", "shutdown", "halt", "poweroff",
-    "insmod", "rmmod", "modprobe",
+    "mkfs",
+    "fdisk",
+    "parted",
+    "iptables",
+    "ip6tables",
+    "nft",
+    "reboot",
+    "shutdown",
+    "halt",
+    "poweroff",
+    "insmod",
+    "rmmod",
+    "modprobe",
     "chroot",
 ];
 
@@ -279,16 +451,36 @@ fn classify_segment(segment: &str) -> CommandClassification {
         return classify_git(args);
     }
     if base_cmd == "cargo" {
-        return classify_with_subcommands(args, CARGO_READONLY_SUBCOMMANDS, CARGO_WRITE_SUBCOMMANDS, "cargo");
+        return classify_with_subcommands(
+            args,
+            CARGO_READONLY_SUBCOMMANDS,
+            CARGO_WRITE_SUBCOMMANDS,
+            "cargo",
+        );
     }
     if matches!(base_cmd, "npm" | "npx" | "yarn" | "pnpm") {
-        return classify_with_subcommands(args, NPM_READONLY_SUBCOMMANDS, NPM_WRITE_SUBCOMMANDS, base_cmd);
+        return classify_with_subcommands(
+            args,
+            NPM_READONLY_SUBCOMMANDS,
+            NPM_WRITE_SUBCOMMANDS,
+            base_cmd,
+        );
     }
     if base_cmd == "docker" {
-        return classify_with_subcommands(args, DOCKER_READONLY_SUBCOMMANDS, DOCKER_WRITE_SUBCOMMANDS, "docker");
+        return classify_with_subcommands(
+            args,
+            DOCKER_READONLY_SUBCOMMANDS,
+            DOCKER_WRITE_SUBCOMMANDS,
+            "docker",
+        );
     }
     if base_cmd == "kubectl" {
-        return classify_with_subcommands(args, KUBECTL_READONLY_SUBCOMMANDS, KUBECTL_WRITE_SUBCOMMANDS, "kubectl");
+        return classify_with_subcommands(
+            args,
+            KUBECTL_READONLY_SUBCOMMANDS,
+            KUBECTL_WRITE_SUBCOMMANDS,
+            "kubectl",
+        );
     }
 
     // sed -i is a write operation
@@ -311,7 +503,11 @@ fn classify_segment(segment: &str) -> CommandClassification {
     }
 
     // curl/wget with output flags are write
-    if base_cmd == "curl" && tokens.iter().any(|t| matches!(*t, "-o" | "-O" | "--output")) {
+    if base_cmd == "curl"
+        && tokens
+            .iter()
+            .any(|t| matches!(*t, "-o" | "-O" | "--output"))
+    {
         return CommandClassification::Write {
             reason: "curl with -o/-O writes to files".into(),
         };
@@ -344,7 +540,8 @@ fn classify_segment(segment: &str) -> CommandClassification {
 }
 
 fn classify_git(args: &[&str]) -> CommandClassification {
-    let subcommand = args.iter()
+    let subcommand = args
+        .iter()
         .find(|a| !a.starts_with('-'))
         .copied()
         .unwrap_or("");
@@ -380,7 +577,8 @@ fn classify_with_subcommands(
     write: &[&str],
     parent: &str,
 ) -> CommandClassification {
-    let subcommand = args.iter()
+    let subcommand = args
+        .iter()
         .find(|a| !a.starts_with('-'))
         .copied()
         .unwrap_or("");
@@ -431,7 +629,11 @@ fn has_output_redirection(s: &str) -> bool {
                 continue;
             }
             // Skip >( (process substitution)
-            let next = if i + 1 < len && bytes[i + 1] == b'>' { i + 2 } else { i + 1 };
+            let next = if i + 1 < len && bytes[i + 1] == b'>' {
+                i + 2
+            } else {
+                i + 1
+            };
             if next < len && bytes[next] == b'(' {
                 i = next + 1;
                 continue;
@@ -648,7 +850,9 @@ mod tests {
 
     #[test]
     fn readonly_complex_pipe() {
-        assert!(ReadOnlyClassifier::classify("find . -name '*.rs' | head -20 | sort").is_readonly());
+        assert!(
+            ReadOnlyClassifier::classify("find . -name '*.rs' | head -20 | sort").is_readonly()
+        );
     }
 
     // ── Write detection ─────────────────────────────────────────────

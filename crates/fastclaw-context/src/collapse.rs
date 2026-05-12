@@ -86,8 +86,7 @@ impl CollapseStore {
                 return Err(CollapseOverlapError {
                     message: format!(
                         "new span [{}..={}] overlaps existing [{}..={}]",
-                        span.start_round, span.end_round,
-                        existing.start_round, existing.end_round,
+                        span.start_round, span.end_round, existing.start_round, existing.end_round,
                     ),
                 });
             }
@@ -249,7 +248,9 @@ impl CollapseEngine {
             return None;
         }
 
-        let eligible_end = rounds.len().saturating_sub(self.config.preserve_recent_rounds);
+        let eligible_end = rounds
+            .len()
+            .saturating_sub(self.config.preserve_recent_rounds);
 
         // Find the first contiguous batch of uncollapsed rounds.
         let mut batch_start: Option<usize> = None;
@@ -445,7 +446,9 @@ mod tests {
         let mut store = CollapseStore::new();
         assert!(store.is_empty());
 
-        store.add(make_span(0, 2, "First three rounds discussed setup.")).unwrap();
+        store
+            .add(make_span(0, 2, "First three rounds discussed setup."))
+            .unwrap();
         assert_eq!(store.len(), 1);
 
         let span = store.get_for_round(1).unwrap();
@@ -620,7 +623,9 @@ mod tests {
 
         let mut store = CollapseStore::new();
         // Collapse round 0 (sys + user-q0 + assistant-a0)
-        store.add(make_span(0, 0, "Initial setup discussion")).unwrap();
+        store
+            .add(make_span(0, 0, "Initial setup discussion"))
+            .unwrap();
 
         let projected = project(&messages, &store);
 
@@ -681,7 +686,7 @@ mod tests {
                 m.role == Role::System
                     && m.text_content()
                         .as_deref()
-                        .map_or(false, |t| t.contains("[Summary"))
+                        .is_some_and(|t| t.contains("[Summary"))
             })
             .count();
         assert_eq!(summary_count, 2);
@@ -698,8 +703,12 @@ mod tests {
         let tokens_before = crate::compressor::estimate_messages_tokens(&messages);
 
         let mut store = CollapseStore::new();
-        store.add(make_span(0, 5, "Early discussion summary")).unwrap();
-        store.add(make_span(8, 12, "Middle discussion summary")).unwrap();
+        store
+            .add(make_span(0, 5, "Early discussion summary"))
+            .unwrap();
+        store
+            .add(make_span(8, 12, "Middle discussion summary"))
+            .unwrap();
 
         let projected = project(&messages, &store);
         let tokens_after = crate::compressor::estimate_messages_tokens(&projected);

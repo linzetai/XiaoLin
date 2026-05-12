@@ -76,7 +76,10 @@ impl SymbolIndex {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let tx = conn.unchecked_transaction()?;
 
-        tx.execute("DELETE FROM symbols WHERE file_path = ?1", params![file_path])?;
+        tx.execute(
+            "DELETE FROM symbols WHERE file_path = ?1",
+            params![file_path],
+        )?;
 
         {
             let mut stmt = tx.prepare_cached(
@@ -207,8 +210,10 @@ impl SymbolIndex {
             Ok(c) => c,
             Err(_) => return 0,
         };
-        conn.query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get::<_, usize>(0))
-            .unwrap_or(0)
+        conn.query_row("SELECT COUNT(*) FROM symbols", [], |row| {
+            row.get::<_, usize>(0)
+        })
+        .unwrap_or(0)
     }
 }
 
@@ -226,8 +231,8 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 const SOURCE_EXTENSIONS: &[&str] = &[
-    "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "kt", "c", "cpp", "h", "hpp", "cs",
-    "rb", "swift", "scala",
+    "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "kt", "c", "cpp", "h", "hpp", "cs", "rb",
+    "swift", "scala",
 ];
 
 fn is_source_file(path: &Path) -> bool {
@@ -356,8 +361,8 @@ pub fn start_watcher(root: PathBuf, index: Arc<SymbolIndex>) {
                             .to_string_lossy()
                             .to_string();
                         if let Ok(conn) = index.conn.lock() {
-                            let _ =
-                                conn.execute("DELETE FROM symbols WHERE file_path = ?1", params![rel]);
+                            let _ = conn
+                                .execute("DELETE FROM symbols WHERE file_path = ?1", params![rel]);
                         }
                     }
                 }
@@ -450,9 +455,7 @@ mod tests {
             start_col: 1,
             signature: "pub fn process_data(input: &str) -> Result<()>".into(),
         }];
-        index
-            .index_file("src/main.rs", &symbols, "abc123")
-            .unwrap();
+        index.index_file("src/main.rs", &symbols, "abc123").unwrap();
 
         let results = index.lookup("process_data");
         assert_eq!(results.len(), 1);

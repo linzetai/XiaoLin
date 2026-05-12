@@ -245,12 +245,14 @@ impl Tool for TtsTool {
 
         let text = match args.get("text").and_then(|v| v.as_str()) {
             Some(t) if !t.is_empty() => t,
-            _ => return ToolResult::err(
-                "text_to_speech is missing or empty required string field 'text'. \
+            _ => {
+                return ToolResult::err(
+                    "text_to_speech is missing or empty required string field 'text'. \
                  Example: {\"text\": \"Your deployment is live.\"}. \
                  Strip to spoken content if you were given Markdown-only scaffolding."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let voice = args

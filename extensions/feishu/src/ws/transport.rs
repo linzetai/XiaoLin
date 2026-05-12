@@ -92,7 +92,10 @@ fn parse_card_action_payload(evt: &WsEvent) -> Option<InboundMessage> {
     let action = event.get("action")?;
     let value = action.get("value")?;
 
-    let request_id = value.get("message_id").and_then(|v| v.as_str())?.to_string();
+    let request_id = value
+        .get("message_id")
+        .and_then(|v| v.as_str())?
+        .to_string();
     let option_id = value
         .get("option_id")
         .and_then(|v| v.as_str())

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use fastclaw_agent::{
-    create_provider, create_provider_with_credentials, AgentRuntime,
-    FallbackProvider, process_channel::ProcessChannelPlugin,
+    create_provider, create_provider_with_credentials, process_channel::ProcessChannelPlugin,
+    AgentRuntime, FallbackProvider,
 };
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::bus::MessageBus;
@@ -19,7 +19,7 @@ use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
 use fastclaw_evolution::{
-    FeedbackStore, LlmExtractionCallback, LlmExtractedPattern, PromptDistiller, SkillExtractor,
+    FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromptDistiller, SkillExtractor,
     SkillParam, SkillStore, TrajectoryStore,
 };
 use fastclaw_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
@@ -58,8 +58,8 @@ pub fn validate_agents_for_reload(agents: &[AgentConfig]) -> anyhow::Result<()> 
     Ok(())
 }
 
-mod helpers;
 mod builder;
+mod helpers;
 
 /// Configuration and routing metadata.
 #[derive(Clone)]
@@ -77,8 +77,7 @@ pub struct RuntimeState {
     pub runtime: Arc<AgentRuntime>,
     pub tool_registry: Arc<ToolRegistry>,
     pub base_skill_registry: Arc<ArcSwap<SkillRegistry>>,
-    pub agent_skill_registries:
-        Arc<ArcSwap<std::collections::HashMap<String, Arc<SkillRegistry>>>>,
+    pub agent_skill_registries: Arc<ArcSwap<std::collections::HashMap<String, Arc<SkillRegistry>>>>,
     pub workspaces: Arc<std::collections::HashMap<String, AgentWorkspace>>,
     pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
     pub mode_state: fastclaw_agent::builtin_tools::ExecutionModeState,
@@ -107,7 +106,10 @@ pub(crate) struct LlmSkillExtraction {
 
 #[async_trait::async_trait]
 impl LlmExtractionCallback for LlmSkillExtraction {
-    async fn extract_pattern(&self, trajectories_summary: &str) -> anyhow::Result<LlmExtractedPattern> {
+    async fn extract_pattern(
+        &self,
+        trajectories_summary: &str,
+    ) -> anyhow::Result<LlmExtractedPattern> {
         let prompt = format!(
             "You are a skill pattern extractor. Given a cluster of successful AI agent trajectories, \
              extract a reusable skill pattern.\n\n\
@@ -159,7 +161,10 @@ impl LlmExtractionCallback for LlmSkillExtraction {
         Ok(LlmExtractedPattern {
             name: parsed["name"].as_str().unwrap_or("unnamed").to_string(),
             task_pattern: parsed["task_pattern"].as_str().unwrap_or("").to_string(),
-            strategy_template: parsed["strategy_template"].as_str().unwrap_or("").to_string(),
+            strategy_template: parsed["strategy_template"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
             parameters: parsed["parameters"]
                 .as_array()
                 .map(|arr| {
@@ -167,7 +172,10 @@ impl LlmExtractionCallback for LlmSkillExtraction {
                         .filter_map(|p| {
                             Some(SkillParam {
                                 name: p["name"].as_str()?.to_string(),
-                                param_type: p["param_type"].as_str().unwrap_or("string").to_string(),
+                                param_type: p["param_type"]
+                                    .as_str()
+                                    .unwrap_or("string")
+                                    .to_string(),
                                 description: p["description"].as_str().unwrap_or("").to_string(),
                                 default_value: p["default_value"].as_str().map(String::from),
                             })
@@ -194,8 +202,10 @@ pub struct ExtensionState {
     pub message_bus: Arc<MessageBus>,
     pub mcp_status:
         Arc<ArcSwap<std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>>>,
-    pub mcp_handles: Arc<tokio::sync::Mutex<std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>>>,
-    pub channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
+    pub mcp_handles:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>>>,
+    pub channel_inbound_tx:
+        tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
     pub llm_plugin_registry: Arc<tokio::sync::RwLock<fastclaw_agent::LlmPluginRegistry>>,
 }
 
@@ -210,11 +220,9 @@ pub struct ObserveState {
 /// Streaming and real-time state.
 #[derive(Clone)]
 pub struct StreamState {
-    pub stream_event_tx: Arc<
-        DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
-    >,
-    pub ask_question_pending:
-        Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
+    pub stream_event_tx:
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
+    pub ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
     pub ws_broadcast: tokio::sync::broadcast::Sender<String>,
     pub subagent_manager: Arc<fastclaw_agent::SubAgentManager>,
 }
@@ -571,10 +579,8 @@ impl AppState {
 
         // Load process-based channel plugins from config files.
         if config.channel_plugins.enabled {
-            let plugins_dir = channel_plugin::resolve_channel_plugins_dir(
-                &config.channel_plugins,
-                &config.paths,
-            );
+            let plugins_dir =
+                channel_plugin::resolve_channel_plugins_dir(&config.channel_plugins, &config.paths);
             let plugin_configs = channel_plugin::load_channel_plugins(&plugins_dir);
 
             for pc in plugin_configs {
@@ -619,12 +625,18 @@ impl AppState {
 
         if let Err(e) = plugin.initialize(account_config).await {
             tracing::error!(plugin_id = %plugin_id, error = %e, "failed to initialize process channel plugin");
-            anyhow::bail!("failed to initialize process channel plugin '{}': {e}", plugin_id);
+            anyhow::bail!(
+                "failed to initialize process channel plugin '{}': {e}",
+                plugin_id
+            );
         }
 
         if let Err(e) = plugin.start(inbound_tx.clone()).await {
             tracing::error!(plugin_id = %plugin_id, error = %e, "failed to start process channel plugin");
-            anyhow::bail!("failed to start process channel plugin '{}': {e}", plugin_id);
+            anyhow::bail!(
+                "failed to start process channel plugin '{}': {e}",
+                plugin_id
+            );
         }
 
         tracing::info!(
@@ -639,15 +651,14 @@ impl AppState {
     /// Built-ins and web/media tools (no MCP, no subagent).
     /// Returns the `ToolRegistry` together with the shared `TodoStore` so
     /// stop-hooks can inspect incomplete todos at runtime.
-    async fn build_tools_core(config: &FastClawConfig) -> anyhow::Result<(ToolRegistry, fastclaw_agent::builtin_tools::TodoStore)> {
+    async fn build_tools_core(
+        config: &FastClawConfig,
+    ) -> anyhow::Result<(ToolRegistry, fastclaw_agent::builtin_tools::TodoStore)> {
         let creds = &config.credentials;
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
         let todo_store = fastclaw_agent::builtin_tools::TodoStore::new();
-        fastclaw_agent::builtin_tools::register_todo_tools(
-            &tool_registry,
-            todo_store.clone(),
-        );
+        fastclaw_agent::builtin_tools::register_todo_tools(&tool_registry, todo_store.clone());
 
         let ws_cfg = &config.web_search;
         let search_backend = match ws_cfg.backend.as_str() {
@@ -731,10 +742,8 @@ impl AppState {
 
         let mut status_map: std::collections::HashMap<String, McpServerStatus> =
             std::collections::HashMap::new();
-        let mut handles_map: std::collections::HashMap<
-            String,
-            fastclaw_mcp::SharedMcpClient,
-        > = std::collections::HashMap::new();
+        let mut handles_map: std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient> =
+            std::collections::HashMap::new();
         let mut registered_ids = std::collections::HashSet::new();
 
         tracing::info!(
@@ -1076,8 +1085,11 @@ impl AppState {
         base.merge_from(project_registry);
         base.merge_from(global_registry);
 
-        let filtered_base =
-            Arc::new(base.filtered(&self.cfg.config.skills.allow, &self.cfg.config.skills.deny, None));
+        let filtered_base = Arc::new(base.filtered(
+            &self.cfg.config.skills.allow,
+            &self.cfg.config.skills.deny,
+            None,
+        ));
 
         let resolved_agents = self.cfg.config.agents.resolved_list();
         let mut per_agent = std::collections::HashMap::new();
@@ -1106,9 +1118,7 @@ impl AppState {
 
         let total = filtered_base.count();
         self.rt.base_skill_registry.store(filtered_base);
-        self.rt
-            .agent_skill_registries
-            .store(Arc::new(per_agent));
+        self.rt.agent_skill_registries.store(Arc::new(per_agent));
         tracing::info!(base_skills = total, "skills hot-reloaded from disk");
         Ok(total)
     }
@@ -1291,8 +1301,7 @@ impl AppState {
                         self.rt.runtime.set_default_provider(provider.clone());
                         default_refreshed = true;
                     }
-                    self.rt.runtime
-                        .register_provider(&agent.agent_id, provider);
+                    self.rt.runtime.register_provider(&agent.agent_id, provider);
                     registered += 1;
                 }
                 Err(e) => {
@@ -1371,19 +1380,15 @@ impl AppState {
 
         let runtime = Arc::new({
             let rt = AgentRuntime::new(Arc::from(provider));
-            let rt = rt
-                .with_skill_store(skill_store.clone())
-                .with_trajectory_store(trajectory_store.clone());
-            rt
+
+            rt.with_skill_store(skill_store.clone())
+                .with_trajectory_store(trajectory_store.clone())
         });
 
         let tool_registry = ToolRegistry::new();
         fastclaw_agent::builtin_tools::register_builtin_tools(&tool_registry);
         let todo_store = fastclaw_agent::builtin_tools::TodoStore::new();
-        fastclaw_agent::builtin_tools::register_todo_tools(
-            &tool_registry,
-            todo_store.clone(),
-        );
+        fastclaw_agent::builtin_tools::register_todo_tools(&tool_registry, todo_store.clone());
 
         let subagent_manager = Arc::new(fastclaw_agent::SubAgentManager::new(
             runtime.clone(),
@@ -1520,9 +1525,7 @@ impl AppState {
                 channel_registry: Arc::new(tokio::sync::RwLock::new(channel_registry)),
                 message_bus,
                 mcp_status: Arc::new(ArcSwap::new(Arc::new(std::collections::HashMap::new()))),
-                mcp_handles: Arc::new(tokio::sync::Mutex::new(
-                    std::collections::HashMap::new(),
-                )),
+                mcp_handles: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
                 channel_inbound_tx,
                 llm_plugin_registry: Arc::new(tokio::sync::RwLock::new(
                     fastclaw_agent::LlmPluginRegistry::new(),

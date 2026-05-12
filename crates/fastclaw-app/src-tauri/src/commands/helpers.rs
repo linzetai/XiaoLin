@@ -198,10 +198,7 @@ pub fn sync_agent_channels_to_live(
 }
 
 /// Remove all channels and bindings belonging to a deleted agent from `config_live`.
-pub fn cleanup_agent_channels_from_live(
-    app: &AppState,
-    agent_id: &str,
-) {
+pub fn cleanup_agent_channels_from_live(app: &AppState, agent_id: &str) {
     let mut live: serde_json::Value = (**app.cfg.config_live.load()).clone();
     if let Some(arr) = live
         .get_mut("bindings")

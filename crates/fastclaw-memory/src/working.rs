@@ -195,11 +195,7 @@ mod tests {
             .collect();
         assert_eq!(
             contents,
-            vec![
-                "a".to_string(),
-                "c".to_string(),
-                "d".to_string(),
-            ],
+            vec!["a".to_string(), "c".to_string(), "d".to_string(),],
             "expected LRU eviction to drop 'b', not oldest-inserted 'a'"
         );
     }
@@ -226,9 +222,6 @@ mod tests {
         wm.inject_summary("earlier: user asked about Rust");
         assert_eq!(wm.len(), 3);
         let first = wm.messages().next().unwrap();
-        assert!(first
-            .text_content()
-            .unwrap()
-            .contains("conversation recap"));
+        assert!(first.text_content().unwrap().contains("conversation recap"));
     }
 }

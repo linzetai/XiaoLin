@@ -176,8 +176,7 @@ impl Tool for ManageMcpServerTool {
 
 impl ManageMcpServerTool {
     async fn list_servers(&self) -> ToolResult {
-        let status_map: HashMap<String, McpServerStatus> =
-            (**self.mcp_status.load()).clone();
+        let status_map: HashMap<String, McpServerStatus> = (**self.mcp_status.load()).clone();
 
         if status_map.is_empty() {
             return ToolResult::ok("No MCP servers configured.");
@@ -259,8 +258,7 @@ impl ManageMcpServerTool {
             let tc_before = self.tool_registry.len();
             let connect_result = if cfg.transport == "sse" {
                 let url = cfg.url.as_deref().unwrap_or("");
-                fastclaw_mcp::register_mcp_tools_sse(url, &self.tool_registry, &prefix)
-                    .await
+                fastclaw_mcp::register_mcp_tools_sse(url, &self.tool_registry, &prefix).await
             } else {
                 let args_ref: Vec<&str> = cfg.args.iter().map(|s| s.as_str()).collect();
                 fastclaw_mcp::register_mcp_tools(
@@ -314,8 +312,7 @@ impl ManageMcpServerTool {
     async fn reload(&self) -> ToolResult {
         match self.do_reload().await {
             Ok(()) => {
-                let status: HashMap<String, McpServerStatus> =
-                    (**self.mcp_status.load()).clone();
+                let status: HashMap<String, McpServerStatus> = (**self.mcp_status.load()).clone();
                 let connected = status
                     .values()
                     .filter(|s| s.status == McpStatus::Connected)

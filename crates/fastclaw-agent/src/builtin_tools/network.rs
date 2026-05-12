@@ -67,7 +67,9 @@ impl HttpFetchTool {
 
 #[async_trait]
 impl Tool for HttpFetchTool {
-    fn kind(&self) -> ToolKind { ToolKind::Fetch }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Fetch
+    }
     fn name(&self) -> &str {
         "http_fetch"
     }
@@ -130,12 +132,14 @@ impl Tool for HttpFetchTool {
 
         let url = match args.get("url").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "http_fetch is missing string field 'url'. \
+            None => {
+                return ToolResult::err(
+                    "http_fetch is missing string field 'url'. \
                  Example: {\"url\": \"https://httpbin.org/get\"}. \
                  Relative paths like '/api' are not accepted—include scheme and host."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let method = match parse_http_fetch_method(args.get("method")) {
@@ -312,9 +316,15 @@ impl TavilyEngine {
 
 #[async_trait]
 impl SearchEngine for TavilyEngine {
-    fn id(&self) -> &str { "tavily" }
-    fn display_name(&self) -> &str { "Tavily" }
-    fn requires_api_key(&self) -> bool { true }
+    fn id(&self) -> &str {
+        "tavily"
+    }
+    fn display_name(&self) -> &str {
+        "Tavily"
+    }
+    fn requires_api_key(&self) -> bool {
+        true
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         let body = serde_json::json!({
@@ -368,9 +378,21 @@ impl SearchEngine for TavilyEngine {
         if let Some(arr) = json.get("results").and_then(|v| v.as_array()) {
             for item in arr {
                 results.push(SearchResult {
-                    title: item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    url: item.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    snippet: item.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    title: item
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    url: item
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    snippet: item
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 });
             }
         }
@@ -400,9 +422,15 @@ impl SearxngEngine {
 
 #[async_trait]
 impl SearchEngine for SearxngEngine {
-    fn id(&self) -> &str { "searxng" }
-    fn display_name(&self) -> &str { "SearXNG" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "searxng"
+    }
+    fn display_name(&self) -> &str {
+        "SearXNG"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         let resp = self
@@ -437,9 +465,21 @@ impl SearchEngine for SearxngEngine {
         if let Some(arr) = json.get("results").and_then(|v| v.as_array()) {
             for item in arr.iter().take(max_results) {
                 results.push(SearchResult {
-                    title: item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    url: item.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    snippet: item.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    title: item
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    url: item
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    snippet: item
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 });
             }
         }
@@ -474,40 +514,66 @@ impl Default for GoogleEngine {
 
 impl GoogleEngine {
     pub fn new() -> Self {
-        Self { client: build_scraper_client() }
+        Self {
+            client: build_scraper_client(),
+        }
     }
 }
 
 #[async_trait]
 impl SearchEngine for GoogleEngine {
-    fn id(&self) -> &str { "google" }
-    fn display_name(&self) -> &str { "Google" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "google"
+    }
+    fn display_name(&self) -> &str {
+        "Google"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://www.google.com/search")
-            .query(&[("q", query), ("num", &max_results.to_string()), ("hl", "en")])
-            .send().await
+            .query(&[
+                ("q", query),
+                ("num", &max_results.to_string()),
+                ("hl", "en"),
+            ])
+            .send()
+            .await
             .map_err(|e| format!("Google request failed: {e}"))?;
-        let html = resp.text().await.map_err(|e| format!("Google body read failed: {e}"))?;
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| format!("Google body read failed: {e}"))?;
         let mut results = Vec::new();
 
         for chunk in html.split("<div class=\"g\"").skip(1) {
-            if results.len() >= max_results { break; }
-            let url = chunk.split("href=\"").nth(1)
+            if results.len() >= max_results {
+                break;
+            }
+            let url = chunk
+                .split("href=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
-            if url.is_empty() || url.starts_with('#') || url.starts_with('/') { continue; }
+            if url.is_empty() || url.starts_with('#') || url.starts_with('/') {
+                continue;
+            }
 
-            let title = chunk.split("<h3").nth(1)
+            let title = chunk
+                .split("<h3")
+                .nth(1)
                 .and_then(|s| s.split('>').nth(1))
                 .and_then(|s| s.split("</").next())
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
-            let snippet = chunk.split("data-sncf=\"")
+            let snippet = chunk
+                .split("data-sncf=\"")
                 .nth(1)
                 .or_else(|| chunk.split("<span class=\"").nth(2))
                 .and_then(|s| s.split('>').nth(1).or_else(|| s.split('>').next()))
@@ -516,27 +582,43 @@ impl SearchEngine for GoogleEngine {
                 .unwrap_or_default();
 
             if !title.is_empty() || !url.is_empty() {
-                results.push(SearchResult { title, url, snippet });
+                results.push(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                });
             }
         }
 
         // Fallback: try <a href="..."> pattern if class="g" didn't match
         if results.is_empty() {
             for chunk in html.split("<a href=\"/url?q=").skip(1) {
-                if results.len() >= max_results { break; }
-                let url = chunk.split('&').next()
+                if results.len() >= max_results {
+                    break;
+                }
+                let url = chunk
+                    .split('&')
+                    .next()
                     .or_else(|| chunk.split('"').next())
                     .unwrap_or("")
                     .to_string();
-                if url.is_empty() || url.contains("google.com") { continue; }
+                if url.is_empty() || url.contains("google.com") {
+                    continue;
+                }
 
-                let title = chunk.split('>').nth(1)
+                let title = chunk
+                    .split('>')
+                    .nth(1)
                     .and_then(|s| s.split('<').next())
                     .map(strip_html_tags)
                     .unwrap_or_default();
 
                 if !title.is_empty() {
-                    results.push(SearchResult { title, url, snippet: String::new() });
+                    results.push(SearchResult {
+                        title,
+                        url,
+                        snippet: String::new(),
+                    });
                 }
             }
         }
@@ -558,34 +640,53 @@ impl Default for BaiduEngine {
 
 impl BaiduEngine {
     pub fn new() -> Self {
-        Self { client: build_scraper_client() }
+        Self {
+            client: build_scraper_client(),
+        }
     }
 }
 
 #[async_trait]
 impl SearchEngine for BaiduEngine {
-    fn id(&self) -> &str { "baidu" }
-    fn display_name(&self) -> &str { "百度" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "baidu"
+    }
+    fn display_name(&self) -> &str {
+        "百度"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://www.baidu.com/s")
             .query(&[("wd", query), ("rn", &max_results.to_string())])
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("Baidu request failed: {e}"))?;
-        let html = resp.text().await.map_err(|e| format!("Baidu body read failed: {e}"))?;
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| format!("Baidu body read failed: {e}"))?;
         let mut results = Vec::new();
 
         for chunk in html.split("class=\"result c-container").skip(1) {
-            if results.len() >= max_results { break; }
+            if results.len() >= max_results {
+                break;
+            }
 
-            let url = chunk.split("href=\"").nth(1)
+            let url = chunk
+                .split("href=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let title = chunk.split("class=\"t\"").nth(1)
+            let title = chunk
+                .split("class=\"t\"")
+                .nth(1)
                 .or_else(|| chunk.split("<h3").nth(1))
                 .and_then(|s| {
                     let after_tag = s.split('>').nth(1)?;
@@ -599,7 +700,8 @@ impl SearchEngine for BaiduEngine {
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
-            let snippet = chunk.split("class=\"c-abstract\"")
+            let snippet = chunk
+                .split("class=\"c-abstract\"")
                 .nth(1)
                 .or_else(|| chunk.split("class=\"content-right_").nth(1))
                 .and_then(|s| s.split('>').nth(1))
@@ -608,24 +710,38 @@ impl SearchEngine for BaiduEngine {
                 .unwrap_or_default();
 
             if !title.is_empty() || !url.is_empty() {
-                results.push(SearchResult { title, url, snippet });
+                results.push(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                });
             }
         }
 
         // Fallback: simpler h3 > a pattern
         if results.is_empty() {
             for chunk in html.split("<h3").skip(1) {
-                if results.len() >= max_results { break; }
-                let url = chunk.split("href=\"").nth(1)
+                if results.len() >= max_results {
+                    break;
+                }
+                let url = chunk
+                    .split("href=\"")
+                    .nth(1)
                     .and_then(|s| s.split('"').next())
                     .unwrap_or("")
                     .to_string();
-                let title = chunk.split('>').nth(2)
+                let title = chunk
+                    .split('>')
+                    .nth(2)
                     .and_then(|s| s.split('<').next())
                     .map(strip_html_tags)
                     .unwrap_or_default();
                 if !title.is_empty() && !url.is_empty() {
-                    results.push(SearchResult { title, url, snippet: String::new() });
+                    results.push(SearchResult {
+                        title,
+                        url,
+                        snippet: String::new(),
+                    });
                 }
             }
         }
@@ -647,47 +763,72 @@ impl Default for BingEngine {
 
 impl BingEngine {
     pub fn new() -> Self {
-        Self { client: build_scraper_client() }
+        Self {
+            client: build_scraper_client(),
+        }
     }
 }
 
 #[async_trait]
 impl SearchEngine for BingEngine {
-    fn id(&self) -> &str { "bing" }
-    fn display_name(&self) -> &str { "Bing" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "bing"
+    }
+    fn display_name(&self) -> &str {
+        "Bing"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://www.bing.com/search")
             .query(&[("q", query), ("count", &max_results.to_string())])
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("Bing request failed: {e}"))?;
-        let html = resp.text().await.map_err(|e| format!("Bing body read failed: {e}"))?;
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| format!("Bing body read failed: {e}"))?;
         let mut results = Vec::new();
 
         for chunk in html.split("<li class=\"b_algo\"").skip(1) {
-            if results.len() >= max_results { break; }
+            if results.len() >= max_results {
+                break;
+            }
 
-            let url = chunk.split("href=\"").nth(1)
+            let url = chunk
+                .split("href=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let title = chunk.split("<h2").nth(1)
+            let title = chunk
+                .split("<h2")
+                .nth(1)
                 .and_then(|s| s.split('>').nth(1).or_else(|| s.split('>').nth(2)))
                 .and_then(|s| s.split("</").next())
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
-            let snippet = chunk.split("<p").nth(1)
+            let snippet = chunk
+                .split("<p")
+                .nth(1)
                 .and_then(|s| s.split('>').nth(1))
                 .and_then(|s| s.split("</p").next())
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
             if !title.is_empty() || !url.is_empty() {
-                results.push(SearchResult { title, url, snippet });
+                results.push(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                });
             }
         }
 
@@ -708,34 +849,57 @@ impl Default for SogouEngine {
 
 impl SogouEngine {
     pub fn new() -> Self {
-        Self { client: build_scraper_client() }
+        Self {
+            client: build_scraper_client(),
+        }
     }
 }
 
 #[async_trait]
 impl SearchEngine for SogouEngine {
-    fn id(&self) -> &str { "sogou" }
-    fn display_name(&self) -> &str { "搜狗" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "sogou"
+    }
+    fn display_name(&self) -> &str {
+        "搜狗"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://www.sogou.com/web")
             .query(&[("query", query)])
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("Sogou request failed: {e}"))?;
-        let html = resp.text().await.map_err(|e| format!("Sogou body read failed: {e}"))?;
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| format!("Sogou body read failed: {e}"))?;
         let mut results = Vec::new();
 
-        for chunk in html.split("class=\"vrwrap\"").chain(html.split("class=\"rb\"")).skip(1) {
-            if results.len() >= max_results { break; }
+        for chunk in html
+            .split("class=\"vrwrap\"")
+            .chain(html.split("class=\"rb\""))
+            .skip(1)
+        {
+            if results.len() >= max_results {
+                break;
+            }
 
-            let url = chunk.split("href=\"").nth(1)
+            let url = chunk
+                .split("href=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let title = chunk.split("<h3").nth(1)
+            let title = chunk
+                .split("<h3")
+                .nth(1)
                 .and_then(|s| {
                     let after = s.split('>').nth(1)?;
                     if after.starts_with("<a") {
@@ -747,7 +911,8 @@ impl SearchEngine for SogouEngine {
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
-            let snippet = chunk.split("class=\"space-txt\"")
+            let snippet = chunk
+                .split("class=\"space-txt\"")
                 .nth(1)
                 .or_else(|| chunk.split("class=\"star-wiki\"").nth(1))
                 .and_then(|s| s.split('>').nth(1))
@@ -756,7 +921,11 @@ impl SearchEngine for SogouEngine {
                 .unwrap_or_default();
 
             if !title.is_empty() || !url.is_empty() {
-                results.push(SearchResult { title, url, snippet });
+                results.push(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                });
             }
         }
 
@@ -777,34 +946,57 @@ impl Default for Search360Engine {
 
 impl Search360Engine {
     pub fn new() -> Self {
-        Self { client: build_scraper_client() }
+        Self {
+            client: build_scraper_client(),
+        }
     }
 }
 
 #[async_trait]
 impl SearchEngine for Search360Engine {
-    fn id(&self) -> &str { "360" }
-    fn display_name(&self) -> &str { "360搜索" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "360"
+    }
+    fn display_name(&self) -> &str {
+        "360搜索"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://www.so.com/s")
             .query(&[("q", query)])
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("360 Search request failed: {e}"))?;
-        let html = resp.text().await.map_err(|e| format!("360 Search body read failed: {e}"))?;
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| format!("360 Search body read failed: {e}"))?;
         let mut results = Vec::new();
 
-        for chunk in html.split("class=\"res-list\"").chain(html.split("class=\"result\"")).skip(1) {
-            if results.len() >= max_results { break; }
+        for chunk in html
+            .split("class=\"res-list\"")
+            .chain(html.split("class=\"result\""))
+            .skip(1)
+        {
+            if results.len() >= max_results {
+                break;
+            }
 
-            let url = chunk.split("href=\"").nth(1)
+            let url = chunk
+                .split("href=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .unwrap_or("")
                 .to_string();
 
-            let title = chunk.split("<h3").nth(1)
+            let title = chunk
+                .split("<h3")
+                .nth(1)
                 .and_then(|s| {
                     let after = s.split('>').nth(1)?;
                     if after.starts_with("<a") {
@@ -816,7 +1008,8 @@ impl SearchEngine for Search360Engine {
                 .map(strip_html_tags)
                 .unwrap_or_default();
 
-            let snippet = chunk.split("class=\"res-desc\"")
+            let snippet = chunk
+                .split("class=\"res-desc\"")
                 .nth(1)
                 .or_else(|| chunk.split("class=\"res-rich\"").nth(1))
                 .and_then(|s| s.split('>').nth(1))
@@ -825,7 +1018,11 @@ impl SearchEngine for Search360Engine {
                 .unwrap_or_default();
 
             if !title.is_empty() || !url.is_empty() {
-                results.push(SearchResult { title, url, snippet });
+                results.push(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                });
             }
         }
 
@@ -866,15 +1063,26 @@ impl BuiltinMetaEngine {
     }
 
     pub fn all() -> Self {
-        Self::new(&BUILTIN_ENGINE_IDS.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        Self::new(
+            &BUILTIN_ENGINE_IDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
 #[async_trait]
 impl SearchEngine for BuiltinMetaEngine {
-    fn id(&self) -> &str { "builtin" }
-    fn display_name(&self) -> &str { "Built-in Meta Search" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "builtin"
+    }
+    fn display_name(&self) -> &str {
+        "Built-in Meta Search"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         if self.engines.is_empty() {
@@ -933,9 +1141,15 @@ struct UnconfiguredSearchEngine;
 
 #[async_trait]
 impl SearchEngine for UnconfiguredSearchEngine {
-    fn id(&self) -> &str { "unconfigured" }
-    fn display_name(&self) -> &str { "Unconfigured" }
-    fn requires_api_key(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "unconfigured"
+    }
+    fn display_name(&self) -> &str {
+        "Unconfigured"
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
     async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
         Err(
             "web_search is not configured. Open Settings → 联网搜索 and set up Tavily, SearXNG, or enable built-in search engines.".to_string()
@@ -970,7 +1184,9 @@ pub struct WebSearchTool {
 
 impl WebSearchTool {
     pub fn new(backend: WebSearchBackend) -> Self {
-        Self { engine: backend.into_engine() }
+        Self {
+            engine: backend.into_engine(),
+        }
     }
 
     pub fn from_engine(engine: Arc<dyn SearchEngine>) -> Self {
@@ -978,13 +1194,17 @@ impl WebSearchTool {
     }
 
     pub fn unconfigured() -> Self {
-        Self { engine: Arc::new(UnconfiguredSearchEngine) }
+        Self {
+            engine: Arc::new(UnconfiguredSearchEngine),
+        }
     }
 }
 
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
     fn name(&self) -> &str {
         "web_search"
     }
@@ -1010,7 +1230,8 @@ impl Tool for WebSearchTool {
 ## Anti-Patterns\n\
 - Don't search for things you already know well\n\
 - Don't search when the answer is in the local codebase\n\
-- Don't use web_search for code examples — search_in_files is better for local patterns".to_string()
+- Don't use web_search for code examples — search_in_files is better for local patterns"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -1047,12 +1268,14 @@ impl Tool for WebSearchTool {
 
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q,
-            _ => return ToolResult::err(
-                "web_search is missing a non-empty string field 'query'. \
+            _ => {
+                return ToolResult::err(
+                    "web_search is missing a non-empty string field 'query'. \
                  Example: {\"query\": \"Rust tokio select! example\"}. \
                  Add disambiguating terms (year, vendor, version) instead of a blank string."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let max_results = args
@@ -1117,7 +1340,9 @@ impl WebFetchTool {
 
 #[async_trait]
 impl Tool for WebFetchTool {
-    fn kind(&self) -> ToolKind { ToolKind::Fetch }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Fetch
+    }
     fn name(&self) -> &str {
         "web_fetch"
     }
@@ -1148,7 +1373,8 @@ impl Tool for WebFetchTool {
 ## Anti-Patterns\n\
 - Don't fetch URLs you already have content for\n\
 - Don't use for downloading files — redirect output to disk via shell\n\
-- Don't fetch multiple pages when web_search results already have enough info".to_string()
+- Don't fetch multiple pages when web_search results already have enough info"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -1160,11 +1386,14 @@ impl Tool for WebFetchTool {
                 "description": "Absolute http(s) URL to fetch."
             }),
         );
-        props.insert("extract_mode".to_string(), serde_json::json!({
-            "type": "string",
-            "enum": ["text", "raw", "markdown"],
-            "description": "Content extraction mode (default 'text')."
-        }));
+        props.insert(
+            "extract_mode".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["text", "raw", "markdown"],
+                "description": "Content extraction mode (default 'text')."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -1222,12 +1451,14 @@ impl Tool for WebFetchTool {
 
         let body = match resp.text().await {
             Ok(t) => t,
-            Err(e) => return ToolResult::err(format!(
+            Err(e) => {
+                return ToolResult::err(format!(
                 "web_fetch received HTTP {status} for '{final_url}' but failed reading body: {e}. \
                  Retry, or switch extract_mode if the payload type is unexpected.",
                 status = status,
                 final_url = final_url,
-            )),
+            ))
+            }
         };
 
         let extracted = match mode {
@@ -1411,7 +1642,6 @@ pub(crate) fn strip_html_tags(html: &str) -> String {
 }
 
 fn html_to_markdown(html: &str) -> String {
-    
     strip_html_tags(html)
 }
 
@@ -1454,13 +1684,19 @@ mod tests {
 
     #[test]
     fn backend_enum_to_engine_tavily() {
-        let engine = WebSearchBackend::Tavily { api_key: "key".into() }.into_engine();
+        let engine = WebSearchBackend::Tavily {
+            api_key: "key".into(),
+        }
+        .into_engine();
         assert_eq!(engine.id(), "tavily");
     }
 
     #[test]
     fn backend_enum_to_engine_searxng() {
-        let engine = WebSearchBackend::SearXNG { base_url: "http://localhost".into() }.into_engine();
+        let engine = WebSearchBackend::SearXNG {
+            base_url: "http://localhost".into(),
+        }
+        .into_engine();
         assert_eq!(engine.id(), "searxng");
     }
 
@@ -1592,15 +1828,28 @@ mod tests {
 
     #[async_trait]
     impl SearchEngine for MockSearchEngine {
-        fn id(&self) -> &str { "mock" }
-        fn display_name(&self) -> &str { "Mock Engine" }
-        fn requires_api_key(&self) -> bool { false }
-        async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn display_name(&self) -> &str {
+            "Mock Engine"
+        }
+        fn requires_api_key(&self) -> bool {
+            false
+        }
+        async fn search(
+            &self,
+            query: &str,
+            max_results: usize,
+        ) -> Result<Vec<SearchResult>, String> {
             Ok(vec![SearchResult {
                 title: format!("Mock result for: {query}"),
                 url: "https://example.com".to_string(),
                 snippet: "This is a mock result".to_string(),
-            }].into_iter().take(max_results).collect())
+            }]
+            .into_iter()
+            .take(max_results)
+            .collect())
         }
     }
 
@@ -1658,7 +1907,10 @@ mod tests {
     #[test]
     fn engine_by_id_resolves_all() {
         for id in BUILTIN_ENGINE_IDS {
-            assert!(engine_by_id(id).is_some(), "engine_by_id should resolve '{id}'");
+            assert!(
+                engine_by_id(id).is_some(),
+                "engine_by_id should resolve '{id}'"
+            );
         }
         assert!(engine_by_id("nonexistent").is_none());
     }
@@ -1714,14 +1966,17 @@ mod tests {
         let engine = BuiltinMetaEngine::new(&[]);
         let result = engine.search("test", 5).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("No built-in search engines are enabled"));
+        assert!(result
+            .unwrap_err()
+            .contains("No built-in search engines are enabled"));
     }
 
     #[test]
     fn backend_enum_to_engine_builtin() {
         let engine = WebSearchBackend::Builtin {
             engines: vec!["bing".to_string(), "sogou".to_string()],
-        }.into_engine();
+        }
+        .into_engine();
         assert_eq!(engine.id(), "builtin");
     }
 
@@ -1729,7 +1984,8 @@ mod tests {
     fn backend_enum_builtin_all() {
         let engine = WebSearchBackend::Builtin {
             engines: BUILTIN_ENGINE_IDS.iter().map(|s| s.to_string()).collect(),
-        }.into_engine();
+        }
+        .into_engine();
         assert_eq!(engine.id(), "builtin");
     }
 
@@ -1742,10 +1998,20 @@ mod tests {
 
     #[async_trait]
     impl SearchEngine for FixedResultEngine {
-        fn id(&self) -> &str { &self.engine_id }
-        fn display_name(&self) -> &str { &self.engine_id }
-        fn requires_api_key(&self) -> bool { false }
-        async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
+        fn id(&self) -> &str {
+            &self.engine_id
+        }
+        fn display_name(&self) -> &str {
+            &self.engine_id
+        }
+        fn requires_api_key(&self) -> bool {
+            false
+        }
+        async fn search(
+            &self,
+            _query: &str,
+            _max_results: usize,
+        ) -> Result<Vec<SearchResult>, String> {
             Ok(self.results.clone())
         }
     }
@@ -1754,10 +2020,20 @@ mod tests {
 
     #[async_trait]
     impl SearchEngine for FailingEngine {
-        fn id(&self) -> &str { "failing" }
-        fn display_name(&self) -> &str { "Failing" }
-        fn requires_api_key(&self) -> bool { false }
-        async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
+        fn id(&self) -> &str {
+            "failing"
+        }
+        fn display_name(&self) -> &str {
+            "Failing"
+        }
+        fn requires_api_key(&self) -> bool {
+            false
+        }
+        async fn search(
+            &self,
+            _query: &str,
+            _max_results: usize,
+        ) -> Result<Vec<SearchResult>, String> {
             Err("simulated failure".to_string())
         }
     }
@@ -1767,17 +2043,29 @@ mod tests {
         let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "e1".to_string(),
             results: vec![
-                SearchResult { title: "A".into(), url: "https://a.com".into(), snippet: "aa".into() },
-                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
+                SearchResult {
+                    title: "A".into(),
+                    url: "https://a.com".into(),
+                    snippet: "aa".into(),
+                },
+                SearchResult {
+                    title: "B".into(),
+                    url: "https://b.com".into(),
+                    snippet: "bb".into(),
+                },
             ],
         });
         let e2: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "e2".to_string(),
-            results: vec![
-                SearchResult { title: "C".into(), url: "https://c.com".into(), snippet: "cc".into() },
-            ],
+            results: vec![SearchResult {
+                title: "C".into(),
+                url: "https://c.com".into(),
+                snippet: "cc".into(),
+            }],
         });
-        let meta = BuiltinMetaEngine { engines: vec![e1, e2] };
+        let meta = BuiltinMetaEngine {
+            engines: vec![e1, e2],
+        };
         let results = meta.search("test", 10).await.unwrap();
         assert_eq!(results.len(), 3);
     }
@@ -1786,18 +2074,30 @@ mod tests {
     async fn meta_engine_deduplicates_by_url() {
         let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "e1".to_string(),
-            results: vec![
-                SearchResult { title: "A from e1".into(), url: "https://same.com".into(), snippet: "s1".into() },
-            ],
+            results: vec![SearchResult {
+                title: "A from e1".into(),
+                url: "https://same.com".into(),
+                snippet: "s1".into(),
+            }],
         });
         let e2: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "e2".to_string(),
             results: vec![
-                SearchResult { title: "A from e2".into(), url: "https://same.com".into(), snippet: "s2".into() },
-                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
+                SearchResult {
+                    title: "A from e2".into(),
+                    url: "https://same.com".into(),
+                    snippet: "s2".into(),
+                },
+                SearchResult {
+                    title: "B".into(),
+                    url: "https://b.com".into(),
+                    snippet: "bb".into(),
+                },
             ],
         });
-        let meta = BuiltinMetaEngine { engines: vec![e1, e2] };
+        let meta = BuiltinMetaEngine {
+            engines: vec![e1, e2],
+        };
         let results = meta.search("test", 10).await.unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].title, "A from e1"); // first occurrence wins
@@ -1808,9 +2108,21 @@ mod tests {
         let e1: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "e1".to_string(),
             results: vec![
-                SearchResult { title: "A".into(), url: "https://a.com".into(), snippet: "aa".into() },
-                SearchResult { title: "B".into(), url: "https://b.com".into(), snippet: "bb".into() },
-                SearchResult { title: "C".into(), url: "https://c.com".into(), snippet: "cc".into() },
+                SearchResult {
+                    title: "A".into(),
+                    url: "https://a.com".into(),
+                    snippet: "aa".into(),
+                },
+                SearchResult {
+                    title: "B".into(),
+                    url: "https://b.com".into(),
+                    snippet: "bb".into(),
+                },
+                SearchResult {
+                    title: "C".into(),
+                    url: "https://c.com".into(),
+                    snippet: "cc".into(),
+                },
             ],
         });
         let meta = BuiltinMetaEngine { engines: vec![e1] };
@@ -1822,12 +2134,16 @@ mod tests {
     async fn meta_engine_tolerates_partial_failure() {
         let ok_engine: Arc<dyn SearchEngine> = Arc::new(FixedResultEngine {
             engine_id: "ok".to_string(),
-            results: vec![
-                SearchResult { title: "Works".into(), url: "https://ok.com".into(), snippet: "good".into() },
-            ],
+            results: vec![SearchResult {
+                title: "Works".into(),
+                url: "https://ok.com".into(),
+                snippet: "good".into(),
+            }],
         });
         let fail_engine: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
-        let meta = BuiltinMetaEngine { engines: vec![fail_engine, ok_engine] };
+        let meta = BuiltinMetaEngine {
+            engines: vec![fail_engine, ok_engine],
+        };
         let results = meta.search("test", 10).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Works");
@@ -1837,10 +2153,14 @@ mod tests {
     async fn meta_engine_errors_when_all_fail() {
         let f1: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
         let f2: Arc<dyn SearchEngine> = Arc::new(FailingEngine);
-        let meta = BuiltinMetaEngine { engines: vec![f1, f2] };
+        let meta = BuiltinMetaEngine {
+            engines: vec![f1, f2],
+        };
         let result = meta.search("test", 5).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("All built-in search engines failed"));
+        assert!(result
+            .unwrap_err()
+            .contains("All built-in search engines failed"));
     }
 
     #[test]

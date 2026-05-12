@@ -2,12 +2,12 @@ pub mod commands;
 pub mod embedded;
 
 use embedded::{EmbeddedGateway, GatewayInfo};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_json::json;
-use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
+use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio::sync::Mutex;
 
@@ -33,27 +33,31 @@ pub struct AppData {
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-    let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&show)
+        .separator()
+        .item(&quit)
+        .build()?;
 
     let _tray = TrayIconBuilder::with_id("main-tray")
-        .icon(app.default_window_icon().cloned().unwrap_or_else(|| {
-            tauri::image::Image::new(&[], 0, 0)
-        }))
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .unwrap_or_else(|| tauri::image::Image::new(&[], 0, 0)),
+        )
         .menu(&menu)
         .tooltip("FastClaw")
-        .on_menu_event(move |app, event| {
-            match event.id().as_ref() {
-                "show" => {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
                 }
-                "quit" => {
-                    app.exit(0);
-                }
-                _ => {}
             }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
@@ -76,7 +80,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let default_level = if cfg!(debug_assertions) { Some("info") } else { None };
+    let default_level = if cfg!(debug_assertions) {
+        Some("info")
+    } else {
+        None
+    };
     fastclaw_observe::init_observability_with_level("pretty", default_level);
 
     let builder = tauri::Builder::default()
@@ -117,18 +125,21 @@ pub fn run() {
             // Global shortcut: Ctrl+Shift+Space to toggle window
             if let Ok(shortcut) = "ctrl+shift+space".parse::<Shortcut>() {
                 let handle_for_shortcut = app.handle().clone();
-                if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if let Some(w) = handle_for_shortcut.get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.show();
-                                let _ = w.set_focus();
+                if let Err(e) =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                            if event.state == ShortcutState::Pressed {
+                                if let Some(w) = handle_for_shortcut.get_webview_window("main") {
+                                    if w.is_visible().unwrap_or(false) {
+                                        let _ = w.hide();
+                                    } else {
+                                        let _ = w.show();
+                                        let _ = w.set_focus();
+                                    }
+                                }
                             }
-                        }
-                    }
-                }) {
+                        })
+                {
                     tracing::warn!("Failed to register global shortcut: {e}");
                 }
             }
@@ -143,7 +154,7 @@ pub fn run() {
                 } else {
                     fastclaw_core::config::ConfigMode::Production
                 };
-                
+
                 match EmbeddedGateway::start(&config_mode).await {
                     Ok(gw) => {
                         // Subscribe to gateway broadcast events and re-emit as Tauri events.
@@ -155,31 +166,51 @@ pub fn run() {
                             loop {
                                 match broadcast_rx.recv().await {
                                     Ok(event_json) => {
-                                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&event_json) {
-                                            let event_name = val.get("event")
+                                        if let Ok(val) =
+                                            serde_json::from_str::<serde_json::Value>(&event_json)
+                                        {
+                                            let event_name = val
+                                                .get("event")
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
-                                            if event_name.is_empty() { continue; }
+                                            if event_name.is_empty() {
+                                                continue;
+                                            }
 
-                                            let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
+                                            let data = val
+                                                .get("data")
+                                                .cloned()
+                                                .unwrap_or(serde_json::Value::Null);
                                             let tauri_name = event_name.replace('.', "-");
-                                            let _ = handle_for_broadcast.emit(tauri_name.as_str(), data.clone());
+                                            let _ = handle_for_broadcast
+                                                .emit(tauri_name.as_str(), data.clone());
 
                                             // For new notifications: fire OS notification + update tray
                                             if event_name == "notification.new" {
-                                                let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("FastClaw");
-                                                let body = data.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                                                let title = data
+                                                    .get("title")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("FastClaw");
+                                                let body = data
+                                                    .get("body")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("");
                                                 {
                                                     use tauri_plugin_notification::NotificationExt;
-                                                    let _ = handle_for_broadcast.notification()
+                                                    let _ = handle_for_broadcast
+                                                        .notification()
                                                         .builder()
                                                         .title(title)
                                                         .body(body)
                                                         .show();
                                                 }
                                                 // Update tray tooltip with unread count
-                                                if let Some(uc) = data.get("unreadCount").and_then(|v| v.as_i64()) {
-                                                    if let Some(tray) = handle_for_broadcast.tray_by_id("main-tray") {
+                                                if let Some(uc) =
+                                                    data.get("unreadCount").and_then(|v| v.as_i64())
+                                                {
+                                                    if let Some(tray) =
+                                                        handle_for_broadcast.tray_by_id("main-tray")
+                                                    {
                                                         let tooltip = if uc > 0 {
                                                             format!("FastClaw ({uc} 条未读)")
                                                         } else {
@@ -192,8 +223,12 @@ pub fn run() {
 
                                             // On read events, update tray tooltip too
                                             if event_name == "notification.read" {
-                                                if let Some(uc) = data.get("unreadCount").and_then(|v| v.as_i64()) {
-                                                    if let Some(tray) = handle_for_broadcast.tray_by_id("main-tray") {
+                                                if let Some(uc) =
+                                                    data.get("unreadCount").and_then(|v| v.as_i64())
+                                                {
+                                                    if let Some(tray) =
+                                                        handle_for_broadcast.tray_by_id("main-tray")
+                                                    {
                                                         let tooltip = if uc > 0 {
                                                             format!("FastClaw ({uc} 条未读)")
                                                         } else {
@@ -206,7 +241,9 @@ pub fn run() {
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        continue
+                                    }
                                 }
                             }
                         });
@@ -215,35 +252,44 @@ pub fn run() {
                         let mut lock = state.gateway.lock().await;
                         let info = gw.info().clone();
                         *lock = Some(gw);
-                        
+
                         // 更新状态为 Running
                         let mut startup_state = startup_state.lock().await;
                         *startup_state = GatewayStartupState::Running { info };
-                        
+
                         tracing::info!("embedded gateway started successfully");
-                        
+
                         // 发送通知到前端
-                        let _ = handle.emit("gateway://started", json!({
-                            "status": "success",
-                            "message": "Gateway 启动成功"
-                        }));
+                        let _ = handle.emit(
+                            "gateway://started",
+                            json!({
+                                "status": "success",
+                                "message": "Gateway 启动成功"
+                            }),
+                        );
                     }
                     Err(e) => {
                         let error_msg = format!("failed to start embedded gateway: {e}");
                         tracing::error!("{}", error_msg);
-                        
+
                         // 更新状态为 Failed
                         let mut startup_state = startup_state.lock().await;
-                        *startup_state = GatewayStartupState::Failed { error: error_msg.clone() };
-                        
+                        *startup_state = GatewayStartupState::Failed {
+                            error: error_msg.clone(),
+                        };
+
                         // 发送通知到前端
-                        let _ = handle.emit("gateway://started", json!({
-                            "status": "error",
-                            "message": error_msg
-                        }));
-                        
+                        let _ = handle.emit(
+                            "gateway://started",
+                            json!({
+                                "status": "error",
+                                "message": error_msg
+                            }),
+                        );
+
                         use tauri_plugin_notification::NotificationExt;
-                        let _ = handle.notification()
+                        let _ = handle
+                            .notification()
                             .builder()
                             .title("FastClaw")
                             .body(format!("Gateway 启动失败：{e}"))

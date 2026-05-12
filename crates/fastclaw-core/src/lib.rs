@@ -15,8 +15,8 @@ pub mod paths;
 pub mod routing;
 
 pub use routing::Router;
+pub mod migration;
 pub mod skill;
 pub mod tool;
 pub mod types;
-pub mod migration;
 pub mod workspace;

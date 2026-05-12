@@ -191,9 +191,9 @@ impl PermissionRuleEngine {
     /// Get a detailed explanation of why a tool is allowed/denied,
     /// including which rule matched and its matcher.
     pub fn permission_explain(&self, tool_name: &str) -> String {
-        if let Some((idx, rule, scope)) =
-            self.find_matching_rule(&self.session_rules, tool_name, "session")
-                .or_else(|| self.find_matching_rule(&self.global_rules, tool_name, "global"))
+        if let Some((idx, rule, scope)) = self
+            .find_matching_rule(&self.session_rules, tool_name, "session")
+            .or_else(|| self.find_matching_rule(&self.global_rules, tool_name, "global"))
         {
             let matcher_desc = match &rule.matcher {
                 RuleMatcher::Exact { tool } => format!("exact({})", tool),
@@ -267,7 +267,9 @@ impl PermissionRule {
 
     pub fn allow_prefix(prefix: &str) -> Self {
         Self {
-            matcher: RuleMatcher::Prefix { prefix: prefix.into() },
+            matcher: RuleMatcher::Prefix {
+                prefix: prefix.into(),
+            },
             effect: RuleEffect::Allow,
             scope: RuleScope::Global,
             reason: None,
@@ -276,7 +278,9 @@ impl PermissionRule {
 
     pub fn deny_prefix(prefix: &str) -> Self {
         Self {
-            matcher: RuleMatcher::Prefix { prefix: prefix.into() },
+            matcher: RuleMatcher::Prefix {
+                prefix: prefix.into(),
+            },
             effect: RuleEffect::Deny,
             scope: RuleScope::Global,
             reason: None,
@@ -329,7 +333,11 @@ impl ShellRule {
             (None, None)
         };
 
-        Some(Self { command, subcommand, flag })
+        Some(Self {
+            command,
+            subcommand,
+            flag,
+        })
     }
 
     /// Check whether a shell command line matches this rule.
@@ -372,9 +380,9 @@ impl ShellRule {
 
         // If we have a flag requirement, check it's present
         if let Some(flag) = &self.flag {
-            let has_flag = tokens[1..].iter().any(|t| {
-                t == flag || (flag.len() > 2 && t.contains(&flag[1..]))
-            });
+            let has_flag = tokens[1..]
+                .iter()
+                .any(|t| t == flag || (flag.len() > 2 && t.contains(&flag[1..])));
             if !has_flag {
                 return false;
             }
@@ -422,7 +430,11 @@ impl AutoClassification {
                 .to_string();
             Self {
                 decision: SafetyDecision::Safe,
-                reason: if reason.is_empty() { "classified as safe".into() } else { reason },
+                reason: if reason.is_empty() {
+                    "classified as safe".into()
+                } else {
+                    reason
+                },
             }
         } else if upper.starts_with("UNSAFE") {
             let reason = trimmed
@@ -432,12 +444,19 @@ impl AutoClassification {
                 .to_string();
             Self {
                 decision: SafetyDecision::Unsafe,
-                reason: if reason.is_empty() { "classified as unsafe".into() } else { reason },
+                reason: if reason.is_empty() {
+                    "classified as unsafe".into()
+                } else {
+                    reason
+                },
             }
         } else {
             Self {
                 decision: SafetyDecision::NeedsConfirmation,
-                reason: format!("unrecognized classification: {}", &trimmed[..trimmed.len().min(100)]),
+                reason: format!(
+                    "unrecognized classification: {}",
+                    &trimmed[..trimmed.len().min(100)]
+                ),
             }
         }
     }
@@ -690,7 +709,9 @@ mod tests {
 
     #[test]
     fn exact_match_works() {
-        let matcher = RuleMatcher::Exact { tool: "shell_exec".into() };
+        let matcher = RuleMatcher::Exact {
+            tool: "shell_exec".into(),
+        };
         assert!(matcher.matches("shell_exec"));
         assert!(!matcher.matches("shell_exec_v2"));
         assert!(!matcher.matches("file_read"));
@@ -698,7 +719,9 @@ mod tests {
 
     #[test]
     fn prefix_match_works() {
-        let matcher = RuleMatcher::Prefix { prefix: "git:".into() };
+        let matcher = RuleMatcher::Prefix {
+            prefix: "git:".into(),
+        };
         assert!(matcher.matches("git:push"));
         assert!(matcher.matches("git:pull"));
         assert!(matcher.matches("git:"));
@@ -707,7 +730,9 @@ mod tests {
 
     #[test]
     fn wildcard_match_works() {
-        let matcher = RuleMatcher::Wildcard { pattern: "file_*".into() };
+        let matcher = RuleMatcher::Wildcard {
+            pattern: "file_*".into(),
+        };
         assert!(matcher.matches("file_read"));
         assert!(matcher.matches("file_write"));
         assert!(!matcher.matches("shell_exec"));
@@ -776,7 +801,9 @@ mod tests {
     fn wildcard_allow_permits_matching() {
         let mut engine = PermissionRuleEngine::new();
         engine.add_rule(PermissionRule {
-            matcher: RuleMatcher::Wildcard { pattern: "file_*".into() },
+            matcher: RuleMatcher::Wildcard {
+                pattern: "file_*".into(),
+            },
             effect: RuleEffect::Allow,
             scope: RuleScope::Global,
             reason: None,
@@ -843,14 +870,18 @@ mod tests {
         assert!(bad_msg.contains("denied"), "got: {bad_msg}");
         assert!(bad_msg.contains("unsafe"), "got: {bad_msg}");
 
-        assert!(engine.permission_explain("unknown").contains("no matching rule"));
+        assert!(engine
+            .permission_explain("unknown")
+            .contains("no matching rule"));
     }
 
     #[test]
     fn multiple_rules_first_deny_wins() {
         let mut engine = PermissionRuleEngine::new();
         engine.add_rule(PermissionRule {
-            matcher: RuleMatcher::Wildcard { pattern: "*".into() },
+            matcher: RuleMatcher::Wildcard {
+                pattern: "*".into(),
+            },
             effect: RuleEffect::Allow,
             scope: RuleScope::Global,
             reason: Some("default allow".into()),
@@ -941,7 +972,8 @@ mod tests {
 
     #[test]
     fn auto_classifier_prompt_contains_command() {
-        let prompt = AutoModeClassifier::build_classification_prompt("rm -rf /", "user wants cleanup");
+        let prompt =
+            AutoModeClassifier::build_classification_prompt("rm -rf /", "user wants cleanup");
         assert!(prompt.contains("rm -rf /"));
         assert!(prompt.contains("user wants cleanup"));
     }

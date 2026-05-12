@@ -126,7 +126,11 @@ fn save_history_file(messages: &[ChatMessage]) -> Option<String> {
             Role::Assistant => "ASSISTANT",
             Role::Tool => "TOOL",
         };
-        let name_suffix = msg.name.as_deref().map(|n| format!(" ({n})")).unwrap_or_default();
+        let name_suffix = msg
+            .name
+            .as_deref()
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
         content.push_str(&format!("## {role}{name_suffix}\n\n"));
 
         if let Some(ref c) = msg.content {
@@ -164,13 +168,18 @@ fn find_split_point(non_system: &[&ChatMessage], preserve_fraction: f32) -> usiz
         return 0;
     }
 
-    let char_counts: Vec<usize> = non_system.iter().map(|m| {
-        m.content.as_ref().map_or(0, |c| {
-            serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
-        }) + m.tool_calls.as_ref().map_or(0, |tc| {
-            tc.iter().map(|t| t.function.name.len() + t.function.arguments.len()).sum()
+    let char_counts: Vec<usize> = non_system
+        .iter()
+        .map(|m| {
+            m.content.as_ref().map_or(0, |c| {
+                serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
+            }) + m.tool_calls.as_ref().map_or(0, |tc| {
+                tc.iter()
+                    .map(|t| t.function.name.len() + t.function.arguments.len())
+                    .sum()
+            })
         })
-    }).collect();
+        .collect();
 
     let total_chars: usize = char_counts.iter().sum();
     let target_chars = (total_chars as f32 * (1.0 - preserve_fraction)) as usize;
@@ -203,11 +212,7 @@ fn strip_analysis_block(text: &str) -> String {
     while let Some(start) = result.find("<analysis>") {
         if let Some(end) = result.find("</analysis>") {
             let block_end = end + "</analysis>".len();
-            result = format!(
-                "{}{}",
-                &result[..start],
-                result[block_end..].trim_start()
-            );
+            result = format!("{}{}", &result[..start], result[block_end..].trim_start());
         } else {
             result = result[..start].to_string();
             break;
@@ -256,7 +261,11 @@ pub async fn try_compress_chat_with_threshold(
     threshold_fraction: f32,
 ) -> CompressionResult {
     let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
-    let estimated = if api_prompt_tokens > 0 { api_prompt_tokens } else { local_estimate };
+    let estimated = if api_prompt_tokens > 0 {
+        api_prompt_tokens
+    } else {
+        local_estimate
+    };
     let threshold = (context_window as f32 * threshold_fraction) as usize;
 
     if estimated <= threshold {
@@ -288,7 +297,8 @@ pub async fn try_compress_chat_with_threshold(
         }
     }
 
-    let non_system_msgs: Vec<&ChatMessage> = non_system_indices.iter().map(|&i| &messages[i]).collect();
+    let non_system_msgs: Vec<&ChatMessage> =
+        non_system_indices.iter().map(|&i| &messages[i]).collect();
 
     if non_system_msgs.is_empty() {
         return CompressionResult {
@@ -314,12 +324,22 @@ pub async fn try_compress_chat_with_threshold(
     let to_compress = &non_system_msgs[..split];
     let to_keep = &non_system_msgs[split..];
 
-    let compress_chars: usize = to_compress.iter().map(|m| {
-        m.content.as_ref().map_or(0, |c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
-    }).sum();
-    let total_chars: usize = non_system_msgs.iter().map(|m| {
-        m.content.as_ref().map_or(0, |c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
-    }).sum();
+    let compress_chars: usize = to_compress
+        .iter()
+        .map(|m| {
+            m.content.as_ref().map_or(0, |c| {
+                serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
+            })
+        })
+        .sum();
+    let total_chars: usize = non_system_msgs
+        .iter()
+        .map(|m| {
+            m.content.as_ref().map_or(0, |c| {
+                serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
+            })
+        })
+        .sum();
 
     if total_chars > 0 && (compress_chars as f32 / total_chars as f32) < MIN_COMPRESSIBLE_FRACTION {
         tracing::info!("compressible fraction too small, skipping LLM compression");
@@ -340,10 +360,8 @@ pub async fn try_compress_chat_with_threshold(
 
     let mut system_prompt = match &history_file {
         Some(path) => COMPRESSION_SYSTEM_PROMPT.replace("{{HISTORY_FILE_PATH}}", path),
-        None => COMPRESSION_SYSTEM_PROMPT.replace(
-            "{{HISTORY_FILE_PATH}}",
-            "(history file not available)",
-        ),
+        None => COMPRESSION_SYSTEM_PROMPT
+            .replace("{{HISTORY_FILE_PATH}}", "(history file not available)"),
     };
 
     if let Some(store) = todo_store {
@@ -393,9 +411,11 @@ pub async fn try_compress_chat_with_threshold(
     };
 
     let raw_summary = match provider.chat_completion(&params).await {
-        Ok(resp) => {
-            resp.choices.first().and_then(|c| c.message.text_content()).unwrap_or_default()
-        }
+        Ok(resp) => resp
+            .choices
+            .first()
+            .and_then(|c| c.message.text_content())
+            .unwrap_or_default(),
         Err(e) => {
             tracing::warn!(error = %e, "LLM compression failed, falling back to rule-based");
             return CompressionResult {
@@ -440,7 +460,8 @@ pub async fn try_compress_chat_with_threshold(
     new_messages.push(ChatMessage {
         role: Role::Assistant,
         content: Some(serde_json::Value::String(
-            "Got it. I have the full context from the previous conversation. Let me continue.".to_string(),
+            "Got it. I have the full context from the previous conversation. Let me continue."
+                .to_string(),
         )),
         reasoning_content: None,
         name: None,
@@ -471,7 +492,11 @@ pub async fn try_compress_chat_with_threshold(
 
     // Add history file reference to assistant message so agent can recover details.
     if let Some(ref path) = history_file {
-        if let Some(last_asst) = new_messages.iter_mut().rev().find(|m| matches!(m.role, Role::Assistant)) {
+        if let Some(last_asst) = new_messages
+            .iter_mut()
+            .rev()
+            .find(|m| matches!(m.role, Role::Assistant))
+        {
             if let Some(serde_json::Value::String(ref mut text)) = last_asst.content {
                 text.push_str(&format!(
                     " Full conversation history saved to: {path} — use read_file or grep to recover any details."
@@ -511,7 +536,10 @@ pub enum AutoCompactOutcome {
     /// Compression was not needed (below threshold).
     NotNeeded,
     /// Compression succeeded.
-    Compressed { original_tokens: usize, new_tokens: usize },
+    Compressed {
+        original_tokens: usize,
+        new_tokens: usize,
+    },
     /// Compression failed (LLM error, inflated result, etc.).
     Failed,
     /// Skipped because the circuit breaker has tripped after too many failures.
@@ -594,7 +622,15 @@ impl AutoCompactor {
             return AutoCompactOutcome::NotNeeded;
         }
 
-        let result = try_compress_chat(messages, context_window, provider, model, api_prompt_tokens, None).await;
+        let result = try_compress_chat(
+            messages,
+            context_window,
+            provider,
+            model,
+            api_prompt_tokens,
+            None,
+        )
+        .await;
 
         if result.compressed {
             self.consecutive_failures = 0;
@@ -602,7 +638,8 @@ impl AutoCompactor {
                 original_tokens: result.original_tokens,
                 new_tokens: result.new_tokens,
             }
-        } else if result.original_tokens <= (context_window as f32 * COMPRESSION_THRESHOLD) as usize {
+        } else if result.original_tokens <= (context_window as f32 * COMPRESSION_THRESHOLD) as usize
+        {
             AutoCompactOutcome::NotNeeded
         } else {
             self.consecutive_failures += 1;
@@ -655,7 +692,7 @@ mod tests {
 
     #[test]
     fn split_point_preserves_recent_fraction() {
-        let msgs = vec![
+        let msgs = [
             user("old question 1"),
             asst("old answer 1"),
             user("old question 2"),
@@ -689,7 +726,10 @@ mod tests {
             ac.consecutive_failures += 1;
         }
         assert!(ac.is_circuit_open());
-        assert_eq!(ac.consecutive_failures(), MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES);
+        assert_eq!(
+            ac.consecutive_failures(),
+            MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+        );
     }
 
     #[test]
@@ -769,10 +809,19 @@ mod tests {
     fn strip_analysis_removes_block() {
         let input = "<analysis>This is reasoning that should be removed.</analysis>\n\nSummary:\n1. The user wants X.\n2. Key facts.";
         let result = super::strip_analysis_block(input);
-        assert!(!result.contains("<analysis>"), "analysis tags should be removed");
-        assert!(!result.contains("reasoning that should"), "analysis content should be removed");
+        assert!(
+            !result.contains("<analysis>"),
+            "analysis tags should be removed"
+        );
+        assert!(
+            !result.contains("reasoning that should"),
+            "analysis content should be removed"
+        );
         assert!(result.contains("Summary:"), "actual summary preserved");
-        assert!(result.contains("Key facts"), "content after analysis preserved");
+        assert!(
+            result.contains("Key facts"),
+            "content after analysis preserved"
+        );
     }
 
     #[test]
@@ -793,12 +842,30 @@ mod tests {
     #[test]
     fn compression_prompt_has_9_sections() {
         let prompt = super::COMPRESSION_SYSTEM_PROMPT;
-        assert!(prompt.contains("Primary Request"), "should include section 1");
-        assert!(prompt.contains("Key Technical Concepts"), "should include section 2");
-        assert!(prompt.contains("Files and Code Sections"), "should include section 3");
-        assert!(prompt.contains("Errors and fixes"), "should include section 4");
-        assert!(prompt.contains("Problem Solving"), "should include section 5");
-        assert!(prompt.contains("All user messages"), "should include section 6");
+        assert!(
+            prompt.contains("Primary Request"),
+            "should include section 1"
+        );
+        assert!(
+            prompt.contains("Key Technical Concepts"),
+            "should include section 2"
+        );
+        assert!(
+            prompt.contains("Files and Code Sections"),
+            "should include section 3"
+        );
+        assert!(
+            prompt.contains("Errors and fixes"),
+            "should include section 4"
+        );
+        assert!(
+            prompt.contains("Problem Solving"),
+            "should include section 5"
+        );
+        assert!(
+            prompt.contains("All user messages"),
+            "should include section 6"
+        );
         assert!(prompt.contains("Pending Tasks"), "should include section 7");
         assert!(prompt.contains("Current Work"), "should include section 8");
         assert!(prompt.contains("Next Step"), "should include section 9");
@@ -807,32 +874,50 @@ mod tests {
     #[test]
     fn compression_prompt_allows_code() {
         let prompt = super::COMPRESSION_SYSTEM_PROMPT;
-        assert!(!prompt.contains("no code blocks"), "should NOT prohibit code blocks");
-        assert!(prompt.contains("code snippets"), "should encourage code preservation");
+        assert!(
+            !prompt.contains("no code blocks"),
+            "should NOT prohibit code blocks"
+        );
+        assert!(
+            prompt.contains("code snippets"),
+            "should encourage code preservation"
+        );
     }
 
     #[test]
     fn compression_prompt_requires_analysis_then_strip() {
         let prompt = super::COMPRESSION_SYSTEM_PROMPT;
-        assert!(prompt.contains("<analysis>"), "should instruct model to use analysis tags");
+        assert!(
+            prompt.contains("<analysis>"),
+            "should instruct model to use analysis tags"
+        );
     }
 
     #[test]
     fn dynamic_threshold_defaults_to_static_on_balanced_load() {
         let threshold = super::compute_compression_threshold(1000, 1000, 1000, 10_000, false);
-        assert!((threshold - 0.50).abs() < 0.01, "balanced load should stay near default");
+        assert!(
+            (threshold - 0.50).abs() < 0.01,
+            "balanced load should stay near default"
+        );
     }
 
     #[test]
     fn dynamic_threshold_lowers_with_large_system_prompt() {
         let threshold = super::compute_compression_threshold(4000, 500, 500, 10_000, false);
-        assert!(threshold < 0.50, "large system prompt should lower threshold, got {threshold}");
+        assert!(
+            threshold < 0.50,
+            "large system prompt should lower threshold, got {threshold}"
+        );
     }
 
     #[test]
     fn dynamic_threshold_raises_with_active_task() {
         let threshold = super::compute_compression_threshold(1000, 1000, 1000, 10_000, true);
-        assert!(threshold > 0.55, "active task should raise threshold, got {threshold}");
+        assert!(
+            threshold > 0.55,
+            "active task should raise threshold, got {threshold}"
+        );
     }
 
     #[test]

@@ -13,9 +13,7 @@ use fastclaw_core::tool::{Tool, ToolRegistry};
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
-use fastclaw_evolution::{
-    FeedbackStore, PromptDistiller, SkillStore, TrajectoryStore,
-};
+use fastclaw_evolution::{FeedbackStore, PromptDistiller, SkillStore, TrajectoryStore};
 use fastclaw_memory::{DreamingPipeline, EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use fastclaw_model_router::BudgetTracker;
 use fastclaw_session::SessionStore;
@@ -53,9 +51,8 @@ struct BuildPhase4 {
     channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<fastclaw_core::channel::InboundMessage>,
     inbound_rx: tokio::sync::mpsc::UnboundedReceiver<fastclaw_core::channel::InboundMessage>,
     base_skill_registry: Arc<SkillRegistry>,
-    stream_event_tx: Arc<
-        DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
-    >,
+    stream_event_tx:
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
     ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
     mcp_status_init: std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>,
@@ -113,10 +110,8 @@ impl StateBuilder {
         mut p1: BuildPhase1,
     ) -> anyhow::Result<BuildPhase3> {
         // Load LLM provider plugins from the plugins directory.
-        let llm_plugins_dir = fastclaw_core::llm_plugin::resolve_plugins_dir(
-            &config.llm_plugins,
-            &config.paths,
-        );
+        let llm_plugins_dir =
+            fastclaw_core::llm_plugin::resolve_plugins_dir(&config.llm_plugins, &config.paths);
         tracing::info!(
             enabled = config.llm_plugins.enabled,
             dir = %llm_plugins_dir.display(),
@@ -136,7 +131,8 @@ impl StateBuilder {
         };
         let llm_plugin_registry = fastclaw_agent::LlmPluginRegistry::from_configs(llm_plugins);
 
-        let creds = helpers::merge_model_base_urls_into_credentials(&config.credentials, &config.models);
+        let creds =
+            helpers::merge_model_base_urls_into_credentials(&config.credentials, &config.models);
         let plugin_ref = if llm_plugin_registry.is_empty() {
             None
         } else {
@@ -408,13 +404,14 @@ impl StateBuilder {
         p4: BuildPhase4,
     ) -> anyhow::Result<BuildPhase2Memory> {
         let creds = &config.credentials;
-        let (agent_episodic_map, agent_semantic_map, embedding_provider) = super::AppState::build_memory(
-            config,
-            creds,
-            &p4.phase3.workspaces,
-            &p4.phase3.tool_registry,
-        )
-        .await?;
+        let (agent_episodic_map, agent_semantic_map, embedding_provider) =
+            super::AppState::build_memory(
+                config,
+                creds,
+                &p4.phase3.workspaces,
+                &p4.phase3.tool_registry,
+            )
+            .await?;
 
         let tool_count = p4.phase3.tool_registry.definitions().len();
 
@@ -431,7 +428,8 @@ impl StateBuilder {
         );
 
         let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
-            let evo_pool = helpers::open_memory_pool_named(&p4.phase3.phase1.db_path, "evolution.db").await?;
+            let evo_pool =
+                helpers::open_memory_pool_named(&p4.phase3.phase1.db_path, "evolution.db").await?;
             let fs = FeedbackStore::open(evo_pool.clone()).await?;
             let ts = TrajectoryStore::open(evo_pool.clone()).await?;
             let ss = SkillStore::open(evo_pool.clone()).await?;
@@ -529,7 +527,8 @@ impl StateBuilder {
         config: &FastClawConfig,
         p2: BuildPhase2Memory,
     ) -> anyhow::Result<BuildPhase5> {
-        let cron_pool = helpers::open_memory_pool_named(&p2.phase4.phase3.phase1.db_path, "cron.db").await?;
+        let cron_pool =
+            helpers::open_memory_pool_named(&p2.phase4.phase3.phase1.db_path, "cron.db").await?;
         let cron_store = CronJobStore::open(cron_pool.clone()).await?;
         let notification_store =
             crate::notification_store::NotificationStore::open(cron_pool).await?;
@@ -646,9 +645,7 @@ impl StateBuilder {
                     fastclaw_agent::builtin_tools::register_tool_search(&reg);
                     reg
                 },
-                base_skill_registry: Arc::new(ArcSwap::new(
-                    p5.phase2.phase4.base_skill_registry,
-                )),
+                base_skill_registry: Arc::new(ArcSwap::new(p5.phase2.phase4.base_skill_registry)),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     p5.phase2.phase4.phase3.agent_skill_registries,
                 ))),
@@ -683,12 +680,8 @@ impl StateBuilder {
                     p5.phase2.phase4.channel_registry,
                 )),
                 message_bus: p5.phase2.message_bus,
-                mcp_status: Arc::new(ArcSwap::new(Arc::new(
-                    p5.phase2.phase4.mcp_status_init,
-                ))),
-                mcp_handles: Arc::new(tokio::sync::Mutex::new(
-                    p5.phase2.phase4.mcp_handles_init,
-                )),
+                mcp_status: Arc::new(ArcSwap::new(Arc::new(p5.phase2.phase4.mcp_status_init))),
+                mcp_handles: Arc::new(tokio::sync::Mutex::new(p5.phase2.phase4.mcp_handles_init)),
                 channel_inbound_tx: p5.phase2.phase4.channel_inbound_tx,
                 llm_plugin_registry: Arc::new(tokio::sync::RwLock::new(
                     p5.phase2.phase4.phase3.llm_plugin_registry,
@@ -874,7 +867,6 @@ impl StateBuilder {
                 "dreaming background task started"
             );
         }
-
 
         if let Some(ttl_hours) = state.cfg.config.session.ttl_hours {
             let store = state.store.session_store.clone();

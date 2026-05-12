@@ -16,13 +16,7 @@ pub async fn handle_mcp_status(
     state: &AppState,
     req_id: Option<String>,
 ) {
-    let status: Vec<_> = state
-        .ext
-        .mcp_status
-        .load()
-        .values()
-        .cloned()
-        .collect();
+    let status: Vec<_> = state.ext.mcp_status.load().values().cloned().collect();
     send_resp(
         sender,
         &WsResponse {
@@ -42,13 +36,7 @@ pub async fn handle_mcp_reload(
 ) {
     match state.reload_mcp_servers().await {
         Ok(()) => {
-            let status: Vec<_> = state
-                .ext
-                .mcp_status
-                .load()
-                .values()
-                .cloned()
-                .collect();
+            let status: Vec<_> = state.ext.mcp_status.load().values().cloned().collect();
             send_resp(
                 sender,
                 &WsResponse {

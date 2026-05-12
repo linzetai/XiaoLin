@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -241,17 +241,17 @@ impl LspSessionManager {
         if result.is_null() {
             return Ok(None);
         }
-        let content = result
-            .get("contents")
-            .and_then(|c| {
-                if let Some(s) = c.as_str() {
-                    Some(s.to_string())
-                } else if let Some(obj) = c.as_object() {
-                    obj.get("value").and_then(|v| v.as_str()).map(|s| s.to_string())
-                } else {
-                    Some(c.to_string())
-                }
-            });
+        let content = result.get("contents").and_then(|c| {
+            if let Some(s) = c.as_str() {
+                Some(s.to_string())
+            } else if let Some(obj) = c.as_object() {
+                obj.get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                Some(c.to_string())
+            }
+        });
         Ok(content)
     }
 
@@ -563,7 +563,10 @@ impl PersistentLspSession {
                 if let Some(err) = msg.get("error") {
                     return Err(anyhow::anyhow!("lsp error: {}", err));
                 }
-                return Ok(msg.get("result").cloned().unwrap_or(serde_json::Value::Null));
+                return Ok(msg
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null));
             }
         }
     }

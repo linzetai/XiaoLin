@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -302,8 +302,14 @@ pub fn resolve_account_config(
         account_id: Some(acc_id.to_string()),
         app_id: acc.app_id.clone().or(channel_config.app_id.clone()),
         app_secret: acc.app_secret.clone().or(channel_config.app_secret.clone()),
-        verification_token: acc.verification_token.clone().or(channel_config.verification_token.clone()),
-        encrypt_key: acc.encrypt_key.clone().or(channel_config.encrypt_key.clone()),
+        verification_token: acc
+            .verification_token
+            .clone()
+            .or(channel_config.verification_token.clone()),
+        encrypt_key: acc
+            .encrypt_key
+            .clone()
+            .or(channel_config.encrypt_key.clone()),
         domain: acc.domain.clone().or(channel_config.domain.clone()),
         reply_mode: acc.reply_mode.clone().or(channel_config.reply_mode.clone()),
     })

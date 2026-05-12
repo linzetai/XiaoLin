@@ -67,7 +67,8 @@ impl Tool for AskQuestionTool {
 ## Anti-Patterns\n\
 - Don't ask multiple questions in one turn — combine or prioritize\n\
 - Don't ask yes/no questions that can be inferred from context\n\
-- Don't re-ask what the user already specified".to_string()
+- Don't re-ask what the user already specified"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -148,15 +149,12 @@ impl Tool for AskQuestionTool {
         let stream_key = match ASK_QUESTION_STREAM_KEY.try_with(|k| k.clone()) {
             Ok(k) => k,
             Err(_) => {
-                return ToolResult::err(
-                    "ask_question not available outside chat stream context",
-                );
+                return ToolResult::err("ask_question not available outside chat stream context");
             }
         };
 
         let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-        self.pending
-            .insert(request_id.clone(), answer_tx);
+        self.pending.insert(request_id.clone(), answer_tx);
 
         let stream_tx = self
             .stream_event_txs

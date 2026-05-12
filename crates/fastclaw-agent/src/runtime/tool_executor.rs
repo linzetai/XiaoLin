@@ -6,7 +6,9 @@ use fastclaw_core::tool::{PostToolInfo, ToolDefinition, ToolHook, ToolHookContex
 use fastclaw_core::types::ToolCall;
 use serde::Serialize;
 
-use crate::builtin_tools::{with_additional_allowed_paths, with_file_access_mode, with_work_dir, ExecutionModeState};
+use crate::builtin_tools::{
+    with_additional_allowed_paths, with_file_access_mode, with_work_dir, ExecutionModeState,
+};
 
 use super::prompt_builder::memory_tool_suffix;
 use super::tool_result_storage::TOOL_RESULT_CLEARED_MESSAGE;
@@ -134,10 +136,14 @@ pub(crate) fn truncate_tool_result_output_with_limit(
         head_used += line.len() + 1;
     }
 
-    let tail_budget = char_limit.saturating_sub(head_used).saturating_sub(TRUNCATION_SEPARATOR.len());
+    let tail_budget = char_limit
+        .saturating_sub(head_used)
+        .saturating_sub(TRUNCATION_SEPARATOR.len());
     let mut tail_parts: Vec<String> = Vec::new();
     let mut tail_used = 0usize;
-    let tail_start = total_lines.saturating_sub(tail_line_count).max(head_parts.len());
+    let tail_start = total_lines
+        .saturating_sub(tail_line_count)
+        .max(head_parts.len());
     for line in lines[tail_start..].iter().rev() {
         let remaining = tail_budget.saturating_sub(tail_used);
         if remaining == 0 {
@@ -173,10 +179,23 @@ pub(crate) fn truncate_tool_result_output_with_limit(
 /// Compactable tool names whose old results can be progressively faded.
 /// Uses `starts_with` matching so MCP tool prefixes (e.g. "mcp_") also work.
 const COMPACTABLE_TOOLS: &[&str] = &[
-    "read_file", "shell_exec", "shell", "grep", "glob", "web_search",
-    "web_fetch", "write_file", "edit_file", "list_dir", "list_directory",
-    "run_command", "ripgrep", "fetch_url",
-    "search_in_files", "apply_patch", "multi_edit",
+    "read_file",
+    "shell_exec",
+    "shell",
+    "grep",
+    "glob",
+    "web_search",
+    "web_fetch",
+    "write_file",
+    "edit_file",
+    "list_dir",
+    "list_directory",
+    "run_command",
+    "ripgrep",
+    "fetch_url",
+    "search_in_files",
+    "apply_patch",
+    "multi_edit",
     "mcp_",
 ];
 
@@ -200,23 +219,39 @@ pub(crate) enum RetentionTier {
 /// Tools whose results are ephemeral (Level 0): low-value metadata that the
 /// model rarely needs to re-read once it has processed the output.
 const TIER0_EPHEMERAL: &[&str] = &[
-    "list_dir", "list_directory", "glob", "web_search",
-    "web_fetch", "fetch_url",
+    "list_dir",
+    "list_directory",
+    "glob",
+    "web_search",
+    "web_fetch",
+    "fetch_url",
 ];
 
 /// Tools whose results should be summarized (Level 1): contain useful
 /// information but can be represented compactly.
 const TIER1_SUMMARIZE: &[&str] = &[
-    "grep", "ripgrep", "search_in_files",
-    "workspace_symbols", "find_references", "go_to_definition",
-    "file_outline", "code_sections", "lsp",
+    "grep",
+    "ripgrep",
+    "search_in_files",
+    "workspace_symbols",
+    "find_references",
+    "go_to_definition",
+    "file_outline",
+    "code_sections",
+    "lsp",
 ];
 
 /// Tools whose results should be fully retained (Level 2): high-value
 /// content that the model frequently needs to reference.
 const TIER2_FULL_RETAIN: &[&str] = &[
-    "read_file", "shell_exec", "shell", "run_command",
-    "write_file", "edit_file", "apply_patch", "multi_edit",
+    "read_file",
+    "shell_exec",
+    "shell",
+    "run_command",
+    "write_file",
+    "edit_file",
+    "apply_patch",
+    "multi_edit",
 ];
 
 /// Classify a tool by name into a retention tier.
@@ -241,7 +276,11 @@ pub(crate) fn classify_retention_tier(tool_name: &str) -> RetentionTier {
 ///
 /// Preserves the first few lines (up to `max_summary_lines`) and appends
 /// a stats line showing how much was trimmed.
-pub(crate) fn summarize_tool_result(tool_name: &str, content: &str, max_summary_chars: usize) -> String {
+pub(crate) fn summarize_tool_result(
+    tool_name: &str,
+    content: &str,
+    max_summary_chars: usize,
+) -> String {
     if content.len() <= max_summary_chars {
         return content.to_string();
     }
@@ -281,7 +320,12 @@ pub(crate) fn summarize_tool_result(tool_name: &str, content: &str, max_summary_
 }
 
 /// Summarize search/grep results: keep file paths and match counts.
-fn summarize_search_result(content: &str, max_chars: usize, total_lines: usize, total_chars: usize) -> String {
+fn summarize_search_result(
+    content: &str,
+    max_chars: usize,
+    total_lines: usize,
+    total_chars: usize,
+) -> String {
     let mut summary = String::new();
     let mut files_seen = std::collections::HashSet::new();
     let mut match_count = 0;
@@ -385,15 +429,12 @@ pub(crate) struct EvictionManifest {
 
 impl EvictionManifest {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
-    pub fn record(
-        &mut self,
-        tool_name: &str,
-        args_json: Option<&str>,
-        original_content: &str,
-    ) {
+    pub fn record(&mut self, tool_name: &str, args_json: Option<&str>, original_content: &str) {
         let args_summary = args_json
             .map(|a| {
                 if a.len() > 80 {
@@ -433,7 +474,10 @@ impl EvictionManifest {
         if self.entries.is_empty() {
             return String::new();
         }
-        let mut lines = vec!["[Context Eviction Index] The following tool results were compressed this turn:".to_string()];
+        let mut lines = vec![
+            "[Context Eviction Index] The following tool results were compressed this turn:"
+                .to_string(),
+        ];
         for (i, entry) in self.entries.iter().enumerate() {
             lines.push(format!(
                 "  {}. {} | {} chars | digest: \"{}\" | {}",
@@ -444,7 +488,10 @@ impl EvictionManifest {
                 entry.recall_hint,
             ));
         }
-        lines.push("To recover any result, re-call the corresponding tool with the same arguments.".to_string());
+        lines.push(
+            "To recover any result, re-call the corresponding tool with the same arguments."
+                .to_string(),
+        );
         lines.join("\n")
     }
 }
@@ -462,9 +509,7 @@ pub(crate) fn collect_eviction_manifest(
         if *idx >= messages.len() {
             continue;
         }
-        let current_text = messages[*idx]
-            .text_content()
-            .unwrap_or_default();
+        let current_text = messages[*idx].text_content().unwrap_or_default();
 
         let was_evicted = current_text.starts_with(RECALL_HINT_MARKER)
             || current_text.starts_with("[summarized]")
@@ -472,7 +517,8 @@ pub(crate) fn collect_eviction_manifest(
             || current_text.starts_with(TIME_COMPACTED_MARKER)
             || current_text == TOOL_RESULT_CLEARED_MESSAGE;
 
-        if was_evicted && !original_content.starts_with(RECALL_HINT_MARKER)
+        if was_evicted
+            && !original_content.starts_with(RECALL_HINT_MARKER)
             && !original_content.starts_with("[summarized]")
             && !original_content.starts_with(FADED_MARKER)
             && !original_content.starts_with(TIME_COMPACTED_MARKER)
@@ -534,7 +580,10 @@ fn is_error_tool_result(content: &str) -> bool {
         if content.contains("→ ERR") {
             return true;
         }
-        content.find('\n').map(|pos| &content[pos + 1..]).unwrap_or("")
+        content
+            .find('\n')
+            .map(|pos| &content[pos + 1..])
+            .unwrap_or("")
     } else {
         content
     };
@@ -564,7 +613,13 @@ fn one_liner_summary(tool_name: &str, content: &str) -> String {
 
     let line_count = content.lines().count();
     let char_count = content.len();
-    let first_line = content.lines().next().unwrap_or("").chars().take(60).collect::<String>();
+    let first_line = content
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(60)
+        .collect::<String>();
 
     if first_line.is_empty() {
         format!("[{tool_name} → {char_count} chars, ok]")
@@ -618,11 +673,14 @@ pub(crate) fn semantic_header(
         "grep" | "ripgrep" => {
             let pattern = extract_str(&v, &["pattern"]).unwrap_or_else(|| "?".into());
             let path = extract_str(&v, &["path"]).unwrap_or_else(|| ".".into());
-            Some(format!("\"{}\" in {}", truncate_str(&pattern, 30), truncate_str(&path, 40)))
+            Some(format!(
+                "\"{}\" in {}",
+                truncate_str(&pattern, 30),
+                truncate_str(&path, 40)
+            ))
         }
-        "web_search" => {
-            extract_str(&v, &["query", "search_query"]).map(|s| format!("\"{}\"", truncate_str(&s, 50)))
-        }
+        "web_search" => extract_str(&v, &["query", "search_query"])
+            .map(|s| format!("\"{}\"", truncate_str(&s, 50))),
         "web_fetch" | "fetch_url" | "http_fetch" => {
             extract_str(&v, &["url"]).map(|s| truncate_str(&s, 80))
         }
@@ -684,7 +742,11 @@ pub(crate) fn microcompact_tool_results(
     messages: &mut [fastclaw_core::types::ChatMessage],
     keep_recent: usize,
 ) {
-    microcompact_tool_results_with_protection(messages, keep_recent, &std::collections::HashSet::new())
+    microcompact_tool_results_with_protection(
+        messages,
+        keep_recent,
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// Like [`microcompact_tool_results`] but skips messages in the `protected` set.
@@ -777,9 +839,7 @@ pub(crate) fn microcompact_tool_results_with_protection(
                     let faded = format!("{FADED_MARKER} {}", fade_to_preview(&text, 300));
                     msg.content = Some(serde_json::Value::String(faded));
                 } else {
-                    let cleared = build_cleared_with_recall(
-                        tool_name, tier, &text, args_json,
-                    );
+                    let cleared = build_cleared_with_recall(tool_name, tier, &text, args_json);
                     msg.content = Some(serde_json::Value::String(cleared));
                 }
             }
@@ -796,9 +856,7 @@ pub(crate) fn microcompact_tool_results_with_protection(
                 if rank_from_end < 1 {
                     // Keep most recent one
                 } else {
-                    let cleared = build_cleared_with_recall(
-                        tool_name, tier, &text, args_json,
-                    );
+                    let cleared = build_cleared_with_recall(tool_name, tier, &text, args_json);
                     msg.content = Some(serde_json::Value::String(cleared));
                 }
             }
@@ -1088,9 +1146,7 @@ struct DedupToolEntry {
     arguments_json: String,
 }
 
-pub(crate) fn dedup_repeated_tool_calls(
-    messages: &mut [fastclaw_core::types::ChatMessage],
-) {
+pub(crate) fn dedup_repeated_tool_calls(messages: &mut [fastclaw_core::types::ChatMessage]) {
     use fastclaw_core::types::Role;
     use std::collections::HashMap;
 
@@ -1136,7 +1192,10 @@ pub(crate) fn dedup_repeated_tool_calls(
             target_map
                 .entry((tool_name.clone(), key))
                 .or_default()
-                .push(DedupToolEntry { msg_idx: *msg_idx, arguments_json: args });
+                .push(DedupToolEntry {
+                    msg_idx: *msg_idx,
+                    arguments_json: args,
+                });
         }
     }
 
@@ -1173,9 +1232,9 @@ fn supersede_message(
     } else {
         target_key.to_string()
     };
-    messages[idx].content = Some(serde_json::Value::String(
-        format!("[superseded: re-executed on \"{short_key}\", see latest result below]"),
-    ));
+    messages[idx].content = Some(serde_json::Value::String(format!(
+        "[superseded: re-executed on \"{short_key}\", see latest result below]"
+    )));
 }
 
 /// Extract the line range from read_file arguments as (start, end) 1-indexed inclusive.
@@ -1190,9 +1249,7 @@ fn extract_read_range(args: &str) -> Option<(usize, usize)> {
     let offset = v.get("offset").and_then(|o| o.as_i64());
     let limit = v.get("limit").and_then(|l| l.as_u64());
     match (offset, limit) {
-        (Some(off), Some(lim)) if off > 0 => {
-            Some((off as usize, off as usize + lim as usize - 1))
-        }
+        (Some(off), Some(lim)) if off > 0 => Some((off as usize, off as usize + lim as usize - 1)),
         (Some(off), None) if off > 0 => Some((off as usize, usize::MAX)),
         _ => None,
     }
@@ -1289,10 +1346,16 @@ fn dedup_overlapping_reads(
 fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(arguments).ok()?;
     match tool_name {
-        "read_file" => v.get("path").or(v.get("file_path")).and_then(|p| p.as_str()).map(|s| s.to_string()),
-        "shell_exec" | "shell" | "run_command" => {
-            v.get("command").or(v.get("cmd")).and_then(|c| c.as_str()).map(|s| s.to_string())
-        }
+        "read_file" => v
+            .get("path")
+            .or(v.get("file_path"))
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string()),
+        "shell_exec" | "shell" | "run_command" => v
+            .get("command")
+            .or(v.get("cmd"))
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string()),
         _ => None,
     }
 }
@@ -1400,7 +1463,10 @@ pub(crate) fn scoped_tool_visible_for_agent(name: &str, agent_id: &str) -> bool 
     true
 }
 
-pub(crate) fn is_tool_allowed(tool_name: &str, behavior: &fastclaw_core::agent_config::BehaviorConfig) -> bool {
+pub(crate) fn is_tool_allowed(
+    tool_name: &str,
+    behavior: &fastclaw_core::agent_config::BehaviorConfig,
+) -> bool {
     behavior.is_tool_allowed(tool_name)
 }
 
@@ -1434,7 +1500,10 @@ pub(crate) fn filter_tool_definitions(
 
 /// Validate tool arguments against the tool's parameter schema.
 /// Returns `Some(error_message)` if validation fails, `None` if OK.
-fn validate_tool_arguments(tool: &dyn fastclaw_core::tool::Tool, arguments: &str) -> Option<String> {
+fn validate_tool_arguments(
+    tool: &dyn fastclaw_core::tool::Tool,
+    arguments: &str,
+) -> Option<String> {
     let schema = tool.parameters_schema();
     if schema.required.is_empty() {
         return None;
@@ -1445,7 +1514,8 @@ fn validate_tool_arguments(tool: &dyn fastclaw_core::tool::Tool, arguments: &str
         Err(e) => {
             return Some(format!(
                 "Invalid JSON arguments for tool '{}': {}. Please provide valid JSON.",
-                tool.name(), e
+                tool.name(),
+                e
             ));
         }
     };
@@ -1486,8 +1556,8 @@ fn validate_tool_arguments(tool: &dyn fastclaw_core::tool::Tool, arguments: &str
 // on demand. The registry is populated during compaction and queried
 // when the LLM asks for a result that was previously cleared.
 
-use std::sync::OnceLock;
 use dashmap::DashMap;
+use std::sync::OnceLock;
 
 /// Global registry mapping tool_call_id → recall metadata.
 static AUTO_RECALL_REGISTRY: OnceLock<DashMap<String, ClearedToolMeta>> = OnceLock::new();
@@ -1577,7 +1647,17 @@ pub(crate) async fn execute_tool_batch(
     log_suffix: &str,
     mode_state: Option<&ExecutionModeState>,
 ) -> Vec<ToolExecResult> {
-    execute_tool_batch_with_hooks(tool_calls, tool_registry, behavior, work_dir, log_suffix, &[], "", mode_state).await
+    execute_tool_batch_with_hooks(
+        tool_calls,
+        tool_registry,
+        behavior,
+        work_dir,
+        log_suffix,
+        &[],
+        "",
+        mode_state,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1592,8 +1672,17 @@ pub(crate) async fn execute_tool_batch_with_hooks(
     mode_state: Option<&ExecutionModeState>,
 ) -> Vec<ToolExecResult> {
     execute_tool_batch_with_hooks_and_stream(
-        tool_calls, tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, None, mode_state,
-    ).await
+        tool_calls,
+        tool_registry,
+        behavior,
+        work_dir,
+        log_suffix,
+        hooks,
+        agent_id,
+        None,
+        mode_state,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1610,7 +1699,8 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
 ) -> Vec<ToolExecResult> {
     // Batch-level dedup: when the same read_file path appears multiple times
     // in one batch, only execute the first and share the result.
-    let mut read_file_seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut read_file_seen: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut dedup_source: Vec<Option<usize>> = vec![None; tool_calls.len()];
 
     for (i, tc) in tool_calls.iter().enumerate() {
@@ -1636,7 +1726,8 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
         if dedup_source[i].is_some() {
             continue;
         }
-        let kind = tool_registry.get(&tc.function.name)
+        let kind = tool_registry
+            .get(&tc.function.name)
             .map(|t| t.kind())
             .unwrap_or(fastclaw_core::tool::ToolKind::Other);
         if kind.is_concurrency_safe() {
@@ -1649,11 +1740,22 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
     let mut results: Vec<Option<ToolExecResult>> = vec![None; tool_calls.len()];
 
     if !concurrent_indices.is_empty() {
-        let concurrent_futures: Vec<_> = concurrent_indices.iter().map(|&i| {
-            execute_single_tool(
-                &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, stream_tx, mode_state,
-            )
-        }).collect();
+        let concurrent_futures: Vec<_> = concurrent_indices
+            .iter()
+            .map(|&i| {
+                execute_single_tool(
+                    &tool_calls[i],
+                    tool_registry,
+                    behavior,
+                    work_dir,
+                    log_suffix,
+                    hooks,
+                    agent_id,
+                    stream_tx,
+                    mode_state,
+                )
+            })
+            .collect();
         let concurrent_results = futures::future::join_all(concurrent_futures).await;
         for (slot, result) in concurrent_indices.iter().zip(concurrent_results) {
             results[*slot] = Some(result);
@@ -1662,8 +1764,17 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
 
     for &i in &sequential_indices {
         let result = execute_single_tool(
-            &tool_calls[i], tool_registry, behavior, work_dir, log_suffix, hooks, agent_id, stream_tx, mode_state,
-        ).await;
+            &tool_calls[i],
+            tool_registry,
+            behavior,
+            work_dir,
+            log_suffix,
+            hooks,
+            agent_id,
+            stream_tx,
+            mode_state,
+        )
+        .await;
         results[i] = Some(result);
     }
 
@@ -1686,7 +1797,10 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
         }
     }
 
-    results.into_iter().map(|r| r.expect("all slots filled")).collect()
+    results
+        .into_iter()
+        .map(|r| r.expect("all slots filled"))
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1707,20 +1821,23 @@ async fn execute_single_tool(
 
     if !is_tool_allowed(&tool_name, behavior) {
         tracing::warn!(tool = %tool_name, "tool blocked by allow/deny policy — forwarding to user for confirmation{log_suffix}");
-        let result = fastclaw_core::tool::ToolResult::needs_confirm(
-            format!("Tool '{}' is not in the allowed tool list. Allow this tool to proceed?", tool_name),
-        );
+        let result = fastclaw_core::tool::ToolResult::needs_confirm(format!(
+            "Tool '{}' is not in the allowed tool list. Allow this tool to proceed?",
+            tool_name
+        ));
         return (tool_name, call_id, arguments, result);
     }
     if behavior.requires_confirmation(&tool_name) {
         tracing::info!(tool = %tool_name, "tool requires user confirmation (tools_ask){log_suffix}");
-        let result = fastclaw_core::tool::ToolResult::needs_confirm(
-            format!("Tool '{}' requires user confirmation per agent policy.", tool_name),
-        );
+        let result = fastclaw_core::tool::ToolResult::needs_confirm(format!(
+            "Tool '{}' requires user confirmation per agent policy.",
+            tool_name
+        ));
         return (tool_name, call_id, arguments, result);
     }
 
-    let tool_kind = tool_registry.get(&tool_name)
+    let tool_kind = tool_registry
+        .get(&tool_name)
         .map(|t| t.kind())
         .unwrap_or(fastclaw_core::tool::ToolKind::Other);
 
@@ -1765,7 +1882,12 @@ async fn execute_single_tool(
     if let Some(tool) = tool_registry.get(&tool_name) {
         if let Some(err) = validate_tool_arguments(tool.as_ref(), &arguments) {
             tracing::warn!(tool = %tool_name, "tool parameter validation failed: {err}");
-            return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(err));
+            return (
+                tool_name,
+                call_id,
+                arguments,
+                fastclaw_core::tool::ToolResult::err(err),
+            );
         }
     }
 
@@ -1774,7 +1896,12 @@ async fn execute_single_tool(
         let action = hook.pre_tool_use(&hook_ctx).await;
         if let Some(reason) = action.block_reason {
             tracing::info!(tool = %tool_name, hook = hook.name(), "tool blocked by hook: {reason}");
-            return (tool_name, call_id, arguments, fastclaw_core::tool::ToolResult::err(reason));
+            return (
+                tool_name,
+                call_id,
+                arguments,
+                fastclaw_core::tool::ToolResult::err(reason),
+            );
         }
         if let Some(new_args) = action.modified_arguments {
             effective_args = new_args;
@@ -1808,8 +1935,12 @@ async fn execute_single_tool(
 
                 let res = with_file_access_mode(
                     behavior.file_access,
-                    with_additional_allowed_paths(extra_paths.clone(),
-                        with_work_dir(work_dir_path, tool.execute_with_progress(&effective_args, progress_tx)),
+                    with_additional_allowed_paths(
+                        extra_paths.clone(),
+                        with_work_dir(
+                            work_dir_path,
+                            tool.execute_with_progress(&effective_args, progress_tx),
+                        ),
                     ),
                 )
                 .await;
@@ -1818,7 +1949,8 @@ async fn execute_single_tool(
             } else {
                 with_file_access_mode(
                     behavior.file_access,
-                    with_additional_allowed_paths(extra_paths,
+                    with_additional_allowed_paths(
+                        extra_paths,
                         with_work_dir(work_dir_path, tool.execute(&effective_args)),
                     ),
                 )
@@ -1864,14 +1996,25 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn truncates_long_output_with_head_and_tail() {
-        let lines: Vec<String> = (0..300).map(|i| format!("line {i}: some data here")).collect();
+        let lines: Vec<String> = (0..300)
+            .map(|i| format!("line {i}: some data here"))
+            .collect();
         let input = lines.join("\n");
         let out = truncate_tool_result_output(&input, "test_tool");
-        assert!(out.contains(TRUNCATION_SEPARATOR), "should contain truncation separator");
+        assert!(
+            out.contains(TRUNCATION_SEPARATOR),
+            "should contain truncation separator"
+        );
         assert!(out.contains("line 0:"), "should keep head lines");
         assert!(out.contains("line 299:"), "should keep tail lines");
-        assert!(out.len() < input.len(), "output should be shorter than input");
-        assert!(out.contains("saved to:"), "should include saved file path hint");
+        assert!(
+            out.len() < input.len(),
+            "output should be shorter than input"
+        );
+        assert!(
+            out.contains("saved to:"),
+            "should include saved file path hint"
+        );
         assert!(out.contains("read_file"), "should mention read_file tool");
     }
 
@@ -1915,7 +2058,10 @@ mod tool_result_truncation_tests {
         // Next 3 (indices 2..5): faded to preview
         for msg in &msgs[2..5] {
             let text = msg.text_content().unwrap();
-            assert!(text.starts_with(FADED_MARKER), "expected faded, got: {text}");
+            assert!(
+                text.starts_with(FADED_MARKER),
+                "expected faded, got: {text}"
+            );
         }
         // Most recent 5 (indices 5..10): kept fully
         for msg in &msgs[5..] {
@@ -1974,7 +2120,10 @@ mod tool_result_truncation_tests {
         microcompact_tool_results(&mut msgs, 1);
 
         // Error results preserved even though old
-        assert!(msgs[0].text_content().unwrap().contains("Error: file not found"));
+        assert!(msgs[0]
+            .text_content()
+            .unwrap()
+            .contains("Error: file not found"));
         // Non-error old results get faded/cleared/summarized (not kept full)
         let t1 = msgs[1].text_content().unwrap();
         assert!(
@@ -1984,7 +2133,10 @@ mod tool_result_truncation_tests {
             "expected faded/cleared/summarized, got: {t1}"
         );
         // Error results preserved
-        assert!(msgs[2].text_content().unwrap().contains("Failed to connect"));
+        assert!(msgs[2]
+            .text_content()
+            .unwrap()
+            .contains("Failed to connect"));
         // Non-error older results get faded/cleared/summarized
         let t3 = msgs[3].text_content().unwrap();
         assert!(
@@ -2033,12 +2185,15 @@ mod tool_result_truncation_tests {
             summary.contains("src/lib.rs"),
             "oneliner should reuse semantic header, got: {summary}"
         );
-        assert!(!summary.contains("actual file content"), "should not include body");
+        assert!(
+            !summary.contains("actual file content"),
+            "should not include body"
+        );
     }
 
     #[test]
     fn time_microcompact_collapses_stale_tool_results() {
-        use super::{time_based_microcompact, TIME_COMPACTED_MARKER, RECALL_HINT_MARKER};
+        use super::{time_based_microcompact, RECALL_HINT_MARKER, TIME_COMPACTED_MARKER};
         use fastclaw_core::types::{ChatMessage, Role};
         use std::time::{Duration, Instant};
 
@@ -2081,7 +2236,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn time_microcompact_preserves_fresh_and_errors() {
-        use super::{time_based_microcompact, TIME_COMPACTED_MARKER, RECALL_HINT_MARKER};
+        use super::{time_based_microcompact, RECALL_HINT_MARKER, TIME_COMPACTED_MARKER};
         use fastclaw_core::types::{ChatMessage, Role};
         use std::time::{Duration, Instant};
 
@@ -2169,14 +2324,16 @@ mod tool_result_truncation_tests {
             })
             .collect();
 
-        let before: usize = msgs.iter()
+        let before: usize = msgs
+            .iter()
             .filter_map(|m| m.text_content())
             .map(|t| t.len())
             .sum();
 
         microcompact_tool_results(&mut msgs, 3);
 
-        let after: usize = msgs.iter()
+        let after: usize = msgs
+            .iter()
             .filter_map(|m| m.text_content())
             .map(|t| t.len())
             .sum();
@@ -2215,7 +2372,9 @@ mod tool_result_truncation_tests {
             state.register_tool_result(&format!("tool-{i}"));
         }
 
-        let block = state.create_cache_edits_block().expect("should produce block");
+        let block = state
+            .create_cache_edits_block()
+            .expect("should produce block");
         assert_eq!(block.tool_ids_to_delete.len(), 2, "8 - 6 = 2 to delete");
 
         let block2 = state.create_cache_edits_block();
@@ -2242,10 +2401,18 @@ mod tool_result_truncation_tests {
     fn is_model_supported_for_cache_editing() {
         use super::is_model_supported_for_cache_editing;
 
-        assert!(is_model_supported_for_cache_editing("claude-4-sonnet-20260514"));
-        assert!(is_model_supported_for_cache_editing("claude-4-opus-20260514"));
-        assert!(is_model_supported_for_cache_editing("anthropic/claude-4-haiku"));
-        assert!(!is_model_supported_for_cache_editing("claude-3-5-sonnet-20241022"));
+        assert!(is_model_supported_for_cache_editing(
+            "claude-4-sonnet-20260514"
+        ));
+        assert!(is_model_supported_for_cache_editing(
+            "claude-4-opus-20260514"
+        ));
+        assert!(is_model_supported_for_cache_editing(
+            "anthropic/claude-4-haiku"
+        ));
+        assert!(!is_model_supported_for_cache_editing(
+            "claude-3-5-sonnet-20241022"
+        ));
         assert!(!is_model_supported_for_cache_editing("gpt-4o"));
         assert!(!is_model_supported_for_cache_editing("deepseek-chat"));
     }
@@ -2255,12 +2422,27 @@ mod tool_result_truncation_tests {
     #[test]
     fn classify_retention_tier_full_retain() {
         use super::{classify_retention_tier, RetentionTier};
-        assert_eq!(classify_retention_tier("read_file"), RetentionTier::FullRetain);
-        assert_eq!(classify_retention_tier("shell_exec"), RetentionTier::FullRetain);
+        assert_eq!(
+            classify_retention_tier("read_file"),
+            RetentionTier::FullRetain
+        );
+        assert_eq!(
+            classify_retention_tier("shell_exec"),
+            RetentionTier::FullRetain
+        );
         assert_eq!(classify_retention_tier("shell"), RetentionTier::FullRetain);
-        assert_eq!(classify_retention_tier("edit_file"), RetentionTier::FullRetain);
-        assert_eq!(classify_retention_tier("write_file"), RetentionTier::FullRetain);
-        assert_eq!(classify_retention_tier("multi_edit"), RetentionTier::FullRetain);
+        assert_eq!(
+            classify_retention_tier("edit_file"),
+            RetentionTier::FullRetain
+        );
+        assert_eq!(
+            classify_retention_tier("write_file"),
+            RetentionTier::FullRetain
+        );
+        assert_eq!(
+            classify_retention_tier("multi_edit"),
+            RetentionTier::FullRetain
+        );
     }
 
     #[test]
@@ -2268,25 +2450,49 @@ mod tool_result_truncation_tests {
         use super::{classify_retention_tier, RetentionTier};
         assert_eq!(classify_retention_tier("grep"), RetentionTier::Summarize);
         assert_eq!(classify_retention_tier("ripgrep"), RetentionTier::Summarize);
-        assert_eq!(classify_retention_tier("search_in_files"), RetentionTier::Summarize);
-        assert_eq!(classify_retention_tier("workspace_symbols"), RetentionTier::Summarize);
-        assert_eq!(classify_retention_tier("find_references"), RetentionTier::Summarize);
+        assert_eq!(
+            classify_retention_tier("search_in_files"),
+            RetentionTier::Summarize
+        );
+        assert_eq!(
+            classify_retention_tier("workspace_symbols"),
+            RetentionTier::Summarize
+        );
+        assert_eq!(
+            classify_retention_tier("find_references"),
+            RetentionTier::Summarize
+        );
     }
 
     #[test]
     fn classify_retention_tier_ephemeral() {
         use super::{classify_retention_tier, RetentionTier};
-        assert_eq!(classify_retention_tier("list_dir"), RetentionTier::Ephemeral);
-        assert_eq!(classify_retention_tier("list_directory"), RetentionTier::Ephemeral);
+        assert_eq!(
+            classify_retention_tier("list_dir"),
+            RetentionTier::Ephemeral
+        );
+        assert_eq!(
+            classify_retention_tier("list_directory"),
+            RetentionTier::Ephemeral
+        );
         assert_eq!(classify_retention_tier("glob"), RetentionTier::Ephemeral);
-        assert_eq!(classify_retention_tier("web_search"), RetentionTier::Ephemeral);
-        assert_eq!(classify_retention_tier("web_fetch"), RetentionTier::Ephemeral);
+        assert_eq!(
+            classify_retention_tier("web_search"),
+            RetentionTier::Ephemeral
+        );
+        assert_eq!(
+            classify_retention_tier("web_fetch"),
+            RetentionTier::Ephemeral
+        );
     }
 
     #[test]
     fn classify_retention_tier_mcp_defaults_to_summarize() {
         use super::{classify_retention_tier, RetentionTier};
-        assert_eq!(classify_retention_tier("mcp_some_tool"), RetentionTier::Summarize);
+        assert_eq!(
+            classify_retention_tier("mcp_some_tool"),
+            RetentionTier::Summarize
+        );
     }
 
     #[test]
@@ -2398,7 +2604,7 @@ mod tool_result_truncation_tests {
 
     #[test]
     fn recall_registry_rebuild_from_messages() {
-        use super::{rebuild_recall_registry, lookup_recall, RECALL_HINT_MARKER};
+        use super::{lookup_recall, rebuild_recall_registry, RECALL_HINT_MARKER};
         use fastclaw_core::types::{ChatMessage, Role};
 
         let marker_text = format!(
@@ -2425,7 +2631,7 @@ mod tool_result_truncation_tests {
     #[test]
     fn dedup_overlapping_reads_supersedes_covered_range() {
         use super::dedup_repeated_tool_calls;
-        use fastclaw_core::types::{ChatMessage, Role, ToolCall, FunctionCall};
+        use fastclaw_core::types::{ChatMessage, FunctionCall, Role, ToolCall};
 
         fn assistant_with_read(call_id: &str, path: &str, lines: Option<&str>) -> ChatMessage {
             let mut args = serde_json::json!({ "path": path });
@@ -2475,10 +2681,16 @@ mod tool_result_truncation_tests {
         dedup_repeated_tool_calls(&mut msgs);
 
         let t1 = msgs[1].text_content().unwrap();
-        assert!(t1.contains("[superseded"), "read 1-50 should be superseded by 1-100: got {t1}");
+        assert!(
+            t1.contains("[superseded"),
+            "read 1-50 should be superseded by 1-100: got {t1}"
+        );
 
         let t2 = msgs[3].text_content().unwrap();
-        assert!(t2.contains("[superseded"), "read 20-80 should be superseded by 1-100: got {t2}");
+        assert!(
+            t2.contains("[superseded"),
+            "read 20-80 should be superseded by 1-100: got {t2}"
+        );
 
         let t3 = msgs[5].text_content().unwrap();
         assert_eq!(t3, "lines 1 through 100", "newest read should be preserved");
@@ -2487,7 +2699,7 @@ mod tool_result_truncation_tests {
     #[test]
     fn dedup_non_overlapping_reads_preserved() {
         use super::dedup_repeated_tool_calls;
-        use fastclaw_core::types::{ChatMessage, Role, ToolCall, FunctionCall};
+        use fastclaw_core::types::{ChatMessage, FunctionCall, Role, ToolCall};
 
         fn assistant_with_read(call_id: &str, path: &str, lines: &str) -> ChatMessage {
             ChatMessage {
@@ -2530,8 +2742,16 @@ mod tool_result_truncation_tests {
 
         dedup_repeated_tool_calls(&mut msgs);
 
-        assert_eq!(msgs[1].text_content().unwrap(), "first chunk", "non-overlapping read 1 preserved");
-        assert_eq!(msgs[3].text_content().unwrap(), "second chunk", "non-overlapping read 2 preserved");
+        assert_eq!(
+            msgs[1].text_content().unwrap(),
+            "first chunk",
+            "non-overlapping read 1 preserved"
+        );
+        assert_eq!(
+            msgs[3].text_content().unwrap(),
+            "second chunk",
+            "non-overlapping read 2 preserved"
+        );
     }
 
     #[test]
@@ -2568,7 +2788,10 @@ mod tool_result_truncation_tests {
     fn cache_window_infinite_under_low_occupancy() {
         use super::cache_window_for_occupancy;
         let dur = cache_window_for_occupancy(10_000, 128_000);
-        assert!(dur.as_secs() > 3600, "under 50% should be effectively infinite");
+        assert!(
+            dur.as_secs() > 3600,
+            "under 50% should be effectively infinite"
+        );
     }
 
     #[test]
@@ -2579,7 +2802,11 @@ mod tool_result_truncation_tests {
         let dur_critical = cache_window_for_occupancy(122_000, 128_000); // ~95%
         assert_eq!(dur_mid.as_secs(), 10 * 60, "62% occupancy should be 10min");
         assert_eq!(dur_high.as_secs(), 5 * 60, "78% occupancy should be 5min");
-        assert_eq!(dur_critical.as_secs(), 2 * 60, "95% occupancy should be 2min");
+        assert_eq!(
+            dur_critical.as_secs(),
+            2 * 60,
+            "95% occupancy should be 2min"
+        );
     }
 
     #[test]
@@ -2588,19 +2815,62 @@ mod tool_result_truncation_tests {
         use fastclaw_core::types::{ChatMessage, Role};
 
         let msgs: Vec<ChatMessage> = vec![
-            ChatMessage { role: Role::User, content: Some(serde_json::Value::String("q".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
-            ChatMessage { role: Role::Tool, content: Some(serde_json::Value::String("old result".into())), reasoning_content: None, name: Some("read_file".into()), tool_calls: None, tool_call_id: Some("c1".into()) },
-            ChatMessage { role: Role::Assistant, content: Some(serde_json::Value::String("a".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
-            ChatMessage { role: Role::User, content: Some(serde_json::Value::String("q2".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
-            ChatMessage { role: Role::Tool, content: Some(serde_json::Value::String("new result".into())), reasoning_content: None, name: Some("read_file".into()), tool_calls: None, tool_call_id: Some("c2".into()) },
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("q".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String("old result".into())),
+                reasoning_content: None,
+                name: Some("read_file".into()),
+                tool_calls: None,
+                tool_call_id: Some("c1".into()),
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                content: Some(serde_json::Value::String("a".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("q2".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String("new result".into())),
+                reasoning_content: None,
+                name: Some("read_file".into()),
+                tool_calls: None,
+                tool_call_id: Some("c2".into()),
+            },
         ];
 
         let now = std::time::Instant::now();
         let boundaries = vec![(0, now - std::time::Duration::from_secs(60)), (3, now)];
-        let config = ProtectionWindowConfig { protected_iterations: 1 };
+        let config = ProtectionWindowConfig {
+            protected_iterations: 1,
+        };
 
         let protected = compute_protected_indices(&msgs, &boundaries, &config);
-        assert!(!protected.contains(&1), "old iteration tool result should NOT be protected");
-        assert!(protected.contains(&4), "recent iteration tool result should be protected");
+        assert!(
+            !protected.contains(&1),
+            "old iteration tool result should NOT be protected"
+        );
+        assert!(
+            protected.contains(&4),
+            "recent iteration tool result should be protected"
+        );
     }
 }

@@ -101,10 +101,7 @@ impl SkillExtractor {
 
         let mut by_task: HashMap<String, Vec<&Trajectory>> = HashMap::new();
         for t in successes {
-            let key = t
-                .task_type
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
+            let key = t.task_type.clone().unwrap_or_else(|| "unknown".to_string());
             by_task.entry(key).or_default().push(t);
         }
 
@@ -155,8 +152,7 @@ impl SkillExtractor {
             let pattern = canonical_pattern(&cluster, &seed_seq);
             let strategy_template = build_strategy_template(&pattern);
             let parameters = infer_parameters(&cluster, &pattern);
-            let source_trajectory_ids: Vec<String> =
-                cluster.iter().map(|t| t.id.clone()).collect();
+            let source_trajectory_ids: Vec<String> = cluster.iter().map(|t| t.id.clone()).collect();
             let success_rate = cluster_success_rate(&cluster);
             let name = format!(
                 "auto_{}_{}",
@@ -226,7 +222,10 @@ fn summarize_trajectory_cluster(task_pattern: &str, cluster: &[&Trajectory]) -> 
     lines.push(format!("Cluster size: {}", cluster.len()));
     for t in cluster {
         lines.push(format!("--- trajectory {} ---", t.id));
-        lines.push(format!("agent_id={} session_id={}", t.agent_id, t.session_id));
+        lines.push(format!(
+            "agent_id={} session_id={}",
+            t.agent_id, t.session_id
+        ));
         let seq = tool_sequence(t);
         lines.push(format!("tool_sequence: {}", seq.join(" -> ")));
         let step_summaries: Vec<String> = t
@@ -321,8 +320,7 @@ fn infer_parameters(cluster: &[&Trajectory], pattern: &[String]) -> Vec<SkillPar
         params.push(SkillParam {
             name: "result_context".into(),
             param_type: "string".into(),
-            description: "Varying tool result summaries observed across successful runs."
-                .into(),
+            description: "Varying tool result summaries observed across successful runs.".into(),
             default_value: None,
         });
     }
@@ -406,14 +404,15 @@ impl PatternTracker {
     /// Record an observation of a task pattern.
     pub fn observe(&mut self, pattern_key: &str, trajectory_id: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        let entry = self.observations.entry(pattern_key.to_string()).or_insert_with(|| {
-            PatternObservation {
+        let entry = self
+            .observations
+            .entry(pattern_key.to_string())
+            .or_insert_with(|| PatternObservation {
                 count: 0,
                 first_seen: now.clone(),
                 last_seen: now.clone(),
                 trajectory_ids: Vec::new(),
-            }
-        });
+            });
         entry.count += 1;
         entry.last_seen = now;
         entry.trajectory_ids.push(trajectory_id.to_string());
@@ -482,7 +481,10 @@ pub enum QualityVerdict {
 
 impl SkillQualityValidator {
     pub fn new(min_success_count: u32, min_success_rate: f64) -> Self {
-        Self { min_success_count, min_success_rate }
+        Self {
+            min_success_count,
+            min_success_rate,
+        }
     }
 
     /// Evaluate whether a skill is ready to be promoted to Active.

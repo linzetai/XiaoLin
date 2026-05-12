@@ -81,10 +81,7 @@ impl Coordinator {
     }
 
     /// Dispatch all worker tasks from a plan. Returns task_ids mapped to worker tasks.
-    pub async fn dispatch_workers(
-        &self,
-        plan: &CoordinatorPlan,
-    ) -> HashMap<String, String> {
+    pub async fn dispatch_workers(&self, plan: &CoordinatorPlan) -> HashMap<String, String> {
         let mut task_id_map = HashMap::new();
 
         for worker_task in &plan.tasks {
@@ -148,12 +145,14 @@ impl Coordinator {
                             error: info.error,
                         }
                     }
-                    TaskStatus::Pending | TaskStatus::Running | TaskStatus::Cancelled => WorkerResult {
-                        task_id: worker_id.clone(),
-                        status: WorkerStatus::Skipped,
-                        output: None,
-                        error: Some("task did not complete".into()),
-                    },
+                    TaskStatus::Pending | TaskStatus::Running | TaskStatus::Cancelled => {
+                        WorkerResult {
+                            task_id: worker_id.clone(),
+                            status: WorkerStatus::Skipped,
+                            output: None,
+                            error: Some("task did not complete".into()),
+                        }
+                    }
                 },
                 None => WorkerResult {
                     task_id: worker_id.clone(),
@@ -172,12 +171,12 @@ impl Coordinator {
     /// Generate a summary of coordinator execution results.
     pub fn summarize_results(plan: &CoordinatorPlan, results: &[WorkerResult]) -> String {
         let total = results.len();
-        let (succeeded, failed, skipped) = results.iter().fold((0, 0, 0), |(s, f, sk), r| {
-            match r.status {
-                WorkerStatus::Success => (s + 1, f, sk),
-                WorkerStatus::Failed => (s, f + 1, sk),
-                WorkerStatus::Skipped => (s, f, sk + 1),
-            }
+        let (succeeded, failed, skipped) = results.iter().fold((0, 0, 0), |(s, f, sk), r| match r
+            .status
+        {
+            WorkerStatus::Success => (s + 1, f, sk),
+            WorkerStatus::Failed => (s, f + 1, sk),
+            WorkerStatus::Skipped => (s, f, sk + 1),
         });
 
         let mut summary = format!(
@@ -196,7 +195,10 @@ impl Coordinator {
                 .as_deref()
                 .or(result.error.as_deref())
                 .unwrap_or("no output");
-            summary.push_str(&format!("  {} {}: {}\n", status_icon, result.task_id, detail));
+            summary.push_str(&format!(
+                "  {} {}: {}\n",
+                status_icon, result.task_id, detail
+            ));
         }
 
         summary
@@ -257,7 +259,9 @@ mod tests {
         let id_map = coord.dispatch_workers(&plan).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let results = coord.collect_results(&id_map, CoordinatorStrategy::BestEffort).await;
+        let results = coord
+            .collect_results(&id_map, CoordinatorStrategy::BestEffort)
+            .await;
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.status == WorkerStatus::Success));
     }
@@ -266,9 +270,24 @@ mod tests {
     async fn summarize_results_format() {
         let plan = test_plan();
         let results = vec![
-            WorkerResult { task_id: "w1".into(), status: WorkerStatus::Success, output: Some("done".into()), error: None },
-            WorkerResult { task_id: "w2".into(), status: WorkerStatus::Failed, output: None, error: Some("timeout".into()) },
-            WorkerResult { task_id: "w3".into(), status: WorkerStatus::Skipped, output: None, error: Some("not started".into()) },
+            WorkerResult {
+                task_id: "w1".into(),
+                status: WorkerStatus::Success,
+                output: Some("done".into()),
+                error: None,
+            },
+            WorkerResult {
+                task_id: "w2".into(),
+                status: WorkerStatus::Failed,
+                output: None,
+                error: Some("timeout".into()),
+            },
+            WorkerResult {
+                task_id: "w3".into(),
+                status: WorkerStatus::Skipped,
+                output: None,
+                error: Some("not started".into()),
+            },
         ];
 
         let summary = Coordinator::summarize_results(&plan, &results);
@@ -287,11 +306,13 @@ mod tests {
         mgr.spawn("blocker1".into(), "".into(), async {
             tokio::time::sleep(Duration::from_secs(5)).await;
             Ok("ok".into())
-        }).unwrap();
+        })
+        .unwrap();
         mgr.spawn("blocker2".into(), "".into(), async {
             tokio::time::sleep(Duration::from_secs(5)).await;
             Ok("ok".into())
-        }).unwrap();
+        })
+        .unwrap();
 
         let plan = test_plan();
         let id_map = coord.dispatch_workers(&plan).await;

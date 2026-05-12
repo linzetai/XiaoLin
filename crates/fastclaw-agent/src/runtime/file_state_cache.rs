@@ -72,7 +72,12 @@ impl FileStateCache {
 
     /// Check if the same read range was used and the file is unchanged.
     /// Used by ReadFileTool to skip re-sending unchanged content.
-    pub fn is_unchanged_for_range(&self, path: &Path, offset: Option<i64>, limit: Option<usize>) -> bool {
+    pub fn is_unchanged_for_range(
+        &self,
+        path: &Path,
+        offset: Option<i64>,
+        limit: Option<usize>,
+    ) -> bool {
         let entry = match self.cache.get(path) {
             Some(e) => e,
             None => return false,
@@ -123,17 +128,19 @@ impl FileStateCache {
     }
 
     /// Record the current state with offset/limit metadata (from a read operation).
-    pub fn update_with_range(&self, path: &Path, content: &str, offset: Option<i64>, limit: Option<usize>) {
+    pub fn update_with_range(
+        &self,
+        path: &Path,
+        content: &str,
+        offset: Option<i64>,
+        limit: Option<usize>,
+    ) {
         let mtime = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
 
         let hash = compute_hash(content);
-        let preview = content
-            .lines()
-            .take(200)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let preview = content.lines().take(200).collect::<Vec<_>>().join("\n");
 
         self.cache.insert(
             path.to_path_buf(),
@@ -288,7 +295,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("long.txt");
 
-        let content: String = (0..300).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content: String = (0..300)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         std::fs::write(&file_path, &content).unwrap();
 
         let cache = FileStateCache::new();

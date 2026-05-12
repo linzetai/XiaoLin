@@ -50,7 +50,10 @@ pub struct TodoStore {
 
 impl TodoStore {
     pub fn new() -> Self {
-        Self { items: Arc::new(RwLock::new(Vec::new())), session_path: None }
+        Self {
+            items: Arc::new(RwLock::new(Vec::new())),
+            session_path: None,
+        }
     }
 
     /// Create a store that auto-persists to the given JSON file.
@@ -100,7 +103,11 @@ impl TodoStore {
         }
         let mut lines = Vec::with_capacity(actionable.len());
         for t in &actionable {
-            let icon = if t.status == TodoStatus::InProgress { "🔄" } else { "⬜" };
+            let icon = if t.status == TodoStatus::InProgress {
+                "🔄"
+            } else {
+                "⬜"
+            };
             lines.push(format!("- {icon} [{}] {}", t.id, t.content));
         }
         Some(lines.join("\n"))
@@ -148,7 +155,9 @@ impl TodoStore {
     }
 
     async fn persist(&self) {
-        let Some(path) = &self.session_path else { return };
+        let Some(path) = &self.session_path else {
+            return;
+        };
         let items = self.items.read().await;
         let json = match serde_json::to_string_pretty(&*items) {
             Ok(j) => j,
@@ -241,15 +250,20 @@ Helps track progress and organize complex tasks.\n\n\
 
 #[async_trait]
 impl Tool for TodoWriteTool {
-    fn kind(&self) -> ToolKind { ToolKind::Think }
-    fn name(&self) -> &str { "todo_write" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Think
+    }
+    fn name(&self) -> &str {
+        "todo_write"
+    }
 
     fn description(&self) -> &str {
         TODO_WRITE_DESCRIPTION
     }
 
     fn prompt(&self) -> String {
-        format!("{TODO_WRITE_DESCRIPTION}\n\n\
+        format!(
+            "{TODO_WRITE_DESCRIPTION}\n\n\
 ## Decision Guide: Create or Skip?\n\n\
 **CREATE a todo list when:**\n\
 - Task requires 3+ distinct steps with dependencies\n\
@@ -323,32 +337,39 @@ Both execute in the same turn, saving a round-trip.\n\n\
 - Don't create single-item todo lists (pointless overhead)\n\
 - Don't forget to mark items completed as you go (stale list = confusing)\n\
 - Don't modify completed items — add new ones instead\n\
-- Don't end your turn with incomplete todos without explanation")
+- Don't end your turn with incomplete todos without explanation"
+        )
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("todos".to_string(), serde_json::json!({
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": { "type": "string" },
-                    "content": { "type": "string" },
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "in_progress", "completed", "cancelled"],
-                        "default": "pending"
-                    }
+        props.insert(
+            "todos".to_string(),
+            serde_json::json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "content": { "type": "string" },
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "in_progress", "completed", "cancelled"],
+                            "default": "pending"
+                        }
+                    },
+                    "required": ["id", "content", "status"]
                 },
-                "required": ["id", "content", "status"]
-            },
-            "description": "Array of todo items."
-        }));
-        props.insert("merge".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "If true, merge by id; if false (default), replace entire list."
-        }));
+                "description": "Array of todo items."
+            }),
+        );
+        props.insert(
+            "merge".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "If true, merge by id; if false (default), replace entire list."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -366,7 +387,9 @@ Both execute in the same turn, saving a round-trip.\n\n\
             if let Some(ref raw) = args.modified_content {
                 let user_todos: Vec<TodoItem> = match serde_json::from_str(raw) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(format!("Invalid modified_content JSON: {e}")),
+                    Err(e) => {
+                        return ToolResult::err(format!("Invalid modified_content JSON: {e}"))
+                    }
                 };
                 self.store.replace_all(user_todos).await;
                 let snapshot = self.store.snapshot().await;
@@ -409,10 +432,22 @@ Both execute in the same turn, saving a round-trip.\n\n\
 /// UI-facing display: formatted text for the TodoCard component to parse.
 fn format_todo_display(items: &[TodoItem]) -> String {
     let total = items.len();
-    let completed = items.iter().filter(|t| t.status == TodoStatus::Completed).count();
-    let in_progress = items.iter().filter(|t| t.status == TodoStatus::InProgress).count();
-    let pending = items.iter().filter(|t| t.status == TodoStatus::Pending).count();
-    let cancelled = items.iter().filter(|t| t.status == TodoStatus::Cancelled).count();
+    let completed = items
+        .iter()
+        .filter(|t| t.status == TodoStatus::Completed)
+        .count();
+    let in_progress = items
+        .iter()
+        .filter(|t| t.status == TodoStatus::InProgress)
+        .count();
+    let pending = items
+        .iter()
+        .filter(|t| t.status == TodoStatus::Pending)
+        .count();
+    let cancelled = items
+        .iter()
+        .filter(|t| t.status == TodoStatus::Cancelled)
+        .count();
 
     let mut lines = Vec::with_capacity(total + 3);
     lines.push(format!(
@@ -440,13 +475,16 @@ fn format_todo_llm_output(items: &[TodoItem]) -> String {
 <system-reminder>\n\
 Your todo list is now empty. DO NOT mention this explicitly to the user. \
 You have no pending tasks in your todo list.\n\
-</system-reminder>".to_string();
+</system-reminder>"
+            .to_string();
     }
 
     let todos_json = serde_json::to_string(items).unwrap_or_default();
 
     let has_in_progress = items.iter().any(|t| t.status == TodoStatus::InProgress);
-    let all_done = items.iter().all(|t| matches!(t.status, TodoStatus::Completed | TodoStatus::Cancelled));
+    let all_done = items
+        .iter()
+        .all(|t| matches!(t.status, TodoStatus::Completed | TodoStatus::Cancelled));
 
     let guidance = if all_done {
         "All tasks completed. Verify the overall result against the original request, then present a summary to the user."
@@ -483,8 +521,12 @@ impl TodoReadTool {
 
 #[async_trait]
 impl Tool for TodoReadTool {
-    fn kind(&self) -> ToolKind { ToolKind::Read }
-    fn name(&self) -> &str { "todo_read" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+    fn name(&self) -> &str {
+        "todo_read"
+    }
 
     fn description(&self) -> &str {
         "Read the current todo list. Returns all todo items with their status."
@@ -523,7 +565,8 @@ mod tests {
                 {"id": "a", "content": "Task A", "status": "pending"},
                 {"id": "b", "content": "Task B", "status": "in_progress"},
             ]
-        }).to_string();
+        })
+        .to_string();
         let result = tool.execute(&args).await;
         assert!(result.success);
         let display = result.display_output.as_deref().unwrap_or("");
@@ -534,7 +577,8 @@ mod tests {
             "todos": [
                 {"id": "c", "content": "Task C", "status": "completed"},
             ]
-        }).to_string();
+        })
+        .to_string();
         let result2 = tool.execute(&args2).await;
         assert!(result2.success);
         let display2 = result2.display_output.as_deref().unwrap_or("");
@@ -551,7 +595,8 @@ mod tests {
                 {"id": "a", "content": "Task A", "status": "pending"},
                 {"id": "b", "content": "Task B", "status": "pending"},
             ]
-        }).to_string();
+        })
+        .to_string();
         tool.execute(&args).await;
 
         let merge_args = serde_json::json!({
@@ -560,7 +605,8 @@ mod tests {
                 {"id": "c", "content": "Task C", "status": "in_progress"},
             ],
             "merge": true
-        }).to_string();
+        })
+        .to_string();
         let result = tool.execute(&merge_args).await;
         assert!(result.success);
         let display = result.display_output.as_deref().unwrap_or("");
@@ -578,7 +624,8 @@ mod tests {
                 {"id": "a", "content": "Task A", "status": "pending"},
                 {"id": "a", "content": "Task A dup", "status": "pending"},
             ]
-        }).to_string();
+        })
+        .to_string();
         let result = tool.execute(&args).await;
         assert!(!result.success);
         assert!(result.output.contains("Duplicate todo id"));
@@ -593,7 +640,8 @@ mod tests {
             "todos": [
                 {"id": "", "content": "Task", "status": "pending"},
             ]
-        }).to_string();
+        })
+        .to_string();
         let result = tool.execute(&args).await;
         assert!(!result.success);
         assert!(result.output.contains("non-empty"));
@@ -608,7 +656,8 @@ mod tests {
             "todos": [
                 {"id": "a", "content": "Task A", "status": "pending"},
             ]
-        }).to_string();
+        })
+        .to_string();
         let result = tool.execute(&args).await;
         assert!(result.success);
         assert!(result.output.contains("<system-reminder>"));
@@ -622,8 +671,14 @@ mod tests {
         let store = TodoStore::new();
         let tool = TodoWriteTool::new(store.clone());
 
-        tool.execute(&serde_json::json!({"todos": [{"id": "a", "content": "T", "status": "pending"}]}).to_string()).await;
-        let result = tool.execute(&serde_json::json!({"todos": []}).to_string()).await;
+        tool.execute(
+            &serde_json::json!({"todos": [{"id": "a", "content": "T", "status": "pending"}]})
+                .to_string(),
+        )
+        .await;
+        let result = tool
+            .execute(&serde_json::json!({"todos": []}).to_string())
+            .await;
         assert!(result.success);
         assert!(result.output.contains("cleared"));
     }

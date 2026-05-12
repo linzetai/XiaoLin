@@ -21,6 +21,7 @@ pub use config::{
 };
 pub use cron::{cron_delete_job, cron_get_job, cron_list_jobs, cron_list_runs, cron_upsert_job};
 pub use mcp::{add_mcp_server, get_mcp_status, reload_mcp_servers, remove_mcp_server};
+pub use migration::{export_data, import_data};
 pub use notification::{
     notification_clear_read, notification_delete, notification_get, notification_list,
     notification_mark_all_read, notification_mark_read, notification_unread_count,
@@ -30,16 +31,15 @@ pub use session::{
     set_session_work_dir, update_session_title,
 };
 pub use skill::{list_skills, refresh_skills, upload_skill};
-pub use migration::{export_data, import_data};
 
 #[cfg(test)]
 mod tests {
+    use super::helpers::get_state;
     use fastclaw_core::config_access::{
         filter_config_for_read, mask_secret_values, navigate_config, set_nested_key,
         CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS,
     };
     use serde_json::json;
-    use super::helpers::get_state;
 
     // ═══════════════════════════════════════════════════════════════════
     // navigate_config
@@ -240,7 +240,9 @@ mod tests {
             "gateway": {"port": 18789}
         });
         let filtered = filter_config_for_read(&cfg);
-        let cred_key = filtered["credentials"]["openai"]["apiKey"].as_str().unwrap();
+        let cred_key = filtered["credentials"]["openai"]["apiKey"]
+            .as_str()
+            .unwrap();
         assert!(cred_key.contains("…"), "credentials should be masked");
         let model_key = filtered["models"]["openai"]["apiKey"].as_str().unwrap();
         assert!(model_key.contains("…"), "models should be masked");
@@ -285,17 +287,42 @@ mod tests {
 
     #[test]
     fn readable_keys_include_expected_entries() {
-        for expected in ["gateway", "logging", "session", "memory", "models",
-                         "credentials", "modelRouter", "evolution", "webSearch", "security"] {
-            assert!(CONFIG_READABLE_KEYS.contains(&expected), "missing readable key: {expected}");
+        for expected in [
+            "gateway",
+            "logging",
+            "session",
+            "memory",
+            "models",
+            "credentials",
+            "modelRouter",
+            "evolution",
+            "webSearch",
+            "security",
+        ] {
+            assert!(
+                CONFIG_READABLE_KEYS.contains(&expected),
+                "missing readable key: {expected}"
+            );
         }
     }
 
     #[test]
     fn writable_keys_include_expected_entries() {
-        for expected in ["logging", "session", "memory", "credentials", "models",
-                         "modelRouter", "evolution", "webSearch", "security"] {
-            assert!(CONFIG_WRITABLE_KEYS.contains(&expected), "missing writable key: {expected}");
+        for expected in [
+            "logging",
+            "session",
+            "memory",
+            "credentials",
+            "models",
+            "modelRouter",
+            "evolution",
+            "webSearch",
+            "security",
+        ] {
+            assert!(
+                CONFIG_WRITABLE_KEYS.contains(&expected),
+                "missing writable key: {expected}"
+            );
         }
     }
 

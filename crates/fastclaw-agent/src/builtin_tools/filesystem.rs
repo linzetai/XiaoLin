@@ -77,7 +77,9 @@ pub fn get_effective_work_dir() -> Option<PathBuf> {
 }
 
 fn state_dir_root() -> Option<PathBuf> {
-    fastclaw_core::paths::resolve_state_dir_from(None).canonicalize().ok()
+    fastclaw_core::paths::resolve_state_dir_from(None)
+        .canonicalize()
+        .ok()
 }
 
 fn current_file_access_mode() -> FileAccessMode {
@@ -222,9 +224,9 @@ fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<Pat
             .map(Path::to_path_buf)
             .unwrap_or_else(|| root.clone());
         match parent.canonicalize() {
-            Ok(canon_parent) => Ok(canon_parent.join(
-                absolute.file_name().map(PathBuf::from).unwrap_or_default(),
-            )),
+            Ok(canon_parent) => {
+                Ok(canon_parent.join(absolute.file_name().map(PathBuf::from).unwrap_or_default()))
+            }
             Err(_) => Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("parent directory '{}' does not exist", parent.display()),
@@ -260,7 +262,7 @@ fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<Pat
             // needs to fix the filename.
             let cleaned = lexical_clean(&absolute);
             let allowed = cleaned.starts_with(&root)
-                || state_dir_root().map_or(false, |sr| cleaned.starts_with(&sr))
+                || state_dir_root().is_some_and(|sr| cleaned.starts_with(&sr))
                 || is_path_under_allowed_prefixes(&cleaned, &absolute);
             if allowed {
                 return Err(e);
@@ -273,8 +275,9 @@ fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<Pat
             // checking workspace root, state dir, and whitelist.
             let cleaned = lexical_clean(&absolute);
             let under_workspace = cleaned.starts_with(&root);
-            let under_state = state_dir_root().map_or(false, |sr| cleaned.starts_with(&sr));
-            if under_workspace || under_state || is_path_under_allowed_prefixes(&cleaned, &absolute) {
+            let under_state = state_dir_root().is_some_and(|sr| cleaned.starts_with(&sr));
+            if under_workspace || under_state || is_path_under_allowed_prefixes(&cleaned, &absolute)
+            {
                 if let Some(parent) = cleaned.parent() {
                     if !parent.exists() {
                         std::fs::create_dir_all(parent)?;
@@ -328,9 +331,10 @@ fn parse_line_range(range: &str) -> Result<(i64, Option<usize>), String> {
     }
 
     if let Some((start_s, end_s)) = range.split_once('-') {
-        let start: i64 = start_s.trim().parse().map_err(|_| {
-            format!("invalid start line number in range '{range}'")
-        })?;
+        let start: i64 = start_s
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid start line number in range '{range}'"))?;
         if start < 1 {
             return Err(format!("start line must be >= 1, got {start}"));
         }
@@ -338,9 +342,9 @@ fn parse_line_range(range: &str) -> Result<(i64, Option<usize>), String> {
         if end_s.is_empty() {
             return Ok((start, None));
         }
-        let end: i64 = end_s.parse().map_err(|_| {
-            format!("invalid end line number in range '{range}'")
-        })?;
+        let end: i64 = end_s
+            .parse()
+            .map_err(|_| format!("invalid end line number in range '{range}'"))?;
         if end < start {
             return Err(format!("end line ({end}) must be >= start line ({start})"));
         }
@@ -379,9 +383,17 @@ fn detect_file_type(path: &Path, bytes: &[u8]) -> DetectedFileType {
         "jpg" | "jpeg" => return DetectedFileType::Image { mime: "image/jpeg" },
         "gif" => return DetectedFileType::Image { mime: "image/gif" },
         "webp" => return DetectedFileType::Image { mime: "image/webp" },
-        "svg" => return DetectedFileType::Image { mime: "image/svg+xml" },
+        "svg" => {
+            return DetectedFileType::Image {
+                mime: "image/svg+xml",
+            }
+        }
         "bmp" => return DetectedFileType::Image { mime: "image/bmp" },
-        "ico" => return DetectedFileType::Image { mime: "image/x-icon" },
+        "ico" => {
+            return DetectedFileType::Image {
+                mime: "image/x-icon",
+            }
+        }
         "pdf" => return DetectedFileType::Pdf,
         _ => {}
     }
@@ -592,7 +604,10 @@ fn handle_pdf_file(path: &str, raw_bytes: &[u8], pages_arg: Option<&str>) -> Too
     let total_chars = selected_text.chars().count();
     let truncated = total_chars > ABSOLUTE_READ_FILE_MAX_CHARS;
     let output = if truncated {
-        let head: String = selected_text.chars().take(ABSOLUTE_READ_FILE_MAX_CHARS).collect();
+        let head: String = selected_text
+            .chars()
+            .take(ABSOLUTE_READ_FILE_MAX_CHARS)
+            .collect();
         format!(
             "PDF: {path} ({page_range_desc})\n\n{head}\n\n\
              [Content truncated: showing {ABSOLUTE_READ_FILE_MAX_CHARS} of {total_chars} chars. \
@@ -651,7 +666,10 @@ fn parse_page_range(range_str: &str, total: usize) -> Result<Vec<usize>, String>
         }
     }
     if indices.len() > 20 {
-        return Err(format!("requested {} pages, max 20 per request", indices.len()));
+        return Err(format!(
+            "requested {} pages, max 20 per request",
+            indices.len()
+        ));
     }
     Ok(indices)
 }
@@ -689,7 +707,10 @@ fn handle_jupyter_notebook(path: &str, raw_bytes: &[u8]) -> ToolResult {
         .and_then(|l| l.as_str())
         .unwrap_or("python");
 
-    let mut output = format!("Jupyter Notebook: {path} ({} cells, kernel: {kernel})\n", nb.cells.len());
+    let mut output = format!(
+        "Jupyter Notebook: {path} ({} cells, kernel: {kernel})\n",
+        nb.cells.len()
+    );
     output.push_str("═".repeat(60).as_str());
     output.push('\n');
 
@@ -702,7 +723,11 @@ fn handle_jupyter_notebook(path: &str, raw_bytes: &[u8]) -> ToolResult {
             other => format!("{other} [{i}]"),
         };
         output.push_str(&format!("\n── {cell_label} "));
-        output.push_str("─".repeat(40usize.saturating_sub(cell_label.len())).as_str());
+        output.push_str(
+            "─"
+                .repeat(40usize.saturating_sub(cell_label.len()))
+                .as_str(),
+        );
         output.push('\n');
         output.push_str(&source);
         if !source.ends_with('\n') {
@@ -777,15 +802,8 @@ fn render_notebook_output(out: &serde_json::Value) -> String {
         }
     }
     if let Some(ename) = out.get("ename") {
-        let evalue = out
-            .get("evalue")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        return format!(
-            "{}: {}",
-            ename.as_str().unwrap_or("Error"),
-            evalue
-        );
+        let evalue = out.get("evalue").and_then(|v| v.as_str()).unwrap_or("");
+        return format!("{}: {}", ename.as_str().unwrap_or("Error"), evalue);
     }
     String::new()
 }
@@ -878,7 +896,11 @@ struct ApplyPatchEdit {
     expected_replacements: Option<usize>,
 }
 
-fn compute_slice_bounds(total_lines: usize, offset: Option<i64>, limit: Option<usize>) -> (usize, usize) {
+fn compute_slice_bounds(
+    total_lines: usize,
+    offset: Option<i64>,
+    limit: Option<usize>,
+) -> (usize, usize) {
     let start = match offset {
         None => 0usize,
         Some(v) if v > 0 => (v - 1) as usize,
@@ -896,7 +918,12 @@ fn compute_slice_bounds(total_lines: usize, offset: Option<i64>, limit: Option<u
     (start, end)
 }
 
-fn render_line_slice(content: &str, offset: Option<i64>, limit: Option<usize>, number_lines: bool) -> String {
+fn render_line_slice(
+    content: &str,
+    offset: Option<i64>,
+    limit: Option<usize>,
+    number_lines: bool,
+) -> String {
     if content.is_empty() {
         return "File is empty.".to_string();
     }
@@ -944,7 +971,11 @@ fn looks_like_binary(bytes: &[u8], sample_size: usize) -> bool {
 }
 
 fn detect_line_ending(content: &str) -> &'static str {
-    if content.contains("\r\n") { "crlf" } else { "lf" }
+    if content.contains("\r\n") {
+        "crlf"
+    } else {
+        "lf"
+    }
 }
 
 fn build_edit_snippet(content: &str, needle: &str, context: usize) -> String {
@@ -967,13 +998,14 @@ fn build_edit_snippet(content: &str, needle: &str, context: usize) -> String {
 
 #[cfg(test)]
 fn normalize_whitespace(s: &str) -> String {
-    s.lines()
-        .map(|line| normalize_line(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    s.lines().map(normalize_line).collect::<Vec<_>>().join("\n")
 }
 
-fn maybe_augment_old_string_for_deletion<'a>(file_content: &str, old_string: &'a str, new_string: &str) -> std::borrow::Cow<'a, str> {
+fn maybe_augment_old_string_for_deletion<'a>(
+    file_content: &str,
+    old_string: &'a str,
+    new_string: &str,
+) -> std::borrow::Cow<'a, str> {
     if old_string.is_empty() || !new_string.is_empty() || old_string.ends_with('\n') {
         return std::borrow::Cow::Borrowed(old_string);
     }
@@ -1000,7 +1032,8 @@ enum FuzzyMatchResult {
 
 fn normalize_unicode_char(ch: char) -> char {
     match ch {
-        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' | '\u{2212}' => '-',
+        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+        | '\u{2212}' => '-',
         '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
         '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
         '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
@@ -1016,7 +1049,9 @@ fn normalize_line(line: &str) -> String {
     for ch in line.chars() {
         let ch = normalize_unicode_char(ch);
         if ch == ' ' || ch == '\t' {
-            if !prev_ws { result.push(' '); }
+            if !prev_ws {
+                result.push(' ');
+            }
             prev_ws = true;
         } else {
             result.push(ch);
@@ -1052,7 +1087,11 @@ where
     None
 }
 
-fn count_line_sequence<F>(file_lines: &[&str], pattern_lines: &[&str], transform: F) -> (usize, Option<usize>)
+fn count_line_sequence<F>(
+    file_lines: &[&str],
+    pattern_lines: &[&str],
+    transform: F,
+) -> (usize, Option<usize>)
 where
     F: Fn(&str) -> String,
 {
@@ -1075,7 +1114,13 @@ where
     (count, first)
 }
 
-fn compute_byte_range(file_lines: &[&str], start_line: usize, line_count: usize, old_ends_with_newline: bool, file_len: usize) -> (usize, usize) {
+fn compute_byte_range(
+    file_lines: &[&str],
+    start_line: usize,
+    line_count: usize,
+    old_ends_with_newline: bool,
+    file_len: usize,
+) -> (usize, usize) {
     let mut byte_offset = 0usize;
     for line in file_lines.iter().take(start_line) {
         byte_offset += line.len() + 1;
@@ -1101,7 +1146,13 @@ fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
     }
 
     let build_result = |start_line: usize, line_count: usize| -> FuzzyMatchResult {
-        let (start, end) = compute_byte_range(&file_lines, start_line, line_count, old_string.ends_with('\n'), file_content.len());
+        let (start, end) = compute_byte_range(
+            &file_lines,
+            start_line,
+            line_count,
+            old_string.ends_with('\n'),
+            file_content.len(),
+        );
         FuzzyMatchResult::UniqueMatch { start, end }
     };
 
@@ -1137,7 +1188,8 @@ fn try_fuzzy_match(file_content: &str, old_string: &str) -> FuzzyMatchResult {
     // Pass 4: Handle trailing empty line in old_string
     if old_lines.last().is_some_and(|l| l.is_empty()) && old_lines.len() > 1 {
         let trimmed_old: Vec<&str> = old_lines[..old_lines.len() - 1].to_vec();
-        let (count4, first4) = count_line_sequence(&file_lines, &trimmed_old, |l| l.trim_end().to_string());
+        let (count4, first4) =
+            count_line_sequence(&file_lines, &trimmed_old, |l| l.trim_end().to_string());
         if count4 == 1 {
             return build_result(first4.unwrap(), trimmed_old.len());
         }
@@ -1228,7 +1280,11 @@ enum LineRangeMatchResult {
     /// old_string matched a subset of the line range — use byte offsets from the match.
     ContextMatch { start: usize, end: usize },
     /// old_string didn't match at all — overwrite the entire line range.
-    Overwrite { start: usize, end: usize, extracted: String },
+    Overwrite {
+        start: usize,
+        end: usize,
+        extracted: String,
+    },
     /// Line range is out of bounds.
     OutOfBounds { total_lines: usize },
 }
@@ -1263,28 +1319,45 @@ fn try_line_range_match(
     let region_start = start_0.saturating_sub(buffer);
     let region_end = (clamped_end + buffer).min(total);
 
-    let (region_byte_start, _) = compute_byte_range(&lines, region_start, 0, false, file_content.len());
-    let (_, region_byte_end) = compute_byte_range(&lines, region_start, region_end - region_start, true, file_content.len());
+    let (region_byte_start, _) =
+        compute_byte_range(&lines, region_start, 0, false, file_content.len());
+    let (_, region_byte_end) = compute_byte_range(
+        &lines,
+        region_start,
+        region_end - region_start,
+        true,
+        file_content.len(),
+    );
     let region_text = &file_content[region_byte_start..region_byte_end];
 
     if !old_string.is_empty() {
         if let Some(pos) = region_text.find(old_string) {
             let abs_start = region_byte_start + pos;
             let abs_end = abs_start + old_string.len();
-            if region_text[pos + old_string.len()..].find(old_string).is_none() {
-                return LineRangeMatchResult::ContextMatch { start: abs_start, end: abs_end };
+            if region_text[pos + old_string.len()..]
+                .find(old_string)
+                .is_none()
+            {
+                return LineRangeMatchResult::ContextMatch {
+                    start: abs_start,
+                    end: abs_end,
+                };
             }
         }
 
         let region_lines: Vec<&str> = region_text.lines().collect();
         let old_lines: Vec<&str> = old_string.lines().collect();
         if !old_lines.is_empty() {
-            let (count, first) = count_line_sequence(&region_lines, &old_lines, |l| l.trim_end().to_string());
+            let (count, first) =
+                count_line_sequence(&region_lines, &old_lines, |l| l.trim_end().to_string());
             if count == 1 {
                 let region_line_start = first.unwrap();
                 let (local_start, local_end) = compute_byte_range(
-                    &region_lines, region_line_start, old_lines.len(),
-                    old_string.ends_with('\n'), region_text.len(),
+                    &region_lines,
+                    region_line_start,
+                    old_lines.len(),
+                    old_string.ends_with('\n'),
+                    region_text.len(),
                 );
                 return LineRangeMatchResult::ContextMatch {
                     start: region_byte_start + local_start,
@@ -1296,8 +1369,11 @@ fn try_line_range_match(
             if count2 == 1 {
                 let region_line_start = first2.unwrap();
                 let (local_start, local_end) = compute_byte_range(
-                    &region_lines, region_line_start, old_lines.len(),
-                    old_string.ends_with('\n'), region_text.len(),
+                    &region_lines,
+                    region_line_start,
+                    old_lines.len(),
+                    old_string.ends_with('\n'),
+                    region_text.len(),
                 );
                 return LineRangeMatchResult::ContextMatch {
                     start: region_byte_start + local_start,
@@ -1308,7 +1384,11 @@ fn try_line_range_match(
     }
 
     let (overwrite_start, overwrite_end) = compute_byte_range(
-        &lines, start_0, clamped_end - start_0, true, file_content.len(),
+        &lines,
+        start_0,
+        clamped_end - start_0,
+        true,
+        file_content.len(),
     );
     let extracted = file_content[overwrite_start..overwrite_end].to_string();
     LineRangeMatchResult::Overwrite {
@@ -1323,7 +1403,10 @@ fn apply_line_range_splice(content: &str, start: usize, end: usize, new_string: 
     let mut result = String::with_capacity(content.len() + new_string.len());
     result.push_str(&content[..start]);
     result.push_str(new_string);
-    if !new_string.ends_with('\n') && end < content.len() && content.as_bytes()[end..].first() != Some(&b'\n') {
+    if !new_string.ends_with('\n')
+        && end < content.len()
+        && content.as_bytes()[end..].first() != Some(&b'\n')
+    {
         result.push('\n');
     }
     result.push_str(&content[end..]);
@@ -1341,6 +1424,7 @@ enum ApplyChangeResult {
 
 /// Apply one edit change with the full fallback chain: exact → fuzzy → line-range.
 /// Shared by `execute_batch` and `multi_edit`.
+#[allow(clippy::too_many_arguments)]
 fn apply_single_change(
     current: &str,
     old_string: &str,
@@ -1360,48 +1444,46 @@ fn apply_single_change(
     let new_norm = new_string.replace("\r\n", "\n");
 
     match match_mode {
-        MatchMode::Contains => {
-            match try_contains_match(current, &old_norm) {
-                FuzzyMatchResult::UniqueMatch { start, end } => {
-                    let result = apply_line_range_splice(current, start, end, &new_norm);
-                    ApplyChangeResult::Ok {
-                        new_content: result,
-                        log_entry: serde_json::json!({"replacements": 1, "mode": "contains"}),
-                    }
-                }
-                FuzzyMatchResult::NoMatch => {
-                    ApplyChangeResult::Err(format!("{label}: old_string not found (contains mode)."))
-                }
-                FuzzyMatchResult::MultipleMatches(n) => {
-                    ApplyChangeResult::Err(format!("{label}: found {n} matches (contains mode). Provide more context."))
+        MatchMode::Contains => match try_contains_match(current, &old_norm) {
+            FuzzyMatchResult::UniqueMatch { start, end } => {
+                let result = apply_line_range_splice(current, start, end, &new_norm);
+                ApplyChangeResult::Ok {
+                    new_content: result,
+                    log_entry: serde_json::json!({"replacements": 1, "mode": "contains"}),
                 }
             }
-        }
-        MatchMode::Fuzzy => {
-            match try_fuzzy_match(current, &old_norm) {
-                FuzzyMatchResult::UniqueMatch { start, end } => {
-                    let result = apply_line_range_splice(current, start, end, &new_norm);
-                    ApplyChangeResult::Ok {
-                        new_content: result,
-                        log_entry: serde_json::json!({"replacements": 1, "mode": "fuzzy"}),
-                    }
-                }
-                FuzzyMatchResult::NoMatch => {
-                    if let (Some(sl), Some(el)) = (start_line, end_line) {
-                        apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
-                    } else {
-                        ApplyChangeResult::Err(format!("{label}: old_string not found (fuzzy mode)."))
-                    }
-                }
-                FuzzyMatchResult::MultipleMatches(n) => {
-                    if let (Some(sl), Some(el)) = (start_line, end_line) {
-                        apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
-                    } else {
-                        ApplyChangeResult::Err(format!("{label}: found {n} fuzzy matches. Provide more context."))
-                    }
+            FuzzyMatchResult::NoMatch => {
+                ApplyChangeResult::Err(format!("{label}: old_string not found (contains mode)."))
+            }
+            FuzzyMatchResult::MultipleMatches(n) => ApplyChangeResult::Err(format!(
+                "{label}: found {n} matches (contains mode). Provide more context."
+            )),
+        },
+        MatchMode::Fuzzy => match try_fuzzy_match(current, &old_norm) {
+            FuzzyMatchResult::UniqueMatch { start, end } => {
+                let result = apply_line_range_splice(current, start, end, &new_norm);
+                ApplyChangeResult::Ok {
+                    new_content: result,
+                    log_entry: serde_json::json!({"replacements": 1, "mode": "fuzzy"}),
                 }
             }
-        }
+            FuzzyMatchResult::NoMatch => {
+                if let (Some(sl), Some(el)) = (start_line, end_line) {
+                    apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
+                } else {
+                    ApplyChangeResult::Err(format!("{label}: old_string not found (fuzzy mode)."))
+                }
+            }
+            FuzzyMatchResult::MultipleMatches(n) => {
+                if let (Some(sl), Some(el)) = (start_line, end_line) {
+                    apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label)
+                } else {
+                    ApplyChangeResult::Err(format!(
+                        "{label}: found {n} fuzzy matches. Provide more context."
+                    ))
+                }
+            }
+        },
         MatchMode::Exact => {
             let match_count = current.matches(&old_norm).count();
 
@@ -1417,27 +1499,29 @@ fn apply_single_change(
                 match try_fuzzy_match(current, &old_norm) {
                     FuzzyMatchResult::UniqueMatch { start, end } => {
                         let result = apply_line_range_splice(current, start, end, &new_norm);
-                        return ApplyChangeResult::Ok {
+                        ApplyChangeResult::Ok {
                             new_content: result,
                             log_entry: serde_json::json!({"replacements": 1, "fuzzy": true}),
-                        };
+                        }
                     }
                     _ => {
                         if let (Some(sl), Some(el)) = (start_line, end_line) {
-                            return apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label);
+                            return apply_line_range_fallback(
+                                current, &old_norm, &new_norm, sl, el, label,
+                            );
                         }
-                        return ApplyChangeResult::Err(format!(
+                        ApplyChangeResult::Err(format!(
                             "{label}: old_string not found. Re-read the file to get current content."
-                        ));
+                        ))
                     }
                 }
             } else if !replace_all && expected_replacements.is_none() && match_count > 1 {
                 if let (Some(sl), Some(el)) = (start_line, end_line) {
                     return apply_line_range_fallback(current, &old_norm, &new_norm, sl, el, label);
                 }
-                return ApplyChangeResult::Err(format!(
+                ApplyChangeResult::Err(format!(
                     "{label}: found {match_count} matches. Set replace_all=true or provide start_line/end_line."
-                ));
+                ))
             } else {
                 let replaced = if replace_all { match_count } else { 1 };
                 let new_content = if replace_all {
@@ -1516,7 +1600,9 @@ fn classify_workspace_error(e: &std::io::Error) -> ToolErrorType {
         std::io::ErrorKind::NotFound => ToolErrorType::FileNotFound,
         std::io::ErrorKind::PermissionDenied => {
             let msg = e.to_string();
-            if msg.contains("outside all allowed locations") || msg.contains("file access is disabled") {
+            if msg.contains("outside all allowed locations")
+                || msg.contains("file access is disabled")
+            {
                 ToolErrorType::PathNotInWorkspace
             } else {
                 ToolErrorType::PermissionDenied
@@ -1539,10 +1625,16 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
             )
         }
         ToolErrorType::FileWriteFailure => {
-            format!("Could not write to file '{}'. Check file permissions or disk space.", path)
+            format!(
+                "Could not write to file '{}'. Check file permissions or disk space.",
+                path
+            )
         }
         ToolErrorType::ReadContentFailure => {
-            format!("Could not read file '{}'. The file may be locked, corrupted, or inaccessible.", path)
+            format!(
+                "Could not read file '{}'. The file may be locked, corrupted, or inaccessible.",
+                path
+            )
         }
         ToolErrorType::AttemptToCreateExistingFile => {
             format!("File '{}' already exists. To modify an existing file, provide non-empty old_string and new_string parameters.", path)
@@ -1558,10 +1650,16 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
             )
         }
         ToolErrorType::NoSpaceLeft => {
-            format!("No space left on device while writing to '{}'. Free up some disk space.", path)
+            format!(
+                "No space left on device while writing to '{}'. Free up some disk space.",
+                path
+            )
         }
         ToolErrorType::TargetIsDirectory => {
-            format!("Expected a file but '{}' is a directory. Please specify a file path.", path)
+            format!(
+                "Expected a file but '{}' is a directory. Please specify a file path.",
+                path
+            )
         }
         ToolErrorType::PathNotInWorkspace => {
             format!(
@@ -1576,10 +1674,16 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
             )
         }
         ToolErrorType::SearchPathNotFound => {
-            format!("Search path '{}' does not exist or is not accessible.", path)
+            format!(
+                "Search path '{}' does not exist or is not accessible.",
+                path
+            )
         }
         ToolErrorType::SearchPathNotADirectory => {
-            format!("Search path '{}' is not a directory. Please specify a directory path.", path)
+            format!(
+                "Search path '{}' is not a directory. Please specify a directory path.",
+                path
+            )
         }
         ToolErrorType::EditPreparationFailure => {
             format!("Could not prepare to edit '{}'. Check file permissions or if the file is accessible.", path)
@@ -1591,7 +1695,10 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
             format!("In file '{}': Found multiple occurrences of the text. Provide more context to uniquely identify the location to edit.", path)
         }
         ToolErrorType::EditNoChange => {
-            format!("In file '{}': Old and new content are identical. No changes were made.", path)
+            format!(
+                "In file '{}': Old and new content are identical. No changes were made.",
+                path
+            )
         }
         _ => {
             format!("An error occurred while processing '{}'.", path)
@@ -1600,7 +1707,10 @@ fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
 }
 
 fn is_skippable_dir_name(name: &str) -> bool {
-    matches!(name, ".git" | "target" | "node_modules" | ".idea" | ".cursor")
+    matches!(
+        name,
+        ".git" | "target" | "node_modules" | ".idea" | ".cursor"
+    )
 }
 
 fn simple_glob_match(glob: &str, text: &str) -> bool {
@@ -1664,36 +1774,36 @@ fn load_gitignore_patterns(root: &Path) -> GitignorePatterns {
 
 fn gitignore_pattern_matches(pattern: &str, rel_path: &str) -> bool {
     let pat = pattern.trim_end_matches('/');
-    
+
     // Handle absolute patterns (starting with /) - only match relative to root
     if let Some(clean_pat) = pat.strip_prefix('/') {
         // Remove leading slash
         return simple_glob_match(clean_pat, rel_path);
     }
-    
+
     // Handle directory-only patterns (ending with /)
     if pattern.ends_with('/') {
-        let dir_pat = &pat[..pat.len()-1];  // Remove trailing slash
-        // Match if path starts with the directory pattern
-        return rel_path.starts_with(&format!("{}/", dir_pat)) || 
-               simple_glob_match(dir_pat, rel_path);
+        let dir_pat = &pat[..pat.len() - 1]; // Remove trailing slash
+                                             // Match if path starts with the directory pattern
+        return rel_path.starts_with(&format!("{}/", dir_pat))
+            || simple_glob_match(dir_pat, rel_path);
     }
-    
+
     // Split the path into segments
     let segments: Vec<&str> = rel_path.split('/').collect();
-    
+
     // Check if pattern matches any segment (for patterns like "node_modules")
     for seg in &segments {
         if simple_glob_match(pat, seg) {
             return true;
         }
     }
-    
+
     // Check if pattern matches the full path (for specific file patterns like "build.gradle")
     if simple_glob_match(pat, rel_path) {
         return true;
     }
-    
+
     // Handle globstar patterns (though simplified)
     if pat.contains("**") {
         // For "**" patterns, match anywhere in the path
@@ -1713,7 +1823,7 @@ fn gitignore_pattern_matches(pattern: &str, rel_path: &str) -> bool {
             }
         }
     }
-    
+
     false
 }
 
@@ -1804,18 +1914,21 @@ fn detect_file_encoding_meta(raw_bytes: &[u8]) -> (String, FileEncodingMeta) {
         return (String::new(), FileEncodingMeta::default());
     }
 
-    let (content, enc_name, has_bom) = if let Some((decoded, bom_enc)) = try_decode_with_bom(raw_bytes) {
-        let is_bom = bom_enc.contains("bom") || bom_enc.starts_with("utf-16") || bom_enc.starts_with("utf-32");
-        (decoded, bom_enc, is_bom)
-    } else if let Ok(s) = std::str::from_utf8(raw_bytes) {
-        (s.to_string(), "utf-8", false)
-    } else {
-        let mut detector = EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
-        detector.feed(raw_bytes, true);
-        let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
-        let (decoded, _, _) = encoding.decode(raw_bytes);
-        (decoded.into_owned(), encoding.name(), false)
-    };
+    let (content, enc_name, has_bom) =
+        if let Some((decoded, bom_enc)) = try_decode_with_bom(raw_bytes) {
+            let is_bom = bom_enc.contains("bom")
+                || bom_enc.starts_with("utf-16")
+                || bom_enc.starts_with("utf-32");
+            (decoded, bom_enc, is_bom)
+        } else if let Ok(s) = std::str::from_utf8(raw_bytes) {
+            (s.to_string(), "utf-8", false)
+        } else {
+            let mut detector = EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
+            detector.feed(raw_bytes, true);
+            let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
+            let (decoded, _, _) = encoding.decode(raw_bytes);
+            (decoded.into_owned(), encoding.name(), false)
+        };
 
     let line_ending = detect_line_ending(&content);
     let meta = FileEncodingMeta {
@@ -1876,10 +1989,7 @@ fn encode_with_meta(content: &str, meta: &FileEncodingMeta) -> Vec<u8> {
 const UTF8_BOM_EXTENSIONS: &[&str] = &[".ps1", ".psm1", ".psd1", ".ps1xml", ".csv"];
 
 fn needs_utf8_bom(path: &Path) -> bool {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let dotted = format!(".{}", ext.to_ascii_lowercase());
     UTF8_BOM_EXTENSIONS.contains(&dotted.as_str())
 }
@@ -1889,7 +1999,9 @@ pub struct ReadFileTool;
 
 #[async_trait]
 impl Tool for ReadFileTool {
-    fn kind(&self) -> ToolKind { ToolKind::Read }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
     fn name(&self) -> &str {
         "read_file"
     }
@@ -1897,7 +2009,9 @@ impl Tool for ReadFileTool {
     // Opt out of per-message budget persistence. read_file already self-limits
     // via DEFAULT_READ_FILE_MAX_CHARS / DEFAULT_READ_FILE_MAX_LINES. Persisting
     // its output to a file for the model to re-read is circular.
-    fn max_result_size_chars(&self) -> usize { usize::MAX }
+    fn max_result_size_chars(&self) -> usize {
+        usize::MAX
+    }
 
     fn description(&self) -> &str {
         "Reads and returns the content of a specified file. If the file is large, the content \
@@ -2008,11 +2122,13 @@ it provides structured output with line numbers, handles encoding detection, and
     async fn execute(&self, arguments: &str) -> ToolResult {
         let mut args: ReadFileArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "read_file arguments are not valid JSON: {e}. \
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "read_file arguments are not valid JSON: {e}. \
                  Pass a JSON object like {{\"file_path\": \"/absolute/path/to/file.rs\"}}; \
                  optional fields: lines, offset, limit, number_lines, max_chars, pages."
-            )),
+                ))
+            }
         };
 
         if let Some(ref range_str) = args.lines {
@@ -2036,10 +2152,7 @@ it provides structured output with line numbers, handles encoding detection, and
             Ok(p) => p,
             Err(e) => {
                 let err_type = classify_workspace_error(&e);
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, path),
-                );
+                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, path));
             }
         };
 
@@ -2124,38 +2237,21 @@ it provides structured output with line numbers, handles encoding detection, and
         let line_ending = detect_line_ending(&content);
 
         if args.offset.is_some() || args.limit.is_some() || args.number_lines {
-            let (slice_start, slice_end) = compute_slice_bounds(
-                total_lines,
-                args.offset,
-                args.limit,
-            );
+            let (slice_start, slice_end) =
+                compute_slice_bounds(total_lines, args.offset, args.limit);
 
             let nav = if total_lines >= SMART_READ_OUTLINE_THRESHOLD {
-                generate_navigation_context(
-                    &validated,
-                    slice_start + 1,
-                    slice_end,
-                    total_lines,
-                )
+                generate_navigation_context(&validated, slice_start + 1, slice_end, total_lines)
             } else {
                 None
             };
 
-            let rendered = render_line_slice(
-                &content,
-                args.offset,
-                args.limit,
-                args.number_lines,
-            );
+            let rendered = render_line_slice(&content, args.offset, args.limit, args.number_lines);
 
             let output = match nav {
                 Some(ref ctx) => {
-                    let header = format_navigation_header(
-                        ctx,
-                        slice_start + 1,
-                        slice_end,
-                        total_lines,
-                    );
+                    let header =
+                        format_navigation_header(ctx, slice_start + 1, slice_end, total_lines);
                     format!("{header}{rendered}")
                 }
                 None => rendered,
@@ -2241,8 +2337,11 @@ it provides structured output with line numbers, handles encoding detection, and
                 let content_for_graph = text.clone();
                 let path_for_graph = validated.clone();
                 tokio::spawn(async move {
-                    crate::code_graph::CodeGraphCache::global()
-                        .extract_and_store(&path_for_graph, &content_for_graph, &lang);
+                    crate::code_graph::CodeGraphCache::global().extract_and_store(
+                        &path_for_graph,
+                        &content_for_graph,
+                        &lang,
+                    );
                 });
             }
         }
@@ -2289,7 +2388,9 @@ pub struct WriteFileTool;
 
 #[async_trait]
 impl Tool for WriteFileTool {
-    fn kind(&self) -> ToolKind { ToolKind::Edit }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Edit
+    }
     fn name(&self) -> &str {
         "write_file"
     }
@@ -2378,10 +2479,7 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
             Ok(p) => p,
             Err(e) => {
                 let err_type = classify_workspace_error(&e);
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, path),
-                );
+                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, path));
             }
         };
         let file_path = validated.as_path();
@@ -2455,7 +2553,10 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                     atomic_write_bytes(&validated, &bytes).await
                 } else {
                     let meta = if needs_utf8_bom(&validated) {
-                        FileEncodingMeta { has_bom: true, ..FileEncodingMeta::default() }
+                        FileEncodingMeta {
+                            has_bom: true,
+                            ..FileEncodingMeta::default()
+                        }
                     } else {
                         FileEncodingMeta::default()
                     };
@@ -2463,16 +2564,18 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                     atomic_write_bytes(&validated, &bytes).await
                 }
             }
-            "append" => async {
-                let mut f = tokio::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&validated)
-                    .await?;
-                f.write_all(content.as_bytes()).await?;
-                f.flush().await
+            "append" => {
+                async {
+                    let mut f = tokio::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&validated)
+                        .await?;
+                    f.write_all(content.as_bytes()).await?;
+                    f.flush().await
+                }
+                .await
             }
-            .await,
             "create_new" => {
                 if validated.exists() {
                     Err(std::io::Error::new(
@@ -2481,7 +2584,10 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                     ))
                 } else {
                     let meta = if needs_utf8_bom(&validated) {
-                        FileEncodingMeta { has_bom: true, ..FileEncodingMeta::default() }
+                        FileEncodingMeta {
+                            has_bom: true,
+                            ..FileEncodingMeta::default()
+                        }
                     } else {
                         FileEncodingMeta::default()
                     };
@@ -2525,7 +2631,9 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                 };
                 ToolResult::typed_err(
                     err_type,
-                    format!("Could not write to file '{path}'. Check file permissions or disk space."),
+                    format!(
+                        "Could not write to file '{path}'. Check file permissions or disk space."
+                    ),
                 )
             }
         }
@@ -2536,16 +2644,26 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
 pub struct EditFileTool;
 
 impl EditFileTool {
-    async fn execute_batch(&self, file_path: &str, edits: &[EditChangeItem], dry_run: bool) -> ToolResult {
+    async fn execute_batch(
+        &self,
+        file_path: &str,
+        edits: &[EditChangeItem],
+        dry_run: bool,
+    ) -> ToolResult {
         if edits.is_empty() {
-            return ToolResult::err("edit_file: 'edits' array is empty. Provide at least one change.".to_string());
+            return ToolResult::err(
+                "edit_file: 'edits' array is empty. Provide at least one change.".to_string(),
+            );
         }
 
         let validated = match ensure_within_workspace(Path::new(file_path), true) {
             Ok(p) => p,
             Err(e) => {
                 let err_type = classify_workspace_error(&e);
-                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, file_path));
+                return ToolResult::typed_err(
+                    err_type,
+                    create_user_friendly_error(err_type, file_path),
+                );
             }
         };
 
@@ -2570,7 +2688,10 @@ impl EditFileTool {
                 } else {
                     ToolErrorType::ReadContentFailure
                 };
-                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, file_path));
+                return ToolResult::typed_err(
+                    err_type,
+                    create_user_friendly_error(err_type, file_path),
+                );
             }
         };
 
@@ -2578,7 +2699,10 @@ impl EditFileTool {
         if original.is_empty() && !raw_bytes.is_empty() {
             return ToolResult::typed_err(
                 ToolErrorType::ReadContentFailure,
-                format!("File '{}' contains binary data which cannot be edited.", file_path),
+                format!(
+                    "File '{}' contains binary data which cannot be edited.",
+                    file_path
+                ),
             );
         }
 
@@ -2598,9 +2722,15 @@ impl EditFileTool {
                 change.end_line,
                 &label,
             ) {
-                ApplyChangeResult::Ok { new_content, mut log_entry } => {
+                ApplyChangeResult::Ok {
+                    new_content,
+                    mut log_entry,
+                } => {
                     current = new_content;
-                    log_entry.as_object_mut().unwrap().insert("index".to_string(), serde_json::json!(idx));
+                    log_entry
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("index".to_string(), serde_json::json!(idx));
                     change_log.push(log_entry);
                 }
                 ApplyChangeResult::Err(msg) => {
@@ -2610,12 +2740,15 @@ impl EditFileTool {
         }
 
         if dry_run {
-            return ToolResult::ok(serde_json::json!({
-                "dry_run": true,
-                "file_path": file_path,
-                "edits_valid": change_log.len(),
-                "status": "all edits valid, file not written",
-            }).to_string());
+            return ToolResult::ok(
+                serde_json::json!({
+                    "dry_run": true,
+                    "file_path": file_path,
+                    "edits_valid": change_log.len(),
+                    "status": "all edits valid, file not written",
+                })
+                .to_string(),
+            );
         }
 
         let final_bytes = encode_with_meta(&current, &enc_meta);
@@ -2630,15 +2763,18 @@ impl EditFileTool {
                 let added = new_lines.saturating_sub(old_lines);
                 let removed = old_lines.saturating_sub(new_lines);
 
-                ToolResult::ok(serde_json::json!({
-                    "edited": true,
-                    "file_path": file_path,
-                    "edits_applied": change_log,
-                    "bytes": final_bytes.len(),
-                    "diffStat": format!("+{added} -{removed} lines"),
-                    "linesAdded": added,
-                    "linesRemoved": removed,
-                }).to_string())
+                ToolResult::ok(
+                    serde_json::json!({
+                        "edited": true,
+                        "file_path": file_path,
+                        "edits_applied": change_log,
+                        "bytes": final_bytes.len(),
+                        "diffStat": format!("+{added} -{removed} lines"),
+                        "linesAdded": added,
+                        "linesRemoved": removed,
+                    })
+                    .to_string(),
+                )
             }
             Err(e) => ToolResult::typed_err(
                 ToolErrorType::FileWriteFailure,
@@ -2650,7 +2786,9 @@ impl EditFileTool {
 
 #[async_trait]
 impl Tool for EditFileTool {
-    fn kind(&self) -> ToolKind { ToolKind::Edit }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Edit
+    }
     fn name(&self) -> &str {
         "edit_file"
     }
@@ -2784,9 +2922,7 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
-            required: vec![
-                "file_path".to_string(),
-            ],
+            required: vec!["file_path".to_string()],
         }
     }
 
@@ -2803,7 +2939,9 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
         };
 
         if let Some(ref edits) = args.edits {
-            return self.execute_batch(&args.file_path, edits, args.dry_run).await;
+            return self
+                .execute_batch(&args.file_path, edits, args.dry_run)
+                .await;
         }
 
         if args.old_string.is_empty() {
@@ -2826,7 +2964,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             if validated.exists() {
                 return ToolResult::typed_err(
                     ToolErrorType::AttemptToCreateExistingFile,
-                    create_user_friendly_error(ToolErrorType::AttemptToCreateExistingFile, &args.file_path),
+                    create_user_friendly_error(
+                        ToolErrorType::AttemptToCreateExistingFile,
+                        &args.file_path,
+                    ),
                 );
             }
             if let Some(parent) = validated.parent() {
@@ -2839,25 +2980,26 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             }
             let new_lines = args.new_string.lines().count();
             let meta = if needs_utf8_bom(&validated) {
-                FileEncodingMeta { has_bom: true, ..FileEncodingMeta::default() }
+                FileEncodingMeta {
+                    has_bom: true,
+                    ..FileEncodingMeta::default()
+                }
             } else {
                 FileEncodingMeta::default()
             };
             let bytes = encode_with_meta(&args.new_string, &meta);
             return match atomic_write_bytes(&validated, &bytes).await {
-                Ok(()) => {
-                    ToolResult::ok(
-                        serde_json::json!({
-                            "created": true,
-                            "file_path": args.file_path,
-                            "bytes": bytes.len(),
-                            "linesAdded": new_lines,
-                            "linesRemoved": 0,
-                            "diffStat": format!("+{new_lines} -0 lines"),
-                        })
-                        .to_string(),
-                    )
-                }
+                Ok(()) => ToolResult::ok(
+                    serde_json::json!({
+                        "created": true,
+                        "file_path": args.file_path,
+                        "bytes": bytes.len(),
+                        "linesAdded": new_lines,
+                        "linesRemoved": 0,
+                        "diffStat": format!("+{new_lines} -0 lines"),
+                    })
+                    .to_string(),
+                ),
                 Err(e) => ToolResult::typed_err(
                     ToolErrorType::FileWriteFailure,
                     format!("edit_file failed to create '{}': {e}", args.file_path),
@@ -2929,7 +3071,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 } else {
                     ToolErrorType::ReadContentFailure
                 };
-                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, &args.file_path));
+                return ToolResult::typed_err(
+                    err_type,
+                    create_user_friendly_error(err_type, &args.file_path),
+                );
             }
         };
 
@@ -2946,20 +3091,20 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
         let old_normalized = args.old_string.replace("\r\n", "\n");
         let new_normalized = args.new_string.replace("\r\n", "\n");
 
-        let old_augmented = maybe_augment_old_string_for_deletion(&normalized, &old_normalized, &new_normalized);
+        let old_augmented =
+            maybe_augment_old_string_for_deletion(&normalized, &old_normalized, &new_normalized);
 
         let (updated_normalized, replaced, fuzzy_used) = match args.match_mode {
-            MatchMode::Contains => {
-                match try_contains_match(&normalized, &old_normalized) {
-                    FuzzyMatchResult::UniqueMatch { start, end } => {
-                        let mut result = String::with_capacity(normalized.len());
-                        result.push_str(&normalized[..start]);
-                        result.push_str(&new_normalized);
-                        result.push_str(&normalized[end..]);
-                        (result, 1usize, true)
-                    }
-                    FuzzyMatchResult::NoMatch => {
-                        return ToolResult::typed_err(
+            MatchMode::Contains => match try_contains_match(&normalized, &old_normalized) {
+                FuzzyMatchResult::UniqueMatch { start, end } => {
+                    let mut result = String::with_capacity(normalized.len());
+                    result.push_str(&normalized[..start]);
+                    result.push_str(&new_normalized);
+                    result.push_str(&normalized[end..]);
+                    (result, 1usize, true)
+                }
+                FuzzyMatchResult::NoMatch => {
+                    return ToolResult::typed_err(
                             ToolErrorType::EditNoOccurrenceFound,
                             format!(
                                 "In file '{}': Could not find old_string as a substring (contains mode). \
@@ -2967,9 +3112,9 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                 args.file_path
                             ),
                         );
-                    }
-                    FuzzyMatchResult::MultipleMatches(n) => {
-                        return ToolResult::typed_err(
+                }
+                FuzzyMatchResult::MultipleMatches(n) => {
+                    return ToolResult::typed_err(
                             ToolErrorType::EditMultipleOccurrences,
                             format!(
                                 "In file '{}': Found {n} substring matches (contains mode). \
@@ -2977,30 +3122,28 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                 args.file_path
                             ),
                         );
-                    }
                 }
-            }
-            MatchMode::Fuzzy => {
-                match try_fuzzy_match(&normalized, &old_normalized) {
-                    FuzzyMatchResult::UniqueMatch { start, end } => {
-                        let mut result = String::with_capacity(normalized.len());
-                        result.push_str(&normalized[..start]);
-                        result.push_str(&new_normalized);
-                        result.push_str(&normalized[end..]);
-                        (result, 1usize, true)
-                    }
-                    FuzzyMatchResult::NoMatch => {
-                        return ToolResult::typed_err(
-                            ToolErrorType::EditNoOccurrenceFound,
-                            format!(
-                                "In file '{}': Could not find old_string with fuzzy matching \
+            },
+            MatchMode::Fuzzy => match try_fuzzy_match(&normalized, &old_normalized) {
+                FuzzyMatchResult::UniqueMatch { start, end } => {
+                    let mut result = String::with_capacity(normalized.len());
+                    result.push_str(&normalized[..start]);
+                    result.push_str(&new_normalized);
+                    result.push_str(&normalized[end..]);
+                    (result, 1usize, true)
+                }
+                FuzzyMatchResult::NoMatch => {
+                    return ToolResult::typed_err(
+                        ToolErrorType::EditNoOccurrenceFound,
+                        format!(
+                            "In file '{}': Could not find old_string with fuzzy matching \
                                  (whitespace/Unicode-normalized). The file may have changed.",
-                                args.file_path
-                            ),
-                        );
-                    }
-                    FuzzyMatchResult::MultipleMatches(n) => {
-                        return ToolResult::typed_err(
+                            args.file_path
+                        ),
+                    );
+                }
+                FuzzyMatchResult::MultipleMatches(n) => {
+                    return ToolResult::typed_err(
                             ToolErrorType::EditMultipleOccurrences,
                             format!(
                                 "In file '{}': Found {n} fuzzy matches. \
@@ -3008,9 +3151,8 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                 args.file_path
                             ),
                         );
-                    }
                 }
-            }
+            },
             MatchMode::Exact => {
                 let mut match_count = normalized.matches(old_augmented.as_ref()).count();
 
@@ -3032,7 +3174,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                     if match_count != expected {
                         return ToolResult::typed_err(
                             ToolErrorType::EditMultipleOccurrences,
-                            create_user_friendly_error(ToolErrorType::EditMultipleOccurrences, &args.file_path),
+                            create_user_friendly_error(
+                                ToolErrorType::EditMultipleOccurrences,
+                                &args.file_path,
+                            ),
                         );
                     }
                 }
@@ -3050,11 +3195,21 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             if let (Some(sl), Some(el)) = (args.start_line, args.end_line) {
                                 match try_line_range_match(&normalized, &old_normalized, sl, el) {
                                     LineRangeMatchResult::ContextMatch { start, end } => {
-                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        let result = apply_line_range_splice(
+                                            &normalized,
+                                            start,
+                                            end,
+                                            &new_normalized,
+                                        );
                                         (result, 1usize, true)
                                     }
                                     LineRangeMatchResult::Overwrite { start, end, .. } => {
-                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        let result = apply_line_range_splice(
+                                            &normalized,
+                                            start,
+                                            end,
+                                            &new_normalized,
+                                        );
                                         (result, 1usize, true)
                                     }
                                     LineRangeMatchResult::OutOfBounds { total_lines } => {
@@ -3069,7 +3224,9 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                     }
                                 }
                             } else {
-                                let file_preview: String = normalized.lines().take(20)
+                                let file_preview: String = normalized
+                                    .lines()
+                                    .take(20)
                                     .enumerate()
                                     .map(|(i, l)| format!("{}|{}", i + 1, l))
                                     .collect::<Vec<_>>()
@@ -3097,11 +3254,21 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             if let (Some(sl), Some(el)) = (args.start_line, args.end_line) {
                                 match try_line_range_match(&normalized, &old_normalized, sl, el) {
                                     LineRangeMatchResult::ContextMatch { start, end } => {
-                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        let result = apply_line_range_splice(
+                                            &normalized,
+                                            start,
+                                            end,
+                                            &new_normalized,
+                                        );
                                         (result, 1usize, true)
                                     }
                                     LineRangeMatchResult::Overwrite { start, end, .. } => {
-                                        let result = apply_line_range_splice(&normalized, start, end, &new_normalized);
+                                        let result = apply_line_range_splice(
+                                            &normalized,
+                                            start,
+                                            end,
+                                            &new_normalized,
+                                        );
                                         (result, 1usize, true)
                                     }
                                     LineRangeMatchResult::OutOfBounds { total_lines } => {
@@ -3130,14 +3297,22 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             }
                         }
                     }
-                } else if !args.replace_all && args.expected_replacements.is_none() && match_count > 1 {
+                } else if !args.replace_all
+                    && args.expected_replacements.is_none()
+                    && match_count > 1
+                {
                     return ToolResult::typed_err(
                         ToolErrorType::EditMultipleOccurrences,
                         format!(
                             "In file '{}': Found {} {} matches. Provide more surrounding context \
                              to uniquely identify the location, or set replace_all=true.",
-                            args.file_path, match_count,
-                            if unicode_match { "Unicode-normalized" } else { "exact" }
+                            args.file_path,
+                            match_count,
+                            if unicode_match {
+                                "Unicode-normalized"
+                            } else {
+                                "exact"
+                            }
                         ),
                     );
                 } else if unicode_match {
@@ -3234,7 +3409,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             }
             Err(_) => ToolResult::typed_err(
                 ToolErrorType::FileWriteFailure,
-                format!("Could not write to file '{}'. Check file permissions or disk space.", args.file_path),
+                format!(
+                    "Could not write to file '{}'. Check file permissions or disk space.",
+                    args.file_path
+                ),
             ),
         }
     }
@@ -3317,9 +3495,7 @@ fn parse_rg_line(line: &str) -> Option<(String, usize, &str)> {
         }
         let after_colon = &line[pos + 1..];
         // Try to parse a line number starting at pos+1
-        let num_end = after_colon
-            .find(|c: char| c == ':' || c == '-')
-            .unwrap_or(after_colon.len());
+        let num_end = after_colon.find([':', '-']).unwrap_or(after_colon.len());
         if num_end == 0 {
             continue;
         }
@@ -3352,17 +3528,19 @@ fn extract_file_symbols(file_path: &str) -> Vec<(String, String, usize, usize)> 
 
     fastclaw_treesitter::extract_symbols(&parsed.tree, &parsed.source, &lang)
         .into_iter()
-        .filter(|s| matches!(
-            s.kind,
-            fastclaw_treesitter::SymbolKind::Function
-            | fastclaw_treesitter::SymbolKind::Method
-            | fastclaw_treesitter::SymbolKind::Class
-            | fastclaw_treesitter::SymbolKind::Struct
-            | fastclaw_treesitter::SymbolKind::Enum
-            | fastclaw_treesitter::SymbolKind::Trait
-            | fastclaw_treesitter::SymbolKind::Interface
-            | fastclaw_treesitter::SymbolKind::Module
-        ))
+        .filter(|s| {
+            matches!(
+                s.kind,
+                fastclaw_treesitter::SymbolKind::Function
+                    | fastclaw_treesitter::SymbolKind::Method
+                    | fastclaw_treesitter::SymbolKind::Class
+                    | fastclaw_treesitter::SymbolKind::Struct
+                    | fastclaw_treesitter::SymbolKind::Enum
+                    | fastclaw_treesitter::SymbolKind::Trait
+                    | fastclaw_treesitter::SymbolKind::Interface
+                    | fastclaw_treesitter::SymbolKind::Module
+            )
+        })
         .map(|s| (s.name, s.kind.to_string(), s.start_line, s.end_line))
         .collect()
 }
@@ -3417,7 +3595,11 @@ fn generate_compact_outline(file_path: &Path, total_lines: usize) -> Option<Stri
             continue;
         }
         let kind_label = symbol_kind_label(&s.kind);
-        let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
+        let sig = if s.signature.is_empty() {
+            &s.name
+        } else {
+            &s.signature
+        };
         let sig_short = truncate_signature(sig, 80);
         outline.push_str(&format!(
             "  L{}-{}: {kind_label} {sig_short}\n",
@@ -3471,9 +3653,7 @@ fn generate_navigation_context(
 
     for s in &symbols {
         if s.start_line <= read_start && s.end_line >= read_end {
-            if enclosing.map_or(true, |e| {
-                (s.end_line - s.start_line) < (e.end_line - e.start_line)
-            }) {
+            if enclosing.is_none_or(|e| (s.end_line - s.start_line) < (e.end_line - e.start_line)) {
                 enclosing = Some(s);
             }
         } else if s.end_line < read_start {
@@ -3488,14 +3668,22 @@ fn generate_navigation_context(
 
     fn format_sym(s: &fastclaw_treesitter::Symbol) -> String {
         let kind = symbol_kind_label(&s.kind);
-        let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
+        let sig = if s.signature.is_empty() {
+            &s.name
+        } else {
+            &s.signature
+        };
         let sig_short = truncate_signature(sig, 60);
         format!("{kind} {sig_short} (L{}-{})", s.start_line, s.end_line)
     }
 
     fn sym_to_json(s: &fastclaw_treesitter::Symbol) -> serde_json::Value {
         let kind = symbol_kind_label(&s.kind);
-        let sig = if s.signature.is_empty() { &s.name } else { &s.signature };
+        let sig = if s.signature.is_empty() {
+            &s.name
+        } else {
+            &s.signature
+        };
         serde_json::json!({
             "name": format!("{kind} {}", s.name),
             "startLine": s.start_line,
@@ -3528,7 +3716,12 @@ fn generate_navigation_context(
 }
 
 /// Format a NavigationContext into a compact text header for prepending to read output.
-fn format_navigation_header(nav: &NavigationContext, _read_start: usize, _read_end: usize, _total_lines: usize) -> String {
+fn format_navigation_header(
+    nav: &NavigationContext,
+    _read_start: usize,
+    _read_end: usize,
+    _total_lines: usize,
+) -> String {
     let mut header = String::from("── Navigation ──\n");
     if let Some(ref enc) = nav.enclosing {
         header.push_str(&format!("  Enclosing: {enc}\n"));
@@ -3588,13 +3781,10 @@ async fn search_via_ripgrep(
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    let output = tokio::time::timeout(
-        tokio::time::Duration::from_secs(30),
-        cmd.output(),
-    )
-    .await
-    .map_err(|_| "ripgrep search timed out after 30s".to_string())?
-    .map_err(|e| format!("ripgrep execution failed: {e}"))?;
+    let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
+        .await
+        .map_err(|_| "ripgrep search timed out after 30s".to_string())?
+        .map_err(|e| format!("ripgrep execution failed: {e}"))?;
 
     // rg exits with 1 when no matches found, 2+ on error
     if output.status.code().unwrap_or(-1) > 1 {
@@ -3741,12 +3931,16 @@ fn search_builtin(
 
 #[async_trait]
 impl Tool for SearchInFilesTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
     fn name(&self) -> &str {
         "search_in_files"
     }
 
-    fn max_result_size_chars(&self) -> usize { 20_000 }
+    fn max_result_size_chars(&self) -> usize {
+        20_000
+    }
 
     fn description(&self) -> &str {
         "Search files using regex. Returns matches with file paths and line numbers in ripgrep-style format. \
@@ -3909,7 +4103,9 @@ without extra read_file calls. Use for exploratory queries like \
                         &root,
                     ) {
                         Ok(r) => r,
-                        Err(e) => return ToolResult::typed_err(ToolErrorType::GrepExecutionError, e),
+                        Err(e) => {
+                            return ToolResult::typed_err(ToolErrorType::GrepExecutionError, e)
+                        }
                     }
                 }
             }
@@ -3959,7 +4155,11 @@ without extra read_file calls. Use for exploratory queries like \
             matched_files,
             args.pattern,
             scope,
-            if let Some(ref g) = args.glob { format!(" (filter: \"{}\")", g) } else { String::new() },
+            if let Some(ref g) = args.glob {
+                format!(" (filter: \"{}\")", g)
+            } else {
+                String::new()
+            },
         );
         let truncation_note = if truncated {
             format!("\n[Results truncated at {} matches]", max_results)
@@ -4000,7 +4200,9 @@ pub struct ApplyPatchTool;
 
 #[async_trait]
 impl Tool for ApplyPatchTool {
-    fn kind(&self) -> ToolKind { ToolKind::Edit }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Edit
+    }
     fn name(&self) -> &str {
         "apply_patch"
     }
@@ -4132,7 +4334,9 @@ impl Tool for ApplyPatchTool {
                         continue;
                     }
                     FuzzyMatchResult::NoMatch => {
-                        let file_preview: String = working.lines().take(15)
+                        let file_preview: String = working
+                            .lines()
+                            .take(15)
                             .enumerate()
                             .map(|(i, l)| format!("{}|{}", i + 1, l))
                             .collect::<Vec<_>>()
@@ -4185,7 +4389,10 @@ impl Tool for ApplyPatchTool {
             ),
             Err(_) => ToolResult::typed_err(
                 ToolErrorType::FileWriteFailure,
-                format!("Could not write to file '{}'. Check file permissions or disk space.", args.file_path),
+                format!(
+                    "Could not write to file '{}'. Check file permissions or disk space.",
+                    args.file_path
+                ),
             ),
         }
     }
@@ -4196,7 +4403,9 @@ pub struct ListDirectoryTool;
 
 #[async_trait]
 impl Tool for ListDirectoryTool {
-    fn kind(&self) -> ToolKind { ToolKind::Read }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
     fn name(&self) -> &str {
         "list_directory"
     }
@@ -4225,20 +4434,24 @@ impl Tool for ListDirectoryTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "list_directory arguments are not valid JSON: {e}. \
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "list_directory arguments are not valid JSON: {e}. \
                  Pass exactly {{\"path\": \"your/dir\"}} with a string path, then retry."
-            )),
+                ))
+            }
         };
 
         let path = match args.get("path").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "list_directory is missing string field 'path'. \
+            None => {
+                return ToolResult::err(
+                    "list_directory is missing string field 'path'. \
                  Example: {\"path\": \".\"} or {\"path\": \"src/components\"}. \
                  Use read_file if you need the contents of a single file."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let mut entries = Vec::new();
@@ -4246,10 +4459,7 @@ impl Tool for ListDirectoryTool {
             Ok(p) => p,
             Err(e) => {
                 let err_type = classify_workspace_error(&e);
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, path),
-                );
+                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, path));
             }
         };
 
@@ -4307,8 +4517,12 @@ pub struct GlobTool;
 
 #[async_trait]
 impl Tool for GlobTool {
-    fn kind(&self) -> ToolKind { ToolKind::Read }
-    fn name(&self) -> &str { "glob" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Read
+    }
+    fn name(&self) -> &str {
+        "glob"
+    }
 
     fn description(&self) -> &str {
         "Find files by glob pattern. Recursive search, results sorted by modification time (newest first). \
@@ -4336,10 +4550,13 @@ Examples:\n\
             "type": "string",
             "description": "Glob pattern to match files against. Examples: '*.rs', 'src/**/*.tsx', '**/Cargo.toml'."
         }));
-        props.insert("path".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Directory to search in (default '.'). Relative to workspace root."
-        }));
+        props.insert(
+            "path".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Directory to search in (default '.'). Relative to workspace root."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -4355,9 +4572,12 @@ Examples:\n\
 
         let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
             Some(p) if !p.trim().is_empty() => p.trim(),
-            _ => return ToolResult::err(
-                "glob requires a non-empty 'pattern'. Example: {\"pattern\": \"*.rs\"}".to_string()
-            ),
+            _ => {
+                return ToolResult::err(
+                    "glob requires a non-empty 'pattern'. Example: {\"pattern\": \"*.rs\"}"
+                        .to_string(),
+                )
+            }
         };
         let base = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
@@ -4365,20 +4585,23 @@ Examples:\n\
             Ok(p) => p,
             Err(e) => {
                 let err_type = classify_workspace_error(&e);
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, base),
-                );
+                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, base));
             }
         };
 
-        let root = workspace_root().and_then(|p| p.canonicalize()).unwrap_or_else(|_| base_dir.clone());
+        let root = workspace_root()
+            .and_then(|p| p.canonicalize())
+            .unwrap_or_else(|_| base_dir.clone());
         let gitignore = load_gitignore_patterns(&root);
 
         let full_pattern = if pattern.starts_with("**/") || pattern.contains('/') {
             base_dir.join(pattern).to_string_lossy().to_string()
         } else {
-            base_dir.join("**").join(pattern).to_string_lossy().to_string()
+            base_dir
+                .join("**")
+                .join(pattern)
+                .to_string_lossy()
+                .to_string()
         };
 
         let options = glob::MatchOptions {
@@ -4405,17 +4628,23 @@ Examples:\n\
                     }
                     // Skip common noise directories
                     let rel_lower = rel.to_lowercase();
-                    if rel_lower.contains("node_modules/") || rel_lower.contains(".git/") || rel_lower.contains("/target/") {
+                    if rel_lower.contains("node_modules/")
+                        || rel_lower.contains(".git/")
+                        || rel_lower.contains("/target/")
+                    {
                         continue;
                     }
-                    let mtime = entry.metadata()
+                    let mtime = entry
+                        .metadata()
                         .and_then(|m| m.modified())
                         .ok()
                         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
                     entries.push((entry, mtime));
-                    if entries.len() >= 200 { break; }
+                    if entries.len() >= 200 {
+                        break;
+                    }
                 }
             }
             Err(e) => return ToolResult::err(format!("glob: invalid pattern: {e}")),
@@ -4427,19 +4656,28 @@ Examples:\n\
         entries.truncate(max_results);
 
         let cwd = std::env::current_dir().unwrap_or_default();
-        let file_list: Vec<String> = entries.iter().map(|(p, _)| {
-            p.strip_prefix(&cwd).unwrap_or(p).to_string_lossy().to_string()
-        }).collect();
+        let file_list: Vec<String> = entries
+            .iter()
+            .map(|(p, _)| {
+                p.strip_prefix(&cwd)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
 
         let total = file_list.len();
 
-        ToolResult::ok(serde_json::json!({
-            "pattern": pattern,
-            "path": base,
-            "files": file_list,
-            "count": total,
-            "truncated": truncated,
-        }).to_string())
+        ToolResult::ok(
+            serde_json::json!({
+                "pattern": pattern,
+                "path": base,
+                "files": file_list,
+                "count": total,
+                "truncated": truncated,
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -4485,8 +4723,12 @@ pub struct MultiEditTool;
 
 #[async_trait]
 impl Tool for MultiEditTool {
-    fn kind(&self) -> ToolKind { ToolKind::Edit }
-    fn name(&self) -> &str { "multi_edit" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Edit
+    }
+    fn name(&self) -> &str {
+        "multi_edit"
+    }
 
     fn description(&self) -> &str {
         "Atomically apply edits across MULTIPLE files with rollback safety. All edits are validated \
@@ -4514,10 +4756,13 @@ impl Tool for MultiEditTool {
                             match_mode per change: 'exact' (default), 'fuzzy' (whitespace-tolerant), 'contains' (substring). \
                             start_line/end_line: optional 1-indexed line-range hint for fallback when text matching fails."
         }));
-        props.insert("dry_run".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "If true, validate all edits but do not write. Default false."
-        }));
+        props.insert(
+            "dry_run".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "If true, validate all edits but do not write. Default false."
+            }),
+        );
         props.insert("auto_snapshot".to_string(), serde_json::json!({
             "type": "boolean",
             "description": "If true, create a git stash snapshot before writing. On success the stash is popped; \
@@ -4578,7 +4823,10 @@ impl Tool for MultiEditTool {
             let mut change_log = Vec::new();
 
             for (change_idx, change) in entry.changes.iter().enumerate() {
-                let label = format!("multi_edit: file #{file_idx} '{}', change #{change_idx}", entry.file_path);
+                let label = format!(
+                    "multi_edit: file #{file_idx} '{}', change #{change_idx}",
+                    entry.file_path
+                );
                 match apply_single_change(
                     &current,
                     &change.old_string,
@@ -4590,13 +4838,21 @@ impl Tool for MultiEditTool {
                     change.end_line,
                     &label,
                 ) {
-                    ApplyChangeResult::Ok { new_content, mut log_entry } => {
+                    ApplyChangeResult::Ok {
+                        new_content,
+                        mut log_entry,
+                    } => {
                         current = new_content;
-                        log_entry.as_object_mut().unwrap().insert("change_index".to_string(), serde_json::json!(change_idx));
+                        log_entry
+                            .as_object_mut()
+                            .unwrap()
+                            .insert("change_index".to_string(), serde_json::json!(change_idx));
                         change_log.push(log_entry);
                     }
                     ApplyChangeResult::Err(msg) => {
-                        return ToolResult::err(format!("{msg} Transaction aborted, no files modified."));
+                        return ToolResult::err(format!(
+                            "{msg} Transaction aborted, no files modified."
+                        ));
                     }
                 }
             }
@@ -4607,20 +4863,26 @@ impl Tool for MultiEditTool {
         }
 
         if args.dry_run {
-            let results: Vec<serde_json::Value> = staged.iter().map(|(_, fp, bytes, log)| {
-                serde_json::json!({
-                    "file_path": fp,
-                    "changes_applied": log,
-                    "result_bytes": bytes.len(),
+            let results: Vec<serde_json::Value> = staged
+                .iter()
+                .map(|(_, fp, bytes, log)| {
+                    serde_json::json!({
+                        "file_path": fp,
+                        "changes_applied": log,
+                        "result_bytes": bytes.len(),
+                    })
                 })
-            }).collect();
+                .collect();
 
-            return ToolResult::ok(serde_json::json!({
-                "dry_run": true,
-                "files": results,
-                "count": results.len(),
-                "status": "all edits valid, no files written",
-            }).to_string());
+            return ToolResult::ok(
+                serde_json::json!({
+                    "dry_run": true,
+                    "files": results,
+                    "count": results.len(),
+                    "status": "all edits valid, no files written",
+                })
+                .to_string(),
+            );
         }
 
         // Git stash snapshot (optional pre-transaction safety net).
@@ -4671,22 +4933,24 @@ impl Tool for MultiEditTool {
                     let mut restore_failed = Vec::new();
                     for (backup_path, backup_bytes) in &backups {
                         if written.iter().any(|w| {
-                            w.get("file_path").and_then(|p| p.as_str())
-                                .map_or(false, |fp| backup_path.ends_with(fp))
+                            w.get("file_path")
+                                .and_then(|p| p.as_str())
+                                .is_some_and(|fp| backup_path.ends_with(fp))
                         }) {
                             match atomic_write_bytes(backup_path, backup_bytes).await {
                                 Ok(()) => restored.push(backup_path.display().to_string()),
-                                Err(re) => restore_failed.push(format!("{}: {re}", backup_path.display())),
+                                Err(re) => {
+                                    restore_failed.push(format!("{}: {re}", backup_path.display()))
+                                }
                             }
                         }
                     }
-                    let mut msg = format!(
-                        "multi_edit: failed to write '{display_path}': {e}."
-                    );
+                    let mut msg = format!("multi_edit: failed to write '{display_path}': {e}.");
                     if !restored.is_empty() {
                         msg.push_str(&format!(
                             " Rolled back {} file(s): {}.",
-                            restored.len(), restored.join(", ")
+                            restored.len(),
+                            restored.join(", ")
                         ));
                     }
                     if !restore_failed.is_empty() {
@@ -4708,12 +4972,15 @@ impl Tool for MultiEditTool {
             let _ = pop_git_stash_snapshot().await;
         }
 
-        ToolResult::ok(serde_json::json!({
-            "success": true,
-            "files": written,
-            "count": written.len(),
-            "auto_snapshot": stash_created,
-        }).to_string())
+        ToolResult::ok(
+            serde_json::json!({
+                "success": true,
+                "files": written,
+                "count": written.len(),
+                "auto_snapshot": stash_created,
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -4723,7 +4990,13 @@ async fn create_git_stash_snapshot() -> Result<bool, String> {
     let root = workspace_root().map_err(|e| format!("could not determine workspace root: {e}"))?;
 
     let output = tokio::process::Command::new("git")
-        .args(["stash", "push", "-m", "fastclaw-multi-edit-snapshot", "--include-untracked"])
+        .args([
+            "stash",
+            "push",
+            "-m",
+            "fastclaw-multi-edit-snapshot",
+            "--include-untracked",
+        ])
         .current_dir(&root)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -4737,7 +5010,10 @@ async fn create_git_stash_snapshot() -> Result<bool, String> {
         if stderr.contains("No local changes") || stdout.contains("No local changes") {
             return Ok(false);
         }
-        return Err(format!("git stash push returned {}: {stderr}", output.status));
+        return Err(format!(
+            "git stash push returned {}: {stderr}",
+            output.status
+        ));
     }
     Ok(!stdout.contains("No local changes"))
 }
@@ -4757,7 +5033,10 @@ async fn pop_git_stash_snapshot() -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git stash pop returned {}: {stderr}", output.status));
+        return Err(format!(
+            "git stash pop returned {}: {stderr}",
+            output.status
+        ));
     }
     Ok(())
 }
@@ -4851,7 +5130,10 @@ mod tests {
             std::io::ErrorKind::PermissionDenied,
             "path '/tmp/evil.txt' is outside all allowed locations.",
         );
-        assert_eq!(classify_workspace_error(&e), ToolErrorType::PathNotInWorkspace);
+        assert_eq!(
+            classify_workspace_error(&e),
+            ToolErrorType::PathNotInWorkspace
+        );
     }
 
     #[test]
@@ -4860,7 +5142,10 @@ mod tests {
             std::io::ErrorKind::PermissionDenied,
             "Operation not permitted",
         );
-        assert_eq!(classify_workspace_error(&e), ToolErrorType::PermissionDenied);
+        assert_eq!(
+            classify_workspace_error(&e),
+            ToolErrorType::PermissionDenied
+        );
     }
 
     #[test]
@@ -4869,7 +5154,10 @@ mod tests {
             std::io::ErrorKind::PermissionDenied,
             "file access is disabled (execution mode = Plan).",
         );
-        assert_eq!(classify_workspace_error(&e), ToolErrorType::PathNotInWorkspace);
+        assert_eq!(
+            classify_workspace_error(&e),
+            ToolErrorType::PathNotInWorkspace
+        );
     }
 
     #[tokio::test]
@@ -4880,7 +5168,8 @@ mod tests {
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": missing.to_string_lossy() }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success);
         assert!(
             out.output.contains("does not exist"),
@@ -4902,7 +5191,8 @@ mod tests {
 
         let tool = ListDirectoryTool;
         let args = serde_json::json!({ "path": missing.to_string_lossy() }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success);
         assert_eq!(
             out.error_type,
@@ -4914,15 +5204,25 @@ mod tests {
     #[tokio::test]
     async fn read_file_allowed_in_cursor_skills_dir() {
         let home = dirs::home_dir().expect("home dir");
-        let skill_dir = home.join(".cursor").join("skills").join("_test_whitelist_skill");
+        let skill_dir = home
+            .join(".cursor")
+            .join("skills")
+            .join("_test_whitelist_skill");
         std::fs::create_dir_all(&skill_dir).unwrap();
         let skill_file = skill_dir.join("SKILL.md");
-        tokio::fs::write(&skill_file, "# Test Skill\nContent here.").await.unwrap();
+        tokio::fs::write(&skill_file, "# Test Skill\nContent here.")
+            .await
+            .unwrap();
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": skill_file.to_string_lossy() }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
-        assert!(out.success, "workspace mode should allow reading ~/.cursor/skills/: {}", out.output);
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(
+            out.success,
+            "workspace mode should allow reading ~/.cursor/skills/: {}",
+            out.output
+        );
         assert!(out.output.contains("Test Skill"));
 
         // Cleanup
@@ -4932,16 +5232,25 @@ mod tests {
     #[tokio::test]
     async fn write_file_allowed_in_cursor_skills_dir() {
         let home = dirs::home_dir().expect("home dir");
-        let skill_dir = home.join(".cursor").join("skills").join("_test_whitelist_write");
+        let skill_dir = home
+            .join(".cursor")
+            .join("skills")
+            .join("_test_whitelist_write");
         let skill_file = skill_dir.join("SKILL.md");
 
         let tool = WriteFileTool;
         let args = serde_json::json!({
             "file_path": skill_file.to_string_lossy(),
             "content": "# New Skill\nCreated by test."
-        }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
-        assert!(out.success, "workspace mode should allow writing ~/.cursor/skills/: {}", out.output);
+        })
+        .to_string();
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(
+            out.success,
+            "workspace mode should allow writing ~/.cursor/skills/: {}",
+            out.output
+        );
 
         let content = tokio::fs::read_to_string(&skill_file).await.unwrap();
         assert!(content.contains("New Skill"));
@@ -4957,8 +5266,12 @@ mod tests {
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": desktop_file.to_string_lossy() }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
-        assert!(!out.success, "workspace mode should reject ~/Desktop/ access");
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        assert!(
+            !out.success,
+            "workspace mode should reject ~/Desktop/ access"
+        );
         assert!(
             out.output.contains("outside") || out.output.contains("Allowed locations"),
             "should mention path restriction: {}",
@@ -4971,7 +5284,9 @@ mod tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_path = tmp.path().join("sample.rs");
-        tokio::fs::write(&file_path, "fn hello_world() {}\n").await.expect("write sample");
+        tokio::fs::write(&file_path, "fn hello_world() {}\n")
+            .await
+            .expect("write sample");
 
         let tool = SearchInFilesTool;
         let args = serde_json::json!({
@@ -5038,7 +5353,9 @@ mod tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_path = tmp.path().join("deny.txt");
-        tokio::fs::write(&file_path, "blocked\n").await.expect("write sample");
+        tokio::fs::write(&file_path, "blocked\n")
+            .await
+            .expect("write sample");
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": file_path.to_string_lossy() }).to_string();
@@ -5056,12 +5373,18 @@ mod tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_path = tmp.path().join("compat.txt");
-        tokio::fs::write(&file_path, "backward-compat\n").await.expect("write sample");
+        tokio::fs::write(&file_path, "backward-compat\n")
+            .await
+            .expect("write sample");
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "path": file_path.to_string_lossy() }).to_string();
         let out = Tool::execute(&tool, &args).await;
-        assert!(out.success, "old 'path' param should still work: {}", out.output);
+        assert!(
+            out.success,
+            "old 'path' param should still work: {}",
+            out.output
+        );
         assert!(out.output.contains("backward-compat"));
     }
 
@@ -5073,7 +5396,8 @@ mod tests {
 
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": outside_path }).to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "workspace mode should block outside path");
         assert!(
             out.output.contains("outside") || out.output.contains("Allowed locations"),
@@ -5091,7 +5415,11 @@ mod tests {
         let tool = ReadFileTool;
         let args = serde_json::json!({ "file_path": outside_path }).to_string();
         let out = with_file_access_mode(FileAccessMode::Full, Tool::execute(&tool, &args)).await;
-        assert!(out.success, "full mode should allow outside path: {}", out.output);
+        assert!(
+            out.success,
+            "full mode should allow outside path: {}",
+            out.output
+        );
         assert!(out.output.contains("outside-ok"));
     }
 
@@ -5125,9 +5453,14 @@ mod tests {
             "new_string": "changed"
         })
         .to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(!out.success, "workspace mode should block outside edit");
-        assert!(out.output.contains("outside") || out.output.contains("Allowed locations"), "unexpected: {}", out.output);
+        assert!(
+            out.output.contains("outside") || out.output.contains("Allowed locations"),
+            "unexpected: {}",
+            out.output
+        );
     }
 
     #[tokio::test]
@@ -5135,7 +5468,9 @@ mod tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_path = tmp.path().join("search.txt");
-        tokio::fs::write(&file_path, "needle\n").await.expect("write sample");
+        tokio::fs::write(&file_path, "needle\n")
+            .await
+            .expect("write sample");
 
         let tool = SearchInFilesTool;
         let args = serde_json::json!({
@@ -5144,9 +5479,15 @@ mod tests {
         })
         .to_string();
         let out = with_file_access_mode(FileAccessMode::None, Tool::execute(&tool, &args)).await;
-        assert!(!out.success, "search_in_files should be blocked in none mode");
-        assert!(out.output.contains("outside") || out.output.contains("file access is disabled"),
-            "unexpected: {}", out.output);
+        assert!(
+            !out.success,
+            "search_in_files should be blocked in none mode"
+        );
+        assert!(
+            out.output.contains("outside") || out.output.contains("file access is disabled"),
+            "unexpected: {}",
+            out.output
+        );
     }
 
     #[tokio::test]
@@ -5162,7 +5503,8 @@ mod tests {
             "content": "created-in-new-subdir"
         })
         .to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(
             out.success,
             "workspace mode should allow writing to a new sub-directory within the workspace: {}",
@@ -5176,7 +5518,11 @@ mod tests {
     #[tokio::test]
     async fn write_file_workspace_rejects_dotdot_traversal_to_new_dir() {
         let cwd = std::env::current_dir().expect("current dir");
-        let traversal_path = cwd.join("..").join("..").join("_traversal_test_dir").join("evil.txt");
+        let traversal_path = cwd
+            .join("..")
+            .join("..")
+            .join("_traversal_test_dir")
+            .join("evil.txt");
 
         let tool = WriteFileTool;
         let args = serde_json::json!({
@@ -5184,7 +5530,8 @@ mod tests {
             "content": "should-not-be-created"
         })
         .to_string();
-        let out = with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
+        let out =
+            with_file_access_mode(FileAccessMode::Workspace, Tool::execute(&tool, &args)).await;
         assert!(
             !out.success,
             "workspace mode must reject ../../ traversal even when parent doesn't exist: {}",
@@ -5230,7 +5577,10 @@ mod new_feature_tests {
     fn fuzzy_match_returns_no_match_for_different_content() {
         let content = "fn main() {\n    let x = 1;\n}\n";
         let old = "fn other() {\n    let y = 2;\n}";
-        assert!(matches!(try_fuzzy_match(content, old), FuzzyMatchResult::NoMatch));
+        assert!(matches!(
+            try_fuzzy_match(content, old),
+            FuzzyMatchResult::NoMatch
+        ));
     }
 
     #[test]
@@ -5258,11 +5608,18 @@ mod new_feature_tests {
         .to_string();
         let out = Tool::execute(&tool, &args).await;
         assert!(out.success, "fuzzy edit should succeed: {}", out.output);
-        assert!(out.output.contains("\"fuzzyMatch\":true") || out.output.contains("\"fuzzyMatch\": true"),
-            "should report fuzzy match: {}", out.output);
+        assert!(
+            out.output.contains("\"fuzzyMatch\":true")
+                || out.output.contains("\"fuzzyMatch\": true"),
+            "should report fuzzy match: {}",
+            out.output
+        );
 
         let updated = tokio::fs::read_to_string(&file_path).await.expect("read");
-        assert!(updated.contains("world"), "file should contain the new text");
+        assert!(
+            updated.contains("world"),
+            "file should contain the new text"
+        );
     }
 
     #[tokio::test]
@@ -5320,7 +5677,9 @@ mod new_feature_tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_path = tmp.path().join("diff_test.rs");
-        tokio::fs::write(&file_path, "fn old_name() {}\n").await.expect("write");
+        tokio::fs::write(&file_path, "fn old_name() {}\n")
+            .await
+            .expect("write");
 
         let tool = EditFileTool;
         let args = serde_json::json!({
@@ -5334,8 +5693,13 @@ mod new_feature_tests {
 
         // display_output should contain unified diff
         if let Some(ref display) = out.display_output {
-            assert!(display.contains("diff") || display.contains("-fn old_name") || display.contains("+fn new_name"),
-                "display should contain diff info: {}", display);
+            assert!(
+                display.contains("diff")
+                    || display.contains("-fn old_name")
+                    || display.contains("+fn new_name"),
+                "display should contain diff info: {}",
+                display
+            );
         }
     }
 }
@@ -5347,22 +5711,43 @@ mod user_friendly_error_tests {
     #[test]
     fn test_create_user_friendly_error_messages() {
         let path = "test_file.txt";
-        
-        assert!(create_user_friendly_error(ToolErrorType::FileNotFound, path)
-            .contains("does not exist"));
-        assert!(create_user_friendly_error(ToolErrorType::FileWriteFailure, path)
-            .contains("Check file permissions"));
-        assert!(create_user_friendly_error(ToolErrorType::ReadContentFailure, path)
-            .contains("Could not read"));
+
+        assert!(
+            create_user_friendly_error(ToolErrorType::FileNotFound, path)
+                .contains("does not exist")
+        );
+        assert!(
+            create_user_friendly_error(ToolErrorType::FileWriteFailure, path)
+                .contains("Check file permissions")
+        );
+        assert!(
+            create_user_friendly_error(ToolErrorType::ReadContentFailure, path)
+                .contains("Could not read")
+        );
 
         let perm_msg = create_user_friendly_error(ToolErrorType::PermissionDenied, path);
-        assert!(perm_msg.contains("Permission denied"), "should mention denial: {perm_msg}");
-        assert!(perm_msg.contains("allowed locations"), "should mention allowed locations: {perm_msg}");
+        assert!(
+            perm_msg.contains("Permission denied"),
+            "should mention denial: {perm_msg}"
+        );
+        assert!(
+            perm_msg.contains("allowed locations"),
+            "should mention allowed locations: {perm_msg}"
+        );
 
         let workspace_msg = create_user_friendly_error(ToolErrorType::PathNotInWorkspace, path);
-        assert!(workspace_msg.contains("Allowed locations"), "should list allowed locations: {workspace_msg}");
-        assert!(workspace_msg.contains("skill directories"), "should mention skill dirs: {workspace_msg}");
-        assert!(workspace_msg.contains("Full (YOLO)"), "should guide user to YOLO mode: {workspace_msg}");
+        assert!(
+            workspace_msg.contains("Allowed locations"),
+            "should list allowed locations: {workspace_msg}"
+        );
+        assert!(
+            workspace_msg.contains("skill directories"),
+            "should mention skill dirs: {workspace_msg}"
+        );
+        assert!(
+            workspace_msg.contains("Full (YOLO)"),
+            "should guide user to YOLO mode: {workspace_msg}"
+        );
     }
 }
 
@@ -5393,10 +5778,15 @@ mod multi_edit_tests {
                     "changes": [{"old_string": "foo", "new_string": "qux"}]
                 }
             ]
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
-        assert!(result.success, "multi_edit should succeed: {}", result.output);
+        assert!(
+            result.success,
+            "multi_edit should succeed: {}",
+            result.output
+        );
 
         let a_content = tokio::fs::read_to_string(&file_a).await.unwrap();
         assert_eq!(a_content, "goodbye world\n");
@@ -5425,15 +5815,22 @@ mod multi_edit_tests {
                     "changes": [{"old_string": "NONEXISTENT_STRING", "new_string": "anything"}]
                 }
             ]
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
-        assert!(!result.success, "multi_edit should fail when edit not found");
+        assert!(
+            !result.success,
+            "multi_edit should fail when edit not found"
+        );
         assert!(result.output.contains("Transaction aborted"));
 
         // File A should NOT be modified (atomic rollback)
         let a_content = tokio::fs::read_to_string(&file_a).await.unwrap();
-        assert_eq!(a_content, "original_a\n", "file A should be untouched after failed transaction");
+        assert_eq!(
+            a_content, "original_a\n",
+            "file A should be untouched after failed transaction"
+        );
     }
 
     #[tokio::test]
@@ -5441,7 +5838,9 @@ mod multi_edit_tests {
         let cwd = std::env::current_dir().expect("current dir");
         let tmp = tempdir_in(&cwd).expect("temp dir in workspace");
         let file_a = tmp.path().join("dry.txt");
-        tokio::fs::write(&file_a, "dry run content\n").await.unwrap();
+        tokio::fs::write(&file_a, "dry run content\n")
+            .await
+            .unwrap();
 
         let tool = MultiEditTool;
         let args = serde_json::json!({
@@ -5450,7 +5849,8 @@ mod multi_edit_tests {
                 "path": file_a.to_string_lossy(),
                 "changes": [{"old_string": "dry run", "new_string": "wet run"}]
             }]
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
         assert!(result.success, "dry_run should succeed: {}", result.output);
@@ -5458,7 +5858,10 @@ mod multi_edit_tests {
 
         // File should NOT be modified
         let content = tokio::fs::read_to_string(&file_a).await.unwrap();
-        assert_eq!(content, "dry run content\n", "dry_run should not modify files");
+        assert_eq!(
+            content, "dry run content\n",
+            "dry_run should not modify files"
+        );
     }
 
     // ── Line-range matching tests ──────────────────────────────────
@@ -5471,7 +5874,10 @@ mod multi_edit_tests {
             LineRangeMatchResult::ContextMatch { start, end } => {
                 assert_eq!(&content[start..end], "fn foo() {");
             }
-            other => panic!("expected ContextMatch, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected ContextMatch, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -5484,7 +5890,10 @@ mod multi_edit_tests {
                 assert!(extracted.contains("bbb"), "extracted={extracted}");
                 assert!(extracted.contains("ccc"), "extracted={extracted}");
             }
-            other => panic!("expected Overwrite, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected Overwrite, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -5512,7 +5921,12 @@ mod multi_edit_tests {
             content,
             "    println!(\"hello\");",
             "    println!(\"world\");",
-            false, None, MatchMode::Exact, None, None, "test",
+            false,
+            None,
+            MatchMode::Exact,
+            None,
+            None,
+            "test",
         ) {
             ApplyChangeResult::Ok { new_content, .. } => {
                 assert!(new_content.contains("println!(\"world\")"));
@@ -5529,11 +5943,17 @@ mod multi_edit_tests {
             content,
             "NONEXISTENT",
             "REPLACEMENT\n",
-            false, None, MatchMode::Exact,
-            Some(2), Some(3),
+            false,
+            None,
+            MatchMode::Exact,
+            Some(2),
+            Some(3),
             "test",
         ) {
-            ApplyChangeResult::Ok { new_content, log_entry } => {
+            ApplyChangeResult::Ok {
+                new_content,
+                log_entry,
+            } => {
                 assert!(new_content.contains("REPLACEMENT"));
                 assert!(!new_content.contains("beta"));
                 assert!(!new_content.contains("gamma"));
@@ -5554,8 +5974,11 @@ mod multi_edit_tests {
             content,
             "NONEXISTENT",
             "REPLACEMENT",
-            false, None, MatchMode::Exact,
-            None, None,
+            false,
+            None,
+            MatchMode::Exact,
+            None,
+            None,
             "test",
         ) {
             ApplyChangeResult::Err(e) => {
@@ -5586,10 +6009,15 @@ mod multi_edit_tests {
             "new_string": "REPLACED\n",
             "start_line": 2,
             "end_line": 3
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
-        assert!(result.success, "should succeed via line-range fallback: {}", result.output);
+        assert!(
+            result.success,
+            "should succeed via line-range fallback: {}",
+            result.output
+        );
 
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert!(content.contains("REPLACED"));
@@ -5639,7 +6067,9 @@ mod multi_edit_tests {
     fn generate_compact_outline_includes_symbol_lines() {
         let tmp = tempdir_in(".").unwrap();
         let file = tmp.path().join("test_outline.rs");
-        std::fs::write(&file, "\
+        std::fs::write(
+            &file,
+            "\
 fn alpha() {
     println!(\"a\");
 }
@@ -5653,17 +6083,31 @@ fn gamma() {
     let _ = 2;
     let _ = 3;
 }
-").unwrap();
+",
+        )
+        .unwrap();
         let ts_available = fastclaw_treesitter::CodeParser::detect_language(&file)
             .is_some_and(|l| fastclaw_treesitter::CodeParser::is_language_available(&l));
         let outline = generate_compact_outline(&file, 250);
         if ts_available {
             let text = outline.expect("outline should be Some when tree-sitter is available");
-            assert!(text.contains("alpha"), "outline should contain 'alpha': {text}");
-            assert!(text.contains("fn"), "outline should contain kind label 'fn': {text}");
-            assert!(text.contains("250 lines"), "outline should mention total lines: {text}");
+            assert!(
+                text.contains("alpha"),
+                "outline should contain 'alpha': {text}"
+            );
+            assert!(
+                text.contains("fn"),
+                "outline should contain kind label 'fn': {text}"
+            );
+            assert!(
+                text.contains("250 lines"),
+                "outline should mention total lines: {text}"
+            );
         } else {
-            assert!(outline.is_none(), "outline should be None without tree-sitter");
+            assert!(
+                outline.is_none(),
+                "outline should be None without tree-sitter"
+            );
         }
     }
 
@@ -5690,7 +6134,9 @@ fn gamma() {
     async fn search_in_files_semantic_context_parameter() {
         let tmp = tempdir_in(".").unwrap();
         let file = tmp.path().join("sample.rs");
-        std::fs::write(&file, "\
+        std::fs::write(
+            &file,
+            "\
 fn target_function() {
     let needle = 42;
 }
@@ -5698,14 +6144,17 @@ fn target_function() {
 fn other_function() {
     println!(\"no match here\");
 }
-").unwrap();
+",
+        )
+        .unwrap();
 
         let tool = SearchInFilesTool;
         let args = serde_json::json!({
             "pattern": "needle",
             "path": tmp.path().to_string_lossy(),
             "semantic_context": true
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
         assert!(result.success, "search should succeed: {}", result.output);
@@ -5715,8 +6164,11 @@ fn other_function() {
         let ts_available = fastclaw_treesitter::CodeParser::detect_language(&file)
             .is_some_and(|l| fastclaw_treesitter::CodeParser::is_language_available(&l));
         if ts_available && result.output.contains("[in ") {
-            assert!(result.output.contains("target_function"),
-                "should annotate with enclosing function: {}", result.output);
+            assert!(
+                result.output.contains("target_function"),
+                "should annotate with enclosing function: {}",
+                result.output
+            );
         }
     }
 
@@ -5739,8 +6191,10 @@ fn other_function() {
         std::fs::write(&file, &content).unwrap();
 
         let line_count = content.lines().count();
-        assert!(line_count >= SMART_READ_OUTLINE_THRESHOLD,
-            "test file should be >= {SMART_READ_OUTLINE_THRESHOLD} lines, got {line_count}");
+        assert!(
+            line_count >= SMART_READ_OUTLINE_THRESHOLD,
+            "test file should be >= {SMART_READ_OUTLINE_THRESHOLD} lines, got {line_count}"
+        );
 
         // Tree-sitter language availability varies across test environments.
         let ts_available = fastclaw_treesitter::CodeParser::detect_language(&file)
@@ -5749,21 +6203,26 @@ fn other_function() {
         let tool = ReadFileTool;
         let args = serde_json::json!({
             "file_path": file.to_string_lossy()
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
         assert!(result.success, "read should succeed: {}", result.output);
 
         if ts_available {
             let preview = &result.output[..result.output.len().min(600)];
-            assert!(result.output.contains("File outline") || result.output.contains("── File outline"),
-                "should have auto outline in output. Preview: {preview}");
+            assert!(
+                result.output.contains("File outline") || result.output.contains("── File outline"),
+                "should have auto outline in output. Preview: {preview}"
+            );
             if let Some(meta) = &result.metadata {
                 assert_eq!(meta["hasOutline"], true);
             }
         } else {
-            assert!(!result.output.contains("── File outline"),
-                "without tree-sitter, outline should not appear");
+            assert!(
+                !result.output.contains("── File outline"),
+                "without tree-sitter, outline should not appear"
+            );
             if let Some(meta) = &result.metadata {
                 assert_eq!(meta["hasOutline"], false);
             }
@@ -5779,12 +6238,16 @@ fn other_function() {
         let tool = ReadFileTool;
         let args = serde_json::json!({
             "file_path": file.to_string_lossy()
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
         assert!(result.success);
-        assert!(!result.output.contains("File outline"),
-            "small file should NOT have outline: {}", result.output);
+        assert!(
+            !result.output.contains("File outline"),
+            "small file should NOT have outline: {}",
+            result.output
+        );
     }
 
     #[tokio::test]
@@ -5802,11 +6265,15 @@ fn other_function() {
             "file_path": file.to_string_lossy(),
             "offset": 10,
             "limit": 20
-        }).to_string();
+        })
+        .to_string();
 
         let result = Tool::execute(&tool, &args).await;
         assert!(result.success);
-        assert!(!result.output.contains("File outline"),
-            "offset reads should NOT get outline: {}", result.output);
+        assert!(
+            !result.output.contains("File outline"),
+            "offset reads should NOT get outline: {}",
+            result.output
+        );
     }
 }

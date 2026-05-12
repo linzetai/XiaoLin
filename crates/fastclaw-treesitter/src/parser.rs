@@ -114,11 +114,26 @@ mod tests {
 
     #[test]
     fn detect_language_common_extensions() {
-        assert_eq!(CodeParser::detect_language(Path::new("main.rs")), Some("rust".into()));
-        assert_eq!(CodeParser::detect_language(Path::new("app.py")), Some("python".into()));
-        assert_eq!(CodeParser::detect_language(Path::new("index.ts")), Some("typescript".into()));
-        assert_eq!(CodeParser::detect_language(Path::new("main.go")), Some("go".into()));
-        assert_eq!(CodeParser::detect_language(Path::new("App.tsx")), Some("tsx".into()));
+        assert_eq!(
+            CodeParser::detect_language(Path::new("main.rs")),
+            Some("rust".into())
+        );
+        assert_eq!(
+            CodeParser::detect_language(Path::new("app.py")),
+            Some("python".into())
+        );
+        assert_eq!(
+            CodeParser::detect_language(Path::new("index.ts")),
+            Some("typescript".into())
+        );
+        assert_eq!(
+            CodeParser::detect_language(Path::new("main.go")),
+            Some("go".into())
+        );
+        assert_eq!(
+            CodeParser::detect_language(Path::new("App.tsx")),
+            Some("tsx".into())
+        );
         assert_eq!(CodeParser::detect_language(Path::new("no_ext")), None);
     }
 

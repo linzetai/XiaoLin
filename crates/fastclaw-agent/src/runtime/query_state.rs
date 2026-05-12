@@ -209,7 +209,8 @@ impl QueryLoopState {
     /// - Level 1 (Warn): suggests changing approach.
     /// - Level 2 (ForceStop): explains the loop is being terminated.
     pub fn build_repetition_nudge(&self, force_stop: bool) -> Option<String> {
-        let repeated: Vec<_> = self.tool_call_exact_counts
+        let repeated: Vec<_> = self
+            .tool_call_exact_counts
             .iter()
             .filter(|(_, &count)| count >= TOOL_REPEAT_WARN_THRESHOLD)
             .map(|(key, &count)| {
@@ -342,7 +343,9 @@ impl QueryLoopState {
     pub fn try_max_output_tokens_recovery(&mut self) -> Option<LoopTransition> {
         if self.max_output_tokens_recovery_count < MAX_OUTPUT_TOKENS_RECOVERY_LIMIT {
             self.max_output_tokens_recovery_count += 1;
-            Some(LoopTransition::Continue(ContinueReason::MaxOutputTokensRecovery))
+            Some(LoopTransition::Continue(
+                ContinueReason::MaxOutputTokensRecovery,
+            ))
         } else {
             None
         }
@@ -541,9 +544,15 @@ mod tests {
 
     #[test]
     fn is_prompt_too_long_detects_variants() {
-        assert!(is_prompt_too_long_error("Error: prompt_too_long — reduce input"));
-        assert!(is_prompt_too_long_error("context_length_exceeded: 130000 > 128000"));
-        assert!(is_prompt_too_long_error("This model's maximum context length is 128000"));
+        assert!(is_prompt_too_long_error(
+            "Error: prompt_too_long — reduce input"
+        ));
+        assert!(is_prompt_too_long_error(
+            "context_length_exceeded: 130000 > 128000"
+        ));
+        assert!(is_prompt_too_long_error(
+            "This model's maximum context length is 128000"
+        ));
         assert!(is_prompt_too_long_error("Too many tokens in the request"));
     }
 
@@ -568,7 +577,9 @@ mod tests {
             let result = s.try_max_output_tokens_recovery();
             assert_eq!(
                 result,
-                Some(LoopTransition::Continue(ContinueReason::MaxOutputTokensRecovery)),
+                Some(LoopTransition::Continue(
+                    ContinueReason::MaxOutputTokensRecovery
+                )),
                 "attempt {} should succeed",
                 i + 1
             );
@@ -626,14 +637,20 @@ mod tests {
     fn blocking_limit_skipped_after_compact() {
         let s = QueryLoopState::new(10);
         let result = s.check_blocking_limit(96_000, 100_000, false, true);
-        assert!(result.is_none(), "should not block after compaction just ran");
+        assert!(
+            result.is_none(),
+            "should not block after compaction just ran"
+        );
     }
 
     #[test]
     fn blocking_limit_skipped_when_auto_compact_enabled() {
         let s = QueryLoopState::new(10);
         let result = s.check_blocking_limit(96_000, 100_000, true, false);
-        assert!(result.is_none(), "should not block when auto_compact handles it");
+        assert!(
+            result.is_none(),
+            "should not block when auto_compact handles it"
+        );
     }
 
     #[test]
@@ -677,7 +694,10 @@ mod tests {
     fn terminal_reason_display() {
         assert_eq!(TerminalReason::EndTurn.to_string(), "end_turn");
         assert_eq!(TerminalReason::MaxIterations.to_string(), "max_iterations");
-        assert_eq!(TerminalReason::ConsecutiveErrors.to_string(), "consecutive_errors");
+        assert_eq!(
+            TerminalReason::ConsecutiveErrors.to_string(),
+            "consecutive_errors"
+        );
     }
 
     #[test]
@@ -710,13 +730,34 @@ mod tests {
             },
         ];
         let guidance = format_basic_recovery_guidance(&streak).unwrap();
-        assert!(guidance.contains("read_file"), "should mention failing tool name");
-        assert!(guidance.contains("No such file"), "should include error message");
-        assert!(guidance.contains("shell_exec"), "should mention second failing tool");
-        assert!(guidance.contains("command not found"), "should include second error");
-        assert!(guidance.contains("File/path errors"), "should have file-specific suggestion");
-        assert!(guidance.contains("Command errors"), "should have shell-specific suggestion");
-        assert!(guidance.contains("Do NOT repeat"), "should warn against retrying");
+        assert!(
+            guidance.contains("read_file"),
+            "should mention failing tool name"
+        );
+        assert!(
+            guidance.contains("No such file"),
+            "should include error message"
+        );
+        assert!(
+            guidance.contains("shell_exec"),
+            "should mention second failing tool"
+        );
+        assert!(
+            guidance.contains("command not found"),
+            "should include second error"
+        );
+        assert!(
+            guidance.contains("File/path errors"),
+            "should have file-specific suggestion"
+        );
+        assert!(
+            guidance.contains("Command errors"),
+            "should have shell-specific suggestion"
+        );
+        assert!(
+            guidance.contains("Do NOT repeat"),
+            "should warn against retrying"
+        );
     }
 
     #[test]
@@ -730,8 +771,14 @@ mod tests {
             error: Some(long_error),
         }];
         let guidance = format_basic_recovery_guidance(&streak).unwrap();
-        assert!(guidance.contains("..."), "should truncate long error with ellipsis");
-        assert!(guidance.contains("Search errors"), "should have grep-specific suggestion");
+        assert!(
+            guidance.contains("..."),
+            "should truncate long error with ellipsis"
+        );
+        assert!(
+            guidance.contains("Search errors"),
+            "should have grep-specific suggestion"
+        );
     }
 
     #[test]
@@ -742,7 +789,9 @@ mod tests {
         let mut messages = vec![
             ChatMessage {
                 role: Role::System,
-                content: Some(serde_json::Value::String("You are a helpful assistant.".into())),
+                content: Some(serde_json::Value::String(
+                    "You are a helpful assistant.".into(),
+                )),
                 reasoning_content: None,
                 name: None,
                 tool_calls: None,
@@ -761,17 +810,32 @@ mod tests {
         inject_tool_recovery_guidance(&mut messages, "Try a different approach.");
         assert_eq!(messages.len(), 2, "should not insert new message");
         let sys = messages[0].text_content().unwrap();
-        assert!(sys.contains("You are a helpful assistant"), "should preserve original");
-        assert!(sys.contains("Tool execution recovery"), "should have recovery header");
-        assert!(sys.contains("Try a different approach"), "should include guidance");
+        assert!(
+            sys.contains("You are a helpful assistant"),
+            "should preserve original"
+        );
+        assert!(
+            sys.contains("Tool execution recovery"),
+            "should have recovery header"
+        );
+        assert!(
+            sys.contains("Try a different approach"),
+            "should include guidance"
+        );
     }
 
     #[test]
     fn record_tool_call_warns_at_threshold_same_args() {
         let mut s = QueryLoopState::new(10);
         let args = r#"{"file_path":"test.txt"}"#;
-        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
-        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
         assert_eq!(
             s.record_tool_call("read_file", args),
             ToolRepetitionAction::Warn,
@@ -796,10 +860,22 @@ mod tests {
     #[test]
     fn record_tool_call_does_not_trigger_for_different_args() {
         let mut s = QueryLoopState::new(10);
-        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"a.txt"}"#), ToolRepetitionAction::None);
-        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"b.txt"}"#), ToolRepetitionAction::None);
-        assert_eq!(s.record_tool_call("read_file", r#"{"file_path":"c.txt"}"#), ToolRepetitionAction::None);
-        assert!(s.build_repetition_nudge(false).is_none(), "different args should not trigger");
+        assert_eq!(
+            s.record_tool_call("read_file", r#"{"file_path":"a.txt"}"#),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", r#"{"file_path":"b.txt"}"#),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", r#"{"file_path":"c.txt"}"#),
+            ToolRepetitionAction::None
+        );
+        assert!(
+            s.build_repetition_nudge(false).is_none(),
+            "different args should not trigger"
+        );
     }
 
     #[test]
@@ -808,16 +884,25 @@ mod tests {
         let args = r#"{"file_path":"test.txt"}"#;
         s.record_tool_call("read_file", args);
         s.record_tool_call("read_file", args);
-        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::Warn);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::Warn
+        );
         // After Warn, escalation=1, so subsequent calls return None until hard limit
-        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
         assert_eq!(
             s.record_tool_call("read_file", args),
             ToolRepetitionAction::ForceStop,
             "5th call should escalate to ForceStop"
         );
         // After ForceStop, escalation=2, no more actions
-        assert_eq!(s.record_tool_call("read_file", args), ToolRepetitionAction::None);
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
     }
 
     #[test]
@@ -829,11 +914,23 @@ mod tests {
         }
         s.record_tool_call("write_file", r#"{"file_path":"out.txt"}"#);
         let nudge = s.build_repetition_nudge(false).expect("should build nudge");
-        assert!(nudge.contains("read_file"), "should mention the repeated tool");
+        assert!(
+            nudge.contains("read_file"),
+            "should mention the repeated tool"
+        );
         assert!(nudge.contains("4 identical"), "should show call count");
-        assert!(!nudge.contains("`write_file`"), "write_file called only once, should not be listed");
-        assert!(nudge.contains("change your approach"), "should advise changing approach");
-        assert!(nudge.contains("force-terminated"), "should warn about escalation");
+        assert!(
+            !nudge.contains("`write_file`"),
+            "write_file called only once, should not be listed"
+        );
+        assert!(
+            nudge.contains("change your approach"),
+            "should advise changing approach"
+        );
+        assert!(
+            nudge.contains("force-terminated"),
+            "should warn about escalation"
+        );
     }
 
     #[test]
@@ -844,8 +941,14 @@ mod tests {
             s.record_tool_call("read_file", args);
         }
         let nudge = s.build_repetition_nudge(true).expect("should build nudge");
-        assert!(nudge.contains("TERMINATED"), "force_stop message should mention termination");
-        assert!(nudge.contains("Summarize"), "should advise summarizing the issue");
+        assert!(
+            nudge.contains("TERMINATED"),
+            "force_stop message should mention termination"
+        );
+        assert!(
+            nudge.contains("Summarize"),
+            "should advise summarizing the issue"
+        );
     }
 
     #[test]
@@ -874,6 +977,9 @@ mod tests {
         inject_tool_recovery_guidance(&mut messages, "Check permissions.");
         assert_eq!(messages.len(), 2, "should insert a new system message");
         assert!(matches!(messages[0].role, Role::System));
-        assert!(messages[0].text_content().unwrap().contains("Check permissions"));
+        assert!(messages[0]
+            .text_content()
+            .unwrap()
+            .contains("Check permissions"));
     }
 }

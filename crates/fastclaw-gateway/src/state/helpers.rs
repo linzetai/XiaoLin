@@ -158,7 +158,6 @@ pub(crate) fn resolve_state_dir(paths_cfg: &fastclaw_core::config::PathsConfig) 
     fastclaw_core::paths::resolve_state_dir_from(Some(paths_cfg))
 }
 
-
 pub(crate) fn persist_skills_deny_cleanup(cleaned_deny: &[String]) -> anyhow::Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
     let cfg_path = home.join(".fastclaw/config/default.json");

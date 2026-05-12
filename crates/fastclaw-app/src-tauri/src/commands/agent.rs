@@ -1,16 +1,14 @@
+use super::helpers::{
+    cleanup_agent_channels_from_live, ensure_agent_workspace_bootstrap, get_state,
+    sync_agent_channels_to_live, validate_agent_id,
+};
 use crate::AppData;
 use serde_json::json;
-use super::helpers::{
-    cleanup_agent_channels_from_live, ensure_agent_workspace_bootstrap, get_state, sync_agent_channels_to_live,
-    validate_agent_id,
-};
 
 // ─── Agents ───
 
 #[tauri::command]
-pub async fn list_agents(
-    state: tauri::State<'_, AppData>,
-) -> Result<serde_json::Value, String> {
+pub async fn list_agents(state: tauri::State<'_, AppData>) -> Result<serde_json::Value, String> {
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
     let agents: Vec<_> = app
@@ -48,8 +46,7 @@ pub async fn list_agent_tools(
         .iter()
         .map(|td| {
             let name = &td.function.name;
-            let enabled =
-                fastclaw_gateway::routes::agents::tool_effective_enabled(&agent, name);
+            let enabled = fastclaw_gateway::routes::agents::tool_effective_enabled(&agent, name);
             json!({
                 "id": name,
                 "enabled": enabled,
@@ -156,8 +153,7 @@ pub async fn update_agent_tools(
         .await
         .map_err(|e| format!("create dir: {e}"))?;
     let path = dir.join(format!("{agent_id}.json"));
-    let bytes =
-        serde_json::to_vec_pretty(&agent).map_err(|e| format!("serialize: {e}"))?;
+    let bytes = serde_json::to_vec_pretty(&agent).map_err(|e| format!("serialize: {e}"))?;
     tokio::fs::write(&path, bytes)
         .await
         .map_err(|e| format!("write: {e}"))?;
@@ -167,9 +163,7 @@ pub async fn update_agent_tools(
 }
 
 #[tauri::command]
-pub async fn list_tools(
-    state: tauri::State<'_, AppData>,
-) -> Result<serde_json::Value, String> {
+pub async fn list_tools(state: tauri::State<'_, AppData>) -> Result<serde_json::Value, String> {
     tracing::info!("IPC list_tools called");
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
@@ -308,10 +302,7 @@ pub async fn upload_agent_avatar(
         .map_err(|e| format!("create avatars dir: {e}"))?;
 
     let src = std::path::Path::new(&source_path);
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png");
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
     let dest = avatars_dir.join(format!("{agent_id}.{ext}"));
     tokio::fs::copy(src, &dest)
         .await
@@ -329,8 +320,8 @@ pub async fn upload_agent_avatar(
         let mut val = serde_json::from_slice::<serde_json::Value>(&bytes)
             .map_err(|e| format!("parse agent config: {e}"))?;
         val["avatar"] = json!(dest_str);
-        let out = serde_json::to_vec_pretty(&val)
-            .map_err(|e| format!("serialize agent config: {e}"))?;
+        let out =
+            serde_json::to_vec_pretty(&val).map_err(|e| format!("serialize agent config: {e}"))?;
         tokio::fs::write(&cfg_path, out)
             .await
             .map_err(|e| format!("write agent config: {e}"))?;
@@ -353,8 +344,7 @@ pub async fn read_identity_files(
     let app = get_state(&gw)?;
 
     let state_dir = fastclaw_core::paths::resolve_state_dir_from(Some(&app.cfg.config.paths));
-    let ws_root =
-        fastclaw_core::workspace::resolve_workspace_root(&state_dir, &agent_id, None);
+    let ws_root = fastclaw_core::workspace::resolve_workspace_root(&state_dir, &agent_id, None);
     let ws = fastclaw_core::workspace::AgentWorkspace::new(&ws_root, &agent_id);
     let _ = ws.ensure_bootstrap();
 

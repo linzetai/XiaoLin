@@ -203,9 +203,7 @@ async fn run_consolidation(
 
     let facts: Vec<_> = facts
         .into_iter()
-        .filter(|(s, p, o)| {
-            !s.trim().is_empty() && !p.trim().is_empty() && !o.trim().is_empty()
-        })
+        .filter(|(s, p, o)| !s.trim().is_empty() && !p.trim().is_empty() && !o.trim().is_empty())
         .collect();
 
     if !summary.is_empty() {

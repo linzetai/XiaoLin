@@ -84,9 +84,7 @@ impl Tool for FeishuBitableListRecordsTool {
         match self.client.user_get_query(&path, &refs).await {
             Ok(v) => match serde_json::to_string(&v) {
                 Ok(s) => ToolResult::ok(s),
-                Err(e) => {
-                    ToolResult::err(format!("feishu_bitable_list_records: serialize: {e}"))
-                }
+                Err(e) => ToolResult::err(format!("feishu_bitable_list_records: serialize: {e}")),
             },
             Err(e) => ToolResult::err(format!("feishu_bitable_list_records: {e}")),
         }
@@ -156,9 +154,17 @@ impl Tool for FeishuBitableGetMetaTool {
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let path = format!("/bitable/v1/apps/{app_token}");
         match self.client.user_get(&path).await {
             Ok(v) => ok_json(v),
@@ -199,10 +205,21 @@ impl Tool for FeishuBitableListFieldsTool {
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
-        let table_id = match require_str(&args, "table_id") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let table_id = match require_str(&args, "table_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let path = format!("/bitable/v1/apps/{app_token}/tables/{table_id}/fields");
         match self.client.user_get(&path).await {
             Ok(v) => ok_json(v),
@@ -244,11 +261,25 @@ impl Tool for FeishuBitableGetRecordTool {
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
-        let table_id = match require_str(&args, "table_id") { Ok(s) => s, Err(e) => return e };
-        let record_id = match require_str(&args, "record_id") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let table_id = match require_str(&args, "table_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let record_id = match require_str(&args, "record_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let path = format!("/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}");
         match self.client.user_get(&path).await {
             Ok(v) => ok_json(v),
@@ -282,7 +313,10 @@ impl Tool for FeishuBitableCreateRecordTool {
         let mut properties = HashMap::new();
         properties.insert("app_token".into(), serde_json::json!({"type": "string"}));
         properties.insert("table_id".into(), serde_json::json!({"type": "string"}));
-        properties.insert("fields".into(), serde_json::json!({"type": "object", "description": "Field name to value mapping"}));
+        properties.insert(
+            "fields".into(),
+            serde_json::json!({"type": "object", "description": "Field name to value mapping"}),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
@@ -290,10 +324,21 @@ impl Tool for FeishuBitableCreateRecordTool {
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
-        let table_id = match require_str(&args, "table_id") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let table_id = match require_str(&args, "table_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let fields = match args.get("fields") {
             Some(v) if v.is_object() => v,
             _ => return ToolResult::err("fields must be a JSON object".to_string()),
@@ -333,19 +378,41 @@ impl Tool for FeishuBitableUpdateRecordTool {
         properties.insert("app_token".into(), serde_json::json!({"type": "string"}));
         properties.insert("table_id".into(), serde_json::json!({"type": "string"}));
         properties.insert("record_id".into(), serde_json::json!({"type": "string"}));
-        properties.insert("fields".into(), serde_json::json!({"type": "object", "description": "Field name to new value mapping"}));
+        properties.insert(
+            "fields".into(),
+            serde_json::json!({"type": "object", "description": "Field name to new value mapping"}),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
-            required: vec!["app_token".into(), "table_id".into(), "record_id".into(), "fields".into()],
+            required: vec![
+                "app_token".into(),
+                "table_id".into(),
+                "record_id".into(),
+                "fields".into(),
+            ],
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
-        let table_id = match require_str(&args, "table_id") { Ok(s) => s, Err(e) => return e };
-        let record_id = match require_str(&args, "record_id") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let table_id = match require_str(&args, "table_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let record_id = match require_str(&args, "record_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let fields = match args.get("fields") {
             Some(v) if v.is_object() => v,
             _ => return ToolResult::err("fields must be a JSON object".to_string()),
@@ -382,8 +449,14 @@ impl Tool for FeishuBitableCreateAppTool {
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut properties = HashMap::new();
-        properties.insert("name".into(), serde_json::json!({"type": "string", "description": "App name"}));
-        properties.insert("folder_token".into(), serde_json::json!({"type": "string", "description": "Parent folder token (optional)"}));
+        properties.insert(
+            "name".into(),
+            serde_json::json!({"type": "string", "description": "App name"}),
+        );
+        properties.insert(
+            "folder_token".into(),
+            serde_json::json!({"type": "string", "description": "Parent folder token (optional)"}),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
@@ -391,11 +464,23 @@ impl Tool for FeishuBitableCreateAppTool {
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let name = match require_str(&args, "name") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let name = match require_str(&args, "name") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let mut body = serde_json::json!({ "name": name });
-        if let Some(ft) = args.get("folder_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(ft) = args
+            .get("folder_token")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             body["folder_token"] = serde_json::Value::String(ft.to_string());
         }
         match self.client.user_post_json("/bitable/v1/apps", &body).await {
@@ -430,21 +515,43 @@ impl Tool for FeishuBitableCreateFieldTool {
         let mut properties = HashMap::new();
         properties.insert("app_token".into(), serde_json::json!({"type": "string"}));
         properties.insert("table_id".into(), serde_json::json!({"type": "string"}));
-        properties.insert("field_name".into(), serde_json::json!({"type": "string", "description": "Field display name"}));
+        properties.insert(
+            "field_name".into(),
+            serde_json::json!({"type": "string", "description": "Field display name"}),
+        );
         properties.insert("field_type".into(), serde_json::json!({"type": "integer", "description": "Field type number (1=Text, 2=Number, 3=SingleSelect, etc.)"}));
         properties.insert("property".into(), serde_json::json!({"type": "object", "description": "Optional field properties (e.g. select options)"}));
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
-            required: vec!["app_token".into(), "table_id".into(), "field_name".into(), "field_type".into()],
+            required: vec![
+                "app_token".into(),
+                "table_id".into(),
+                "field_name".into(),
+                "field_type".into(),
+            ],
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
-        if let Some(e) = require_oauth(&self.client) { return e; }
-        let args = match parse_args(arguments) { Ok(a) => a, Err(e) => return e };
-        let app_token = match require_str(&args, "app_token") { Ok(s) => s, Err(e) => return e };
-        let table_id = match require_str(&args, "table_id") { Ok(s) => s, Err(e) => return e };
-        let field_name = match require_str(&args, "field_name") { Ok(s) => s, Err(e) => return e };
+        if let Some(e) = require_oauth(&self.client) {
+            return e;
+        }
+        let args = match parse_args(arguments) {
+            Ok(a) => a,
+            Err(e) => return e,
+        };
+        let app_token = match require_str(&args, "app_token") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let table_id = match require_str(&args, "table_id") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let field_name = match require_str(&args, "field_name") {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
         let field_type = match args.get("field_type").and_then(|v| v.as_i64()) {
             Some(ft) => ft,
             None => return ToolResult::err("field_type (integer) is required".to_string()),
@@ -481,9 +588,7 @@ mod tests {
     async fn bitable_without_oauth_returns_tool_error() {
         let client = Arc::new(FeishuClient::new("t", "s"));
         let tool = FeishuBitableListRecordsTool::new(client);
-        let r = tool
-            .execute(r#"{"app_token":"a","table_id":"b"}"#)
-            .await;
+        let r = tool.execute(r#"{"app_token":"a","table_id":"b"}"#).await;
         assert!(!r.success);
         assert!(
             r.output.contains("userAccessToken") || r.output.contains("user OAuth"),
@@ -495,12 +600,33 @@ mod tests {
     #[test]
     fn new_bitable_tool_names() {
         let client = Arc::new(FeishuClient::new("t", "s"));
-        assert_eq!(FeishuBitableGetMetaTool::new(client.clone()).name(), "feishu_bitable_get_meta");
-        assert_eq!(FeishuBitableListFieldsTool::new(client.clone()).name(), "feishu_bitable_list_fields");
-        assert_eq!(FeishuBitableGetRecordTool::new(client.clone()).name(), "feishu_bitable_get_record");
-        assert_eq!(FeishuBitableCreateRecordTool::new(client.clone()).name(), "feishu_bitable_create_record");
-        assert_eq!(FeishuBitableUpdateRecordTool::new(client.clone()).name(), "feishu_bitable_update_record");
-        assert_eq!(FeishuBitableCreateAppTool::new(client.clone()).name(), "feishu_bitable_create_app");
-        assert_eq!(FeishuBitableCreateFieldTool::new(client).name(), "feishu_bitable_create_field");
+        assert_eq!(
+            FeishuBitableGetMetaTool::new(client.clone()).name(),
+            "feishu_bitable_get_meta"
+        );
+        assert_eq!(
+            FeishuBitableListFieldsTool::new(client.clone()).name(),
+            "feishu_bitable_list_fields"
+        );
+        assert_eq!(
+            FeishuBitableGetRecordTool::new(client.clone()).name(),
+            "feishu_bitable_get_record"
+        );
+        assert_eq!(
+            FeishuBitableCreateRecordTool::new(client.clone()).name(),
+            "feishu_bitable_create_record"
+        );
+        assert_eq!(
+            FeishuBitableUpdateRecordTool::new(client.clone()).name(),
+            "feishu_bitable_update_record"
+        );
+        assert_eq!(
+            FeishuBitableCreateAppTool::new(client.clone()).name(),
+            "feishu_bitable_create_app"
+        );
+        assert_eq!(
+            FeishuBitableCreateFieldTool::new(client).name(),
+            "feishu_bitable_create_field"
+        );
     }
 }

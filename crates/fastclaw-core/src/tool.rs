@@ -498,7 +498,10 @@ impl ToolRegistry {
     pub fn register_channel_scoped(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         self.register(tool);
-        let mut guard = self.channel_scoped.write().expect("channel_scoped poisoned");
+        let mut guard = self
+            .channel_scoped
+            .write()
+            .expect("channel_scoped poisoned");
         guard.insert(name);
     }
 
@@ -561,9 +564,10 @@ impl ToolRegistry {
 
     /// Search deferred tools by matching `query` against name, description,
     /// and `search_hint`. Uses a scoring approach:
-    /// - All query words match (exact substring) → highest score
-    /// - Partial word matches (prefix ≥3 chars) → medium score
-    /// - At least one word matches → included with lower score
+    ///  - All query words match (exact substring) → highest score
+    ///  - Partial word matches (prefix ≥3 chars) → medium score
+    ///  - At least one word matches → included with lower score
+    ///
     /// Results are sorted by score descending; tools with zero matches are excluded.
     pub fn search_deferred(&self, query: &str) -> Vec<ToolDefinition> {
         let deferred = self.deferred.read().expect("deferred set poisoned");
@@ -578,13 +582,8 @@ impl ToolRegistry {
             .values()
             .filter(|t| deferred.contains(t.name()))
             .filter_map(|t| {
-                let haystack = format!(
-                    "{} {} {}",
-                    t.name(),
-                    t.description(),
-                    t.search_hint()
-                )
-                .to_lowercase();
+                let haystack =
+                    format!("{} {} {}", t.name(), t.description(), t.search_hint()).to_lowercase();
                 let haystack_words: Vec<&str> = haystack.split_whitespace().collect();
 
                 let mut score: u32 = 0;
@@ -698,20 +697,12 @@ pub trait ToolHook: Send + Sync {
     fn name(&self) -> &str;
 
     /// Called before a tool is executed. Can block or modify the call.
-    async fn pre_tool_use(
-        &self,
-        _ctx: &ToolHookContext,
-    ) -> PreToolAction {
+    async fn pre_tool_use(&self, _ctx: &ToolHookContext) -> PreToolAction {
         PreToolAction::default()
     }
 
     /// Called after a tool completes. Useful for logging, metrics, or follow-up actions.
-    async fn post_tool_use(
-        &self,
-        _ctx: &ToolHookContext,
-        _info: &PostToolInfo,
-    ) {
-    }
+    async fn post_tool_use(&self, _ctx: &ToolHookContext, _info: &PostToolInfo) {}
 }
 
 #[cfg(test)]
@@ -725,8 +716,12 @@ mod tests {
 
     #[async_trait]
     impl Tool for FakeTool {
-        fn name(&self) -> &str { self.name }
-        fn description(&self) -> &str { "A fake tool for testing" }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            "A fake tool for testing"
+        }
         fn parameters_schema(&self) -> ToolParameterSchema {
             ToolParameterSchema {
                 schema_type: "object".into(),
@@ -734,7 +729,9 @@ mod tests {
                 required: vec![],
             }
         }
-        fn search_hint(&self) -> &str { self.hint }
+        fn search_hint(&self) -> &str {
+            self.hint
+        }
         async fn execute(&self, _arguments: &str) -> ToolResult {
             ToolResult::ok("ok")
         }
@@ -834,7 +831,7 @@ mod tests {
         reg.register_deferred(make_tool("task_stop", "stop cancel terminate task"));
         // "task list" → task_list should rank higher (all words match + name match)
         let results = reg.search_deferred("task list");
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         assert_eq!(results[0].function.name, "task_list");
     }
 }

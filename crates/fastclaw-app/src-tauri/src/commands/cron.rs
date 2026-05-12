@@ -1,6 +1,6 @@
+use super::helpers::get_state;
 use crate::AppData;
 use serde_json::json;
-use super::helpers::get_state;
 
 // ─── Cron job IPC commands ────────────────────────────────────────────────
 
@@ -12,12 +12,17 @@ pub async fn cron_list_jobs(
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
     let jobs = if let Some(aid) = agent_id {
-        app.store.cron_store
+        app.store
+            .cron_store
             .list_by_agent(&aid)
             .await
             .map_err(|e| format!("{e}"))?
     } else {
-        app.store.cron_store.list().await.map_err(|e| format!("{e}"))?
+        app.store
+            .cron_store
+            .list()
+            .await
+            .map_err(|e| format!("{e}"))?
     };
     Ok(json!({ "jobs": jobs, "count": jobs.len() }))
 }
@@ -58,15 +63,15 @@ pub async fn cron_upsert_job(
     }
     // Validate the cron expression
     use std::str::FromStr;
-    cron::Schedule::from_str(&job.schedule)
-        .map_err(|e| format!("invalid cron expression: {e}"))?;
+    cron::Schedule::from_str(&job.schedule).map_err(|e| format!("invalid cron expression: {e}"))?;
 
     if let fastclaw_cron::JobAction::Webhook { ref url, .. } = job.action {
         fastclaw_security::ssrf::ssrf_check_url(url)
             .map_err(|e| format!("webhook URL rejected: {e}"))?;
     }
 
-    app.store.cron_store
+    app.store
+        .cron_store
         .upsert(&job)
         .await
         .map_err(|e| format!("{e}"))?;

@@ -9,15 +9,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use fastclaw_agent::{McpServerInfo, PromptContext, PromptEngine};
-use fastclaw_agent::prompt_sections::{
-    actions_section, doing_tasks_section, intro_section, output_efficiency_section,
-    system_section, tone_and_style_section, using_tools_section,
-};
 use fastclaw_agent::prompt_sections::dynamic::{
-    environment_section, frc_section, language_section, mcp_instructions_section,
-    memory_section, session_guidance_section, token_budget_section,
+    environment_section, frc_section, language_section, mcp_instructions_section, memory_section,
+    session_guidance_section, token_budget_section,
 };
+use fastclaw_agent::prompt_sections::{
+    actions_section, doing_tasks_section, intro_section, output_efficiency_section, system_section,
+    tone_and_style_section, using_tools_section,
+};
+use fastclaw_agent::{McpServerInfo, PromptContext, PromptEngine};
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::types::ExecutionMode;
 
@@ -52,10 +52,22 @@ fn default_engine() -> PromptEngine {
 }
 
 const FULL_TOOLS: &[&str] = &[
-    "read_file", "write_file", "edit_file", "shell_exec",
-    "search_in_files", "glob", "list_directory", "tool_search",
-    "todo_write", "ask_question", "memory_store", "memory_search",
-    "sessions_spawn", "task_create", "web_search", "web_fetch",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "shell_exec",
+    "search_in_files",
+    "glob",
+    "list_directory",
+    "tool_search",
+    "todo_write",
+    "ask_question",
+    "memory_store",
+    "memory_search",
+    "sessions_spawn",
+    "task_create",
+    "web_search",
+    "web_fetch",
 ];
 
 const MINIMAL_TOOLS: &[&str] = &["read_file", "search_in_files", "glob", "tool_search"];
@@ -89,6 +101,7 @@ fn make_ctx(mode: ExecutionMode, tools: &[&str], deferred: usize) -> PromptConte
         token_budget: None,
         memory_prompt: None,
         session_start_date: "2026-04-29".into(),
+        pending_todo_summary: None,
     }
 }
 
@@ -126,7 +139,9 @@ fn main() {
         if static_pass { "PASS" } else { "FAIL" },
         static_tokens
     );
-    if !static_pass { all_pass = false; }
+    if !static_pass {
+        all_pass = false;
+    }
 
     // --- 2. Dynamic zone variation range ---
     let ctx_full = make_ctx(ExecutionMode::Agent, FULL_TOOLS, 10);
@@ -141,7 +156,9 @@ fn main() {
         if dynamic_pass { "PASS" } else { "FAIL" },
         dynamic_tokens
     );
-    if !dynamic_pass { all_pass = false; }
+    if !dynamic_pass {
+        all_pass = false;
+    }
 
     // --- 3. Full eager tools total ---
     let eager_pass = full_tokens < 15000;
@@ -150,7 +167,9 @@ fn main() {
         if eager_pass { "PASS" } else { "FAIL" },
         full_tokens
     );
-    if !eager_pass { all_pass = false; }
+    if !eager_pass {
+        all_pass = false;
+    }
 
     // --- 4. Deferred mode savings ---
     engine.clear_cache();
@@ -168,16 +187,25 @@ fn main() {
     println!(
         "  [{}] Deferred mode:         {:>5} tokens (limit: 8000, savings: {:.1}%)",
         if deferred_pass { "PASS" } else { "FAIL" },
-        deferred_tokens, savings_pct
+        deferred_tokens,
+        savings_pct
     );
-    if !deferred_pass { all_pass = false; }
+    if !deferred_pass {
+        all_pass = false;
+    }
 
     // --- 5. With MCP servers ---
     engine.clear_cache();
     let mut ctx_mcp = make_ctx(ExecutionMode::Agent, FULL_TOOLS, 0);
     ctx_mcp.mcp_servers = vec![
-        McpServerInfo { id: "db-server".into(), instructions: Some("Query the database using SQL".into()) },
-        McpServerInfo { id: "search-server".into(), instructions: Some("Full-text search API".into()) },
+        McpServerInfo {
+            id: "db-server".into(),
+            instructions: Some("Query the database using SQL".into()),
+        },
+        McpServerInfo {
+            id: "search-server".into(),
+            instructions: Some("Full-text search API".into()),
+        },
     ];
     let mcp_prompt = engine.build_system_prompt(&ctx_mcp);
     let mcp_tokens = estimate_tokens(&mcp_prompt);
@@ -187,7 +215,9 @@ fn main() {
         if mcp_pass { "PASS" } else { "FAIL" },
         mcp_tokens
     );
-    if !mcp_pass { all_pass = false; }
+    if !mcp_pass {
+        all_pass = false;
+    }
 
     // --- 6. Chinese language preference ---
     engine.clear_cache();
@@ -201,7 +231,9 @@ fn main() {
         if zh_pass { "PASS" } else { "FAIL" },
         zh_tokens
     );
-    if !zh_pass { all_pass = false; }
+    if !zh_pass {
+        all_pass = false;
+    }
 
     // --- Performance (assembly speed) ---
     println!();
@@ -216,7 +248,10 @@ fn main() {
     }
     let elapsed = start.elapsed();
     let per_call = elapsed / iterations;
-    println!("    Cold assembly: {:?}/call ({} iterations)", per_call, iterations);
+    println!(
+        "    Cold assembly: {:?}/call ({} iterations)",
+        per_call, iterations
+    );
 
     let start = Instant::now();
     for _ in 0..iterations {
@@ -224,7 +259,10 @@ fn main() {
     }
     let elapsed = start.elapsed();
     let per_call_hot = elapsed / iterations;
-    println!("    Hot  assembly: {:?}/call ({} iterations, cached)", per_call_hot, iterations);
+    println!(
+        "    Hot  assembly: {:?}/call ({} iterations, cached)",
+        per_call_hot, iterations
+    );
 
     println!();
     if all_pass {

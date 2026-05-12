@@ -161,7 +161,11 @@ impl Tool for BriefTool {
 mod tests {
     use super::*;
 
-    fn setup() -> (StreamEventTxMap, tokio::sync::mpsc::Receiver<StreamEvent>, BriefTool) {
+    fn setup() -> (
+        StreamEventTxMap,
+        tokio::sync::mpsc::Receiver<StreamEvent>,
+        BriefTool,
+    ) {
         let txs: StreamEventTxMap = Arc::new(DashMap::new());
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         txs.insert("test-stream".to_string(), tx);
@@ -178,10 +182,8 @@ mod tests {
     #[tokio::test]
     async fn sends_brief_message() {
         let (_txs, mut rx, tool) = setup();
-        let result = run_with_ctx(
-            tool.execute(r#"{"content": "Hello user!", "mode": "proactive"}"#),
-        )
-        .await;
+        let result =
+            run_with_ctx(tool.execute(r#"{"content": "Hello user!", "mode": "proactive"}"#)).await;
         assert!(result.success);
         let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(v["sent"], true);
@@ -255,8 +257,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_invalid_mode() {
         let (_txs, _rx, tool) = setup();
-        let result =
-            run_with_ctx(tool.execute(r#"{"content": "hi", "mode": "aggressive"}"#)).await;
+        let result = run_with_ctx(tool.execute(r#"{"content": "hi", "mode": "aggressive"}"#)).await;
         assert!(!result.success);
         assert!(result.output.contains("'normal' or 'proactive'"));
     }

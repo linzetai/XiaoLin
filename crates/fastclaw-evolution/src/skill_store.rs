@@ -14,8 +14,7 @@ pub fn format_skills_for_prompt(skills: &[ExtractedSkill]) -> String {
     }
     let mut blocks = vec![
         "\n\n---\n## Learned task skills (Hermes-style)\n".to_string(),
-        "Apply the following strategies when they match the user's task. "
-            .to_string(),
+        "Apply the following strategies when they match the user's task. ".to_string(),
         "Treat placeholders as parameters you infer from the request.\n\n".to_string(),
     ];
     for sk in skills {
@@ -328,11 +327,7 @@ impl SkillStore {
             }
         }
         scored.sort_by_key(|b| std::cmp::Reverse(b.0));
-        Ok(scored
-            .into_iter()
-            .take(limit)
-            .map(|(_, s)| s)
-            .collect())
+        Ok(scored.into_iter().take(limit).map(|(_, s)| s).collect())
     }
 
     pub async fn record_usage(&self, skill_id: &str, success: bool) -> Result<()> {
@@ -343,12 +338,11 @@ impl SkillStore {
             .execute(&mut *tx)
             .await?;
 
-        let row: Option<(i64, i64)> = sqlx::query_as(
-            "SELECT usage_count, success_count FROM extracted_skills WHERE id = ?",
-        )
-        .bind(skill_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let row: Option<(i64, i64)> =
+            sqlx::query_as("SELECT usage_count, success_count FROM extracted_skills WHERE id = ?")
+                .bind(skill_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         let (usage, succ) = match row {
             Some((u, s)) => {
@@ -455,7 +449,11 @@ impl SkillStore {
     }
 
     /// Register which evolution skills were surfaced to the model for a chat session.
-    pub async fn register_session_skills(&self, session_id: &str, skill_ids: &[String]) -> Result<()> {
+    pub async fn register_session_skills(
+        &self,
+        session_id: &str,
+        skill_ids: &[String],
+    ) -> Result<()> {
         if session_id.trim().is_empty() || skill_ids.is_empty() {
             return Ok(());
         }
@@ -474,12 +472,11 @@ impl SkillStore {
     }
 
     async fn session_skill_ids(&self, session_id: &str) -> Result<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT skill_id FROM evolution_session_skills WHERE session_id = ?",
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT skill_id FROM evolution_session_skills WHERE session_id = ?")
+                .bind(session_id)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(rows.into_iter().map(|(s,)| s).collect())
     }
 
@@ -525,10 +522,7 @@ impl SkillStore {
                 continue;
             };
 
-            if matches!(
-                parse_skill_status(&status),
-                SkillStatus::Retired
-            ) {
+            if matches!(parse_skill_status(&status), SkillStatus::Retired) {
                 tx.commit().await?;
                 continue;
             }
@@ -536,10 +530,7 @@ impl SkillStore {
             let (new_usage, new_success) = if positive {
                 (usage + 1, success_count + 1)
             } else {
-                (
-                    usage,
-                    (success_count - 1).max(0),
-                )
+                (usage, (success_count - 1).max(0))
             };
 
             let rate = new_success as f64 / new_usage.max(1) as f64;
@@ -711,12 +702,14 @@ impl SkillStore {
 
         let parameters: Vec<SkillParam> = parameters
             .into_iter()
-            .map(|(name, param_type, description, default_value)| SkillParam {
-                name,
-                param_type,
-                description,
-                default_value,
-            })
+            .map(
+                |(name, param_type, description, default_value)| SkillParam {
+                    name,
+                    param_type,
+                    description,
+                    default_value,
+                },
+            )
             .collect();
 
         Ok(ExtractedSkill {

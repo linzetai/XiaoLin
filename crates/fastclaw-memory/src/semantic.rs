@@ -452,7 +452,10 @@ impl SemanticMemory {
     /// must appear (via LIKE) in at least one of the three text columns.
     /// Single-word queries behave exactly as before.
     pub async fn search(&self, keyword: &str, limit: i64) -> Result<Vec<Fact>> {
-        let tokens: Vec<&str> = keyword.split_whitespace().filter(|t| !t.is_empty()).collect();
+        let tokens: Vec<&str> = keyword
+            .split_whitespace()
+            .filter(|t| !t.is_empty())
+            .collect();
         if tokens.is_empty() {
             return Ok(Vec::new());
         }

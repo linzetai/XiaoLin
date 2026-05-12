@@ -48,10 +48,7 @@ pub enum HookHandler {
         working_dir: Option<PathBuf>,
     },
     /// Make an HTTP request with the event as JSON body.
-    Http {
-        url: String,
-        method: String,
-    },
+    Http { url: String, method: String },
     /// Rust closure handler.
     Internal(HookFn),
 }
@@ -59,10 +56,14 @@ pub enum HookHandler {
 impl std::fmt::Debug for HookHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Shell { command, .. } => f.debug_struct("Shell").field("command", command).finish(),
-            Self::Http { url, method } => {
-                f.debug_struct("Http").field("url", url).field("method", method).finish()
+            Self::Shell { command, .. } => {
+                f.debug_struct("Shell").field("command", command).finish()
             }
+            Self::Http { url, method } => f
+                .debug_struct("Http")
+                .field("url", url)
+                .field("method", method)
+                .finish(),
             Self::Internal(_) => f.write_str("Internal(<fn>)"),
         }
     }
@@ -180,12 +181,11 @@ impl HookExecutor {
 
     async fn run_handler(&self, handler: &HookHandler, event: HookEvent) -> HookResult {
         match handler {
-            HookHandler::Shell { command, working_dir } => {
-                run_shell_hook(command, working_dir.as_deref(), &event).await
-            }
-            HookHandler::Http { url, method } => {
-                run_http_hook(url, method, &event).await
-            }
+            HookHandler::Shell {
+                command,
+                working_dir,
+            } => run_shell_hook(command, working_dir.as_deref(), &event).await,
+            HookHandler::Http { url, method } => run_http_hook(url, method, &event).await,
             HookHandler::Internal(func) => func(event).await,
         }
     }
@@ -413,9 +413,7 @@ mod tests {
     fn non_blocking_hook(filter: HookEventFilter) -> RegisteredHook {
         RegisteredHook {
             filter,
-            handler: HookHandler::Internal(Box::new(|_| {
-                Box::pin(async { HookResult::allow() })
-            })),
+            handler: HookHandler::Internal(Box::new(|_| Box::pin(async { HookResult::allow() }))),
             timeout: DEFAULT_HOOK_TIMEOUT,
             blocking: false,
         }
@@ -629,9 +627,15 @@ mod tests {
     fn ssrf_blocks_mapped_private_v4() {
         use std::net::IpAddr;
         let mapped: IpAddr = "::ffff:10.0.0.1".parse().unwrap();
-        assert!(is_blocked_address(&mapped), "should block mapped private v4");
+        assert!(
+            is_blocked_address(&mapped),
+            "should block mapped private v4"
+        );
 
         let mapped_public: IpAddr = "::ffff:8.8.8.8".parse().unwrap();
-        assert!(!is_blocked_address(&mapped_public), "should allow mapped public v4");
+        assert!(
+            !is_blocked_address(&mapped_public),
+            "should allow mapped public v4"
+        );
     }
 }

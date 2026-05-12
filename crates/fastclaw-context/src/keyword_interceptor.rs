@@ -103,10 +103,7 @@ impl ContextHook for MemoryKeywordInterceptor {
             return Ok(());
         };
 
-        let id = format!(
-            "kw_{}",
-            &uuid::Uuid::new_v4().to_string()[..8]
-        );
+        let id = format!("kw_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let now = chrono::Utc::now().to_rfc3339();
         let fact = Fact {
             id,
@@ -120,10 +117,7 @@ impl ContextHook for MemoryKeywordInterceptor {
             updated_at: now,
         };
 
-        if let Err(e) = semantic
-            .upsert_auto(&fact, self.embedder.as_deref())
-            .await
-        {
+        if let Err(e) = semantic.upsert_auto(&fact, self.embedder.as_deref()).await {
             tracing::warn!(error = %e, "keyword interceptor: failed to auto-store fact");
         } else {
             tracing::info!(

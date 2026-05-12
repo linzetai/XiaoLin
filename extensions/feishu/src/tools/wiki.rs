@@ -29,14 +29,29 @@ impl Tool for FeishuWikiTool {
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut properties = HashMap::new();
         properties.insert("action".into(), serde_json::json!({"type": "string", "enum": ["spaces", "nodes", "get", "search", "create", "move", "rename"]}));
-        properties.insert("space_id".into(), serde_json::json!({"type": "string", "description": "Knowledge space ID"}));
+        properties.insert(
+            "space_id".into(),
+            serde_json::json!({"type": "string", "description": "Knowledge space ID"}),
+        );
         properties.insert("token".into(), serde_json::json!({"type": "string", "description": "Wiki node token (for get action)"}));
-        properties.insert("node_token".into(), serde_json::json!({"type": "string", "description": "Node token (for move/rename)"}));
-        properties.insert("parent_node_token".into(), serde_json::json!({"type": "string", "description": "Parent node token (optional)"}));
+        properties.insert(
+            "node_token".into(),
+            serde_json::json!({"type": "string", "description": "Node token (for move/rename)"}),
+        );
+        properties.insert(
+            "parent_node_token".into(),
+            serde_json::json!({"type": "string", "description": "Parent node token (optional)"}),
+        );
         properties.insert("query".into(), serde_json::json!({"type": "string", "description": "Search query (for search action)"}));
-        properties.insert("title".into(), serde_json::json!({"type": "string", "description": "Node title (for create/rename)"}));
+        properties.insert(
+            "title".into(),
+            serde_json::json!({"type": "string", "description": "Node title (for create/rename)"}),
+        );
         properties.insert("obj_type".into(), serde_json::json!({"type": "string", "enum": ["docx", "sheet", "bitable"], "description": "Object type for create (default: docx)"}));
-        properties.insert("target_space_id".into(), serde_json::json!({"type": "string", "description": "Target space ID for move"}));
+        properties.insert(
+            "target_space_id".into(),
+            serde_json::json!({"type": "string", "description": "Target space ID for move"}),
+        );
         properties.insert("target_parent_token".into(), serde_json::json!({"type": "string", "description": "Target parent node token for move"}));
         ToolParameterSchema {
             schema_type: "object".into(),
@@ -64,7 +79,11 @@ impl Tool for FeishuWikiTool {
                     _ => return ToolResult::err("space_id is required for nodes".to_string()),
                 };
                 let mut path = format!("/wiki/v2/spaces/{space_id}/nodes");
-                if let Some(pt) = args.get("parent_node_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(pt) = args
+                    .get("parent_node_token")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     path.push_str(&format!("?parent_node_token={pt}"));
                 }
                 self.client.user_get(&path).await
@@ -74,7 +93,9 @@ impl Tool for FeishuWikiTool {
                     Some(s) if !s.is_empty() => s,
                     _ => return ToolResult::err("token is required for get".to_string()),
                 };
-                self.client.user_get_query("/wiki/v2/spaces/get_node", &[("token", token)]).await
+                self.client
+                    .user_get_query("/wiki/v2/spaces/get_node", &[("token", token)])
+                    .await
             }
             "search" => {
                 let query = match args.get("query").and_then(|v| v.as_str()) {
@@ -82,12 +103,18 @@ impl Tool for FeishuWikiTool {
                     _ => return ToolResult::err("query is required for search".to_string()),
                 };
                 let mut body = serde_json::json!({ "search_key": query, "count": 20, "offset": 0 });
-                if let Some(sid) = args.get("space_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(sid) = args
+                    .get("space_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     body["docs_type"] = serde_json::json!([]);
                     body["owner_ids"] = serde_json::json!([]);
                     body["space_id"] = serde_json::Value::String(sid.to_string());
                 }
-                self.client.user_post_json("/suite/docs-api/search/object", &body).await
+                self.client
+                    .user_post_json("/suite/docs-api/search/object", &body)
+                    .await
             }
             "create" => {
                 let space_id = match args.get("space_id").and_then(|v| v.as_str()) {
@@ -98,12 +125,21 @@ impl Tool for FeishuWikiTool {
                     Some(s) if !s.is_empty() => s,
                     _ => return ToolResult::err("title is required for create".to_string()),
                 };
-                let obj_type = args.get("obj_type").and_then(|v| v.as_str()).unwrap_or("docx");
+                let obj_type = args
+                    .get("obj_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("docx");
                 let mut body = serde_json::json!({ "obj_type": obj_type, "title": title });
-                if let Some(pt) = args.get("parent_node_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(pt) = args
+                    .get("parent_node_token")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     body["parent_node_token"] = serde_json::Value::String(pt.to_string());
                 }
-                self.client.user_post_json(&format!("/wiki/v2/spaces/{space_id}/nodes"), &body).await
+                self.client
+                    .user_post_json(&format!("/wiki/v2/spaces/{space_id}/nodes"), &body)
+                    .await
             }
             "move" => {
                 let space_id = match args.get("space_id").and_then(|v| v.as_str()) {
@@ -115,13 +151,26 @@ impl Tool for FeishuWikiTool {
                     _ => return ToolResult::err("node_token is required for move".to_string()),
                 };
                 let mut body = serde_json::json!({});
-                if let Some(ts) = args.get("target_space_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(ts) = args
+                    .get("target_space_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     body["target_space_id"] = serde_json::Value::String(ts.to_string());
                 }
-                if let Some(tp) = args.get("target_parent_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(tp) = args
+                    .get("target_parent_token")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     body["target_parent_token"] = serde_json::Value::String(tp.to_string());
                 }
-                self.client.user_post_json(&format!("/wiki/v2/spaces/{space_id}/nodes/{node_token}/move"), &body).await
+                self.client
+                    .user_post_json(
+                        &format!("/wiki/v2/spaces/{space_id}/nodes/{node_token}/move"),
+                        &body,
+                    )
+                    .await
             }
             "rename" => {
                 let space_id = match args.get("space_id").and_then(|v| v.as_str()) {
@@ -137,7 +186,12 @@ impl Tool for FeishuWikiTool {
                     _ => return ToolResult::err("title is required for rename".to_string()),
                 };
                 let body = serde_json::json!({ "title": title });
-                self.client.user_put_json(&format!("/wiki/v2/spaces/{space_id}/nodes/{node_token}"), &body).await
+                self.client
+                    .user_put_json(
+                        &format!("/wiki/v2/spaces/{space_id}/nodes/{node_token}"),
+                        &body,
+                    )
+                    .await
             }
             _ => return ToolResult::err(format!("unknown action: {action}")),
         };

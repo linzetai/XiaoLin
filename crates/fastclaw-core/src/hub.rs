@@ -198,16 +198,13 @@ impl HubClient {
 
         for file in &pkg.files {
             if file.name.contains("..") || file.name.starts_with('/') {
-                anyhow::bail!(
-                    "path traversal in skill package file name: {}",
-                    file.name
-                );
+                anyhow::bail!("path traversal in skill package file name: {}", file.name);
             }
             let file_path = skill_dir.join(&file.name);
             let canonical_dir = std::fs::canonicalize(&skill_dir)?;
-            if let Ok(canonical_file) = std::fs::canonicalize(
-                file_path.parent().unwrap_or(&file_path),
-            ) {
+            if let Ok(canonical_file) =
+                std::fs::canonicalize(file_path.parent().unwrap_or(&file_path))
+            {
                 if !canonical_file.starts_with(&canonical_dir) {
                     anyhow::bail!(
                         "path traversal detected: {} escapes skill directory",

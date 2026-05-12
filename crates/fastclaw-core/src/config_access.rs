@@ -18,7 +18,7 @@ pub const CONFIG_READABLE_KEYS: &[&str] = &[
     "modelRouter",
     "evolution",
     "mcpServers",
-"onboarding",
+    "onboarding",
     "security",
 ];
 
@@ -36,7 +36,7 @@ pub const CONFIG_WRITABLE_KEYS: &[&str] = &[
     "channels",
     "bindings",
     "mcpServers",
-"onboarding",
+    "onboarding",
     "security",
 ];
 
@@ -101,14 +101,14 @@ pub fn set_nested_key(
 pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Result<()> {
     // 获取当前配置模式（根据编译模式自动判断）
     let mode = crate::config::ConfigMode::from_flags(false, None);
-    
+
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
     let state_dir = match &mode {
         crate::config::ConfigMode::Development => home.join(".fastclaw-dev"),
         crate::config::ConfigMode::Profile(name) => home.join(format!(".fastclaw-{name}")),
         crate::config::ConfigMode::Production => home.join(".fastclaw"),
     };
-    
+
     let cfg_path = state_dir.join("config/default.json");
     let mut cfg_value: serde_json::Value = if cfg_path.exists() {
         let text = std::fs::read_to_string(&cfg_path)?;
@@ -172,4 +172,3 @@ pub fn mask_secret_values(val: &serde_json::Value) -> serde_json::Value {
         other => other.clone(),
     }
 }
-

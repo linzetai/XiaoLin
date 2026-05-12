@@ -91,9 +91,7 @@ fn validate_change_scope(revised: &str, original: &str) -> Result<()> {
                 pattern = %pattern,
                 "evolution: rejected candidate — forbidden injection pattern detected"
             );
-            anyhow::bail!(
-                "revised prompt contains forbidden pattern: '{pattern}'"
-            );
+            anyhow::bail!("revised prompt contains forbidden pattern: '{pattern}'");
         }
     }
 
@@ -145,7 +143,11 @@ fn levenshtein_bounded(a: &str, b: &str, bound: usize) -> usize {
         curr[0] = i;
         let mut row_min = curr[0];
         for j in 1..=m {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
             curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
             row_min = row_min.min(curr[j]);
         }

@@ -422,9 +422,7 @@ pub fn mcp_instructions_section() -> PromptSection {
 
             let mut parts = vec!["<mcp_instructions>".to_string()];
             for (id, instructions) in servers_with_instructions {
-                parts.push(format!(
-                    "## MCP Server: {id}\n\n{instructions}"
-                ));
+                parts.push(format!("## MCP Server: {id}\n\n{instructions}"));
             }
             parts.push("</mcp_instructions>".to_string());
             Some(parts.join("\n\n"))
@@ -620,7 +618,11 @@ mod tests {
 
     #[test]
     fn session_guidance_includes_memory() {
-        let ctx = ctx_with_tools(None, &["memory_search", "memory_store"], ExecutionMode::Agent);
+        let ctx = ctx_with_tools(
+            None,
+            &["memory_search", "memory_store"],
+            ExecutionMode::Agent,
+        );
         let section = session_guidance_section();
         let text = (section.compute)(&ctx).unwrap();
         assert!(text.contains("Memory") || text.contains("memory"));

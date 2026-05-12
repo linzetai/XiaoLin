@@ -1,12 +1,12 @@
-pub mod parser;
-pub mod symbols;
 pub mod chunker;
+pub mod parser;
 pub mod shell_ast;
+pub mod symbols;
 
+pub use chunker::{chunk_file, CodeChunk};
 pub use parser::{CodeParser, ParsedTree};
-pub use symbols::{Symbol, SymbolKind, extract_symbols, extract_callees, extract_trait_impls};
-pub use chunker::{CodeChunk, chunk_file};
 pub use shell_ast::{
-    ShellAst, ShellArg, CaseArm, Redirection, RedirectOp,
-    parse_shell_ast, extract_command_names, has_command_substitution, nesting_depth,
+    extract_command_names, has_command_substitution, nesting_depth, parse_shell_ast, CaseArm,
+    RedirectOp, Redirection, ShellArg, ShellAst,
 };
+pub use symbols::{extract_callees, extract_symbols, extract_trait_impls, Symbol, SymbolKind};

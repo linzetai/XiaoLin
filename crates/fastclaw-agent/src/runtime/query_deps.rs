@@ -5,22 +5,19 @@ use fastclaw_core::types::{ChatMessage, ChatResponse, StreamDelta};
 use futures::stream::BoxStream;
 use tokio::sync::Mutex;
 
-use crate::llm::{CompletionParams, LlmProvider};
 use super::unified_compact::{unified_pre_query_compact, UnifiedCompactResult};
+use crate::llm::{CompletionParams, LlmProvider};
 
 /// Dependency injection trait for the agent query loop.
 ///
 /// Abstracts LLM calls and context compression so that:
 /// - `ProductionDeps` delegates to real providers and the context pipeline.
 /// - `MockDeps` allows unit tests to verify loop logic without LLM calls.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 #[async_trait]
 pub(crate) trait QueryDeps: Send + Sync {
     /// Non-streaming LLM call.
-    async fn call_model(
-        &self,
-        params: &CompletionParams<'_>,
-    ) -> anyhow::Result<ChatResponse>;
+    async fn call_model(&self, params: &CompletionParams<'_>) -> anyhow::Result<ChatResponse>;
 
     /// Streaming LLM call.
     async fn call_model_stream(
@@ -42,10 +39,8 @@ pub(crate) trait QueryDeps: Send + Sync {
     ) -> UnifiedCompactResult;
 
     /// Emergency reactive compaction (prompt_too_long recovery).
-    fn reactive_compact(
-        &self,
-        messages: &[ChatMessage],
-    ) -> fastclaw_context::ReactiveCompactResult;
+    fn reactive_compact(&self, messages: &[ChatMessage])
+        -> fastclaw_context::ReactiveCompactResult;
 
     /// Provider name for metrics.
     fn provider_name(&self) -> &str;
@@ -74,10 +69,7 @@ impl ProductionDeps {
 
 #[async_trait]
 impl QueryDeps for ProductionDeps {
-    async fn call_model(
-        &self,
-        params: &CompletionParams<'_>,
-    ) -> anyhow::Result<ChatResponse> {
+    async fn call_model(&self, params: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
         self.provider.chat_completion(params).await
     }
 
@@ -152,6 +144,7 @@ pub(crate) mod mock {
             }
         }
 
+        #[allow(dead_code)]
         pub fn with_compact_results(mut self, results: Vec<UnifiedCompactResult>) -> Self {
             self.compact_results = Mutex::new(results);
             self
@@ -164,10 +157,7 @@ pub(crate) mod mock {
 
     #[async_trait]
     impl QueryDeps for MockDeps {
-        async fn call_model(
-            &self,
-            _params: &CompletionParams<'_>,
-        ) -> anyhow::Result<ChatResponse> {
+        async fn call_model(&self, _params: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
             self.call_count.fetch_add(1, Ordering::Relaxed);
             let mut responses = self.responses.lock().await;
             if responses.is_empty() {
@@ -229,8 +219,8 @@ pub(crate) mod mock {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::mock::MockDeps;
+    use super::*;
     use fastclaw_core::types::{ChatChoice, ChatMessage, ChatResponse, Role, Usage};
 
     fn end_turn_response(content: &str) -> ChatResponse {

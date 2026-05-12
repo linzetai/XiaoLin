@@ -7,12 +7,10 @@ use tokio_util::sync::CancellationToken;
 
 use fastclaw_core::agent_config::{AgentConfig, SubAgentPolicy};
 use fastclaw_core::tool::ToolRegistry;
-use fastclaw_core::types::{
-    StreamEvent, SubAgentRun, SubAgentStatus, SubAgentType, Usage,
-};
+use fastclaw_core::types::{StreamEvent, SubAgentRun, SubAgentStatus, SubAgentType, Usage};
 
-use crate::runtime::AgentRuntime;
 use crate::llm::LlmProvider;
+use crate::runtime::AgentRuntime;
 
 /// Manages the lifecycle of all sub-agent runs: spawn, cancel, track, query.
 pub struct SubAgentManager {
@@ -131,7 +129,8 @@ impl SubAgentManager {
         self.runs.insert(run_id.clone(), run);
 
         let cancel_token = CancellationToken::new();
-        self.cancel_tokens.insert(run_id.clone(), cancel_token.clone());
+        self.cancel_tokens
+            .insert(run_id.clone(), cancel_token.clone());
 
         let _ = parent_tx
             .send(StreamEvent::SubAgentStart {
@@ -317,7 +316,9 @@ impl SubAgentManager {
             while let Some(event) = child_rx.recv().await {
                 match &event {
                     StreamEvent::Delta(delta) => {
-                        if let Some(content) = delta.choices.first()
+                        if let Some(content) = delta
+                            .choices
+                            .first()
                             .and_then(|c| c.delta.content.as_deref())
                         {
                             accumulated_text.push_str(content);
@@ -329,7 +330,11 @@ impl SubAgentManager {
                                 .await;
                         }
                     }
-                    StreamEvent::ToolExecuting { tool_name, call_id, args } => {
+                    StreamEvent::ToolExecuting {
+                        tool_name,
+                        call_id,
+                        args,
+                    } => {
                         let _ = parent_tx_clone
                             .send(StreamEvent::SubAgentToolExecuting {
                                 run_id: run_id_owned.clone(),
@@ -339,7 +344,14 @@ impl SubAgentManager {
                             })
                             .await;
                     }
-                    StreamEvent::ToolResult { tool_name, call_id, output, display_output, success, .. } => {
+                    StreamEvent::ToolResult {
+                        tool_name,
+                        call_id,
+                        output,
+                        display_output,
+                        success,
+                        ..
+                    } => {
                         let ui_out = display_output.as_ref().unwrap_or(output);
                         let _ = parent_tx_clone
                             .send(StreamEvent::SubAgentToolResult {
@@ -365,7 +377,8 @@ impl SubAgentManager {
             .execute_stream(config, &request, tool_registry, child_tx, llm_override)
             .await;
 
-        let (accumulated_text, final_usage) = forwarder.await
+        let (accumulated_text, final_usage) = forwarder
+            .await
             .map_err(|e| anyhow::anyhow!("forwarder task panicked: {e}"))?;
 
         match stream_result {
@@ -408,10 +421,7 @@ impl SubAgentManager {
     pub fn list_runs(&self, parent_session_id: Option<&str>) -> Vec<SubAgentRun> {
         self.runs
             .iter()
-            .filter(|r| {
-                parent_session_id
-                    .is_none_or(|sid| r.parent_session_id == sid)
-            })
+            .filter(|r| parent_session_id.is_none_or(|sid| r.parent_session_id == sid))
             .map(|r| r.value().clone())
             .collect()
     }
@@ -489,8 +499,10 @@ mod tests {
         let mgr = make_manager(vec![test_agent("x")]);
         let agent_config = mgr.resolve_agent("x").unwrap();
         let (tx, _rx) = mpsc::channel(16);
-        let mut policy = SubAgentPolicy::default();
-        policy.enabled = false;
+        let policy = SubAgentPolicy {
+            enabled: false,
+            ..Default::default()
+        };
 
         let err = mgr
             .spawn(
@@ -516,8 +528,10 @@ mod tests {
         let mgr = make_manager(vec![test_agent("x")]);
         let agent_config = mgr.resolve_agent("x").unwrap();
         let (tx, _rx) = mpsc::channel(16);
-        let mut policy = SubAgentPolicy::default();
-        policy.max_depth = 2;
+        let policy = SubAgentPolicy {
+            max_depth: 2,
+            ..Default::default()
+        };
 
         let err = mgr
             .spawn(
@@ -598,8 +612,14 @@ mod tests {
         mgr.runs.insert("active".into(), running);
 
         mgr.gc(Duration::from_secs(1));
-        assert!(mgr.get_run("old").is_none(), "old completed run should be GC'd");
-        assert!(mgr.get_run("active").is_some(), "running run should survive GC");
+        assert!(
+            mgr.get_run("old").is_none(),
+            "old completed run should be GC'd"
+        );
+        assert!(
+            mgr.get_run("active").is_some(),
+            "running run should survive GC"
+        );
     }
 
     #[test]

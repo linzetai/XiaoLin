@@ -1067,9 +1067,18 @@ mod tests {
         assert!(text.contains("COMMENTS"));
         assert!(text.contains("non-obvious intent"));
         assert!(text.contains("VERIFY YOUR WORK"));
-        assert!(text.contains("REPORT FAITHFULLY"), "should include faithful reporting guidance");
-        assert!(text.contains("BE A COLLABORATOR"), "should include collaborator guidance");
-        assert!(text.contains("STAY STEADY"), "should include error recovery guidance");
+        assert!(
+            text.contains("REPORT FAITHFULLY"),
+            "should include faithful reporting guidance"
+        );
+        assert!(
+            text.contains("BE A COLLABORATOR"),
+            "should include collaborator guidance"
+        );
+        assert!(
+            text.contains("STAY STEADY"),
+            "should include error recovery guidance"
+        );
     }
 
     #[test]
@@ -1081,9 +1090,18 @@ mod tests {
         assert!(text.contains("先读后写"));
         assert!(text.contains("注释规范"));
         assert!(text.contains("验证工作"));
-        assert!(text.contains("忠实报告"), "should include faithful reporting guidance (zh)");
-        assert!(text.contains("协作者"), "should include collaborator guidance (zh)");
-        assert!(text.contains("保持稳定"), "should include error recovery guidance (zh)");
+        assert!(
+            text.contains("忠实报告"),
+            "should include faithful reporting guidance (zh)"
+        );
+        assert!(
+            text.contains("协作者"),
+            "should include collaborator guidance (zh)"
+        );
+        assert!(
+            text.contains("保持稳定"),
+            "should include error recovery guidance (zh)"
+        );
     }
 
     #[test]

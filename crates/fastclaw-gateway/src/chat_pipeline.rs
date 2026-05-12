@@ -81,7 +81,8 @@ pub async fn setup_chat(
     let agent_config = {
         let router = state.rt.router.read().await;
         router
-            .resolve(request).cloned()
+            .resolve(request)
+            .cloned()
             .map_err(map_router_resolve_err)?
     };
     let agent_id = agent_config.agent_id.clone();
@@ -184,16 +185,13 @@ pub async fn setup_chat(
     // Detect /compact in user message text (frontend sends it via the slash command).
     let is_compact_request = user_messages
         .iter()
-        .any(|m| m.role == Role::User && m.text_content().map_or(false, |t| t.trim() == "/compact"));
+        .any(|m| m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/compact"));
     if is_compact_request {
         // Replace the raw "/compact" user message with a nicer prompt and inject
         // a system marker that the agent loop's compression pipeline can detect.
-        if let Some(last_user) = enriched_request
-            .messages
-            .iter_mut()
-            .rev()
-            .find(|m| m.role == Role::User && m.text_content().map_or(false, |t| t.trim() == "/compact"))
-        {
+        if let Some(last_user) = enriched_request.messages.iter_mut().rev().find(|m| {
+            m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/compact")
+        }) {
             last_user.content = Some(serde_json::Value::String(
                 "请压缩上下文并简要确认压缩结果。".to_string(),
             ));
@@ -546,7 +544,8 @@ fn apply_prompt_router(
 
 fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<ChatMessage>) {
     let agent_skill_reg = state.skill_registry_for(agent_id);
-    let skills_prompt = agent_skill_reg.format_for_prompt_mode(&state.cfg.config.skills.prompt_mode);
+    let skills_prompt =
+        agent_skill_reg.format_for_prompt_mode(&state.cfg.config.skills.prompt_mode);
     if skills_prompt.is_empty() {
         return;
     }
@@ -652,7 +651,12 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
     let mut prompt = String::from("[MCP Extensions]\nThe following MCP (Model Context Protocol) servers are connected, providing additional tools.\n\n");
 
     for (server_id, tools) in &servers {
-        let cfg_match = state.cfg.config.mcp_servers.iter().find(|c| c.id == *server_id);
+        let cfg_match = state
+            .cfg
+            .config
+            .mcp_servers
+            .iter()
+            .find(|c| c.id == *server_id);
         let cmd_info = cfg_match
             .map(|c| format!("{} {}", c.command, c.args.join(" ")))
             .unwrap_or_default();
@@ -736,18 +740,14 @@ fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessag
     let model = setup.model_for_budget.clone();
     let (ctx_tokens, ctx_window) = setup.context_tokens_estimate.unwrap_or((0, 0));
 
-    let user_msg = setup
-        .user_messages
-        .last()
-        .cloned()
-        .unwrap_or(ChatMessage {
-            role: Role::User,
-            content: None,
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        });
+    let user_msg = setup.user_messages.last().cloned().unwrap_or(ChatMessage {
+        role: Role::User,
+        content: None,
+        reasoning_content: None,
+        name: None,
+        tool_calls: None,
+        tool_call_id: None,
+    });
     let assistant_msg = assistant.clone();
 
     tokio::spawn(async move {

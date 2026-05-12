@@ -275,7 +275,12 @@ async fn handle_stream(
     let agent_config = setup.agent_config.clone();
 
     for msg in &setup.user_messages {
-        if let Err(e) = state.store.session_store.append_message(&session_id, msg).await {
+        if let Err(e) = state
+            .store
+            .session_store
+            .append_message(&session_id, msg)
+            .await
+        {
             tracing::error!(
                 session_id = %session_id,
                 error = %e,

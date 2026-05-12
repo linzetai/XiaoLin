@@ -35,7 +35,10 @@ fn ensure_json_arguments(raw: &str) -> String {
     if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
         return trimmed.to_string();
     }
-    tracing::debug!(raw_len = raw.len(), "repairing malformed tool call arguments");
+    tracing::debug!(
+        raw_len = raw.len(),
+        "repairing malformed tool call arguments"
+    );
     repair_json(trimmed)
 }
 
@@ -65,7 +68,9 @@ fn repair_json(s: &str) -> String {
         match ch {
             '{' => stack.push('}'),
             '[' => stack.push(']'),
-            '}' | ']' => { stack.pop(); }
+            '}' | ']' => {
+                stack.pop();
+            }
             _ => {}
         }
     }
@@ -80,7 +85,10 @@ fn repair_json(s: &str) -> String {
     if serde_json::from_str::<serde_json::Value>(&result).is_ok() {
         result
     } else {
-        format!("{{\"_raw\":{}}}", serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string()))
+        format!(
+            "{{\"_raw\":{}}}",
+            serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+        )
     }
 }
 
@@ -138,23 +146,29 @@ mod tests {
     fn truncated_json_gets_repaired() {
         let input = r#"{"path": "/tmp/test.rs", "content": "hello"#;
         let repaired = ensure_json_arguments(input);
-        assert!(serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
-            "repaired JSON should be valid: {repaired}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "repaired JSON should be valid: {repaired}"
+        );
     }
 
     #[test]
     fn unclosed_brace_gets_closed() {
         let input = r#"{"key": "value""#;
         let repaired = ensure_json_arguments(input);
-        assert!(serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
-            "repaired JSON should be valid: {repaired}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "repaired JSON should be valid: {repaired}"
+        );
     }
 
     #[test]
     fn totally_invalid_falls_back() {
         let input = "not json at all";
         let repaired = ensure_json_arguments(input);
-        assert!(serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
-            "fallback JSON should be valid: {repaired}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "fallback JSON should be valid: {repaired}"
+        );
     }
 }

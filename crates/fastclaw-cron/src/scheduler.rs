@@ -163,7 +163,12 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
             message,
             session_id,
         } => trigger
-            .trigger_agent_chat(agent_id, message, session_id.as_deref(), &job.notify_channels)
+            .trigger_agent_chat(
+                agent_id,
+                message,
+                session_id.as_deref(),
+                &job.notify_channels,
+            )
             .await
             .map(|(reply, sent)| (Some(reply), sent)),
         JobAction::Webhook { url, method, body } => trigger
@@ -183,7 +188,13 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
                 let _ = store.complete_run(run_id, output.as_deref()).await;
             }
             trigger
-                .on_job_completed(&job_id, &job.name, output.as_deref(), &job.notify_channels, sent_via_channel)
+                .on_job_completed(
+                    &job_id,
+                    &job.name,
+                    output.as_deref(),
+                    &job.notify_channels,
+                    sent_via_channel,
+                )
                 .await;
         }
         Err(e) => {

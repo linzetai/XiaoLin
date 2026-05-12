@@ -64,7 +64,8 @@ impl Tool for FeishuCalendarListEventsTool {
             .unwrap_or(20)
             .clamp(1, 50);
         let path = format!("/calendar/v4/calendars/{calendar_id}/events");
-        let mut owned: Vec<(String, String)> = vec![("page_size".to_string(), page_size.to_string())];
+        let mut owned: Vec<(String, String)> =
+            vec![("page_size".to_string(), page_size.to_string())];
         if let Some(st) = args.get("start_time").and_then(|v| v.as_str()) {
             if !st.is_empty() {
                 owned.push(("start_time".to_string(), st.to_string()));

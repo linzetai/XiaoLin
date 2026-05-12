@@ -327,7 +327,8 @@ impl EpisodicMemory {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut seen_ids: std::collections::HashSet<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let mut seen_ids: std::collections::HashSet<String> =
+            rows.iter().map(|r| r.id.clone()).collect();
         let mut rows = rows;
         for r in recency_rows {
             if seen_ids.insert(r.id.clone()) {

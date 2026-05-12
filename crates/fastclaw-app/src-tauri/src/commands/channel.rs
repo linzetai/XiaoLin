@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use super::helpers::{get_state, validate_agent_id};
 use crate::AppData;
 use serde_json::json;
-use super::helpers::{get_state, validate_agent_id};
 
 // ─── Hot-reload channel ───
 
@@ -25,22 +25,14 @@ pub async fn reload_channel(
 // ─── Channel bindings ───
 
 #[tauri::command]
-pub async fn list_channels(
-    state: tauri::State<'_, AppData>,
-) -> Result<serde_json::Value, String> {
+pub async fn list_channels(state: tauri::State<'_, AppData>) -> Result<serde_json::Value, String> {
     tracing::info!("IPC list_channels");
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
 
     let live: serde_json::Value = (**app.cfg.config_live.load()).clone();
-    let channels_val = live
-        .get("channels")
-        .cloned()
-        .unwrap_or(json!({}));
-    let bindings_val = live
-        .get("bindings")
-        .cloned()
-        .unwrap_or(json!([]));
+    let channels_val = live.get("channels").cloned().unwrap_or(json!({}));
+    let bindings_val = live.get("bindings").cloned().unwrap_or(json!([]));
 
     Ok(json!({ "channels": channels_val, "bindings": bindings_val }))
 }
@@ -80,7 +72,8 @@ pub async fn bind_agent_channel(
             live["bindings"] = json!([new_binding]);
         }
 
-        let bytes = serde_json::to_vec_pretty(&live).map_err(|e| format!("serialize config: {e}"))?;
+        let bytes =
+            serde_json::to_vec_pretty(&live).map_err(|e| format!("serialize config: {e}"))?;
         app.cfg.config_live.store(Arc::new(live));
         bytes
     };
@@ -118,7 +111,8 @@ pub async fn unbind_agent_channel(
             });
         }
 
-        let bytes = serde_json::to_vec_pretty(&live).map_err(|e| format!("serialize config: {e}"))?;
+        let bytes =
+            serde_json::to_vec_pretty(&live).map_err(|e| format!("serialize config: {e}"))?;
         app.cfg.config_live.store(Arc::new(live));
         bytes
     };

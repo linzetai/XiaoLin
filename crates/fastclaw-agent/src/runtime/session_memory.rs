@@ -228,10 +228,7 @@ fn parse_session_memory(raw: &str) -> Option<SessionMemory> {
 
 /// Inject extracted session memory into the system prompt as an additional
 /// context block. This preserves the memory across compression rounds.
-pub(crate) fn inject_session_memory(
-    messages: &mut [ChatMessage],
-    memory: &SessionMemory,
-) {
+pub(crate) fn inject_session_memory(messages: &mut [ChatMessage], memory: &SessionMemory) {
     let mut block = String::from("<session_memory>\n");
 
     if !memory.key_facts.is_empty() {
@@ -270,9 +267,7 @@ pub(crate) fn inject_session_memory(
     if let Some(sys_msg) = messages.iter_mut().find(|m| matches!(m.role, Role::System)) {
         let existing = sys_msg.text_content().unwrap_or_default();
         if !existing.contains("<session_memory>") {
-            sys_msg.content = Some(serde_json::Value::String(format!(
-                "{existing}\n\n{block}"
-            )));
+            sys_msg.content = Some(serde_json::Value::String(format!("{existing}\n\n{block}")));
         }
     }
 }
@@ -370,8 +365,14 @@ mod tests {
         assert!(sys.contains("<session_memory>"), "should inject block");
         assert!(sys.contains("uses Rust"), "should include facts");
         assert!(sys.contains("chose SQLite"), "should include decisions");
-        assert!(sys.contains("implementing feature X"), "should include task state");
+        assert!(
+            sys.contains("implementing feature X"),
+            "should include task state"
+        );
         assert!(sys.contains("src/main.rs"), "should include files");
-        assert!(sys.starts_with("You are helpful."), "should preserve original prompt");
+        assert!(
+            sys.starts_with("You are helpful."),
+            "should preserve original prompt"
+        );
     }
 }

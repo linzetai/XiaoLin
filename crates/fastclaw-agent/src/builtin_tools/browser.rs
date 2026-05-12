@@ -21,7 +21,10 @@ struct ActionResult {
 
 impl ActionResult {
     fn text(s: String) -> Self {
-        Self { text: s, images: vec![] }
+        Self {
+            text: s,
+            images: vec![],
+        }
     }
 }
 
@@ -74,8 +77,7 @@ impl BrowserTool {
         if let Ok(dir) = std::env::var("FASTCLAW_BROWSER_PROFILE") {
             return std::path::PathBuf::from(dir);
         }
-        let base = dirs::data_local_dir()
-            .unwrap_or_else(|| std::env::temp_dir().join("fastclaw"));
+        let base = dirs::data_local_dir().unwrap_or_else(|| std::env::temp_dir().join("fastclaw"));
         base.join("fastclaw").join("browser-profile")
     }
 
@@ -148,13 +150,18 @@ impl BrowserTool {
                 cmd.output().ok()
             };
             let text = match ps_result {
-                Some(ref out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+                Some(ref out) if out.status.success() => {
+                    String::from_utf8_lossy(&out.stdout).to_string()
+                }
                 _ => {
                     let mut cmd = std::process::Command::new("wmic");
                     cmd.args([
-                        "process", "where",
+                        "process",
+                        "where",
                         &format!("commandline like '%{wql_pattern}%' and name='chrome.exe'"),
-                        "get", "commandline", "/format:list",
+                        "get",
+                        "commandline",
+                        "/format:list",
                     ]);
                     cmd.creation_flags(0x08000000);
                     match cmd.output() {
@@ -169,7 +176,10 @@ impl BrowserTool {
         #[cfg(not(target_os = "windows"))]
         let pids_and_ports = {
             let output = std::process::Command::new("sh")
-                .args(["-c", &format!("ps aux | grep chrome | grep '{}'", profile_str)])
+                .args([
+                    "-c",
+                    &format!("ps aux | grep chrome | grep '{}'", profile_str),
+                ])
                 .output()
                 .ok()?;
             let text = String::from_utf8_lossy(&output.stdout);
@@ -200,9 +210,7 @@ impl BrowserTool {
     fn http_get(host_port: &str, path: &str) -> Option<String> {
         use std::io::{Read, Write};
         let mut stream = std::net::TcpStream::connect(host_port).ok()?;
-        stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
         write!(
             stream,
             "GET {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\n\r\n"
@@ -230,8 +238,7 @@ impl BrowserTool {
     fn extract_debug_ports(text: &str) -> Vec<u16> {
         static RE_PORT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let re_port = RE_PORT.get_or_init(|| {
-            regex::Regex::new(r"--remote-debugging-port=(\d+)")
-                .expect("static regex must compile")
+            regex::Regex::new(r"--remote-debugging-port=(\d+)").expect("static regex must compile")
         });
         let mut ports: Vec<u16> = re_port
             .captures_iter(text)
@@ -263,10 +270,14 @@ impl BrowserTool {
             // Reconnected to an existing Chrome — adopt an existing tab to
             // preserve login state, cookies, etc.
             let existing_tab = browser.get_tabs().try_lock().ok().and_then(|tabs| {
-                tabs.iter().rev().find(|t| {
-                    let url = t.get_url();
-                    !url.is_empty() && url != "about:blank"
-                }).or_else(|| tabs.first()).cloned()
+                tabs.iter()
+                    .rev()
+                    .find(|t| {
+                        let url = t.get_url();
+                        !url.is_empty() && url != "about:blank"
+                    })
+                    .or_else(|| tabs.first())
+                    .cloned()
             });
             *guard = Some(BrowserState {
                 browser,
@@ -295,9 +306,9 @@ impl BrowserTool {
         if let Some(ref p) = chrome_path {
             builder.path(Some(p.clone()));
         }
-        let launch_options = builder.build().map_err(|e| {
-            format!("browser: invalid Chrome launch options: {e}.")
-        })?;
+        let launch_options = builder
+            .build()
+            .map_err(|e| format!("browser: invalid Chrome launch options: {e}."))?;
 
         let (tx, rx) = std::sync::mpsc::channel();
         let opts = launch_options;
@@ -310,9 +321,7 @@ impl BrowserTool {
                 "browser: Chrome launch timed out (30s). Ensure Chrome/Chromium is installed."
                     .to_string()
             })?
-            .map_err(|e| {
-                format!("browser: could not start Chrome/Chromium: {e}.")
-            })?;
+            .map_err(|e| format!("browser: could not start Chrome/Chromium: {e}."))?;
         **guard = Some(BrowserState {
             browser,
             persistent_tab: None,
@@ -411,9 +420,10 @@ impl BrowserTool {
         }
 
         // No existing tabs available — create one as last resort
-        let tab = state.browser.new_tab().map_err(|e| {
-            format!("browser: could not open a new tab: {e}.")
-        })?;
+        let tab = state
+            .browser
+            .new_tab()
+            .map_err(|e| format!("browser: could not open a new tab: {e}."))?;
         tab.set_default_timeout(Duration::from_secs(30));
         state.persistent_tab = Some(tab.clone());
         Ok(tab)
@@ -513,11 +523,13 @@ impl BrowserTool {
 })()"#
         };
 
-        let result = tab.evaluate(script, false).map_err(|e| {
-            format!("browser take_snapshot: JS evaluation failed: {e}.")
-        })?;
+        let result = tab
+            .evaluate(script, false)
+            .map_err(|e| format!("browser take_snapshot: JS evaluation failed: {e}."))?;
 
-        let raw = result.value.as_ref()
+        let raw = result
+            .value
+            .as_ref()
             .and_then(|v| v.as_str())
             .ok_or("browser take_snapshot: empty a11y tree result")?;
 
@@ -537,13 +549,26 @@ impl BrowserTool {
 
             let prefix = "  ".repeat(indent);
             let mut line = format!("{prefix}[{uid}] {tag}");
-            if !role.is_empty() { line.push_str(&format!(" role={role}")); }
-            if !typ.is_empty() { line.push_str(&format!(" type={typ}")); }
-            if interactive { line.push_str(" *"); }
-            if !aria.is_empty() { line.push_str(&format!(" \"{aria}\"")); }
-            else if !text.is_empty() { line.push_str(&format!(" \"{text}\"")); }
-            if !val.is_empty() { line.push_str(&format!(" value=\"{val}\"")); }
-            if !ph.is_empty() { line.push_str(&format!(" placeholder=\"{ph}\"")); }
+            if !role.is_empty() {
+                line.push_str(&format!(" role={role}"));
+            }
+            if !typ.is_empty() {
+                line.push_str(&format!(" type={typ}"));
+            }
+            if interactive {
+                line.push_str(" *");
+            }
+            if !aria.is_empty() {
+                line.push_str(&format!(" \"{aria}\""));
+            } else if !text.is_empty() {
+                line.push_str(&format!(" \"{text}\""));
+            }
+            if !val.is_empty() {
+                line.push_str(&format!(" value=\"{val}\""));
+            }
+            if !ph.is_empty() {
+                line.push_str(&format!(" placeholder=\"{ph}\""));
+            }
             out.push_str(&line);
             out.push('\n');
 
@@ -572,11 +597,9 @@ impl BrowserTool {
                 if args.get("script").and_then(|v| v.as_str()).is_none()
                     && args.get("function").and_then(|v| v.as_str()).is_none()
                 {
-                    return Err(
-                        "browser evaluate: missing 'script' or 'function'. \
+                    return Err("browser evaluate: missing 'script' or 'function'. \
                          Example: {\"action\": \"evaluate\", \"script\": \"document.title\"}."
-                            .to_string(),
-                    );
+                        .to_string());
                 }
             }
             "click" | "hover" | "drag" => {
@@ -606,9 +629,7 @@ impl BrowserTool {
             }
             "type_text" => {
                 if args.get("text").and_then(|v| v.as_str()).is_none() {
-                    return Err(
-                        "browser type_text: missing string field 'text'.".to_string(),
-                    );
+                    return Err("browser type_text: missing string field 'text'.".to_string());
                 }
             }
             "press_key" => {
@@ -622,7 +643,8 @@ impl BrowserTool {
             "wait_for" => {
                 if args.get("text").is_none() && args.get("selector").is_none() {
                     return Err(
-                        "browser wait_for: provide 'text' (array of strings) or 'selector' (CSS).".to_string(),
+                        "browser wait_for: provide 'text' (array of strings) or 'selector' (CSS)."
+                            .to_string(),
                     );
                 }
             }
@@ -642,10 +664,14 @@ impl BrowserTool {
                 }
             }
             "handle_dialog" => {
-                let a = args.get("dialog_action").and_then(|v| v.as_str()).unwrap_or("");
+                let a = args
+                    .get("dialog_action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if a != "accept" && a != "dismiss" {
                     return Err(
-                        "browser handle_dialog: 'dialog_action' must be \"accept\" or \"dismiss\".".to_string(),
+                        "browser handle_dialog: 'dialog_action' must be \"accept\" or \"dismiss\"."
+                            .to_string(),
                     );
                 }
             }
@@ -655,7 +681,10 @@ impl BrowserTool {
                 }
             }
             "cookies" => {
-                let op = args.get("operation").and_then(|v| v.as_str()).unwrap_or("get");
+                let op = args
+                    .get("operation")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("get");
                 if (op == "set" || op == "delete")
                     && args.get("cookie_name").and_then(|v| v.as_str()).is_none()
                 {
@@ -667,8 +696,14 @@ impl BrowserTool {
                     return Err("browser pdf: missing 'output_path'.".to_string());
                 }
             }
-            "take_snapshot" | "screenshot" | "scroll" | "interact" | "get_content"
-            | "list_pages" | "list_network_requests" | "list_console_messages"
+            "take_snapshot"
+            | "screenshot"
+            | "scroll"
+            | "interact"
+            | "get_content"
+            | "list_pages"
+            | "list_network_requests"
+            | "list_console_messages"
             | "emulate" => {}
             "upload_file" => {
                 if args.get("uid").and_then(|v| v.as_str()).is_none()
@@ -730,7 +765,8 @@ impl BrowserTool {
         let tab = Self::get_or_create_tab(state)?;
 
         if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
-            tab.navigate_to(u).map_err(|e| format!("browser screenshot navigate: {e}"))?;
+            tab.navigate_to(u)
+                .map_err(|e| format!("browser screenshot navigate: {e}"))?;
             tab.wait_until_navigated().ok();
         }
 
@@ -739,8 +775,14 @@ impl BrowserTool {
             "webp" => Page::CaptureScreenshotFormatOption::Webp,
             _ => Page::CaptureScreenshotFormatOption::Png,
         };
-        let quality = args.get("quality").and_then(|v| v.as_u64()).map(|q| q as u32);
-        let full_page = args.get("fullPage").and_then(|v| v.as_bool()).unwrap_or(false);
+        let quality = args
+            .get("quality")
+            .and_then(|v| v.as_u64())
+            .map(|q| q as u32);
+        let full_page = args
+            .get("fullPage")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Element screenshot via uid
         let clip = if let Some(uid) = args.get("uid").and_then(|v| v.as_str()) {
@@ -752,9 +794,13 @@ impl BrowserTool {
                  }})()",
                 selector.replace('\'', "\\'")
             );
-            let result = tab.evaluate(&rect_js, false)
+            let result = tab
+                .evaluate(&rect_js, false)
                 .map_err(|e| format!("browser screenshot: element rect eval failed: {e}"))?;
-            let raw = result.value.as_ref().and_then(|v| v.as_str())
+            let raw = result
+                .value
+                .as_ref()
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| format!("browser screenshot: element uid '{uid}' not found"))?;
             let rect: serde_json::Value = serde_json::from_str(raw)
                 .map_err(|e| format!("browser screenshot: parse rect: {e}"))?;
@@ -773,15 +819,20 @@ impl BrowserTool {
             .capture_screenshot(format, quality, clip, full_page)
             .map_err(|e| format!("browser screenshot: capture failed: {e}."))?;
 
-        if let Some(path) = args.get("filePath").or(args.get("output_path")).and_then(|v| v.as_str()) {
-            std::fs::write(path, &png).map_err(|e| {
-                format!("browser screenshot: could not write to '{path}': {e}.")
-            })?;
+        if let Some(path) = args
+            .get("filePath")
+            .or(args.get("output_path"))
+            .and_then(|v| v.as_str())
+        {
+            std::fs::write(path, &png)
+                .map_err(|e| format!("browser screenshot: could not write to '{path}': {e}."))?;
         }
 
         let summary = format!(
             "Screenshot captured ({}x{} viewport, {} bytes). URL: {} Title: {}",
-            1280, 900, png.len(),
+            1280,
+            900,
+            png.len(),
             tab.get_url(),
             tab.get_title().unwrap_or_default(),
         );
@@ -793,23 +844,30 @@ impl BrowserTool {
         action: &str,
         args: &serde_json::Value,
     ) -> Result<ActionResult, String> {
-        let mut guard = inner.lock().map_err(|e| {
-            format!("browser: mutex lock failed for action '{action}': {e}.")
-        })?;
-        let state = guard.as_mut().ok_or(
-            "browser: no Chrome instance after ensure_browser.".to_string(),
-        )?;
+        let mut guard = inner
+            .lock()
+            .map_err(|e| format!("browser: mutex lock failed for action '{action}': {e}."))?;
+        let state = guard
+            .as_mut()
+            .ok_or("browser: no Chrome instance after ensure_browser.".to_string())?;
 
         if Self::is_browser_dead(state) {
             drop(guard);
             Self::reset_and_relaunch(inner)?;
-            let mut guard = inner.lock().map_err(|e| format!("browser: re-lock failed: {e}"))?;
-            let state = guard.as_mut().ok_or("browser: state empty after relaunch")?;
+            let mut guard = inner
+                .lock()
+                .map_err(|e| format!("browser: re-lock failed: {e}"))?;
+            let state = guard
+                .as_mut()
+                .ok_or("browser: state empty after relaunch")?;
             if action == "screenshot" {
                 let (text, png) = Self::do_screenshot(state, args)?;
                 return Ok(ActionResult {
                     text,
-                    images: vec![ToolImage { mime_type: "image/png".into(), data: png }],
+                    images: vec![ToolImage {
+                        mime_type: "image/png".into(),
+                        data: png,
+                    }],
                 });
             }
             return Self::dispatch_action(state, action, args).map(ActionResult::text);
@@ -820,15 +878,22 @@ impl BrowserTool {
             let result = Self::do_screenshot(state, args);
             if let Err(ref e) = result {
                 let lower = e.to_lowercase();
-                if lower.contains("websocket") || lower.contains("channel closed") || lower.contains("broken pipe") {
+                if lower.contains("websocket")
+                    || lower.contains("channel closed")
+                    || lower.contains("broken pipe")
+                {
                     drop(guard);
                     if Self::reset_and_relaunch(inner).is_ok() {
-                        let mut guard = inner.lock().map_err(|e| format!("browser: re-lock: {e}"))?;
+                        let mut guard =
+                            inner.lock().map_err(|e| format!("browser: re-lock: {e}"))?;
                         if let Some(state) = guard.as_mut() {
                             let (text, png) = Self::do_screenshot(state, args)?;
                             return Ok(ActionResult {
                                 text,
-                                images: vec![ToolImage { mime_type: "image/png".into(), data: png }],
+                                images: vec![ToolImage {
+                                    mime_type: "image/png".into(),
+                                    data: png,
+                                }],
                             });
                         }
                     }
@@ -837,7 +902,10 @@ impl BrowserTool {
             let (text, png) = result?;
             return Ok(ActionResult {
                 text,
-                images: vec![ToolImage { mime_type: "image/png".into(), data: png }],
+                images: vec![ToolImage {
+                    mime_type: "image/png".into(),
+                    data: png,
+                }],
             });
         }
 
@@ -856,7 +924,9 @@ impl BrowserTool {
                 tracing::warn!("browser: CDP connection error, attempting reconnect: {e}");
                 drop(guard);
                 if Self::reset_and_relaunch(inner).is_ok() {
-                    let mut guard = inner.lock().map_err(|e| format!("browser: re-lock after reconnect failed: {e}"))?;
+                    let mut guard = inner
+                        .lock()
+                        .map_err(|e| format!("browser: re-lock after reconnect failed: {e}"))?;
                     if let Some(state) = guard.as_mut() {
                         return Self::dispatch_action(state, action, args).map(ActionResult::text);
                     }
@@ -875,9 +945,9 @@ impl BrowserTool {
                 }
                 // Only dead if ALL tabs are unreachable (not just the first one
                 // or the persistent tab — a single healthy tab means browser is alive).
-                let any_alive = tabs.iter().any(|t| {
-                    !t.get_url().is_empty() || t.get_title().is_ok()
-                });
+                let any_alive = tabs
+                    .iter()
+                    .any(|t| !t.get_url().is_empty() || t.get_title().is_ok());
                 if !any_alive {
                     return true;
                 }
@@ -892,23 +962,27 @@ impl BrowserTool {
 
     fn reset_and_relaunch(inner: &Mutex<Option<BrowserState>>) -> Result<(), String> {
         {
-            let mut guard = inner.lock().map_err(|e| format!("browser: lock failed during reset: {e}"))?;
+            let mut guard = inner
+                .lock()
+                .map_err(|e| format!("browser: lock failed during reset: {e}"))?;
             *guard = None;
         }
         Self::ensure_browser(inner)
     }
 
     /// Resolve an element from either uid (data-fc-uid) or CSS selector.
-    fn find_element<'a>(tab: &'a headless_chrome::Tab, args: &serde_json::Value) -> Result<headless_chrome::Element<'a>, String> {
+    fn find_element<'a>(
+        tab: &'a headless_chrome::Tab,
+        args: &serde_json::Value,
+    ) -> Result<headless_chrome::Element<'a>, String> {
         if let Some(uid) = args.get("uid").and_then(|v| v.as_str()) {
             let selector = format!("[data-fc-uid=\"{uid}\"]");
             tab.find_element(&selector).map_err(|e| {
                 format!("browser: element with uid '{uid}' not found: {e}. Run take_snapshot for fresh UIDs.")
             })
         } else if let Some(selector) = args.get("selector").and_then(|v| v.as_str()) {
-            tab.find_element(selector).map_err(|e| {
-                format!("browser: no element matched selector '{selector}': {e}.")
-            })
+            tab.find_element(selector)
+                .map_err(|e| format!("browser: no element matched selector '{selector}': {e}."))
         } else {
             Err("browser: provide 'uid' (from take_snapshot) or 'selector' (CSS).".to_string())
         }
@@ -940,22 +1014,22 @@ impl BrowserTool {
 
                 match nav_type {
                     "back" => {
-                        tab.evaluate("history.back()", false).map_err(|e| {
-                            format!("browser navigate back: {e}.")
-                        })?;
+                        tab.evaluate("history.back()", false)
+                            .map_err(|e| format!("browser navigate back: {e}."))?;
                         std::thread::sleep(Duration::from_millis(500));
                     }
                     "forward" => {
-                        tab.evaluate("history.forward()", false).map_err(|e| {
-                            format!("browser navigate forward: {e}.")
-                        })?;
+                        tab.evaluate("history.forward()", false)
+                            .map_err(|e| format!("browser navigate forward: {e}."))?;
                         std::thread::sleep(Duration::from_millis(500));
                     }
                     "reload" => {
-                        let ignore_cache = args.get("ignoreCache").and_then(|v| v.as_bool()).unwrap_or(false);
-                        tab.reload(ignore_cache, None).map_err(|e| {
-                            format!("browser navigate reload: {e}.")
-                        })?;
+                        let ignore_cache = args
+                            .get("ignoreCache")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        tab.reload(ignore_cache, None)
+                            .map_err(|e| format!("browser navigate reload: {e}."))?;
                         tab.wait_until_navigated().ok();
                     }
                     _ => {
@@ -977,22 +1051,28 @@ impl BrowserTool {
                 Ok(serde_json::json!({
                     "url": current_url,
                     "title": title,
-                }).to_string())
+                })
+                .to_string())
             }
 
             // ── A11y tree snapshot (core chrome-devtools-mcp feature) ───
             "take_snapshot" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
+                let verbose = args
+                    .get("verbose")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let snapshot = Self::build_a11y_snapshot(&tab, verbose)?;
                 let url = tab.get_url();
                 let title = tab.get_title().unwrap_or_default();
                 let output = format!("# Page: {title}\n# URL: {url}\n\n{snapshot}");
                 if let Some(path) = args.get("filePath").and_then(|v| v.as_str()) {
-                    std::fs::write(path, &output).map_err(|e| {
-                        format!("browser take_snapshot: write to '{path}': {e}")
-                    })?;
-                    Ok(serde_json::json!({ "saved": path, "elements": snapshot.lines().count() }).to_string())
+                    std::fs::write(path, &output)
+                        .map_err(|e| format!("browser take_snapshot: write to '{path}': {e}"))?;
+                    Ok(
+                        serde_json::json!({ "saved": path, "elements": snapshot.lines().count() })
+                            .to_string(),
+                    )
                 } else {
                     Ok(output)
                 }
@@ -1014,21 +1094,26 @@ impl BrowserTool {
                     "url": tab.get_url(),
                     "title": tab.get_title().unwrap_or_default(),
                     "content": truncated,
-                }).to_string())
+                })
+                .to_string())
             }
 
             // ── PDF ────────────────────────────────────────────────────
             "pdf" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let path = args.get("output_path").and_then(|v| v.as_str())
+                let path = args
+                    .get("output_path")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser pdf: missing 'output_path'.")?;
-                let bytes = tab.print_to_pdf(None).map_err(|e| {
-                    format!("browser pdf: {e}.")
-                })?;
-                std::fs::write(path, &bytes).map_err(|e| {
-                    format!("browser pdf: write to '{path}' failed: {e}.")
-                })?;
-                Ok(serde_json::json!({ "ok": true, "path": path, "bytes": bytes.len() }).to_string())
+                let bytes = tab
+                    .print_to_pdf(None)
+                    .map_err(|e| format!("browser pdf: {e}."))?;
+                std::fs::write(path, &bytes)
+                    .map_err(|e| format!("browser pdf: write to '{path}' failed: {e}."))?;
+                Ok(
+                    serde_json::json!({ "ok": true, "path": path, "bytes": bytes.len() })
+                        .to_string(),
+                )
             }
 
             // ── Evaluate (supports chrome-devtools-mcp "function" syntax) ──
@@ -1036,37 +1121,47 @@ impl BrowserTool {
                 let tab = Self::get_or_create_tab(state)?;
 
                 if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
-                    tab.navigate_to(u).map_err(|e| format!("browser evaluate navigate: {e}"))?;
+                    tab.navigate_to(u)
+                        .map_err(|e| format!("browser evaluate navigate: {e}"))?;
                     tab.wait_until_navigated().ok();
                 }
 
-                let script = args.get("function")
+                let script = args
+                    .get("function")
                     .or(args.get("script"))
                     .and_then(|v| v.as_str())
                     .ok_or("browser evaluate: missing 'script' or 'function'.")?;
 
-                let result = tab.evaluate(script, false).map_err(|e| {
-                    format!("browser evaluate: JS failed: {e}.")
-                })?;
+                let result = tab
+                    .evaluate(script, false)
+                    .map_err(|e| format!("browser evaluate: JS failed: {e}."))?;
 
                 Ok(serde_json::json!({
                     "result": format!("{:?}", result.value),
-                }).to_string())
+                })
+                .to_string())
             }
 
             // ── Click (uid or selector, supports dblClick) ─────────────
             "click" => {
                 let tab = Self::get_or_create_tab(state)?;
                 let el = Self::find_element(&tab, args)?;
-                let dbl_click = args.get("dblClick").and_then(|v| v.as_bool()).unwrap_or(false);
+                let dbl_click = args
+                    .get("dblClick")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if dbl_click {
                     el.click().map_err(|e| format!("browser click: {e}."))?;
                     std::thread::sleep(Duration::from_millis(50));
-                    el.click().map_err(|e| format!("browser dblClick second click: {e}."))?;
+                    el.click()
+                        .map_err(|e| format!("browser dblClick second click: {e}."))?;
                 } else {
                     el.click().map_err(|e| format!("browser click: {e}."))?;
                 }
-                let include_snapshot = args.get("includeSnapshot").and_then(|v| v.as_bool()).unwrap_or(false);
+                let include_snapshot = args
+                    .get("includeSnapshot")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if include_snapshot {
                     let snap = Self::build_a11y_snapshot(&tab, false)?;
                     Ok(serde_json::json!({ "ok": true, "snapshot": snap }).to_string())
@@ -1079,7 +1174,9 @@ impl BrowserTool {
             "fill" => {
                 let tab = Self::get_or_create_tab(state)?;
                 let el = Self::find_element(&tab, args)?;
-                let value = args.get("value").and_then(|v| v.as_str())
+                let value = args
+                    .get("value")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser fill: missing 'value'.")?;
 
                 el.call_js_fn(
@@ -1091,12 +1188,19 @@ impl BrowserTool {
                      }",
                     vec![serde_json::json!(value)],
                     false,
-                ).map_err(|e| format!("browser fill: {e}."))?;
+                )
+                .map_err(|e| format!("browser fill: {e}."))?;
 
-                let include_snapshot = args.get("includeSnapshot").and_then(|v| v.as_bool()).unwrap_or(false);
+                let include_snapshot = args
+                    .get("includeSnapshot")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if include_snapshot {
                     let snap = Self::build_a11y_snapshot(&tab, false)?;
-                    Ok(serde_json::json!({ "ok": true, "value": value, "snapshot": snap }).to_string())
+                    Ok(
+                        serde_json::json!({ "ok": true, "value": value, "snapshot": snap })
+                            .to_string(),
+                    )
                 } else {
                     Ok(serde_json::json!({ "ok": true, "value": value }).to_string())
                 }
@@ -1105,14 +1209,18 @@ impl BrowserTool {
             // ── Fill form (batch, chrome-devtools-mcp style) ───────────
             "fill_form" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let elements = args.get("elements").and_then(|v| v.as_array())
+                let elements = args
+                    .get("elements")
+                    .and_then(|v| v.as_array())
                     .ok_or("browser fill_form: missing 'elements' array.")?;
 
                 let mut filled = 0u32;
                 for item in elements {
                     let uid = item.get("uid").and_then(|v| v.as_str()).unwrap_or("");
                     let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    if uid.is_empty() || value.is_empty() { continue; }
+                    if uid.is_empty() || value.is_empty() {
+                        continue;
+                    }
 
                     let selector = format!("[data-fc-uid=\"{uid}\"]");
                     if let Ok(el) = tab.find_element(&selector) {
@@ -1135,19 +1243,19 @@ impl BrowserTool {
             // ── Type text (into currently focused element) ─────────────
             "type_text" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let text = args.get("text").and_then(|v| v.as_str())
+                let text = args
+                    .get("text")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser type_text: missing 'text'.")?;
 
                 for ch in text.chars() {
-                    tab.press_key(&ch.to_string()).map_err(|e| {
-                        format!("browser type_text: key press failed: {e}.")
-                    })?;
+                    tab.press_key(&ch.to_string())
+                        .map_err(|e| format!("browser type_text: key press failed: {e}."))?;
                 }
 
                 if let Some(submit) = args.get("submitKey").and_then(|v| v.as_str()) {
-                    tab.press_key(submit).map_err(|e| {
-                        format!("browser type_text submitKey '{submit}': {e}.")
-                    })?;
+                    tab.press_key(submit)
+                        .map_err(|e| format!("browser type_text submitKey '{submit}': {e}."))?;
                 }
                 Ok(serde_json::json!({ "ok": true, "typed": text }).to_string())
             }
@@ -1156,25 +1264,30 @@ impl BrowserTool {
             "type" => {
                 let tab = Self::get_or_create_tab(state)?;
                 let selector = Self::require_selector(args, "type")?;
-                let text = args.get("text").and_then(|v| v.as_str())
+                let text = args
+                    .get("text")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser type: missing 'text'.")?;
-                let el = tab.find_element(selector).map_err(|e| {
-                    format!("browser type: '{selector}' not found: {e}.")
-                })?;
-                el.type_into(text).map_err(|e| {
-                    format!("browser type: could not type into '{selector}': {e}.")
-                })?;
-                Ok(serde_json::json!({ "ok": true, "selector": selector, "text": text }).to_string())
+                let el = tab
+                    .find_element(selector)
+                    .map_err(|e| format!("browser type: '{selector}' not found: {e}."))?;
+                el.type_into(text)
+                    .map_err(|e| format!("browser type: could not type into '{selector}': {e}."))?;
+                Ok(
+                    serde_json::json!({ "ok": true, "selector": selector, "text": text })
+                        .to_string(),
+                )
             }
 
             // ── Press key (supports modifiers like "Control+A") ────────
             "press_key" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let key = args.get("key").and_then(|v| v.as_str())
+                let key = args
+                    .get("key")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser press_key: missing 'key'.")?;
-                tab.press_key(key).map_err(|e| {
-                    format!("browser press_key '{key}': {e}.")
-                })?;
+                tab.press_key(key)
+                    .map_err(|e| format!("browser press_key '{key}': {e}."))?;
                 Ok(serde_json::json!({ "ok": true, "key": key }).to_string())
             }
 
@@ -1194,17 +1307,21 @@ impl BrowserTool {
             "select" => {
                 let tab = Self::get_or_create_tab(state)?;
                 let selector = Self::require_selector(args, "select")?;
-                let value = args.get("value").and_then(|v| v.as_str())
+                let value = args
+                    .get("value")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser select: missing 'value'.")?;
                 let sel_lit = serde_json::to_string(selector).unwrap();
                 let val_lit = serde_json::to_string(value).unwrap();
                 let script = format!(
                     "(() => {{ const el = document.querySelector({sel_lit}); if (!el) throw new Error('not found'); el.value = {val_lit}; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); }})()",
                 );
-                tab.evaluate(&script, false).map_err(|e| {
-                    format!("browser select on '{selector}': {e}.")
-                })?;
-                Ok(serde_json::json!({ "ok": true, "selector": selector, "value": value }).to_string())
+                tab.evaluate(&script, false)
+                    .map_err(|e| format!("browser select on '{selector}': {e}."))?;
+                Ok(
+                    serde_json::json!({ "ok": true, "selector": selector, "value": value })
+                        .to_string(),
+                )
             }
 
             // ── Wait for (text or selector) ────────────────────────────
@@ -1231,16 +1348,20 @@ impl BrowserTool {
                          }})",
                         timeout_ms = timeout.as_millis(),
                     );
-                    let result = tab.evaluate(&script, true).map_err(|e| {
-                        format!("browser wait_for text: {e}.")
-                    })?;
-                    Ok(serde_json::json!({ "ok": true, "matched": format!("{:?}", result.value) }).to_string())
+                    let result = tab
+                        .evaluate(&script, true)
+                        .map_err(|e| format!("browser wait_for text: {e}."))?;
+                    Ok(
+                        serde_json::json!({ "ok": true, "matched": format!("{:?}", result.value) })
+                            .to_string(),
+                    )
                 } else if let Some(selector) = args.get("selector").and_then(|v| v.as_str()) {
                     tab.wait_for_element_with_custom_timeout(selector, timeout)
-                        .map_err(|e| {
-                            format!("browser wait_for selector '{selector}': {e}.")
-                        })?;
-                    Ok(serde_json::json!({ "ok": true, "selector": selector, "found": true }).to_string())
+                        .map_err(|e| format!("browser wait_for selector '{selector}': {e}."))?;
+                    Ok(
+                        serde_json::json!({ "ok": true, "selector": selector, "found": true })
+                            .to_string(),
+                    )
                 } else {
                     Err("browser wait_for: provide 'text' or 'selector'.".to_string())
                 }
@@ -1249,9 +1370,16 @@ impl BrowserTool {
             // ── Scroll ─────────────────────────────────────────────────
             "scroll" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+                let direction = args
+                    .get("direction")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("down");
                 let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(300);
-                let delta = if direction == "up" { -amount.abs() } else { amount.abs() };
+                let delta = if direction == "up" {
+                    -amount.abs()
+                } else {
+                    amount.abs()
+                };
                 tab.evaluate(&format!("window.scrollBy(0, {delta})"), false)
                     .map_err(|e| format!("browser scroll: {e}."))?;
                 Ok(serde_json::json!({ "ok": true, "direction": direction, "amount": amount.unsigned_abs() }).to_string())
@@ -1260,9 +1388,14 @@ impl BrowserTool {
             // ── Drag (from uid to uid, chrome-devtools-mcp style) ──────
             "drag" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let from_uid = args.get("from_uid").or(args.get("uid")).and_then(|v| v.as_str())
+                let from_uid = args
+                    .get("from_uid")
+                    .or(args.get("uid"))
+                    .and_then(|v| v.as_str())
                     .ok_or("browser drag: missing 'from_uid'.")?;
-                let to_uid = args.get("to_uid").and_then(|v| v.as_str())
+                let to_uid = args
+                    .get("to_uid")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser drag: missing 'to_uid'.")?;
 
                 let script = format!(
@@ -1280,14 +1413,18 @@ impl BrowserTool {
   return 'ok';
 }})()"#
                 );
-                tab.evaluate(&script, false).map_err(|e| format!("browser drag: {e}."))?;
+                tab.evaluate(&script, false)
+                    .map_err(|e| format!("browser drag: {e}."))?;
                 Ok(serde_json::json!({ "ok": true, "from": from_uid, "to": to_uid }).to_string())
             }
 
             // ── Handle dialog ──────────────────────────────────────────
             "handle_dialog" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let dialog_action = args.get("dialog_action").and_then(|v| v.as_str()).unwrap_or("accept");
+                let dialog_action = args
+                    .get("dialog_action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("accept");
                 let prompt_text = args.get("promptText").and_then(|v| v.as_str());
 
                 let script = if dialog_action == "dismiss" {
@@ -1299,32 +1436,47 @@ impl BrowserTool {
                     "undefined".to_string()
                 };
 
-                tab.evaluate(&script, false).map_err(|e| format!("browser handle_dialog: {e}"))?;
+                tab.evaluate(&script, false)
+                    .map_err(|e| format!("browser handle_dialog: {e}"))?;
                 Ok(serde_json::json!({ "ok": true, "action": dialog_action }).to_string())
             }
 
             // ── List pages (tabs) ──────────────────────────────────────
             "list_pages" => {
-                let tabs = state.browser.get_tabs().try_lock()
+                let tabs = state
+                    .browser
+                    .get_tabs()
+                    .try_lock()
                     .map_err(|_| "browser list_pages: tabs lock failed.".to_string())?;
-                let pages: Vec<serde_json::Value> = tabs.iter().enumerate().map(|(i, t)| {
-                    serde_json::json!({
-                        "pageId": i,
-                        "url": t.get_url(),
-                        "title": t.get_title().unwrap_or_default(),
+                let pages: Vec<serde_json::Value> = tabs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        serde_json::json!({
+                            "pageId": i,
+                            "url": t.get_url(),
+                            "title": t.get_title().unwrap_or_default(),
+                        })
                     })
-                }).collect();
+                    .collect();
                 Ok(serde_json::json!({ "pages": pages }).to_string())
             }
 
             // ── Select page ────────────────────────────────────────────
             "select_page" => {
                 let page_id = args.get("pageId").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let tabs = state.browser.get_tabs().try_lock()
+                let tabs = state
+                    .browser
+                    .get_tabs()
+                    .try_lock()
                     .map_err(|_| "browser select_page: tabs lock failed.".to_string())?;
-                let tab = tabs.get(page_id).ok_or(format!(
-                    "browser select_page: pageId {page_id} out of range (have {} tabs).", tabs.len()
-                ))?.clone();
+                let tab = tabs
+                    .get(page_id)
+                    .ok_or(format!(
+                        "browser select_page: pageId {page_id} out of range (have {} tabs).",
+                        tabs.len()
+                    ))?
+                    .clone();
                 drop(tabs);
                 tab.bring_to_front().ok();
                 state.persistent_tab = Some(tab.clone());
@@ -1335,33 +1487,42 @@ impl BrowserTool {
 
             // ── New page ───────────────────────────────────────────────
             "new_page" => {
-                let url = args.get("url").and_then(|v| v.as_str())
+                let url = args
+                    .get("url")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser new_page: missing 'url'.")?;
-                let tab = state.browser.new_tab().map_err(|e| {
-                    format!("browser new_page: {e}.")
-                })?;
-                tab.navigate_to(url).map_err(|e| {
-                    format!("browser new_page navigate to '{url}': {e}.")
-                })?;
+                let tab = state
+                    .browser
+                    .new_tab()
+                    .map_err(|e| format!("browser new_page: {e}."))?;
+                tab.navigate_to(url)
+                    .map_err(|e| format!("browser new_page navigate to '{url}': {e}."))?;
                 tab.wait_until_navigated().ok();
                 state.persistent_tab = Some(tab.clone());
                 let title = tab.get_title().unwrap_or_default();
                 Ok(serde_json::json!({
                     "ok": true, "url": tab.get_url(), "title": title,
-                }).to_string())
+                })
+                .to_string())
             }
 
             // ── Close page ─────────────────────────────────────────────
             "close_page" => {
                 let page_id = args.get("pageId").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let tabs = state.browser.get_tabs().try_lock()
+                let tabs = state
+                    .browser
+                    .get_tabs()
+                    .try_lock()
                     .map_err(|_| "browser close_page: tabs lock failed.".to_string())?;
                 if tabs.len() <= 1 {
                     return Err("browser close_page: cannot close the last tab.".to_string());
                 }
-                let tab = tabs.get(page_id).ok_or(format!(
-                    "browser close_page: pageId {page_id} out of range."
-                ))?.clone();
+                let tab = tabs
+                    .get(page_id)
+                    .ok_or(format!(
+                        "browser close_page: pageId {page_id} out of range."
+                    ))?
+                    .clone();
                 drop(tabs);
 
                 tab.evaluate("window.close()", false).ok();
@@ -1385,10 +1546,12 @@ impl BrowserTool {
     transferSize: e.transferSize || 0,
   })));
 })()"#;
-                let result = tab.evaluate(script, false).map_err(|e| {
-                    format!("browser list_network_requests: {e}.")
-                })?;
-                let raw = result.value.as_ref()
+                let result = tab
+                    .evaluate(script, false)
+                    .map_err(|e| format!("browser list_network_requests: {e}."))?;
+                let raw = result
+                    .value
+                    .as_ref()
                     .and_then(|v| v.as_str())
                     .unwrap_or("[]");
                 Ok(format!("{{\"requests\":{raw}}}"))
@@ -1401,10 +1564,12 @@ impl BrowserTool {
   if (!window.__fc_console_log) return '[]';
   return JSON.stringify(window.__fc_console_log.slice(-50));
 })()"#;
-                let result = tab.evaluate(script, false).map_err(|e| {
-                    format!("browser list_console_messages: {e}.")
-                })?;
-                let raw = result.value.as_ref()
+                let result = tab
+                    .evaluate(script, false)
+                    .map_err(|e| format!("browser list_console_messages: {e}."))?;
+                let raw = result
+                    .value
+                    .as_ref()
                     .and_then(|v| v.as_str())
                     .unwrap_or("[]");
                 Ok(format!("{{\"messages\":{raw}}}"))
@@ -1425,7 +1590,8 @@ impl BrowserTool {
                     tab.evaluate(
                         &format!("document.documentElement.style.colorScheme = '{color}'"),
                         false,
-                    ).ok();
+                    )
+                    .ok();
                     parts.push(format!("colorScheme: {color}"));
                 }
 
@@ -1440,31 +1606,31 @@ impl BrowserTool {
                 let tab = Self::get_or_create_tab(state)?;
                 let w = args.get("width").and_then(|v| v.as_u64()).unwrap_or(1280);
                 let h = args.get("height").and_then(|v| v.as_u64()).unwrap_or(900);
-                tab.evaluate(
-                    &format!("window.resizeTo({w}, {h})"),
-                    false,
-                ).map_err(|e| format!("browser resize_page: {e}."))?;
+                tab.evaluate(&format!("window.resizeTo({w}, {h})"), false)
+                    .map_err(|e| format!("browser resize_page: {e}."))?;
                 Ok(serde_json::json!({ "ok": true, "width": w, "height": h }).to_string())
             }
 
             // ── Interact (visible browser, user-driven) ────────────────
             "interact" => {
                 if Self::is_headless() {
-                    return Err(
-                        "browser interact: requires a visible browser window. \
+                    return Err("browser interact: requires a visible browser window. \
                          Set FASTCLAW_BROWSER_HEADLESS to false."
-                            .to_string(),
-                    );
+                        .to_string());
                 }
 
                 let tab = Self::get_or_create_tab(state)?;
                 if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
-                    tab.navigate_to(u).map_err(|e| format!("browser interact: {e}"))?;
+                    tab.navigate_to(u)
+                        .map_err(|e| format!("browser interact: {e}"))?;
                     tab.wait_until_navigated().ok();
                 }
 
                 let started_url = tab.get_url();
-                let wait_seconds = args.get("wait_seconds").and_then(|v| v.as_u64()).unwrap_or(60);
+                let wait_seconds = args
+                    .get("wait_seconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(60);
                 let deadline = std::time::Instant::now() + Duration::from_secs(wait_seconds);
 
                 while std::time::Instant::now() < deadline {
@@ -1481,22 +1647,30 @@ impl BrowserTool {
                     "final_url": final_url,
                     "title": title,
                     "url_changed": started_url != final_url,
-                }).to_string())
+                })
+                .to_string())
             }
 
             // ── Upload file (chrome-devtools-mcp style) ───────────────
             "upload_file" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let file_path = args.get("filePath").and_then(|v| v.as_str())
+                let file_path = args
+                    .get("filePath")
+                    .and_then(|v| v.as_str())
                     .ok_or("browser upload_file: missing 'filePath'.")?;
                 let el = Self::find_element(&tab, args)?;
-                el.set_input_files(&[file_path]).map_err(|e| {
-                    format!("browser upload_file: {e}.")
-                })?;
-                let include_snapshot = args.get("includeSnapshot").and_then(|v| v.as_bool()).unwrap_or(false);
+                el.set_input_files(&[file_path])
+                    .map_err(|e| format!("browser upload_file: {e}."))?;
+                let include_snapshot = args
+                    .get("includeSnapshot")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if include_snapshot {
                     let snap = Self::build_a11y_snapshot(&tab, false)?;
-                    Ok(serde_json::json!({ "ok": true, "filePath": file_path, "snapshot": snap }).to_string())
+                    Ok(
+                        serde_json::json!({ "ok": true, "filePath": file_path, "snapshot": snap })
+                            .to_string(),
+                    )
                 } else {
                     Ok(serde_json::json!({ "ok": true, "filePath": file_path }).to_string())
                 }
@@ -1505,7 +1679,9 @@ impl BrowserTool {
             // ── Get single console message by index ──────────────────
             "get_console_message" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let msgid = args.get("msgid").and_then(|v| v.as_u64())
+                let msgid = args
+                    .get("msgid")
+                    .and_then(|v| v.as_u64())
                     .ok_or("browser get_console_message: missing 'msgid'.")?;
                 let script = format!(
                     "(() => {{ const msgs = window.__fc_console_msgs || []; \
@@ -1513,9 +1689,12 @@ impl BrowserTool {
                      if (!m) return JSON.stringify({{error: 'message not found'}}); \
                      return JSON.stringify(m); }})()"
                 );
-                let result = tab.evaluate(&script, false)
+                let result = tab
+                    .evaluate(&script, false)
                     .map_err(|e| format!("browser get_console_message: {e}"))?;
-                let val = result.value.as_ref()
+                let val = result
+                    .value
+                    .as_ref()
                     .and_then(|v| v.as_str())
                     .unwrap_or("{}");
                 Ok(val.to_string())
@@ -1524,7 +1703,9 @@ impl BrowserTool {
             // ── Get single network request by index ──────────────────
             "get_network_request" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let reqid = args.get("reqid").and_then(|v| v.as_u64())
+                let reqid = args
+                    .get("reqid")
+                    .and_then(|v| v.as_u64())
                     .ok_or("browser get_network_request: missing 'reqid'.")?;
                 let script = format!(
                     "(() => {{ const reqs = window.__fc_network_reqs || []; \
@@ -1532,9 +1713,12 @@ impl BrowserTool {
                      if (!r) return JSON.stringify({{error: 'request not found'}}); \
                      return JSON.stringify(r); }})()"
                 );
-                let result = tab.evaluate(&script, false)
+                let result = tab
+                    .evaluate(&script, false)
                     .map_err(|e| format!("browser get_network_request: {e}"))?;
-                let val = result.value.as_ref()
+                let val = result
+                    .value
+                    .as_ref()
                     .and_then(|v| v.as_str())
                     .unwrap_or("{}");
                 Ok(val.to_string())
@@ -1543,55 +1727,90 @@ impl BrowserTool {
             // ── Cookies ────────────────────────────────────────────────
             "cookies" => {
                 let tab = Self::get_or_create_tab(state)?;
-                let op = args.get("operation").and_then(|v| v.as_str()).unwrap_or("get");
+                let op = args
+                    .get("operation")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("get");
                 match op {
                     "get" => {
-                        let cookies = tab.get_cookies().map_err(|e| format!("browser cookies get: {e}."))?;
+                        let cookies = tab
+                            .get_cookies()
+                            .map_err(|e| format!("browser cookies get: {e}."))?;
                         let list = serde_json::to_value(&cookies).unwrap_or_default();
                         Ok(serde_json::json!({ "ok": true, "cookies": list }).to_string())
                     }
                     "set" => {
-                        let name = args.get("cookie_name").and_then(|v| v.as_str()).ok_or("missing cookie_name")?;
-                        let value = args.get("cookie_value").and_then(|v| v.as_str()).ok_or("missing cookie_value")?;
+                        let name = args
+                            .get("cookie_name")
+                            .and_then(|v| v.as_str())
+                            .ok_or("missing cookie_name")?;
+                        let value = args
+                            .get("cookie_value")
+                            .and_then(|v| v.as_str())
+                            .ok_or("missing cookie_value")?;
                         tab.set_cookies(vec![Network::CookieParam {
                             name: name.to_string(),
                             value: value.to_string(),
-                            url: None, domain: None, path: None, secure: None,
-                            http_only: None, same_site: None, expires: None,
-                            priority: None, same_party: None, source_scheme: None,
-                            source_port: None, partition_key: None,
-                        }]).map_err(|e| format!("browser cookies set: {e}."))?;
+                            url: None,
+                            domain: None,
+                            path: None,
+                            secure: None,
+                            http_only: None,
+                            same_site: None,
+                            expires: None,
+                            priority: None,
+                            same_party: None,
+                            source_scheme: None,
+                            source_port: None,
+                            partition_key: None,
+                        }])
+                        .map_err(|e| format!("browser cookies set: {e}."))?;
                         Ok(serde_json::json!({ "ok": true, "operation": "set", "cookie_name": name }).to_string())
                     }
                     "delete" => {
-                        let name = args.get("cookie_name").and_then(|v| v.as_str()).ok_or("missing cookie_name")?;
+                        let name = args
+                            .get("cookie_name")
+                            .and_then(|v| v.as_str())
+                            .ok_or("missing cookie_name")?;
                         tab.delete_cookies(vec![Network::DeleteCookies {
                             name: name.to_string(),
-                            url: None, domain: None, path: None, partition_key: None,
-                        }]).map_err(|e| format!("browser cookies delete: {e}."))?;
+                            url: None,
+                            domain: None,
+                            path: None,
+                            partition_key: None,
+                        }])
+                        .map_err(|e| format!("browser cookies delete: {e}."))?;
                         Ok(serde_json::json!({ "ok": true, "operation": "delete", "cookie_name": name }).to_string())
                     }
                     "clear" => {
-                        let cookies = tab.get_cookies().map_err(|e| format!("browser cookies clear: {e}."))?;
+                        let cookies = tab
+                            .get_cookies()
+                            .map_err(|e| format!("browser cookies clear: {e}."))?;
                         let n = cookies.len();
                         if n > 0 {
-                            let dels: Vec<Network::DeleteCookies> = cookies.into_iter().map(|c| {
-                                Network::DeleteCookies {
-                                    name: c.name, url: None, domain: Some(c.domain),
-                                    path: Some(c.path), partition_key: c.partition_key,
-                                }
-                            }).collect();
-                            tab.delete_cookies(dels).map_err(|e| format!("browser cookies clear: {e}."))?;
+                            let dels: Vec<Network::DeleteCookies> = cookies
+                                .into_iter()
+                                .map(|c| Network::DeleteCookies {
+                                    name: c.name,
+                                    url: None,
+                                    domain: Some(c.domain),
+                                    path: Some(c.path),
+                                    partition_key: c.partition_key,
+                                })
+                                .collect();
+                            tab.delete_cookies(dels)
+                                .map_err(|e| format!("browser cookies clear: {e}."))?;
                         }
-                        Ok(serde_json::json!({ "ok": true, "operation": "clear", "deleted": n }).to_string())
+                        Ok(
+                            serde_json::json!({ "ok": true, "operation": "clear", "deleted": n })
+                                .to_string(),
+                        )
                     }
                     other => Err(format!("browser cookies: unknown operation '{other}'.")),
                 }
             }
 
-            other => Err(format!(
-                "browser: unhandled action '{other}'."
-            )),
+            other => Err(format!("browser: unhandled action '{other}'.")),
         }
     }
 }
@@ -1669,10 +1888,13 @@ impl Tool for BrowserTool {
             "description": "Action to perform. Workflow: screenshot → take_snapshot → uid-based actions → screenshot to verify. \
              Use navigate with type=back/forward/reload instead of separate go_back/go_forward/reload actions."
         }));
-        props.insert("type".to_string(), serde_json::json!({
-            "type": "string", "enum": ["url", "back", "forward", "reload"],
-            "description": "Navigate sub-type (for action=navigate). Default: url."
-        }));
+        props.insert(
+            "type".to_string(),
+            serde_json::json!({
+                "type": "string", "enum": ["url", "back", "forward", "reload"],
+                "description": "Navigate sub-type (for action=navigate). Default: url."
+            }),
+        );
         props.insert("url".to_string(), serde_json::json!({
             "type": "string",
             "description": "URL for navigate(type=url), new_page, or optional in screenshot/evaluate/interact."
@@ -1681,129 +1903,219 @@ impl Tool for BrowserTool {
             "type": "string",
             "description": "Element UID from take_snapshot (e.g. 'e5'). Used by click, fill, hover, drag, screenshot (element capture), upload_file."
         }));
-        props.insert("dblClick".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "For click: double-click if true. Default false."
-        }));
+        props.insert(
+            "dblClick".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "For click: double-click if true. Default false."
+            }),
+        );
         props.insert("includeSnapshot".to_string(), serde_json::json!({
             "type": "boolean",
             "description": "Include a11y snapshot in response after action. Works with click, fill, fill_form, hover, drag, press_key, upload_file. Default false."
         }));
-        props.insert("format".to_string(), serde_json::json!({
-            "type": "string", "enum": ["png", "jpeg", "webp"],
-            "description": "For screenshot: image format. Default png."
-        }));
-        props.insert("quality".to_string(), serde_json::json!({
-            "type": "number",
-            "description": "For screenshot: JPEG/WebP compression quality (0-100)."
-        }));
-        props.insert("msgid".to_string(), serde_json::json!({
-            "type": "number",
-            "description": "For get_console_message: message index from list_console_messages."
-        }));
-        props.insert("reqid".to_string(), serde_json::json!({
-            "type": "number",
-            "description": "For get_network_request: request index from list_network_requests."
-        }));
+        props.insert(
+            "format".to_string(),
+            serde_json::json!({
+                "type": "string", "enum": ["png", "jpeg", "webp"],
+                "description": "For screenshot: image format. Default png."
+            }),
+        );
+        props.insert(
+            "quality".to_string(),
+            serde_json::json!({
+                "type": "number",
+                "description": "For screenshot: JPEG/WebP compression quality (0-100)."
+            }),
+        );
+        props.insert(
+            "msgid".to_string(),
+            serde_json::json!({
+                "type": "number",
+                "description": "For get_console_message: message index from list_console_messages."
+            }),
+        );
+        props.insert(
+            "reqid".to_string(),
+            serde_json::json!({
+                "type": "number",
+                "description": "For get_network_request: request index from list_network_requests."
+            }),
+        );
         props.insert("selector".to_string(), serde_json::json!({
             "type": "string",
             "description": "CSS selector (fallback when uid not available). Used by click, fill, hover, wait_for, legacy type/select."
         }));
-        props.insert("value".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Value for fill, fill_form elements, or legacy select."
-        }));
-        props.insert("text".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Text for type_text, or array of texts for wait_for."
-        }));
-        props.insert("script".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "JS code for evaluate action."
-        }));
-        props.insert("key".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Key for press_key (e.g. Enter, Tab, Control+A)."
-        }));
-        props.insert("submitKey".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Key to press after type_text (e.g. Enter)."
-        }));
-        props.insert("elements".to_string(), serde_json::json!({
-            "type": "array",
-            "description": "Array of {uid, value} for fill_form."
-        }));
-        props.insert("from_uid".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Source element UID for drag."
-        }));
-        props.insert("to_uid".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Target element UID for drag."
-        }));
-        props.insert("direction".to_string(), serde_json::json!({
-            "type": "string", "description": "Scroll direction: up or down (default down)."
-        }));
-        props.insert("amount".to_string(), serde_json::json!({
-            "type": "integer", "description": "Scroll pixels (default 300)."
-        }));
-        props.insert("timeout".to_string(), serde_json::json!({
-            "type": "integer",
-            "description": "Timeout in ms for wait_for, navigate (default 10000)."
-        }));
+        props.insert(
+            "value".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Value for fill, fill_form elements, or legacy select."
+            }),
+        );
+        props.insert(
+            "text".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Text for type_text, or array of texts for wait_for."
+            }),
+        );
+        props.insert(
+            "script".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "JS code for evaluate action."
+            }),
+        );
+        props.insert(
+            "key".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Key for press_key (e.g. Enter, Tab, Control+A)."
+            }),
+        );
+        props.insert(
+            "submitKey".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Key to press after type_text (e.g. Enter)."
+            }),
+        );
+        props.insert(
+            "elements".to_string(),
+            serde_json::json!({
+                "type": "array",
+                "description": "Array of {uid, value} for fill_form."
+            }),
+        );
+        props.insert(
+            "from_uid".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Source element UID for drag."
+            }),
+        );
+        props.insert(
+            "to_uid".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Target element UID for drag."
+            }),
+        );
+        props.insert(
+            "direction".to_string(),
+            serde_json::json!({
+                "type": "string", "description": "Scroll direction: up or down (default down)."
+            }),
+        );
+        props.insert(
+            "amount".to_string(),
+            serde_json::json!({
+                "type": "integer", "description": "Scroll pixels (default 300)."
+            }),
+        );
+        props.insert(
+            "timeout".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Timeout in ms for wait_for, navigate (default 10000)."
+            }),
+        );
         props.insert("verbose".to_string(), serde_json::json!({
             "type": "boolean",
             "description": "For take_snapshot: include full a11y tree. Default false (interactive-only)."
         }));
-        props.insert("fullPage".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "For screenshot: capture full page. Default false."
-        }));
-        props.insert("filePath".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "File path to save screenshot/snapshot output."
-        }));
-        props.insert("ignoreCache".to_string(), serde_json::json!({
-            "type": "boolean", "description": "For navigate(reload): bypass cache."
-        }));
-        props.insert("pageId".to_string(), serde_json::json!({
-            "type": "integer",
-            "description": "Tab index for select_page, close_page."
-        }));
-        props.insert("dialog_action".to_string(), serde_json::json!({
-            "type": "string", "enum": ["accept", "dismiss"],
-            "description": "For handle_dialog: accept or dismiss."
-        }));
-        props.insert("promptText".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Response text for handle_dialog on window.prompt."
-        }));
-        props.insert("operation".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "For cookies: get, set, delete, or clear."
-        }));
-        props.insert("cookie_name".to_string(), serde_json::json!({
-            "type": "string", "description": "Cookie name for set/delete."
-        }));
-        props.insert("cookie_value".to_string(), serde_json::json!({
-            "type": "string", "description": "Cookie value for set."
-        }));
-        props.insert("wait_seconds".to_string(), serde_json::json!({
-            "type": "integer", "description": "Max seconds for interact (default 60)."
-        }));
-        props.insert("width".to_string(), serde_json::json!({
-            "type": "number", "description": "Page width for resize_page."
-        }));
-        props.insert("height".to_string(), serde_json::json!({
-            "type": "number", "description": "Page height for resize_page."
-        }));
-        props.insert("userAgent".to_string(), serde_json::json!({
-            "type": "string", "description": "For emulate: user agent string."
-        }));
-        props.insert("colorScheme".to_string(), serde_json::json!({
-            "type": "string", "enum": ["dark", "light", "auto"],
-            "description": "For emulate: dark/light mode."
-        }));
+        props.insert(
+            "fullPage".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "For screenshot: capture full page. Default false."
+            }),
+        );
+        props.insert(
+            "filePath".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "File path to save screenshot/snapshot output."
+            }),
+        );
+        props.insert(
+            "ignoreCache".to_string(),
+            serde_json::json!({
+                "type": "boolean", "description": "For navigate(reload): bypass cache."
+            }),
+        );
+        props.insert(
+            "pageId".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Tab index for select_page, close_page."
+            }),
+        );
+        props.insert(
+            "dialog_action".to_string(),
+            serde_json::json!({
+                "type": "string", "enum": ["accept", "dismiss"],
+                "description": "For handle_dialog: accept or dismiss."
+            }),
+        );
+        props.insert(
+            "promptText".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Response text for handle_dialog on window.prompt."
+            }),
+        );
+        props.insert(
+            "operation".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "For cookies: get, set, delete, or clear."
+            }),
+        );
+        props.insert(
+            "cookie_name".to_string(),
+            serde_json::json!({
+                "type": "string", "description": "Cookie name for set/delete."
+            }),
+        );
+        props.insert(
+            "cookie_value".to_string(),
+            serde_json::json!({
+                "type": "string", "description": "Cookie value for set."
+            }),
+        );
+        props.insert(
+            "wait_seconds".to_string(),
+            serde_json::json!({
+                "type": "integer", "description": "Max seconds for interact (default 60)."
+            }),
+        );
+        props.insert(
+            "width".to_string(),
+            serde_json::json!({
+                "type": "number", "description": "Page width for resize_page."
+            }),
+        );
+        props.insert(
+            "height".to_string(),
+            serde_json::json!({
+                "type": "number", "description": "Page height for resize_page."
+            }),
+        );
+        props.insert(
+            "userAgent".to_string(),
+            serde_json::json!({
+                "type": "string", "description": "For emulate: user agent string."
+            }),
+        );
+        props.insert(
+            "colorScheme".to_string(),
+            serde_json::json!({
+                "type": "string", "enum": ["dark", "light", "auto"],
+                "description": "For emulate: dark/light mode."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -1860,8 +2172,7 @@ impl Tool for BrowserTool {
                 "browser: worker task panicked: {e}. Retry or restart gateway."
             )),
             Err(_) => ToolResult::err(
-                "browser: action timed out (60s). The page may be unresponsive."
-                    .to_string(),
+                "browser: action timed out (60s). The page may be unresponsive.".to_string(),
             ),
         }
     }
@@ -1941,14 +2252,36 @@ mod tests {
         let enum_vals = action_prop["enum"].as_array().unwrap();
         let actions: Vec<&str> = enum_vals.iter().map(|v| v.as_str().unwrap()).collect();
         for a in [
-            "navigate", "take_snapshot", "screenshot", "evaluate",
-            "click", "fill", "fill_form", "type_text", "press_key",
-            "hover", "select", "wait_for", "scroll", "drag",
-            "handle_dialog", "interact", "get_content", "pdf",
-            "list_pages", "select_page", "new_page", "close_page",
-            "cookies", "list_network_requests", "list_console_messages",
-            "get_console_message", "get_network_request",
-            "upload_file", "emulate", "resize_page",
+            "navigate",
+            "take_snapshot",
+            "screenshot",
+            "evaluate",
+            "click",
+            "fill",
+            "fill_form",
+            "type_text",
+            "press_key",
+            "hover",
+            "select",
+            "wait_for",
+            "scroll",
+            "drag",
+            "handle_dialog",
+            "interact",
+            "get_content",
+            "pdf",
+            "list_pages",
+            "select_page",
+            "new_page",
+            "close_page",
+            "cookies",
+            "list_network_requests",
+            "list_console_messages",
+            "get_console_message",
+            "get_network_request",
+            "upload_file",
+            "emulate",
+            "resize_page",
         ] {
             assert!(actions.contains(&a), "enum missing action: {a}");
         }
@@ -2083,7 +2416,10 @@ mod tests {
             .execute(r#"{"action":"navigate","type":"url","url":"https://example.com"}"#)
             .await;
         eprintln!("result.success = {}", result.success);
-        eprintln!("result.output (first 500 chars) = {}", &result.output[..result.output.len().min(500)]);
+        eprintln!(
+            "result.output (first 500 chars) = {}",
+            &result.output[..result.output.len().min(500)]
+        );
         assert!(result.success, "navigate failed: {}", result.output);
     }
 
@@ -2095,7 +2431,10 @@ mod tests {
             .execute(r#"{"action":"navigate","type":"url","url":"https://example.com"}"#)
             .await;
         let result = tool.execute(r#"{"action":"take_snapshot"}"#).await;
-        eprintln!("snapshot:\n{}", &result.output[..result.output.len().min(2000)]);
+        eprintln!(
+            "snapshot:\n{}",
+            &result.output[..result.output.len().min(2000)]
+        );
         assert!(result.success);
         assert!(result.output.contains("[e"));
     }

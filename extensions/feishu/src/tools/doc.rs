@@ -112,7 +112,11 @@ impl Tool for FeishuDocCreateTool {
                 body["folder_token"] = serde_json::Value::String(ft.to_string());
             }
         }
-        match self.client.user_post_json("/docx/v1/documents", &body).await {
+        match self
+            .client
+            .user_post_json("/docx/v1/documents", &body)
+            .await
+        {
             Ok(v) => match serde_json::to_string(&v) {
                 Ok(s) => ToolResult::ok(s),
                 Err(e) => ToolResult::err(format!("feishu_doc_create: serialize: {e}")),
@@ -146,13 +150,28 @@ impl Tool for FeishuDocTool {
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut properties = HashMap::new();
         properties.insert("action".into(), serde_json::json!({"type": "string", "enum": ["read", "create", "write", "list_blocks", "get_block", "update_block", "delete_block"]}));
-        properties.insert("document_id".into(), serde_json::json!({"type": "string", "description": "Document token"}));
-        properties.insert("title".into(), serde_json::json!({"type": "string", "description": "Document title (for create)"}));
+        properties.insert(
+            "document_id".into(),
+            serde_json::json!({"type": "string", "description": "Document token"}),
+        );
+        properties.insert(
+            "title".into(),
+            serde_json::json!({"type": "string", "description": "Document title (for create)"}),
+        );
         properties.insert("folder_token".into(), serde_json::json!({"type": "string", "description": "Parent folder token (for create)"}));
-        properties.insert("block_id".into(), serde_json::json!({"type": "string", "description": "Block ID"}));
+        properties.insert(
+            "block_id".into(),
+            serde_json::json!({"type": "string", "description": "Block ID"}),
+        );
         properties.insert("body".into(), serde_json::json!({"type": "object", "description": "Request body for write/update_block operations"}));
-        properties.insert("start_index".into(), serde_json::json!({"type": "integer", "description": "Start index for delete_block"}));
-        properties.insert("end_index".into(), serde_json::json!({"type": "integer", "description": "End index for delete_block"}));
+        properties.insert(
+            "start_index".into(),
+            serde_json::json!({"type": "integer", "description": "Start index for delete_block"}),
+        );
+        properties.insert(
+            "end_index".into(),
+            serde_json::json!({"type": "integer", "description": "End index for delete_block"}),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
@@ -188,10 +207,16 @@ impl Tool for FeishuDocTool {
                     _ => return ToolResult::err("title is required for create".to_string()),
                 };
                 let mut body = serde_json::json!({ "title": title });
-                if let Some(ft) = args.get("folder_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(ft) = args
+                    .get("folder_token")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     body["folder_token"] = serde_json::Value::String(ft.to_string());
                 }
-                self.client.user_post_json("/docx/v1/documents", &body).await
+                self.client
+                    .user_post_json("/docx/v1/documents", &body)
+                    .await
             }
             "write" => {
                 let document_id = match args.get("document_id").and_then(|v| v.as_str()) {
@@ -212,7 +237,11 @@ impl Tool for FeishuDocTool {
             "list_blocks" => {
                 let document_id = match args.get("document_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => return ToolResult::err("document_id is required for list_blocks".to_string()),
+                    _ => {
+                        return ToolResult::err(
+                            "document_id is required for list_blocks".to_string(),
+                        )
+                    }
                 };
                 self.client
                     .user_get(&format!("/docx/v1/documents/{document_id}/blocks"))
@@ -221,24 +250,34 @@ impl Tool for FeishuDocTool {
             "get_block" => {
                 let document_id = match args.get("document_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => return ToolResult::err("document_id is required for get_block".to_string()),
+                    _ => {
+                        return ToolResult::err("document_id is required for get_block".to_string())
+                    }
                 };
                 let block_id = match args.get("block_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
                     _ => return ToolResult::err("block_id is required for get_block".to_string()),
                 };
                 self.client
-                    .user_get(&format!("/docx/v1/documents/{document_id}/blocks/{block_id}"))
+                    .user_get(&format!(
+                        "/docx/v1/documents/{document_id}/blocks/{block_id}"
+                    ))
                     .await
             }
             "update_block" => {
                 let document_id = match args.get("document_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => return ToolResult::err("document_id is required for update_block".to_string()),
+                    _ => {
+                        return ToolResult::err(
+                            "document_id is required for update_block".to_string(),
+                        )
+                    }
                 };
                 let block_id = match args.get("block_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => return ToolResult::err("block_id is required for update_block".to_string()),
+                    _ => {
+                        return ToolResult::err("block_id is required for update_block".to_string())
+                    }
                 };
                 let body = match args.get("body") {
                     Some(v) if v.is_object() => v,
@@ -254,15 +293,27 @@ impl Tool for FeishuDocTool {
             "delete_block" => {
                 let document_id = match args.get("document_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => return ToolResult::err("document_id is required for delete_block".to_string()),
+                    _ => {
+                        return ToolResult::err(
+                            "document_id is required for delete_block".to_string(),
+                        )
+                    }
                 };
                 let start_index = match args.get("start_index").and_then(|v| v.as_i64()) {
                     Some(i) => i,
-                    None => return ToolResult::err("start_index is required for delete_block".to_string()),
+                    None => {
+                        return ToolResult::err(
+                            "start_index is required for delete_block".to_string(),
+                        )
+                    }
                 };
                 let end_index = match args.get("end_index").and_then(|v| v.as_i64()) {
                     Some(i) => i,
-                    None => return ToolResult::err("end_index is required for delete_block".to_string()),
+                    None => {
+                        return ToolResult::err(
+                            "end_index is required for delete_block".to_string(),
+                        )
+                    }
                 };
                 let body = serde_json::json!({
                     "start_index": start_index,
@@ -295,7 +346,10 @@ mod tests {
             FeishuDocGetContentTool::new(client.clone()).name(),
             "feishu_doc_get_content"
         );
-        assert_eq!(FeishuDocCreateTool::new(client.clone()).name(), "feishu_doc_create");
+        assert_eq!(
+            FeishuDocCreateTool::new(client.clone()).name(),
+            "feishu_doc_create"
+        );
         assert_eq!(FeishuDocTool::new(client).name(), "feishu_doc");
     }
 
@@ -321,7 +375,9 @@ mod tests {
     async fn unified_doc_without_oauth_returns_error() {
         let client = Arc::new(FeishuClient::new("t", "s"));
         let tool = FeishuDocTool::new(client);
-        let r = tool.execute(r#"{"action":"read","document_id":"doccnxxx"}"#).await;
+        let r = tool
+            .execute(r#"{"action":"read","document_id":"doccnxxx"}"#)
+            .await;
         assert!(!r.success);
     }
 }

@@ -27,11 +27,20 @@ impl Tool for FeishuPermTool {
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut properties = HashMap::new();
-        properties.insert("action".into(), serde_json::json!({"type": "string", "enum": ["list", "add", "remove"]}));
+        properties.insert(
+            "action".into(),
+            serde_json::json!({"type": "string", "enum": ["list", "add", "remove"]}),
+        );
         properties.insert("type".into(), serde_json::json!({"type": "string", "enum": ["doc", "docx", "sheet", "bitable", "folder", "file", "wiki"], "description": "Document type"}));
-        properties.insert("token".into(), serde_json::json!({"type": "string", "description": "Document/folder token"}));
+        properties.insert(
+            "token".into(),
+            serde_json::json!({"type": "string", "description": "Document/folder token"}),
+        );
         properties.insert("member_type".into(), serde_json::json!({"type": "string", "enum": ["email", "openid", "userid", "unionid", "openchat", "opendepartmentid", "departmentid"], "description": "Member identifier type"}));
-        properties.insert("member_id".into(), serde_json::json!({"type": "string", "description": "Member identifier value"}));
+        properties.insert(
+            "member_id".into(),
+            serde_json::json!({"type": "string", "description": "Member identifier value"}),
+        );
         properties.insert("perm".into(), serde_json::json!({"type": "string", "enum": ["view", "edit", "full_access"], "description": "Permission level (for add)"}));
         ToolParameterSchema {
             schema_type: "object".into(),
@@ -80,10 +89,12 @@ impl Tool for FeishuPermTool {
                     "member_id": member_id,
                     "perm": perm,
                 });
-                self.client.user_post_json(
-                    &format!("/drive/v1/permissions/{token}/members?type={doc_type}"),
-                    &body,
-                ).await
+                self.client
+                    .user_post_json(
+                        &format!("/drive/v1/permissions/{token}/members?type={doc_type}"),
+                        &body,
+                    )
+                    .await
             }
             "remove" => {
                 let member_type = match args.get("member_type").and_then(|v| v.as_str()) {

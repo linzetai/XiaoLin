@@ -76,21 +76,25 @@ impl Tool for SessionsSpawnTool {
 
         let agent_id = match args.get("agent_id").and_then(|v| v.as_str()) {
             Some(s) if !s.trim().is_empty() => s.trim(),
-            _ => return ToolResult::err(
-                "sessions_spawn is missing or empty required string field 'agent_id'. \
+            _ => {
+                return ToolResult::err(
+                    "sessions_spawn is missing or empty required string field 'agent_id'. \
                  Example: {\"agent_id\": \"main\", \"message\": \"Hello new thread\"}. \
                  Trim whitespace; null is not accepted."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let message = match args.get("message").and_then(|v| v.as_str()) {
             Some(s) if !s.is_empty() => s,
-            _ => return ToolResult::err(
-                "sessions_spawn is missing or empty required string field 'message'. \
+            _ => {
+                return ToolResult::err(
+                    "sessions_spawn is missing or empty required string field 'message'. \
                  Provide the first user message for the new session—empty strings are rejected."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let title = args.get("title").and_then(|v| v.as_str());
@@ -195,20 +199,24 @@ impl Tool for SessionsSendTool {
 
         let session_id = match args.get("session_id").and_then(|v| v.as_str()) {
             Some(s) if !s.trim().is_empty() => s.trim(),
-            _ => return ToolResult::err(
-                "sessions_send is missing or empty required string field 'session_id'. \
+            _ => {
+                return ToolResult::err(
+                    "sessions_send is missing or empty required string field 'session_id'. \
                  Reuse the session_id returned by sessions_spawn or from your session list UI."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let message = match args.get("message").and_then(|v| v.as_str()) {
             Some(s) if !s.is_empty() => s,
-            _ => return ToolResult::err(
-                "sessions_send is missing or empty required string field 'message'. \
+            _ => {
+                return ToolResult::err(
+                    "sessions_send is missing or empty required string field 'message'. \
                  Provide the user text you want delivered to that session inbox."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         match self.sessions.get_session(session_id).await {
@@ -255,7 +263,6 @@ mod session_tools_tests {
     use super::*;
     use crate::builtin_tools::register_session_tools;
     use fastclaw_core::tool::ToolRegistry;
-
 
     #[tokio::test]
     async fn sessions_spawn_creates_session_and_returns_id() {

@@ -146,9 +146,7 @@ impl FeishuPlugin {
     /// IM core tools used internally by the channel plugin (send/reply/image).
     /// These are NOT exposed to the LLM as the gateway handles messaging.
     fn im_core_tools(&self) -> Vec<Arc<dyn Tool>> {
-        use crate::tools::{
-            FeishuSendImageTool, FeishuReplyImageTool,
-        };
+        use crate::tools::{FeishuReplyImageTool, FeishuSendImageTool};
         vec![
             Arc::new(FeishuSendMessageTool::new(self.client.clone())),
             Arc::new(FeishuReplyMessageTool::new(self.client.clone())),
@@ -163,18 +161,14 @@ impl FeishuPlugin {
     /// plus IM-enhanced tools (rich text, file, edit, forward, delete, reaction, pin).
     pub fn llm_tools(&self) -> Vec<Arc<dyn Tool>> {
         use crate::tools::{
-            FeishuBitableListRecordsTool, FeishuCalendarListEventsTool, FeishuDocCreateTool,
-            FeishuDocGetContentTool, FeishuDocTool,
-            FeishuTaskCreateTool, FeishuTaskListTool,
-            FeishuSendRichTextTool, FeishuSendFileTool, FeishuEditMessageTool,
-            FeishuGetMessageTool, FeishuForwardMessageTool, FeishuDeleteMessageTool,
-            FeishuReactionTool, FeishuPinTool,
-            FeishuBitableGetMetaTool, FeishuBitableListFieldsTool,
-            FeishuBitableGetRecordTool, FeishuBitableCreateRecordTool,
-            FeishuBitableUpdateRecordTool, FeishuBitableCreateAppTool,
-            FeishuBitableCreateFieldTool,
-            FeishuWikiTool, FeishuDriveTool, FeishuPermTool, FeishuChatTool,
-            FeishuAppScopesTool,
+            FeishuAppScopesTool, FeishuBitableCreateAppTool, FeishuBitableCreateFieldTool,
+            FeishuBitableCreateRecordTool, FeishuBitableGetMetaTool, FeishuBitableGetRecordTool,
+            FeishuBitableListFieldsTool, FeishuBitableListRecordsTool,
+            FeishuBitableUpdateRecordTool, FeishuCalendarListEventsTool, FeishuChatTool,
+            FeishuDeleteMessageTool, FeishuDocCreateTool, FeishuDocGetContentTool, FeishuDocTool,
+            FeishuDriveTool, FeishuEditMessageTool, FeishuForwardMessageTool, FeishuGetMessageTool,
+            FeishuPermTool, FeishuPinTool, FeishuReactionTool, FeishuSendFileTool,
+            FeishuSendRichTextTool, FeishuTaskCreateTool, FeishuTaskListTool, FeishuWikiTool,
         };
         vec![
             // IM enhanced (proactive operations the LLM can trigger)
@@ -589,7 +583,8 @@ impl ChannelPlugin for FeishuPlugin {
         card: &serde_json::Value,
     ) -> anyhow::Result<String> {
         let receive_id_type = infer_receive_id_type(target_id, target_type);
-        let result = self.client
+        let result = self
+            .client
             .send_card(target_id, receive_id_type, card)
             .await?;
 
@@ -610,9 +605,7 @@ impl ChannelPlugin for FeishuPlugin {
         message_id: &str,
         card: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        self.client
-            .update_card_message(message_id, card)
-            .await?;
+        self.client.update_card_message(message_id, card).await?;
         Ok(())
     }
 
@@ -731,6 +724,9 @@ mod tests {
         let raw_body = serde_json::to_vec(&payload).unwrap();
         let headers = BTreeMap::new();
         let result = plugin.verify_webhook(&headers, &raw_body).await;
-        assert!(result.is_err(), "wrong token should be rejected by verify_webhook");
+        assert!(
+            result.is_err(),
+            "wrong token should be rejected by verify_webhook"
+        );
     }
 }

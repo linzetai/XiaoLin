@@ -1,7 +1,7 @@
+use super::helpers::get_state;
 use crate::AppData;
 use serde_json::json;
 use tauri::Emitter;
-use super::helpers::get_state;
 
 // ─── Chat streaming via Tauri Channel ───
 
@@ -104,7 +104,12 @@ pub async fn chat_stream(
     let context_tokens_est = setup.context_tokens_estimate;
 
     for msg in &setup.user_messages {
-        if let Err(e) = app.store.session_store.append_message(&session_id, msg).await {
+        if let Err(e) = app
+            .store
+            .session_store
+            .append_message(&session_id, msg)
+            .await
+        {
             tracing::error!(session_id = %session_id, error = %e, "failed to persist user message");
         }
     }
@@ -175,7 +180,13 @@ pub async fn chat_stream(
     let mut last_checkpoint = std::time::Instant::now();
     let checkpoint_interval = std::time::Duration::from_secs(5);
     #[allow(clippy::type_complexity)]
-    let mut accumulated_tool_calls: Vec<(String, String, Option<String>, Option<String>, bool)> = Vec::new();
+    let mut accumulated_tool_calls: Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        bool,
+    )> = Vec::new();
     while let Some(event) = rx.recv().await {
         match &event {
             StreamEvent::Delta(delta) => {
@@ -186,9 +197,14 @@ pub async fn chat_stream(
                 {
                     assistant_content.push_str(text);
                 }
-                if !assistant_content.is_empty() && last_checkpoint.elapsed() >= checkpoint_interval {
+                if !assistant_content.is_empty() && last_checkpoint.elapsed() >= checkpoint_interval
+                {
                     last_checkpoint = std::time::Instant::now();
-                    let _ = app.store.session_store.save_partial_assistant(&session_id, &assistant_content).await;
+                    let _ = app
+                        .store
+                        .session_store
+                        .save_partial_assistant(&session_id, &assistant_content)
+                        .await;
                 }
                 let _ = channel.send(json!({
                     "type": "chat.delta",
@@ -200,7 +216,13 @@ pub async fn chat_stream(
                 call_id,
                 args,
             } => {
-                accumulated_tool_calls.push((call_id.clone(), tool_name.clone(), args.clone(), None, true));
+                accumulated_tool_calls.push((
+                    call_id.clone(),
+                    tool_name.clone(),
+                    args.clone(),
+                    None,
+                    true,
+                ));
                 let _ = channel.send(json!({
                     "type": "chat.tool.start",
                     "data": {"tool": tool_name, "callId": call_id, "args": args}
@@ -215,7 +237,10 @@ pub async fn chat_stream(
                 metadata,
             } => {
                 let ui_out = display_output.as_ref().unwrap_or(output);
-                if let Some(tc) = accumulated_tool_calls.iter_mut().find(|(cid, _, _, _, _)| cid == call_id) {
+                if let Some(tc) = accumulated_tool_calls
+                    .iter_mut()
+                    .find(|(cid, _, _, _, _)| cid == call_id)
+                {
                     tc.3 = Some(ui_out.clone());
                     tc.4 = *success;
                 }
@@ -244,24 +269,34 @@ pub async fn chat_stream(
                 );
 
                 if !assistant_content.is_empty() {
-                    let _ = app.store.session_store.remove_partial_assistant(&session_id).await;
-                    let saved_tool_calls: Option<Vec<fastclaw_core::types::ToolCall>> = if accumulated_tool_calls.is_empty() {
-                        None
-                    } else {
-                        Some(accumulated_tool_calls.iter().map(|(cid, tname, args, output, success)| {
-                            fastclaw_core::types::ToolCall {
-                                id: cid.clone(),
-                                call_type: "function".to_string(),
-                                function: fastclaw_core::types::FunctionCall {
-                                    name: tname.clone(),
-                                    arguments: args.clone().unwrap_or_default(),
-                                },
-                                output: output.clone(),
-                                success: Some(*success),
-                                duration_ms: None,
-                            }
-                        }).collect())
-                    };
+                    let _ = app
+                        .store
+                        .session_store
+                        .remove_partial_assistant(&session_id)
+                        .await;
+                    let saved_tool_calls: Option<Vec<fastclaw_core::types::ToolCall>> =
+                        if accumulated_tool_calls.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                accumulated_tool_calls
+                                    .iter()
+                                    .map(|(cid, tname, args, output, success)| {
+                                        fastclaw_core::types::ToolCall {
+                                            id: cid.clone(),
+                                            call_type: "function".to_string(),
+                                            function: fastclaw_core::types::FunctionCall {
+                                                name: tname.clone(),
+                                                arguments: args.clone().unwrap_or_default(),
+                                            },
+                                            output: output.clone(),
+                                            success: Some(*success),
+                                            duration_ms: None,
+                                        }
+                                    })
+                                    .collect(),
+                            )
+                        };
                     let assistant_msg = ChatMessage {
                         role: Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -288,7 +323,11 @@ pub async fn chat_stream(
                 }
                 if let Some((est_tokens, ctx_window)) = context_tokens_est {
                     let actual_prompt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                    complete_data["contextTokens"] = json!(if actual_prompt > 0 { actual_prompt } else { est_tokens });
+                    complete_data["contextTokens"] = json!(if actual_prompt > 0 {
+                        actual_prompt
+                    } else {
+                        est_tokens
+                    });
                     if ctx_window > 0 {
                         complete_data["contextWindow"] = json!(ctx_window);
                     }
@@ -303,15 +342,20 @@ pub async fn chat_stream(
                     let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
                     let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
                     let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                    let _ = app.store.session_store.accumulate_usage(sid_str, pt, ct, *elapsed_ms).await;
-                    let _ = app.store.session_store.stamp_last_assistant_usage(sid_str, pt, ct, tt, *elapsed_ms).await;
+                    let _ = app
+                        .store
+                        .session_store
+                        .accumulate_usage(sid_str, pt, ct, *elapsed_ms)
+                        .await;
+                    let _ = app
+                        .store
+                        .session_store
+                        .stamp_last_assistant_usage(sid_str, pt, ct, tt, *elapsed_ms)
+                        .await;
                 }
 
                 // Emit Tauri event for session change
-                let _ = app_handle.emit(
-                    "sessions-changed",
-                    json!({"sessionId": sid}),
-                );
+                let _ = app_handle.emit("sessions-changed", json!({"sessionId": sid}));
             }
             StreamEvent::AskQuestion {
                 request_id,
@@ -338,11 +382,30 @@ pub async fn chat_stream(
                     reserved = 0.0;
                 }
                 if !assistant_content.is_empty() {
-                    let _ = app.store.session_store.remove_partial_assistant(&session_id).await;
-                    let err_tc = if accumulated_tool_calls.is_empty() { None } else {
-                        Some(accumulated_tool_calls.iter().map(|(cid, tname, args, o, s)| {
-                            fastclaw_core::types::ToolCall { id: cid.clone(), call_type: "function".into(), function: fastclaw_core::types::FunctionCall { name: tname.clone(), arguments: args.clone().unwrap_or_default() }, output: o.clone(), success: Some(*s), duration_ms: None }
-                        }).collect())
+                    let _ = app
+                        .store
+                        .session_store
+                        .remove_partial_assistant(&session_id)
+                        .await;
+                    let err_tc = if accumulated_tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            accumulated_tool_calls
+                                .iter()
+                                .map(|(cid, tname, args, o, s)| fastclaw_core::types::ToolCall {
+                                    id: cid.clone(),
+                                    call_type: "function".into(),
+                                    function: fastclaw_core::types::FunctionCall {
+                                        name: tname.clone(),
+                                        arguments: args.clone().unwrap_or_default(),
+                                    },
+                                    output: o.clone(),
+                                    success: Some(*s),
+                                    duration_ms: None,
+                                })
+                                .collect(),
+                        )
                     };
                     let assistant_msg = ChatMessage {
                         role: Role::Assistant,
@@ -363,7 +426,12 @@ pub async fn chat_stream(
                     tool_calls: None,
                     tool_call_id: None,
                 };
-                if let Err(persist_err) = app.store.session_store.append_message(&session_id, &error_system_msg).await {
+                if let Err(persist_err) = app
+                    .store
+                    .session_store
+                    .append_message(&session_id, &error_system_msg)
+                    .await
+                {
                     tracing::error!(session_id = %session_id, error = %persist_err, "failed to persist error message");
                 }
                 let _ = channel.send(json!({
@@ -373,7 +441,13 @@ pub async fn chat_stream(
             }
 
             // ── Sub-agent streaming events (Tauri IPC) ──────────────
-            StreamEvent::SubAgentStart { run_id, agent_id, subagent_type, task, depth } => {
+            StreamEvent::SubAgentStart {
+                run_id,
+                agent_id,
+                subagent_type,
+                task,
+                depth,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.subagent.start",
                     "data": {"runId": run_id, "agentId": agent_id, "subagentType": subagent_type, "task": task, "depth": depth}
@@ -385,43 +459,81 @@ pub async fn chat_stream(
                     "data": {"runId": run_id, "content": content}
                 }));
             }
-            StreamEvent::SubAgentToolExecuting { run_id, tool_name, call_id, args } => {
+            StreamEvent::SubAgentToolExecuting {
+                run_id,
+                tool_name,
+                call_id,
+                args,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.subagent.tool.start",
                     "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "args": args}
                 }));
             }
-            StreamEvent::SubAgentToolResult { run_id, tool_name, call_id, output, success } => {
+            StreamEvent::SubAgentToolResult {
+                run_id,
+                tool_name,
+                call_id,
+                output,
+                success,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.subagent.tool.done",
                     "data": {"runId": run_id, "tool": tool_name, "callId": call_id, "output": output, "success": success}
                 }));
             }
-            StreamEvent::ToolProgress { tool_name, call_id, message, progress, partial_output } => {
+            StreamEvent::ToolProgress {
+                tool_name,
+                call_id,
+                message,
+                progress,
+                partial_output,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.tool.progress",
                     "data": {"tool": tool_name, "callId": call_id, "message": message, "progress": progress, "partialOutput": partial_output}
                 }));
             }
-            StreamEvent::ContextLimitWarning { used_tokens, limit_tokens, message } => {
+            StreamEvent::ContextLimitWarning {
+                used_tokens,
+                limit_tokens,
+                message,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.context.warning",
                     "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "message": message}
                 }));
             }
-            StreamEvent::CompactWarning { used_tokens, limit_tokens, message } => {
+            StreamEvent::CompactWarning {
+                used_tokens,
+                limit_tokens,
+                message,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.compact.warning",
                     "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "message": message}
                 }));
             }
-            StreamEvent::ContextUsageUpdate { used_tokens, limit_tokens, compressed, tokens_saved } => {
+            StreamEvent::ContextUsageUpdate {
+                used_tokens,
+                limit_tokens,
+                compressed,
+                tokens_saved,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.context.usage",
                     "data": {"usedTokens": used_tokens, "limitTokens": limit_tokens, "compressed": compressed, "tokensSaved": tokens_saved}
                 }));
             }
-            StreamEvent::SubAgentComplete { run_id, status, result, tool_calls_made, iterations, usage, elapsed_ms } => {
+            StreamEvent::SubAgentComplete {
+                run_id,
+                status,
+                result,
+                tool_calls_made,
+                iterations,
+                usage,
+                elapsed_ms,
+            } => {
                 let mut data = json!({
                     "runId": run_id, "status": status, "result": result,
                     "toolCallsMade": tool_calls_made, "iterations": iterations, "elapsedMs": elapsed_ms,
@@ -434,7 +546,11 @@ pub async fn chat_stream(
                     "data": data,
                 }));
             }
-            StreamEvent::BriefMessage { content, attachments, mode } => {
+            StreamEvent::BriefMessage {
+                content,
+                attachments,
+                mode,
+            } => {
                 let _ = channel.send(json!({
                     "type": "chat.brief",
                     "data": {"content": content, "attachments": attachments, "mode": mode}
@@ -468,10 +584,25 @@ pub async fn chat_stream(
     }
 
     let build_tc_for_persist = || -> Option<Vec<fastclaw_core::types::ToolCall>> {
-        if accumulated_tool_calls.is_empty() { return None; }
-        Some(accumulated_tool_calls.iter().map(|(cid, tname, args, o, s)| {
-            fastclaw_core::types::ToolCall { id: cid.clone(), call_type: "function".into(), function: fastclaw_core::types::FunctionCall { name: tname.clone(), arguments: args.clone().unwrap_or_default() }, output: o.clone(), success: Some(*s), duration_ms: None }
-        }).collect())
+        if accumulated_tool_calls.is_empty() {
+            return None;
+        }
+        Some(
+            accumulated_tool_calls
+                .iter()
+                .map(|(cid, tname, args, o, s)| fastclaw_core::types::ToolCall {
+                    id: cid.clone(),
+                    call_type: "function".into(),
+                    function: fastclaw_core::types::FunctionCall {
+                        name: tname.clone(),
+                        arguments: args.clone().unwrap_or_default(),
+                    },
+                    output: o.clone(),
+                    success: Some(*s),
+                    duration_ms: None,
+                })
+                .collect(),
+        )
     };
 
     match task.await {
@@ -480,7 +611,11 @@ pub async fn chat_stream(
                 let _ = app.obs.budget_tracker.release_reservation(reserved);
             }
             if !assistant_content.is_empty() {
-                let _ = app.store.session_store.remove_partial_assistant(&session_id).await;
+                let _ = app
+                    .store
+                    .session_store
+                    .remove_partial_assistant(&session_id)
+                    .await;
                 let assistant_msg = ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -500,7 +635,11 @@ pub async fn chat_stream(
                 tool_calls: None,
                 tool_call_id: None,
             };
-            let _ = app.store.session_store.append_message(&session_id, &error_system_msg).await;
+            let _ = app
+                .store
+                .session_store
+                .append_message(&session_id, &error_system_msg)
+                .await;
             let _ = channel.send(json!({
                 "type": "chat.error",
                 "error": {"message": error_msg}
@@ -511,10 +650,16 @@ pub async fn chat_stream(
                 let _ = app.obs.budget_tracker.release_reservation(reserved);
             }
             if !assistant_content.is_empty() {
-                let _ = app.store.session_store.remove_partial_assistant(&session_id).await;
+                let _ = app
+                    .store
+                    .session_store
+                    .remove_partial_assistant(&session_id)
+                    .await;
                 let assistant_msg = ChatMessage {
                     role: Role::Assistant,
-                    content: Some(serde_json::Value::String(std::mem::take(&mut assistant_content))),
+                    content: Some(serde_json::Value::String(std::mem::take(
+                        &mut assistant_content,
+                    ))),
                     reasoning_content: None,
                     name: None,
                     tool_calls: build_tc_for_persist(),
@@ -531,7 +676,11 @@ pub async fn chat_stream(
                 tool_calls: None,
                 tool_call_id: None,
             };
-            let _ = app.store.session_store.append_message(&session_id, &error_system_msg).await;
+            let _ = app
+                .store
+                .session_store
+                .append_message(&session_id, &error_system_msg)
+                .await;
             let _ = channel.send(json!({
                 "type": "chat.error",
                 "error": {"message": error_msg}

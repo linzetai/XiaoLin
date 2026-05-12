@@ -223,8 +223,7 @@ async fn tool_search_finds_deferred_tools() {
         }
     }
 
-    let search_tool =
-        fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
+    let search_tool = fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
 
     let result = search_tool
         .execute(r#"{"query": "docker container"}"#)
@@ -262,8 +261,7 @@ async fn activate_deferred_tool_makes_it_eager() {
     let initial_eager = registry.eager_definitions().len();
     let initial_deferred = registry.deferred_count();
 
-    let search_tool =
-        fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
+    let search_tool = fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
 
     let result = search_tool
         .execute(r#"{"query": "select:web_search"}"#)
@@ -306,12 +304,9 @@ async fn full_workflow_eager_search_activate_use() {
     let eager_before = registry.eager_definitions().len();
     assert_eq!(eager_before, 2, "Only 2 eager tools initially");
 
-    let search_tool =
-        fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
+    let search_tool = fastclaw_agent::builtin_tools::ToolSearchTool::new(registry.clone());
 
-    let result = search_tool
-        .execute(r#"{"query": "test runner"}"#)
-        .await;
+    let result = search_tool.execute(r#"{"query": "test runner"}"#).await;
     assert!(result.success);
     let v: serde_json::Value = serde_json::from_str(&result.output).unwrap();
     assert!(v["match_count"].as_u64().unwrap() >= 1);
@@ -324,5 +319,8 @@ async fn full_workflow_eager_search_activate_use() {
     assert_eq!(registry.eager_definitions().len(), eager_before + 1);
 
     let exec_result = registry.execute_named("test_runner", "{}").await;
-    assert!(exec_result.is_ok(), "Should be able to execute activated tool");
+    assert!(
+        exec_result.is_ok(),
+        "Should be able to execute activated tool"
+    );
 }

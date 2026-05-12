@@ -13,7 +13,12 @@ pub struct CodeChunk {
 
 /// Chunk source code into semantic blocks using the AST.
 /// Falls back to line-based chunking if the language isn't supported or the tree has errors.
-pub fn chunk_file(tree: &Tree, source: &str, language: &str, max_chunk_lines: usize) -> Vec<CodeChunk> {
+pub fn chunk_file(
+    tree: &Tree,
+    source: &str,
+    language: &str,
+    max_chunk_lines: usize,
+) -> Vec<CodeChunk> {
     let root = tree.root_node();
     let mut chunks = Vec::new();
     let mut last_end_byte = 0;
@@ -223,6 +228,10 @@ pub fn standalone() {
         let source = format!("pub struct Big;\n\nimpl Big {{\n{methods}}}\n");
         let parsed = CodeParser::parse(&source, "rust").unwrap();
         let chunks = chunk_file(&parsed.tree, &source, "rust", 10);
-        assert!(chunks.len() > 1, "large impl block should be split into multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "large impl block should be split into multiple chunks, got {}",
+            chunks.len()
+        );
     }
 }

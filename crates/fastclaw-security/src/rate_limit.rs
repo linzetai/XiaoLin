@@ -145,6 +145,43 @@ fn extract_client_ip(req: &Request, trusted_proxies: &[IpAddr]) -> IpAddr {
     peer_ip
 }
 
+/// Axum middleware function for rate limiting.
+pub async fn rate_limit_middleware(
+    limiter: axum::extract::Extension<RateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let limiter = &limiter.0;
+
+    if !limiter.enabled {
+        return next.run(req).await;
+    }
+
+    // Skip rate limiting for health endpoints
+    let path = req.uri().path();
+    if path == "/health" || path == "/healthz" || path == "/ready" {
+        return next.run(req).await;
+    }
+
+    let ip = extract_client_ip(&req, &limiter.trusted_proxies);
+
+    if limiter.check_ip(ip) {
+        next.run(req).await
+    } else {
+        tracing::warn!(%ip, path, "rate limit exceeded");
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            axum::Json(serde_json::json!({
+                "error": {
+                    "message": "Rate limit exceeded. Please try again later.",
+                    "type": "rate_limit_error"
+                }
+            })),
+        )
+            .into_response()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,42 +254,5 @@ mod tests {
         let rl = limiter(1, 60);
         assert!(rl.check_api_key(""));
         assert!(!rl.check_api_key(""));
-    }
-}
-
-/// Axum middleware function for rate limiting.
-pub async fn rate_limit_middleware(
-    limiter: axum::extract::Extension<RateLimiter>,
-    req: Request,
-    next: Next,
-) -> Response {
-    let limiter = &limiter.0;
-
-    if !limiter.enabled {
-        return next.run(req).await;
-    }
-
-    // Skip rate limiting for health endpoints
-    let path = req.uri().path();
-    if path == "/health" || path == "/healthz" || path == "/ready" {
-        return next.run(req).await;
-    }
-
-    let ip = extract_client_ip(&req, &limiter.trusted_proxies);
-
-    if limiter.check_ip(ip) {
-        next.run(req).await
-    } else {
-        tracing::warn!(%ip, path, "rate limit exceeded");
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            axum::Json(serde_json::json!({
-                "error": {
-                    "message": "Rate limit exceeded. Please try again later.",
-                    "type": "rate_limit_error"
-                }
-            })),
-        )
-            .into_response()
     }
 }

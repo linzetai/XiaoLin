@@ -124,7 +124,11 @@ mod tests {
         assert!(check_dangerous_command("cat /etc/passwd").is_ok());
 
         // Safe commands pass in all modes
-        for policy in [DangerousOpsPolicy::Deny, DangerousOpsPolicy::Confirm, DangerousOpsPolicy::Allow] {
+        for policy in [
+            DangerousOpsPolicy::Deny,
+            DangerousOpsPolicy::Confirm,
+            DangerousOpsPolicy::Allow,
+        ] {
             init_test_state(policy);
             assert!(check_dangerous_command("ls -la").is_ok());
             assert!(check_dangerous_command("git status").is_ok());

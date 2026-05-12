@@ -1,16 +1,14 @@
 use std::sync::Arc;
 
+use super::helpers::get_state;
 use crate::AppData;
 use fastclaw_core::config_access::persist_config_key;
 use serde_json::json;
-use super::helpers::get_state;
 
 // ─── MCP server management ───
 
 #[tauri::command]
-pub async fn get_mcp_status(
-    state: tauri::State<'_, AppData>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_mcp_status(state: tauri::State<'_, AppData>) -> Result<serde_json::Value, String> {
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
     let status = app.ext.mcp_status.load();
@@ -25,9 +23,7 @@ pub async fn reload_mcp_servers(
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?.clone();
     drop(gw);
-    app.reload_mcp_servers()
-        .await
-        .map_err(|e| format!("{e}"))?;
+    app.reload_mcp_servers().await.map_err(|e| format!("{e}"))?;
     let status = app.ext.mcp_status.load();
     let list: Vec<&fastclaw_core::types::McpServerStatus> = status.values().collect();
     serde_json::to_value(&list).map_err(|e| format!("serialize: {e}"))
@@ -56,9 +52,7 @@ pub async fn add_mcp_server(
 
     {
         let mut live: serde_json::Value = (**app.cfg.config_live.load()).clone();
-        let arr = live
-            .get_mut("mcpServers")
-            .and_then(|v| v.as_array_mut());
+        let arr = live.get_mut("mcpServers").and_then(|v| v.as_array_mut());
         let server_val =
             serde_json::to_value(&new_server).map_err(|e| format!("serialize: {e}"))?;
         if let Some(arr) = arr {
@@ -77,9 +71,7 @@ pub async fn add_mcp_server(
         tracing::warn!(error = %e, "failed to persist mcpServers");
     }
 
-    app.reload_mcp_servers()
-        .await
-        .map_err(|e| format!("{e}"))?;
+    app.reload_mcp_servers().await.map_err(|e| format!("{e}"))?;
 
     let status = app.ext.mcp_status.load();
     let server_status = status.get(&id).cloned();
@@ -114,9 +106,7 @@ pub async fn remove_mcp_server(
         tracing::warn!(error = %e, "failed to persist mcpServers");
     }
 
-    app.reload_mcp_servers()
-        .await
-        .map_err(|e| format!("{e}"))?;
+    app.reload_mcp_servers().await.map_err(|e| format!("{e}"))?;
 
     Ok(json!({ "ok": true, "id": id }))
 }

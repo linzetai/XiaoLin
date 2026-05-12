@@ -110,8 +110,7 @@ impl ImportanceScorer {
         let tool_count = messages
             .iter()
             .filter(|m| {
-                m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
-                    || m.tool_call_id.is_some()
+                m.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty()) || m.tool_call_id.is_some()
             })
             .count();
         let tool_signal = (tool_count as f32 / 10.0).min(1.0);
@@ -235,10 +234,7 @@ mod tests {
         ];
         let s = scorer.score(&msgs);
         let plain = scorer.score(&[user_msg("hello"), assistant_msg("hi")]);
-        assert!(
-            s > plain,
-            "decision keywords should boost: {s} vs {plain}"
-        );
+        assert!(s > plain, "decision keywords should boost: {s} vs {plain}");
     }
 
     #[test]

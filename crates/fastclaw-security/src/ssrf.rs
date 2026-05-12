@@ -25,9 +25,9 @@ fn is_host_allowed(host: &str, port: u16) -> bool {
     }
     let host_lower = host.to_lowercase();
     let host_port = format!("{}:{}", host_lower, port);
-    allowed.iter().any(|entry| {
-        *entry == host_lower || *entry == host_port
-    })
+    allowed
+        .iter()
+        .any(|entry| *entry == host_lower || *entry == host_port)
 }
 
 pub fn is_private_ip(ip: &IpAddr) -> bool {
@@ -40,7 +40,7 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
             v6.is_loopback()
                 || v6.is_unspecified()
                 || (v6.segments()[0] & 0xFE00) == 0xFC00 // ULA fc00::/7
-                || (v6.segments()[0] == 0xFE80)           // link-local fe80::/10
+                || (v6.segments()[0] == 0xFE80) // link-local fe80::/10
         }
     }
 }
@@ -53,7 +53,7 @@ pub fn is_private_ipv4(v4: &std::net::Ipv4Addr) -> bool {
         || v4.is_unspecified()
         || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64) // 100.64.0.0/10 (CGN)
         || (v4.octets()[0] == 169 && v4.octets()[1] == 254)         // 169.254.0.0/16
-        || v4.octets()[0] == 0                                       // 0.0.0.0/8
+        || v4.octets()[0] == 0 // 0.0.0.0/8
 }
 
 pub fn ssrf_check_url(url_str: &str) -> Result<(), String> {

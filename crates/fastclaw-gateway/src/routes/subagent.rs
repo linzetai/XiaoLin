@@ -75,7 +75,12 @@ pub async fn list_subagent_runs(
     axum::extract::Query(params): axum::extract::Query<ListRunsParams>,
 ) -> Result<Json<Vec<SubAgentRunResponse>>, axum::http::StatusCode> {
     if let Some(session_id) = &params.session_id {
-        match state.store.session_store.list_subagent_runs(session_id).await {
+        match state
+            .store
+            .session_store
+            .list_subagent_runs(session_id)
+            .await
+        {
             Ok(rows) => Ok(Json(rows.into_iter().map(Into::into).collect())),
             Err(_) => Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
         }

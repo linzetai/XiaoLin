@@ -241,12 +241,11 @@ impl CronJobStore {
 
     /// Delete all jobs belonging to a specific agent.
     pub async fn delete_by_agent(&self, agent_id: &str) -> anyhow::Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM cron_jobs WHERE json_extract(action, '$.agent_id') = ?",
-        )
-        .bind(agent_id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM cron_jobs WHERE json_extract(action, '$.agent_id') = ?")
+                .bind(agent_id)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected())
     }
 
@@ -581,9 +580,18 @@ mod tests {
         let pool = test_pool().await;
         let store = CronJobStore::open(pool).await.unwrap();
 
-        store.upsert(&make_agent_chat_job("j1", "agent-a", "Job A1")).await.unwrap();
-        store.upsert(&make_agent_chat_job("j2", "agent-a", "Job A2")).await.unwrap();
-        store.upsert(&make_agent_chat_job("j3", "agent-b", "Job B1")).await.unwrap();
+        store
+            .upsert(&make_agent_chat_job("j1", "agent-a", "Job A1"))
+            .await
+            .unwrap();
+        store
+            .upsert(&make_agent_chat_job("j2", "agent-a", "Job A2"))
+            .await
+            .unwrap();
+        store
+            .upsert(&make_agent_chat_job("j3", "agent-b", "Job B1"))
+            .await
+            .unwrap();
 
         let webhook_job = CronJob {
             id: "j4".into(),
@@ -626,9 +634,18 @@ mod tests {
         let pool = test_pool().await;
         let store = CronJobStore::open(pool).await.unwrap();
 
-        store.upsert(&make_agent_chat_job("j1", "agent-a", "Job A1")).await.unwrap();
-        store.upsert(&make_agent_chat_job("j2", "agent-a", "Job A2")).await.unwrap();
-        store.upsert(&make_agent_chat_job("j3", "agent-b", "Job B1")).await.unwrap();
+        store
+            .upsert(&make_agent_chat_job("j1", "agent-a", "Job A1"))
+            .await
+            .unwrap();
+        store
+            .upsert(&make_agent_chat_job("j2", "agent-a", "Job A2"))
+            .await
+            .unwrap();
+        store
+            .upsert(&make_agent_chat_job("j3", "agent-b", "Job B1"))
+            .await
+            .unwrap();
 
         let deleted = store.delete_by_agent("agent-a").await.unwrap();
         assert_eq!(deleted, 2);
@@ -643,7 +660,10 @@ mod tests {
         let pool = test_pool().await;
         let store = CronJobStore::open(pool).await.unwrap();
 
-        store.upsert(&make_agent_chat_job("j1", "agent-a", "Job A1")).await.unwrap();
+        store
+            .upsert(&make_agent_chat_job("j1", "agent-a", "Job A1"))
+            .await
+            .unwrap();
 
         let deleted = store.delete_by_agent("nonexistent").await.unwrap();
         assert_eq!(deleted, 0);

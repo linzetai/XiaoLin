@@ -87,7 +87,10 @@ pub enum RetryDecision {
     /// Give up — the error is terminal or retries are exhausted.
     GiveUp { reason: String },
     /// Retry with escalated output tokens (max_tokens increase).
-    SwitchStrategy { delay: Duration, escalated_max_tokens: u32 },
+    SwitchStrategy {
+        delay: Duration,
+        escalated_max_tokens: u32,
+    },
 }
 
 /// Error context passed to the retry decision logic.
@@ -133,11 +136,8 @@ pub fn evaluate_retry(
         };
     }
 
-    let kind = ApiErrorClassifier::classify(
-        error.status,
-        &error.message,
-        error.response_body.as_deref(),
-    );
+    let kind =
+        ApiErrorClassifier::classify(error.status, &error.message, error.response_body.as_deref());
 
     match &kind {
         // Terminal errors — never retry
@@ -174,10 +174,7 @@ pub fn evaluate_retry(
             }
             if state.consecutive_529 >= config.max_529_retries {
                 return RetryDecision::GiveUp {
-                    reason: format!(
-                        "max 529 retries ({}) exhausted",
-                        config.max_529_retries
-                    ),
+                    reason: format!("max 529 retries ({}) exhausted", config.max_529_retries),
                 };
             }
             let delay = backoff_delay(state.attempt, config);
@@ -364,7 +361,12 @@ mod tests {
             message: "Too many requests".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::Retry { .. }));
     }
 
@@ -375,7 +377,12 @@ mod tests {
             message: "Rate limited. Retry-After: 45".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         match decision {
             RetryDecision::Retry { delay } => {
                 assert_eq!(delay, Duration::from_secs(45));
@@ -391,7 +398,12 @@ mod tests {
             message: "overloaded".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::Retry { .. }));
     }
 
@@ -402,7 +414,12 @@ mod tests {
             message: "overloaded".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::Background);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::Background,
+        );
         assert!(matches!(decision, RetryDecision::GiveUp { .. }));
     }
 
@@ -426,7 +443,12 @@ mod tests {
             message: "prompt_too_long: 150000 > 128000".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::GiveUp { .. }));
     }
 
@@ -437,7 +459,12 @@ mod tests {
             message: "Invalid API key provided".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::GiveUp { .. }));
     }
 
@@ -448,7 +475,12 @@ mod tests {
             message: "Token budget exhausted".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::GiveUp { .. }));
     }
 
@@ -484,9 +516,17 @@ mod tests {
             message: "max_tokens output limit reached".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         match decision {
-            RetryDecision::SwitchStrategy { escalated_max_tokens, .. } => {
+            RetryDecision::SwitchStrategy {
+                escalated_max_tokens,
+                ..
+            } => {
                 assert_eq!(escalated_max_tokens, 8192);
             }
             _ => panic!("expected SwitchStrategy"),
@@ -503,7 +543,10 @@ mod tests {
         let state1 = state_at_attempt(1);
         let decision = evaluate_retry(&err, &state1, &default_config(), QuerySource::MainThread);
         match decision {
-            RetryDecision::SwitchStrategy { escalated_max_tokens, .. } => {
+            RetryDecision::SwitchStrategy {
+                escalated_max_tokens,
+                ..
+            } => {
                 assert_eq!(escalated_max_tokens, 16_384);
             }
             _ => panic!("expected SwitchStrategy"),
@@ -512,7 +555,10 @@ mod tests {
         let state2 = state_at_attempt(2);
         let decision = evaluate_retry(&err, &state2, &default_config(), QuerySource::MainThread);
         match decision {
-            RetryDecision::SwitchStrategy { escalated_max_tokens, .. } => {
+            RetryDecision::SwitchStrategy {
+                escalated_max_tokens,
+                ..
+            } => {
                 assert_eq!(escalated_max_tokens, 32_768);
             }
             _ => panic!("expected SwitchStrategy"),
@@ -526,7 +572,12 @@ mod tests {
             message: "Request timed out".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::Retry { .. }));
     }
 
@@ -537,7 +588,12 @@ mod tests {
             message: "Connection reset by peer".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::Retry { .. }));
     }
 
@@ -560,7 +616,12 @@ mod tests {
             message: "Internal server error".into(),
             response_body: None,
         };
-        let decision = evaluate_retry(&err, &RetryState::new(), &default_config(), QuerySource::MainThread);
+        let decision = evaluate_retry(
+            &err,
+            &RetryState::new(),
+            &default_config(),
+            QuerySource::MainThread,
+        );
         assert!(matches!(decision, RetryDecision::Retry { .. }));
     }
 
@@ -609,8 +670,14 @@ mod tests {
 
     #[test]
     fn extract_status_from_various_formats() {
-        assert_eq!(extract_status_from_error("status: 429 Too Many Requests"), Some(429));
-        assert_eq!(extract_status_from_error("HTTP 503 Service Unavailable"), Some(503));
+        assert_eq!(
+            extract_status_from_error("status: 429 Too Many Requests"),
+            Some(429)
+        );
+        assert_eq!(
+            extract_status_from_error("HTTP 503 Service Unavailable"),
+            Some(503)
+        );
         assert_eq!(extract_status_from_error("status=401"), Some(401));
         assert_eq!(extract_status_from_error("no status here"), None);
     }

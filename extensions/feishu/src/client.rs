@@ -46,12 +46,7 @@ struct ApiResponse {
 
 impl FeishuClient {
     pub fn new(app_id: &str, app_secret: &str) -> Self {
-        Self::with_base_url_user_token(
-            app_id,
-            app_secret,
-            "https://open.feishu.cn/open-apis",
-            None,
-        )
+        Self::with_base_url_user_token(app_id, app_secret, "https://open.feishu.cn/open-apis", None)
     }
 
     pub fn new_with_user_token(
@@ -107,7 +102,9 @@ impl FeishuClient {
             .filter(|s| !s.is_empty());
         match t {
             Some(tok) => Ok(tok),
-            None => Err(anyhow::anyhow!(crate::oauth::OAuthConfig::missing_user_token_message())),
+            None => Err(anyhow::anyhow!(
+                crate::oauth::OAuthConfig::missing_user_token_message()
+            )),
         }
     }
 
@@ -514,7 +511,9 @@ impl FeishuClient {
                         code = resp.code,
                         "reply card target withdrawn, falling back to direct card send"
                     );
-                    return self.send_card(chat_id, "chat_id", &serde_json::from_str(&card)?).await;
+                    return self
+                        .send_card(chat_id, "chat_id", &serde_json::from_str(&card)?)
+                        .await;
                 }
             }
             anyhow::bail!("Feishu reply card error ({}): {}", resp.code, resp.msg);
@@ -571,16 +570,15 @@ impl FeishuClient {
     /// Upload an image to Feishu and return the image_key.
     /// `image_type` is one of: "image/png", "image/jpeg", "image/gif", "image/webp".
     /// `data` is the raw image bytes.
-    pub async fn upload_image(
-        &self,
-        image_type: &str,
-        data: &[u8],
-    ) -> anyhow::Result<String> {
+    pub async fn upload_image(&self, image_type: &str, data: &[u8]) -> anyhow::Result<String> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/images", self.base_url);
 
         let form = reqwest::multipart::Form::new()
-            .part("image_type", reqwest::multipart::Part::text(image_type.to_string()))
+            .part(
+                "image_type",
+                reqwest::multipart::Part::text(image_type.to_string()),
+            )
             .part(
                 "image",
                 reqwest::multipart::Part::bytes(data.to_vec())
@@ -602,7 +600,9 @@ impl FeishuClient {
             anyhow::bail!("Feishu upload image error ({}): {}", resp.code, resp.msg);
         }
 
-        let data = resp.data.ok_or_else(|| anyhow::anyhow!("no data in upload image response"))?;
+        let data = resp
+            .data
+            .ok_or_else(|| anyhow::anyhow!("no data in upload image response"))?;
         let image_key = data
             .get("image_key")
             .and_then(|v| v.as_str())
@@ -612,9 +612,17 @@ impl FeishuClient {
     }
 
     /// Send an image message to a chat/user.
-    pub async fn send_image(&self, receive_id: &str, receive_id_type: &str, image_key: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn send_image(
+        &self,
+        receive_id: &str,
+        receive_id_type: &str,
+        image_key: &str,
+    ) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
-        let url = format!("{}/im/v1/messages?receive_id_type={}", self.base_url, receive_id_type);
+        let url = format!(
+            "{}/im/v1/messages?receive_id_type={}",
+            self.base_url, receive_id_type
+        );
 
         let content = serde_json::json!({ "image_key": image_key }).to_string();
 
@@ -642,7 +650,11 @@ impl FeishuClient {
     }
 
     /// Reply with an image to a specific message.
-    pub async fn reply_image(&self, message_id: &str, image_key: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn reply_image(
+        &self,
+        message_id: &str,
+        image_key: &str,
+    ) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/messages/{}/reply", self.base_url, message_id);
 
@@ -819,8 +831,7 @@ impl FeishuClient {
             )
             .part(
                 "file",
-                reqwest::multipart::Part::bytes(data.to_vec())
-                    .file_name(file_name.to_string()),
+                reqwest::multipart::Part::bytes(data.to_vec()).file_name(file_name.to_string()),
             );
         let resp: ApiResponse = self
             .http
@@ -905,10 +916,7 @@ impl FeishuClient {
     }
 
     /// Get a single message by its ID.
-    pub async fn get_message(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_message(&self, message_id: &str) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/messages/{}", self.base_url, message_id);
         let resp: ApiResponse = self
@@ -954,10 +962,7 @@ impl FeishuClient {
     }
 
     /// Delete (recall) a message.
-    pub async fn delete_message(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<serde_json::Value> {
+    pub async fn delete_message(&self, message_id: &str) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/messages/{}", self.base_url, message_id);
         let resp: ApiResponse = self
@@ -1078,10 +1083,7 @@ impl FeishuClient {
         emoji_type: &str,
     ) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
-        let url = format!(
-            "{}/im/v1/messages/{}/reactions",
-            self.base_url, message_id
-        );
+        let url = format!("{}/im/v1/messages/{}/reactions", self.base_url, message_id);
         let body = serde_json::json!({
             "reaction_type": { "emoji_type": emoji_type }
         });
@@ -1120,11 +1122,7 @@ impl FeishuClient {
             .json()
             .await?;
         if resp.code != 0 {
-            anyhow::bail!(
-                "Feishu remove reaction error ({}): {}",
-                resp.code,
-                resp.msg
-            );
+            anyhow::bail!("Feishu remove reaction error ({}): {}", resp.code, resp.msg);
         }
         Ok(resp.data.unwrap_or(serde_json::Value::Null))
     }
@@ -1136,10 +1134,7 @@ impl FeishuClient {
         emoji_type: Option<&str>,
     ) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
-        let mut url = format!(
-            "{}/im/v1/messages/{}/reactions",
-            self.base_url, message_id
-        );
+        let mut url = format!("{}/im/v1/messages/{}/reactions", self.base_url, message_id);
         if let Some(et) = emoji_type {
             url.push_str(&format!("?reaction_type={et}"));
         }
@@ -1152,11 +1147,7 @@ impl FeishuClient {
             .json()
             .await?;
         if resp.code != 0 {
-            anyhow::bail!(
-                "Feishu list reactions error ({}): {}",
-                resp.code,
-                resp.msg
-            );
+            anyhow::bail!("Feishu list reactions error ({}): {}", resp.code, resp.msg);
         }
         Ok(resp.data.unwrap_or(serde_json::Value::Null))
     }
@@ -1166,10 +1157,7 @@ impl FeishuClient {
     // -----------------------------------------------------------------------
 
     /// Pin a message.
-    pub async fn create_pin(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<serde_json::Value> {
+    pub async fn create_pin(&self, message_id: &str) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/pins", self.base_url);
         let body = serde_json::json!({ "message_id": message_id });
@@ -1189,10 +1177,7 @@ impl FeishuClient {
     }
 
     /// Unpin a message.
-    pub async fn remove_pin(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<serde_json::Value> {
+    pub async fn remove_pin(&self, message_id: &str) -> anyhow::Result<serde_json::Value> {
         let token = self.get_tenant_token().await?;
         let url = format!("{}/im/v1/pins/{}", self.base_url, message_id);
         let resp: ApiResponse = self

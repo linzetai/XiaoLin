@@ -124,10 +124,7 @@ impl QueryEngine {
     ///
     /// If [`abort`](Self::abort) is called while the stream is active, the
     /// forwarding task stops and the receiver is closed.
-    pub async fn submit_message(
-        &mut self,
-        user_text: &str,
-    ) -> mpsc::Receiver<StreamEvent> {
+    pub async fn submit_message(&mut self, user_text: &str) -> mpsc::Receiver<StreamEvent> {
         // Fresh cancellation token for this turn.
         self.cancel_token = CancellationToken::new();
         let cancel = self.cancel_token.clone();
@@ -239,13 +236,11 @@ impl QueryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CompletionParams;
     use async_trait::async_trait;
     use fastclaw_core::agent_config::{AgentModelConfig, BehaviorConfig};
-    use fastclaw_core::types::{
-        ChatResponse, DeltaContent, StreamChoice, StreamDelta,
-    };
+    use fastclaw_core::types::{ChatResponse, DeltaContent, StreamChoice, StreamDelta};
     use futures::stream;
-    use crate::CompletionParams;
 
     fn test_agent_config() -> AgentConfig {
         AgentConfig {
@@ -321,10 +316,7 @@ mod tests {
 
     #[async_trait]
     impl LlmProvider for MockProvider {
-        async fn chat_completion(
-            &self,
-            _: &CompletionParams<'_>,
-        ) -> anyhow::Result<ChatResponse> {
+        async fn chat_completion(&self, _: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
             anyhow::bail!("not used")
         }
 
@@ -348,10 +340,7 @@ mod tests {
 
     #[async_trait]
     impl LlmProvider for SlowMockProvider {
-        async fn chat_completion(
-            &self,
-            _: &CompletionParams<'_>,
-        ) -> anyhow::Result<ChatResponse> {
+        async fn chat_completion(&self, _: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
             anyhow::bail!("not used")
         }
 
@@ -392,9 +381,7 @@ mod tests {
         let mut text = String::new();
         let mut got_done = false;
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
-        while let Ok(Some(event)) =
-            tokio::time::timeout_at(deadline, rx.recv()).await
-        {
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
             match event {
                 StreamEvent::Delta(d) => {
                     for c in &d.choices {
@@ -422,9 +409,7 @@ mod tests {
         // Turn 1
         let mut rx = engine.submit_message("First question").await;
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
-        while let Ok(Some(event)) =
-            tokio::time::timeout_at(deadline, rx.recv()).await
-        {
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
             if matches!(event, StreamEvent::Done { .. }) {
                 break;
             }
@@ -433,9 +418,7 @@ mod tests {
         // Turn 2
         let mut rx = engine.submit_message("Second question").await;
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
-        while let Ok(Some(event)) =
-            tokio::time::timeout_at(deadline, rx.recv()).await
-        {
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
             if matches!(event, StreamEvent::Done { .. }) {
                 break;
             }
@@ -458,9 +441,7 @@ mod tests {
         for _ in 0..3 {
             let mut rx = engine.submit_message("test").await;
             let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
-            while let Ok(Some(event)) =
-                tokio::time::timeout_at(deadline, rx.recv()).await
-            {
+            while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
                 if matches!(event, StreamEvent::Done { .. }) {
                     break;
                 }
@@ -482,11 +463,12 @@ mod tests {
         // Receive the first partial delta.
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
         let mut received_partial = false;
-        while let Ok(Some(event)) =
-            tokio::time::timeout_at(deadline, rx.recv()).await
-        {
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
             if let StreamEvent::Delta(d) = &event {
-                if d.choices.iter().any(|c| c.delta.content.as_deref() == Some("partial")) {
+                if d.choices
+                    .iter()
+                    .any(|c| c.delta.content.as_deref() == Some("partial"))
+                {
                     received_partial = true;
                     break;
                 }
@@ -498,12 +480,9 @@ mod tests {
         engine.abort();
 
         // The receiver should close soon after abort.
-        let close_deadline =
-            tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        let close_deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
         let mut remaining = 0;
-        while let Ok(Some(_)) =
-            tokio::time::timeout_at(close_deadline, rx.recv()).await
-        {
+        while let Ok(Some(_)) = tokio::time::timeout_at(close_deadline, rx.recv()).await {
             remaining += 1;
         }
 
@@ -534,7 +513,9 @@ mod tests {
 
         // Replace with fast mock for the next turn
         engine = QueryEngine::new(
-            Arc::new(AgentRuntime::new(Arc::new(MockProvider) as Arc<dyn LlmProvider>)),
+            Arc::new(AgentRuntime::new(
+                Arc::new(MockProvider) as Arc<dyn LlmProvider>
+            )),
             test_agent_config(),
             Arc::new(ToolRegistry::new()),
         );
@@ -542,9 +523,7 @@ mod tests {
         let mut rx = engine.submit_message("after abort").await;
         let mut got_done = false;
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
-        while let Ok(Some(event)) =
-            tokio::time::timeout_at(deadline, rx.recv()).await
-        {
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, rx.recv()).await {
             if matches!(event, StreamEvent::Done { .. }) {
                 got_done = true;
                 break;

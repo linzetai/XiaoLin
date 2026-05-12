@@ -27,11 +27,26 @@ impl Tool for FeishuChatTool {
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut properties = HashMap::new();
-        properties.insert("action".into(), serde_json::json!({"type": "string", "enum": ["info", "members", "member_info"]}));
-        properties.insert("chat_id".into(), serde_json::json!({"type": "string", "description": "Chat ID"}));
-        properties.insert("user_id".into(), serde_json::json!({"type": "string", "description": "User open_id (for member_info)"}));
-        properties.insert("page_size".into(), serde_json::json!({"type": "integer", "description": "Page size for members (1-100)"}));
-        properties.insert("page_token".into(), serde_json::json!({"type": "string", "description": "Pagination token"}));
+        properties.insert(
+            "action".into(),
+            serde_json::json!({"type": "string", "enum": ["info", "members", "member_info"]}),
+        );
+        properties.insert(
+            "chat_id".into(),
+            serde_json::json!({"type": "string", "description": "Chat ID"}),
+        );
+        properties.insert(
+            "user_id".into(),
+            serde_json::json!({"type": "string", "description": "User open_id (for member_info)"}),
+        );
+        properties.insert(
+            "page_size".into(),
+            serde_json::json!({"type": "integer", "description": "Page size for members (1-100)"}),
+        );
+        properties.insert(
+            "page_token".into(),
+            serde_json::json!({"type": "string", "description": "Pagination token"}),
+        );
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
@@ -66,10 +81,13 @@ impl Tool for FeishuChatTool {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(20)
                     .clamp(1, 100);
-                let mut path = format!(
-                    "/im/v1/chats/{chat_id}/members?member_id_type=open_id&page_size={ps}"
-                );
-                if let Some(pt) = args.get("page_token").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                let mut path =
+                    format!("/im/v1/chats/{chat_id}/members?member_id_type=open_id&page_size={ps}");
+                if let Some(pt) = args
+                    .get("page_token")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     path.push_str(&format!("&page_token={pt}"));
                 }
                 self.client.user_get(&path).await
@@ -79,9 +97,7 @@ impl Tool for FeishuChatTool {
                     Some(s) if !s.is_empty() => s,
                     _ => return ToolResult::err("user_id is required for member_info".to_string()),
                 };
-                let path = format!(
-                    "/contact/v3/users/{user_id}?user_id_type=open_id"
-                );
+                let path = format!("/contact/v3/users/{user_id}?user_id_type=open_id");
                 self.client.user_get(&path).await
             }
             _ => return ToolResult::err(format!("unknown action: {action}")),

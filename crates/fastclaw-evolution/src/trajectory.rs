@@ -207,7 +207,15 @@ impl TrajectoryStore {
         task_type: &str,
         limit: i64,
     ) -> Result<Vec<Trajectory>> {
-        let rows: Vec<(String, String, String, String, Option<String>, String, String)> = sqlx::query_as(
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        )> = sqlx::query_as(
             "SELECT id, agent_id, session_id, outcome_kind, task_type, outcome_json, created_at
              FROM trajectories WHERE task_type = ? ORDER BY created_at DESC LIMIT ?",
         )
@@ -224,7 +232,15 @@ impl TrajectoryStore {
         agent_id: &str,
         limit: i64,
     ) -> Result<Vec<Trajectory>> {
-        let rows: Vec<(String, String, String, String, Option<String>, String, String)> = sqlx::query_as(
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        )> = sqlx::query_as(
             "SELECT id, agent_id, session_id, outcome_kind, task_type, outcome_json, created_at
              FROM trajectories
              WHERE agent_id = ? AND outcome_kind = 'success'
@@ -240,7 +256,15 @@ impl TrajectoryStore {
 
     /// Recent successful trajectories across all agents (newest first).
     pub async fn get_recent_successful_global(&self, limit: i64) -> Result<Vec<Trajectory>> {
-        let rows: Vec<(String, String, String, String, Option<String>, String, String)> = sqlx::query_as(
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        )> = sqlx::query_as(
             "SELECT id, agent_id, session_id, outcome_kind, task_type, outcome_json, created_at
              FROM trajectories
              WHERE outcome_kind = 'success'
@@ -255,18 +279,27 @@ impl TrajectoryStore {
 
     async fn hydrate_trajectories(
         &self,
-        rows: Vec<(String, String, String, String, Option<String>, String, String)>,
+        rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        )>,
     ) -> Result<Vec<Trajectory>> {
         let mut out = Vec::with_capacity(rows.len());
         for (id, agent_id, session_id, _outcome_kind, task_type, outcome_json, created_at) in rows {
             let outcome: TrajectoryOutcome = serde_json::from_str(&outcome_json)?;
-            let steps: Vec<(i64, String, String, Option<String>, String, Option<i32>)> = sqlx::query_as(
-                "SELECT step_index, role, action_type, tool_name, summary, success
+            let steps: Vec<(i64, String, String, Option<String>, String, Option<i32>)> =
+                sqlx::query_as(
+                    "SELECT step_index, role, action_type, tool_name, summary, success
                  FROM trajectory_steps WHERE trajectory_id = ? ORDER BY step_index ASC",
-            )
-            .bind(&id)
-            .fetch_all(&self.pool)
-            .await?;
+                )
+                .bind(&id)
+                .fetch_all(&self.pool)
+                .await?;
 
             let steps: Vec<TrajectoryStep> = steps
                 .into_iter()
@@ -362,6 +395,9 @@ mod tests {
             summary: "ok".into(),
             success: Some(true),
         }];
-        assert_eq!(infer_task_type(&steps), Some("code_modification".to_string()));
+        assert_eq!(
+            infer_task_type(&steps),
+            Some("code_modification".to_string())
+        );
     }
 }

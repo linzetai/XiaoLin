@@ -94,9 +94,7 @@ impl ApiErrorClassifier {
             return ApiErrorKind::Overloaded;
         }
 
-        if lower.contains("image")
-            && (lower.contains("too large") || lower.contains("exceeds"))
-        {
+        if lower.contains("image") && (lower.contains("too large") || lower.contains("exceeds")) {
             return ApiErrorKind::ImageTooLarge {
                 path: String::new(),
                 size: 0,
@@ -130,9 +128,7 @@ impl ApiErrorClassifier {
             return ApiErrorKind::ConnectionTimeout;
         }
 
-        if lower.contains("connection")
-            && (lower.contains("reset") || lower.contains("closed"))
-        {
+        if lower.contains("connection") && (lower.contains("reset") || lower.contains("closed")) {
             return ApiErrorKind::ConnectionReset;
         }
 
@@ -197,9 +193,7 @@ impl ApiErrorClassifier {
                 let secs = retry_after.map_or(30, |d| d.as_secs());
                 format!("Rate limited. Retrying in {}s...", secs)
             }
-            ApiErrorKind::Overloaded => {
-                "Server is overloaded. Waiting before retry...".to_string()
-            }
+            ApiErrorKind::Overloaded => "Server is overloaded. Waiting before retry...".to_string(),
             ApiErrorKind::AuthExpired => {
                 "Authentication expired. Please refresh your API credentials.".to_string()
             }
@@ -213,30 +207,40 @@ impl ApiErrorClassifier {
             ApiErrorKind::ImageTooLarge { path, size } => {
                 format!(
                     "Image {} too large ({}). Consider resizing or using a smaller image.",
-                    if path.is_empty() { "<unknown>" } else { path.as_str() },
+                    if path.is_empty() {
+                        "<unknown>"
+                    } else {
+                        path.as_str()
+                    },
                     format_file_size(*size)
                 )
             }
             ApiErrorKind::PdfTooLarge { path, pages } => {
                 format!(
                     "PDF {} too large ({} pages). Consider splitting the document.",
-                    if path.is_empty() { "<unknown>" } else { path.as_str() },
+                    if path.is_empty() {
+                        "<unknown>"
+                    } else {
+                        path.as_str()
+                    },
                     pages
                 )
             }
             ApiErrorKind::ConnectionTimeout => {
                 "Connection timed out. Retrying with backoff...".to_string()
             }
-            ApiErrorKind::ConnectionReset => {
-                "Connection was reset. Retrying...".to_string()
-            }
+            ApiErrorKind::ConnectionReset => "Connection was reset. Retrying...".to_string(),
             ApiErrorKind::StreamInterrupted => {
                 "Stream was interrupted. Attempting to resume...".to_string()
             }
             ApiErrorKind::ModelNotAvailable { model } => {
                 format!(
                     "Model '{}' is not available. Check your model configuration.",
-                    if model.is_empty() { "unknown" } else { model.as_str() }
+                    if model.is_empty() {
+                        "unknown"
+                    } else {
+                        model.as_str()
+                    }
                 )
             }
             ApiErrorKind::BudgetExhausted => {
@@ -310,11 +314,7 @@ mod tests {
 
     #[test]
     fn classify_401_invalid_key() {
-        let kind = ApiErrorClassifier::classify(
-            Some(401),
-            "Invalid API key provided",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(Some(401), "Invalid API key provided", None);
         assert_eq!(kind, ApiErrorKind::InvalidApiKey);
     }
 
@@ -326,11 +326,7 @@ mod tests {
 
     #[test]
     fn classify_429_with_retry_after() {
-        let kind = ApiErrorClassifier::classify(
-            Some(429),
-            "Rate limited. Retry-After: 60",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(Some(429), "Rate limited. Retry-After: 60", None);
         match kind {
             ApiErrorKind::RateLimited { retry_after } => {
                 assert_eq!(retry_after, Some(Duration::from_secs(60)));
@@ -353,7 +349,10 @@ mod tests {
             Some("prompt_too_long: 150000 tokens > 128000 limit"),
         );
         match kind {
-            ApiErrorKind::PromptTooLong { actual_tokens, limit_tokens } => {
+            ApiErrorKind::PromptTooLong {
+                actual_tokens,
+                limit_tokens,
+            } => {
                 assert_eq!(actual_tokens, Some(150000));
                 assert_eq!(limit_tokens, Some(128000));
             }
@@ -363,11 +362,8 @@ mod tests {
 
     #[test]
     fn classify_context_length_exceeded() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "context_length_exceeded: 130000 > 128000",
-            None,
-        );
+        let kind =
+            ApiErrorClassifier::classify(None, "context_length_exceeded: 130000 > 128000", None);
         assert!(matches!(kind, ApiErrorKind::PromptTooLong { .. }));
     }
 
@@ -379,7 +375,10 @@ mod tests {
             None,
         );
         match kind {
-            ApiErrorKind::PromptTooLong { actual_tokens, limit_tokens } => {
+            ApiErrorKind::PromptTooLong {
+                actual_tokens,
+                limit_tokens,
+            } => {
                 assert_eq!(actual_tokens, Some(150000));
                 assert_eq!(limit_tokens, Some(128000));
             }
@@ -389,31 +388,20 @@ mod tests {
 
     #[test]
     fn classify_max_output_tokens() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "max_tokens output limit reached",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "max_tokens output limit reached", None);
         assert_eq!(kind, ApiErrorKind::MaxOutputTokens);
     }
 
     #[test]
     fn classify_invalid_api_key_from_text() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Invalid API key: sk-xxx is not valid",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Invalid API key: sk-xxx is not valid", None);
         assert_eq!(kind, ApiErrorKind::InvalidApiKey);
     }
 
     #[test]
     fn classify_rate_limit_from_text() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "rate_limit_exceeded: retry in 30 seconds",
-            None,
-        );
+        let kind =
+            ApiErrorClassifier::classify(None, "rate_limit_exceeded: retry in 30 seconds", None);
         match kind {
             ApiErrorKind::RateLimited { retry_after } => {
                 assert_eq!(retry_after, Some(Duration::from_secs(30)));
@@ -424,111 +412,68 @@ mod tests {
 
     #[test]
     fn classify_overloaded_from_text() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "The server is currently overloaded",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "The server is currently overloaded", None);
         assert_eq!(kind, ApiErrorKind::Overloaded);
     }
 
     #[test]
     fn classify_capacity_overloaded() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "No capacity available for this model",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "No capacity available for this model", None);
         assert_eq!(kind, ApiErrorKind::Overloaded);
     }
 
     #[test]
     fn classify_image_too_large() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Image is too large to process",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Image is too large to process", None);
         assert!(matches!(kind, ApiErrorKind::ImageTooLarge { .. }));
     }
 
     #[test]
     fn classify_pdf_too_large() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "PDF has too many pages to process",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "PDF has too many pages to process", None);
         assert!(matches!(kind, ApiErrorKind::PdfTooLarge { .. }));
     }
 
     #[test]
     fn classify_model_not_found() {
-        let kind = ApiErrorClassifier::classify(
-            Some(404),
-            "Model gpt-5 not found",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(Some(404), "Model gpt-5 not found", None);
         assert!(matches!(kind, ApiErrorKind::ModelNotAvailable { .. }));
     }
 
     #[test]
     fn classify_model_not_available() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Model claude-99 is not available",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Model claude-99 is not available", None);
         assert!(matches!(kind, ApiErrorKind::ModelNotAvailable { .. }));
     }
 
     #[test]
     fn classify_budget_exhausted() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Token budget exhausted for this session",
-            None,
-        );
+        let kind =
+            ApiErrorClassifier::classify(None, "Token budget exhausted for this session", None);
         assert_eq!(kind, ApiErrorKind::BudgetExhausted);
     }
 
     #[test]
     fn classify_timeout() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Request timed out after 30s",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Request timed out after 30s", None);
         assert_eq!(kind, ApiErrorKind::ConnectionTimeout);
     }
 
     #[test]
     fn classify_connection_reset() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Connection reset by peer",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Connection reset by peer", None);
         assert_eq!(kind, ApiErrorKind::ConnectionReset);
     }
 
     #[test]
     fn classify_connection_closed() {
-        let kind = ApiErrorClassifier::classify(
-            None,
-            "Connection closed unexpectedly",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(None, "Connection closed unexpectedly", None);
         assert_eq!(kind, ApiErrorKind::ConnectionReset);
     }
 
     #[test]
     fn classify_unknown() {
-        let kind = ApiErrorClassifier::classify(
-            Some(500),
-            "Internal server error",
-            None,
-        );
+        let kind = ApiErrorClassifier::classify(Some(500), "Internal server error", None);
         assert!(matches!(kind, ApiErrorKind::Unknown(_)));
     }
 
@@ -536,9 +481,8 @@ mod tests {
 
     #[test]
     fn parse_tokens_two_numbers_larger_first() {
-        let (actual, limit) = ApiErrorClassifier::parse_prompt_too_long_tokens(
-            "150000 tokens exceeds 128000 limit",
-        );
+        let (actual, limit) =
+            ApiErrorClassifier::parse_prompt_too_long_tokens("150000 tokens exceeds 128000 limit");
         assert_eq!(actual, Some(150000));
         assert_eq!(limit, Some(128000));
     }
@@ -554,9 +498,8 @@ mod tests {
 
     #[test]
     fn parse_tokens_single_number_with_limit_keyword() {
-        let (actual, limit) = ApiErrorClassifier::parse_prompt_too_long_tokens(
-            "maximum context limit is 128000",
-        );
+        let (actual, limit) =
+            ApiErrorClassifier::parse_prompt_too_long_tokens("maximum context limit is 128000");
         assert_eq!(actual, None);
         assert_eq!(limit, Some(128000));
     }
@@ -592,27 +535,37 @@ mod tests {
 
     #[test]
     fn recovery_message_rate_limited_default() {
-        let msg = ApiErrorClassifier::recovery_message(&ApiErrorKind::RateLimited {
-            retry_after: None,
-        });
+        let msg =
+            ApiErrorClassifier::recovery_message(&ApiErrorKind::RateLimited { retry_after: None });
         assert!(msg.contains("30s"));
     }
 
     #[test]
     fn recovery_message_all_kinds_non_empty() {
         let kinds = vec![
-            ApiErrorKind::PromptTooLong { actual_tokens: None, limit_tokens: None },
+            ApiErrorKind::PromptTooLong {
+                actual_tokens: None,
+                limit_tokens: None,
+            },
             ApiErrorKind::RateLimited { retry_after: None },
             ApiErrorKind::Overloaded,
             ApiErrorKind::AuthExpired,
             ApiErrorKind::MaxOutputTokens,
             ApiErrorKind::InvalidApiKey,
-            ApiErrorKind::ImageTooLarge { path: "test.png".into(), size: 10_000_000 },
-            ApiErrorKind::PdfTooLarge { path: "doc.pdf".into(), pages: 500 },
+            ApiErrorKind::ImageTooLarge {
+                path: "test.png".into(),
+                size: 10_000_000,
+            },
+            ApiErrorKind::PdfTooLarge {
+                path: "doc.pdf".into(),
+                pages: 500,
+            },
             ApiErrorKind::ConnectionTimeout,
             ApiErrorKind::ConnectionReset,
             ApiErrorKind::StreamInterrupted,
-            ApiErrorKind::ModelNotAvailable { model: "gpt-99".into() },
+            ApiErrorKind::ModelNotAvailable {
+                model: "gpt-99".into(),
+            },
             ApiErrorKind::BudgetExhausted,
             ApiErrorKind::Unknown("something".into()),
         ];

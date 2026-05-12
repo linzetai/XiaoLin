@@ -211,14 +211,17 @@ fn run_preflight_checks(app: &mut TuiApp) {
                     .any(|c| c.api_key.is_some());
             if !has_creds {
                 warnings.push(
-                    "No LLM API keys configured. Run `fastclaw setup` or `fastclaw config set`.".into(),
+                    "No LLM API keys configured. Run `fastclaw setup` or `fastclaw config set`."
+                        .into(),
                 );
             }
         }
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("json") || msg.contains("parse") || msg.contains("JSON") {
-                warnings.push(format!("Config syntax error (try `fastclaw config fix`): {msg}"));
+                warnings.push(format!(
+                    "Config syntax error (try `fastclaw config fix`): {msg}"
+                ));
             } else {
                 warnings.push(format!("Config error: {msg}"));
             }
@@ -292,9 +295,7 @@ pub async fn run_tui(
     app.status = "Connected".into();
 
     let agents_req = json!({"id": "init-agents", "method": "agents"});
-    let _ = ws_tx
-        .send(Message::Text(agents_req.to_string()))
-        .await;
+    let _ = ws_tx.send(Message::Text(agents_req.to_string())).await;
 
     for _ in 0..5 {
         if let Some(Ok(Message::Text(text))) = ws_rx.next().await {
@@ -395,7 +396,12 @@ async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: KeyEvent) {
     // Popup handling
     if app.show_popup.is_some() {
         // Extract AskQuestion data before mutating app
-        let ask_data = if let Some(PopupKind::AskQuestion { ref request_id, ref options, .. }) = app.show_popup {
+        let ask_data = if let Some(PopupKind::AskQuestion {
+            ref request_id,
+            ref options,
+            ..
+        }) = app.show_popup
+        {
             Some((request_id.clone(), options.clone()))
         } else {
             None
@@ -518,7 +524,8 @@ async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: KeyEvent) {
         (_, KeyCode::Esc) if app.streaming => {
             if let Some(rid) = app.last_request_id.take() {
                 let cancel_id = app.next_id();
-                let cancel_req = json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
+                let cancel_req =
+                    json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
                 let _ = ws_tx.send(Message::Text(cancel_req.to_string())).await;
             }
             app.streaming = false;
@@ -592,12 +599,16 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
                     app.total_output_tokens,
                     app.total_input_tokens + app.total_output_tokens,
                 ));
-                if let (Some(ms), Some(i), Some(o)) =
-                    (app.last_elapsed_ms, app.last_input_tokens, app.last_output_tokens)
-                {
+                if let (Some(ms), Some(i), Some(o)) = (
+                    app.last_elapsed_ms,
+                    app.last_input_tokens,
+                    app.last_output_tokens,
+                ) {
                     app.push_system(format!(
                         "Last message: {} | ↑{} ↓{} tokens",
-                        format_elapsed(ms), i, o,
+                        format_elapsed(ms),
+                        i,
+                        o,
                     ));
                 }
             }
@@ -609,7 +620,11 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
             }
         }
         "/plan" => {
-            let new_mode = if app.execution_mode == "plan" { "agent" } else { "plan" };
+            let new_mode = if app.execution_mode == "plan" {
+                "agent"
+            } else {
+                "plan"
+            };
             let id = app.next_id();
             let req = json!({
                 "id": id,
@@ -618,7 +633,11 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
             });
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.execution_mode = new_mode.to_string();
-            let label = if new_mode == "plan" { "Plan (read-only)" } else { "Agent (full access)" };
+            let label = if new_mode == "plan" {
+                "Plan (read-only)"
+            } else {
+                "Agent (full access)"
+            };
             app.push_system(format!("Switched to {label} mode."));
             app.status = format!("Mode: {}", new_mode);
         }
@@ -678,7 +697,10 @@ async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, text: &str) {
                     .collect::<String>();
                 let filename = format!("fastclaw-session-{sid}.txt");
                 match std::fs::write(&filename, &export) {
-                    Ok(_) => app.push_system(format!("Exported {} messages to {filename}", app.messages.len())),
+                    Ok(_) => app.push_system(format!(
+                        "Exported {} messages to {filename}",
+                        app.messages.len()
+                    )),
                     Err(e) => app.push_system(format!("Export failed: {e}")),
                 }
             }
@@ -879,7 +901,8 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
         "chat.complete" => {
             app.streaming = false;
 
-            let elapsed_ms = msg["data"]["elapsedMs"].as_u64()
+            let elapsed_ms = msg["data"]["elapsedMs"]
+                .as_u64()
                 .or_else(|| app.chat_start_time.map(|t| t.elapsed().as_millis() as u64));
             let input_tokens = msg["data"]["inputTokensEstimate"].as_u64();
             let output_tokens = msg["data"]["outputTokensEstimate"].as_u64();
@@ -989,10 +1012,7 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
             }
         }
         "chat.ask_question" => {
-            let request_id = msg["data"]["requestId"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let request_id = msg["data"]["requestId"].as_str().unwrap_or("").to_string();
             let question = msg["data"]["question"]
                 .as_str()
                 .unwrap_or("Agent is asking a question")
@@ -1032,9 +1052,7 @@ fn handle_ws_message(app: &mut TuiApp, text: &str) {
             }
         }
         "error" => {
-            let err_msg = msg["error"]["message"]
-                .as_str()
-                .unwrap_or("unknown error");
+            let err_msg = msg["error"]["message"].as_str().unwrap_or("unknown error");
             let code = msg["error"]["code"].as_i64();
             let status = match code {
                 Some(401) => format!("Auth error: {err_msg}"),
@@ -1412,10 +1430,7 @@ fn draw_status_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
     let status = Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(&app.status, Style::default().fg(Color::White)),
-        Span::styled(
-            cumulative,
-            Style::default().fg(Color::Rgb(100, 100, 140)),
-        ),
+        Span::styled(cumulative, Style::default().fg(Color::Rgb(100, 100, 140))),
         Span::raw("  "),
         Span::styled(
             "Ctrl+C:quit  Shift+↑↓:scroll  /help:commands",
@@ -1549,7 +1564,9 @@ fn draw_popup(f: &mut Frame, popup: &PopupKind, agents: &[AgentInfo]) {
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("  {}. ", i + 1),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(label.clone()),
                 ]));

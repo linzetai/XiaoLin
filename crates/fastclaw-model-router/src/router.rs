@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fastclaw_core::complexity::ComplexityTier;
+use serde::{Deserialize, Serialize};
 
 use crate::budget::BudgetTracker;
 use crate::estimator::{CostEstimator, ModelPricing, TokenEstimate};
@@ -178,10 +178,7 @@ impl ModelRouter {
 
         match self.strategy {
             RoutingStrategy::Fixed => {
-                let first_model = candidates
-                    .first()
-                    .map(|c| c.model.as_str())
-                    .unwrap_or("");
+                let first_model = candidates.first().map(|c| c.model.as_str()).unwrap_or("");
                 let model_name = preferred_model.unwrap_or(first_model);
                 let selected = candidates
                     .iter()
@@ -207,16 +204,11 @@ impl ModelRouter {
                     a.estimated_cost
                         .partial_cmp(&b.estimated_cost)
                         .unwrap_or_else(|| {
-                            a.estimated_cost
-                                .is_nan()
-                                .cmp(&b.estimated_cost.is_nan())
+                            a.estimated_cost.is_nan().cmp(&b.estimated_cost.is_nan())
                         })
                 });
-                let sel = select_within_budget(
-                    &self.budget,
-                    &mut candidates,
-                    "cheapest within budget",
-                )?;
+                let sel =
+                    select_within_budget(&self.budget, &mut candidates, "cheapest within budget")?;
                 let alternatives: Vec<_> = candidates
                     .into_iter()
                     .filter(|c| c.model != sel.model)
@@ -310,7 +302,7 @@ mod tests {
 
         let result = router.route(None, 1000, None).unwrap();
         assert!(!result.selected.model.is_empty());
-        if result.alternatives.len() > 0 {
+        if !result.alternatives.is_empty() {
             assert!(
                 result.selected.estimated_cost <= result.alternatives[0].estimated_cost + 0.0001
             );

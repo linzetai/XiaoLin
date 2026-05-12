@@ -279,7 +279,8 @@ async fn execute_single_tool_with_context(
         Some(tool) => {
             with_file_access_mode(
                 file_access,
-                with_additional_allowed_paths(extra_allowed_paths,
+                with_additional_allowed_paths(
+                    extra_allowed_paths,
                     with_work_dir(work_dir, tool.execute(arguments)),
                 ),
             )
@@ -296,7 +297,6 @@ async fn execute_single_tool_with_context(
         },
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -342,10 +342,18 @@ mod tests {
     struct MockReadTool;
     #[async_trait::async_trait]
     impl Tool for MockReadTool {
-        fn name(&self) -> &str { "read_file" }
-        fn description(&self) -> &str { "Read a file" }
-        fn parameters_schema(&self) -> ToolParameterSchema { empty_schema() }
-        fn kind(&self) -> ToolKind { ToolKind::Read }
+        fn name(&self) -> &str {
+            "read_file"
+        }
+        fn description(&self) -> &str {
+            "Read a file"
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            empty_schema()
+        }
+        fn kind(&self) -> ToolKind {
+            ToolKind::Read
+        }
         async fn execute(&self, _args: &str) -> ToolResult {
             tokio::time::sleep(Duration::from_millis(10)).await;
             ok_result("file content")
@@ -357,10 +365,18 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl Tool for MockEditTool {
-        fn name(&self) -> &str { "edit_file" }
-        fn description(&self) -> &str { "Edit a file" }
-        fn parameters_schema(&self) -> ToolParameterSchema { empty_schema() }
-        fn kind(&self) -> ToolKind { ToolKind::Edit }
+        fn name(&self) -> &str {
+            "edit_file"
+        }
+        fn description(&self) -> &str {
+            "Edit a file"
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            empty_schema()
+        }
+        fn kind(&self) -> ToolKind {
+            ToolKind::Edit
+        }
         async fn execute(&self, _args: &str) -> ToolResult {
             self.exec_count.fetch_add(1, Ordering::Relaxed);
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -371,10 +387,18 @@ mod tests {
     struct MockFailTool;
     #[async_trait::async_trait]
     impl Tool for MockFailTool {
-        fn name(&self) -> &str { "fail_tool" }
-        fn description(&self) -> &str { "Always fails" }
-        fn parameters_schema(&self) -> ToolParameterSchema { empty_schema() }
-        fn kind(&self) -> ToolKind { ToolKind::Read }
+        fn name(&self) -> &str {
+            "fail_tool"
+        }
+        fn description(&self) -> &str {
+            "Always fails"
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            empty_schema()
+        }
+        fn kind(&self) -> ToolKind {
+            ToolKind::Read
+        }
         async fn execute(&self, _args: &str) -> ToolResult {
             tokio::time::sleep(Duration::from_millis(5)).await;
             err_result("error occurred")
@@ -384,10 +408,18 @@ mod tests {
     struct SlowSearchTool;
     #[async_trait::async_trait]
     impl Tool for SlowSearchTool {
-        fn name(&self) -> &str { "search" }
-        fn description(&self) -> &str { "Search" }
-        fn parameters_schema(&self) -> ToolParameterSchema { empty_schema() }
-        fn kind(&self) -> ToolKind { ToolKind::Search }
+        fn name(&self) -> &str {
+            "search"
+        }
+        fn description(&self) -> &str {
+            "Search"
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            empty_schema()
+        }
+        fn kind(&self) -> ToolKind {
+            ToolKind::Search
+        }
         async fn execute(&self, _args: &str) -> ToolResult {
             tokio::time::sleep(Duration::from_millis(50)).await;
             ok_result("found")
@@ -523,7 +555,7 @@ mod tests {
         let results = executor.drain_remaining().await;
         assert_eq!(results.len(), 2);
         assert!(!results[0].result.success); // fail_tool failed
-        // Second may be cancelled or not depending on timing
+                                             // Second may be cancelled or not depending on timing
     }
 
     #[tokio::test]

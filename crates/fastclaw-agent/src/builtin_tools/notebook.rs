@@ -101,8 +101,7 @@ fn read_notebook(path: &Path) -> Result<Notebook, String> {
 fn write_notebook(path: &Path, nb: &Notebook) -> Result<(), String> {
     let json = serde_json::to_string_pretty(nb)
         .map_err(|e| format!("Failed to serialize notebook: {e}"))?;
-    std::fs::write(path, json)
-        .map_err(|e| format!("Failed to write {}: {e}", path.display()))
+    std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
 }
 
 #[async_trait]
@@ -206,11 +205,7 @@ impl Tool for NotebookEditTool {
 fn execute_replace(path: &Path, args: &NotebookArgs) -> ToolResult {
     let source = match &args.source {
         Some(s) => s,
-        None => {
-            return ToolResult::err(
-                "'source' is required for replace operation.".to_string(),
-            )
-        }
+        None => return ToolResult::err("'source' is required for replace operation.".to_string()),
     };
 
     let mut nb = match read_notebook(path) {
@@ -254,11 +249,7 @@ fn execute_replace(path: &Path, args: &NotebookArgs) -> ToolResult {
 fn execute_insert(path: &Path, args: &NotebookArgs) -> ToolResult {
     let source = match &args.source {
         Some(s) => s,
-        None => {
-            return ToolResult::err(
-                "'source' is required for insert operation.".to_string(),
-            )
-        }
+        None => return ToolResult::err("'source' is required for insert operation.".to_string()),
     };
 
     let mut nb = match read_notebook(path) {
@@ -394,10 +385,7 @@ mod tests {
 
     #[test]
     fn reject_non_ipynb() {
-        let mut f = tempfile::Builder::new()
-            .suffix(".py")
-            .tempfile()
-            .unwrap();
+        let mut f = tempfile::Builder::new().suffix(".py").tempfile().unwrap();
         f.write_all(b"print('hello')").unwrap();
         let result = read_notebook(f.path());
         assert!(result.is_err());

@@ -1,6 +1,6 @@
+use super::helpers::get_state;
 use crate::AppData;
 use serde_json::json;
-use super::helpers::get_state;
 
 // ─── Sessions ───
 
@@ -68,7 +68,8 @@ pub async fn set_session_work_dir(
 ) -> Result<(), String> {
     let gw = state.gateway.lock().await;
     let app = get_state(&gw)?;
-    app.store.session_store
+    app.store
+        .session_store
         .update_work_dir(&session_id, work_dir.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -125,13 +126,9 @@ pub async fn create_session(
         .workspaces
         .get(agent_id)
         .map(|ws| ws.root.to_string_lossy().to_string());
-    app.store.session_store
-        .create_session_with_work_dir(
-            &new_id,
-            agent_id,
-            None,
-            work_dir.as_deref(),
-        )
+    app.store
+        .session_store
+        .create_session_with_work_dir(&new_id, agent_id, None, work_dir.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     Ok(json!({"sessionId": new_id, "agentId": agent_id, "workDir": work_dir}))

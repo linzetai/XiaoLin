@@ -382,7 +382,7 @@ export async function readIdentityFilesIpc(
   if (isTauri) {
     return tauriInvoke("read_identity_files", { agentId });
   }
-  return { soul: null, user: null, agents: null };
+  return { soul: null, user: null, agents: null, tools: null };
 }
 
 // ─── Config ───

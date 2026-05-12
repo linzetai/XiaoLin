@@ -1,12 +1,16 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use fastclaw_core::types::{ChatMessage, Role};
 use fastclaw_context::estimate_messages_tokens;
+use fastclaw_core::types::{ChatMessage, Role};
 
 fn make_messages(count: usize, content_len: usize) -> Vec<ChatMessage> {
     let text: String = "a".repeat(content_len);
     (0..count)
         .map(|i| ChatMessage {
-            role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+            role: if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            },
             content: Some(serde_json::Value::String(text.clone())),
             reasoning_content: None,
             name: None,

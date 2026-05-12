@@ -149,12 +149,11 @@ fn node_to_symbol(node: &Node, source: &str, language: &str) -> Option<Symbol> {
             "function_declaration" => (SymbolKind::Function, "name"),
             "method_declaration" => (SymbolKind::Method, "name"),
             "type_declaration" => {
-                let spec = node.child_by_field_name("type_spec")
-                    .or_else(|| {
-                        let mut c = node.walk();
-                        let children: Vec<_> = node.children(&mut c).collect();
-                        children.into_iter().find(|n| n.kind() == "type_spec")
-                    });
+                let spec = node.child_by_field_name("type_spec").or_else(|| {
+                    let mut c = node.walk();
+                    let children: Vec<_> = node.children(&mut c).collect();
+                    children.into_iter().find(|n| n.kind() == "type_spec")
+                });
                 if let Some(spec_node) = spec {
                     if let Some(name_node) = spec_node.child_by_field_name("name") {
                         let name = node_text(&name_node, source);
@@ -185,16 +184,18 @@ fn node_to_symbol(node: &Node, source: &str, language: &str) -> Option<Symbol> {
             "enum_declaration" => (SymbolKind::Enum, "name"),
             _ => return None,
         },
-        _ => {
-            match kind {
-                k if k.contains("function") && k.contains("declaration") => (SymbolKind::Function, "name"),
-                k if k.contains("function") && k.contains("definition") => (SymbolKind::Function, "name"),
-                k if k.contains("class") && k.contains("declaration") => (SymbolKind::Class, "name"),
-                k if k.contains("class") && k.contains("definition") => (SymbolKind::Class, "name"),
-                k if k.contains("method") => (SymbolKind::Method, "name"),
-                _ => return None,
+        _ => match kind {
+            k if k.contains("function") && k.contains("declaration") => {
+                (SymbolKind::Function, "name")
             }
-        }
+            k if k.contains("function") && k.contains("definition") => {
+                (SymbolKind::Function, "name")
+            }
+            k if k.contains("class") && k.contains("declaration") => (SymbolKind::Class, "name"),
+            k if k.contains("class") && k.contains("definition") => (SymbolKind::Class, "name"),
+            k if k.contains("method") => (SymbolKind::Method, "name"),
+            _ => return None,
+        },
     };
 
     let name_node = node.child_by_field_name(name_field)?;
@@ -338,18 +339,16 @@ fn callee_ident_text(node: &Node, source: &str) -> Option<String> {
     match node.kind() {
         "identifier" | "type_identifier" => Some(node_text(node, source)),
         "field_expression" | "member_expression" => {
-            let field = node.child_by_field_name("field")
+            let field = node
+                .child_by_field_name("field")
                 .or_else(|| node.child_by_field_name("property"));
             field.map(|f| node_text(&f, source))
         }
-        "scoped_identifier" | "qualified_name" => {
-            Some(node_text(node, source))
-        }
-        "attribute" => {
-            node.child_by_field_name("attribute")
-                .map(|n| node_text(&n, source))
-                .or_else(|| Some(node_text(node, source)))
-        }
+        "scoped_identifier" | "qualified_name" => Some(node_text(node, source)),
+        "attribute" => node
+            .child_by_field_name("attribute")
+            .map(|n| node_text(&n, source))
+            .or_else(|| Some(node_text(node, source))),
         _ => {
             let text = node_text(node, source);
             if text.len() < 80 && !text.contains('\n') {
@@ -494,8 +493,14 @@ impl Config {
         let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"Config"), "missing Config, got: {names:?}");
         assert!(names.contains(&"Status"), "missing Status, got: {names:?}");
-        assert!(names.contains(&"Handler"), "missing Handler, got: {names:?}");
-        assert!(names.contains(&"process"), "missing process, got: {names:?}");
+        assert!(
+            names.contains(&"Handler"),
+            "missing Handler, got: {names:?}"
+        );
+        assert!(
+            names.contains(&"process"),
+            "missing process, got: {names:?}"
+        );
     }
 
     #[test]
@@ -517,8 +522,14 @@ def standalone_function(x, y):
         let parsed = CodeParser::parse(source, "python").unwrap();
         let symbols = extract_symbols(&parsed.tree, source, "python");
         let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"MyClass"), "missing MyClass, got: {names:?}");
-        assert!(names.contains(&"standalone_function"), "missing standalone_function, got: {names:?}");
+        assert!(
+            names.contains(&"MyClass"),
+            "missing MyClass, got: {names:?}"
+        );
+        assert!(
+            names.contains(&"standalone_function"),
+            "missing standalone_function, got: {names:?}"
+        );
         assert!(names.contains(&"method"), "missing method, got: {names:?}");
     }
 
@@ -537,10 +548,22 @@ fn main() {
 "#;
         let parsed = CodeParser::parse(source, "rust").unwrap();
         let callees = extract_callees(&parsed.tree, source, "rust");
-        assert!(callees.contains(&"foo".to_string()), "missing foo, got: {callees:?}");
-        assert!(callees.contains(&"bar::baz".to_string()), "missing bar::baz, got: {callees:?}");
-        assert!(callees.contains(&"println".to_string()), "missing println, got: {callees:?}");
-        assert!(callees.contains(&"method_call".to_string()), "missing method_call, got: {callees:?}");
+        assert!(
+            callees.contains(&"foo".to_string()),
+            "missing foo, got: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"bar::baz".to_string()),
+            "missing bar::baz, got: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"println".to_string()),
+            "missing println, got: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"method_call".to_string()),
+            "missing method_call, got: {callees:?}"
+        );
     }
 
     #[test]
@@ -569,10 +592,14 @@ impl MyType {
 "#;
         let parsed = CodeParser::parse(source, "rust").unwrap();
         let impls = extract_trait_impls(&parsed.tree, source, "rust");
-        assert!(impls.contains(&("MyType".to_string(), "Foo".to_string())),
-            "missing (MyType, Foo), got: {impls:?}");
-        assert!(impls.contains(&("MyType".to_string(), "Default".to_string())),
-            "missing (MyType, Default), got: {impls:?}");
+        assert!(
+            impls.contains(&("MyType".to_string(), "Foo".to_string())),
+            "missing (MyType, Foo), got: {impls:?}"
+        );
+        assert!(
+            impls.contains(&("MyType".to_string(), "Default".to_string())),
+            "missing (MyType, Default), got: {impls:?}"
+        );
         assert_eq!(impls.len(), 2, "inherent impl should not appear: {impls:?}");
     }
 
@@ -589,8 +616,14 @@ def main():
 "#;
         let parsed = CodeParser::parse(source, "python").unwrap();
         let callees = extract_callees(&parsed.tree, source, "python");
-        assert!(callees.contains(&"foo".to_string()), "missing foo, got: {callees:?}");
-        assert!(callees.contains(&"print".to_string()), "missing print, got: {callees:?}");
+        assert!(
+            callees.contains(&"foo".to_string()),
+            "missing foo, got: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"print".to_string()),
+            "missing print, got: {callees:?}"
+        );
     }
 
     #[test]
@@ -607,7 +640,9 @@ class Dog(Animal):
 "#;
         let parsed = CodeParser::parse(source, "python").unwrap();
         let impls = extract_trait_impls(&parsed.tree, source, "python");
-        assert!(impls.contains(&("Dog".to_string(), "Animal".to_string())),
-            "missing (Dog, Animal), got: {impls:?}");
+        assert!(
+            impls.contains(&("Dog".to_string(), "Animal".to_string())),
+            "missing (Dog, Animal), got: {impls:?}"
+        );
     }
 }

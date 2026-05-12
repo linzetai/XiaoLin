@@ -93,22 +93,18 @@ pub enum LlmProtocol {
 // Auth strategies
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthConfig {
     /// No authentication.
+    #[default]
     None,
     /// Static Bearer token in the Authorization header.
     #[serde(rename_all = "camelCase")]
-    BearerToken {
-        token: String,
-    },
+    BearerToken { token: String },
     /// A single custom header with a static value.
     #[serde(rename_all = "camelCase")]
-    CustomHeader {
-        header: String,
-        value: String,
-    },
+    CustomHeader { header: String, value: String },
     /// OAuth2 Client Credentials grant — acquires an access_token from
     /// `token_endpoint` and caches it until expiry.
     #[serde(rename = "oauth2_client_credentials", rename_all = "camelCase")]
@@ -152,12 +148,6 @@ pub enum AuthConfig {
         #[serde(default)]
         cache_ttl_secs: u64,
     },
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 fn default_auth_header() -> String {
@@ -412,7 +402,10 @@ mod tests {
         let cfg: LlmPluginConfig = serde_json::from_str(json).unwrap();
         let mw = cfg.middleware.unwrap();
         match mw.auth {
-            AuthConfig::CustomHeader { ref header, ref value } => {
+            AuthConfig::CustomHeader {
+                ref header,
+                ref value,
+            } => {
                 assert_eq!(header, "x-api-key");
                 assert_eq!(value, "secret123");
             }
@@ -442,7 +435,12 @@ mod tests {
         let cfg: LlmPluginConfig = serde_json::from_str(json).unwrap();
         let mw = cfg.middleware.unwrap();
         match mw.auth {
-            AuthConfig::PreRequestHook { ref url, cache_ttl_secs, ref extract_path, .. } => {
+            AuthConfig::PreRequestHook {
+                ref url,
+                cache_ttl_secs,
+                ref extract_path,
+                ..
+            } => {
                 assert_eq!(url, "https://auth.internal/token");
                 assert_eq!(cache_ttl_secs, 300);
                 assert_eq!(extract_path, "data.token");

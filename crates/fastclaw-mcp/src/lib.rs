@@ -330,12 +330,17 @@ impl McpServer {
                 resources: if self.resources.is_empty() {
                     None
                 } else {
-                    Some(ResourceCapability { subscribe: false, list_changed: false })
+                    Some(ResourceCapability {
+                        subscribe: false,
+                        list_changed: false,
+                    })
                 },
                 prompts: if self.prompts.is_empty() {
                     None
                 } else {
-                    Some(PromptCapability { list_changed: false })
+                    Some(PromptCapability {
+                        list_changed: false,
+                    })
                 },
             },
             server_info: self.server_info.clone(),
@@ -410,19 +415,12 @@ impl McpServer {
                 Ok(content) => JsonRpcResponse::success(id.clone(), content),
                 Err(e) => JsonRpcResponse::error(id.clone(), -32603, e.to_string()),
             },
-            None => JsonRpcResponse::error(
-                id.clone(),
-                -32602,
-                format!("unknown resource: {uri}"),
-            ),
+            None => JsonRpcResponse::error(id.clone(), -32602, format!("unknown resource: {uri}")),
         }
     }
 
     fn handle_prompts_list(&self, id: &serde_json::Value) -> JsonRpcResponse {
-        JsonRpcResponse::success(
-            id.clone(),
-            serde_json::json!({ "prompts": self.prompts }),
-        )
+        JsonRpcResponse::success(id.clone(), serde_json::json!({ "prompts": self.prompts }))
     }
 
     async fn handle_prompts_get(
@@ -443,11 +441,7 @@ impl McpServer {
                     Err(e) => JsonRpcResponse::error(id.clone(), -32603, e.to_string()),
                 }
             }
-            None => JsonRpcResponse::error(
-                id.clone(),
-                -32602,
-                format!("unknown prompt: {name}"),
-            ),
+            None => JsonRpcResponse::error(id.clone(), -32602, format!("unknown prompt: {name}")),
         }
     }
 
@@ -517,9 +511,7 @@ fn companion_post_url(sse: &reqwest::Url) -> anyhow::Result<reqwest::Url> {
             format!("{}/message", prefix.trim_end_matches('/'))
         }
     } else {
-        anyhow::bail!(
-            "SSE url path must end with /sse (e.g. http://host/mcp/sse), got {path}",
-        );
+        anyhow::bail!("SSE url path must end with /sse (e.g. http://host/mcp/sse), got {path}",);
     };
     let mut u = sse.clone();
     u.set_path(&new_path);
@@ -549,7 +541,8 @@ enum McpTransport {
     Sse {
         client: reqwest::Client,
         post_url: String,
-        pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        pending:
+            Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
         reader_task: tokio::task::JoinHandle<anyhow::Result<()>>,
     },
 }
@@ -659,8 +652,9 @@ impl McpClient {
         let sse_url_str = sse_url.to_string();
 
         let client = reqwest::Client::new();
-        let pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>> =
-            Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
         let pending_reader = pending.clone();
         let client_reader = client.clone();
@@ -693,7 +687,9 @@ impl McpClient {
     async fn sse_reader_loop(
         client: &reqwest::Client,
         sse_url: &str,
-        pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        >,
     ) -> anyhow::Result<()> {
         let response = client
             .get(sse_url)
@@ -747,7 +743,12 @@ impl McpClient {
         };
 
         match &mut self.transport {
-            McpTransport::Stdio { stdin, reader, process, .. } => {
+            McpTransport::Stdio {
+                stdin,
+                reader,
+                process,
+                ..
+            } => {
                 let json = serde_json::to_string(&request)?;
                 stdin.write_all(json.as_bytes()).await?;
                 stdin.write_all(b"\n").await?;
@@ -856,9 +857,7 @@ impl McpClient {
                 stdin.flush().await?;
             }
             McpTransport::Sse {
-                client,
-                post_url,
-                ..
+                client, post_url, ..
             } => {
                 let json = serde_json::to_string(&notification)?;
                 let _ = client
@@ -1303,9 +1302,12 @@ mod tests {
                 loop {
                     match rx.recv().await {
                         Ok(msg) => {
-                            return Some((Ok::<Bytes, std::convert::Infallible>(Bytes::from(msg)), rx))
+                            return Some((
+                                Ok::<Bytes, std::convert::Infallible>(Bytes::from(msg)),
+                                rx,
+                            ))
                         }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => return None,
                     }
                 }
@@ -1409,9 +1411,12 @@ mod tests {
                 loop {
                     match rx.recv().await {
                         Ok(msg) => {
-                            return Some((Ok::<Bytes, std::convert::Infallible>(Bytes::from(msg)), rx))
+                            return Some((
+                                Ok::<Bytes, std::convert::Infallible>(Bytes::from(msg)),
+                                rx,
+                            ))
                         }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => return None,
                     }
                 }
@@ -1487,7 +1492,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let client = McpClient::connect_sse(&url).await.expect("sse connect with ping noise");
+        let client = McpClient::connect_sse(&url)
+            .await
+            .expect("sse connect with ping noise");
         assert_eq!(client.server_name(), "mock-sse-ping");
         assert_eq!(client.tools().len(), 1);
         assert_eq!(client.tools()[0].name, "after_ping");
@@ -1525,9 +1532,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let err = match McpClient::connect_sse(&url).await {
-            Ok(_) => panic!("initialize POST should fail"),
-            Err(e) => e,
+        let Err(err) = McpClient::connect_sse(&url).await else {
+            panic!("initialize POST should fail")
         };
         let msg = format!("{err:#}");
         assert!(
@@ -1543,9 +1549,8 @@ mod tests {
     #[tokio::test]
     async fn companion_post_url_rejects_non_sse_path() {
         let url = "http://127.0.0.1:9/mcp/stream";
-        let err = match McpClient::connect_sse(url).await {
-            Ok(_) => panic!("non-/sse URL should be rejected"),
-            Err(e) => e,
+        let Err(err) = McpClient::connect_sse(url).await else {
+            panic!("non-/sse URL should be rejected")
         };
         let msg = format!("{err:#}");
         assert!(
@@ -1583,10 +1588,15 @@ mod tests {
                 description: Some("test".into()),
                 mime_type: Some("text/plain".into()),
             },
-            |_args| async { Ok(serde_json::json!({"contents": [{"uri": "file:///a.txt", "text": "hi"}]})) },
+            |_args| async {
+                Ok(serde_json::json!({"contents": [{"uri": "file:///a.txt", "text": "hi"}]}))
+            },
         );
         let resp = server.handle_request(&rpc(1, "resources/list", None)).await;
-        let resources = resp.result.unwrap()["resources"].as_array().unwrap().clone();
+        let resources = resp.result.unwrap()["resources"]
+            .as_array()
+            .unwrap()
+            .clone();
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0]["uri"], "file:///a.txt");
     }
@@ -1601,7 +1611,9 @@ mod tests {
                 description: None,
                 mime_type: None,
             },
-            |_args| async { Ok(serde_json::json!({"contents": [{"uri": "file:///b.txt", "text": "content"}]})) },
+            |_args| async {
+                Ok(serde_json::json!({"contents": [{"uri": "file:///b.txt", "text": "content"}]}))
+            },
         );
         let resp = server
             .handle_request(&rpc(

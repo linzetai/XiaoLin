@@ -330,7 +330,9 @@ fn cmd_daemon_start(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<
             .create(true)
             .append(true)
             .open(&log_path)
-            .map_err(|e| anyhow::anyhow!("cannot open daemon log file {}: {e}", log_path.display()))?;
+            .map_err(|e| {
+                anyhow::anyhow!("cannot open daemon log file {}: {e}", log_path.display())
+            })?;
         let log_file_err = log_file
             .try_clone()
             .map_err(|e| anyhow::anyhow!("cannot clone daemon log file handle: {e}"))?;
@@ -371,7 +373,10 @@ fn cmd_daemon_stop(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<(
     };
     if !process_alive(pid) {
         let _ = std::fs::remove_file(&pid_path);
-        anyhow::bail!("daemon not running (stale pid {pid} removed from {})", pid_path.display());
+        anyhow::bail!(
+            "daemon not running (stale pid {pid} removed from {})",
+            pid_path.display()
+        );
     }
     signal_daemon_stop(pid)?;
     let _ = std::fs::remove_file(&pid_path);
@@ -455,8 +460,7 @@ async fn main() -> anyhow::Result<()> {
             token,
             session,
         } => {
-            let config = fastclaw_core::config::load_config(&mode)
-                .unwrap_or_default();
+            let config = fastclaw_core::config::load_config(&mode).unwrap_or_default();
             let effective_url = if url == "ws://127.0.0.1:18789/ws" {
                 format!("ws://127.0.0.1:{}/ws", config.gateway.port)
             } else {
@@ -755,7 +759,8 @@ async fn cmd_doctor(mode: &fastclaw_core::config::ConfigMode, as_json: bool) -> 
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let gateway_url = format!("http://localhost:{gateway_port}/health");
-    let gateway_ok = matches!(client.get(&gateway_url).send().await, Ok(resp) if resp.status().is_success());
+    let gateway_ok =
+        matches!(client.get(&gateway_url).send().await, Ok(resp) if resp.status().is_success());
     checks.push((
         "gateway",
         gateway_ok,
@@ -802,7 +807,10 @@ async fn cmd_doctor(mode: &fastclaw_core::config::ConfigMode, as_json: bool) -> 
             use std::os::windows::process::CommandExt;
             docker_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
-        docker_cmd.output().map(|o| o.status.success()).unwrap_or(false)
+        docker_cmd
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     };
     checks.push((
         "docker",
@@ -925,9 +933,7 @@ async fn cmd_daemon_status(mode: &fastclaw_core::config::ConfigMode) -> anyhow::
             std::process::exit(1);
         }
         Err(e) => {
-            eprintln!(
-                "FastClaw daemon pid {pid} is alive but not responding on port {port}: {e}"
-            );
+            eprintln!("FastClaw daemon pid {pid} is alive but not responding on port {port}: {e}");
             std::process::exit(1);
         }
     }
@@ -1420,7 +1426,9 @@ fn cmd_onboard(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<()> {
     println!("2. Open TUI:       fastclaw tui");
     println!("3. Health check:   fastclaw health");
     println!("4. Diagnostics:    fastclaw doctor");
-    println!("5. Web UI:         http://localhost:<port>/  (see `fastclaw config get gateway.port`)");
+    println!(
+        "5. Web UI:         http://localhost:<port>/  (see `fastclaw config get gateway.port`)"
+    );
     println!("\nDocumentation: https://github.com/your-org/fastclaw");
 
     Ok(())
@@ -1437,12 +1445,10 @@ async fn cmd_backup(
 
     match action {
         BackupAction::Create { output } => {
-            let backup_dir = output
-                .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-                    sd.join(format!("backups/{ts}"))
-                });
+            let backup_dir = output.map(PathBuf::from).unwrap_or_else(|| {
+                let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+                sd.join(format!("backups/{ts}"))
+            });
             std::fs::create_dir_all(&backup_dir)?;
 
             let db_files = ["sessions.db", "memory.db", "evolution.db"];
@@ -1472,7 +1478,11 @@ async fn cmd_backup(
                 eprintln!("  ✓ config.json");
             }
 
-            eprintln!("\nBackup complete: {} database(s) → {}", backed_up, backup_dir.display());
+            eprintln!(
+                "\nBackup complete: {} database(s) → {}",
+                backed_up,
+                backup_dir.display()
+            );
         }
         BackupAction::Restore { path } => {
             let backup_dir = PathBuf::from(&path);
@@ -1502,7 +1512,11 @@ async fn cmd_backup(
                 eprintln!("  ✓ config.json");
             }
 
-            eprintln!("\nRestore complete: {} database(s) from {}", restored, backup_dir.display());
+            eprintln!(
+                "\nRestore complete: {} database(s) from {}",
+                restored,
+                backup_dir.display()
+            );
         }
     }
 
@@ -1529,14 +1543,20 @@ async fn cmd_trace(
         TraceAction::List { limit, offset } => {
             let traces = store.list_traces(limit, offset).await?;
             if as_json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "traces": traces,
-                    "count": traces.len(),
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "traces": traces,
+                        "count": traces.len(),
+                    }))?
+                );
             } else if traces.is_empty() {
                 println!("No traces found. Enable tracing with `tracing.conversationTrace: true` in config.");
             } else {
-                println!("{:<40} {:<12} {:<12} {:<6} Started", "Trace ID", "Agent", "Model", "Turns");
+                println!(
+                    "{:<40} {:<12} {:<12} {:<6} Started",
+                    "Trace ID", "Agent", "Model", "Turns"
+                );
                 println!("{}", "-".repeat(90));
                 for t in &traces {
                     println!(

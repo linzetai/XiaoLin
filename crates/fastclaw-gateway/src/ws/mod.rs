@@ -286,7 +286,13 @@ async fn dispatch(
         }
         "chat.submit" => {
             chat::handle_chat_submit(
-                sender, state, query_engines, owned_sessions, bg_tx.clone(), id, req.params,
+                sender,
+                state,
+                query_engines,
+                owned_sessions,
+                bg_tx.clone(),
+                id,
+                req.params,
             )
             .await
         }
@@ -399,7 +405,6 @@ async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::chat::event_to_response;
-    use super::*;
     use crate::state::AppState;
     use fastclaw_core::config_access::{
         filter_config_for_read, mask_secret_values, navigate_config, set_nested_key,

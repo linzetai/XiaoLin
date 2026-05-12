@@ -46,8 +46,7 @@ pub fn normalize_model_name(model: &str) -> String {
         || s.starts_with("qwen-vl-max-latest");
     let is_kimi_dated = {
         // kimi-k2-0905 style
-        s.starts_with("kimi-k2-") && s.len() >= 12
-            && s[8..].chars().all(|c| c.is_ascii_digit())
+        s.starts_with("kimi-k2-") && s.len() >= 12 && s[8..].chars().all(|c| c.is_ascii_digit())
     };
 
     if !is_qwen_latest && !is_kimi_dated {
@@ -72,8 +71,15 @@ pub fn normalize_model_name(model: &str) -> String {
 
     // remove quantization suffixes: -4bit, -int4, -int8, -bf16, -fp16, -q4, -q5, -quantized
     let quant_suffixes = [
-        "-4bit", "-8bit", "-int4", "-int8", "-bf16", "-fp16",
-        "-q4", "-q5", "-quantized",
+        "-4bit",
+        "-8bit",
+        "-int4",
+        "-int8",
+        "-bf16",
+        "-fp16",
+        "-q4",
+        "-q5",
+        "-quantized",
     ];
     for q in &quant_suffixes {
         if s.ends_with(q) {
@@ -106,12 +112,16 @@ fn strip_trailing_suffix(s: &str) -> String {
         // -v1, -v1.2, -v2.1.3
         if tail.starts_with('v') && tail.len() >= 2 {
             let rest = &tail[1..];
-            if rest.chars().all(|c| c.is_ascii_digit() || c == '.') && rest.contains(|c: char| c.is_ascii_digit()) {
+            if rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && rest.contains(|c: char| c.is_ascii_digit())
+            {
                 return s[..dash].to_string();
             }
         }
         // -7b, -70b, -4x8b
-        if tail.chars().all(|c| c.is_ascii_digit() || c == 'x' || c == 'b')
+        if tail
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == 'x' || c == 'b')
             && tail.ends_with('b')
             && tail.len() >= 2
         {
@@ -136,48 +146,184 @@ struct PatternEntry {
 
 static MODEL_LIMITS: &[PatternEntry] = &[
     // Google Gemini
-    PatternEntry { prefix: "gemini-3",  input: 1_000_000, output: 64_000 },
-    PatternEntry { prefix: "gemini-",   input: 1_000_000, output: 8_192 },
+    PatternEntry {
+        prefix: "gemini-3",
+        input: 1_000_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "gemini-",
+        input: 1_000_000,
+        output: 8_192,
+    },
     // OpenAI
-    PatternEntry { prefix: "gpt-5",     input: 272_000,   output: 128_000 },
-    PatternEntry { prefix: "gpt-4.1",   input: 1_000_000, output: 32_768 },
-    PatternEntry { prefix: "gpt-4o",    input: 128_000,   output: 16_384 },
-    PatternEntry { prefix: "gpt-4",     input: 128_000,   output: 16_384 },
-    PatternEntry { prefix: "o4-mini",   input: 200_000,   output: 128_000 },
-    PatternEntry { prefix: "o3",        input: 200_000,   output: 128_000 },
-    PatternEntry { prefix: "o1",        input: 200_000,   output: 128_000 },
+    PatternEntry {
+        prefix: "gpt-5",
+        input: 272_000,
+        output: 128_000,
+    },
+    PatternEntry {
+        prefix: "gpt-4.1",
+        input: 1_000_000,
+        output: 32_768,
+    },
+    PatternEntry {
+        prefix: "gpt-4o",
+        input: 128_000,
+        output: 16_384,
+    },
+    PatternEntry {
+        prefix: "gpt-4",
+        input: 128_000,
+        output: 16_384,
+    },
+    PatternEntry {
+        prefix: "o4-mini",
+        input: 200_000,
+        output: 128_000,
+    },
+    PatternEntry {
+        prefix: "o3",
+        input: 200_000,
+        output: 128_000,
+    },
+    PatternEntry {
+        prefix: "o1",
+        input: 200_000,
+        output: 128_000,
+    },
     // Anthropic Claude
-    PatternEntry { prefix: "claude-opus-4-6",   input: 200_000, output: 128_000 },
-    PatternEntry { prefix: "claude-sonnet-4-6", input: 200_000, output: 64_000 },
-    PatternEntry { prefix: "claude-",   input: 200_000,   output: 64_000 },
+    PatternEntry {
+        prefix: "claude-opus-4-6",
+        input: 200_000,
+        output: 128_000,
+    },
+    PatternEntry {
+        prefix: "claude-sonnet-4-6",
+        input: 200_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "claude-",
+        input: 200_000,
+        output: 64_000,
+    },
     // Qwen
-    PatternEntry { prefix: "qwen3-coder-plus",  input: 1_000_000, output: 64_000 },
-    PatternEntry { prefix: "qwen3-coder-flash", input: 1_000_000, output: 64_000 },
-    PatternEntry { prefix: "qwen3.5-plus",      input: 1_000_000, output: 64_000 },
-    PatternEntry { prefix: "qwen3.5",           input: 1_000_000, output: 64_000 },
-    PatternEntry { prefix: "qwen3-max", input: 256_000,   output: 32_000 },
-    PatternEntry { prefix: "qwen-plus-latest", input: 1_000_000, output: 32_000 },
-    PatternEntry { prefix: "qwen-flash-latest", input: 1_000_000, output: 32_000 },
-    PatternEntry { prefix: "qwen-plus", input: 1_000_000, output: 32_000 },
-    PatternEntry { prefix: "qwen-max",  input: 256_000,   output: 32_000 },
-    PatternEntry { prefix: "qwen",      input: 256_000,   output: 32_000 },
+    PatternEntry {
+        prefix: "qwen3-coder-plus",
+        input: 1_000_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "qwen3-coder-flash",
+        input: 1_000_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "qwen3.5-plus",
+        input: 1_000_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "qwen3.5",
+        input: 1_000_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "qwen3-max",
+        input: 256_000,
+        output: 32_000,
+    },
+    PatternEntry {
+        prefix: "qwen-plus-latest",
+        input: 1_000_000,
+        output: 32_000,
+    },
+    PatternEntry {
+        prefix: "qwen-flash-latest",
+        input: 1_000_000,
+        output: 32_000,
+    },
+    PatternEntry {
+        prefix: "qwen-plus",
+        input: 1_000_000,
+        output: 32_000,
+    },
+    PatternEntry {
+        prefix: "qwen-max",
+        input: 256_000,
+        output: 32_000,
+    },
+    PatternEntry {
+        prefix: "qwen",
+        input: 256_000,
+        output: 32_000,
+    },
     // DeepSeek
-    PatternEntry { prefix: "deepseek-v4-pro",   input: 128_000, output: 64_000 },
-    PatternEntry { prefix: "deepseek-v4-flash", input: 128_000, output: 64_000 },
-    PatternEntry { prefix: "deepseek-reasoner", input: 128_000, output: 64_000 },
-    PatternEntry { prefix: "deepseek-r1",       input: 128_000, output: 64_000 },
-    PatternEntry { prefix: "deepseek-chat",     input: 128_000, output: 8_192 },
-    PatternEntry { prefix: "deepseek",  input: 128_000,   output: 8_192 },
+    PatternEntry {
+        prefix: "deepseek-v4-pro",
+        input: 128_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "deepseek-v4-flash",
+        input: 128_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "deepseek-reasoner",
+        input: 128_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "deepseek-r1",
+        input: 128_000,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "deepseek-chat",
+        input: 128_000,
+        output: 8_192,
+    },
+    PatternEntry {
+        prefix: "deepseek",
+        input: 128_000,
+        output: 8_192,
+    },
     // GLM
-    PatternEntry { prefix: "glm-5",     input: 202_752,   output: 16_384 },
-    PatternEntry { prefix: "glm-4",     input: 128_000,   output: 16_384 },
+    PatternEntry {
+        prefix: "glm-5",
+        input: 202_752,
+        output: 16_384,
+    },
+    PatternEntry {
+        prefix: "glm-4",
+        input: 128_000,
+        output: 16_384,
+    },
     // MiniMax
-    PatternEntry { prefix: "minimax-m2.5", input: 196_608, output: 64_000 },
-    PatternEntry { prefix: "minimax-",  input: 200_000,   output: 32_000 },
+    PatternEntry {
+        prefix: "minimax-m2.5",
+        input: 196_608,
+        output: 64_000,
+    },
+    PatternEntry {
+        prefix: "minimax-",
+        input: 200_000,
+        output: 32_000,
+    },
     // Kimi
-    PatternEntry { prefix: "kimi-",     input: 256_000,   output: 32_000 },
+    PatternEntry {
+        prefix: "kimi-",
+        input: 256_000,
+        output: 32_000,
+    },
     // Seed
-    PatternEntry { prefix: "seed-oss",  input: 524_288,   output: 32_000 },
+    PatternEntry {
+        prefix: "seed-oss",
+        input: 524_288,
+        output: 32_000,
+    },
 ];
 
 fn find_limit(model: &str, limit_type: TokenLimitType) -> Option<u32> {
@@ -213,10 +359,7 @@ pub fn has_explicit_output_limit(model: &str) -> bool {
 /// Minimal last-resort heuristic for models that are definitely text-only.
 /// Prefer declaring `ModelCapabilities` in config/plugin definitions instead
 /// of adding entries here.
-static TEXT_ONLY_PREFIXES: &[&str] = &[
-    "deepseek",
-    "seed-oss",
-];
+static TEXT_ONLY_PREFIXES: &[&str] = &["deepseek", "seed-oss"];
 
 /// Heuristic fallback: returns `true` when the model is likely to accept
 /// `image_url` content parts based on name patterns. Only used when no
@@ -247,13 +390,22 @@ mod tests {
 
     #[test]
     fn strip_provider_prefix() {
-        assert_eq!(normalize_model_name("google/gemini-2.0-flash"), "gemini-2.0-flash");
-        assert_eq!(normalize_model_name("anthropic/claude-3.5-sonnet"), "claude-3.5-sonnet");
+        assert_eq!(
+            normalize_model_name("google/gemini-2.0-flash"),
+            "gemini-2.0-flash"
+        );
+        assert_eq!(
+            normalize_model_name("anthropic/claude-3.5-sonnet"),
+            "claude-3.5-sonnet"
+        );
     }
 
     #[test]
     fn strip_date_suffix() {
-        assert_eq!(normalize_model_name("claude-sonnet-4-6-20250514"), "claude-sonnet-4-6");
+        assert_eq!(
+            normalize_model_name("claude-sonnet-4-6-20250514"),
+            "claude-sonnet-4-6"
+        );
         // Compact 8-digit date suffix
         assert_eq!(normalize_model_name("gpt-4o-20250528"), "gpt-4o");
     }
@@ -279,7 +431,10 @@ mod tests {
     #[test]
     fn preserve_qwen_latest_exceptions() {
         assert_eq!(normalize_model_name("qwen-plus-latest"), "qwen-plus-latest");
-        assert_eq!(normalize_model_name("qwen-flash-latest"), "qwen-flash-latest");
+        assert_eq!(
+            normalize_model_name("qwen-flash-latest"),
+            "qwen-flash-latest"
+        );
     }
 
     #[test]
@@ -299,16 +454,28 @@ mod tests {
     #[test]
     fn known_models_context_window() {
         assert_eq!(infer_context_window_from_model("gpt-4o-mini"), 128_000);
-        assert_eq!(infer_context_window_from_model("claude-sonnet-4-6-20250514"), 200_000);
-        assert_eq!(infer_context_window_from_model("qwen3-coder-plus"), 1_000_000);
+        assert_eq!(
+            infer_context_window_from_model("claude-sonnet-4-6-20250514"),
+            200_000
+        );
+        assert_eq!(
+            infer_context_window_from_model("qwen3-coder-plus"),
+            1_000_000
+        );
         assert_eq!(infer_context_window_from_model("deepseek-r1"), 128_000);
-        assert_eq!(infer_context_window_from_model("google/gemini-2.0-flash"), 1_000_000);
+        assert_eq!(
+            infer_context_window_from_model("google/gemini-2.0-flash"),
+            1_000_000
+        );
         assert_eq!(infer_context_window_from_model("gpt-5-preview"), 272_000);
     }
 
     #[test]
     fn unknown_model_gets_default() {
-        assert_eq!(infer_context_window_from_model("some-random-model"), DEFAULT_CONTEXT_WINDOW);
+        assert_eq!(
+            infer_context_window_from_model("some-random-model"),
+            DEFAULT_CONTEXT_WINDOW
+        );
     }
 
     // ─── output limit inference tests ────────────────────────────
@@ -318,7 +485,10 @@ mod tests {
         assert_eq!(infer_output_limit_from_model("gpt-5"), 128_000);
         assert_eq!(infer_output_limit_from_model("gpt-4o"), 16_384);
         assert_eq!(infer_output_limit_from_model("claude-opus-4-6"), 128_000);
-        assert_eq!(infer_output_limit_from_model("claude-sonnet-4-6-20250514"), 64_000);
+        assert_eq!(
+            infer_output_limit_from_model("claude-sonnet-4-6-20250514"),
+            64_000
+        );
         assert_eq!(infer_output_limit_from_model("deepseek-r1"), 64_000);
         assert_eq!(infer_output_limit_from_model("deepseek-chat"), 8_192);
         assert_eq!(infer_output_limit_from_model("gemini-3.5-pro"), 64_000);
@@ -326,7 +496,10 @@ mod tests {
 
     #[test]
     fn unknown_model_output_default() {
-        assert_eq!(infer_output_limit_from_model("some-random-model"), DEFAULT_OUTPUT_LIMIT);
+        assert_eq!(
+            infer_output_limit_from_model("some-random-model"),
+            DEFAULT_OUTPUT_LIMIT
+        );
     }
 
     #[test]
@@ -377,7 +550,10 @@ mod tests {
         };
         // Explicit caps override heuristic: deepseek is normally text-only,
         // but config declares image support.
-        assert!(model_supports_vision_with_caps("deepseek-chat", Some(&multimodal)));
+        assert!(model_supports_vision_with_caps(
+            "deepseek-chat",
+            Some(&multimodal)
+        ));
 
         // None falls back to heuristic.
         assert!(!model_supports_vision_with_caps("deepseek-chat", None));

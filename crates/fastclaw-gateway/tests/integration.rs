@@ -490,9 +490,7 @@ async fn send_json(
     >,
     val: Value,
 ) {
-    tx.send(Message::Text(val.to_string().into()))
-        .await
-        .unwrap();
+    tx.send(Message::Text(val.to_string())).await.unwrap();
 }
 
 #[tokio::test]

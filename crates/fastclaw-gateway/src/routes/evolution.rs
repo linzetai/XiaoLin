@@ -73,7 +73,11 @@ pub(super) async fn get_feedback(
     Path(agent_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let feedback = state.store.feedback_store.recent(&agent_id, params.limit).await?;
+    let feedback = state
+        .store
+        .feedback_store
+        .recent(&agent_id, params.limit)
+        .await?;
     Ok(Json(json!({ "feedback": feedback })))
 }
 
@@ -111,7 +115,11 @@ pub(super) async fn list_candidates(
     Path(agent_id): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let candidates = state.store.prompt_distiller.list(&agent_id, params.limit).await?;
+    let candidates = state
+        .store
+        .prompt_distiller
+        .list(&agent_id, params.limit)
+        .await?;
     Ok(Json(json!({ "candidates": candidates })))
 }
 

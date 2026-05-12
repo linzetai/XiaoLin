@@ -5,42 +5,35 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::tool::ToolRegistry;
-use fastclaw_core::types::{
-    ChatMessage, ChatRequest, ChatResponse, Role, StreamEvent, ToolCall,
-};
 use fastclaw_core::types::ExecutionMode;
+use fastclaw_core::types::{ChatMessage, ChatRequest, ChatResponse, Role, StreamEvent, ToolCall};
 
-use prompt_engine::{PromptContext, PromptEngine, PromptSection};
 use fastclaw_evolution::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, infer_task_type, SkillStatus,
     SkillStore, Trajectory, TrajectoryOutcome, TrajectoryStep, TrajectoryStore,
 };
 #[cfg(feature = "self-iter")]
 use fastclaw_self_iter::{SelfIterEngine, ToolCallTrace};
+use futures::StreamExt;
+use prompt_engine::{PromptContext, PromptEngine, PromptSection};
 #[cfg(not(feature = "self-iter"))]
 use stream_engine::ToolCallTrace;
-use futures::StreamExt;
 
 use crate::builtin_tools::{with_file_access_mode, with_work_dir};
 use crate::llm::{CompletionParams, LlmProvider};
 use base64::Engine as _;
 
+mod accumulator;
 #[allow(dead_code)]
 pub mod api_errors;
 #[allow(dead_code)]
 pub mod cache_break_detection;
+pub(crate) mod context_budget;
+pub(crate) mod context_compressor;
 #[allow(dead_code)]
 pub mod cost_tracker;
 #[allow(dead_code)]
-pub mod retry;
-pub mod streaming_tool_executor;
-mod accumulator;
-pub mod query_engine;
-pub(crate) mod context_compressor;
-pub mod prompt_engine;
-pub mod prompt_sections;
-mod prompt_builder;
-pub(crate) mod query_deps;
+pub mod file_persistence;
 pub mod file_state_cache;
 #[allow(dead_code)]
 pub mod hook_config;
@@ -49,33 +42,38 @@ pub mod hook_events;
 #[allow(dead_code)]
 pub mod hook_executor;
 #[allow(dead_code)]
-pub mod permissions;
-mod query_state;
-#[allow(dead_code)]
-pub mod side_query;
+pub mod magic_docs;
 #[allow(dead_code)]
 pub mod memory_selection;
 #[allow(dead_code)]
+pub mod permissions;
+mod prompt_builder;
+pub mod prompt_engine;
+pub mod prompt_sections;
+#[allow(dead_code)]
 pub mod prompt_suggestion;
+pub(crate) mod query_deps;
+pub mod query_engine;
+mod query_state;
 #[allow(dead_code)]
-pub mod magic_docs;
-#[allow(dead_code)]
-pub mod file_persistence;
+pub mod retry;
 mod session_memory;
+#[allow(dead_code)]
+pub mod side_query;
 mod stop_hooks;
 mod stream_engine;
+pub mod streaming_tool_executor;
 mod tool_executor;
 pub mod tool_result_storage;
 mod trajectory;
 mod unified_compact;
-pub(crate) mod context_budget;
 
 pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
 
 use accumulator::{accumulate_tool_call, ToolCallAccumulator};
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
-use query_state::QueryLoopState;
 use query_deps::QueryDeps;
+use query_state::QueryLoopState;
 use stream_engine::send_stream_event;
 use tool_executor::execute_tool_batch;
 use tool_executor::filter_tool_definitions;
@@ -83,8 +81,8 @@ use tool_executor::semantic_header;
 #[allow(deprecated)]
 use tool_executor::truncate_tool_result_output_with_limit;
 use tool_result_storage::{
-    ContentReplacementState, ToolResultEntry, ToolResultStorage,
-    MAX_TOOL_RESULTS_PER_MESSAGE_CHARS, reconstruct_state,
+    reconstruct_state, ContentReplacementState, ToolResultEntry, ToolResultStorage,
+    MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
 };
 use trajectory::append_text_to_chat_content;
 use trajectory::last_user_turn_text;
@@ -112,7 +110,9 @@ fn create_tool_result_storage(session_id: Option<&str>) -> ToolResultStorage {
 
 /// Build the set of tool names whose results should skip budget enforcement.
 /// These are tools with `max_result_size_chars() == usize::MAX`.
-fn build_skip_tool_names(tool_registry: &fastclaw_core::tool::ToolRegistry) -> std::collections::HashSet<String> {
+fn build_skip_tool_names(
+    tool_registry: &fastclaw_core::tool::ToolRegistry,
+) -> std::collections::HashSet<String> {
     tool_registry
         .tool_names()
         .into_iter()
@@ -209,10 +209,7 @@ fn apply_message_budget(
 
 /// Build ChatMessage content for a tool result. When the result carries images,
 /// constructs a multimodal content array so the LLM can visually interpret them.
-fn tool_result_content(
-    text: &str,
-    result: &fastclaw_core::tool::ToolResult,
-) -> serde_json::Value {
+fn tool_result_content(text: &str, result: &fastclaw_core::tool::ToolResult) -> serde_json::Value {
     if result.images.is_empty() {
         return serde_json::Value::String(text.to_string());
     }
@@ -376,14 +373,14 @@ impl AgentRuntime {
     }
 
     fn default_prompt_engine() -> PromptEngine {
-        use prompt_sections::{
-            actions_section, doing_tasks_section, intro_section, output_efficiency_section,
-            system_section, tone_and_style_section, using_tools_section,
-        };
         use prompt_sections::dynamic::{
             code_context_section, environment_section, frc_section, language_section,
             mcp_instructions_section, memory_section, session_guidance_section,
             token_budget_section,
+        };
+        use prompt_sections::{
+            actions_section, doing_tasks_section, intro_section, output_efficiency_section,
+            system_section, tone_and_style_section, using_tools_section,
         };
 
         let static_sections: Vec<PromptSection> = vec![
@@ -420,7 +417,11 @@ impl AgentRuntime {
         self
     }
 
-    pub fn attach_evolution_stores(&self, skill: Arc<SkillStore>, trajectory: Arc<TrajectoryStore>) {
+    pub fn attach_evolution_stores(
+        &self,
+        skill: Arc<SkillStore>,
+        trajectory: Arc<TrajectoryStore>,
+    ) {
         self.skill_store.store(Arc::new(Some(skill)));
         self.trajectory_store.store(Arc::new(Some(trajectory)));
     }
@@ -478,11 +479,11 @@ impl AgentRuntime {
 
     fn resolve_provider(&self, agent_id: &str) -> anyhow::Result<Arc<dyn LlmProvider>> {
         let guard = self.agent_providers.load();
-        Ok(guard
+        guard
             .get(agent_id)
             .or_else(|| guard.get(DEFAULT_PROVIDER_KEY))
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no provider found for agent '{agent_id}'"))?)
+            .ok_or_else(|| anyhow::anyhow!("no provider found for agent '{agent_id}'"))
     }
 
     pub async fn execute(
@@ -492,7 +493,16 @@ impl AgentRuntime {
         tool_registry: &Arc<ToolRegistry>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None, todo_store: None };
+        let params = ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt: None,
+            mode_state: None,
+            session_store: None,
+            todo_store: None,
+        };
         self.execute_inner(&params).await
     }
 
@@ -504,21 +514,39 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None, todo_store: None };
+        let params = ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt,
+            mode_state: None,
+            session_store: None,
+            todo_store: None,
+        };
         self.execute_inner(&params).await
     }
 
-    async fn execute_inner(
-        &self,
-        params: &ExecutionParams<'_>,
-    ) -> anyhow::Result<ExecutionResult> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store, todo_store: _ } = *params;
+    async fn execute_inner(&self, params: &ExecutionParams<'_>) -> anyhow::Result<ExecutionResult> {
+        let ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            ref llm_override,
+            subagent_prompt: _,
+            ref mode_state,
+            ref session_store,
+            todo_store: _,
+        } = *params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
         let t0 = std::time::Instant::now();
         let mut messages = self.build_messages(params);
-        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages");
+        tracing::info!(
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "perf: build_messages"
+        );
 
         let mut injected_skill_ids: Vec<String> = Vec::new();
         {
@@ -529,7 +557,10 @@ impl AgentRuntime {
             {
                 tracing::warn!(error = %e, "skill injection skipped");
             }
-            tracing::info!(elapsed_ms = t0_skills.elapsed().as_millis() as u64, "perf: inject_relevant_skills");
+            tracing::info!(
+                elapsed_ms = t0_skills.elapsed().as_millis() as u64,
+                "perf: inject_relevant_skills"
+            );
         }
 
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
@@ -539,7 +570,11 @@ impl AgentRuntime {
             all_tool_defs.extend(extra.iter().cloned());
         }
         let tool_defs = filter_tool_definitions(&all_tool_defs, config);
-        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, count = tool_defs.len(), "perf: tool_definitions");
+        tracing::info!(
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            count = tool_defs.len(),
+            "perf: tool_definitions"
+        );
         let tools_for_llm = if tool_defs.is_empty() {
             None
         } else {
@@ -550,7 +585,11 @@ impl AgentRuntime {
         let model = request.model.as_deref().unwrap_or(&config.model.model);
         let max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
             let inferred = fastclaw_context::infer_output_limit_from_model(model);
-            if inferred > 0 { Some(inferred) } else { None }
+            if inferred > 0 {
+                Some(inferred)
+            } else {
+                None
+            }
         });
 
         let mut state = QueryLoopState::new(max_iterations);
@@ -562,7 +601,8 @@ impl AgentRuntime {
             session_store,
             request.session_id.as_deref(),
             &request.messages,
-        ).await;
+        )
+        .await;
 
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
@@ -571,7 +611,8 @@ impl AgentRuntime {
                     consecutive_errors = state.consecutive_errors,
                     "stopping outer loop — consecutive error limit reached"
                 );
-                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, false)
                     .await;
                 anyhow::bail!(
@@ -582,7 +623,9 @@ impl AgentRuntime {
             }
 
             state.begin_iteration();
-            state.iteration_msg_boundaries.push((messages.len(), std::time::Instant::now()));
+            state
+                .iteration_msg_boundaries
+                .push((messages.len(), std::time::Instant::now()));
 
             tracing::info!(
                 agent_id = %config.agent_id,
@@ -592,13 +635,26 @@ impl AgentRuntime {
                 "LLM call"
             );
 
-            let newly_replaced = apply_message_budget(&tool_storage, &mut messages, &mut replacement_state, &skip_tool_names);
-            Self::persist_replacement_records(session_store, request.session_id.as_deref(), &newly_replaced).await;
+            let newly_replaced = apply_message_budget(
+                &tool_storage,
+                &mut messages,
+                &mut replacement_state,
+                &skip_tool_names,
+            );
+            Self::persist_replacement_records(
+                session_store,
+                request.session_id.as_deref(),
+                &newly_replaced,
+            )
+            .await;
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
             fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
 
-            if !fastclaw_context::model_supports_vision_with_caps(model, config.model.capabilities.as_ref()) {
+            if !fastclaw_context::model_supports_vision_with_caps(
+                model,
+                config.model.capabilities.as_ref(),
+            ) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);
             }
 
@@ -648,7 +704,8 @@ impl AgentRuntime {
                         total_tool_calls = state.total_tool_calls,
                         "agent execution complete"
                     );
-                    self.finalize_injected_skills(&injected_skill_ids, true).await;
+                    self.finalize_injected_skills(&injected_skill_ids, true)
+                        .await;
                     self.record_completed_trajectory(request, config, &trajectory_steps, true)
                         .await;
                     return Ok(ExecutionResult {
@@ -670,8 +727,14 @@ impl AgentRuntime {
                 .ok_or_else(|| anyhow::anyhow!("LLM reported tool_calls but none were present"))?;
 
             let results = execute_tool_batch(
-                tool_calls, tool_registry, &config.behavior, &request.work_dir, "", mode_state.as_ref(),
-            ).await;
+                tool_calls,
+                tool_registry,
+                &config.behavior,
+                &request.work_dir,
+                "",
+                mode_state.as_ref(),
+            )
+            .await;
 
             let mut force_stop_loop = false;
             for (tool_name, call_id, arguments, result) in results {
@@ -712,9 +775,14 @@ impl AgentRuntime {
                     .map(|t| t.max_result_size_chars())
                     .unwrap_or(100_000);
                 let processed = process_tool_output(
-                    &tool_storage, &tool_name, &call_id, &result.output, max_chars,
+                    &tool_storage,
+                    &tool_name,
+                    &call_id,
+                    &result.output,
+                    max_chars,
                 );
-                let header = semantic_header(&tool_name, &arguments, &result.output, result.success);
+                let header =
+                    semantic_header(&tool_name, &arguments, &result.output, result.success);
                 let out = format!("{header}\n{processed}");
                 let content = tool_result_content(&out, &result);
                 messages.push(ChatMessage {
@@ -736,7 +804,9 @@ impl AgentRuntime {
 
                 // ── Auto-fix loop: detect compiler errors and inject fix guidance ──
                 if !result.success {
-                    if let Some(build_cmd) = crate::autofix::extract_build_command(&tool_name, &arguments) {
+                    if let Some(build_cmd) =
+                        crate::autofix::extract_build_command(&tool_name, &arguments)
+                    {
                         if let Some(guide) = crate::autofix::detect_and_plan(
                             &build_cmd,
                             &result.output,
@@ -744,7 +814,11 @@ impl AgentRuntime {
                             state.autofix.iteration,
                         ) {
                             let error_count_for_state = guide.diagnostics.len();
-                            state.autofix.record_build_result(&build_cmd, -1, error_count_for_state);
+                            state.autofix.record_build_result(
+                                &build_cmd,
+                                -1,
+                                error_count_for_state,
+                            );
                             inject_tool_recovery_guidance(&mut messages, &guide.formatted);
                             tracing::info!(
                                 compiler = %crate::autofix::compiler_name(guide.compiler),
@@ -776,7 +850,9 @@ impl AgentRuntime {
                 let error_count = state.consecutive_errors;
                 if let Some(transition) = state.check_error_limit(max_errors) {
                     match transition {
-                        query_state::LoopTransition::Terminal(query_state::TerminalReason::ConsecutiveErrors) => {
+                        query_state::LoopTransition::Terminal(
+                            query_state::TerminalReason::ConsecutiveErrors,
+                        ) => {
                             tracing::warn!(
                                 agent_id = %config.agent_id,
                                 consecutive_errors = error_count,
@@ -821,7 +897,7 @@ impl AgentRuntime {
             }
 
             if choice.finish_reason.as_deref() == Some("length") {
-                    let has_write_tools = tool_calls.iter().any(|tc| {
+                let has_write_tools = tool_calls.iter().any(|tc| {
                     let n = tc.function.name.as_str();
                     n == "write_file" || n == "edit_file" || n == "multi_edit"
                 });
@@ -865,8 +941,20 @@ impl AgentRuntime {
         tx: tokio::sync::mpsc::Sender<StreamEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt: None, mode_state: None, session_store: None, todo_store: None };
-        let stream = StreamParams { tx, confirm_pending: None };
+        let exec = ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt: None,
+            mode_state: None,
+            session_store: None,
+            todo_store: None,
+        };
+        let stream = StreamParams {
+            tx,
+            confirm_pending: None,
+        };
         self.execute_stream_inner(&exec, stream).await
     }
 
@@ -879,8 +967,20 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state: None, session_store: None, todo_store: None };
-        let stream = StreamParams { tx, confirm_pending: None };
+        let exec = ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt,
+            mode_state: None,
+            session_store: None,
+            todo_store: None,
+        };
+        let stream = StreamParams {
+            tx,
+            confirm_pending: None,
+        };
         self.execute_stream_inner(&exec, stream).await
     }
 
@@ -898,8 +998,20 @@ impl AgentRuntime {
         session_store: Option<Arc<fastclaw_session::SessionStore>>,
         todo_store: Option<crate::builtin_tools::TodoStore>,
     ) -> anyhow::Result<(u32, u32)> {
-        let exec = ExecutionParams { config, request, tool_registry, llm_override, subagent_prompt, mode_state, session_store, todo_store };
-        let stream = StreamParams { tx, confirm_pending: Some(confirm_pending) };
+        let exec = ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt,
+            mode_state,
+            session_store,
+            todo_store,
+        };
+        let stream = StreamParams {
+            tx,
+            confirm_pending: Some(confirm_pending),
+        };
         self.execute_stream_inner(&exec, stream).await
     }
 
@@ -908,14 +1020,29 @@ impl AgentRuntime {
         params: &ExecutionParams<'_>,
         stream_params: StreamParams,
     ) -> anyhow::Result<(u32, u32)> {
-        let ExecutionParams { config, request, tool_registry, ref llm_override, subagent_prompt: _, ref mode_state, ref session_store, ref todo_store } = *params;
-        let StreamParams { ref tx, ref confirm_pending } = stream_params;
+        let ExecutionParams {
+            config,
+            request,
+            tool_registry,
+            ref llm_override,
+            subagent_prompt: _,
+            ref mode_state,
+            ref session_store,
+            ref todo_store,
+        } = *params;
+        let StreamParams {
+            ref tx,
+            ref confirm_pending,
+        } = stream_params;
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
         let t0 = std::time::Instant::now();
         let mut messages = self.build_messages(params);
-        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: build_messages (stream)");
+        tracing::info!(
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "perf: build_messages (stream)"
+        );
 
         let t0 = std::time::Instant::now();
         let mut injected_skill_ids: Vec<String> = Vec::new();
@@ -925,7 +1052,10 @@ impl AgentRuntime {
         {
             tracing::warn!(error = %e, "skill injection skipped (stream)");
         }
-        tracing::info!(elapsed_ms = t0.elapsed().as_millis() as u64, "perf: inject_relevant_skills (stream)");
+        tracing::info!(
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "perf: inject_relevant_skills (stream)"
+        );
 
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
@@ -934,9 +1064,10 @@ impl AgentRuntime {
             all_tool_defs.extend(extra.iter().cloned());
         }
         let tool_defs = filter_tool_definitions(&all_tool_defs, config);
-        let tool_defs_json_chars: usize = tool_defs.iter().map(|td| {
-            serde_json::to_string(td).map(|s| s.len()).unwrap_or(0)
-        }).sum();
+        let tool_defs_json_chars: usize = tool_defs
+            .iter()
+            .map(|td| serde_json::to_string(td).map(|s| s.len()).unwrap_or(0))
+            .sum();
         let tool_defs_est_tokens = tool_defs_json_chars / 4;
         tracing::info!(
             elapsed_ms = t0.elapsed().as_millis() as u64,
@@ -959,7 +1090,11 @@ impl AgentRuntime {
             .to_string();
         let mut max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
             let inferred = fastclaw_context::infer_output_limit_from_model(&model);
-            if inferred > 0 { Some(inferred) } else { None }
+            if inferred > 0 {
+                Some(inferred)
+            } else {
+                None
+            }
         });
 
         let mut state = QueryLoopState::new(max_iterations);
@@ -991,7 +1126,8 @@ impl AgentRuntime {
             session_store,
             request.session_id.as_deref(),
             &request.messages,
-        ).await;
+        )
+        .await;
 
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
@@ -1012,13 +1148,9 @@ impl AgentRuntime {
                         failure_detail
                     )
                 };
-                let _ = send_stream_event(
-                    tx,
-                    StreamEvent::Error(user_msg.clone()),
-                    false,
-                )
-                .await;
-                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                let _ = send_stream_event(tx, StreamEvent::Error(user_msg.clone()), false).await;
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
                 return Err(anyhow::anyhow!(
                     "agent '{}' stopped: {} consecutive tool errors",
                     config.agent_id,
@@ -1027,19 +1159,23 @@ impl AgentRuntime {
             }
 
             state.begin_iteration();
-            state.iteration_msg_boundaries.push((messages.len(), std::time::Instant::now()));
+            state
+                .iteration_msg_boundaries
+                .push((messages.len(), std::time::Instant::now()));
 
             // ── Unified context compaction (via QueryDeps) ─────────────────
-            let compact_result = deps.pre_query_compact(
-                &mut messages,
-                context_window,
-                max_tokens,
-                &model,
-                state.last_estimated_tokens,
-                &state.iteration_msg_boundaries,
-                todo_store.as_ref(),
-                config.behavior.enable_smart_compression,
-            ).await;
+            let compact_result = deps
+                .pre_query_compact(
+                    &mut messages,
+                    context_window,
+                    max_tokens,
+                    &model,
+                    state.last_estimated_tokens,
+                    &state.iteration_msg_boundaries,
+                    todo_store.as_ref(),
+                    config.behavior.enable_smart_compression,
+                )
+                .await;
             state.last_estimated_tokens = compact_result.estimated_tokens;
             let estimated_tokens = compact_result.estimated_tokens;
 
@@ -1053,7 +1189,8 @@ impl AgentRuntime {
                     tokens_saved: compact_result.tokens_saved_by_llm as u32,
                 },
                 false,
-            ).await;
+            )
+            .await;
 
             let usage_ratio = estimated_tokens as f32 / context_window.max(1) as f32;
 
@@ -1096,10 +1233,16 @@ impl AgentRuntime {
             }
             // Blocking limit: if tokens >= 95% of context window and
             // auto-compact is off, stop and tell the user to run /compact.
-            let just_compacted = compact_result.compressed_by_llm || compact_result.pipeline_applied;
-            if let Some(query_state::LoopTransition::Terminal(query_state::TerminalReason::BlockingLimit)) =
-                state.check_blocking_limit(estimated_tokens, context_window, auto_compact_enabled, just_compacted)
-            {
+            let just_compacted =
+                compact_result.compressed_by_llm || compact_result.pipeline_applied;
+            if let Some(query_state::LoopTransition::Terminal(
+                query_state::TerminalReason::BlockingLimit,
+            )) = state.check_blocking_limit(
+                estimated_tokens,
+                context_window,
+                auto_compact_enabled,
+                just_compacted,
+            ) {
                 tracing::warn!(
                     agent_id = %config.agent_id,
                     estimated_tokens,
@@ -1111,11 +1254,15 @@ impl AgentRuntime {
                     StreamEvent::Error(format!(
                         "Context window is nearly full ({}/{} tokens, {:.0}%). \
                          Please run /compact to free space, or start a new session.",
-                        estimated_tokens, context_window, usage_ratio * 100.0,
+                        estimated_tokens,
+                        context_window,
+                        usage_ratio * 100.0,
                     )),
                     false,
-                ).await;
-                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                )
+                .await;
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
                 return Ok((state.total_tool_calls, state.iteration));
             }
 
@@ -1135,13 +1282,26 @@ impl AgentRuntime {
             const MAX_STREAM_RESUME_ATTEMPTS: u32 = 5;
             let mut stream_resume_attempts: u32 = 0;
 
-            let newly_replaced = apply_message_budget(&tool_storage, &mut messages, &mut replacement_state, &skip_tool_names);
-            Self::persist_replacement_records(session_store, request.session_id.as_deref(), &newly_replaced).await;
+            let newly_replaced = apply_message_budget(
+                &tool_storage,
+                &mut messages,
+                &mut replacement_state,
+                &skip_tool_names,
+            );
+            Self::persist_replacement_records(
+                session_store,
+                request.session_id.as_deref(),
+                &newly_replaced,
+            )
+            .await;
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
             fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
 
-            if !fastclaw_context::model_supports_vision_with_caps(&model, config.model.capabilities.as_ref()) {
+            if !fastclaw_context::model_supports_vision_with_caps(
+                &model,
+                config.model.capabilities.as_ref(),
+            ) {
                 fastclaw_context::compressor::strip_image_content(&mut messages);
             }
 
@@ -1204,7 +1364,10 @@ impl AgentRuntime {
                         return Err(e);
                     }
                 };
-                tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: stream_connect");
+                tracing::info!(
+                    elapsed_ms = llm_call_t0.elapsed().as_millis() as u64,
+                    "perf: stream_connect"
+                );
 
                 let mut first_chunk = true;
                 let mut should_resume = false;
@@ -1212,7 +1375,10 @@ impl AgentRuntime {
                 while let Some(result) = stream.next().await {
                     delta_count += 1;
                     if first_chunk {
-                        tracing::info!(elapsed_ms = llm_call_t0.elapsed().as_millis() as u64, "perf: time_to_first_chunk");
+                        tracing::info!(
+                            elapsed_ms = llm_call_t0.elapsed().as_millis() as u64,
+                            "perf: time_to_first_chunk"
+                        );
                         first_chunk = false;
                     }
                     let delta = match result {
@@ -1242,8 +1408,16 @@ impl AgentRuntime {
                                 if !partial.is_empty() || !rc.is_empty() {
                                     messages.push(ChatMessage {
                                         role: Role::Assistant,
-                                        content: if partial.is_empty() { None } else { Some(serde_json::Value::String(partial)) },
-                                        reasoning_content: if rc.is_empty() { None } else { Some(rc) },
+                                        content: if partial.is_empty() {
+                                            None
+                                        } else {
+                                            Some(serde_json::Value::String(partial))
+                                        },
+                                        reasoning_content: if rc.is_empty() {
+                                            None
+                                        } else {
+                                            Some(rc)
+                                        },
                                         name: None,
                                         tool_calls: None,
                                         tool_call_id: None,
@@ -1253,22 +1427,31 @@ impl AgentRuntime {
                                 should_resume = true;
                                 break;
                             }
-                            let _ = send_stream_event(
-                                tx,
-                                StreamEvent::Error(e.to_string()),
-                                false,
-                            )
-                            .await;
+                            let _ = send_stream_event(tx, StreamEvent::Error(e.to_string()), false)
+                                .await;
                             stream_errored = true;
                             break;
                         }
                     };
 
                     if delta_count <= 3 || delta.choices.is_empty() {
-                        let preview_content = delta.choices.first().and_then(|c| c.delta.content.as_deref());
-                        let preview_rc = delta.choices.first().and_then(|c| c.delta.reasoning_content.as_deref());
-                        let has_tc = delta.choices.first().map(|c| c.delta.tool_calls.is_some()).unwrap_or(false);
-                        let fr = delta.choices.first().and_then(|c| c.finish_reason.as_deref());
+                        let preview_content = delta
+                            .choices
+                            .first()
+                            .and_then(|c| c.delta.content.as_deref());
+                        let preview_rc = delta
+                            .choices
+                            .first()
+                            .and_then(|c| c.delta.reasoning_content.as_deref());
+                        let has_tc = delta
+                            .choices
+                            .first()
+                            .map(|c| c.delta.tool_calls.is_some())
+                            .unwrap_or(false);
+                        let fr = delta
+                            .choices
+                            .first()
+                            .and_then(|c| c.finish_reason.as_deref());
                         tracing::info!(
                             delta_count,
                             choices_len = delta.choices.len(),
@@ -1295,9 +1478,8 @@ impl AgentRuntime {
                                 // prior tools are fully accumulated and can start executing.
                                 if let Some(ref mut executor) = streaming_executor {
                                     let new_idx = tc_delta.index as usize;
-                                    let submit_start = last_submitted_tool_idx
-                                        .map(|i| i + 1)
-                                        .unwrap_or(0);
+                                    let submit_start =
+                                        last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
                                     if new_idx > 0 && submit_start < new_idx {
                                         for si in submit_start..new_idx {
                                             if let Some(acc) = tool_call_accum.get(si) {
@@ -1371,17 +1553,16 @@ impl AgentRuntime {
                     error = %withheld_err,
                     "withheld prompt_too_long: reactive compact failed — yielding error to client"
                 );
-                let _ = send_stream_event(
-                    tx,
-                    StreamEvent::Error(withheld_err.clone()),
-                    false,
-                ).await;
-                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                let _ =
+                    send_stream_event(tx, StreamEvent::Error(withheld_err.clone()), false).await;
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
                 return Err(anyhow::anyhow!("prompt_too_long: recovery failed"));
             }
 
             if stream_errored {
-                self.finalize_injected_skills(&injected_skill_ids, false).await;
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
                 return Err(anyhow::anyhow!(
                     "provider stream error (already sent to client)"
                 ));
@@ -1392,8 +1573,9 @@ impl AgentRuntime {
             // Escalate max_tokens and retry up to MAX_OUTPUT_TOKENS_RECOVERY_LIMIT times.
             let has_valid_tool_calls = tool_call_accum.iter().any(|a| !a.name.is_empty());
             if last_finish_reason.as_deref() == Some("length") && !has_valid_tool_calls {
-                if let Some(query_state::LoopTransition::Continue(query_state::ContinueReason::MaxOutputTokensRecovery)) =
-                    state.try_max_output_tokens_recovery()
+                if let Some(query_state::LoopTransition::Continue(
+                    query_state::ContinueReason::MaxOutputTokensRecovery,
+                )) = state.try_max_output_tokens_recovery()
                 {
                     let escalated = query_state::ESCALATED_MAX_TOKENS;
                     tracing::warn!(
@@ -1408,7 +1590,11 @@ impl AgentRuntime {
                     if !partial.is_empty() || !rc.is_empty() {
                         messages.push(ChatMessage {
                             role: Role::Assistant,
-                            content: if partial.is_empty() { None } else { Some(serde_json::Value::String(partial)) },
+                            content: if partial.is_empty() {
+                                None
+                            } else {
+                                Some(serde_json::Value::String(partial))
+                            },
                             reasoning_content: if rc.is_empty() { None } else { Some(rc) },
                             name: None,
                             tool_calls: None,
@@ -1452,16 +1638,21 @@ impl AgentRuntime {
                         }
                     }
 
-                    let final_tc: Option<Vec<ToolCall>> = if matches!(reason, query_state::TerminalReason::MaxIterations) {
-                        let tc: Vec<ToolCall> = tool_call_accum
-                            .iter()
-                            .filter(|a| !a.name.is_empty())
-                            .map(|a| a.to_tool_call())
-                            .collect();
-                        if tc.is_empty() { None } else { Some(tc) }
-                    } else {
-                        None
-                    };
+                    let final_tc: Option<Vec<ToolCall>> =
+                        if matches!(reason, query_state::TerminalReason::MaxIterations) {
+                            let tc: Vec<ToolCall> = tool_call_accum
+                                .iter()
+                                .filter(|a| !a.name.is_empty())
+                                .map(|a| a.to_tool_call())
+                                .collect();
+                            if tc.is_empty() {
+                                None
+                            } else {
+                                Some(tc)
+                            }
+                        } else {
+                            None
+                        };
                     if matches!(reason, query_state::TerminalReason::MaxIterations) {
                         tracing::warn!(
                             agent_id = %config.agent_id,
@@ -1493,8 +1684,12 @@ impl AgentRuntime {
                             tools: None,
                         };
                         if let Ok(resp) = self.provider().chat_completion(&summary_params).await {
-                            if let Some(text) = resp.choices.first().and_then(|c| c.message.text_content()) {
-                                use fastclaw_core::types::{StreamDelta, StreamChoice, DeltaContent};
+                            if let Some(text) =
+                                resp.choices.first().and_then(|c| c.message.text_content())
+                            {
+                                use fastclaw_core::types::{
+                                    DeltaContent, StreamChoice, StreamDelta,
+                                };
                                 let summary_delta = StreamDelta {
                                     id: String::new(),
                                     object: "chat.completion.chunk".to_string(),
@@ -1512,7 +1707,9 @@ impl AgentRuntime {
                                     }],
                                     usage: None,
                                 };
-                                let _ = send_stream_event(tx, StreamEvent::Delta(summary_delta), false).await;
+                                let _ =
+                                    send_stream_event(tx, StreamEvent::Delta(summary_delta), false)
+                                        .await;
                             }
                         }
                     }
@@ -1539,7 +1736,8 @@ impl AgentRuntime {
                         false,
                     )
                     .await;
-                    self.finalize_injected_skills(&injected_skill_ids, true).await;
+                    self.finalize_injected_skills(&injected_skill_ids, true)
+                        .await;
                     self.record_completed_trajectory(request, config, &trajectory_steps, true)
                         .await;
                     return Ok((state.total_tool_calls, state.iteration));
@@ -1570,7 +1768,8 @@ impl AgentRuntime {
                     false,
                 )
                 .await;
-                self.finalize_injected_skills(&injected_skill_ids, true).await;
+                self.finalize_injected_skills(&injected_skill_ids, true)
+                    .await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
                 return Ok((state.total_tool_calls, state.iteration));
@@ -1595,7 +1794,11 @@ impl AgentRuntime {
 
             // Emit ToolExecuting events for all tool calls first.
             for tc in &assembled_calls {
-                let args_str = if tc.function.arguments.is_empty() { None } else { Some(tc.function.arguments.clone()) };
+                let args_str = if tc.function.arguments.is_empty() {
+                    None
+                } else {
+                    Some(tc.function.arguments.clone())
+                };
                 let _ = send_stream_event(
                     tx,
                     StreamEvent::ToolExecuting {
@@ -1638,8 +1841,14 @@ impl AgentRuntime {
                     .collect::<Vec<_>>()
             } else {
                 execute_tool_batch(
-                    &assembled_calls, tool_registry, &config.behavior, &request.work_dir, " (stream)", mode_state.as_ref(),
-                ).await
+                    &assembled_calls,
+                    tool_registry,
+                    &config.behavior,
+                    &request.work_dir,
+                    " (stream)",
+                    mode_state.as_ref(),
+                )
+                .await
             };
 
             let mut force_stop_loop = false;
@@ -1685,8 +1894,14 @@ impl AgentRuntime {
                                 request_id: confirm_request_id.clone(),
                                 question: result.output.clone(),
                                 options: vec![
-                                    AskQuestionOption { id: "allow".into(), label: "Allow".into() },
-                                    AskQuestionOption { id: "deny".into(), label: "Deny".into() },
+                                    AskQuestionOption {
+                                        id: "allow".into(),
+                                        label: "Allow".into(),
+                                    },
+                                    AskQuestionOption {
+                                        id: "deny".into(),
+                                        label: "Deny".into(),
+                                    },
                                 ],
                                 timeout_secs: 0,
                                 allow_multiple: false,
@@ -1710,7 +1925,8 @@ impl AgentRuntime {
                             let confirmed_args = serde_json::to_string(&args).unwrap_or_default();
 
                             if let Some(tool) = tool_registry.get(&tool_name) {
-                                let work_dir_path = request.work_dir.as_ref().map(std::path::PathBuf::from);
+                                let work_dir_path =
+                                    request.work_dir.as_ref().map(std::path::PathBuf::from);
                                 result = with_file_access_mode(
                                     config.behavior.file_access,
                                     crate::builtin_tools::with_additional_allowed_paths(
@@ -1721,9 +1937,8 @@ impl AgentRuntime {
                                 .await;
                             }
                         } else {
-                            result = fastclaw_core::tool::ToolResult::err(
-                                "User denied the operation."
-                            );
+                            result =
+                                fastclaw_core::tool::ToolResult::err("User denied the operation.");
                         }
                     }
                 }
@@ -1739,9 +1954,14 @@ impl AgentRuntime {
                     .map(|t| t.max_result_size_chars())
                     .unwrap_or(100_000);
                 let processed = process_tool_output(
-                    &tool_storage, &tool_name, &call_id, &result.output, max_chars,
+                    &tool_storage,
+                    &tool_name,
+                    &call_id,
+                    &result.output,
+                    max_chars,
                 );
-                let header = semantic_header(&tool_name, &arguments, &result.output, result.success);
+                let header =
+                    semantic_header(&tool_name, &arguments, &result.output, result.success);
                 let llm_out = format!("{header}\n{processed}");
                 let _ = send_stream_event(
                     tx,
@@ -1777,7 +1997,9 @@ impl AgentRuntime {
 
                 // ── Auto-fix loop (streaming path) ──
                 if !result.success {
-                    if let Some(build_cmd) = crate::autofix::extract_build_command(&tool_name, &arguments) {
+                    if let Some(build_cmd) =
+                        crate::autofix::extract_build_command(&tool_name, &arguments)
+                    {
                         if let Some(guide) = crate::autofix::detect_and_plan(
                             &build_cmd,
                             &result.output,
@@ -1785,7 +2007,11 @@ impl AgentRuntime {
                             state.autofix.iteration,
                         ) {
                             let error_count_for_state = guide.diagnostics.len();
-                            state.autofix.record_build_result(&build_cmd, -1, error_count_for_state);
+                            state.autofix.record_build_result(
+                                &build_cmd,
+                                -1,
+                                error_count_for_state,
+                            );
                             inject_tool_recovery_guidance(&mut messages, &guide.formatted);
                             tracing::info!(
                                 compiler = %crate::autofix::compiler_name(guide.compiler),
@@ -1816,7 +2042,9 @@ impl AgentRuntime {
                 let error_count = state.consecutive_errors;
                 if let Some(transition) = state.check_error_limit(max_errors) {
                     match transition {
-                        query_state::LoopTransition::Terminal(query_state::TerminalReason::ConsecutiveErrors) => {
+                        query_state::LoopTransition::Terminal(
+                            query_state::TerminalReason::ConsecutiveErrors,
+                        ) => {
                             tracing::warn!(
                                 agent_id = %config.agent_id,
                                 consecutive_errors = error_count,
@@ -1878,7 +2106,8 @@ impl AgentRuntime {
                         tokens_saved: 0,
                     },
                     false,
-                ).await;
+                )
+                .await;
             }
 
             if let (Some(before), Some(ms)) = (mode_before, mode_state.as_ref()) {
@@ -1886,9 +2115,13 @@ impl AgentRuntime {
                 if before != after {
                     let _ = send_stream_event(
                         tx,
-                        StreamEvent::ModeChange { from: before, to: after },
+                        StreamEvent::ModeChange {
+                            from: before,
+                            to: after,
+                        },
                         false,
-                    ).await;
+                    )
+                    .await;
                 }
             }
 
@@ -1939,9 +2172,13 @@ impl AgentRuntime {
     ) -> bool {
         let max_attempts = {
             #[cfg(feature = "self-iter")]
-            { self.self_iter_max_recovery_attempts }
+            {
+                self.self_iter_max_recovery_attempts
+            }
             #[cfg(not(feature = "self-iter"))]
-            { 3u32 }
+            {
+                3u32
+            }
         };
         if *recovery_attempts >= max_attempts {
             return false;
@@ -2068,7 +2305,10 @@ impl AgentRuntime {
             return Ok(());
         }
         if trimmed.split_whitespace().count() < 3 && trimmed.len() < 12 {
-            tracing::debug!(task = trimmed, "inject_relevant_skills: skipping trivial query");
+            tracing::debug!(
+                task = trimmed,
+                "inject_relevant_skills: skipping trivial query"
+            );
             return Ok(());
         }
         let skills = store.find_similar(&task, 16).await?;
@@ -2137,10 +2377,7 @@ impl AgentRuntime {
         );
     }
 
-    fn build_messages(
-        &self,
-        params: &ExecutionParams<'_>,
-    ) -> Vec<ChatMessage> {
+    fn build_messages(&self, params: &ExecutionParams<'_>) -> Vec<ChatMessage> {
         let config = params.config;
         let user_messages = &params.request.messages;
 
@@ -2191,18 +2428,22 @@ impl AgentRuntime {
             params.config.model.provider, params.config.model.model
         );
 
-        let cwd = params.request.work_dir
+        let cwd = params
+            .request
+            .work_dir
             .as_ref()
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let is_git = cwd.join(".git").exists();
         let platform = std::env::consts::OS.to_string();
-        let shell = std::env::var("SHELL")
-            .unwrap_or_else(|_| "sh".to_string());
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let pending_todo_summary = if mode == ExecutionMode::Agent {
-            params.todo_store.as_ref().and_then(|ts| ts.pending_summary())
+            params
+                .todo_store
+                .as_ref()
+                .and_then(|ts| ts.pending_summary())
         } else {
             None
         };
@@ -2287,8 +2528,12 @@ impl AgentRuntime {
         if records.is_empty() {
             return;
         }
-        let Some(store) = session_store else { return; };
-        let Some(sid) = session_id else { return; };
+        let Some(store) = session_store else {
+            return;
+        };
+        let Some(sid) = session_id else {
+            return;
+        };
 
         let rows: Vec<fastclaw_session::ContentReplacementRow> = records
             .iter()
@@ -2307,7 +2552,6 @@ impl AgentRuntime {
             );
         }
     }
-
 }
 
 #[cfg(test)]
@@ -2406,7 +2650,8 @@ mod stream_resume_tests {
         async fn chat_completion_stream(
             &self,
             _: &CompletionParams<'_>,
-        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>> {
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>>
+        {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
             let s = if n == 0 {
                 stream::iter(vec![
@@ -2415,7 +2660,11 @@ mod stream_resume_tests {
                 ])
                 .boxed()
             } else {
-                stream::iter(vec![Ok(stream_delta_text(" world")), Ok(stream_delta_stop())]).boxed()
+                stream::iter(vec![
+                    Ok(stream_delta_text(" world")),
+                    Ok(stream_delta_stop()),
+                ])
+                .boxed()
             };
             Ok(s)
         }

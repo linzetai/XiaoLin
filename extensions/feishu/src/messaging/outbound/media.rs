@@ -61,9 +61,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn media_module_exists() {
-        assert!(true);
-    }
+    fn media_module_exists() {}
 
     #[tokio::test]
     async fn upload_image_without_oauth_returns_clear_error() {

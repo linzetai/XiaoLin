@@ -234,7 +234,11 @@ impl MemoryManager {
             });
         }
 
-        results.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
         Ok(results)
     }
@@ -259,7 +263,10 @@ impl MemoryManager {
     pub async fn build_context_recap(&self, limit: i64) -> Result<String> {
         let mut recap = String::new();
 
-        let episodic_recap = self.episodic.build_recap(Some(&self.agent_id), limit).await?;
+        let episodic_recap = self
+            .episodic
+            .build_recap(Some(&self.agent_id), limit)
+            .await?;
         if !episodic_recap.is_empty() {
             recap.push_str(&episodic_recap);
         }
@@ -295,7 +302,10 @@ mod tests {
             .await
             .unwrap();
 
-        let results = mm.recall("dark mode", Some(MemoryType::User), 10).await.unwrap();
+        let results = mm
+            .recall("dark mode", Some(MemoryType::User), 10)
+            .await
+            .unwrap();
         assert!(!results.is_empty());
         assert!(results[0].content.contains("dark mode"));
     }
@@ -303,9 +313,14 @@ mod tests {
     #[tokio::test]
     async fn extract_project_memory() {
         let mm = setup().await;
-        mm.extract("s1", "prod database runs on port 5433", MemoryType::Project, 0.9)
-            .await
-            .unwrap();
+        mm.extract(
+            "s1",
+            "prod database runs on port 5433",
+            MemoryType::Project,
+            0.9,
+        )
+        .await
+        .unwrap();
 
         let results = mm.recall("database", None, 10).await.unwrap();
         assert!(!results.is_empty());
@@ -321,7 +336,10 @@ mod tests {
             .await
             .unwrap();
 
-        let user_only = mm.recall("likes", Some(MemoryType::User), 10).await.unwrap();
+        let user_only = mm
+            .recall("likes", Some(MemoryType::User), 10)
+            .await
+            .unwrap();
         for m in &user_only {
             assert_eq!(m.memory_type, Some(MemoryType::User));
         }

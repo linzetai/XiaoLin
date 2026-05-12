@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 use fastclaw_core::types::ChatMessage;
 use tokio_util::sync::CancellationToken;
 
+use super::retry::{with_retry, QuerySource, RetryConfig};
 use crate::llm::{CompletionParams, LlmProvider};
-use super::retry::{QuerySource, RetryConfig, with_retry};
 
 /// Where the side-query originates, affecting retry aggressiveness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +91,11 @@ pub async fn side_query(
         max_retries: opts.max_retries,
         base_delay: Duration::from_millis(500),
         max_delay: Duration::from_secs(15),
-        max_529_retries: if opts.query_source == SideQuerySource::Background { 0 } else { 2 },
+        max_529_retries: if opts.query_source == SideQuerySource::Background {
+            0
+        } else {
+            2
+        },
         allow_credential_refresh: false,
     };
 
@@ -215,7 +219,8 @@ mod tests {
         async fn chat_completion_stream(
             &self,
             _params: &CompletionParams<'_>,
-        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>> {
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>>
+        {
             unimplemented!("not needed for side_query tests")
         }
     }

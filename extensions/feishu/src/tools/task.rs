@@ -144,7 +144,11 @@ impl Tool for FeishuTaskListTool {
         if let Some(done) = args.get("completed").and_then(|v| v.as_bool()) {
             body["completed"] = serde_json::Value::Bool(done);
         }
-        match self.client.user_post_json("/task/v2/tasks/query", &body).await {
+        match self
+            .client
+            .user_post_json("/task/v2/tasks/query", &body)
+            .await
+        {
             Ok(v) => match serde_json::to_string(&v) {
                 Ok(s) => ToolResult::ok(s),
                 Err(e) => ToolResult::err(format!("feishu_task_list: serialize response: {e}")),
@@ -172,9 +176,7 @@ mod tests {
     async fn task_create_without_oauth_is_tool_error_not_bail() {
         let client = Arc::new(FeishuClient::new("t", "s"));
         let tool = FeishuTaskCreateTool::new(client);
-        let r = tool
-            .execute(r#"{"summary":"x","description":"y"}"#)
-            .await;
+        let r = tool.execute(r#"{"summary":"x","description":"y"}"#).await;
         assert!(!r.success);
         let err = r.output;
         assert!(

@@ -137,30 +137,37 @@ impl std::error::Error for LlmApiError {}
 pub fn classify_llm_error(status: StatusCode, body: &str) -> LlmApiError {
     let parsed: Option<serde_json::Value> = serde_json::from_str(body).ok();
 
-    let error_code_str = parsed.as_ref()
+    let error_code_str = parsed
+        .as_ref()
         .and_then(|v| v.get("error"))
         .and_then(|e| e.get("code"))
         .and_then(|c| c.as_str())
         .unwrap_or("");
 
-    let error_message = parsed.as_ref()
+    let error_message = parsed
+        .as_ref()
         .and_then(|v| v.get("error"))
         .and_then(|e| e.get("message"))
         .and_then(|m| m.as_str())
         .unwrap_or(body);
 
-    let error_type = parsed.as_ref()
+    let error_type = parsed
+        .as_ref()
         .and_then(|v| v.get("error"))
         .and_then(|e| e.get("type"))
         .and_then(|t| t.as_str())
         .unwrap_or("");
 
     let (code, user_msg, retryable) = match (status.as_u16(), error_code_str, error_type) {
-        (429, _, _) if error_message.contains("quota") || error_code_str == "insufficient_quota" => (
-            LlmErrorCode::QuotaExceeded,
-            "API 配额已用完，请检查账户余额或升级计划。".to_string(),
-            false,
-        ),
+        (429, _, _)
+            if error_message.contains("quota") || error_code_str == "insufficient_quota" =>
+        {
+            (
+                LlmErrorCode::QuotaExceeded,
+                "API 配额已用完，请检查账户余额或升级计划。".to_string(),
+                false,
+            )
+        }
         (429, _, _) => (
             LlmErrorCode::RateLimited,
             "请求频率过高，正在自动重试...".to_string(),
@@ -171,16 +178,25 @@ pub fn classify_llm_error(status: StatusCode, body: &str) -> LlmApiError {
             "模型服务暂时不可用（无可用集群）。这通常是临时性的，请稍后重试。".to_string(),
             true,
         ),
-        (500, _, _) if error_message.contains("no suitable cluster") || error_message.contains("No suitable") => (
-            LlmErrorCode::BalanceError,
-            "模型服务暂时不可用（无可用集群）。这通常是临时性的，请稍后重试。".to_string(),
-            true,
-        ),
-        (500, _, _) if error_message.contains("overloaded") || error_message.contains("capacity") => (
-            LlmErrorCode::ModelOverloaded,
-            "模型当前负载过高，请稍后重试。".to_string(),
-            true,
-        ),
+        (500, _, _)
+            if error_message.contains("no suitable cluster")
+                || error_message.contains("No suitable") =>
+        {
+            (
+                LlmErrorCode::BalanceError,
+                "模型服务暂时不可用（无可用集群）。这通常是临时性的，请稍后重试。".to_string(),
+                true,
+            )
+        }
+        (500, _, _)
+            if error_message.contains("overloaded") || error_message.contains("capacity") =>
+        {
+            (
+                LlmErrorCode::ModelOverloaded,
+                "模型当前负载过高，请稍后重试。".to_string(),
+                true,
+            )
+        }
         (503, _, _) | (502, _, _) => (
             LlmErrorCode::ModelOverloaded,
             "模型服务暂时不可用，正在自动重试...".to_string(),
@@ -196,11 +212,15 @@ pub fn classify_llm_error(status: StatusCode, body: &str) -> LlmApiError {
             "API 密钥无效或已过期，请在设置中检查并更新。".to_string(),
             false,
         ),
-        (400, _, _) if error_message.contains("context_length") || error_message.contains("token") => (
-            LlmErrorCode::InvalidRequest,
-            "对话内容超出模型上下文长度限制，请尝试清理历史消息或开始新对话。".to_string(),
-            false,
-        ),
+        (400, _, _)
+            if error_message.contains("context_length") || error_message.contains("token") =>
+        {
+            (
+                LlmErrorCode::InvalidRequest,
+                "对话内容超出模型上下文长度限制，请尝试清理历史消息或开始新对话。".to_string(),
+                false,
+            )
+        }
         (400, _, _) => (
             LlmErrorCode::InvalidRequest,
             format!("请求参数错误：{}", truncate_for_user(error_message, 100)),
@@ -312,7 +332,9 @@ impl OpenAiProvider {
     fn build_request<'a>(&self, params: &CompletionParams<'a>, stream: bool) -> OpenAiRequest<'a> {
         let tool_choice = params.tools.filter(|t| !t.is_empty()).map(|_| "auto");
         let stream_options = if stream {
-            Some(StreamOptions { include_usage: true })
+            Some(StreamOptions {
+                include_usage: true,
+            })
         } else {
             None
         };
@@ -335,7 +357,11 @@ impl OpenAiProvider {
     ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/chat/completions", self.base_url);
         let body = self.build_request(params, stream);
-        let client = if stream { &self.stream_client } else { &self.client };
+        let client = if stream {
+            &self.stream_client
+        } else {
+            &self.client
+        };
         client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -753,7 +779,11 @@ impl AnthropicProvider {
         Self::with_options(base_url, api_key, None)
     }
 
-    pub fn with_options(base_url: &str, api_key: &str, max_concurrent_requests: Option<u32>) -> Self {
+    pub fn with_options(
+        base_url: &str,
+        api_key: &str,
+        max_concurrent_requests: Option<u32>,
+    ) -> Self {
         let n = max_concurrent_requests.unwrap_or(10).max(1) as usize;
         let client = reqwest::Client::builder()
             .user_agent("FastClaw/0.1.0")
@@ -876,7 +906,9 @@ impl AnthropicProvider {
                                 .collect();
                             serde_json::Value::Array(converted)
                         }
-                        other => other.clone().unwrap_or(serde_json::Value::String(String::new())),
+                        other => other
+                            .clone()
+                            .unwrap_or(serde_json::Value::String(String::new())),
                     };
                     result.push(AnthropicMessage {
                         role: "user".to_string(),
@@ -1380,13 +1412,16 @@ impl CircuitBreaker {
 
     /// Check if a provider is available (not in Open state).
     pub fn is_available(&self, provider: &str) -> bool {
-        let entry = self.breakers.entry(provider.to_string()).or_insert_with(|| {
-            std::sync::Mutex::new(CircuitBreakerInner {
-                state: CircuitState::Closed,
-                failure_count: 0,
-                last_failure: None,
-            })
-        });
+        let entry = self
+            .breakers
+            .entry(provider.to_string())
+            .or_insert_with(|| {
+                std::sync::Mutex::new(CircuitBreakerInner {
+                    state: CircuitState::Closed,
+                    failure_count: 0,
+                    last_failure: None,
+                })
+            });
         let mut inner = entry.lock().unwrap_or_else(|e| e.into_inner());
         match inner.state {
             CircuitState::Closed => true,
@@ -1409,13 +1444,16 @@ impl CircuitBreaker {
 
     /// Record a success — resets to Closed.
     pub fn record_success(&self, provider: &str) {
-        let entry = self.breakers.entry(provider.to_string()).or_insert_with(|| {
-            std::sync::Mutex::new(CircuitBreakerInner {
-                state: CircuitState::Closed,
-                failure_count: 0,
-                last_failure: None,
-            })
-        });
+        let entry = self
+            .breakers
+            .entry(provider.to_string())
+            .or_insert_with(|| {
+                std::sync::Mutex::new(CircuitBreakerInner {
+                    state: CircuitState::Closed,
+                    failure_count: 0,
+                    last_failure: None,
+                })
+            });
         let mut inner = entry.lock().unwrap_or_else(|e| e.into_inner());
         if inner.state != CircuitState::Closed {
             tracing::info!(provider, "circuit breaker closed (recovered)");
@@ -1427,19 +1465,26 @@ impl CircuitBreaker {
 
     /// Record a failure — may transition to Open.
     pub fn record_failure(&self, provider: &str) {
-        let entry = self.breakers.entry(provider.to_string()).or_insert_with(|| {
-            std::sync::Mutex::new(CircuitBreakerInner {
-                state: CircuitState::Closed,
-                failure_count: 0,
-                last_failure: None,
-            })
-        });
+        let entry = self
+            .breakers
+            .entry(provider.to_string())
+            .or_insert_with(|| {
+                std::sync::Mutex::new(CircuitBreakerInner {
+                    state: CircuitState::Closed,
+                    failure_count: 0,
+                    last_failure: None,
+                })
+            });
         let mut inner = entry.lock().unwrap_or_else(|e| e.into_inner());
         inner.failure_count += 1;
         inner.last_failure = Some(std::time::Instant::now());
         if inner.failure_count >= self.failure_threshold {
             inner.state = CircuitState::Open;
-            tracing::warn!(provider, failures = inner.failure_count, "circuit breaker opened");
+            tracing::warn!(
+                provider,
+                failures = inner.failure_count,
+                "circuit breaker opened"
+            );
         }
     }
 
@@ -1677,10 +1722,9 @@ pub fn resolve_context_window(
     if let Some(w) = config.context_window {
         return w;
     }
-    if let (Some(plugin_id), Some(registry)) = (
-        config.provider.strip_prefix("plugin:"),
-        plugin_registry,
-    ) {
+    if let (Some(plugin_id), Some(registry)) =
+        (config.provider.strip_prefix("plugin:"), plugin_registry)
+    {
         if let Some(w) = registry.find_model_context_window(plugin_id, &config.model) {
             tracing::debug!(
                 plugin_id,
@@ -1770,7 +1814,8 @@ mod semaphore_tests {
             },
         );
 
-        let provider = create_provider_with_credentials("my_openai", None, None, Some(&creds), None);
+        let provider =
+            create_provider_with_credentials("my_openai", None, None, Some(&creds), None);
         assert!(provider.is_ok(), "custom provider key should be accepted");
     }
 }

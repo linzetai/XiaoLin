@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use fastclaw_core::types::{ChatMessage, Role};
 
-use crate::llm::LlmProvider;
 use super::side_query::{side_query, SideQueryOptions, SideQuerySource};
+use crate::llm::LlmProvider;
 
 /// Configuration for the suggestion feature.
 #[derive(Debug, Clone)]
@@ -115,9 +115,11 @@ fn parse_suggestions(response: &str, max: usize) -> Vec<String> {
         .filter(|l| !l.is_empty())
         .filter(|l| l.len() >= 5 && l.len() <= 120)
         .map(|l| {
-            l.trim_start_matches(|c: char| c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.')
-                .trim()
-                .to_string()
+            l.trim_start_matches(|c: char| {
+                c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.'
+            })
+            .trim()
+            .to_string()
         })
         .filter(|l| !l.is_empty())
         .take(max)
@@ -140,7 +142,8 @@ mod tests {
 
     #[test]
     fn parse_suggestions_strips_bullets_and_respects_max() {
-        let response = "- Fix the failing test\n- Review PR comments\n- Merge to main\n- Clean up branches";
+        let response =
+            "- Fix the failing test\n- Review PR comments\n- Merge to main\n- Clean up branches";
         let result = parse_suggestions(response, 3);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], "Fix the failing test");
@@ -148,21 +151,29 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_config_returns_empty() {
-        use std::sync::Arc;
+        use crate::llm::CompletionParams;
         use async_trait::async_trait;
         use fastclaw_core::types::ChatResponse;
-        use crate::llm::CompletionParams;
+        use std::sync::Arc;
 
         struct NoopProvider;
         #[async_trait]
         impl LlmProvider for NoopProvider {
-            async fn chat_completion(&self, _: &CompletionParams<'_>) -> anyhow::Result<ChatResponse> {
+            async fn chat_completion(
+                &self,
+                _: &CompletionParams<'_>,
+            ) -> anyhow::Result<ChatResponse> {
                 panic!("should not be called");
             }
             async fn chat_completion_stream(
                 &self,
                 _: &CompletionParams<'_>,
-            ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<fastclaw_core::types::StreamDelta>>> {
+            ) -> anyhow::Result<
+                futures::stream::BoxStream<
+                    'static,
+                    anyhow::Result<fastclaw_core::types::StreamDelta>,
+                >,
+            > {
                 panic!("should not be called");
             }
         }
@@ -173,8 +184,22 @@ mod tests {
             ..Default::default()
         };
         let messages = vec![
-            ChatMessage { role: Role::User, content: Some(serde_json::Value::String("hi".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
-            ChatMessage { role: Role::Assistant, content: Some(serde_json::Value::String("hello".into())), reasoning_content: None, name: None, tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("hi".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                content: Some(serde_json::Value::String("hello".into())),
+                reasoning_content: None,
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
         ];
         let result = generate_suggestions(&provider, &messages, &config).await;
         assert!(result.is_empty());

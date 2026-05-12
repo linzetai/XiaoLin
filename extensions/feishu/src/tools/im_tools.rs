@@ -307,13 +307,16 @@ impl Tool for FeishuSendImageTool {
                 return ToolResult::err("either image_data (base64) or image_url must be provided");
             }
             match reqwest::get(url).await {
-                Ok(resp) if resp.status().is_success() => {
-                    match resp.bytes().await {
-                        Ok(b) => b.to_vec(),
-                        Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
-                    }
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(b) => b.to_vec(),
+                    Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
+                },
+                Ok(resp) => {
+                    return ToolResult::err(format!(
+                        "image download failed: HTTP {}",
+                        resp.status()
+                    ))
                 }
-                Ok(resp) => return ToolResult::err(format!("image download failed: HTTP {}", resp.status())),
                 Err(e) => return ToolResult::err(format!("failed to download image: {e}")),
             }
         } else if let Some(b64) = args["image_data"].as_str() {
@@ -330,13 +333,20 @@ impl Tool for FeishuSendImageTool {
 
         match self.client.upload_image(image_type, &image_data).await {
             Ok(image_key) => {
-                match self.client.send_image(receive_id, receive_id_type, &image_key).await {
-                    Ok(result) => ToolResult::ok(serde_json::json!({
-                        "success": true,
-                        "message": "image sent successfully",
-                        "result": result,
-                        "image_key": image_key
-                    }).to_string()),
+                match self
+                    .client
+                    .send_image(receive_id, receive_id_type, &image_key)
+                    .await
+                {
+                    Ok(result) => ToolResult::ok(
+                        serde_json::json!({
+                            "success": true,
+                            "message": "image sent successfully",
+                            "result": result,
+                            "image_key": image_key
+                        })
+                        .to_string(),
+                    ),
                     Err(e) => ToolResult::err(format!("send image failed: {e}")),
                 }
             }
@@ -424,13 +434,16 @@ impl Tool for FeishuReplyImageTool {
                 return ToolResult::err("either image_data (base64) or image_url must be provided");
             }
             match reqwest::get(url).await {
-                Ok(resp) if resp.status().is_success() => {
-                    match resp.bytes().await {
-                        Ok(b) => b.to_vec(),
-                        Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
-                    }
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(b) => b.to_vec(),
+                    Err(e) => return ToolResult::err(format!("failed to read image bytes: {e}")),
+                },
+                Ok(resp) => {
+                    return ToolResult::err(format!(
+                        "image download failed: HTTP {}",
+                        resp.status()
+                    ))
                 }
-                Ok(resp) => return ToolResult::err(format!("image download failed: HTTP {}", resp.status())),
                 Err(e) => return ToolResult::err(format!("failed to download image: {e}")),
             }
         } else if let Some(b64) = args["image_data"].as_str() {
@@ -446,17 +459,18 @@ impl Tool for FeishuReplyImageTool {
         };
 
         match self.client.upload_image(image_type, &image_data).await {
-            Ok(image_key) => {
-                match self.client.reply_image(message_id, &image_key).await {
-                    Ok(result) => ToolResult::ok(serde_json::json!({
+            Ok(image_key) => match self.client.reply_image(message_id, &image_key).await {
+                Ok(result) => ToolResult::ok(
+                    serde_json::json!({
                         "success": true,
                         "message": "image replied successfully",
                         "result": result,
                         "image_key": image_key
-                    }).to_string()),
-                    Err(e) => ToolResult::err(format!("reply image failed: {e}")),
-                }
-            }
+                    })
+                    .to_string(),
+                ),
+                Err(e) => ToolResult::err(format!("reply image failed: {e}")),
+            },
             Err(e) => ToolResult::err(format!("upload failed: {e}")),
         }
     }

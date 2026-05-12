@@ -154,9 +154,9 @@ impl JsonRpcDispatcher {
             cmd.env(k, v);
         }
 
-        let mut child = cmd.spawn().map_err(|e| {
-            anyhow!("failed to spawn plugin process '{}': {e}", command)
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| anyhow!("failed to spawn plugin process '{}': {e}", command))?;
 
         let stdin = child
             .stdin
@@ -202,11 +202,7 @@ impl JsonRpcDispatcher {
     }
 
     /// Send a JSON-RPC request without waiting for a response (fire-and-forget).
-    pub async fn notify(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> anyhow::Result<()> {
+    pub async fn notify(&self, method: &str, params: serde_json::Value) -> anyhow::Result<()> {
         let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
         self.send_request(id, method, params).await
     }

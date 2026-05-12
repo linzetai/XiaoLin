@@ -1,8 +1,8 @@
 use fastclaw_core::types::{ChatMessage, Role};
 
 use crate::compressor::{
-    estimate_messages_tokens, CompactionStrategy, ContextCompactor, DEFAULT_IMPORTANCE_MAX_MESSAGES,
-    DEFAULT_IMPORTANCE_RECENT_WINDOW,
+    estimate_messages_tokens, CompactionStrategy, ContextCompactor,
+    DEFAULT_IMPORTANCE_MAX_MESSAGES, DEFAULT_IMPORTANCE_RECENT_WINDOW,
 };
 use crate::reactive::{ReactiveCompactResult, ReactiveCompactor, ReactiveCompactorConfig};
 use crate::snip::{SnipCompactor, SnipCompactorConfig, SnipResult};
@@ -125,7 +125,6 @@ impl AutoCompactCircuitBreaker {
     }
 }
 
-
 /// Orchestrates the multi-layer context compaction pipeline.
 ///
 /// ```text
@@ -183,7 +182,10 @@ impl ContextPipeline {
     /// is suppressed (mutual exclusion at the pipeline layer).
     ///
     /// Takes `&mut self` to update cross-iteration tracking statistics.
-    pub fn pre_query_compact(&mut self, messages: &[ChatMessage]) -> (Vec<ChatMessage>, CompactionMetadata) {
+    pub fn pre_query_compact(
+        &mut self,
+        messages: &[ChatMessage],
+    ) -> (Vec<ChatMessage>, CompactionMetadata) {
         let tokens_before = estimate_messages_tokens(messages);
         let mut meta = CompactionMetadata::default();
         let mut current = messages.to_vec();
@@ -530,7 +532,7 @@ mod tests {
             "precondition: ~200k tokens ({total}) must exceed 128k"
         );
 
-        let mut pipeline = ContextPipeline::new(PipelineConfig {
+        let pipeline = ContextPipeline::new(PipelineConfig {
             reactive_target_tokens: context_window,
             ..Default::default()
         });
@@ -657,7 +659,7 @@ mod tests {
         let has_sentinel = pre_result.iter().any(|m| {
             m.text_content()
                 .as_deref()
-                .map_or(false, |t| t.contains(sentinel))
+                .is_some_and(|t| t.contains(sentinel))
         });
         assert!(has_sentinel, "pre_query must preserve the last user turn");
 
@@ -667,7 +669,7 @@ mod tests {
         let has_sentinel_r = reactive_result.messages.iter().any(|m| {
             m.text_content()
                 .as_deref()
-                .map_or(false, |t| t.contains(sentinel))
+                .is_some_and(|t| t.contains(sentinel))
         });
         assert!(has_sentinel_r, "reactive must preserve the last user turn");
     }

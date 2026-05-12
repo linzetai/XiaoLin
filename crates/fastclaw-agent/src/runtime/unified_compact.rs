@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use fastclaw_core::types::ChatMessage;
 
-use crate::llm::LlmProvider;
-use super::context_compressor;
 use super::context_budget::{apply_token_budget, BudgetConfig};
+use super::context_compressor;
 use super::session_memory;
 use super::tool_executor::{
     cache_window_for_occupancy, collect_eviction_manifest, compute_protected_indices,
     dedup_repeated_tool_calls, keep_recent_for_context_window,
-    microcompact_tool_results_with_protection, snapshot_tool_contents,
-    time_based_microcompact_with_protection, rebuild_recall_registry, ProtectionWindowConfig,
+    microcompact_tool_results_with_protection, rebuild_recall_registry, snapshot_tool_contents,
+    time_based_microcompact_with_protection, ProtectionWindowConfig,
 };
+use crate::llm::LlmProvider;
 
 /// Result of the unified pre-query compression pipeline.
 #[derive(Debug, Clone)]
@@ -77,7 +77,10 @@ pub(crate) async fn unified_pre_query_compact(
         &protected,
     );
     if time_compacted > 0 {
-        tracing::debug!(time_compacted, "time-based microcompact collapsed stale tool results");
+        tracing::debug!(
+            time_compacted,
+            "time-based microcompact collapsed stale tool results"
+        );
     }
 
     // Step 1: Tier-aware microcompact of old tool results.
@@ -176,7 +179,7 @@ pub(crate) async fn unified_pre_query_compact(
             && m.content
                 .as_ref()
                 .and_then(|c| c.as_str())
-                .map_or(false, |t| t.contains("[COMPACT_REQUESTED]"))
+                .is_some_and(|t| t.contains("[COMPACT_REQUESTED]"))
     });
     if force_compact {
         messages.retain(|m| {
@@ -184,7 +187,7 @@ pub(crate) async fn unified_pre_query_compact(
                 && m.content
                     .as_ref()
                     .and_then(|c| c.as_str())
-                    .map_or(false, |t| t.contains("[COMPACT_REQUESTED]")))
+                    .is_some_and(|t| t.contains("[COMPACT_REQUESTED]")))
         });
         tracing::info!("force-compact requested via /compact command");
     }
@@ -216,7 +219,7 @@ pub(crate) async fn unified_pre_query_compact(
     const PERIODIC_CLEANUP_INTERVAL: usize = 15;
     let iteration_count = iteration_boundaries.len();
     let periodic_cleanup = iteration_count > 0
-        && iteration_count % PERIODIC_CLEANUP_INTERVAL == 0
+        && iteration_count.is_multiple_of(PERIODIC_CLEANUP_INTERVAL)
         && !force_compact;
     if periodic_cleanup {
         tracing::info!(
@@ -231,69 +234,70 @@ pub(crate) async fn unified_pre_query_compact(
     // and use a context_window of 1 so the threshold is effectively 0 — this
     // guarantees compression triggers regardless of current token usage.
     // periodic_cleanup uses a lowered threshold (0.25) to proactively compress.
-    let compress_result = if force_compact || periodic_cleanup || pipeline.should_attempt_autocompact() {
-        let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
-        let effective_window = if force_compact { 1 } else { context_window };
+    let compress_result =
+        if force_compact || periodic_cleanup || pipeline.should_attempt_autocompact() {
+            let local_estimate = fastclaw_context::estimate_messages_tokens(messages);
+            let effective_window = if force_compact { 1 } else { context_window };
 
-        let dynamic_threshold = if force_compact {
-            0.0_f32
-        } else if periodic_cleanup {
-            0.25_f32
-        } else if enable_smart_compression {
-            let (sys_tok, tool_tok, conv_tok) = estimate_token_distribution(messages);
-            let has_active_task = todo_store.map_or(false, |t| t.has_in_progress_items());
-            context_compressor::compute_compression_threshold(
-                sys_tok,
-                tool_tok,
-                conv_tok,
-                context_window,
-                has_active_task,
-            )
-        } else {
-            context_compressor::COMPRESSION_THRESHOLD
-        };
+            let dynamic_threshold = if force_compact {
+                0.0_f32
+            } else if periodic_cleanup {
+                0.25_f32
+            } else if enable_smart_compression {
+                let (sys_tok, tool_tok, conv_tok) = estimate_token_distribution(messages);
+                let has_active_task = todo_store.is_some_and(|t| t.has_in_progress_items());
+                context_compressor::compute_compression_threshold(
+                    sys_tok,
+                    tool_tok,
+                    conv_tok,
+                    context_window,
+                    has_active_task,
+                )
+            } else {
+                context_compressor::COMPRESSION_THRESHOLD
+            };
 
-        tracing::debug!(
-            local_estimate,
-            api_prompt_tokens = last_estimated_tokens,
-            force_compact,
-            dynamic_threshold,
-            "pre-compact: entering LLM compression"
-        );
-        let result = context_compressor::try_compress_chat_with_threshold(
-            messages,
-            effective_window,
-            provider,
-            model,
-            last_estimated_tokens,
-            todo_store,
-            dynamic_threshold,
-        )
-        .await;
-
-        if result.compressed {
-            pipeline.record_autocompact_success();
-            tracing::info!(
-                original = result.original_tokens,
-                new = result.new_tokens,
-                saved = result.original_tokens.saturating_sub(result.new_tokens),
+            tracing::debug!(
+                local_estimate,
+                api_prompt_tokens = last_estimated_tokens,
                 force_compact,
-                "post-compact: LLM compression reduced context"
+                dynamic_threshold,
+                "pre-compact: entering LLM compression"
             );
-        } else if result.original_tokens > 0 && !force_compact {
-            pipeline.record_autocompact_failure();
-        }
-        result
-    } else {
-        tracing::debug!("LLM autocompact skipped (circuit breaker tripped)");
-        context_compressor::CompressionResult {
-            compressed: false,
-            original_tokens: 0,
-            new_tokens: 0,
-            messages: messages.clone(),
-            history_file: None,
-        }
-    };
+            let result = context_compressor::try_compress_chat_with_threshold(
+                messages,
+                effective_window,
+                provider,
+                model,
+                last_estimated_tokens,
+                todo_store,
+                dynamic_threshold,
+            )
+            .await;
+
+            if result.compressed {
+                pipeline.record_autocompact_success();
+                tracing::info!(
+                    original = result.original_tokens,
+                    new = result.new_tokens,
+                    saved = result.original_tokens.saturating_sub(result.new_tokens),
+                    force_compact,
+                    "post-compact: LLM compression reduced context"
+                );
+            } else if result.original_tokens > 0 && !force_compact {
+                pipeline.record_autocompact_failure();
+            }
+            result
+        } else {
+            tracing::debug!("LLM autocompact skipped (circuit breaker tripped)");
+            context_compressor::CompressionResult {
+                compressed: false,
+                original_tokens: 0,
+                new_tokens: 0,
+                messages: messages.clone(),
+                history_file: None,
+            }
+        };
 
     // Step 7: Hard fit messages within context window budget
     let estimated_tokens = fastclaw_context::ContextEngine::fit_to_context_window(

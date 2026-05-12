@@ -285,7 +285,9 @@ impl MetricsCollector {
             }
         }
 
-        out.push_str("# HELP fastclaw_provider_latency_ms Provider latency by provider and model\n");
+        out.push_str(
+            "# HELP fastclaw_provider_latency_ms Provider latency by provider and model\n",
+        );
         out.push_str("# TYPE fastclaw_provider_latency_ms summary\n");
         for e in self.histograms.iter() {
             let key = e.key();
@@ -378,15 +380,21 @@ mod tests {
 
         let text = c.render_prometheus();
         assert!(
-            text.contains("fastclaw_provider_requests_total{provider=\"openai\",model=\"gpt-4o\"} 2"),
+            text.contains(
+                "fastclaw_provider_requests_total{provider=\"openai\",model=\"gpt-4o\"} 2"
+            ),
             "missing provider request metric:\n{text}"
         );
         assert!(
-            text.contains("fastclaw_provider_tokens_total{provider=\"openai\",model=\"gpt-4o\"} 256"),
+            text.contains(
+                "fastclaw_provider_tokens_total{provider=\"openai\",model=\"gpt-4o\"} 256"
+            ),
             "missing provider token metric:\n{text}"
         );
         assert!(
-            text.contains("fastclaw_provider_latency_ms_sum{provider=\"openai\",model=\"gpt-4o\"} 50"),
+            text.contains(
+                "fastclaw_provider_latency_ms_sum{provider=\"openai\",model=\"gpt-4o\"} 50"
+            ),
             "missing provider latency metric:\n{text}"
         );
     }

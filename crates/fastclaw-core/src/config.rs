@@ -467,7 +467,10 @@ impl GatewayConfig {
                     if let Ok(addr) = host.parse::<std::net::IpAddr>() {
                         return SocketAddr::from((addr, self.port));
                     }
-                    tracing::warn!(host, "custom_bind_host is not a valid IP, falling back to loopback");
+                    tracing::warn!(
+                        host,
+                        "custom_bind_host is not a valid IP, falling back to loopback"
+                    );
                 }
                 SocketAddr::from(([127, 0, 0, 1], self.port))
             }
@@ -959,8 +962,8 @@ pub fn load_config(mode: &ConfigMode) -> FastClawResult<FastClawConfig> {
                 tracing::warn!(path = %path.display(), error = %e, "config parse failed, attempting auto-repair");
                 match try_repair_config(path) {
                     Ok(repaired) => {
-                        let val: serde_json::Value = json5::from_str(&repaired)
-                            .map_err(FastClawError::json5)?;
+                        let val: serde_json::Value =
+                            json5::from_str(&repaired).map_err(FastClawError::json5)?;
                         let pretty = serde_json::to_string_pretty(&val).unwrap_or(repaired);
                         let backup = path.with_extension("json.bak");
                         let _ = std::fs::copy(path, &backup);
@@ -1041,7 +1044,10 @@ pub fn try_repair_config(path: &std::path::Path) -> Result<String, String> {
     let mut repaired = text.clone();
 
     // Strip BOM
-    repaired = repaired.strip_prefix('\u{feff}').unwrap_or(&repaired).to_string();
+    repaired = repaired
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&repaired)
+        .to_string();
 
     // Remove trailing commas before closing braces/brackets: ,\s*} or ,\s*]
     let trailing_comma_re = regex::Regex::new(r",(\s*[}\]])").unwrap();
@@ -1079,19 +1085,18 @@ pub fn repair_config_file(path: &std::path::Path) -> Result<String, String> {
     let repaired = try_repair_config(path)?;
 
     // Validate the repaired content parses into a valid config
-    let val: serde_json::Value = json5::from_str(&repaired)
-        .map_err(|e| format!("repaired text still invalid: {e}"))?;
+    let val: serde_json::Value =
+        json5::from_str(&repaired).map_err(|e| format!("repaired text still invalid: {e}"))?;
 
     // Re-serialize as pretty JSON for clean output
-    let pretty = serde_json::to_string_pretty(&val)
-        .map_err(|e| format!("failed to re-serialize: {e}"))?;
+    let pretty =
+        serde_json::to_string_pretty(&val).map_err(|e| format!("failed to re-serialize: {e}"))?;
 
     // Back up the original
     let backup = path.with_extension("json.bak");
     let _ = std::fs::copy(path, &backup);
 
-    std::fs::write(path, &pretty)
-        .map_err(|e| format!("failed to write repaired config: {e}"))?;
+    std::fs::write(path, &pretty).map_err(|e| format!("failed to write repaired config: {e}"))?;
 
     Ok(format!(
         "Config repaired and written to {}. Backup saved to {}.",
@@ -1102,10 +1107,7 @@ pub fn repair_config_file(path: &std::path::Path) -> Result<String, String> {
 
 /// Known serde alias pairs: (canonical, alias). When both exist in a merged
 /// object, keep only the canonical form to avoid "duplicate field" errors.
-const ALIAS_PAIRS: &[(&str, &str)] = &[
-    ("model", "defaultModel"),
-    ("provider", "providerType"),
-];
+const ALIAS_PAIRS: &[(&str, &str)] = &[("model", "defaultModel"), ("provider", "providerType")];
 
 /// Recursively merge `overlay` on top of `base`. For objects, keys from `overlay`
 /// override `base` unless the overlay value is null or an empty string.
@@ -1224,8 +1226,13 @@ fn process_includes_inner(
                 let inc_val: serde_json::Value =
                     json5::from_str(&inc_text).map_err(FastClawError::json5)?;
                 let inc_base = inc_path.parent();
-                let inc_val =
-                    process_includes_inner(inc_val, inc_base, strict_includes, depth + 1, seen_paths)?;
+                let inc_val = process_includes_inner(
+                    inc_val,
+                    inc_base,
+                    strict_includes,
+                    depth + 1,
+                    seen_paths,
+                )?;
                 merge_json(&mut root, inc_val);
                 tracing::info!(path = %inc_path.display(), depth, "merged $include config");
             } else if strict_includes {
@@ -1243,9 +1250,8 @@ fn process_includes_inner(
         let keys: Vec<String> = obj.keys().cloned().collect();
         for key in keys {
             if let Some(val) = obj.remove(&key) {
-                let processed = process_includes_inner(
-                    val, base_dir, strict_includes, depth, seen_paths,
-                )?;
+                let processed =
+                    process_includes_inner(val, base_dir, strict_includes, depth, seen_paths)?;
                 obj.insert(key, processed);
             }
         }

@@ -280,11 +280,7 @@ mod tests {
 
     #[test]
     fn system_message_folds_into_first_round() {
-        let msgs = vec![
-            sys("You are helpful"),
-            user("hello"),
-            assistant("hi"),
-        ];
+        let msgs = vec![sys("You are helpful"), user("hello"), assistant("hi")];
         let rounds = group_by_api_round(&msgs);
         assert_eq!(rounds.len(), 1, "system + 1 turn = 1 round");
         assert_eq!(rounds[0].messages.len(), 3);
@@ -419,13 +415,19 @@ mod tests {
         assert!(result.tokens_freed > 0);
 
         let remaining = crate::estimate_messages_tokens(&result.messages);
-        assert!(remaining <= budget, "remaining {remaining} should be <= budget {budget}");
+        assert!(
+            remaining <= budget,
+            "remaining {remaining} should be <= budget {budget}"
+        );
 
         // The most recent rounds should be preserved. Check the last message
         // is the last assistant message from the original list.
         let last_original = msgs.last().unwrap().text_content().unwrap();
         let last_result = result.messages.last().unwrap().text_content().unwrap();
-        assert_eq!(last_original, last_result, "most recent round should survive");
+        assert_eq!(
+            last_original, last_result,
+            "most recent round should survive"
+        );
     }
 
     #[test]
@@ -478,7 +480,7 @@ mod tests {
             m.role == Role::Tool
                 && m.content
                     .as_ref()
-                    .map_or(false, |c| c.to_string().contains("connection timeout"))
+                    .is_some_and(|c| c.to_string().contains("connection timeout"))
         });
         assert!(has_error_content, "error round should be preserved");
     }

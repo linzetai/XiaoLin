@@ -126,8 +126,7 @@ impl SessionFileTracker {
 
     /// Restore from JSON (loaded from SQLite).
     pub fn from_json(json: &str) -> Self {
-        let changes: Vec<FileChange> =
-            serde_json::from_str(json).unwrap_or_default();
+        let changes: Vec<FileChange> = serde_json::from_str(json).unwrap_or_default();
 
         let mut file_ops = HashMap::new();
         for change in &changes {
@@ -207,6 +206,8 @@ mod tests {
         assert_eq!(restored.operation_count(), 2);
 
         let files = restored.list_session_files();
-        assert!(files.iter().any(|(p, _)| p.display().to_string().contains("main.rs")));
+        assert!(files
+            .iter()
+            .any(|(p, _)| p.display().to_string().contains("main.rs")));
     }
 }

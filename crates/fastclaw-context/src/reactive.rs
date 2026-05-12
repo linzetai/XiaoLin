@@ -102,8 +102,10 @@ impl ReactiveCompactor {
         if original_system.is_empty() {
             return compacted.to_vec();
         }
-        let existing_sys: Vec<&ChatMessage> =
-            compacted.iter().filter(|m| m.role == Role::System).collect();
+        let existing_sys: Vec<&ChatMessage> = compacted
+            .iter()
+            .filter(|m| m.role == Role::System)
+            .collect();
         if existing_sys.len() >= original_system.len() {
             return compacted.to_vec();
         }
@@ -335,10 +337,7 @@ mod tests {
 
     #[test]
     fn system_messages_always_preserved() {
-        let mut msgs = vec![
-            sys("system prompt 1"),
-            sys("system prompt 2"),
-        ];
+        let mut msgs = vec![sys("system prompt 1"), sys("system prompt 2")];
         for i in 0..10 {
             msgs.push(user(&format!("q{i} {}", long_text(500))));
             msgs.push(assistant(&format!("a{i} {}", long_text(500))));
@@ -350,8 +349,15 @@ mod tests {
         });
         let result = compactor.compact(&msgs);
         assert!(result.recovered);
-        let sys_count = result.messages.iter().filter(|m| m.role == Role::System).count();
-        assert!(sys_count >= 2, "both system messages should survive, got {sys_count}");
+        let sys_count = result
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::System)
+            .count();
+        assert!(
+            sys_count >= 2,
+            "both system messages should survive, got {sys_count}"
+        );
     }
 
     #[test]
@@ -370,7 +376,7 @@ mod tests {
         let has_last = result.messages.iter().any(|m| {
             m.text_content()
                 .as_deref()
-                .map_or(false, |t| t.contains(last_user_text))
+                .is_some_and(|t| t.contains(last_user_text))
         });
         assert!(has_last, "last user turn must survive compaction");
     }
@@ -460,10 +466,7 @@ mod tests {
         assert!(result.recovered);
 
         // Verify system messages come first.
-        let first_non_sys = result
-            .messages
-            .iter()
-            .position(|m| m.role != Role::System);
+        let first_non_sys = result.messages.iter().position(|m| m.role != Role::System);
         if let Some(pos) = first_non_sys {
             for m in &result.messages[..pos] {
                 assert_eq!(m.role, Role::System);

@@ -53,7 +53,8 @@ pub fn build_subagent_prompt_block(ctx: &SubAgentPromptContext<'_>) -> Option<St
         ctx.policy.max_parallel,
     ));
 
-    block.push_str("\
+    block.push_str(
+        "\
 WHEN TO DELEGATE (use sub-agents):
 - 2+ independent sub-problems that benefit from parallel execution
 - A subtask needs a different tool set (e.g. browser + code analysis simultaneously)
@@ -66,7 +67,8 @@ WHEN NOT TO DELEGATE (use tools directly):
 - Sequential steps where each depends on the previous result
 - When only 1 tool call would suffice
 
-");
+",
+    );
     block.push_str(
         "WORKFLOW: `list_agents` → pick agent_id → `spawn_subagent`. \
          Batch multiple spawn calls in one response for parallel execution.\n\n",
@@ -82,7 +84,9 @@ WHEN NOT TO DELEGATE (use tools directly):
 Types: general (full tools), explore (read-only research), shell (commands/builds), browser (web interaction).\n");
     }
 
-    let delegatable: Vec<_> = ctx.available_agents.iter()
+    let delegatable: Vec<_> = ctx
+        .available_agents
+        .iter()
         .filter(|(id, _)| {
             ctx.policy.allowed_agents.is_empty()
                 || ctx.policy.allowed_agents.iter().any(|a| a == id)
@@ -97,12 +101,14 @@ Types: general (full tools), explore (read-only research), shell (commands/build
         }
     }
 
-    block.push_str("\n\
+    block.push_str(
+        "\n\
 TASK DESCRIPTION RULES:
 - Self-contained: include all needed context (sub-agent cannot see your conversation)
 - Specific outcome: state exactly what to return
 - One clear objective per sub-agent
-");
+",
+    );
 
     if let Some(budget) = ctx.policy.token_budget {
         block.push_str(&format!("\nToken budget per sub-agent: {budget}.\n"));

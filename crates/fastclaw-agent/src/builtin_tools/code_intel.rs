@@ -124,7 +124,9 @@ pub struct WorkspaceSymbolsTool;
 
 #[async_trait]
 impl Tool for WorkspaceSymbolsTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
     fn name(&self) -> &str {
         "workspace_symbols"
     }
@@ -199,9 +201,7 @@ impl Tool for WorkspaceSymbolsTool {
         }
 
         let escaped = regex::escape(args.query.trim());
-        let pattern = format!(
-            r"\b(fn|struct|enum|trait|impl|class|interface|type)\s+{escaped}\b"
-        );
+        let pattern = format!(r"\b(fn|struct|enum|trait|impl|class|interface|type)\s+{escaped}\b");
         let scope = args.path.clone().unwrap_or_else(|| ".".to_string());
         if let Ok(workspace_root) = std::env::current_dir() {
             if let Ok(Some(lsp_symbols)) = LspSessionManager::global()
@@ -288,7 +288,9 @@ pub struct GoToDefinitionTool;
 
 #[async_trait]
 impl Tool for GoToDefinitionTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
     fn name(&self) -> &str {
         "go_to_definition"
     }
@@ -303,8 +305,14 @@ impl Tool for GoToDefinitionTool {
         props.insert("path".to_string(), serde_json::json!({"type":"string"}));
         props.insert("line".to_string(), serde_json::json!({"type":"integer"}));
         props.insert("column".to_string(), serde_json::json!({"type":"integer"}));
-        props.insert("symbol".to_string(), serde_json::json!({"type":"string","description":"Optional explicit symbol override."}));
-        props.insert("search_path".to_string(), serde_json::json!({"type":"string","description":"Optional workspace scope."}));
+        props.insert(
+            "symbol".to_string(),
+            serde_json::json!({"type":"string","description":"Optional explicit symbol override."}),
+        );
+        props.insert(
+            "search_path".to_string(),
+            serde_json::json!({"type":"string","description":"Optional workspace scope."}),
+        );
         props.insert("glob".to_string(), serde_json::json!({"type":"string"}));
         props.insert("limit".to_string(), serde_json::json!({"type":"integer"}));
         ToolParameterSchema {
@@ -347,10 +355,7 @@ impl Tool for GoToDefinitionTool {
 
         // Try local symbol index first for fast definition lookup.
         let index_results = crate::symbol_index::SymbolIndex::global().lookup(&symbol);
-        let exact_defs: Vec<_> = index_results
-            .iter()
-            .filter(|s| s.name == symbol)
-            .collect();
+        let exact_defs: Vec<_> = index_results.iter().filter(|s| s.name == symbol).collect();
         if exact_defs.len() == 1 {
             let d = &exact_defs[0];
             return ToolResult::ok(
@@ -463,7 +468,9 @@ pub struct FindReferencesTool;
 
 #[async_trait]
 impl Tool for FindReferencesTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
     fn name(&self) -> &str {
         "find_references"
     }
@@ -478,9 +485,15 @@ impl Tool for FindReferencesTool {
         props.insert("line".to_string(), serde_json::json!({"type":"integer"}));
         props.insert("column".to_string(), serde_json::json!({"type":"integer"}));
         props.insert("symbol".to_string(), serde_json::json!({"type":"string"}));
-        props.insert("search_path".to_string(), serde_json::json!({"type":"string"}));
+        props.insert(
+            "search_path".to_string(),
+            serde_json::json!({"type":"string"}),
+        );
         props.insert("glob".to_string(), serde_json::json!({"type":"string"}));
-        props.insert("include_declaration".to_string(), serde_json::json!({"type":"boolean"}));
+        props.insert(
+            "include_declaration".to_string(),
+            serde_json::json!({"type":"boolean"}),
+        );
         props.insert("limit".to_string(), serde_json::json!({"type":"integer"}));
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -597,10 +610,7 @@ impl Tool for FindReferencesTool {
             }
         }
 
-        let scope_path = args
-            .search_path
-            .clone()
-            .unwrap_or_else(|| ".".to_string());
+        let scope_path = args.search_path.clone().unwrap_or_else(|| ".".to_string());
         let pattern = format!(r"\b{}\b", regex::escape(&symbol));
         let search_args = serde_json::json!({
             "pattern": pattern,
@@ -684,8 +694,12 @@ pub struct UnifiedLspTool;
 
 #[async_trait]
 impl Tool for UnifiedLspTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
-    fn name(&self) -> &str { "lsp" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
+    fn name(&self) -> &str {
+        "lsp"
+    }
 
     fn description(&self) -> &str {
         "Unified LSP tool supporting multiple code intelligence operations: \
@@ -696,13 +710,16 @@ impl Tool for UnifiedLspTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("operation".to_string(), serde_json::json!({
-            "type": "string",
-            "enum": ["goToDefinition", "findReferences", "hover", "documentSymbol",
-                     "workspaceSymbol", "goToImplementation", "diagnostics",
-                     "workspaceDiagnostics", "codeActions"],
-            "description": "LSP operation to perform."
-        }));
+        props.insert(
+            "operation".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["goToDefinition", "findReferences", "hover", "documentSymbol",
+                         "workspaceSymbol", "goToImplementation", "diagnostics",
+                         "workspaceDiagnostics", "codeActions"],
+                "description": "LSP operation to perform."
+            }),
+        );
         props.insert("filePath".to_string(), serde_json::json!({
             "type": "string",
             "description": "File path (absolute or workspace-relative). Required for all operations except workspaceSymbol and workspaceDiagnostics."
@@ -711,22 +728,34 @@ impl Tool for UnifiedLspTool {
             "type": "integer",
             "description": "1-based line number. Required for position-scoped operations (goToDefinition, findReferences, hover, goToImplementation)."
         }));
-        props.insert("character".to_string(), serde_json::json!({
-            "type": "integer",
-            "description": "1-based column number. Required for position-scoped operations."
-        }));
-        props.insert("includeDeclaration".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "Include the declaration in findReferences results. Default false."
-        }));
-        props.insert("query".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Query string for workspaceSymbol search."
-        }));
-        props.insert("limit".to_string(), serde_json::json!({
-            "type": "integer",
-            "description": "Maximum number of results. Default 50."
-        }));
+        props.insert(
+            "character".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "1-based column number. Required for position-scoped operations."
+            }),
+        );
+        props.insert(
+            "includeDeclaration".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Include the declaration in findReferences results. Default false."
+            }),
+        );
+        props.insert(
+            "query".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Query string for workspaceSymbol search."
+            }),
+        );
+        props.insert(
+            "limit".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Maximum number of results. Default 50."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -749,7 +778,8 @@ impl Tool for UnifiedLspTool {
                 let inner_args = serde_json::json!({
                     "path": path, "line": line, "column": col,
                     "limit": args.limit.unwrap_or(20)
-                }).to_string();
+                })
+                .to_string();
                 GoToDefinitionTool.execute(&inner_args).await
             }
             "findReferences" => {
@@ -761,18 +791,24 @@ impl Tool for UnifiedLspTool {
                     "path": path, "line": line, "column": col,
                     "include_declaration": args.include_declaration.unwrap_or(false),
                     "limit": args.limit.unwrap_or(200)
-                }).to_string();
+                })
+                .to_string();
                 FindReferencesTool.execute(&inner_args).await
             }
             "workspaceSymbol" => {
                 let query = match &args.query {
                     Some(q) if !q.trim().is_empty() => q.clone(),
-                    _ => return ToolResult::err("workspaceSymbol requires a non-empty 'query' parameter.".to_string()),
+                    _ => {
+                        return ToolResult::err(
+                            "workspaceSymbol requires a non-empty 'query' parameter.".to_string(),
+                        )
+                    }
                 };
                 let inner_args = serde_json::json!({
                     "query": query,
                     "limit": args.limit.unwrap_or(50)
-                }).to_string();
+                })
+                .to_string();
                 WorkspaceSymbolsTool.execute(&inner_args).await
             }
             "hover" => {
@@ -803,9 +839,7 @@ impl Tool for UnifiedLspTool {
                 };
                 execute_diagnostics(&path).await
             }
-            "workspaceDiagnostics" => {
-                execute_workspace_diagnostics().await
-            }
+            "workspaceDiagnostics" => execute_workspace_diagnostics().await,
             "codeActions" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
@@ -824,33 +858,45 @@ impl Tool for UnifiedLspTool {
 }
 
 fn require_position(args: &UnifiedLspArgs) -> Result<(String, usize, usize), String> {
-    let path = args.file_path.as_deref().filter(|p| !p.trim().is_empty())
+    let path = args
+        .file_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
         .ok_or_else(|| format!("{} requires 'filePath'.", args.operation))?;
-    let line = args.line.ok_or_else(|| format!("{} requires 'line'.", args.operation))?;
-    let col = args.character.ok_or_else(|| format!("{} requires 'character'.", args.operation))?;
+    let line = args
+        .line
+        .ok_or_else(|| format!("{} requires 'line'.", args.operation))?;
+    let col = args
+        .character
+        .ok_or_else(|| format!("{} requires 'character'.", args.operation))?;
     Ok((path.to_string(), line, col))
 }
 
 async fn execute_hover(path: &str, line: usize, col: usize) -> ToolResult {
     if let Ok(workspace_root) = std::env::current_dir() {
         let lsp = LspSessionManager::global();
-        if let Ok(Some(result)) = lsp.hover(path, line, col, &workspace_root.to_string_lossy()).await {
-            return ToolResult::ok(serde_json::json!({
-                "operation": "hover",
-                "filePath": path,
-                "line": line,
-                "character": col,
-                "content": result,
-                "engine": "lsp",
-            }).to_string());
+        if let Ok(Some(result)) = lsp
+            .hover(path, line, col, &workspace_root.to_string_lossy())
+            .await
+        {
+            return ToolResult::ok(
+                serde_json::json!({
+                    "operation": "hover",
+                    "filePath": path,
+                    "line": line,
+                    "character": col,
+                    "content": result,
+                    "engine": "lsp",
+                })
+                .to_string(),
+            );
         }
     }
-    let read_args = serde_json::json!({"path": path, "offset": line as i64, "limit": 5}).to_string();
+    let read_args =
+        serde_json::json!({"path": path, "offset": line as i64, "limit": 5}).to_string();
     let context = ReadFileTool.execute(&read_args).await;
     if context.success {
-        let token = extract_token_at_column(
-            context.output.lines().next().unwrap_or_default(), col
-        );
+        let token = extract_token_at_column(context.output.lines().next().unwrap_or_default(), col);
         ToolResult::ok(serde_json::json!({
             "operation": "hover",
             "filePath": path,
@@ -871,7 +917,9 @@ async fn execute_document_symbol(path: &str) -> ToolResult {
             match fastclaw_treesitter::CodeParser::parse_file(file_path) {
                 Ok(parsed) => {
                     let symbols = fastclaw_treesitter::extract_symbols(
-                        &parsed.tree, &parsed.source, &parsed.language,
+                        &parsed.tree,
+                        &parsed.source,
+                        &parsed.language,
                     );
                     let json_symbols: Vec<serde_json::Value> = symbols
                         .iter()
@@ -886,14 +934,17 @@ async fn execute_document_symbol(path: &str) -> ToolResult {
                             })
                         })
                         .collect();
-                    return ToolResult::ok(serde_json::json!({
-                        "operation": "documentSymbol",
-                        "filePath": path,
-                        "symbols": json_symbols,
-                        "count": json_symbols.len(),
-                        "engine": "treesitter",
-                        "language": lang,
-                    }).to_string());
+                    return ToolResult::ok(
+                        serde_json::json!({
+                            "operation": "documentSymbol",
+                            "filePath": path,
+                            "symbols": json_symbols,
+                            "count": json_symbols.len(),
+                            "engine": "treesitter",
+                            "language": lang,
+                        })
+                        .to_string(),
+                    );
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "treesitter parse failed for documentSymbol, falling back to regex");
@@ -902,12 +953,14 @@ async fn execute_document_symbol(path: &str) -> ToolResult {
         }
     }
 
-    let pattern = r"\b(fn|struct|enum|trait|impl|class|interface|type|const|static|pub|def|function)\s+\w+";
+    let pattern =
+        r"\b(fn|struct|enum|trait|impl|class|interface|type|const|static|pub|def|function)\s+\w+";
     let search_args = serde_json::json!({
         "pattern": pattern,
         "path": path,
         "max_results": 200,
-    }).to_string();
+    })
+    .to_string();
     let result = SearchInFilesTool.execute(&search_args).await;
     if !result.success {
         return result;
@@ -916,43 +969,54 @@ async fn execute_document_symbol(path: &str) -> ToolResult {
         Ok(m) => m,
         Err(e) => return ToolResult::err(e),
     };
-    let symbols: Vec<serde_json::Value> = matches.into_iter().map(|m| {
-        let text = m.get("text").and_then(|v| v.as_str()).unwrap_or_default();
-        serde_json::json!({
-            "name": text.split_whitespace().last().unwrap_or_default(),
-            "kind": text.split_whitespace().next().unwrap_or("symbol"),
-            "line": m.get("line").and_then(|v| v.as_u64()).unwrap_or(0),
-            "snippet": text.trim(),
+    let symbols: Vec<serde_json::Value> = matches
+        .into_iter()
+        .map(|m| {
+            let text = m.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+            serde_json::json!({
+                "name": text.split_whitespace().last().unwrap_or_default(),
+                "kind": text.split_whitespace().next().unwrap_or("symbol"),
+                "line": m.get("line").and_then(|v| v.as_u64()).unwrap_or(0),
+                "snippet": text.trim(),
+            })
         })
-    }).collect();
-    ToolResult::ok(serde_json::json!({
-        "operation": "documentSymbol",
-        "filePath": path,
-        "symbols": symbols,
-        "count": symbols.len(),
-        "engine": "heuristic",
-    }).to_string())
+        .collect();
+    ToolResult::ok(
+        serde_json::json!({
+            "operation": "documentSymbol",
+            "filePath": path,
+            "symbols": symbols,
+            "count": symbols.len(),
+            "engine": "heuristic",
+        })
+        .to_string(),
+    )
 }
 
 async fn execute_go_to_implementation(path: &str, line: usize, col: usize) -> ToolResult {
-    let read_args = serde_json::json!({"path": path, "offset": line as i64, "limit": 1}).to_string();
+    let read_args =
+        serde_json::json!({"path": path, "offset": line as i64, "limit": 1}).to_string();
     let line_result = ReadFileTool.execute(&read_args).await;
     if !line_result.success {
         return line_result;
     }
-    let token = extract_token_at_column(
-        line_result.output.lines().next().unwrap_or_default(), col
-    );
+    let token = extract_token_at_column(line_result.output.lines().next().unwrap_or_default(), col);
     let symbol = match token {
         Some(t) => t,
-        None => return ToolResult::err(format!("goToImplementation: no symbol at {}:{}:{}", path, line, col)),
+        None => {
+            return ToolResult::err(format!(
+                "goToImplementation: no symbol at {}:{}:{}",
+                path, line, col
+            ))
+        }
     };
     let pattern = format!(r"\bimpl\s+(?:\w+\s+for\s+)?{}\b", regex::escape(&symbol));
     let search_args = serde_json::json!({
         "pattern": pattern,
         "path": ".",
         "max_results": 50,
-    }).to_string();
+    })
+    .to_string();
     let result = SearchInFilesTool.execute(&search_args).await;
     if !result.success {
         return result;
@@ -961,13 +1025,16 @@ async fn execute_go_to_implementation(path: &str, line: usize, col: usize) -> To
         Ok(m) => m,
         Err(e) => return ToolResult::err(e),
     };
-    ToolResult::ok(serde_json::json!({
-        "operation": "goToImplementation",
-        "symbol": symbol,
-        "implementations": matches,
-        "count": matches.len(),
-        "engine": "heuristic",
-    }).to_string())
+    ToolResult::ok(
+        serde_json::json!({
+            "operation": "goToImplementation",
+            "symbol": symbol,
+            "implementations": matches,
+            "count": matches.len(),
+            "engine": "heuristic",
+        })
+        .to_string(),
+    )
 }
 
 async fn execute_diagnostics(path: &str) -> ToolResult {
@@ -1007,8 +1074,12 @@ pub struct FileOutlineTool;
 
 #[async_trait]
 impl Tool for FileOutlineTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
-    fn name(&self) -> &str { "file_outline" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
+    fn name(&self) -> &str {
+        "file_outline"
+    }
 
     fn description(&self) -> &str {
         "Extract a structured outline of symbols (functions, classes, structs, etc.) \
@@ -1028,14 +1099,20 @@ impl Tool for FileOutlineTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("path".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Path to the source file."
-        }));
-        props.insert("include_imports".to_string(), serde_json::json!({
-            "type": "boolean",
-            "description": "Include import statements in the outline. Default false."
-        }));
+        props.insert(
+            "path".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Path to the source file."
+            }),
+        );
+        props.insert(
+            "include_imports".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Include import statements in the outline. Default false."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -1056,14 +1133,21 @@ impl Tool for FileOutlineTool {
         let file_path = std::path::Path::new(&args.path);
         let lang = match fastclaw_treesitter::CodeParser::detect_language(file_path) {
             Some(l) => l,
-            None => return ToolResult::err(format!(
-                "file_outline: unsupported file type '{}'",
-                file_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown")
-            )),
+            None => {
+                return ToolResult::err(format!(
+                    "file_outline: unsupported file type '{}'",
+                    file_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                ))
+            }
         };
 
         if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
-            return ToolResult::err(format!("file_outline: tree-sitter language '{lang}' not available"));
+            return ToolResult::err(format!(
+                "file_outline: tree-sitter language '{lang}' not available"
+            ));
         }
 
         let parsed = match fastclaw_treesitter::CodeParser::parse_file(file_path) {
@@ -1075,7 +1159,9 @@ impl Tool for FileOutlineTool {
         let include_imports = args.include_imports.unwrap_or(false);
         let symbols: Vec<serde_json::Value> = all_symbols
             .iter()
-            .filter(|s| include_imports || !matches!(s.kind, fastclaw_treesitter::SymbolKind::Import))
+            .filter(|s| {
+                include_imports || !matches!(s.kind, fastclaw_treesitter::SymbolKind::Import)
+            })
             .map(|s| {
                 serde_json::json!({
                     "name": s.name,
@@ -1087,13 +1173,16 @@ impl Tool for FileOutlineTool {
             })
             .collect();
 
-        ToolResult::ok(serde_json::json!({
-            "filePath": args.path,
-            "language": lang,
-            "symbols": symbols,
-            "count": symbols.len(),
-            "engine": "treesitter",
-        }).to_string())
+        ToolResult::ok(
+            serde_json::json!({
+                "filePath": args.path,
+                "language": lang,
+                "symbols": symbols,
+                "count": symbols.len(),
+                "engine": "treesitter",
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -1101,8 +1190,12 @@ pub struct CodeSectionsTool;
 
 #[async_trait]
 impl Tool for CodeSectionsTool {
-    fn kind(&self) -> ToolKind { ToolKind::Search }
-    fn name(&self) -> &str { "code_sections" }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Search
+    }
+    fn name(&self) -> &str {
+        "code_sections"
+    }
 
     fn description(&self) -> &str {
         "Split a source file into semantic sections using AST parsing. \
@@ -1123,14 +1216,20 @@ impl Tool for CodeSectionsTool {
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
-        props.insert("path".to_string(), serde_json::json!({
-            "type": "string",
-            "description": "Path to the source file."
-        }));
-        props.insert("max_chunk_lines".to_string(), serde_json::json!({
-            "type": "integer",
-            "description": "Maximum lines per section before splitting. Default 80."
-        }));
+        props.insert(
+            "path".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Path to the source file."
+            }),
+        );
+        props.insert(
+            "max_chunk_lines".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Maximum lines per section before splitting. Default 80."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -1151,14 +1250,21 @@ impl Tool for CodeSectionsTool {
         let file_path = std::path::Path::new(&args.path);
         let lang = match fastclaw_treesitter::CodeParser::detect_language(file_path) {
             Some(l) => l,
-            None => return ToolResult::err(format!(
-                "code_sections: unsupported file type '{}'",
-                file_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown")
-            )),
+            None => {
+                return ToolResult::err(format!(
+                    "code_sections: unsupported file type '{}'",
+                    file_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("unknown")
+                ))
+            }
         };
 
         if !fastclaw_treesitter::CodeParser::is_language_available(&lang) {
-            return ToolResult::err(format!("code_sections: tree-sitter language '{lang}' not available"));
+            return ToolResult::err(format!(
+                "code_sections: tree-sitter language '{lang}' not available"
+            ));
         }
 
         let parsed = match fastclaw_treesitter::CodeParser::parse_file(file_path) {
@@ -1167,7 +1273,8 @@ impl Tool for CodeSectionsTool {
         };
 
         let max_lines = args.max_chunk_lines.unwrap_or(80).clamp(10, 500);
-        let chunks = fastclaw_treesitter::chunk_file(&parsed.tree, &parsed.source, &lang, max_lines);
+        let chunks =
+            fastclaw_treesitter::chunk_file(&parsed.tree, &parsed.source, &lang, max_lines);
 
         let json_chunks: Vec<serde_json::Value> = chunks
             .iter()
@@ -1182,14 +1289,17 @@ impl Tool for CodeSectionsTool {
             })
             .collect();
 
-        ToolResult::ok(serde_json::json!({
-            "filePath": args.path,
-            "language": lang,
-            "chunks": json_chunks,
-            "count": json_chunks.len(),
-            "totalLines": parsed.source.lines().count(),
-            "engine": "treesitter",
-        }).to_string())
+        ToolResult::ok(
+            serde_json::json!({
+                "filePath": args.path,
+                "language": lang,
+                "chunks": json_chunks,
+                "count": json_chunks.len(),
+                "totalLines": parsed.source.lines().count(),
+                "engine": "treesitter",
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -1214,7 +1324,11 @@ mod tests {
         })
         .to_string();
         let out = WorkspaceSymbolsTool.execute(&args).await;
-        assert!(out.success, "workspace_symbols should succeed: {}", out.output);
+        assert!(
+            out.success,
+            "workspace_symbols should succeed: {}",
+            out.output
+        );
         let body: serde_json::Value = serde_json::from_str(&out.output).expect("json");
         assert!(body.get("count").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
     }
@@ -1245,12 +1359,19 @@ mod tests {
             .workspace_symbols("src/runtime.rs", "AgentRuntime", &root.to_string_lossy())
             .await
             .expect("lsp request should succeed");
-        assert!(result.is_some(), "expected lsp workspace_symbols to be available");
+        assert!(
+            result.is_some(),
+            "expected lsp workspace_symbols to be available"
+        );
         let stats = lsp.stats_snapshot();
         let total = stats
             .get("requestsTotal")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        assert!(total > 0, "expected lsp request counter to increase: {}", stats);
+        assert!(
+            total > 0,
+            "expected lsp request counter to increase: {}",
+            stats
+        );
     }
 }

@@ -149,7 +149,10 @@ impl ShellSnapshot {
         }
 
         if let Some(ref temp) = self.temp_dir {
-            lines.push(format!("export TMPDIR={}", shell_escape(&temp.display().to_string())));
+            lines.push(format!(
+                "export TMPDIR={}",
+                shell_escape(&temp.display().to_string())
+            ));
         }
 
         for bin in &self.bundled_binaries {
@@ -176,7 +179,9 @@ impl ShellSnapshot {
         };
 
         let binary = self.shell_type.binary().to_string();
-        let mut args: Vec<String> = self.shell_type.no_rc_flags()
+        let mut args: Vec<String> = self
+            .shell_type
+            .no_rc_flags()
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -262,7 +267,9 @@ fn build_wrapper_function(name: &str, bundled_path: &Path) -> String {
 
 /// Simple shell escaping for values.
 fn shell_escape(s: &str) -> String {
-    if s.chars().all(|c| c.is_alphanumeric() || c == '/' || c == '.' || c == '-' || c == '_') {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || c == '/' || c == '.' || c == '-' || c == '_')
+    {
         return s.to_string();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -310,8 +317,7 @@ mod tests {
 
     #[test]
     fn preamble_includes_wrapper_functions() {
-        let snap = ShellSnapshot::new("/tmp")
-            .add_bundled_binary("rg", "/usr/local/bin/rg");
+        let snap = ShellSnapshot::new("/tmp").add_bundled_binary("rg", "/usr/local/bin/rg");
         let preamble = snap.build_preamble();
         assert!(preamble.contains("rg()"), "got: {preamble}");
         assert!(preamble.contains("/usr/local/bin/rg"), "got: {preamble}");

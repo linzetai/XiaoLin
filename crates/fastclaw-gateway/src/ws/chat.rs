@@ -86,7 +86,11 @@ pub async fn handle_chat_answer(
         .unwrap_or("")
         .to_string();
 
-    let tx = state.strm.ask_question_pending.remove(request_id).map(|(_k, v)| v);
+    let tx = state
+        .strm
+        .ask_question_pending
+        .remove(request_id)
+        .map(|(_k, v)| v);
 
     let ok = if let Some(tx) = tx {
         let _ = tx.send(answer);
@@ -121,7 +125,9 @@ pub async fn handle_chat_set_mode(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": -32602, "message": "mode required ('agent' or 'plan')"})),
+                error: Some(
+                    json!({"code": -32602, "message": "mode required ('agent' or 'plan')"}),
+                ),
             },
         )
         .await;
@@ -315,7 +321,11 @@ pub async fn spawn_chat(
 
         // Persist user messages to session
         for msg in &setup.user_messages {
-            let _ = state.store.session_store.append_message(&session_id, msg).await;
+            let _ = state
+                .store
+                .session_store
+                .append_message(&session_id, msg)
+                .await;
         }
 
         let (mut reserved, budget_degraded) = (setup.reserved_cost, setup.budget_degraded);

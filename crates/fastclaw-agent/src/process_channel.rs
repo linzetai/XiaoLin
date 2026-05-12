@@ -48,10 +48,7 @@ impl ProcessChannelPlugin {
     /// Spawn the plugin process and perform the initialization handshake.
     pub async fn initialize(&self, account_config: serde_json::Value) -> anyhow::Result<()> {
         let process_config = self.config.process.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "channel plugin '{}' has no process config",
-                self.config.id
-            )
+            anyhow::anyhow!("channel plugin '{}' has no process config", self.config.id)
         })?;
 
         self.dispatcher
@@ -88,10 +85,7 @@ impl ProcessChannelPlugin {
 
     fn process_config(&self) -> anyhow::Result<&ProcessChannelConfig> {
         self.config.process.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "channel plugin '{}' has no process config",
-                self.config.id
-            )
+            anyhow::anyhow!("channel plugin '{}' has no process config", self.config.id)
         })
     }
 }
@@ -143,8 +137,8 @@ impl ChannelPlugin for ProcessChannelPlugin {
         }
 
         if let Some(messages) = result.get("messages") {
-            let msgs: Vec<InboundMessage> = serde_json::from_value(messages.clone())
-                .unwrap_or_default();
+            let msgs: Vec<InboundMessage> =
+                serde_json::from_value(messages.clone()).unwrap_or_default();
             return Ok(WebhookResult::Messages(msgs));
         }
 
@@ -245,10 +239,7 @@ impl ChannelPlugin for ProcessChannelPlugin {
         }
     }
 
-    async fn start(
-        &self,
-        inbound_tx: mpsc::UnboundedSender<InboundMessage>,
-    ) -> anyhow::Result<()> {
+    async fn start(&self, inbound_tx: mpsc::UnboundedSender<InboundMessage>) -> anyhow::Result<()> {
         // Set up a notification handler that converts inbound_message notifications
         // to InboundMessage and forwards them.
         let (notif_tx, mut notif_rx) = mpsc::unbounded_channel();

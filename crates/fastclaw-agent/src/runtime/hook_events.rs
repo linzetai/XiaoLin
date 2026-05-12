@@ -201,7 +201,10 @@ mod tests {
         let result = HookResult::block("dangerous operation");
         assert!(result.is_blocked());
         assert!(!result.should_stop());
-        assert_eq!(result.blocking_error.as_deref(), Some("dangerous operation"));
+        assert_eq!(
+            result.blocking_error.as_deref(),
+            Some("dangerous operation")
+        );
     }
 
     #[test]

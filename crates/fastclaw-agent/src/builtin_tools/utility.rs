@@ -9,7 +9,9 @@ pub struct CurrentTimeTool;
 
 #[async_trait]
 impl Tool for CurrentTimeTool {
-    fn kind(&self) -> ToolKind { ToolKind::Think }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Think
+    }
     fn name(&self) -> &str {
         "get_current_time"
     }
@@ -47,7 +49,9 @@ pub struct CalculatorTool;
 
 #[async_trait]
 impl Tool for CalculatorTool {
-    fn kind(&self) -> ToolKind { ToolKind::Think }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Think
+    }
     fn name(&self) -> &str {
         "calculator"
     }
@@ -77,19 +81,23 @@ impl Tool for CalculatorTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "calculator arguments are not valid JSON: {e}. \
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "calculator arguments are not valid JSON: {e}. \
                  Pass exactly {{\"expression\": \"1 + 2 * 3\"}} with a string value, then retry."
-            )),
+                ))
+            }
         };
 
         let expr = match args.get("expression").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "calculator is missing required string field 'expression'. \
+            None => {
+                return ToolResult::err(
+                    "calculator is missing required string field 'expression'. \
                  Example: {\"expression\": \"100 / 4 + 2\"}."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         match eval_simple_expr(expr) {
@@ -119,7 +127,9 @@ impl Tool for SleepTool {
         "sleep"
     }
 
-    fn max_result_size_chars(&self) -> usize { 1_000 }
+    fn max_result_size_chars(&self) -> usize {
+        1_000
+    }
 
     fn description(&self) -> &str {
         "Wait for a specified number of seconds (max 300). \

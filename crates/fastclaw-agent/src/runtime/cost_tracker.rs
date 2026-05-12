@@ -169,7 +169,11 @@ impl CostTracker {
     /// Aggregate cache hit rate across all models.
     pub fn global_cache_hit_rate(&self) -> f64 {
         let total_prompt: u64 = self.per_model.values().map(|s| s.total_prompt_tokens).sum();
-        let total_cache: u64 = self.per_model.values().map(|s| s.total_cache_read_tokens).sum();
+        let total_cache: u64 = self
+            .per_model
+            .values()
+            .map(|s| s.total_cache_read_tokens)
+            .sum();
         if total_prompt == 0 {
             return 0.0;
         }
@@ -187,8 +191,7 @@ impl CostTracker {
             .increment(usage.cache_read_tokens as u64);
         counter!("fastclaw_llm_cache_creation_tokens_total", "model" => model_label.clone())
             .increment(usage.cache_creation_tokens as u64);
-        counter!("fastclaw_llm_calls_total", "model" => model_label.clone())
-            .increment(1);
+        counter!("fastclaw_llm_calls_total", "model" => model_label.clone()).increment(1);
     }
 
     /// Current accumulated cost in USD.
@@ -198,14 +201,17 @@ impl CostTracker {
 
     /// Compute the cost of a single API call in USD.
     pub fn compute_call_cost(&self, usage: &CallUsage) -> f64 {
-        let rate = self.config.model_cost_rates
+        let rate = self
+            .config
+            .model_cost_rates
             .get(&usage.model)
             .unwrap_or(&self.config.default_cost_rate);
 
         let input_cost = (usage.prompt_tokens as f64 / 1000.0) * rate.input_per_1k;
         let output_cost = (usage.completion_tokens as f64 / 1000.0) * rate.output_per_1k;
         let cache_read_cost = (usage.cache_read_tokens as f64 / 1000.0) * rate.cache_read_per_1k;
-        let cache_write_cost = (usage.cache_creation_tokens as f64 / 1000.0) * rate.cache_write_per_1k;
+        let cache_write_cost =
+            (usage.cache_creation_tokens as f64 / 1000.0) * rate.cache_write_per_1k;
 
         input_cost + output_cost + cache_read_cost + cache_write_cost
     }
@@ -251,8 +257,7 @@ impl CostTracker {
 
         let model_label = sanitize_model_label(model);
 
-        gauge!("fastclaw_llm_cache_hit_rate", "model" => model_label)
-            .set(rate);
+        gauge!("fastclaw_llm_cache_hit_rate", "model" => model_label).set(rate);
 
         if rate < self.config.cache_hit_rate_warn_threshold {
             tracing::warn!(
@@ -479,12 +484,15 @@ mod tests {
     #[test]
     fn custom_model_rates_applied() {
         let mut rates = HashMap::new();
-        rates.insert("custom-model".into(), ModelCostRate {
-            input_per_1k: 0.01,
-            output_per_1k: 0.03,
-            cache_read_per_1k: 0.005,
-            cache_write_per_1k: 0.0075,
-        });
+        rates.insert(
+            "custom-model".into(),
+            ModelCostRate {
+                input_per_1k: 0.01,
+                output_per_1k: 0.03,
+                cache_read_per_1k: 0.005,
+                cache_write_per_1k: 0.0075,
+            },
+        );
         let config = CostTrackerConfig {
             model_cost_rates: rates,
             ..Default::default()

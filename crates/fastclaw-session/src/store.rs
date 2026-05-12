@@ -9,7 +9,9 @@ use tokio::sync::RwLock;
 
 use fastclaw_core::types::ChatMessage;
 
-use crate::models::{Session, SessionCreateOutcome, SessionMessage, SessionSummary, SubAgentRunRow};
+use crate::models::{
+    Session, SessionCreateOutcome, SessionMessage, SessionSummary, SubAgentRunRow,
+};
 
 const MSG_CACHE_MAX_SESSIONS: usize = 32;
 
@@ -117,7 +119,7 @@ impl SessionStore {
 
         // Migration: add work_dir column if missing
         let has_work_dir: bool = sqlx::query_scalar::<_, i32>(
-            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'work_dir'"
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'work_dir'",
         )
         .fetch_one(&self.pool)
         .await
@@ -132,28 +134,32 @@ impl SessionStore {
 
         // Migration: add usage tracking columns if missing
         let has_usage: bool = sqlx::query_scalar::<_, i32>(
-            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'total_prompt_tokens'"
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'total_prompt_tokens'",
         )
         .fetch_one(&self.pool)
         .await
         .map(|c| c > 0)
         .unwrap_or(false);
         if !has_usage {
-            sqlx::query("ALTER TABLE sessions ADD COLUMN total_prompt_tokens INTEGER NOT NULL DEFAULT 0")
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "ALTER TABLE sessions ADD COLUMN total_prompt_tokens INTEGER NOT NULL DEFAULT 0",
+            )
+            .execute(&self.pool)
+            .await?;
             sqlx::query("ALTER TABLE sessions ADD COLUMN total_completion_tokens INTEGER NOT NULL DEFAULT 0")
                 .execute(&self.pool)
                 .await?;
-            sqlx::query("ALTER TABLE sessions ADD COLUMN total_elapsed_ms INTEGER NOT NULL DEFAULT 0")
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "ALTER TABLE sessions ADD COLUMN total_elapsed_ms INTEGER NOT NULL DEFAULT 0",
+            )
+            .execute(&self.pool)
+            .await?;
             tracing::info!("migrated sessions table: added usage tracking columns");
         }
 
         // Migration: add per-message usage columns if missing
         let has_msg_usage: bool = sqlx::query_scalar::<_, i32>(
-            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'prompt_tokens'"
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'prompt_tokens'",
         )
         .fetch_one(&self.pool)
         .await
@@ -163,9 +169,11 @@ impl SessionStore {
             sqlx::query("ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0")
                 .execute(&self.pool)
                 .await?;
-            sqlx::query("ALTER TABLE messages ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0")
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "ALTER TABLE messages ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0",
+            )
+            .execute(&self.pool)
+            .await?;
             sqlx::query("ALTER TABLE messages ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0")
                 .execute(&self.pool)
                 .await?;
@@ -242,7 +250,7 @@ impl SessionStore {
         .await?;
 
         sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_crr_session ON content_replacement_records(session_id)"
+            "CREATE INDEX IF NOT EXISTS idx_crr_session ON content_replacement_records(session_id)",
         )
         .execute(&self.pool)
         .await?;
@@ -260,7 +268,7 @@ impl SessionStore {
 
         // Migration: add source column to track session origin (client/feishu/api/cron)
         let has_source: bool = sqlx::query_scalar::<_, i32>(
-            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'source'"
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'source'",
         )
         .fetch_one(&self.pool)
         .await
@@ -276,11 +284,9 @@ impl SessionStore {
             )
             .execute(&self.pool)
             .await?;
-            sqlx::query(
-                "UPDATE sessions SET source = 'cron' WHERE title LIKE '[定时]%'"
-            )
-            .execute(&self.pool)
-            .await?;
+            sqlx::query("UPDATE sessions SET source = 'cron' WHERE title LIKE '[定时]%'")
+                .execute(&self.pool)
+                .await?;
             tracing::info!("migrated sessions table: added source column with backfill");
         }
 
@@ -297,7 +303,8 @@ impl SessionStore {
         agent_id: &str,
         title: Option<&str>,
     ) -> anyhow::Result<SessionCreateOutcome> {
-        self.create_session_full(session_id, agent_id, title, None, None).await
+        self.create_session_full(session_id, agent_id, title, None, None)
+            .await
     }
 
     pub async fn create_session_with_work_dir(
@@ -307,7 +314,8 @@ impl SessionStore {
         title: Option<&str>,
         work_dir: Option<&str>,
     ) -> anyhow::Result<SessionCreateOutcome> {
-        self.create_session_full(session_id, agent_id, title, work_dir, None).await
+        self.create_session_full(session_id, agent_id, title, work_dir, None)
+            .await
     }
 
     pub async fn create_session_full(
@@ -589,7 +597,9 @@ impl SessionStore {
         Ok(messages)
     }
 
-    fn parse_chat_messages_from_rows(rows: Vec<SessionMessage>) -> anyhow::Result<Vec<ChatMessage>> {
+    fn parse_chat_messages_from_rows(
+        rows: Vec<SessionMessage>,
+    ) -> anyhow::Result<Vec<ChatMessage>> {
         let mut messages = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -631,7 +641,10 @@ impl SessionStore {
         Ok(messages)
     }
 
-    async fn load_chat_messages_from_db(&self, session_id: &str) -> anyhow::Result<Vec<ChatMessage>> {
+    async fn load_chat_messages_from_db(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<ChatMessage>> {
         let rows = self.load_messages(session_id).await?;
         Self::parse_chat_messages_from_rows(rows)
     }
@@ -644,13 +657,12 @@ impl SessionStore {
 
     /// Update the title of an existing session.
     pub async fn update_title(&self, session_id: &str, title: &str) -> anyhow::Result<bool> {
-        let result = sqlx::query(
-            "UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(title)
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?")
+                .bind(title)
+                .bind(session_id)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -850,19 +862,21 @@ impl SessionStore {
 
     /// Get a single sub-agent run by its run_id.
     pub async fn get_subagent_run(&self, run_id: &str) -> anyhow::Result<Option<SubAgentRunRow>> {
-        let row = sqlx::query_as::<_, SubAgentRunRow>(
-            "SELECT * FROM subagent_runs WHERE run_id = ?"
-        )
-        .bind(run_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, SubAgentRunRow>("SELECT * FROM subagent_runs WHERE run_id = ?")
+                .bind(run_id)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row)
     }
 
     /// List sub-agent runs for a parent session, ordered by creation time (newest first).
-    pub async fn list_subagent_runs(&self, parent_session_id: &str) -> anyhow::Result<Vec<SubAgentRunRow>> {
+    pub async fn list_subagent_runs(
+        &self,
+        parent_session_id: &str,
+    ) -> anyhow::Result<Vec<SubAgentRunRow>> {
         let rows = sqlx::query_as::<_, SubAgentRunRow>(
-            "SELECT * FROM subagent_runs WHERE parent_session_id = ? ORDER BY created_at DESC"
+            "SELECT * FROM subagent_runs WHERE parent_session_id = ? ORDER BY created_at DESC",
         )
         .bind(parent_session_id)
         .fetch_all(&self.pool)
@@ -935,12 +949,10 @@ impl SessionStore {
 
     /// Delete all content replacement records for a session (e.g. on session reset).
     pub async fn delete_replacement_records(&self, session_id: &str) -> anyhow::Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM content_replacement_records WHERE session_id = ?",
-        )
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("DELETE FROM content_replacement_records WHERE session_id = ?")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 
@@ -975,10 +987,7 @@ impl SessionStore {
     ///
     /// Returns `None` if no collapse state has been saved for this session.
     /// The caller deserializes the JSON back into a `CollapseStore`.
-    pub async fn load_collapse_state(
-        &self,
-        session_id: &str,
-    ) -> anyhow::Result<Option<String>> {
+    pub async fn load_collapse_state(&self, session_id: &str) -> anyhow::Result<Option<String>> {
         let row = sqlx::query_scalar::<_, String>(
             "SELECT state_json FROM collapse_state WHERE session_id = ?",
         )
@@ -991,7 +1000,17 @@ impl SessionStore {
 }
 
 fn row_to_trace(
-    r: (String, String, String, String, Option<i64>, String, Option<String>, String, String),
+    r: (
+        String,
+        String,
+        String,
+        String,
+        Option<i64>,
+        String,
+        Option<String>,
+        String,
+        String,
+    ),
 ) -> anyhow::Result<fastclaw_core::types::ConversationTrace> {
     Ok(fastclaw_core::types::ConversationTrace {
         trace_id: r.0,
@@ -1179,7 +1198,10 @@ mod tests {
     async fn list_traces_pagination() {
         let store = SessionStore::open_memory().await.unwrap();
         for i in 0..5 {
-            store.upsert_trace(&sample_trace(&format!("tr-{i}"))).await.unwrap();
+            store
+                .upsert_trace(&sample_trace(&format!("tr-{i}")))
+                .await
+                .unwrap();
         }
         let page1 = store.list_traces(2, 0).await.unwrap();
         assert_eq!(page1.len(), 2);
@@ -1281,9 +1303,18 @@ mod tests {
     #[tokio::test]
     async fn list_subagent_runs_filters_by_session() {
         let store = setup_store_with_sessions(&["s1", "s2"]).await;
-        store.save_subagent_run(&make_subagent_row("r1", "s1", "completed")).await.unwrap();
-        store.save_subagent_run(&make_subagent_row("r2", "s1", "failed")).await.unwrap();
-        store.save_subagent_run(&make_subagent_row("r3", "s2", "completed")).await.unwrap();
+        store
+            .save_subagent_run(&make_subagent_row("r1", "s1", "completed"))
+            .await
+            .unwrap();
+        store
+            .save_subagent_run(&make_subagent_row("r2", "s1", "failed"))
+            .await
+            .unwrap();
+        store
+            .save_subagent_run(&make_subagent_row("r3", "s2", "completed"))
+            .await
+            .unwrap();
 
         let s1_runs = store.list_subagent_runs("s1").await.unwrap();
         assert_eq!(s1_runs.len(), 2);
@@ -1296,7 +1327,11 @@ mod tests {
     #[tokio::test]
     async fn get_subagent_run_returns_none_for_unknown() {
         let store = SessionStore::open_memory().await.unwrap();
-        assert!(store.get_subagent_run("nonexistent").await.unwrap().is_none());
+        assert!(store
+            .get_subagent_run("nonexistent")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     // ── Content Replacement Record tests ────────────────────────────────
@@ -1318,14 +1353,23 @@ mod tests {
                 replacement: "<persisted-output>\npreview 2\n</persisted-output>".into(),
             },
         ];
-        store.save_replacement_records("s1", &records).await.unwrap();
+        store
+            .save_replacement_records("s1", &records)
+            .await
+            .unwrap();
 
         let loaded = store.load_replacement_records("s1").await.unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].tool_use_id, "tu_1");
-        assert_eq!(loaded[0].replacement, "<persisted-output>\npreview 1\n</persisted-output>");
+        assert_eq!(
+            loaded[0].replacement,
+            "<persisted-output>\npreview 1\n</persisted-output>"
+        );
         assert_eq!(loaded[1].tool_use_id, "tu_2");
-        assert_eq!(loaded[1].replacement, "<persisted-output>\npreview 2\n</persisted-output>");
+        assert_eq!(
+            loaded[1].replacement,
+            "<persisted-output>\npreview 2\n</persisted-output>"
+        );
     }
 
     #[tokio::test]
@@ -1376,10 +1420,19 @@ mod tests {
         store.create_session("s1", "agent", None).await.unwrap();
 
         let records = vec![
-            ContentReplacementRow { tool_use_id: "tu_1".into(), replacement: "[r1]".into() },
-            ContentReplacementRow { tool_use_id: "tu_2".into(), replacement: "[r2]".into() },
+            ContentReplacementRow {
+                tool_use_id: "tu_1".into(),
+                replacement: "[r1]".into(),
+            },
+            ContentReplacementRow {
+                tool_use_id: "tu_2".into(),
+                replacement: "[r2]".into(),
+            },
         ];
-        store.save_replacement_records("s1", &records).await.unwrap();
+        store
+            .save_replacement_records("s1", &records)
+            .await
+            .unwrap();
 
         let deleted = store.delete_replacement_records("s1").await.unwrap();
         assert_eq!(deleted, 2);
@@ -1397,7 +1450,10 @@ mod tests {
             tool_use_id: "tu_1".into(),
             replacement: "[r]".into(),
         }];
-        store.save_replacement_records("s1", &records).await.unwrap();
+        store
+            .save_replacement_records("s1", &records)
+            .await
+            .unwrap();
 
         store.delete_session("s1").await.unwrap();
         let loaded = store.load_replacement_records("s1").await.unwrap();
@@ -1410,14 +1466,26 @@ mod tests {
         store.create_session("s1", "agent", None).await.unwrap();
         store.create_session("s2", "agent", None).await.unwrap();
 
-        store.save_replacement_records("s1", &[ContentReplacementRow {
-            tool_use_id: "tu_a".into(),
-            replacement: "[ra]".into(),
-        }]).await.unwrap();
-        store.save_replacement_records("s2", &[ContentReplacementRow {
-            tool_use_id: "tu_b".into(),
-            replacement: "[rb]".into(),
-        }]).await.unwrap();
+        store
+            .save_replacement_records(
+                "s1",
+                &[ContentReplacementRow {
+                    tool_use_id: "tu_a".into(),
+                    replacement: "[ra]".into(),
+                }],
+            )
+            .await
+            .unwrap();
+        store
+            .save_replacement_records(
+                "s2",
+                &[ContentReplacementRow {
+                    tool_use_id: "tu_b".into(),
+                    replacement: "[rb]".into(),
+                }],
+            )
+            .await
+            .unwrap();
 
         let s1 = store.load_replacement_records("s1").await.unwrap();
         assert_eq!(s1.len(), 1);
@@ -1454,12 +1522,18 @@ mod tests {
         let store = SessionStore::open_memory().await.unwrap();
         store.create_session("s1", "agent", None).await.unwrap();
 
-        store.save_collapse_state("s1", r#"{"spans":{}}"#).await.unwrap();
+        store
+            .save_collapse_state("s1", r#"{"spans":{}}"#)
+            .await
+            .unwrap();
         store.save_collapse_state("s1", r#"{"spans":{"0":{"start_round":0,"end_round":1,"summary":"v2","summary_tokens":5,"original_tokens":100,"created_at":0}}}"#).await.unwrap();
 
         let loaded = store.load_collapse_state("s1").await.unwrap().unwrap();
         assert!(loaded.contains("v2"), "should have the updated state");
-        assert!(!loaded.contains(r#""spans":{}"#), "should not have old empty state");
+        assert!(
+            !loaded.contains(r#""spans":{}"#),
+            "should not have old empty state"
+        );
     }
 
     #[tokio::test]

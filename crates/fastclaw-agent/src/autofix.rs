@@ -134,8 +134,8 @@ fn try_parse_rustc(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         let mut col = None;
         let mut suggestion = None;
 
-        for j in (i + 1)..lines.len().min(i + 8) {
-            let candidate = lines[j].trim();
+        for candidate_line in &lines[(i + 1)..lines.len().min(i + 8)] {
+            let candidate = candidate_line.trim();
             if file.is_empty() {
                 if let Some(loc) = candidate.strip_prefix("--> ") {
                     if let Some((f, lc)) = parse_file_line_col(loc) {
@@ -169,7 +169,11 @@ fn try_parse_rustc(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         i += 1;
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 // ── TypeScript / tsc parser ─────────────────────────────────────────────
@@ -191,7 +195,11 @@ fn try_parse_typescript(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         }
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 fn parse_tsc_paren_format(line: &str) -> Option<CompilerDiagnostic> {
@@ -294,7 +302,11 @@ fn try_parse_gcc(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         }
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 // ── Python parser ───────────────────────────────────────────────────────
@@ -325,7 +337,11 @@ fn try_parse_python(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         i += 1;
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 fn parse_python_traceback_line(
@@ -341,13 +357,15 @@ fn parse_python_traceback_line(
     let line_marker = ", line ";
     let line_pos = line.find(line_marker)?;
     let num_start = line_pos + line_marker.len();
-    let num_str = line[num_start..].split(|c: char| !c.is_ascii_digit()).next()?;
+    let num_str = line[num_start..]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?;
     let line_num: usize = num_str.parse().ok()?;
 
     // Next non-empty line after the code line is usually the error
     let mut message = String::new();
-    for j in (idx + 1)..all_lines.len().min(idx + 4) {
-        let candidate = all_lines[j].trim();
+    for candidate_line in &all_lines[(idx + 1)..all_lines.len().min(idx + 4)] {
+        let candidate = candidate_line.trim();
         if candidate.contains("Error:") || candidate.contains("Exception:") {
             message = candidate.to_string();
             break;
@@ -438,7 +456,11 @@ fn try_parse_go(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         }
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 // ── ESLint parser ───────────────────────────────────────────────────────
@@ -482,8 +504,16 @@ fn try_parse_eslint(output: &str) -> Option<Vec<CompilerDiagnostic>> {
             _ => continue,
         };
         // Everything between severity and the last token (rule name) is the message.
-        let rule = if parts.len() > 3 { Some(parts[parts.len() - 1].to_string()) } else { None };
-        let msg_end = if rule.is_some() { parts.len() - 1 } else { parts.len() };
+        let rule = if parts.len() > 3 {
+            Some(parts[parts.len() - 1].to_string())
+        } else {
+            None
+        };
+        let msg_end = if rule.is_some() {
+            parts.len() - 1
+        } else {
+            parts.len()
+        };
         let message = parts[2..msg_end].join(" ");
 
         diags.push(CompilerDiagnostic {
@@ -497,7 +527,11 @@ fn try_parse_eslint(output: &str) -> Option<Vec<CompilerDiagnostic>> {
         });
     }
 
-    if diags.is_empty() { None } else { Some(diags) }
+    if diags.is_empty() {
+        None
+    } else {
+        Some(diags)
+    }
 }
 
 // ── Utility helpers ─────────────────────────────────────────────────────
@@ -546,9 +580,7 @@ fn parse_colon_pair(s: &str) -> Option<(usize, usize)> {
 
 /// Heuristic: does this string look like a file path?
 fn looks_like_path(s: &str) -> bool {
-    (s.contains('/') || s.contains('\\') || s.contains('.'))
-        && !s.contains(' ')
-        && s.len() < 300
+    (s.contains('/') || s.contains('\\') || s.contains('.')) && !s.contains(' ') && s.len() < 300
 }
 
 // ── Auto-fix guidance generator ─────────────────────────────────────────
@@ -594,14 +626,21 @@ pub(crate) fn detect_and_plan(
 
     // Prioritize: errors first, then warnings. Deduplicate by (file, line).
     diags.sort_by(|a, b| {
-        a.severity.cmp(&b.severity)
+        a.severity
+            .cmp(&b.severity)
             .then_with(|| a.file.cmp(&b.file))
             .then_with(|| a.line.cmp(&b.line))
     });
     dedup_diagnostics(&mut diags);
 
-    let error_count = diags.iter().filter(|d| d.severity == Severity::Error).count();
-    let warning_count = diags.iter().filter(|d| d.severity == Severity::Warning).count();
+    let error_count = diags
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count();
+    let warning_count = diags
+        .iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .count();
 
     let display_diags: Vec<&CompilerDiagnostic> = diags.iter().take(MAX_DIAG_IN_GUIDE).collect();
 
@@ -647,7 +686,11 @@ pub(crate) fn detect_and_plan(
                 Some(c) => format!("{}:{c}", d.line),
                 None => format!("{}", d.line),
             };
-            let code_tag = d.code.as_deref().map(|c| format!(" [{c}]")).unwrap_or_default();
+            let code_tag = d
+                .code
+                .as_deref()
+                .map(|c| format!(" [{c}]"))
+                .unwrap_or_default();
             formatted.push_str(&format!(
                 "    → L{loc}: {}{code_tag}: {}\n",
                 d.severity, d.message
@@ -691,20 +734,47 @@ pub(crate) fn detect_and_plan(
 fn is_likely_build_command(command: &str) -> bool {
     let lower = command.to_lowercase();
     let build_patterns = [
-        "cargo check", "cargo build", "cargo test", "cargo clippy",
+        "cargo check",
+        "cargo build",
+        "cargo test",
+        "cargo clippy",
         "rustc ",
-        "tsc ", "tsc\n", "npx tsc",
-        "npm run build", "npm run lint", "npm test",
-        "yarn build", "yarn lint", "yarn test",
-        "pnpm build", "pnpm lint", "pnpm test",
-        "bun build", "bun test",
+        "tsc ",
+        "tsc\n",
+        "npx tsc",
+        "npm run build",
+        "npm run lint",
+        "npm test",
+        "yarn build",
+        "yarn lint",
+        "yarn test",
+        "pnpm build",
+        "pnpm lint",
+        "pnpm test",
+        "bun build",
+        "bun test",
         "eslint ",
-        "gcc ", "g++ ", "clang ", "clang++ ", "make ", "cmake ",
-        "python ", "python3 ", "pytest", "mypy ", "pyright ",
-        "go build", "go test", "go vet",
-        "javac ", "gradle ", "mvn ",
-        "dotnet build", "dotnet test",
-        "swift build", "swiftc ",
+        "gcc ",
+        "g++ ",
+        "clang ",
+        "clang++ ",
+        "make ",
+        "cmake ",
+        "python ",
+        "python3 ",
+        "pytest",
+        "mypy ",
+        "pyright ",
+        "go build",
+        "go test",
+        "go vet",
+        "javac ",
+        "gradle ",
+        "mvn ",
+        "dotnet build",
+        "dotnet test",
+        "swift build",
+        "swiftc ",
     ];
     build_patterns.iter().any(|p| lower.contains(p))
 }
@@ -758,12 +828,7 @@ impl AutoFixState {
     }
 
     /// Update state after a build attempt.
-    pub fn record_build_result(
-        &mut self,
-        command: &str,
-        exit_code: i32,
-        error_count: usize,
-    ) {
+    pub fn record_build_result(&mut self, command: &str, exit_code: i32, error_count: usize) {
         self.last_build_command = Some(command.to_string());
         self.last_build_succeeded = exit_code == 0;
         if exit_code != 0 {
@@ -797,18 +862,24 @@ pub(crate) fn extract_build_command(tool_name: &str, arguments: &str) -> Option<
 pub(crate) fn extract_exit_code(output: &str) -> Option<i32> {
     // Terminal-file compact summary format: "exit_code=N, ..."
     if let Some(rest) = output.strip_prefix("exit_code=") {
-        let num_str = rest.split(|c: char| !c.is_ascii_digit() && c != '-').next()?;
+        let num_str = rest
+            .split(|c: char| !c.is_ascii_digit() && c != '-')
+            .next()?;
         return num_str.parse().ok();
     }
     // JSON format: {"exit_code": N, ...}
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(output) {
-        return val.get("exit_code").and_then(|v| v.as_i64()).map(|n| n as i32);
+        return val
+            .get("exit_code")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32);
     }
     // Look for "exit_code" or "Exit code" anywhere in the output
     for line in output.lines() {
         let lower = line.to_lowercase();
         if lower.contains("exit_code=") || lower.contains("exit code:") {
-            let nums: String = line.chars()
+            let nums: String = line
+                .chars()
                 .skip_while(|c| !c.is_ascii_digit() && *c != '-')
                 .take_while(|c| c.is_ascii_digit() || *c == '-')
                 .collect();
@@ -872,7 +943,10 @@ error: aborting due to previous error
         assert_eq!(kind, CompilerKind::Rustc);
         assert!(!diags.is_empty());
         assert_eq!(diags[0].severity, Severity::Warning);
-        assert!(diags[0].suggestion.is_some(), "should extract help suggestion");
+        assert!(
+            diags[0].suggestion.is_some(),
+            "should extract help suggestion"
+        );
     }
 
     #[test]
@@ -1006,7 +1080,10 @@ NameError: name 'compute' is not defined
     #[test]
     fn extract_build_command_from_shell_exec() {
         let args = r#"{"command": "cargo check", "is_background": false}"#;
-        assert_eq!(extract_build_command("shell_exec", args), Some("cargo check".into()));
+        assert_eq!(
+            extract_build_command("shell_exec", args),
+            Some("cargo check".into())
+        );
         assert!(extract_build_command("shell_exec", r#"{"command": "ls"}"#).is_none());
         assert!(extract_build_command("read_file", args).is_none());
     }
@@ -1038,19 +1115,31 @@ NameError: name 'compute' is not defined
     fn dedup_diagnostics_removes_duplicates() {
         let mut diags = vec![
             CompilerDiagnostic {
-                file: "a.rs".into(), line: 10, col: None,
-                severity: Severity::Error, code: None,
-                message: "first".into(), suggestion: None,
+                file: "a.rs".into(),
+                line: 10,
+                col: None,
+                severity: Severity::Error,
+                code: None,
+                message: "first".into(),
+                suggestion: None,
             },
             CompilerDiagnostic {
-                file: "a.rs".into(), line: 10, col: Some(5),
-                severity: Severity::Warning, code: None,
-                message: "duplicate".into(), suggestion: None,
+                file: "a.rs".into(),
+                line: 10,
+                col: Some(5),
+                severity: Severity::Warning,
+                code: None,
+                message: "duplicate".into(),
+                suggestion: None,
             },
             CompilerDiagnostic {
-                file: "b.rs".into(), line: 10, col: None,
-                severity: Severity::Error, code: None,
-                message: "different file".into(), suggestion: None,
+                file: "b.rs".into(),
+                line: 10,
+                col: None,
+                severity: Severity::Error,
+                code: None,
+                message: "different file".into(),
+                suggestion: None,
             },
         ];
         dedup_diagnostics(&mut diags);

@@ -188,10 +188,7 @@ mod tests {
     fn url_verification_challenge_response() {
         let payload =
             serde_json::json!({"challenge": "abc123", "token": "test", "type": "url_verification"});
-        let challenge = payload
-            .get("challenge")
-            .and_then(|v| v.as_str())
-            .unwrap();
+        let challenge = payload.get("challenge").and_then(|v| v.as_str()).unwrap();
         let resp = ChallengeResponse {
             challenge: challenge.to_string(),
         };

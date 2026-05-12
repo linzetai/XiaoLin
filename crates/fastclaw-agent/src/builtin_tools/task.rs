@@ -152,10 +152,7 @@ impl TaskManager {
 
     /// List all tasks.
     pub fn list(&self) -> Vec<TaskInfo> {
-        self.tasks
-            .iter()
-            .map(|entry| entry.info.clone())
-            .collect()
+        self.tasks.iter().map(|entry| entry.info.clone()).collect()
     }
 
     /// Stop a running task by aborting its tokio JoinHandle.
@@ -258,7 +255,10 @@ impl std::fmt::Display for TaskManagerError {
         match self {
             Self::NotFound(id) => write!(f, "task not found: {id}"),
             Self::ConcurrencyLimitReached { max, current } => {
-                write!(f, "concurrency limit reached: {current}/{max} tasks running")
+                write!(
+                    f,
+                    "concurrency limit reached: {current}/{max} tasks running"
+                )
             }
         }
     }
@@ -443,7 +443,8 @@ For large codebase changes:\n\
 - Don't launch an agent for something you'll need in the next 2 seconds\n\
 - Don't delegate the full user query to an agent — understand it yourself first\n\
 - Don't launch agents that will edit the same files simultaneously\n\
-- Don't forget to summarize agent results back to the user".to_string()
+- Don't forget to summarize agent results back to the user"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -484,11 +485,9 @@ For large codebase changes:\n\
         let subject_clone = args.subject.clone();
         let desc_clone = desc.clone();
 
-        let result =
-            self.manager
-                .spawn(args.subject.clone(), desc, async move {
-                    factory.run(subject_clone, desc_clone).await
-                });
+        let result = self.manager.spawn(args.subject.clone(), desc, async move {
+            factory.run(subject_clone, desc_clone).await
+        });
 
         match result {
             Ok(task_id) => ToolResult::ok(
@@ -866,12 +865,10 @@ impl Tool for TaskUpdateTool {
             );
         }
 
-        match self.manager.update(
-            &args.task_id,
-            args.subject,
-            args.description,
-            args.status,
-        ) {
+        match self
+            .manager
+            .update(&args.task_id, args.subject, args.description, args.status)
+        {
             Ok(changed) => {
                 if changed.is_empty() {
                     ToolResult::ok(format!(
@@ -1004,7 +1001,12 @@ fn parse_summary_response(response: &str, raw_output_len: usize) -> AgentSummary
         files_modified: Option<Vec<String>>,
     }
 
-    let trimmed = response.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+    let trimmed = response
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
 
     match serde_json::from_str::<SummaryJson>(trimmed) {
         Ok(parsed) => {
@@ -1034,7 +1036,14 @@ fn parse_summary_response(response: &str, raw_output_len: usize) -> AgentSummary
 #[allow(dead_code)]
 fn fallback_summary(raw_output: &str) -> AgentSummary {
     let lines: Vec<&str> = raw_output.lines().collect();
-    let last_lines: String = lines.iter().rev().take(5).rev().cloned().collect::<Vec<_>>().join("\n");
+    let last_lines: String = lines
+        .iter()
+        .rev()
+        .take(5)
+        .rev()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
     let summary = format!("[Summary unavailable — last output]\n{}", last_lines);
     let summary_len = summary.len();
     AgentSummary {
@@ -1147,9 +1156,7 @@ mod tests {
     async fn stop_completed_task_returns_false() {
         let mgr = TaskManager::new(5);
         let id = mgr
-            .spawn("quick".into(), "".into(), async {
-                Ok("done".to_string())
-            })
+            .spawn("quick".into(), "".into(), async { Ok("done".to_string()) })
             .unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1217,10 +1224,8 @@ mod tests {
     async fn completed_task_decrements_running_count() {
         let mgr = TaskManager::new(10);
 
-        mgr.spawn("quick".into(), "".into(), async {
-            Ok("done".to_string())
-        })
-        .unwrap();
+        mgr.spawn("quick".into(), "".into(), async { Ok("done".to_string()) })
+            .unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(mgr.running_count(), 0);
@@ -1231,9 +1236,7 @@ mod tests {
         let mgr = TaskManager::new(1);
 
         let id1 = mgr
-            .spawn("t1".into(), "".into(), async {
-                Ok("done".to_string())
-            })
+            .spawn("t1".into(), "".into(), async { Ok("done".to_string()) })
             .unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1291,9 +1294,7 @@ mod tests {
         .unwrap();
 
         let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
-        let result = tool
-            .execute(r#"{"subject": "will be rejected"}"#)
-            .await;
+        let result = tool.execute(r#"{"subject": "will be rejected"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("concurrency limit"));
     }
@@ -1362,10 +1363,8 @@ mod tests {
         let mgr = Arc::new(TaskManager::new(10));
         mgr.spawn("alpha".into(), "desc a".into(), async { Ok("ok".into()) })
             .unwrap();
-        mgr.spawn("beta".into(), "desc b".into(), async {
-            Err("fail".into())
-        })
-        .unwrap();
+        mgr.spawn("beta".into(), "desc b".into(), async { Err("fail".into()) })
+            .unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -1402,9 +1401,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let tool = TaskGetTool::new(Arc::clone(&mgr));
-        let result = tool
-            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
-            .await;
+        let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("build project"));
         assert!(result.output.contains("completed"));
@@ -1425,9 +1422,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let tool = TaskGetTool::new(Arc::clone(&mgr));
-        let result = tool
-            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
-            .await;
+        let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("failed"));
         assert!(result.output.contains("compilation error"));
@@ -1438,9 +1433,7 @@ mod tests {
         let mgr = Arc::new(TaskManager::new(5));
         let tool = TaskGetTool::new(Arc::clone(&mgr));
 
-        let result = tool
-            .execute(r#"{"task_id": "nonexistent-id"}"#)
-            .await;
+        let result = tool.execute(r#"{"task_id": "nonexistent-id"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("Task not found"));
         assert!(result.output.contains("task_list"));
@@ -1481,9 +1474,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         let tool = TaskStopTool::new(Arc::clone(&mgr));
-        let result = tool
-            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
-            .await;
+        let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("cancelled"));
 
@@ -1501,9 +1492,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let tool = TaskStopTool::new(Arc::clone(&mgr));
-        let result = tool
-            .execute(&format!(r#"{{"task_id": "{}"}}"#, id))
-            .await;
+        let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("already finished"));
     }
@@ -1513,9 +1502,7 @@ mod tests {
         let mgr = Arc::new(TaskManager::new(5));
         let tool = TaskStopTool::new(Arc::clone(&mgr));
 
-        let result = tool
-            .execute(r#"{"task_id": "nonexistent"}"#)
-            .await;
+        let result = tool.execute(r#"{"task_id": "nonexistent"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("Task not found"));
     }
@@ -1571,9 +1558,7 @@ mod tests {
 
         let tool = TaskUpdateTool::new(Arc::clone(&mgr));
         let result = tool
-            .execute(&format!(
-                r#"{{"task_id": "{id}", "status": "completed"}}"#
-            ))
+            .execute(&format!(r#"{{"task_id": "{id}", "status": "completed"}}"#))
             .await;
         assert!(result.success);
         assert!(result.output.contains("status"));
@@ -1611,9 +1596,7 @@ mod tests {
             .unwrap();
 
         let tool = TaskUpdateTool::new(Arc::clone(&mgr));
-        let result = tool
-            .execute(&format!(r#"{{"task_id": "{id}"}}"#))
-            .await;
+        let result = tool.execute(&format!(r#"{{"task_id": "{id}"}}"#)).await;
         assert!(!result.success);
         assert!(result.output.contains("No fields to update"));
     }
@@ -1623,9 +1606,7 @@ mod tests {
         let mgr = Arc::new(TaskManager::new(5));
         let tool = TaskUpdateTool::new(Arc::clone(&mgr));
 
-        let result = tool
-            .execute(r#"{"task_id": "nope", "subject": "x"}"#)
-            .await;
+        let result = tool.execute(r#"{"task_id": "nope", "subject": "x"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("Task not found"));
     }

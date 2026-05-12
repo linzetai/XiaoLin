@@ -160,29 +160,31 @@ mod tests {
     #[tokio::test]
     async fn continue_on_incomplete_todos() {
         let store = TodoStore::new();
-        store.replace_all(vec![
-            TodoItem {
-                id: "1".into(),
-                content: "Fix bug".into(),
-                status: TodoStatus::Pending,
-                created_at: String::new(),
-                completed_at: None,
-            },
-            TodoItem {
-                id: "2".into(),
-                content: "Write tests".into(),
-                status: TodoStatus::InProgress,
-                created_at: String::new(),
-                completed_at: None,
-            },
-            TodoItem {
-                id: "3".into(),
-                content: "Deploy".into(),
-                status: TodoStatus::Completed,
-                created_at: String::new(),
-                completed_at: None,
-            },
-        ]).await;
+        store
+            .replace_all(vec![
+                TodoItem {
+                    id: "1".into(),
+                    content: "Fix bug".into(),
+                    status: TodoStatus::Pending,
+                    created_at: String::new(),
+                    completed_at: None,
+                },
+                TodoItem {
+                    id: "2".into(),
+                    content: "Write tests".into(),
+                    status: TodoStatus::InProgress,
+                    created_at: String::new(),
+                    completed_at: None,
+                },
+                TodoItem {
+                    id: "3".into(),
+                    content: "Deploy".into(),
+                    status: TodoStatus::Completed,
+                    created_at: String::new(),
+                    completed_at: None,
+                },
+            ])
+            .await;
 
         let result = evaluate_stop_hooks("done", Some("stop"), Some(&store), &[]).await;
         assert!(result.should_continue);
@@ -197,15 +199,15 @@ mod tests {
     #[tokio::test]
     async fn stop_when_all_todos_completed() {
         let store = TodoStore::new();
-        store.replace_all(vec![
-            TodoItem {
+        store
+            .replace_all(vec![TodoItem {
                 id: "1".into(),
                 content: "Done task".into(),
                 status: TodoStatus::Completed,
                 created_at: String::new(),
                 completed_at: None,
-            },
-        ]).await;
+            }])
+            .await;
 
         let result = evaluate_stop_hooks("done", Some("stop"), Some(&store), &[]).await;
         assert!(!result.should_continue);

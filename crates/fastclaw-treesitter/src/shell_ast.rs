@@ -41,10 +41,7 @@ pub enum ShellAst {
     /// `( ... )`
     Subshell(Box<ShellAst>),
     /// Function definition: `name() { body }`
-    Function {
-        name: String,
-        body: Box<ShellAst>,
-    },
+    Function { name: String, body: Box<ShellAst> },
     /// `if cond; then body; [elif cond; then body;]* [else body;] fi`
     If {
         condition: Box<ShellAst>,
@@ -64,15 +61,9 @@ pub enum ShellAst {
         body: Box<ShellAst>,
     },
     /// `case word in pattern) body;; esac`
-    Case {
-        word: String,
-        arms: Vec<CaseArm>,
-    },
+    Case { word: String, arms: Vec<CaseArm> },
     /// Variable assignment: `VAR=value`
-    Assignment {
-        name: String,
-        value: String,
-    },
+    Assignment { name: String, value: String },
     /// A compound list (multiple statements in a block).
     CompoundList(Vec<ShellAst>),
     /// Unparseable or unsupported node, preserved as raw text.
@@ -396,7 +387,10 @@ fn convert_list(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     }
 
     if items.len() < 2 {
-        return items.into_iter().next().unwrap_or(ShellAst::Raw(String::new()));
+        return items
+            .into_iter()
+            .next()
+            .unwrap_or(ShellAst::Raw(String::new()));
     }
 
     let mut result = items.remove(0);
@@ -405,15 +399,13 @@ fn convert_list(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
         result = match op {
             "&&" => ShellAst::And(Box::new(result), Box::new(item)),
             "||" => ShellAst::Or(Box::new(result), Box::new(item)),
-            _ => {
-                match result {
-                    ShellAst::Sequence(ref mut v) => {
-                        v.push(item);
-                        continue;
-                    }
-                    _ => ShellAst::Sequence(vec![result, item]),
+            _ => match result {
+                ShellAst::Sequence(ref mut v) => {
+                    v.push(item);
+                    continue;
                 }
-            }
+                _ => ShellAst::Sequence(vec![result, item]),
+            },
         };
     }
 
@@ -692,9 +684,19 @@ fn convert_redirected(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     }
 
     match inner {
-        Some(ShellAst::Command { name, args, redirections: mut existing, background }) => {
+        Some(ShellAst::Command {
+            name,
+            args,
+            redirections: mut existing,
+            background,
+        }) => {
             existing.extend(redirections);
-            ShellAst::Command { name, args, redirections: existing, background }
+            ShellAst::Command {
+                name,
+                args,
+                redirections: existing,
+                background,
+            }
         }
         Some(other) => other,
         None => ShellAst::Raw(node_text(node, src).to_string()),
@@ -738,7 +740,12 @@ fn collect_command_names(ast: &ShellAst, names: &mut Vec<String>) {
         }
         ShellAst::Subshell(inner) => collect_command_names(inner, names),
         ShellAst::Function { body, .. } => collect_command_names(body, names),
-        ShellAst::If { condition, then_body, elif_branches, else_body } => {
+        ShellAst::If {
+            condition,
+            then_body,
+            elif_branches,
+            else_body,
+        } => {
             collect_command_names(condition, names);
             collect_command_names(then_body, names);
             for (c, b) in elif_branches {
@@ -766,9 +773,9 @@ fn collect_command_names(ast: &ShellAst, names: &mut Vec<String>) {
 /// Check if the AST contains any command substitutions `$(...)`.
 pub fn has_command_substitution(ast: &ShellAst) -> bool {
     match ast {
-        ShellAst::Command { args, .. } => {
-            args.iter().any(|a| matches!(a, ShellArg::CommandSubstitution(_)))
-        }
+        ShellAst::Command { args, .. } => args
+            .iter()
+            .any(|a| matches!(a, ShellArg::CommandSubstitution(_))),
         ShellAst::Pipeline(cmds) => cmds.iter().any(has_command_substitution),
         ShellAst::And(l, r) | ShellAst::Or(l, r) => {
             has_command_substitution(l) || has_command_substitution(r)
@@ -784,23 +791,20 @@ pub fn has_command_substitution(ast: &ShellAst) -> bool {
 /// Return the nesting depth of subshells/command substitutions.
 pub fn nesting_depth(ast: &ShellAst) -> usize {
     match ast {
-        ShellAst::Command { args, .. } => {
-            args.iter()
-                .filter_map(|a| {
-                    if let ShellArg::CommandSubstitution(inner) = a {
-                        Some(1 + nesting_depth(inner))
-                    } else {
-                        None
-                    }
-                })
-                .max()
-                .unwrap_or(0)
-        }
+        ShellAst::Command { args, .. } => args
+            .iter()
+            .filter_map(|a| {
+                if let ShellArg::CommandSubstitution(inner) = a {
+                    Some(1 + nesting_depth(inner))
+                } else {
+                    None
+                }
+            })
+            .max()
+            .unwrap_or(0),
         ShellAst::Subshell(inner) => 1 + nesting_depth(inner),
         ShellAst::Pipeline(cmds) => cmds.iter().map(nesting_depth).max().unwrap_or(0),
-        ShellAst::And(l, r) | ShellAst::Or(l, r) => {
-            nesting_depth(l).max(nesting_depth(r))
-        }
+        ShellAst::And(l, r) | ShellAst::Or(l, r) => nesting_depth(l).max(nesting_depth(r)),
         ShellAst::Sequence(stmts) | ShellAst::CompoundList(stmts) => {
             stmts.iter().map(nesting_depth).max().unwrap_or(0)
         }
@@ -820,7 +824,9 @@ mod tests {
 
     #[test]
     fn parse_simple_command() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo hello world").unwrap();
         match &ast {
             ShellAst::Command { name, args, .. } => {
@@ -833,7 +839,9 @@ mod tests {
 
     #[test]
     fn parse_command_no_args() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("ls").unwrap();
         assert!(matches!(ast, ShellAst::Command { .. }));
     }
@@ -842,7 +850,9 @@ mod tests {
 
     #[test]
     fn parse_pipeline() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("cat file.txt | grep pattern | head -5").unwrap();
         match &ast {
             ShellAst::Pipeline(cmds) => {
@@ -858,7 +868,9 @@ mod tests {
 
     #[test]
     fn parse_and_chain() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("mkdir -p dir && cd dir").unwrap();
         assert!(matches!(ast, ShellAst::And(_, _)));
         let names = extract_command_names(&ast);
@@ -867,7 +879,9 @@ mod tests {
 
     #[test]
     fn parse_or_chain() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("test -f file || echo missing").unwrap();
         assert!(matches!(ast, ShellAst::Or(_, _)));
     }
@@ -876,7 +890,9 @@ mod tests {
 
     #[test]
     fn parse_semicolons() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo a; echo b; echo c").unwrap();
         let names = extract_command_names(&ast);
         assert_eq!(names, vec!["echo", "echo", "echo"]);
@@ -886,10 +902,15 @@ mod tests {
 
     #[test]
     fn parse_single_quoted() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo 'hello world'").unwrap();
         if let ShellAst::Command { args, .. } = &ast {
-            assert!(args.iter().any(|a| a.is_single_quoted()), "expected single-quoted arg");
+            assert!(
+                args.iter().any(|a| a.is_single_quoted()),
+                "expected single-quoted arg"
+            );
         } else {
             panic!("expected Command");
         }
@@ -897,10 +918,14 @@ mod tests {
 
     #[test]
     fn parse_double_quoted() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo \"hello $USER\"").unwrap();
         if let ShellAst::Command { args, .. } = &ast {
-            assert!(args.iter().any(|a| matches!(a, ShellArg::DoubleQuoted(_) | ShellArg::Literal(_))));
+            assert!(args
+                .iter()
+                .any(|a| matches!(a, ShellArg::DoubleQuoted(_) | ShellArg::Literal(_))));
         } else {
             panic!("expected Command");
         }
@@ -910,14 +935,18 @@ mod tests {
 
     #[test]
     fn parse_command_substitution() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo $(whoami)").unwrap();
         assert!(has_command_substitution(&ast));
     }
 
     #[test]
     fn parse_nested_command_substitution() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo $(echo $(whoami))").unwrap();
         assert!(has_command_substitution(&ast));
         assert!(nesting_depth(&ast) >= 2);
@@ -927,7 +956,9 @@ mod tests {
 
     #[test]
     fn parse_subshell() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("(cd /tmp && ls)").unwrap();
         assert!(matches!(ast, ShellAst::Subshell(_)));
     }
@@ -936,7 +967,9 @@ mod tests {
 
     #[test]
     fn parse_if_statement() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("if test -f foo; then echo found; fi").unwrap();
         assert!(matches!(ast, ShellAst::If { .. }));
     }
@@ -945,9 +978,14 @@ mod tests {
 
     #[test]
     fn parse_for_loop() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("for f in a b c; do echo $f; done").unwrap();
-        if let ShellAst::For { variable, words, .. } = &ast {
+        if let ShellAst::For {
+            variable, words, ..
+        } = &ast
+        {
             assert_eq!(variable, "f");
             assert_eq!(words, &["a", "b", "c"]);
         } else {
@@ -959,7 +997,9 @@ mod tests {
 
     #[test]
     fn parse_while_loop() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("while true; do echo loop; done").unwrap();
         assert!(matches!(ast, ShellAst::While { .. }));
     }
@@ -968,7 +1008,9 @@ mod tests {
 
     #[test]
     fn parse_case_statement() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("case $x in\n  a) echo A;;\n  b) echo B;;\nesac").unwrap();
         if let ShellAst::Case { word, arms } = &ast {
             assert_eq!(word, "$x");
@@ -982,7 +1024,9 @@ mod tests {
 
     #[test]
     fn parse_function_definition() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("greet() { echo hello; }").unwrap();
         if let ShellAst::Function { name, .. } = &ast {
             assert_eq!(name, "greet");
@@ -995,7 +1039,9 @@ mod tests {
 
     #[test]
     fn parse_redirect_output() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo hello > output.txt").unwrap();
         if let ShellAst::Command { redirections, .. } = &ast {
             assert!(!redirections.is_empty());
@@ -1006,7 +1052,9 @@ mod tests {
 
     #[test]
     fn parse_redirect_append() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo hello >> output.txt").unwrap();
         if let ShellAst::Command { redirections, .. } = &ast {
             assert!(redirections.iter().any(|r| r.op == RedirectOp::Append));
@@ -1019,7 +1067,9 @@ mod tests {
 
     #[test]
     fn parse_assignment() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("FOO=bar").unwrap();
         if let ShellAst::Assignment { name, value } = &ast {
             assert_eq!(name, "FOO");
@@ -1033,7 +1083,9 @@ mod tests {
 
     #[test]
     fn extract_names_complex() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("(git add . && git commit -m msg) || echo fail").unwrap();
         let names = extract_command_names(&ast);
         assert!(names.contains(&"git".to_string()));
@@ -1042,23 +1094,32 @@ mod tests {
 
     #[test]
     fn nesting_depth_flat() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo hello").unwrap();
         assert_eq!(nesting_depth(&ast), 0);
     }
 
     #[test]
     fn nesting_depth_subshell() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("(echo hello)").unwrap();
         assert_eq!(nesting_depth(&ast), 1);
     }
 
     #[test]
     fn single_quote_no_expansion() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo '$(dangerous)'").unwrap();
-        assert!(!has_command_substitution(&ast), "single-quoted $() should not be a command substitution");
+        assert!(
+            !has_command_substitution(&ast),
+            "single-quoted $() should not be a command substitution"
+        );
         if let ShellAst::Command { args, .. } = &ast {
             assert!(args.iter().any(|a| a.is_single_quoted()));
         }
@@ -1066,7 +1127,9 @@ mod tests {
 
     #[test]
     fn display_simple_command() {
-        if skip_if_no_bash() { return; }
+        if skip_if_no_bash() {
+            return;
+        }
         let ast = parse_shell_ast("echo hello").unwrap();
         let s = format!("{ast}");
         assert!(s.contains("echo"));

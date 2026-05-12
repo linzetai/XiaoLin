@@ -92,7 +92,10 @@ impl ToolResultStorage {
     ) -> Result<PersistedToolResult, String> {
         let dir = self.tool_results_dir();
         fs::create_dir_all(&dir).map_err(|e| {
-            format!("Failed to create tool-results directory {}: {e}", dir.display())
+            format!(
+                "Failed to create tool-results directory {}: {e}",
+                dir.display()
+            )
         })?;
 
         let filepath = self.tool_result_path(tool_use_id);
@@ -250,7 +253,11 @@ fn partition_by_prior_decision(
         }
     }
 
-    CandidatePartition { must_reapply, frozen, fresh }
+    CandidatePartition {
+        must_reapply,
+        frozen,
+        fresh,
+    }
 }
 
 /// Pick the largest fresh results to replace until the model-visible total
@@ -331,8 +338,11 @@ impl ToolResultStorage {
             };
         }
 
-        let CandidatePartition { must_reapply, frozen, mut fresh } =
-            partition_by_prior_decision(candidates, state);
+        let CandidatePartition {
+            must_reapply,
+            frozen,
+            mut fresh,
+        } = partition_by_prior_decision(candidates, state);
 
         let mut replacement_map: HashMap<String, String> = HashMap::new();
 
@@ -342,8 +352,9 @@ impl ToolResultStorage {
         }
 
         // Separate skipped tools from eligible fresh candidates (skip by tool name, not ID)
-        let (skipped, eligible): (Vec<_>, Vec<_>) =
-            fresh.drain(..).partition(|c| skip_tool_names.contains(&c.tool_name));
+        let (skipped, eligible): (Vec<_>, Vec<_>) = fresh
+            .drain(..)
+            .partition(|c| skip_tool_names.contains(&c.tool_name));
 
         for c in &skipped {
             state.seen_ids.insert(c.tool_use_id.clone());
@@ -393,7 +404,9 @@ impl ToolResultStorage {
                 Ok(result) => {
                     let message = build_large_tool_result_message(&result);
                     state.seen_ids.insert(c.tool_use_id.clone());
-                    state.replacements.insert(c.tool_use_id.clone(), message.clone());
+                    state
+                        .replacements
+                        .insert(c.tool_use_id.clone(), message.clone());
                     replacement_map.insert(c.tool_use_id.clone(), message.clone());
                     newly_replaced.push(ContentReplacementRecord {
                         tool_use_id: c.tool_use_id.clone(),
@@ -431,7 +444,9 @@ pub fn reconstruct_state(
 
     for r in records {
         if candidate_ids.contains(&r.tool_use_id) {
-            state.replacements.insert(r.tool_use_id.clone(), r.replacement.clone());
+            state
+                .replacements
+                .insert(r.tool_use_id.clone(), r.replacement.clone());
         }
     }
 
@@ -476,7 +491,8 @@ mod tests {
     #[test]
     fn already_persisted_returns_none() {
         let (storage, _tmp) = make_storage();
-        let content = format!("{PERSISTED_OUTPUT_TAG}\nsome preview\n{PERSISTED_OUTPUT_CLOSING_TAG}");
+        let content =
+            format!("{PERSISTED_OUTPUT_TAG}\nsome preview\n{PERSISTED_OUTPUT_CLOSING_TAG}");
         let result = storage
             .process_result("read_file", "id3", &content, 50_000)
             .unwrap();
@@ -596,8 +612,18 @@ mod tests {
     fn partition_fresh_when_state_empty() {
         let state = ContentReplacementState::new();
         let candidates = vec![
-            ToolResultCandidate { tool_use_id: "a".into(), tool_name: "shell".into(), content: "x".into(), size: 100 },
-            ToolResultCandidate { tool_use_id: "b".into(), tool_name: "shell".into(), content: "y".into(), size: 200 },
+            ToolResultCandidate {
+                tool_use_id: "a".into(),
+                tool_name: "shell".into(),
+                content: "x".into(),
+                size: 100,
+            },
+            ToolResultCandidate {
+                tool_use_id: "b".into(),
+                tool_name: "shell".into(),
+                content: "y".into(),
+                size: 200,
+            },
         ];
         let p = partition_by_prior_decision(candidates, &state);
         assert_eq!(p.fresh.len(), 2);
@@ -610,8 +636,18 @@ mod tests {
         let mut state = ContentReplacementState::new();
         state.seen_ids.insert("a".into());
         let candidates = vec![
-            ToolResultCandidate { tool_use_id: "a".into(), tool_name: "shell".into(), content: "x".into(), size: 100 },
-            ToolResultCandidate { tool_use_id: "b".into(), tool_name: "shell".into(), content: "y".into(), size: 200 },
+            ToolResultCandidate {
+                tool_use_id: "a".into(),
+                tool_name: "shell".into(),
+                content: "x".into(),
+                size: 100,
+            },
+            ToolResultCandidate {
+                tool_use_id: "b".into(),
+                tool_name: "shell".into(),
+                content: "y".into(),
+                size: 200,
+            },
         ];
         let p = partition_by_prior_decision(candidates, &state);
         assert_eq!(p.frozen.len(), 1);
@@ -624,9 +660,12 @@ mod tests {
         let mut state = ContentReplacementState::new();
         state.seen_ids.insert("a".into());
         state.replacements.insert("a".into(), "[persisted]".into());
-        let candidates = vec![
-            ToolResultCandidate { tool_use_id: "a".into(), tool_name: "shell".into(), content: "x".into(), size: 100 },
-        ];
+        let candidates = vec![ToolResultCandidate {
+            tool_use_id: "a".into(),
+            tool_name: "shell".into(),
+            content: "x".into(),
+            size: 100,
+        }];
         let p = partition_by_prior_decision(candidates, &state);
         assert_eq!(p.must_reapply.len(), 1);
         assert_eq!(p.must_reapply[0].1, "[persisted]");
@@ -637,19 +676,40 @@ mod tests {
     #[test]
     fn select_fresh_to_replace_picks_largest() {
         let fresh = vec![
-            ToolResultCandidate { tool_use_id: "a".into(), tool_name: "s".into(), content: String::new(), size: 100 },
-            ToolResultCandidate { tool_use_id: "b".into(), tool_name: "s".into(), content: String::new(), size: 500 },
-            ToolResultCandidate { tool_use_id: "c".into(), tool_name: "s".into(), content: String::new(), size: 200 },
+            ToolResultCandidate {
+                tool_use_id: "a".into(),
+                tool_name: "s".into(),
+                content: String::new(),
+                size: 100,
+            },
+            ToolResultCandidate {
+                tool_use_id: "b".into(),
+                tool_name: "s".into(),
+                content: String::new(),
+                size: 500,
+            },
+            ToolResultCandidate {
+                tool_use_id: "c".into(),
+                tool_name: "s".into(),
+                content: String::new(),
+                size: 200,
+            },
         ];
         let selected = select_fresh_to_replace(&fresh, 0, 400);
-        assert!(selected.contains(&1), "largest item (index 1, size 500) should be selected");
+        assert!(
+            selected.contains(&1),
+            "largest item (index 1, size 500) should be selected"
+        );
     }
 
     #[test]
     fn select_fresh_to_replace_nothing_when_under_budget() {
-        let fresh = vec![
-            ToolResultCandidate { tool_use_id: "a".into(), tool_name: "s".into(), content: String::new(), size: 100 },
-        ];
+        let fresh = vec![ToolResultCandidate {
+            tool_use_id: "a".into(),
+            tool_name: "s".into(),
+            content: String::new(),
+            size: 100,
+        }];
         let selected = select_fresh_to_replace(&fresh, 0, 1000);
         assert!(selected.is_empty());
     }
@@ -658,12 +718,13 @@ mod tests {
     fn enforce_budget_under_limit_no_replacement() {
         let (storage, _tmp) = make_storage();
         let mut state = ContentReplacementState::new();
-        let entries = vec![
-            ToolResultEntry { tool_use_id: "t1".into(), tool_name: "shell".into(), content: "short".into() },
-        ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 200_000,
-        );
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "t1".into(),
+            tool_name: "shell".into(),
+            content: "short".into(),
+        }];
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 200_000);
         assert!(result.newly_replaced.is_empty());
         assert!(result.replacements.is_empty());
         assert!(state.seen_ids.contains("t1"));
@@ -676,12 +737,19 @@ mod tests {
         let big = "z".repeat(150_000);
         let small = "a".repeat(30_000);
         let entries = vec![
-            ToolResultEntry { tool_use_id: "big".into(), tool_name: "shell".into(), content: big },
-            ToolResultEntry { tool_use_id: "small".into(), tool_name: "shell".into(), content: small },
+            ToolResultEntry {
+                tool_use_id: "big".into(),
+                tool_name: "shell".into(),
+                content: big,
+            },
+            ToolResultEntry {
+                tool_use_id: "small".into(),
+                tool_name: "shell".into(),
+                content: small,
+            },
         ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 100_000,
-        );
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 100_000);
         assert_eq!(result.newly_replaced.len(), 1);
         assert_eq!(result.newly_replaced[0].tool_use_id, "big");
         assert!(result.replacements.contains_key("big"));
@@ -695,14 +763,17 @@ mod tests {
         let (storage, _tmp) = make_storage();
         let mut state = ContentReplacementState::new();
         state.seen_ids.insert("prev".into());
-        state.replacements.insert("prev".into(), "[cached-preview]".into());
+        state
+            .replacements
+            .insert("prev".into(), "[cached-preview]".into());
 
-        let entries = vec![
-            ToolResultEntry { tool_use_id: "prev".into(), tool_name: "shell".into(), content: "x".repeat(100_000) },
-        ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 200_000,
-        );
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "prev".into(),
+            tool_name: "shell".into(),
+            content: "x".repeat(100_000),
+        }];
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 200_000);
         assert_eq!(result.replacements.get("prev").unwrap(), "[cached-preview]");
         assert!(result.newly_replaced.is_empty());
     }
@@ -711,13 +782,15 @@ mod tests {
     fn enforce_budget_skips_already_persisted_content() {
         let (storage, _tmp) = make_storage();
         let mut state = ContentReplacementState::new();
-        let already_persisted = format!("{PERSISTED_OUTPUT_TAG}\npreview\n{PERSISTED_OUTPUT_CLOSING_TAG}");
-        let entries = vec![
-            ToolResultEntry { tool_use_id: "p1".into(), tool_name: "shell".into(), content: already_persisted },
-        ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 200_000,
-        );
+        let already_persisted =
+            format!("{PERSISTED_OUTPUT_TAG}\npreview\n{PERSISTED_OUTPUT_CLOSING_TAG}");
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "p1".into(),
+            tool_name: "shell".into(),
+            content: already_persisted,
+        }];
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 200_000);
         assert!(result.newly_replaced.is_empty());
         assert!(result.replacements.is_empty());
     }
@@ -729,12 +802,12 @@ mod tests {
         let big = "z".repeat(200_000);
         let mut skip = HashSet::new();
         skip.insert("custom_exempt_tool".into());
-        let entries = vec![
-            ToolResultEntry { tool_use_id: "t1".into(), tool_name: "custom_exempt_tool".into(), content: big },
-        ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &skip, 100_000,
-        );
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "t1".into(),
+            tool_name: "custom_exempt_tool".into(),
+            content: big,
+        }];
+        let result = storage.enforce_per_message_budget(entries, &mut state, &skip, 100_000);
         assert!(result.newly_replaced.is_empty());
         assert!(state.seen_ids.contains("t1"));
     }
@@ -748,13 +821,22 @@ mod tests {
         let mut skip = HashSet::new();
         skip.insert("read_file".into());
         let entries = vec![
-            ToolResultEntry { tool_use_id: "rf1".into(), tool_name: "read_file".into(), content: big },
-            ToolResultEntry { tool_use_id: "rf2".into(), tool_name: "read_file".into(), content: small },
+            ToolResultEntry {
+                tool_use_id: "rf1".into(),
+                tool_name: "read_file".into(),
+                content: big,
+            },
+            ToolResultEntry {
+                tool_use_id: "rf2".into(),
+                tool_name: "read_file".into(),
+                content: small,
+            },
         ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &skip, 100_000,
+        let result = storage.enforce_per_message_budget(entries, &mut state, &skip, 100_000);
+        assert!(
+            result.newly_replaced.is_empty(),
+            "read_file should be skipped"
         );
-        assert!(result.newly_replaced.is_empty(), "read_file should be skipped");
         assert!(state.seen_ids.contains("rf1"));
         assert!(state.seen_ids.contains("rf2"));
     }
@@ -765,8 +847,14 @@ mod tests {
     fn reconstruct_state_populates_seen_and_replacements() {
         let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let records = vec![
-            ContentReplacementRecord { tool_use_id: "a".into(), replacement: "[r]".into() },
-            ContentReplacementRecord { tool_use_id: "z".into(), replacement: "[orphan]".into() },
+            ContentReplacementRecord {
+                tool_use_id: "a".into(),
+                replacement: "[r]".into(),
+            },
+            ContentReplacementRecord {
+                tool_use_id: "z".into(),
+                replacement: "[orphan]".into(),
+            },
         ];
         let state = reconstruct_state(&ids, &records);
         assert_eq!(state.seen_ids.len(), 3);
@@ -794,7 +882,10 @@ mod tests {
         let result = storage
             .process_result("read_file", "id-inf", &big, usize::MAX)
             .unwrap();
-        assert!(result.is_none(), "usize::MAX threshold must never trigger persistence");
+        assert!(
+            result.is_none(),
+            "usize::MAX threshold must never trigger persistence"
+        );
     }
 
     #[test]
@@ -813,7 +904,11 @@ mod tests {
         content.push_str(&"x".repeat(5000));
         let (preview, has_more) = generate_preview(&content, 100);
         assert!(has_more);
-        assert_eq!(preview.len(), 100, "newline at pos 5 (< 50) should be ignored, use byte cut");
+        assert_eq!(
+            preview.len(),
+            100,
+            "newline at pos 5 (< 50) should be ignored, use byte cut"
+        );
     }
 
     #[test]
@@ -821,16 +916,34 @@ mod tests {
         let (storage, _tmp) = make_storage();
         let mut state = ContentReplacementState::new();
         let entries = vec![
-            ToolResultEntry { tool_use_id: "g1".into(), tool_name: "shell".into(), content: "a".repeat(80_000) },
-            ToolResultEntry { tool_use_id: "g2".into(), tool_name: "shell".into(), content: "b".repeat(60_000) },
-            ToolResultEntry { tool_use_id: "g3".into(), tool_name: "shell".into(), content: "c".repeat(40_000) },
+            ToolResultEntry {
+                tool_use_id: "g1".into(),
+                tool_name: "shell".into(),
+                content: "a".repeat(80_000),
+            },
+            ToolResultEntry {
+                tool_use_id: "g2".into(),
+                tool_name: "shell".into(),
+                content: "b".repeat(60_000),
+            },
+            ToolResultEntry {
+                tool_use_id: "g3".into(),
+                tool_name: "shell".into(),
+                content: "c".repeat(40_000),
+            },
         ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 100_000,
-        );
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 100_000);
         assert!(!result.newly_replaced.is_empty());
-        let replaced_ids: Vec<&str> = result.newly_replaced.iter().map(|r| r.tool_use_id.as_str()).collect();
-        assert!(replaced_ids.contains(&"g1"), "largest (80k) must be replaced first");
+        let replaced_ids: Vec<&str> = result
+            .newly_replaced
+            .iter()
+            .map(|r| r.tool_use_id.as_str())
+            .collect();
+        assert!(
+            replaced_ids.contains(&"g1"),
+            "largest (80k) must be replaced first"
+        );
     }
 
     #[test]
@@ -840,12 +953,18 @@ mod tests {
         let mut state = ContentReplacementState::new();
         let big = "z".repeat(150_000);
         let entries = vec![
-            ToolResultEntry { tool_use_id: "t1".into(), tool_name: "shell".into(), content: big.clone() },
-            ToolResultEntry { tool_use_id: "t2".into(), tool_name: "shell".into(), content: "small".into() },
+            ToolResultEntry {
+                tool_use_id: "t1".into(),
+                tool_name: "shell".into(),
+                content: big.clone(),
+            },
+            ToolResultEntry {
+                tool_use_id: "t2".into(),
+                tool_name: "shell".into(),
+                content: "small".into(),
+            },
         ];
-        let r1 = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 100_000,
-        );
+        let r1 = storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 100_000);
         assert_eq!(r1.newly_replaced.len(), 1);
         let original_replacement = r1.newly_replaced[0].replacement.clone();
 
@@ -868,13 +987,17 @@ mod tests {
         let mut state = ContentReplacementState::new();
         state.seen_ids.insert("frozen_id".into());
 
-        let entries = vec![
-            ToolResultEntry { tool_use_id: "frozen_id".into(), tool_name: "shell".into(), content: "x".repeat(200_000) },
-        ];
-        let result = storage.enforce_per_message_budget(
-            entries, &mut state, &HashSet::new(), 50_000,
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "frozen_id".into(),
+            tool_name: "shell".into(),
+            content: "x".repeat(200_000),
+        }];
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 50_000);
+        assert!(
+            result.newly_replaced.is_empty(),
+            "frozen (seen but not replaced) must not be replaced"
         );
-        assert!(result.newly_replaced.is_empty(), "frozen (seen but not replaced) must not be replaced");
         assert!(!result.replacements.contains_key("frozen_id"));
     }
 
@@ -898,7 +1021,10 @@ mod tests {
         {
             let storage = ToolResultStorage::new(session_dir.clone());
             let filepath = storage.tool_result_path("tool_abc");
-            assert!(filepath.exists(), "tool result must survive storage recreation");
+            assert!(
+                filepath.exists(),
+                "tool result must survive storage recreation"
+            );
             let read_back = fs::read_to_string(&filepath).unwrap();
             assert_eq!(read_back.len(), 60_000);
             assert_eq!(read_back, content);

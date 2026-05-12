@@ -1,7 +1,7 @@
 use fastclaw_core::types::{ChatMessage, Role};
 
 use super::tool_executor::{
-    classify_retention_tier, summarize_tool_result, build_cleared_with_recall, RetentionTier,
+    build_cleared_with_recall, classify_retention_tier, summarize_tool_result, RetentionTier,
     RECALL_HINT_MARKER,
 };
 
@@ -44,8 +44,9 @@ impl ToolResultImportance {
         let recency_bonus = Self::recency_bonus(msg_index, total_messages);
         let reference_bonus = Self::reference_bonus(&content, assistant_messages);
 
-        let score = (base_score + content_signal_bonus + length_bonus + recency_bonus + reference_bonus)
-            .clamp(0.0, 1.0);
+        let score =
+            (base_score + content_signal_bonus + length_bonus + recency_bonus + reference_bonus)
+                .clamp(0.0, 1.0);
 
         Self { score }
     }
@@ -53,26 +54,38 @@ impl ToolResultImportance {
     fn content_signals(content: &str) -> f32 {
         let mut bonus = 0.0_f32;
 
-        if content.contains("```") || content.contains("fn ") || content.contains("def ")
-            || content.contains("class ") || content.contains("impl ")
+        if content.contains("```")
+            || content.contains("fn ")
+            || content.contains("def ")
+            || content.contains("class ")
+            || content.contains("impl ")
         {
             bonus += 0.10;
         }
 
-        if content.contains("error") || content.contains("Error") || content.contains("FAILED")
-            || content.contains("panic") || content.contains("exception")
+        if content.contains("error")
+            || content.contains("Error")
+            || content.contains("FAILED")
+            || content.contains("panic")
+            || content.contains("exception")
         {
             bonus += 0.08;
         }
 
-        if content.contains("struct ") || content.contains("enum ") || content.contains("interface ")
-            || content.contains("type ") || content.contains("trait ")
+        if content.contains("struct ")
+            || content.contains("enum ")
+            || content.contains("interface ")
+            || content.contains("type ")
+            || content.contains("trait ")
         {
             bonus += 0.05;
         }
 
-        if content.contains(".rs") || content.contains(".ts") || content.contains(".py")
-            || content.contains(".go") || content.contains("src/")
+        if content.contains(".rs")
+            || content.contains(".ts")
+            || content.contains(".py")
+            || content.contains(".go")
+            || content.contains("src/")
         {
             bonus += 0.03;
         }
@@ -122,7 +135,11 @@ impl ToolResultImportance {
             })
         });
 
-        if referenced { 0.12 } else { 0.0 }
+        if referenced {
+            0.12
+        } else {
+            0.0
+        }
     }
 }
 
@@ -177,10 +194,7 @@ struct MessageClassification {
     assistant_indices: Vec<usize>,
 }
 
-fn classify_messages(
-    messages: &[ChatMessage],
-    recent_window: usize,
-) -> MessageClassification {
+fn classify_messages(messages: &[ChatMessage], recent_window: usize) -> MessageClassification {
     let mut system_indices = Vec::new();
     let mut user_indices = Vec::new();
     let mut tool_indices = Vec::new();
@@ -263,12 +277,22 @@ pub(crate) fn apply_token_budget(
             .collect();
         sorted_older.sort_by(|(idx_a, _), (idx_b, _)| {
             let score_a = ToolResultImportance::score_tool_result(
-                &messages[*idx_a], *idx_a, total_msgs, &assistant_msgs,
-            ).score;
+                &messages[*idx_a],
+                *idx_a,
+                total_msgs,
+                &assistant_msgs,
+            )
+            .score;
             let score_b = ToolResultImportance::score_tool_result(
-                &messages[*idx_b], *idx_b, total_msgs, &assistant_msgs,
-            ).score;
-            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                &messages[*idx_b],
+                *idx_b,
+                total_msgs,
+                &assistant_msgs,
+            )
+            .score;
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         for (idx, tier) in sorted_older {
@@ -292,10 +316,13 @@ pub(crate) fn apply_token_budget(
                 continue;
             }
 
-            let tool_name = messages[idx].name.as_deref().unwrap_or("unknown").to_string();
-            let before_tokens = fastclaw_context::estimate_messages_tokens(
-                std::slice::from_ref(&messages[idx]),
-            );
+            let tool_name = messages[idx]
+                .name
+                .as_deref()
+                .unwrap_or("unknown")
+                .to_string();
+            let before_tokens =
+                fastclaw_context::estimate_messages_tokens(std::slice::from_ref(&messages[idx]));
 
             let replacement = match tier {
                 RetentionTier::Ephemeral => {
@@ -312,9 +339,8 @@ pub(crate) fn apply_token_budget(
             };
 
             messages[idx].content = Some(serde_json::Value::String(replacement));
-            let after_tokens = fastclaw_context::estimate_messages_tokens(
-                std::slice::from_ref(&messages[idx]),
-            );
+            let after_tokens =
+                fastclaw_context::estimate_messages_tokens(std::slice::from_ref(&messages[idx]));
 
             let delta = before_tokens.saturating_sub(after_tokens);
             freed += delta;
@@ -354,11 +380,14 @@ pub(crate) fn apply_token_budget(
                 continue;
             }
 
-            let tool_name = messages[idx].name.as_deref().unwrap_or("unknown").to_string();
+            let tool_name = messages[idx]
+                .name
+                .as_deref()
+                .unwrap_or("unknown")
+                .to_string();
             let tier = classify_retention_tier(&tool_name);
-            let before_tokens = fastclaw_context::estimate_messages_tokens(
-                std::slice::from_ref(&messages[idx]),
-            );
+            let before_tokens =
+                fastclaw_context::estimate_messages_tokens(std::slice::from_ref(&messages[idx]));
 
             // For recent results, only fade — don't fully clear.
             let max_chars = match tier {
@@ -370,9 +399,8 @@ pub(crate) fn apply_token_budget(
             let replacement = format!("[summarized] {summary}");
 
             messages[idx].content = Some(serde_json::Value::String(replacement));
-            let after_tokens = fastclaw_context::estimate_messages_tokens(
-                std::slice::from_ref(&messages[idx]),
-            );
+            let after_tokens =
+                fastclaw_context::estimate_messages_tokens(std::slice::from_ref(&messages[idx]));
 
             let delta = before_tokens.saturating_sub(after_tokens);
             freed += delta;
@@ -388,7 +416,6 @@ pub(crate) fn apply_token_budget(
         total_tokens_freed,
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -503,7 +530,10 @@ mod tests {
         };
 
         let result = apply_token_budget(&mut msgs, 1000, &config);
-        assert!(result.older_tools_summarized > 0, "should summarize older tools");
+        assert!(
+            result.older_tools_summarized > 0,
+            "should summarize older tools"
+        );
         assert!(result.total_tokens_freed > 0, "should free tokens");
     }
 
@@ -513,9 +543,9 @@ mod tests {
         let mut msgs = vec![
             system_msg("sys"),
             user_msg("q"),
-            tool_msg("list_dir", &big),   // Ephemeral
-            tool_msg("read_file", &big),   // FullRetain
-            tool_msg("grep", &big),        // Summarize
+            tool_msg("list_dir", &big),  // Ephemeral
+            tool_msg("read_file", &big), // FullRetain
+            tool_msg("grep", &big),      // Summarize
             tool_msg("read_file", "recent"),
             asst_msg("a"),
         ];

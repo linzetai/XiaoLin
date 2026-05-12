@@ -45,7 +45,10 @@ fn list_panels(dir: &std::path::Path) -> Vec<(String, PathBuf)> {
         .collect();
 
     panels.sort_by(|a, b| b.2.cmp(&a.2));
-    panels.into_iter().map(|(name, path, _)| (name, path)).collect()
+    panels
+        .into_iter()
+        .map(|(name, path, _)| (name, path))
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -199,9 +202,7 @@ impl Tool for TerminalCaptureTool {
             .unwrap_or_else(|| "unknown".to_string());
 
         let header = if start > 0 {
-            format!(
-                "Terminal: {panel_name} (showing last {line_count} of {total} lines)\n\n"
-            )
+            format!("Terminal: {panel_name} (showing last {line_count} of {total} lines)\n\n")
         } else {
             format!("Terminal: {panel_name} ({total} lines)\n\n")
         };
@@ -273,9 +274,7 @@ mod tests {
         write_panel(&dir, "shell_200", "data_b\n");
 
         let tool = TerminalCaptureTool::with_dir(dir);
-        let result = tool
-            .execute(r#"{"panel_id":"shell_100"}"#)
-            .await;
+        let result = tool.execute(r#"{"panel_id":"shell_100"}"#).await;
         assert!(result.success);
         assert!(result.output.contains("shell_100"));
         assert!(result.output.contains("data_a"));
@@ -287,9 +286,7 @@ mod tests {
         write_panel(&dir, "shell_001", "content\n");
 
         let tool = TerminalCaptureTool::with_dir(dir);
-        let result = tool
-            .execute(r#"{"panel_id":"nonexistent"}"#)
-            .await;
+        let result = tool.execute(r#"{"panel_id":"nonexistent"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("not found"));
         assert!(result.output.contains("shell_001"));
@@ -323,7 +320,11 @@ mod tests {
     #[tokio::test]
     async fn capture_strips_ansi() {
         let (_tmp, dir) = make_test_dir();
-        write_panel(&dir, "shell_ansi", "\x1b[32mgreen\x1b[0m text\n\x1b[1mbold\x1b[0m end");
+        write_panel(
+            &dir,
+            "shell_ansi",
+            "\x1b[32mgreen\x1b[0m text\n\x1b[1mbold\x1b[0m end",
+        );
 
         let tool = TerminalCaptureTool::with_dir(dir);
         let result = tool.execute(r#"{}"#).await;

@@ -39,7 +39,10 @@ pub enum BreakCause {
     /// System prompt content changed.
     SystemPromptChanged,
     /// Tools were added, removed, or modified.
-    ToolsChanged { prev_count: usize, curr_count: usize },
+    ToolsChanged {
+        prev_count: usize,
+        curr_count: usize,
+    },
     /// Model was switched between calls.
     ModelSwitched { from: String, to: String },
     /// cache_control annotations changed.
@@ -65,7 +68,10 @@ impl CacheBreakReport {
     pub fn summary(&self) -> String {
         let cause_desc = match &self.cause {
             BreakCause::SystemPromptChanged => "system prompt changed".to_string(),
-            BreakCause::ToolsChanged { prev_count, curr_count } => {
+            BreakCause::ToolsChanged {
+                prev_count,
+                curr_count,
+            } => {
                 format!("tools changed ({} → {})", prev_count, curr_count)
             }
             BreakCause::ModelSwitched { from, to } => {
@@ -74,14 +80,18 @@ impl CacheBreakReport {
             BreakCause::CacheControlChanged => "cache_control annotations changed".to_string(),
             BreakCause::CacheEditsEviction => "cache_edits eviction (expected)".to_string(),
             BreakCause::Multiple(causes) => {
-                let descs: Vec<String> = causes.iter().map(|c| {
-                    CacheBreakReport {
-                        cause: c.clone(),
-                        prev_cache_read_tokens: 0,
-                        curr_cache_read_tokens: 0,
-                        is_expected: false,
-                    }.summary()
-                }).collect();
+                let descs: Vec<String> = causes
+                    .iter()
+                    .map(|c| {
+                        CacheBreakReport {
+                            cause: c.clone(),
+                            prev_cache_read_tokens: 0,
+                            curr_cache_read_tokens: 0,
+                            is_expected: false,
+                        }
+                        .summary()
+                    })
+                    .collect();
                 format!("multiple: {}", descs.join(", "))
             }
             BreakCause::Unknown => "unknown cause".to_string(),
@@ -197,11 +207,7 @@ impl CacheBreakDetector {
     }
 
     /// Diagnose the root cause of a cache break by diffing snapshots.
-    fn diagnose_cause(
-        &self,
-        prev: &PreCallSnapshot,
-        curr: &PreCallSnapshot,
-    ) -> BreakCause {
+    fn diagnose_cause(&self, prev: &PreCallSnapshot, curr: &PreCallSnapshot) -> BreakCause {
         // If cache_edits were active, this is an expected eviction
         if curr.cache_edits_active {
             return BreakCause::CacheEditsEviction;
@@ -343,7 +349,9 @@ mod tests {
         detector.post_call_analyze(&snap1, &usage_with_cache(5000));
 
         let snap2 = make_snapshot("changed system", "[{\"name\":\"tool1\"}]", "claude-3");
-        let report = detector.post_call_analyze(&snap2, &usage_with_cache(0)).unwrap();
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
         assert_eq!(report.cause, BreakCause::SystemPromptChanged);
     }
 
@@ -353,10 +361,19 @@ mod tests {
         let snap1 = make_snapshot("system", "[{\"name\":\"tool1\"}]", "claude-3");
         detector.post_call_analyze(&snap1, &usage_with_cache(5000));
 
-        let snap2 = make_snapshot("system", "[{\"name\":\"tool1\"},{\"name\":\"tool2\"}]", "claude-3");
-        let report = detector.post_call_analyze(&snap2, &usage_with_cache(0)).unwrap();
+        let snap2 = make_snapshot(
+            "system",
+            "[{\"name\":\"tool1\"},{\"name\":\"tool2\"}]",
+            "claude-3",
+        );
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
         match report.cause {
-            BreakCause::ToolsChanged { prev_count, curr_count } => {
+            BreakCause::ToolsChanged {
+                prev_count,
+                curr_count,
+            } => {
                 assert_eq!(prev_count, 1);
                 assert_eq!(curr_count, 2);
             }
@@ -371,7 +388,9 @@ mod tests {
         detector.post_call_analyze(&snap1, &usage_with_cache(5000));
 
         let snap2 = make_snapshot("system", "[]", "claude-3-sonnet");
-        let report = detector.post_call_analyze(&snap2, &usage_with_cache(0)).unwrap();
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
         match report.cause {
             BreakCause::ModelSwitched { ref from, ref to } => {
                 assert_eq!(from, "claude-3-opus");
@@ -389,7 +408,9 @@ mod tests {
 
         // Same system/tools/model but cache_edits is active
         let snap2 = detector.pre_call_snapshot("system", "[]", "claude-3", false, true);
-        let report = detector.post_call_analyze(&snap2, &usage_with_cache(0)).unwrap();
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
         assert_eq!(report.cause, BreakCause::CacheEditsEviction);
         assert!(report.is_expected);
         // Expected evictions don't count as breaks
@@ -402,13 +423,21 @@ mod tests {
         let snap1 = make_snapshot("system", "[{\"name\":\"t1\"}]", "claude-3");
         detector.post_call_analyze(&snap1, &usage_with_cache(5000));
 
-        let snap2 = make_snapshot("new system", "[{\"name\":\"t1\"},{\"name\":\"t2\"}]", "claude-4");
-        let report = detector.post_call_analyze(&snap2, &usage_with_cache(0)).unwrap();
+        let snap2 = make_snapshot(
+            "new system",
+            "[{\"name\":\"t1\"},{\"name\":\"t2\"}]",
+            "claude-4",
+        );
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
         match report.cause {
             BreakCause::Multiple(ref causes) => {
                 assert!(causes.len() >= 2);
                 assert!(causes.contains(&BreakCause::SystemPromptChanged));
-                assert!(causes.iter().any(|c| matches!(c, BreakCause::ModelSwitched { .. })));
+                assert!(causes
+                    .iter()
+                    .any(|c| matches!(c, BreakCause::ModelSwitched { .. })));
             }
             _ => panic!("expected Multiple, got {:?}", report.cause),
         }

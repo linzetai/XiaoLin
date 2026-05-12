@@ -45,7 +45,11 @@ impl Tool for FeishuSendRichTextTool {
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
-            required: vec!["receive_id".into(), "receive_id_type".into(), "content".into()],
+            required: vec![
+                "receive_id".into(),
+                "receive_id_type".into(),
+                "content".into(),
+            ],
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
@@ -250,7 +254,11 @@ impl Tool for FeishuEditMessageTool {
             .get("msg_type")
             .and_then(|v| v.as_str())
             .unwrap_or("text");
-        match self.client.edit_message(message_id, msg_type, content).await {
+        match self
+            .client
+            .edit_message(message_id, msg_type, content)
+            .await
+        {
             Ok(v) => ToolResult::ok(serde_json::to_string(&v).unwrap_or_default()),
             Err(e) => ToolResult::err(format!("feishu_edit_message: {e}")),
         }
@@ -346,7 +354,11 @@ impl Tool for FeishuForwardMessageTool {
         ToolParameterSchema {
             schema_type: "object".into(),
             properties,
-            required: vec!["message_id".into(), "receive_id".into(), "receive_id_type".into()],
+            required: vec![
+                "message_id".into(),
+                "receive_id".into(),
+                "receive_id_type".into(),
+            ],
         }
     }
     async fn execute(&self, arguments: &str) -> ToolResult {
@@ -501,15 +513,9 @@ impl Tool for FeishuReactionTool {
             "remove" => {
                 let reaction_id = match args.get("reaction_id").and_then(|v| v.as_str()) {
                     Some(s) if !s.is_empty() => s,
-                    _ => {
-                        return ToolResult::err("reaction_id is required for remove".to_string())
-                    }
+                    _ => return ToolResult::err("reaction_id is required for remove".to_string()),
                 };
-                match self
-                    .client
-                    .remove_reaction(message_id, reaction_id)
-                    .await
-                {
+                match self.client.remove_reaction(message_id, reaction_id).await {
                     Ok(v) => ToolResult::ok(serde_json::to_string(&v).unwrap_or_default()),
                     Err(e) => ToolResult::err(format!("feishu_reaction remove: {e}")),
                 }
@@ -618,11 +624,7 @@ impl Tool for FeishuPinTool {
                     .and_then(|v| v.as_u64())
                     .map(|v| v.clamp(1, 100) as u32);
                 let page_token = args.get("page_token").and_then(|v| v.as_str());
-                match self
-                    .client
-                    .list_pins(chat_id, page_size, page_token)
-                    .await
-                {
+                match self.client.list_pins(chat_id, page_size, page_token).await {
                     Ok(v) => ToolResult::ok(serde_json::to_string(&v).unwrap_or_default()),
                     Err(e) => ToolResult::err(format!("feishu_pin list: {e}")),
                 }

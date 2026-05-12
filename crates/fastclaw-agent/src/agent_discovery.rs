@@ -264,7 +264,11 @@ mod tests {
                 channels: HashMap::new(),
             },
         ];
-        Arc::new(SubAgentManager::new(runtime, agents, SubAgentPolicy::default()))
+        Arc::new(SubAgentManager::new(
+            runtime,
+            agents,
+            SubAgentPolicy::default(),
+        ))
     }
 
     #[tokio::test]
@@ -273,8 +277,7 @@ mod tests {
         let tool = ListAgentsTool::new(mgr);
         let result = tool.execute("{}").await;
         assert!(result.success);
-        let summaries: Vec<serde_json::Value> =
-            serde_json::from_str(&result.output).unwrap();
+        let summaries: Vec<serde_json::Value> = serde_json::from_str(&result.output).unwrap();
         assert_eq!(summaries.len(), 2);
         assert!(summaries.iter().any(|s| s["id"] == "main"));
         assert!(summaries.iter().any(|s| s["id"] == "code"));
@@ -284,12 +287,9 @@ mod tests {
     async fn get_agent_info_returns_details() {
         let mgr = make_manager();
         let tool = GetAgentInfoTool::new(mgr);
-        let result = tool
-            .execute(r#"{"agent_id": "main"}"#)
-            .await;
+        let result = tool.execute(r#"{"agent_id": "main"}"#).await;
         assert!(result.success);
-        let info: serde_json::Value =
-            serde_json::from_str(&result.output).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(info["id"], "main");
         assert_eq!(info["name"], "Main Agent");
         assert_eq!(info["description"], "General-purpose assistant");
@@ -299,9 +299,7 @@ mod tests {
     async fn get_agent_info_unknown_returns_error() {
         let mgr = make_manager();
         let tool = GetAgentInfoTool::new(mgr);
-        let result = tool
-            .execute(r#"{"agent_id": "nonexistent"}"#)
-            .await;
+        let result = tool.execute(r#"{"agent_id": "nonexistent"}"#).await;
         assert!(!result.success);
         assert!(result.output.contains("not found"));
     }

@@ -108,18 +108,14 @@ fn decode_query_component(s: &str) -> String {
                     if let (Some(hi), Some(lo)) = (hex_digit(a), hex_digit(c)) {
                         out.push(hi << 4 | lo);
                     } else {
-                        tracing::debug!(
-                            "auth: malformed percent-encoding in query parameter"
-                        );
+                        tracing::debug!("auth: malformed percent-encoding in query parameter");
                         out.push(b'%');
                         out.push(a);
                         out.push(c);
                     }
                 }
                 (maybe_a, _) => {
-                    tracing::debug!(
-                        "auth: truncated percent-encoding at end of query parameter"
-                    );
+                    tracing::debug!("auth: truncated percent-encoding at end of query parameter");
                     out.push(b'%');
                     if let Some(a) = maybe_a {
                         out.push(a);

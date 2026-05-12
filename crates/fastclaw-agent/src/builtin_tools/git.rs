@@ -95,15 +95,17 @@ impl Tool for GitTool {
             }
         };
 
-        let cwd = get_effective_work_dir().unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_default()
-        });
+        let cwd =
+            get_effective_work_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
         match subcmd {
             "status" => exec_status(&cwd).await,
             "diff" => {
                 let file = args.get("file").and_then(|v| v.as_str());
-                let staged = args.get("staged").and_then(|v| v.as_bool()).unwrap_or(false);
+                let staged = args
+                    .get("staged")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let base_ref = args.get("ref").and_then(|v| v.as_str());
                 exec_diff(&cwd, file, staged, base_ref).await
             }
@@ -118,10 +120,7 @@ impl Tool for GitTool {
             }
             "branch" => exec_branch(&cwd).await,
             "show" => {
-                let ref_name = args
-                    .get("ref")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("HEAD");
+                let ref_name = args.get("ref").and_then(|v| v.as_str()).unwrap_or("HEAD");
                 exec_show(&cwd, ref_name).await
             }
             "stash_list" => exec_stash_list(&cwd).await,
@@ -143,7 +142,11 @@ async fn run_git(cwd: &std::path::Path, args: &[&str]) -> Result<String, String>
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git {}: {}", args.first().unwrap_or(&""), stderr.trim()));
+        return Err(format!(
+            "git {}: {}",
+            args.first().unwrap_or(&""),
+            stderr.trim()
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -322,7 +325,16 @@ async fn exec_log(cwd: &std::path::Path, max_count: usize, file: Option<&str>) -
 }
 
 async fn exec_branch(cwd: &std::path::Path) -> ToolResult {
-    let output = match run_git(cwd, &["branch", "-a", "--format=%(HEAD)%(refname:short)%00%(objectname:short)%00%(upstream:short)"]).await {
+    let output = match run_git(
+        cwd,
+        &[
+            "branch",
+            "-a",
+            "--format=%(HEAD)%(refname:short)%00%(objectname:short)%00%(upstream:short)",
+        ],
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return ToolResult::err(e),
     };
@@ -368,7 +380,12 @@ async fn exec_branch(cwd: &std::path::Path) -> ToolResult {
 async fn exec_show(cwd: &std::path::Path, ref_name: &str) -> ToolResult {
     let output = match run_git(
         cwd,
-        &["show", "--format=%H%n%h%n%an%n%ae%n%aI%n%s%n%b", "--stat", ref_name],
+        &[
+            "show",
+            "--format=%H%n%h%n%an%n%ae%n%aI%n%s%n%b",
+            "--stat",
+            ref_name,
+        ],
     )
     .await
     {

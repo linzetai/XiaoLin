@@ -1,7 +1,9 @@
 mod ask_question;
 mod brief;
-mod confirm;
 mod code_intel;
+mod confirm;
+#[allow(dead_code)]
+pub mod coordinator;
 mod filesystem;
 mod git;
 mod identity;
@@ -12,21 +14,19 @@ mod network;
 mod notebook;
 pub mod plan_file;
 mod plan_mode;
+mod screenshot;
 mod session;
-mod task;
-mod terminal;
 mod shell;
 pub mod shell_path_validation;
 pub mod shell_readonly;
 pub mod shell_security;
 #[allow(dead_code)]
 pub mod shell_snapshot;
-#[allow(dead_code)]
-pub mod coordinator;
 mod skill;
-mod todo;
-mod screenshot;
 mod snip;
+mod task;
+mod terminal;
+mod todo;
 mod tool_search;
 mod utility;
 pub mod workflow;
@@ -43,47 +43,52 @@ use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_session::SessionStore;
 
-pub use filesystem::{
-    EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool, WriteFileTool,
+pub use ask_question::{with_stream_context, AskQuestionTool};
+pub use brief::BriefTool;
+pub use code_intel::{
+    CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
+    WorkspaceSymbolsTool,
 };
-pub use filesystem::{get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir};
+pub use confirm::ConfirmTool;
+pub use filesystem::{
+    get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode,
+    with_file_state_cache, with_work_dir,
+};
+pub use filesystem::{
+    EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool,
+    WriteFileTool,
+};
+pub use git::GitTool;
+pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
 pub use network::{
-    HttpFetchTool, SearchEngine, SearchResult, SearxngEngine, TavilyEngine,
-    WebFetchTool, WebSearchBackend, WebSearchTool,
-    GoogleEngine, BaiduEngine, BingEngine, SogouEngine, Search360Engine,
-    BuiltinMetaEngine, engine_by_id, BUILTIN_ENGINE_IDS,
+    engine_by_id, BaiduEngine, BingEngine, BuiltinMetaEngine, GoogleEngine, HttpFetchTool,
+    Search360Engine, SearchEngine, SearchResult, SearxngEngine, SogouEngine, TavilyEngine,
+    WebFetchTool, WebSearchBackend, WebSearchTool, BUILTIN_ENGINE_IDS,
 };
+pub use notebook::NotebookEditTool;
+pub use plan_file::PlanFileStore;
+pub use plan_mode::{EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool};
+pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
 pub use shell::{
-    SandboxedShellTool, ShellSandboxConfig, ShellTool,
-    validate_readonly_command, validate_command_paths,
-    PermissionRule, strip_safe_wrappers, has_binary_hijack_prefix,
-    SedEditInfo, parse_sed_edit, sed_to_edit_suggestion,
+    has_binary_hijack_prefix, parse_sed_edit, sed_to_edit_suggestion, strip_safe_wrappers,
+    validate_command_paths, validate_readonly_command, PermissionRule, SandboxedShellTool,
+    SedEditInfo, ShellSandboxConfig, ShellTool,
 };
-pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};
-pub use ask_question::{AskQuestionTool, with_stream_context};
-pub use brief::BriefTool;
-pub use confirm::ConfirmTool;
-pub use todo::{TodoStore, TodoWriteTool, TodoReadTool, TodoStatus, TodoItem};
-pub use code_intel::{FindReferencesTool, GoToDefinitionTool, UnifiedLspTool, WorkspaceSymbolsTool, FileOutlineTool, CodeSectionsTool};
-pub use notebook::NotebookEditTool;
+pub use snip::SnipTool;
 pub use task::{
     NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
     TaskManagerError, TaskStatus, TaskStopTool, TaskUpdateTool, TaskWorkFactory,
 };
-pub use plan_file::PlanFileStore;
-pub use plan_mode::{EnterPlanModeTool, ExitPlanModeTool, ExecutionModeState};
-pub use snip::SnipTool;
 pub use terminal::TerminalCaptureTool;
+pub use todo::{TodoItem, TodoReadTool, TodoStatus, TodoStore, TodoWriteTool};
 pub use tool_search::ToolSearchTool;
-pub use git::GitTool;
 pub use utility::{CurrentTimeTool, SleepTool};
-pub use workflow::{WorkflowStore, WorkflowTool, WorkflowDefinition, WorkflowRun, WorkflowStatus};
+pub use workflow::{WorkflowDefinition, WorkflowRun, WorkflowStatus, WorkflowStore, WorkflowTool};
 pub use worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
-pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 
 #[cfg(feature = "browser")]
 pub use browser::{register_browser_tool, BrowserTool};
@@ -149,7 +154,10 @@ pub fn register_skill_tools_full(
     skill_registry: Arc<SkillRegistry>,
     workspace: Arc<AgentWorkspace>,
 ) {
-    registry.register(Arc::new(UnifiedSkillTool::new(skill_registry, Some(workspace))));
+    registry.register(Arc::new(UnifiedSkillTool::new(
+        skill_registry,
+        Some(workspace),
+    )));
 }
 
 /// Register the unified identity tool for reading/writing SOUL.md, USER.md, AGENTS.md.
@@ -176,7 +184,9 @@ pub fn register_snip_tool(
 /// Register BriefTool (send_user_message) with shared stream event channels.
 pub fn register_brief_tool(
     registry: &ToolRegistry,
-    stream_event_txs: std::sync::Arc<dashmap::DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
+    stream_event_txs: std::sync::Arc<
+        dashmap::DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
+    >,
 ) {
     registry.register(Arc::new(BriefTool::new(stream_event_txs)));
 }
@@ -220,4 +230,3 @@ pub fn register_session_tools(
     )));
     registry.register_deferred(Arc::new(SessionsSendTool::new(sessions, bus)));
 }
-

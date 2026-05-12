@@ -122,14 +122,18 @@ mod tests {
         HookConfig {
             pre_tool_use: vec![
                 HookSpec {
-                    matcher: HookMatcher::ToolName { name: "shell_exec".into() },
+                    matcher: HookMatcher::ToolName {
+                        name: "shell_exec".into(),
+                    },
                     command: "echo 'pre-shell'".into(),
                     timeout_secs: 5,
                     blocking: true,
                     working_dir: None,
                 },
                 HookSpec {
-                    matcher: HookMatcher::ToolPattern { pattern: "file_*".into() },
+                    matcher: HookMatcher::ToolPattern {
+                        pattern: "file_*".into(),
+                    },
                     command: "echo 'pre-file'".into(),
                     timeout_secs: 10,
                     blocking: false,
@@ -214,7 +218,9 @@ mod tests {
 
     #[test]
     fn hook_matcher_glob_works() {
-        let matcher = HookMatcher::ToolPattern { pattern: "file_*".into() };
+        let matcher = HookMatcher::ToolPattern {
+            pattern: "file_*".into(),
+        };
         assert!(matcher.matches("file_read"));
         assert!(matcher.matches("file_write"));
         assert!(!matcher.matches("shell_exec"));

@@ -23,8 +23,5 @@ pub async fn reply_text_message(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn send_module_exists() {
-        // Module existence check
-        assert!(true);
-    }
+    fn send_module_exists() {}
 }

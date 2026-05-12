@@ -258,13 +258,13 @@ pub fn load_skills_from_dirs_with_layer(dirs: &[&Path], layer: SkillLayer) -> Sk
 pub fn resolve_global_skills_dir() -> PathBuf {
     let mode = crate::config::ConfigMode::from_flags(false, None);
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    
+
     let state_dir = match mode {
         crate::config::ConfigMode::Development => home.join(".fastclaw-dev"),
         crate::config::ConfigMode::Profile(name) => home.join(format!(".fastclaw-{name}")),
         crate::config::ConfigMode::Production => home.join(".fastclaw"),
     };
-    
+
     state_dir.join("skills")
 }
 
@@ -851,7 +851,11 @@ mod tests {
     fn global_dir_ends_with_fastclaw_skills() {
         let dir = resolve_global_skills_dir();
         if cfg!(debug_assertions) {
-            assert!(dir.ends_with(".fastclaw-dev/skills"), "got {}", dir.display());
+            assert!(
+                dir.ends_with(".fastclaw-dev/skills"),
+                "got {}",
+                dir.display()
+            );
         } else {
             assert!(dir.ends_with(".fastclaw/skills"), "got {}", dir.display());
         }

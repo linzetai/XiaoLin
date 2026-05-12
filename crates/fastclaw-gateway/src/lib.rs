@@ -317,9 +317,11 @@ fn spawn_cron_scheduler(state: AppState) {
                 let router = self.state.rt.router.read().await;
                 router.resolve(&request)?.clone()
             };
-            let tool_definition_count =
-                crate::routes::filtered_tool_definitions(&self.state.rt.tool_registry, &agent_config)
-                    .map_or(0, |d| d.len());
+            let tool_definition_count = crate::routes::filtered_tool_definitions(
+                &self.state.rt.tool_registry,
+                &agent_config,
+            )
+            .map_or(0, |d| d.len());
             let llm_override = crate::routes::apply_model_router_for_chat(
                 &self.state,
                 &agent_config,
@@ -477,7 +479,14 @@ fn spawn_cron_scheduler(state: AppState) {
             // Skip channel notification if the agent reply was already sent
             // directly through the channel in trigger_agent_chat.
             if !sent_via_channel && !notify_channels.is_empty() {
-                let msg = format!("✅ 定时任务「{job_name}」执行完成\n{}", if preview.is_empty() { String::new() } else { format!("输出：{preview}") });
+                let msg = format!(
+                    "✅ 定时任务「{job_name}」执行完成\n{}",
+                    if preview.is_empty() {
+                        String::new()
+                    } else {
+                        format!("输出：{preview}")
+                    }
+                );
                 send_to_channels(&self.state, notify_channels, &msg).await;
             }
         }

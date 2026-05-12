@@ -172,8 +172,9 @@ async fn handle_slash_command(
             .dm_scope
             .clone()
             .unwrap_or(fastclaw_core::config::DmScope::PerChannelPeer);
-        let session_key =
-            fastclaw_core::routing::build_session_key(&dm_scope, agent_id, channel_id, account_id, chat_id, chat_type);
+        let session_key = fastclaw_core::routing::build_session_key(
+            &dm_scope, agent_id, channel_id, account_id, chat_id, chat_type,
+        );
 
         let deleted = state
             .store
@@ -205,6 +206,7 @@ async fn handle_slash_command(
 /// Uses the shared `setup_chat()` pipeline so IM channels get the same capabilities
 /// as HTTP/WS sessions: workspace paths, context engine, model routing, skills,
 /// prompt routing, budget tracking, and the full coding toolchain.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_channel_message(
     state: AppState,
     channel: Arc<dyn fastclaw_core::channel::ChannelPlugin>,
@@ -218,7 +220,9 @@ pub(crate) async fn handle_channel_message(
     use fastclaw_core::config::DmScope;
     use fastclaw_core::routing::{build_session_key, resolve_route};
 
-    if let Some(response) = handle_slash_command(&state, channel_id, chat_id, text, account_id, chat_type).await {
+    if let Some(response) =
+        handle_slash_command(&state, channel_id, chat_id, text, account_id, chat_type).await
+    {
         channel.reply_message(message_id, &response).await?;
         return Ok(());
     }
@@ -234,7 +238,14 @@ pub(crate) async fn handle_channel_message(
     );
     let agent_id = route.agent_id.as_str();
 
-    if let Some(agent_entry) = state.cfg.config.agents.list.iter().find(|a| a.id == agent_id) {
+    if let Some(agent_entry) = state
+        .cfg
+        .config
+        .agents
+        .list
+        .iter()
+        .find(|a| a.id == agent_id)
+    {
         if let Some(ref gc) = agent_entry.group_chat {
             if gc.require_mention == Some(true) {
                 let mentioned = gc
@@ -256,7 +267,9 @@ pub(crate) async fn handle_channel_message(
         .dm_scope
         .clone()
         .unwrap_or(DmScope::PerChannelPeer);
-    let session_key = build_session_key(&dm_scope, agent_id, channel_id, account_id, chat_id, chat_type);
+    let session_key = build_session_key(
+        &dm_scope, agent_id, channel_id, account_id, chat_id, chat_type,
+    );
 
     if state
         .store
@@ -465,6 +478,7 @@ enum ChannelSegment {
     ToolCall {
         tool_name: String,
         call_id: String,
+        #[allow(dead_code)]
         args: Option<String>,
         result: Option<String>,
         success: Option<bool>,
@@ -499,7 +513,11 @@ impl Default for ChannelStreamFormat {
 ///
 /// When `streaming` is true, the output includes cursor indicators and
 /// "executing..." placeholders for in-flight tool calls.
-fn render_segments(segments: &[ChannelSegment], streaming: bool, fmt: &ChannelStreamFormat) -> String {
+fn render_segments(
+    segments: &[ChannelSegment],
+    streaming: bool,
+    fmt: &ChannelStreamFormat,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     for (i, seg) in segments.iter().enumerate() {
@@ -773,10 +791,7 @@ async fn handle_channel_streaming(
     let update_interval = std::time::Duration::from_millis(800);
     let channel_for_update = channel.clone();
     let supports_cards = channel.supports_interactive_questions();
-    let session_id = request
-        .session_id
-        .clone()
-        .unwrap_or_default();
+    let session_id = request.session_id.clone().unwrap_or_default();
 
     // Track start times for in-flight tool calls so we can compute duration.
     let mut tool_start_times: std::collections::HashMap<String, std::time::Instant> =
@@ -869,8 +884,11 @@ async fn handle_channel_streaming(
                             *s = Some(success);
                             *d = elapsed;
                             if *is_interactive {
-                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&display) {
-                                    if let Some(ans) = parsed.get("answer").and_then(|v| v.as_str()) {
+                                if let Ok(parsed) =
+                                    serde_json::from_str::<serde_json::Value>(&display)
+                                {
+                                    if let Some(ans) = parsed.get("answer").and_then(|v| v.as_str())
+                                    {
                                         *ua = Some(ans.to_string());
                                     }
                                 }
@@ -887,9 +905,7 @@ async fn handle_channel_streaming(
                 segments_dirty = false;
             }
             StreamEvent::ToolProgress {
-                call_id,
-                message,
-                ..
+                call_id, message, ..
             } => {
                 for seg in segments.iter_mut().rev() {
                     if let ChannelSegment::ToolCall {
@@ -975,7 +991,9 @@ async fn handle_channel_streaming(
                         Err(e) => {
                             tracing::error!(error = %e, "streaming: failed to send ask_question card, answering with fallback");
                             if let Some((_, tx)) = confirm_pending.remove(&request_id) {
-                                let _ = tx.send(options.first().map(|o| o.id.clone()).unwrap_or_default());
+                                let _ = tx.send(
+                                    options.first().map(|o| o.id.clone()).unwrap_or_default(),
+                                );
                             }
                         }
                     }
@@ -1070,7 +1088,12 @@ mod tests {
         ChannelSegment::Thinking(s.to_string())
     }
 
-    fn tool(name: &str, result: Option<&str>, success: Option<bool>, ms: Option<u64>) -> ChannelSegment {
+    fn tool(
+        name: &str,
+        result: Option<&str>,
+        success: Option<bool>,
+        ms: Option<u64>,
+    ) -> ChannelSegment {
         ChannelSegment::ToolCall {
             tool_name: name.to_string(),
             call_id: "c1".to_string(),
@@ -1102,7 +1125,10 @@ mod tests {
     fn render_text_only_streaming() {
         let segs = vec![text("Hello world")];
         let out = render_segments(&segs, true, &default_fmt());
-        assert!(out.contains("Hello world\u{258d}"), "streaming cursor missing: {out}");
+        assert!(
+            out.contains("Hello world\u{258d}"),
+            "streaming cursor missing: {out}"
+        );
     }
 
     #[test]
@@ -1118,7 +1144,10 @@ mod tests {
         let segs = vec![thinking(&long)];
         let fmt = default_fmt();
         let out = render_segments(&segs, false, &fmt);
-        assert!(out.contains("思考过程共 400 字"), "truncation note missing: {out}");
+        assert!(
+            out.contains("思考过程共 400 字"),
+            "truncation note missing: {out}"
+        );
         assert!(out.contains("💭"), "thinking icon missing: {out}");
     }
 
@@ -1127,7 +1156,10 @@ mod tests {
         let long = "a".repeat(400);
         let segs = vec![thinking(&long)];
         let out = render_segments(&segs, true, &default_fmt());
-        assert!(!out.contains("思考过程共"), "should not truncate in streaming: {out}");
+        assert!(
+            !out.contains("思考过程共"),
+            "should not truncate in streaming: {out}"
+        );
     }
 
     #[test]
@@ -1139,7 +1171,12 @@ mod tests {
 
     #[test]
     fn render_tool_completed() {
-        let segs = vec![tool("read_file", Some("found 3 files"), Some(true), Some(350))];
+        let segs = vec![tool(
+            "read_file",
+            Some("found 3 files"),
+            Some(true),
+            Some(350),
+        )];
         let out = render_segments(&segs, false, &default_fmt());
         assert!(out.contains("✅"), "success icon: {out}");
         assert!(out.contains("350ms"), "duration: {out}");
@@ -1158,7 +1195,12 @@ mod tests {
     fn render_mixed_segments_ordered() {
         let segs = vec![
             text("Let me analyze the code..."),
-            tool("read_file", Some("src/main.rs (120 lines)"), Some(true), Some(200)),
+            tool(
+                "read_file",
+                Some("src/main.rs (120 lines)"),
+                Some(true),
+                Some(200),
+            ),
             text("I found two approaches."),
             tool("shell", Some("npm install OK"), Some(true), Some(1500)),
             text("Done!"),
@@ -1167,7 +1209,10 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         let analyze_pos = lines.iter().position(|l| l.contains("analyze")).unwrap();
         let read_pos = lines.iter().position(|l| l.contains("read_file")).unwrap();
-        let found_pos = lines.iter().position(|l| l.contains("two approaches")).unwrap();
+        let found_pos = lines
+            .iter()
+            .position(|l| l.contains("two approaches"))
+            .unwrap();
         let shell_pos = lines.iter().position(|l| l.contains("shell")).unwrap();
         let done_pos = lines.iter().position(|l| l.contains("Done!")).unwrap();
         assert!(analyze_pos < read_pos, "text before tool");
@@ -1183,7 +1228,10 @@ mod tests {
             interactive("Which approach?", None, None),
         ];
         let out = render_segments(&segs, true, &default_fmt());
-        assert!(out.contains("❓ **等待确认**: Which approach?"), "question: {out}");
+        assert!(
+            out.contains("❓ **等待确认**: Which approach?"),
+            "question: {out}"
+        );
         assert!(out.contains("请在下方卡片中选择"), "wait prompt: {out}");
     }
 
@@ -1243,7 +1291,10 @@ mod tests {
         let mut fmt = default_fmt();
         fmt.show_tool_results = false;
         let out = render_segments(&segs, false, &fmt);
-        assert!(!out.contains("big output"), "result should be hidden: {out}");
+        assert!(
+            !out.contains("big output"),
+            "result should be hidden: {out}"
+        );
         assert!(out.contains("read_file"));
     }
 
