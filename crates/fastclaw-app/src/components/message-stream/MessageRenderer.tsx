@@ -555,7 +555,69 @@ export function MessageRendererRow({
   const threshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
   const grouped = useMemo(() => groupConsecutiveSegments(streamSegments, threshold), [streamSegments, threshold]);
 
-  if (m.role === "streaming") {
+  const isStreaming = m.role === "streaming";
+  const cm = (isStreaming ? m : m) as ChatMessage;
+  const fullIdx = idx + paginationOffset;
+  const isMatch = !isStreaming && searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
+  const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isStreaming) return;
+    const el = rowRef.current;
+    if (!el) return;
+    const existing = el.querySelectorAll("mark[data-search-highlight]");
+    existing.forEach((mark) => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent ?? ""), mark);
+        parent.normalize();
+      }
+    });
+
+    if (!searchQuery || !isMatch) return;
+
+    const q = searchQuery.toLowerCase();
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node.textContent && node.textContent.toLowerCase().includes(q)) {
+        textNodes.push(node);
+      }
+    }
+
+    for (const textNode of textNodes) {
+      const text = textNode.textContent ?? "";
+      const lower = text.toLowerCase();
+      const parts: (string | { match: string })[] = [];
+      let lastIdx = 0;
+      let pos = lower.indexOf(q);
+      while (pos !== -1) {
+        if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
+        parts.push({ match: text.slice(pos, pos + q.length) });
+        lastIdx = pos + q.length;
+        pos = lower.indexOf(q, lastIdx);
+      }
+      if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+      if (parts.length <= 1) continue;
+
+      const frag = document.createDocumentFragment();
+      for (const part of parts) {
+        if (typeof part === "string") {
+          frag.appendChild(document.createTextNode(part));
+        } else {
+          const mark = document.createElement("mark");
+          mark.setAttribute("data-search-highlight", isCurrent ? "current" : "");
+          mark.textContent = part.match;
+          frag.appendChild(mark);
+        }
+      }
+      textNode.parentNode?.replaceChild(frag, textNode);
+    }
+  }, [isStreaming, searchQuery, isMatch, isCurrent]);
+
+  if (isStreaming) {
     const hasContent = streamSegments.length > 0;
     const lastSeg = streamSegments[streamSegments.length - 1];
     const lastIsText = lastSeg?.type === "text";
@@ -612,66 +674,6 @@ export function MessageRendererRow({
       </MessageErrorBoundary>
     );
   }
-
-  const cm = m as ChatMessage;
-  const fullIdx = idx + paginationOffset;
-  const isMatch = searchQuery && cm.content.toLowerCase().includes(searchQuery.toLowerCase());
-  const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = rowRef.current;
-    if (!el) return;
-    const existing = el.querySelectorAll("mark[data-search-highlight]");
-    existing.forEach((mark) => {
-      const parent = mark.parentNode;
-      if (parent) {
-        parent.replaceChild(document.createTextNode(mark.textContent ?? ""), mark);
-        parent.normalize();
-      }
-    });
-
-    if (!searchQuery || !isMatch) return;
-
-    const q = searchQuery.toLowerCase();
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    const textNodes: Text[] = [];
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      if (node.textContent && node.textContent.toLowerCase().includes(q)) {
-        textNodes.push(node);
-      }
-    }
-
-    for (const textNode of textNodes) {
-      const text = textNode.textContent ?? "";
-      const lower = text.toLowerCase();
-      const parts: (string | { match: string })[] = [];
-      let lastIdx = 0;
-      let pos = lower.indexOf(q);
-      while (pos !== -1) {
-        if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
-        parts.push({ match: text.slice(pos, pos + q.length) });
-        lastIdx = pos + q.length;
-        pos = lower.indexOf(q, lastIdx);
-      }
-      if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-      if (parts.length <= 1) continue;
-
-      const frag = document.createDocumentFragment();
-      for (const part of parts) {
-        if (typeof part === "string") {
-          frag.appendChild(document.createTextNode(part));
-        } else {
-          const mark = document.createElement("mark");
-          mark.setAttribute("data-search-highlight", isCurrent ? "current" : "");
-          mark.textContent = part.match;
-          frag.appendChild(mark);
-        }
-      }
-      textNode.parentNode?.replaceChild(frag, textNode);
-    }
-  }, [searchQuery, isMatch, isCurrent]);
 
   return (
     <MessageErrorBoundary>
