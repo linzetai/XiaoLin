@@ -103,25 +103,25 @@ export function AgentDetail({ open, onClose, agentName, agentInitial, agentColor
         </button>
       </div>
 
-      <div className="flex shrink-0 gap-0 px-3" style={{ borderBottom: "0.5px solid var(--separator)" }}>
-        {CONFIG_TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className="relative cursor-pointer px-2.5 py-2 text-[12px] font-medium transition-colors duration-150"
-            style={{
-              color: tab === t ? "var(--tint)" : "var(--fill-tertiary)",
-            }}
-          >
-            {tabLabel(t)}
-            {tab === t && (
-              <span
-                className="absolute bottom-0 left-1/2 h-[2px] w-4/5 -translate-x-1/2 rounded-full"
-                style={{ background: "var(--tint)", animation: "scale-in var(--duration-fast) var(--ease-out)" }}
-              />
-            )}
-          </button>
-        ))}
+      <div className="flex shrink-0 flex-wrap gap-0.5 px-2 pt-2 pb-1">
+        <div className="flex w-full flex-wrap justify-center gap-0.5 rounded-[var(--radius-xs)] p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+          {CONFIG_TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="flex min-w-0 flex-1 cursor-pointer rounded-[4px] px-1.5 py-1.5 text-center text-[11px] font-medium sm:px-2 sm:text-[12px]"
+              style={{
+                background: tab === t ? "var(--bg-elevated)" : "transparent",
+                color: tab === t ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                boxShadow: tab === t ? "var(--shadow-sm)" : "none",
+                minWidth: "2.5rem",
+                transition: `background var(--duration-fast) var(--ease-in-out), color var(--duration-fast) var(--ease-in-out), box-shadow var(--duration-fast) var(--ease-in-out)`,
+              }}
+            >
+              {tabLabel(t)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">

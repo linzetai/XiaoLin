@@ -30,25 +30,16 @@ export function ThinkingIndicator() {
         maxWidth: "75%",
       }}
     >
-      {/* Animated dots */}
-      <div className="flex items-center gap-1.5 h-5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--tint)",
-              opacity: dots > i ? 1 : 0.25,
-              transform: dots > i ? "scale(1)" : "scale(0.7)",
-              transition: "opacity var(--duration-slow) var(--ease-in-out), transform var(--duration-slow) var(--ease-in-out)",
-            }}
-          />
-        ))}
-      </div>
+      <span
+        className="text-[16px] leading-none"
+        style={{
+          color: "var(--tint)",
+          animation: "sparkle-glow 2s ease-in-out infinite",
+        }}
+      >
+        ✦
+      </span>
 
-      {/* Label */}
       <span
         className="text-[13px]"
         style={{ color: "var(--fill-tertiary)" }}
