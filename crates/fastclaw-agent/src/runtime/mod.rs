@@ -2410,6 +2410,45 @@ impl AgentRuntime {
         });
 
         messages.extend_from_slice(user_messages);
+
+        // When the user explicitly selected a model different from the agent's default,
+        // scan the conversation history for conflicting model identity claims and inject
+        // a reminder right before the last user message to prevent the LLM from parroting
+        // the old model's identity from history.
+        if let Some(ref req_model) = params.request.model {
+            if !req_model.is_empty() {
+                let has_conflicting_identity = messages.iter().any(|m| {
+                    if m.role != Role::Assistant {
+                        return false;
+                    }
+                    if let Some(text) = m.text_content() {
+                        let lower = text.to_lowercase();
+                        (lower.contains("我是") || lower.contains("i am") || lower.contains("i'm"))
+                            && !lower.contains(&req_model.to_lowercase())
+                    } else {
+                        false
+                    }
+                });
+                if has_conflicting_identity {
+                    if let Some(last_user_idx) = messages.iter().rposition(|m| m.role == Role::User) {
+                        let reminder = format!(
+                            "[Model Switch Notice] The model has been switched. You are now {}. \
+                             Disregard any previous assistant messages claiming a different model identity.",
+                            req_model
+                        );
+                        messages.insert(last_user_idx, ChatMessage {
+                            role: Role::System,
+                            content: Some(serde_json::Value::String(reminder)),
+                            reasoning_content: None,
+                            name: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                        });
+                    }
+                }
+            }
+        }
+
         messages
     }
 

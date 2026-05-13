@@ -54,18 +54,116 @@ fn providers_compatible(agent_provider: &str, routed_provider: &str) -> bool {
         || (matches!(a.as_str(), "google" | "gemini") && matches!(b.as_str(), "google" | "gemini"))
 }
 
+/// When the user explicitly selects a model (e.g. from the model dropdown),
+/// look up the model in `config.models` and LLM plugin registry to find the
+/// correct provider. Returns `Some(provider)` if the pinned model belongs to
+/// a different provider than the agent's default.
+fn resolve_pinned_model_provider(
+    state: &AppState,
+    agent_config: &AgentConfig,
+    pinned_model: &str,
+) -> Option<Arc<dyn fastclaw_agent::LlmProvider>> {
+    // 1. Search live config models (same source as models.list API).
+    let live = state.cfg.config_live.load();
+    if let Some(models_obj) = live.get("models").and_then(|v| v.as_object()) {
+        for (key, cfg) in models_obj {
+            let cfg_model = cfg
+                .get("model")
+                .or_else(|| cfg.get("defaultModel"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if cfg_model.is_empty() {
+                continue;
+            }
+            if cfg_model != pinned_model {
+                continue;
+            }
+            let cfg_provider_type = cfg
+                .get("provider")
+                .or_else(|| cfg.get("providerType"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(key.as_str());
+            if providers_compatible(&agent_config.model.provider, cfg_provider_type) {
+                return None;
+            }
+            let api_key = cfg.get("apiKey").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+                .or_else(|| state.cfg.config.credentials.get_api_key(key))
+                .or_else(|| state.cfg.config.credentials.get_api_key(cfg_provider_type));
+            let base_url = cfg.get("baseUrl").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+                .or_else(|| state.cfg.config.credentials.get_base_url(key))
+                .or_else(|| state.cfg.config.credentials.get_base_url(cfg_provider_type));
+
+            if let Some(plugin_id) = cfg_provider_type.strip_prefix("plugin:") {
+                if let Ok(registry) = state.ext.llm_plugin_registry.try_read() {
+                    match registry.create_provider(plugin_id) {
+                        Ok(p) => return Some(Arc::from(p)),
+                        Err(e) => {
+                            tracing::warn!(error = %e, plugin_id, "failed to create plugin provider for pinned model");
+                        }
+                    }
+                }
+                return None;
+            }
+            match fastclaw_agent::create_provider_with_credentials(
+                cfg_provider_type,
+                base_url,
+                api_key,
+                Some(&state.cfg.config.credentials),
+                None,
+            ) {
+                Ok(p) => return Some(Arc::from(p)),
+                Err(e) => {
+                    tracing::warn!(error = %e, provider = cfg_provider_type, "failed to create provider for pinned model");
+                    return None;
+                }
+            }
+        }
+    }
+
+    // 2. Search LLM plugin registry.
+    if let Ok(registry) = state.ext.llm_plugin_registry.try_read() {
+        for plugin in registry.list() {
+            if !plugin.enabled {
+                continue;
+            }
+            let has_model = plugin.models.iter().any(|m| m.id == pinned_model);
+            if !has_model {
+                continue;
+            }
+            let plugin_provider = format!("plugin:{}", plugin.id);
+            if providers_compatible(&agent_config.model.provider, &plugin_provider) {
+                return None;
+            }
+            match registry.create_provider(&plugin.id) {
+                Ok(p) => return Some(Arc::from(p)),
+                Err(e) => {
+                    tracing::warn!(error = %e, plugin_id = %plugin.id, "failed to create plugin provider for pinned model");
+                    return None;
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// When model routing is enabled, pick model (and optionally a per-request LLM provider) before calling `AgentRuntime`.
 /// Does nothing when router is off, the client pinned `model`, or routing fails.
+///
+/// When the client explicitly pins a `model`, we still check whether that model
+/// belongs to a different provider than the agent's default and create an
+/// `llm_override` if needed (e.g. user picks "deepseek-v4-flash" but the agent's
+/// default provider is a plugin that would misroute the request).
 pub fn apply_model_router_for_chat(
     state: &AppState,
     agent_config: &AgentConfig,
     request: &mut ChatRequest,
     tool_definition_count: usize,
 ) -> Option<Arc<dyn fastclaw_agent::LlmProvider>> {
-    let router = state.obs.model_router.as_ref()?;
-    if request.model.is_some() {
-        return None;
+    if let Some(ref pinned_model) = request.model {
+        return resolve_pinned_model_provider(state, agent_config, pinned_model);
     }
+    let router = state.obs.model_router.as_ref()?;
     let input_tokens = fastclaw_model_router::CostEstimator::estimate_chat_complexity_tokens(
         &request.messages,
         tool_definition_count,
