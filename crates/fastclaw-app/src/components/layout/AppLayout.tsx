@@ -215,6 +215,15 @@ export function AppLayout() {
 
   const handleOnboardingComplete = useCallback(async () => {
     try { await api.setConfig("onboarding", { completed: true }); } catch { /* best-effort */ }
+    try {
+      const models = await api.listModels();
+      if (models.length > 0) {
+        const first = models[0];
+        await api.updateAgent("main", {
+          model: { provider: first.provider, model: first.model, temperature: 0.7 },
+        });
+      }
+    } catch { /* best-effort */ }
     setShowOnboarding(false);
   }, []);
 

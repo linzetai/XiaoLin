@@ -146,6 +146,14 @@ fn builtin_default_model(config: &FastClawConfig) -> AgentModelConfig {
         {
             model.provider = provider_key.clone();
         }
+        return model;
+    }
+
+    if let Some((key, cfg)) = config.models.iter().next() {
+        if !cfg.model.is_empty() {
+            model.provider = key.clone();
+            model.model = cfg.model.clone();
+        }
     }
     model
 }

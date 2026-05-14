@@ -6,7 +6,7 @@ export const DEFAULT_AGENT_ID = "main";
 export const INITIAL_AGENTS: Agent[] = [
   {
     id: DEFAULT_AGENT_ID, name: "Main Agent", initial: "M", color: "var(--tint)",
-    tagline: "通用智能助手", online: true, model: "qwen3.5-plus",
+    tagline: "通用智能助手", online: true, model: "",
   },
 ];
 
