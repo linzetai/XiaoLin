@@ -35,16 +35,18 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
 
 export async function invokeWithRetry<T>(
   cmd: string,
-  maxRetries = 15,
-  intervalMs = 500,
+  maxRetries = 40,
+  baseMs = 300,
 ): Promise<T> {
   await ensureTauriApi();
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await _invoke!<T>(cmd);
     } catch {
-      if (i < maxRetries - 1)
-        await new Promise((r) => setTimeout(r, intervalMs));
+      if (i < maxRetries - 1) {
+        const delay = Math.min(baseMs * Math.pow(1.3, i), 3000);
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
   }
   throw new Error(`IPC ${cmd} failed after ${maxRetries} retries`);
