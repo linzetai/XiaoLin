@@ -31,6 +31,24 @@ log() { echo -e "\033[1;36m▸ $1\033[0m"; }
 err() { echo -e "\033[1;31m✗ $1\033[0m" >&2; }
 ok()  { echo -e "\033[1;32m✓ $1\033[0m"; }
 
+#── 并行构建参数 ──────────────────────────────────────────────────────
+NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+export CARGO_BUILD_JOBS="$NPROC"
+export RUSTFLAGS="${RUSTFLAGS:-} -C codegen-units=$NPROC -C link-arg=-fuse-ld=mold"
+
+if command -v sccache &>/dev/null; then
+  export RUSTC_WRAPPER=sccache
+fi
+
+if command -v mold &>/dev/null; then
+  export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="clang"
+  export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+else
+  RUSTFLAGS="${RUSTFLAGS//-C link-arg=-fuse-ld=mold/}"
+  export RUSTFLAGS
+fi
+
 #── 环境检查 ──────────────────────────────────────────────────────────
 
 log "检查构建环境..."
@@ -55,38 +73,48 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
 
 VERSION=$(grep '"version"' "$TAURI_DIR/tauri.conf.json" | head -1 | sed 's/.*: *"\(.*\)".*/\1/')
 ok "版本号: v$VERSION"
+ok "CPU 核数: $NPROC (cargo jobs=$CARGO_BUILD_JOBS)"
 ok "Cargo: $(cargo --version)"
 ok "Node:  $(node --version)"
 ok "pnpm:  $(pnpm --version)"
+if [ -n "${RUSTC_WRAPPER:-}" ]; then ok "sccache: 已启用"; fi
+if command -v mold &>/dev/null; then ok "链接器: mold"; fi
 
-#── Lint ──────────────────────────────────────────────────────────────
-
-if [ "$SKIP_LINT" = false ]; then
-  log "运行 clippy..."
-  # 仅检查打包所需的 Tauri crate，避免 workspace 里无关测试/实验代码阻塞发布构建。
-  (cd "$PROJECT_ROOT" && cargo clippy --manifest-path "$TAURI_DIR/Cargo.toml" --no-deps)
-  ok "Clippy 通过"
-fi
-
-#── 前端构建 ──────────────────────────────────────────────────────────
+#── 前端构建 + Lint 并行 ──────────────────────────────────────────────
 
 log "安装前端依赖..."
-(cd "$APP_DIR" && pnpm install --frozen-lockfile)
+(cd "$APP_DIR" && pnpm install --prefer-offline)
+
+LINT_PID=""
+if [ "$SKIP_LINT" = false ]; then
+  log "并行启动: clippy + 前端构建..."
+  (cd "$PROJECT_ROOT" && cargo clippy --manifest-path "$TAURI_DIR/Cargo.toml" --no-deps -j "$NPROC") &
+  LINT_PID=$!
+fi
 
 log "构建前端..."
-(cd "$APP_DIR" && pnpm build)
+(cd "$APP_DIR" && NODE_OPTIONS="--max-old-space-size=4096" pnpm build)
 ok "前端构建完成"
+
+if [ -n "$LINT_PID" ]; then
+  if wait "$LINT_PID"; then
+    ok "Clippy 通过"
+  else
+    err "Clippy 检查失败"
+    exit 1
+  fi
+fi
 
 #── Tauri 构建 ────────────────────────────────────────────────────────
 
-log "构建 Tauri 应用 (Linux)..."
+log "构建 Tauri 应用 (Linux) [$NPROC jobs]..."
 if [ "${CI:-}" = "1" ]; then
   export CI=true
 elif [ "${CI:-}" = "0" ]; then
   export CI=false
 fi
 
-(cd "$APP_DIR" && APPIMAGE_EXTRACT_AND_RUN=1 pnpm exec -- tauri build)
+(cd "$APP_DIR" && APPIMAGE_EXTRACT_AND_RUN=1 pnpm exec -- tauri build -- -j "$NPROC")
 ok "Tauri 构建完成"
 
 #── 收集产物 ──────────────────────────────────────────────────────────

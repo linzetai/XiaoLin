@@ -420,14 +420,28 @@ export function StreamFooter({
     handleToggleMode();
   }, [streaming, handleToggleMode]);
 
+  const handleExportMd = useCallback(async () => {
+    const chatId = activeChat?.id;
+    if (!chatId) return;
+    await api.exportSession(chatId, "markdown");
+  }, [activeChat?.id]);
+
+  const handleExportJson = useCallback(async () => {
+    const chatId = activeChat?.id;
+    if (!chatId) return;
+    await api.exportSession(chatId, "json");
+  }, [activeChat?.id]);
+
   const slashCommands = useMemo((): SlashCommand[] => [
     { id: "new", label: "new", desc: "开始新话题", action: handleNewTopic },
     { id: "clear", label: "clear", desc: "新建对话（清空当前）", action: handleNewTopic },
     { id: "compact", label: "compact", desc: "压缩上下文以释放空间", action: handleCompact },
     { id: "plan", label: "plan", desc: executionMode === "plan" ? "切换到 Agent 模式" : "切换到 Plan 模式（只读探索）", action: handlePlanSlash },
+    { id: "export-md", label: "export md", desc: "导出当前会话为 Markdown 文件", action: handleExportMd },
+    { id: "export-json", label: "export json", desc: "导出当前会话为 JSON 文件", action: handleExportJson },
     { id: "model", label: "model", desc: "在消息中指定模型，如 /model gpt-4o" },
     { id: "tools", label: "tools", desc: "在消息中指定工具，如 /tools search" },
-  ], [handleNewTopic, handleCompact, handlePlanSlash, executionMode]);
+  ], [handleNewTopic, handleCompact, handlePlanSlash, handleExportMd, handleExportJson, executionMode]);
 
   const wrappedSend = useCallback((txt: string, mentions: InlineMention[]) => {
     setSendPending(true);

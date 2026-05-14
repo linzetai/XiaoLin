@@ -58,6 +58,49 @@ export const deleteSession = transport.deleteSession;
 export const createSession = transport.createSession;
 export const setSessionWorkDir = transport.setSessionWorkDir;
 
+export type { ExportFormat } from "./transport";
+
+export async function exportSession(
+  sessionId: string,
+  format: transport.ExportFormat,
+): Promise<boolean> {
+  try {
+    const result = await transport.exportSessionContent(sessionId, format);
+
+    if (transport.isTauri) {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+
+      const ext = format === "json" ? "json" : "md";
+      const filePath = await save({
+        defaultPath: result.filename,
+        filters: [
+          {
+            name: format === "json" ? "JSON" : "Markdown",
+            extensions: [ext],
+          },
+        ],
+      });
+
+      if (!filePath) return false;
+      await writeTextFile(filePath, result.content);
+      return true;
+    }
+
+    const blob = new Blob([result.content], { type: result.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = result.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (e) {
+    console.warn("[api] exportSession error:", e);
+    return false;
+  }
+}
+
 // ─── REST API wrappers (Tauri mode uses IPC, browser mode falls back to HTTP) ───
 
 export interface SkillInfo {

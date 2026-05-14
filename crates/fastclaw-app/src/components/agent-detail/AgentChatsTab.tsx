@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
-import { X, Search, FolderOpen, Monitor, MessageSquare, Code, Clock } from "lucide-react";
+import { X, Search, FolderOpen, Monitor, MessageSquare, Code, Clock, Download } from "lucide-react";
 import { useAgentStore, type Chat } from "../../lib/agent-store";
 import { useActiveAgentChats } from "../../lib/stores/selectors";
 import { ListContainer } from "./common";
+import * as api from "../../lib/api";
 
 const SOURCE_META: Record<string, { label: string; icon: typeof Monitor; color: string }> = {
   client:  { label: "客户端", icon: Monitor,       color: "#3b82f6" },
@@ -26,11 +27,12 @@ function SourceBadge({ source }: { source: string }) {
   );
 }
 
-function ChatRow({ chat, isActive, onClick, onClose, isLast }: {
+function ChatRow({ chat, isActive, onClick, onClose, onExport, isLast }: {
   chat: Chat;
   isActive: boolean;
   onClick: () => void;
   onClose?: () => void;
+  onExport?: () => void;
   isLast: boolean;
 }) {
   return (
@@ -42,16 +44,28 @@ function ChatRow({ chat, isActive, onClick, onClose, isLast }: {
       }}
       onClick={onClick}
     >
-      {onClose && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-opacity duration-100 group-hover:opacity-100"
-          style={{ color: "var(--fill-tertiary)" }}
-          title="关闭会话"
-        >
-          <X size={14} strokeWidth={2} />
-        </button>
-      )}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+        {onExport && chat.messageCount > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onExport(); }}
+            className="flex h-5 w-5 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ color: "var(--fill-tertiary)" }}
+            title="导出会话"
+          >
+            <Download size={12} strokeWidth={2} />
+          </button>
+        )}
+        {onClose && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            className="flex h-5 w-5 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ color: "var(--fill-tertiary)" }}
+            title="关闭会话"
+          >
+            <X size={14} strokeWidth={2} />
+          </button>
+        )}
+      </div>
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight" style={{ color: "var(--fill-primary)" }} title={chat.title}>
           {chat.title}
@@ -78,6 +92,54 @@ function ChatRow({ chat, isActive, onClick, onClose, isLast }: {
   );
 }
 
+function ExportFormatPicker({ chatId, onDone }: { chatId: string; onDone: () => void }) {
+  const [exporting, setExporting] = useState(false);
+
+  const doExport = async (format: api.ExportFormat) => {
+    setExporting(true);
+    try {
+      await api.exportSession(chatId, format);
+    } finally {
+      setExporting(false);
+      onDone();
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onDone(); }} />
+      <div
+        className="absolute top-full right-0 z-50 mt-1 flex flex-col gap-0.5 rounded-lg py-1 shadow-lg"
+        style={{
+          background: "var(--bg-elevated)",
+          border: "0.5px solid var(--separator)",
+          minWidth: 140,
+          animation: "scale-in var(--duration-fast) var(--ease-out)",
+          transformOrigin: "top right",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => doExport("markdown")}
+          disabled={exporting}
+          className="flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+          style={{ color: "var(--fill-secondary)" }}
+        >
+          📝 导出为 Markdown
+        </button>
+        <button
+          onClick={() => doExport("json")}
+          disabled={exporting}
+          className="flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+          style={{ color: "var(--fill-secondary)" }}
+        >
+          {"{ }"} 导出为 JSON
+        </button>
+      </div>
+    </>
+  );
+}
+
 /* ━━━ Chats Tab ━━━ */
 
 export function ChatsTab() {
@@ -89,6 +151,7 @@ export function ChatsTab() {
 
   const [chatQuery, setChatQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [exportingChatId, setExportingChatId] = useState<string | null>(null);
 
   const availableSources = useMemo(() => {
     if (!ac) return [];
@@ -174,14 +237,19 @@ export function ChatsTab() {
           </div>
           <ListContainer>
             {filteredOpen.map((chat, i) => (
-              <ChatRow
-                key={chat.id}
-                chat={chat}
-                isActive={chat.id === ac.activeChatId}
-                onClick={() => setActiveChat(activeAgentId, chat.id)}
-                onClose={() => closeChat(activeAgentId, chat.id)}
-                isLast={i === filteredOpen.length - 1}
-              />
+              <div key={chat.id} className="relative">
+                <ChatRow
+                  chat={chat}
+                  isActive={chat.id === ac.activeChatId}
+                  onClick={() => setActiveChat(activeAgentId, chat.id)}
+                  onClose={() => closeChat(activeAgentId, chat.id)}
+                  onExport={() => setExportingChatId(exportingChatId === chat.id ? null : chat.id)}
+                  isLast={i === filteredOpen.length - 1}
+                />
+                {exportingChatId === chat.id && (
+                  <ExportFormatPicker chatId={chat.id} onDone={() => setExportingChatId(null)} />
+                )}
+              </div>
             ))}
           </ListContainer>
         </div>
@@ -195,13 +263,18 @@ export function ChatsTab() {
           </div>
           <ListContainer>
             {filteredClosed.map((chat, i) => (
-              <ChatRow
-                key={chat.id}
-                chat={chat}
-                isActive={false}
-                onClick={() => reopenChat(activeAgentId, chat.id)}
-                isLast={i === filteredClosed.length - 1}
-              />
+              <div key={chat.id} className="relative">
+                <ChatRow
+                  chat={chat}
+                  isActive={false}
+                  onClick={() => reopenChat(activeAgentId, chat.id)}
+                  onExport={() => setExportingChatId(exportingChatId === chat.id ? null : chat.id)}
+                  isLast={i === filteredClosed.length - 1}
+                />
+                {exportingChatId === chat.id && (
+                  <ExportFormatPicker chatId={chat.id} onDone={() => setExportingChatId(null)} />
+                )}
+              </div>
             ))}
           </ListContainer>
         </div>

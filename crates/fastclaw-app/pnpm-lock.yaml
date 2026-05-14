@@ -4,11 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  mdast-util-gfm-autolink-literal@2.0.1:
-    hash: 3ee244f803dcc8451555f6aa215ac735813619c1fe95bdabab91f8cc6bdbbaa6
-    path: patches/mdast-util-gfm-autolink-literal@2.0.1.patch
-
 importers:
 
   .:
@@ -2517,7 +2512,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  mdast-util-gfm-autolink-literal@2.0.1(patch_hash=3ee244f803dcc8451555f6aa215ac735813619c1fe95bdabab91f8cc6bdbbaa6):
+  mdast-util-gfm-autolink-literal@2.0.1:
     dependencies:
       '@types/mdast': 4.0.4
       ccount: 2.0.1
@@ -2565,7 +2560,7 @@ snapshots:
   mdast-util-gfm@3.1.0:
     dependencies:
       mdast-util-from-markdown: 2.0.3
-      mdast-util-gfm-autolink-literal: 2.0.1(patch_hash=3ee244f803dcc8451555f6aa215ac735813619c1fe95bdabab91f8cc6bdbbaa6)
+      mdast-util-gfm-autolink-literal: 2.0.1
       mdast-util-gfm-footnote: 2.1.0
       mdast-util-gfm-strikethrough: 2.0.0
       mdast-util-gfm-table: 2.0.0

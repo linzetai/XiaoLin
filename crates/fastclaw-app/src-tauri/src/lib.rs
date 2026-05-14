@@ -317,6 +317,7 @@ pub fn run() {
             commands::session::create_session,
             commands::session::update_session_title,
             commands::session::delete_session,
+            commands::session::export_session_content,
             commands::config::list_models,
             commands::config::get_config,
             commands::config::set_config,

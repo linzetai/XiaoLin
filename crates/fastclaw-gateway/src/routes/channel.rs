@@ -674,11 +674,11 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
         "read_file" => parsed
             .get("path")
             .and_then(|v| v.as_str())
-            .map(|p| short_path(p)),
+            .map(short_path),
         "write_file" | "edit_file" | "multi_edit" | "apply_patch" => parsed
             .get("path")
             .and_then(|v| v.as_str())
-            .map(|p| short_path(p)),
+            .map(short_path),
         "search_in_files" | "glob" => parsed
             .get("pattern")
             .or_else(|| parsed.get("query"))
@@ -688,7 +688,7 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
         "list_directory" => parsed
             .get("path")
             .and_then(|v| v.as_str())
-            .map(|p| short_path(p)),
+            .map(short_path),
         "shell_exec" => parsed
             .get("command")
             .and_then(|v| v.as_str())

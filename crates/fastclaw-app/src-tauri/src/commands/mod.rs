@@ -27,8 +27,8 @@ pub use notification::{
     notification_mark_all_read, notification_mark_read, notification_unread_count,
 };
 pub use session::{
-    create_session, delete_session, get_session, get_session_messages, list_sessions,
-    set_session_work_dir, update_session_title,
+    create_session, delete_session, export_session_content, get_session, get_session_messages,
+    list_sessions, set_session_work_dir, update_session_title,
 };
 pub use skill::{list_skills, refresh_skills, upload_skill};
 

@@ -202,6 +202,29 @@ export async function setSessionWorkDir(
   await wsClient.send("sessions.set_work_dir", { sessionId, workDir });
 }
 
+// ─── Session Export ───
+
+export type ExportFormat = "markdown" | "json";
+
+export interface ExportResult {
+  content: string;
+  filename: string;
+  mimeType: string;
+}
+
+export async function exportSessionContent(
+  sessionId: string,
+  format: ExportFormat,
+): Promise<ExportResult> {
+  if (isTauri) {
+    return await tauriInvoke<ExportResult>("export_session_content", {
+      sessionId,
+      format,
+    });
+  }
+  throw new Error("Export is only supported in desktop mode");
+}
+
 // ─── Models ───
 
 export interface ModelInfo {
