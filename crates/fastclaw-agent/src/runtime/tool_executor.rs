@@ -2042,6 +2042,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some(format!("id-{i}")),
+                compact_metadata: None,
             })
             .collect();
 
@@ -2082,6 +2083,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("id-0".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2090,6 +2092,7 @@ mod tool_result_truncation_tests {
                 name: Some("shell_exec".into()),
                 tool_calls: None,
                 tool_call_id: Some("id-1".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2098,6 +2101,7 @@ mod tool_result_truncation_tests {
                 name: Some("web_fetch".into()),
                 tool_calls: None,
                 tool_call_id: Some("id-2".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2106,6 +2110,7 @@ mod tool_result_truncation_tests {
                 name: Some("grep".into()),
                 tool_calls: None,
                 tool_call_id: Some("id-3".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2114,6 +2119,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("id-4".into()),
+                compact_metadata: None,
             },
         ];
 
@@ -2208,6 +2214,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("tc-1".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -2216,6 +2223,7 @@ mod tool_result_truncation_tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
 
@@ -2252,6 +2260,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("tc-1".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2260,6 +2269,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("tc-2".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2268,6 +2278,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("tc-3".into()),
+                compact_metadata: None,
             },
         ];
 
@@ -2300,6 +2311,7 @@ mod tool_result_truncation_tests {
             name: Some("read_file".into()),
             tool_calls: None,
             tool_call_id: Some("tc-1".into()),
+            compact_metadata: None,
         }];
 
         let count = time_based_microcompact(&mut msgs, &[], Duration::from_secs(300));
@@ -2321,6 +2333,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some(format!("id-{i}")),
+                compact_metadata: None,
             })
             .collect();
 
@@ -2549,6 +2562,7 @@ mod tool_result_truncation_tests {
                 name: Some("list_dir".into()),
                 tool_calls: None,
                 tool_call_id: Some(format!("id-{i}")),
+                compact_metadata: None,
             })
             .collect();
 
@@ -2580,6 +2594,7 @@ mod tool_result_truncation_tests {
                 name: Some("grep".into()),
                 tool_calls: None,
                 tool_call_id: Some(format!("id-{i}")),
+                compact_metadata: None,
             })
             .collect();
 
@@ -2617,6 +2632,7 @@ mod tool_result_truncation_tests {
             name: Some("read_file".into()),
             tool_calls: None,
             tool_call_id: Some("call-123".into()),
+            compact_metadata: None,
         }];
 
         rebuild_recall_registry(&msgs);
@@ -2655,6 +2671,7 @@ mod tool_result_truncation_tests {
                     duration_ms: None,
                 }]),
                 tool_call_id: None,
+            compact_metadata: None,
             }
         }
 
@@ -2666,6 +2683,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some(call_id.into()),
+                compact_metadata: None,
             }
         }
 
@@ -2719,6 +2737,7 @@ mod tool_result_truncation_tests {
                     duration_ms: None,
                 }]),
                 tool_call_id: None,
+            compact_metadata: None,
             }
         }
 
@@ -2730,6 +2749,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some(call_id.into()),
+                compact_metadata: None,
             }
         }
 
@@ -2822,6 +2842,7 @@ mod tool_result_truncation_tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2830,6 +2851,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("c1".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Assistant,
@@ -2838,6 +2860,7 @@ mod tool_result_truncation_tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -2846,6 +2869,7 @@ mod tool_result_truncation_tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -2854,6 +2878,7 @@ mod tool_result_truncation_tests {
                 name: Some("read_file".into()),
                 tool_calls: None,
                 tool_call_id: Some("c2".into()),
+                compact_metadata: None,
             },
         ];
 

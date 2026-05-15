@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use super::post_compact_restore::RestorationState;
 use super::stream_engine::ToolCallTrace;
 
 /// Max attempts to recover from `max_output_tokens` (finish_reason=length)
@@ -94,6 +95,11 @@ pub(crate) struct QueryLoopState {
 
     // ── Auto-fix loop state ───────────────────────────────────────────
     pub autofix: crate::autofix::AutoFixState,
+
+    // ── Post-compact restoration state ────────────────────────────────
+    /// Tracks recently read files, invoked skills, and plan content
+    /// for restoration after context compaction.
+    pub restoration_state: RestorationState,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -170,6 +176,8 @@ impl QueryLoopState {
             repetition_escalation: 0,
 
             autofix: crate::autofix::AutoFixState::default(),
+
+            restoration_state: RestorationState::new(),
         }
     }
 
@@ -327,7 +335,10 @@ impl QueryLoopState {
         if just_compacted || auto_compact_enabled {
             return None;
         }
-        let blocking_limit = (context_window as f64 * 0.95) as usize;
+        // Use Claude-Code style blocking limit: effective_window - 3K buffer
+        // This is roughly 98% of context window (for 200K: 200K - 20K - 3K = 177K)
+        let blocking_limit =
+            super::context_compressor::compute_blocking_limit(context_window);
         if estimated_tokens >= blocking_limit {
             Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
         } else {
@@ -608,18 +619,23 @@ mod tests {
     }
 
     #[test]
-    fn blocking_limit_triggers_at_95_percent() {
+    fn blocking_limit_triggers_at_effective_minus_buffer() {
         let s = QueryLoopState::new(10);
         let context_window = 100_000_u32;
-        let at_95 = (context_window as f64 * 0.95) as usize; // 95000
+        // New formula: effective = 100K - 20K = 80K, blocking = 80K - 3K = 77K
+        let blocking_limit =
+            super::super::context_compressor::compute_blocking_limit(context_window);
 
-        let result = s.check_blocking_limit(at_95, context_window, false, false);
+        // At the blocking limit itself
+        let result = s.check_blocking_limit(blocking_limit, context_window, false, false);
         assert_eq!(
             result,
             Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
         );
 
-        let result_above = s.check_blocking_limit(at_95 + 1000, context_window, false, false);
+        // Above the blocking limit
+        let result_above =
+            s.check_blocking_limit(blocking_limit + 1000, context_window, false, false);
         assert_eq!(
             result_above,
             Some(LoopTransition::Terminal(TerminalReason::BlockingLimit))
@@ -629,14 +645,19 @@ mod tests {
     #[test]
     fn blocking_limit_skipped_when_below_threshold() {
         let s = QueryLoopState::new(10);
-        let result = s.check_blocking_limit(90_000, 100_000, false, false);
+        let context_window = 100_000_u32;
+        // blocking_limit = 77K, so 50K should be fine
+        let result = s.check_blocking_limit(50_000, context_window, false, false);
         assert!(result.is_none());
     }
 
     #[test]
     fn blocking_limit_skipped_after_compact() {
         let s = QueryLoopState::new(10);
-        let result = s.check_blocking_limit(96_000, 100_000, false, true);
+        let context_window = 100_000_u32;
+        // Even above the blocking limit, should skip when just_compacted
+        let result =
+            s.check_blocking_limit(context_window as usize - 1, context_window, false, true);
         assert!(
             result.is_none(),
             "should not block after compaction just ran"
@@ -646,7 +667,10 @@ mod tests {
     #[test]
     fn blocking_limit_skipped_when_auto_compact_enabled() {
         let s = QueryLoopState::new(10);
-        let result = s.check_blocking_limit(96_000, 100_000, true, false);
+        let context_window = 100_000_u32;
+        // Even above the blocking limit, should skip when auto_compact handles it
+        let result =
+            s.check_blocking_limit(context_window as usize - 1, context_window, true, false);
         assert!(
             result.is_none(),
             "should not block when auto_compact handles it"
@@ -796,6 +820,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -804,6 +829,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
 
@@ -972,6 +998,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
 
         inject_tool_recovery_guidance(&mut messages, "Check permissions.");

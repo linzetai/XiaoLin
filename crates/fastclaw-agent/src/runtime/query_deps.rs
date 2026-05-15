@@ -5,6 +5,7 @@ use fastclaw_core::types::{ChatMessage, ChatResponse, StreamDelta};
 use futures::stream::BoxStream;
 use tokio::sync::Mutex;
 
+use super::post_compact_restore::RestorationState;
 use super::unified_compact::{unified_pre_query_compact, UnifiedCompactResult};
 use crate::llm::{CompletionParams, LlmProvider};
 
@@ -36,6 +37,7 @@ pub(crate) trait QueryDeps: Send + Sync {
         iteration_boundaries: &[(usize, std::time::Instant)],
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
+        restoration_state: Option<&RestorationState>,
     ) -> UnifiedCompactResult;
 
     /// Emergency reactive compaction (prompt_too_long recovery).
@@ -90,6 +92,7 @@ impl QueryDeps for ProductionDeps {
         iteration_boundaries: &[(usize, std::time::Instant)],
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
+        restoration_state: Option<&RestorationState>,
     ) -> UnifiedCompactResult {
         let mut pipeline = self.pipeline.lock().await;
         unified_pre_query_compact(
@@ -103,6 +106,7 @@ impl QueryDeps for ProductionDeps {
             iteration_boundaries,
             todo_store,
             enable_smart_compression,
+            restoration_state,
         )
         .await
     }
@@ -183,6 +187,7 @@ pub(crate) mod mock {
             _iteration_boundaries: &[(usize, std::time::Instant)],
             _todo_store: Option<&crate::builtin_tools::TodoStore>,
             _enable_smart_compression: bool,
+            _restoration_state: Option<&RestorationState>,
         ) -> UnifiedCompactResult {
             let mut results = self.compact_results.lock().await;
             if results.is_empty() {
@@ -193,6 +198,7 @@ pub(crate) mod mock {
                     tokens_saved_by_llm: 0,
                     pipeline_applied: false,
                     session_memory_extracted: false,
+                    state_restored: false,
                 }
             } else {
                 results.remove(0)
@@ -238,6 +244,7 @@ mod tests {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -297,10 +304,11 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
 
         let result = deps
-            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[], None, true)
+            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[], None, true, None)
             .await;
         assert!(!result.compressed_by_llm);
         assert!(!result.pipeline_applied);

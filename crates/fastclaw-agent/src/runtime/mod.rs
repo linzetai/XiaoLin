@@ -47,6 +47,7 @@ pub mod magic_docs;
 pub mod memory_selection;
 #[allow(dead_code)]
 pub mod permissions;
+mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;
@@ -87,6 +88,55 @@ use tool_result_storage::{
 use trajectory::append_text_to_chat_content;
 use trajectory::last_user_turn_text;
 use trajectory::truncate_for_trajectory;
+
+/// Track restoration state from tool execution.
+/// Extracts file reads, skill invocations, and plan content for post-compact recovery.
+fn track_restoration_state(
+    restoration_state: &mut post_compact_restore::RestorationState,
+    tool_name: &str,
+    arguments: &str,
+    output: &str,
+    success: bool,
+) {
+    // Only track successful tool executions
+    if !success {
+        return;
+    }
+
+    match tool_name {
+        // Track file reads
+        "Read" => {
+            if let Ok(args) = serde_json::from_str::<serde_json::Value>(arguments) {
+                if let Some(path) = args.get("file_path").and_then(|p| p.as_str()) {
+                    restoration_state.add_file(
+                        std::path::PathBuf::from(path),
+                        output.to_string(),
+                    );
+                }
+            }
+        }
+        // Track skill invocations
+        "Skill" => {
+            if let Ok(args) = serde_json::from_str::<serde_json::Value>(arguments) {
+                if let Some(skill_name) = args.get("skill").and_then(|s| s.as_str()) {
+                    restoration_state.add_skill(
+                        skill_name.to_string(),
+                        std::path::PathBuf::from(format!(".claude/skills/{}.md", skill_name)),
+                        output.to_string(),
+                    );
+                }
+            }
+        }
+        // Track plan mode - when entering plan mode, mark it
+        "EnterPlanMode" => {
+            restoration_state.is_plan_mode = true;
+        }
+        "ExitPlanMode" => {
+            restoration_state.is_plan_mode = false;
+        }
+        _ => {}
+    }
+}
 
 /// Create a ToolResultStorage for the current invocation session.
 ///
@@ -328,6 +378,7 @@ pub(crate) fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, gui
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     );
 }
@@ -741,6 +792,15 @@ impl AgentRuntime {
                 state.total_tool_calls += 1;
                 let rep_action = state.record_tool_call(&tool_name, &arguments);
 
+                // ── Track restoration state for post-compact recovery ──
+                track_restoration_state(
+                    &mut state.restoration_state,
+                    &tool_name,
+                    &arguments,
+                    &result.output,
+                    result.success,
+                );
+
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
                     action_type: "tool_call".into(),
@@ -788,10 +848,9 @@ impl AgentRuntime {
                 messages.push(ChatMessage {
                     role: Role::Tool,
                     content: Some(content),
-                    reasoning_content: None,
                     name: Some(tool_name.clone()),
-                    tool_calls: None,
                     tool_call_id: Some(call_id),
+                    ..Default::default()
                 });
 
                 trajectory_steps.push(TrajectoryStep {
@@ -883,6 +942,7 @@ impl AgentRuntime {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     });
                     break;
                 }
@@ -919,6 +979,7 @@ impl AgentRuntime {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     });
                 }
             }
@@ -1174,6 +1235,7 @@ impl AgentRuntime {
                     &state.iteration_msg_boundaries,
                     todo_store.as_ref(),
                     config.behavior.enable_smart_compression,
+                    Some(&state.restoration_state),
                 )
                 .await;
             state.last_estimated_tokens = compact_result.estimated_tokens;
@@ -1421,6 +1483,7 @@ impl AgentRuntime {
                                         name: None,
                                         tool_calls: None,
                                         tool_call_id: None,
+            compact_metadata: None,
                                     });
                                 }
                                 stream_resume_attempts += 1;
@@ -1599,6 +1662,7 @@ impl AgentRuntime {
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
+            compact_metadata: None,
                         });
                     }
                     continue;
@@ -1632,6 +1696,7 @@ impl AgentRuntime {
                                     name: None,
                                     tool_calls: None,
                                     tool_call_id: None,
+            compact_metadata: None,
                                 });
                             }
                             continue;
@@ -1674,6 +1739,7 @@ impl AgentRuntime {
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
+            compact_metadata: None,
                         });
 
                         let summary_params = CompletionParams {
@@ -1790,6 +1856,7 @@ impl AgentRuntime {
                 name: None,
                 tool_calls: Some(assembled_calls.clone()),
                 tool_call_id: None,
+            compact_metadata: None,
             });
 
             // Emit ToolExecuting events for all tool calls first.
@@ -1855,6 +1922,15 @@ impl AgentRuntime {
             for (tool_name, call_id, arguments, mut result) in stream_results {
                 state.total_tool_calls += 1;
                 let rep_action = state.record_tool_call(&tool_name, &arguments);
+
+                // ── Track restoration state for post-compact recovery ──
+                track_restoration_state(
+                    &mut state.restoration_state,
+                    &tool_name,
+                    &arguments,
+                    &result.output,
+                    result.success,
+                );
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -1989,10 +2065,9 @@ impl AgentRuntime {
                 messages.push(ChatMessage {
                     role: Role::Tool,
                     content: Some(content),
-                    reasoning_content: None,
                     name: Some(tool_name.clone()),
-                    tool_calls: None,
                     tool_call_id: Some(call_id),
+                    ..Default::default()
                 });
 
                 // ── Auto-fix loop (streaming path) ──
@@ -2075,6 +2150,7 @@ impl AgentRuntime {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     });
                     break;
                 }
@@ -2122,6 +2198,21 @@ impl AgentRuntime {
                         false,
                     )
                     .await;
+
+                    if let Some(pc) = crate::builtin_tools::plan_mode::current_plan_context() {
+                        let path = pc.store.plan_path(&pc.session_id);
+                        let exists = pc.store.plan_exists(&pc.session_id);
+                        let _ = send_stream_event(
+                            tx,
+                            StreamEvent::PlanFileUpdate {
+                                session_id: pc.session_id.clone(),
+                                path: path.to_string_lossy().to_string(),
+                                exists,
+                            },
+                            false,
+                        )
+                        .await;
+                    }
                 }
             }
 
@@ -2149,6 +2240,7 @@ impl AgentRuntime {
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
+            compact_metadata: None,
                         });
                     }
                 }
@@ -2373,6 +2465,7 @@ impl AgentRuntime {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         );
     }
@@ -2407,6 +2500,7 @@ impl AgentRuntime {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
 
         messages.extend_from_slice(user_messages);
@@ -2443,6 +2537,7 @@ impl AgentRuntime {
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
+            compact_metadata: None,
                         });
                     }
                 }
@@ -2751,6 +2846,7 @@ mod stream_resume_tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             }],
             agent_id: None,
             session_id: None,
