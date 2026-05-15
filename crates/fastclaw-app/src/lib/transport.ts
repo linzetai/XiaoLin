@@ -318,6 +318,15 @@ export async function setExecutionModeIpc(
   return { ok: false, from: "", to: "" };
 }
 
+export async function getPlanFileIpc(
+  sessionId?: string,
+): Promise<{ path: string; content: string | null; exists: boolean }> {
+  if (isTauri) {
+    return tauriInvoke("get_plan_file", { sessionId });
+  }
+  return { path: "", content: null, exists: false };
+}
+
 export async function getAgentIpc(agentId: string): Promise<unknown> {
   if (isTauri) {
     return tauriInvoke("get_agent", { agentId });

@@ -9,6 +9,7 @@ pub(crate) fn append_text_to_chat_content(content: &mut Option<serde_json::Value
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     let mut s = tmp.text_content().unwrap_or_default();
     s.push_str(block);

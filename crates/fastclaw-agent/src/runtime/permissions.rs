@@ -513,6 +513,7 @@ impl AutoModeClassifier {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
 
         let params = CompletionParams {

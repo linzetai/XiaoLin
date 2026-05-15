@@ -388,10 +388,7 @@ pub fn project(messages: &[ChatMessage], store: &CollapseStore) -> Vec<ChatMessa
                         "[Summary of rounds {}–{}]: {}",
                         span.start_round, span.end_round, span.summary
                     ))),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
+                    ..Default::default()
                 });
             }
         } else {
@@ -434,6 +431,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 

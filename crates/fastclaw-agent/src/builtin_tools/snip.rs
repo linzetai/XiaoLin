@@ -176,6 +176,7 @@ Guidelines:\n\
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -207,6 +208,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -215,6 +217,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Assistant,
@@ -225,6 +228,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -233,6 +237,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,
@@ -241,6 +246,7 @@ mod tests {
                 name: Some("web_search".into()),
                 tool_calls: None,
                 tool_call_id: Some("call_1".into()),
+                compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -249,6 +255,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ]
     }

@@ -341,6 +341,7 @@ pub fn run() {
             commands::chat::cancel_chat_stream,
             commands::chat::submit_tool_answer,
             commands::chat::set_execution_mode,
+            commands::chat::get_plan_file,
             commands::mcp::get_mcp_status,
             commands::mcp::reload_mcp_servers,
             commands::mcp::add_mcp_server,

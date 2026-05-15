@@ -99,6 +99,7 @@ pub(crate) async fn extract_session_memory(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
         ChatMessage {
             role: Role::User,
@@ -107,6 +108,7 @@ pub(crate) async fn extract_session_memory(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     ];
 
@@ -324,6 +326,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
 
         let summary = build_conversation_summary(&messages);
@@ -341,6 +344,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -349,6 +353,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
 

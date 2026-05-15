@@ -128,6 +128,17 @@ if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
   fi
 fi
 
+#── 构建 CLI 二进制 ──────────────────────────────────────────────────
+
+log "构建 FastClaw CLI (fastclaw)..."
+if [ "$UNIVERSAL" = true ]; then
+  (cd "$PROJECT_ROOT" && cargo build --release --package fastclaw-cli --target aarch64-apple-darwin)
+  (cd "$PROJECT_ROOT" && cargo build --release --package fastclaw-cli --target x86_64-apple-darwin)
+else
+  (cd "$PROJECT_ROOT" && cargo build --release --package fastclaw-cli)
+fi
+ok "CLI 构建完成"
+
 #── 收集产物 ──────────────────────────────────────────────────────────
 
 log "收集构建产物..."
@@ -153,6 +164,32 @@ for BUNDLE_DIR in "$PROJECT_ROOT/target/tauri/release/bundle" "$PROJECT_ROOT/tar
     done
   fi
 done
+
+# CLI binary
+if [ "$UNIVERSAL" = true ]; then
+  AARCH64_BIN="$PROJECT_ROOT/target/aarch64-apple-darwin/release/fastclaw"
+  X86_BIN="$PROJECT_ROOT/target/x86_64-apple-darwin/release/fastclaw"
+  if [ -f "$AARCH64_BIN" ] && [ -f "$X86_BIN" ]; then
+    lipo -create "$AARCH64_BIN" "$X86_BIN" -output "$DIST_DIR/fastclaw"
+    chmod +x "$DIST_DIR/fastclaw"
+    (cd "$DIST_DIR" && tar czf "fastclaw-cli-${VERSION}-darwin-universal.tar.gz" fastclaw)
+    ok "CLI 已打包: fastclaw-cli-${VERSION}-darwin-universal.tar.gz (universal)"
+  else
+    err "CLI 二进制未找到 (universal targets)"
+  fi
+else
+  CLI_BIN="$PROJECT_ROOT/target/release/fastclaw"
+  if [ -f "$CLI_BIN" ]; then
+    cp "$CLI_BIN" "$DIST_DIR/fastclaw"
+    chmod +x "$DIST_DIR/fastclaw"
+    ARCH="x86_64"
+    if [ "$(uname -m)" = "arm64" ]; then ARCH="aarch64"; fi
+    (cd "$DIST_DIR" && tar czf "fastclaw-cli-${VERSION}-darwin-${ARCH}.tar.gz" fastclaw)
+    ok "CLI 已打包: fastclaw-cli-${VERSION}-darwin-${ARCH}.tar.gz"
+  else
+    err "CLI 二进制未找到: $CLI_BIN"
+  fi
+fi
 
 ok "产物已收集到 $DIST_DIR/"
 ls -lh "$DIST_DIR/"

@@ -175,7 +175,7 @@ impl Default for BudgetConfig {
 }
 
 /// Result of applying the token budget.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[allow(dead_code)]
 pub(crate) struct BudgetResult {
     pub recent_tools_trimmed: usize,
@@ -429,6 +429,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -440,6 +441,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -451,6 +453,7 @@ mod tests {
             name: Some(name.to_string()),
             tool_calls: None,
             tool_call_id: Some(format!("call_{name}")),
+            compact_metadata: None,
         }
     }
 
@@ -462,6 +465,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 

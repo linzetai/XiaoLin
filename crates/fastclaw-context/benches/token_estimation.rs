@@ -16,6 +16,7 @@ fn make_messages(count: usize, content_len: usize) -> Vec<ChatMessage> {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         })
         .collect()
 }

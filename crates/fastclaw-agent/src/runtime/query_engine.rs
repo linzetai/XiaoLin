@@ -136,6 +136,7 @@ impl QueryEngine {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         };
 
         let request = {
@@ -216,6 +217,7 @@ impl QueryEngine {
                                         name: None,
                                         tool_calls: None,
                                         tool_call_id: None,
+            compact_metadata: None,
                                     });
                                 }
                             }
@@ -580,6 +582,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         };
         assert_eq!(msg.role, Role::User);
         assert_eq!(msg.text_content().as_deref(), Some(text));

@@ -133,6 +133,18 @@ if ($TauriExitCode -ne 0) {
 Pop-Location
 Ok "Tauri build complete"
 
+Log "Building FastClaw CLI (fastclaw.exe)..."
+Push-Location $ProjectRoot
+$env:CARGO_BUILD_JOBS = "$Jobs"
+cargo build --release --package fastclaw-cli -j $Jobs
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    Err "CLI build failed"
+    exit 1
+}
+Pop-Location
+Ok "CLI build complete"
+
 Log "Collecting build artifacts..."
 if (Test-Path $DistDir) {
     Remove-Item -Recurse -Force $DistDir
@@ -144,6 +156,19 @@ $Patterns = @("*.exe", "*.msi", "*.nsis.zip", "*.nsis.zip.sig")
 foreach ($pattern in $Patterns) {
     Get-ChildItem -Recurse -Path $BundleDir -Filter $pattern -ErrorAction SilentlyContinue |
         Copy-Item -Destination $DistDir
+}
+
+# CLI binary
+$CliBin = Join-Path $ProjectRoot "target\release\fastclaw.exe"
+if (Test-Path $CliBin) {
+    Copy-Item $CliBin -Destination $DistDir
+    $CliArchive = "fastclaw-cli-${Version}-windows-x86_64.zip"
+    Push-Location $DistDir
+    Compress-Archive -Path "fastclaw.exe" -DestinationPath $CliArchive -Force
+    Pop-Location
+    Ok "CLI packaged: $CliArchive"
+} else {
+    Err "CLI binary not found: $CliBin"
 }
 
 Ok "Artifacts collected at $DistDir"

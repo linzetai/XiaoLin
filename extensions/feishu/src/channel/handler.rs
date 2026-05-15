@@ -92,6 +92,7 @@ impl FeishuMessageHandler for FeishuChannel {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             )
             .await?;
@@ -141,6 +142,7 @@ impl FeishuMessageHandler for FeishuChannel {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             )
             .await?;

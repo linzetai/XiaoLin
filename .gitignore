@@ -72,6 +72,7 @@ dist/
 
 # ─── Tauri ────────────────────────────────────────────────────────────
 **/src-tauri/gen/
+**/src-tauri/binaries/
 **/src-tauri/blog/
 **/src-tauri/calculator/
 

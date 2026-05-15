@@ -469,10 +469,7 @@ impl ContextCompactor {
             result.push(ChatMessage {
                 role: Role::System,
                 content: Some(format!("[Conversation history summary]\n{summary}").into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
+                ..Default::default()
             });
         }
         result.extend(kept);
@@ -519,6 +516,7 @@ impl ContextCompactor {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
         result.extend(kept.iter().cloned().cloned());
 
@@ -570,6 +568,7 @@ impl ContextCompactor {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             });
         }
         result.extend(kept.into_iter().cloned());
@@ -602,6 +601,7 @@ impl ContextCompactor {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
         result.append(&mut last_pair_ordered);
 
@@ -695,6 +695,7 @@ impl ContextCompactor {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             });
         }
         result.extend(recent_msgs);
@@ -1037,6 +1038,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1048,6 +1050,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1059,6 +1062,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1170,6 +1174,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: Some(id.to_string()),
+                compact_metadata: None,
             }
         }
         fn asst_tools() -> ChatMessage {
@@ -1190,6 +1195,7 @@ mod tests {
                     duration_ms: None,
                 }]),
                 tool_call_id: None,
+            compact_metadata: None,
             }
         }
         let compactor = ContextCompactor::new(CompactionStrategy::ImportanceBased {
@@ -1271,6 +1277,7 @@ mod tests {
                 )
             },
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1282,6 +1289,7 @@ mod tests {
             name: Some("test_tool".to_string()),
             tool_calls: None,
             tool_call_id: Some(call_id.to_string()),
+            compact_metadata: None,
         }
     }
 
@@ -1343,6 +1351,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             user("next"),
         ];

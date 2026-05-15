@@ -1036,6 +1036,7 @@ fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<Chat
                     Some(tool_calls)
                 },
                 tool_call_id: None,
+            compact_metadata: None,
             },
             finish_reason: Some(finish_reason),
         }],
@@ -1255,7 +1256,25 @@ impl LlmProvider for ProcessLlmProvider {
     ) -> anyhow::Result<BoxStream<'static, anyhow::Result<StreamDelta>>> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
+        // #region agent log
+        {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"F","location":"llm_plugin.rs:chat_completion_stream:start","message":"ProcessLlmProvider stream called","data":{{"plugin_id":"{}","model":"{}"}},"timestamp":{}}}"#,
+                    self.plugin_id, params.model, chrono::Utc::now().timestamp_millis());
+            }
+        }
+        // #endregion
         self.ensure_process().await?;
+        // #region agent log
+        {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"F","location":"llm_plugin.rs:chat_completion_stream:after_ensure","message":"ensure_process succeeded","data":{{"plugin_id":"{}"}},"timestamp":{}}}"#,
+                    self.plugin_id, chrono::Utc::now().timestamp_millis());
+            }
+        }
+        // #endregion
 
         // Try the streaming method first; if the process returns an
         // "unsupported_method" error, fall back to non-streaming.
@@ -1279,6 +1298,15 @@ impl LlmProvider for ProcessLlmProvider {
             let handle = guard
                 .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("plugin process not running"))?;
+            // #region agent log
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                    let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"G","location":"llm_plugin.rs:chat_completion_stream:before_write","message":"About to write to plugin stdin","data":{{"plugin_id":"{}","req_bytes":{}}},"timestamp":{}}}"#,
+                        self.plugin_id, req_line.len(), chrono::Utc::now().timestamp_millis());
+                }
+            }
+            // #endregion
             if let Err(e) = handle.stdin.write_all(req_line.as_bytes()).await {
                 tracing::warn!(
                     plugin_id = %self.plugin_id,
@@ -1292,6 +1320,15 @@ impl LlmProvider for ProcessLlmProvider {
                 *guard = None;
                 anyhow::bail!("failed to flush plugin stdin: {e}");
             }
+            // #region agent log
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                    let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"G","location":"llm_plugin.rs:chat_completion_stream:after_write","message":"stdin write+flush done, about to read_line (may hang)","data":{{"plugin_id":"{}"}},"timestamp":{}}}"#,
+                        self.plugin_id, chrono::Utc::now().timestamp_millis());
+                }
+            }
+            // #endregion
 
             let mut first = String::new();
             let bytes_read = handle
@@ -1299,6 +1336,15 @@ impl LlmProvider for ProcessLlmProvider {
                 .read_line(&mut first)
                 .await
                 .map_err(|e| anyhow::anyhow!("failed to read from plugin stdout: {e}"))?;
+            // #region agent log
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                    let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"G","location":"llm_plugin.rs:chat_completion_stream:after_readline","message":"read_line returned","data":{{"plugin_id":"{}","bytes_read":{},"first_line_preview":"{}"}},"timestamp":{}}}"#,
+                        self.plugin_id, bytes_read, first.trim().chars().take(100).collect::<String>().replace('"', "'"), chrono::Utc::now().timestamp_millis());
+                }
+            }
+            // #endregion
 
             tracing::info!(
                 plugin_id = %self.plugin_id,
@@ -2006,6 +2052,7 @@ mod tests {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("stop".to_string()),
             }],
@@ -2058,6 +2105,7 @@ mod tests {
                         duration_ms: None,
                     }]),
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("tool_calls".to_string()),
             }],

@@ -31,6 +31,7 @@ export function useMessageStreamChat({
   const updateChatBackendId = useAgentStore((s) => s.updateChatBackendId);
   const updateChatUsage = useAgentStore((s) => s.updateChatUsage);
   const setChatExecutionMode = useAgentStore((s) => s.setChatExecutionMode);
+  const setChatPlanFile = useAgentStore((s) => s.setChatPlanFile);
   const subAgentStart = useAgentStore((s) => s.subAgentStart);
   const subAgentDelta = useAgentStore((s) => s.subAgentDelta);
   const subAgentToolStart = useAgentStore((s) => s.subAgentToolStart);
@@ -409,6 +410,13 @@ export function useMessageStreamChat({
             const newMode = d?.to as string | undefined;
             if (newMode && (newMode === "agent" || newMode === "plan")) {
               setChatExecutionMode(capturedAgentId, capturedChatId, newMode);
+            }
+            break;
+          }
+          case "chat.plan_file": {
+            const d = event.data;
+            if (d?.path) {
+              setChatPlanFile(capturedAgentId, capturedChatId, d.path as string, d.exists as boolean ?? false);
             }
             break;
           }

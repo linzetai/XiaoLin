@@ -143,6 +143,7 @@ impl ContextHook for MemoryKeywordInterceptor {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         );
 

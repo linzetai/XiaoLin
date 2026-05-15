@@ -8,6 +8,40 @@ use crate::llm::{CompletionParams, LlmProvider};
 /// Used as fallback when dynamic threshold computation is disabled.
 pub const COMPRESSION_THRESHOLD: f32 = 0.50;
 
+/// Reserved tokens for LLM output during summarization.
+/// Matches Claude-Code's MAX_OUTPUT_TOKENS_FOR_SUMMARY (p99.99 = 17,387).
+pub const MAX_OUTPUT_TOKENS_FOR_SUMMARY: usize = 20_000;
+
+/// Buffer tokens below effective context window before autocompact triggers.
+/// Matches Claude-Code's AUTOCOMPACT_BUFFER_TOKENS.
+pub const AUTOCOMPACT_BUFFER_TOKENS: usize = 13_000;
+
+/// Buffer tokens for blocking limit (last resort before stopping).
+/// Matches Claude-Code's MANUAL_COMPACT_BUFFER_TOKENS.
+pub const BLOCKING_LIMIT_BUFFER_TOKENS: usize = 3_000;
+
+/// Compute the effective context window (context_window - output reservation).
+/// This is the usable context for input tokens.
+pub fn effective_context_window(context_window: u32) -> usize {
+    context_window.saturating_sub(MAX_OUTPUT_TOKENS_FOR_SUMMARY as u32) as usize
+}
+
+/// Compute the preemptive autocompact threshold.
+/// Triggers when: estimated_tokens > effective_window - AUTOCOMPACT_BUFFER_TOKENS
+/// This is roughly 93% of context window (for a 200K window: 200K - 20K - 13K = 167K).
+pub fn compute_preemptive_threshold(context_window: u32) -> usize {
+    let effective = effective_context_window(context_window);
+    effective.saturating_sub(AUTOCOMPACT_BUFFER_TOKENS)
+}
+
+/// Compute the blocking limit threshold.
+/// Stops execution when: estimated_tokens > effective_window - BLOCKING_LIMIT_BUFFER_TOKENS.
+/// This is roughly 98% of context window.
+pub fn compute_blocking_limit(context_window: u32) -> usize {
+    let effective = effective_context_window(context_window);
+    effective.saturating_sub(BLOCKING_LIMIT_BUFFER_TOKENS)
+}
+
 /// Compute a dynamic compression threshold based on the actual token distribution
 /// in the current context. Adapts to workload characteristics:
 /// - Large system prompts (>30% of window): lower threshold to 0.40
@@ -101,6 +135,26 @@ pub struct CompressionResult {
     pub new_tokens: usize,
     pub messages: Vec<ChatMessage>,
     pub history_file: Option<String>,
+    /// Number of messages removed during compression.
+    pub messages_removed: usize,
+    /// What triggered the compression.
+    pub trigger: fastclaw_core::types::CompactTrigger,
+}
+
+impl CompressionResult {
+    /// Create a result indicating no compression happened.
+    pub(crate) fn no_op(messages: Vec<ChatMessage>) -> Self {
+        let estimated = fastclaw_context::estimate_messages_tokens(&messages);
+        Self {
+            compressed: false,
+            original_tokens: estimated,
+            new_tokens: estimated,
+            messages,
+            history_file: None,
+            messages_removed: 0,
+            trigger: fastclaw_core::types::CompactTrigger::Auto,
+        }
+    }
 }
 
 /// Save the pre-compression chat history to a file so the agent can search it
@@ -269,13 +323,7 @@ pub async fn try_compress_chat_with_threshold(
     let threshold = (context_window as f32 * threshold_fraction) as usize;
 
     if estimated <= threshold {
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     tracing::info!(
@@ -301,24 +349,12 @@ pub async fn try_compress_chat_with_threshold(
         non_system_indices.iter().map(|&i| &messages[i]).collect();
 
     if non_system_msgs.is_empty() {
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     let split = find_split_point(&non_system_msgs, PRESERVE_FRACTION);
     if split == 0 {
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     let to_compress = &non_system_msgs[..split];
@@ -343,13 +379,7 @@ pub async fn try_compress_chat_with_threshold(
 
     if total_chars > 0 && (compress_chars as f32 / total_chars as f32) < MIN_COMPRESSIBLE_FRACTION {
         tracing::info!("compressible fraction too small, skipping LLM compression");
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     // Save history file before LLM call so we can reference it in the prompt.
@@ -381,10 +411,7 @@ pub async fn try_compress_chat_with_threshold(
     compress_messages.push(ChatMessage {
         role: Role::System,
         content: Some(serde_json::Value::String(system_prompt)),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
+        ..Default::default()
     });
     for msg in to_compress {
         compress_messages.push((*msg).clone());
@@ -396,10 +423,7 @@ pub async fn try_compress_chat_with_threshold(
              then write the final summary in plain text."
                 .to_string(),
         )),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
+        ..Default::default()
     });
 
     let params = CompletionParams {
@@ -418,13 +442,7 @@ pub async fn try_compress_chat_with_threshold(
             .unwrap_or_default(),
         Err(e) => {
             tracing::warn!(error = %e, "LLM compression failed, falling back to rule-based");
-            return CompressionResult {
-                compressed: false,
-                original_tokens: estimated,
-                new_tokens: estimated,
-                messages: messages.clone(),
-                history_file: None,
-            };
+            return CompressionResult::no_op(messages.clone());
         }
     };
 
@@ -432,13 +450,7 @@ pub async fn try_compress_chat_with_threshold(
 
     if summary.trim().is_empty() {
         tracing::warn!("LLM compression returned empty summary");
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     // Rebuild messages: system msgs + summary as user/assistant pair + kept history
@@ -452,10 +464,7 @@ pub async fn try_compress_chat_with_threshold(
     new_messages.push(ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String(summary)),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
+        ..Default::default()
     });
     new_messages.push(ChatMessage {
         role: Role::Assistant,
@@ -463,10 +472,7 @@ pub async fn try_compress_chat_with_threshold(
             "Got it. I have the full context from the previous conversation. Let me continue."
                 .to_string(),
         )),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
+        ..Default::default()
     });
 
     for msg in to_keep {
@@ -481,13 +487,7 @@ pub async fn try_compress_chat_with_threshold(
             original = estimated,
             "compression inflated tokens, discarding"
         );
-        return CompressionResult {
-            compressed: false,
-            original_tokens: estimated,
-            new_tokens: estimated,
-            messages: messages.clone(),
-            history_file: None,
-        };
+        return CompressionResult::no_op(messages.clone());
     }
 
     // Add history file reference to assistant message so agent can recover details.
@@ -514,6 +514,21 @@ pub async fn try_compress_chat_with_threshold(
         "LLM compression successful"
     );
 
+    // Inject compact boundary marker after system messages so the agent
+    // and UI know that compaction occurred.
+    let messages_removed = to_compress.len();
+    let boundary = ChatMessage::compact_boundary(
+        fastclaw_core::types::CompactTrigger::Auto,
+        estimated,
+        new_estimated,
+    );
+    // Insert boundary after system messages, before the summary.
+    let first_non_system = new_messages
+        .iter()
+        .position(|m| !matches!(m.role, Role::System))
+        .unwrap_or(new_messages.len());
+    new_messages.insert(first_non_system, boundary);
+
     *messages = new_messages.clone();
 
     CompressionResult {
@@ -522,6 +537,8 @@ pub async fn try_compress_chat_with_threshold(
         new_tokens: new_estimated,
         messages: new_messages,
         history_file,
+        messages_removed,
+        trigger: fastclaw_core::types::CompactTrigger::Auto,
     }
 }
 
@@ -672,10 +689,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
+            ..Default::default()
         }
     }
 
@@ -683,10 +697,7 @@ mod tests {
         ChatMessage {
             role: Role::Assistant,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
+            ..Default::default()
         }
     }
 

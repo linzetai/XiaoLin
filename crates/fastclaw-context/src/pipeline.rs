@@ -8,6 +8,29 @@ use crate::compressor::{
 use crate::reactive::{ReactiveCompactResult, ReactiveCompactor, ReactiveCompactorConfig};
 use crate::snip::{SnipCompactor, SnipCompactorConfig, SnipResult};
 
+/// Read an environment variable as a boolean flag.
+/// Returns `default` if the variable is unset; parses "1"/"true"/"yes" as true,
+/// "0"/"false"/"no" as false.
+fn env_var_is_true(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(val) => match val.to_lowercase().as_str() {
+            "1" | "true" | "yes" => true,
+            "0" | "false" | "no" => false,
+            _ => default,
+        },
+        Err(_) => default,
+    }
+}
+
+/// Read an environment variable as a numeric value.
+/// Returns `default` if the variable is unset or unparseable.
+fn env_var_parse<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
 /// Per-layer compaction stats accumulated by [`ContextPipeline`].
 #[derive(Debug, Clone, Default)]
 pub struct CompactionMetadata {
@@ -65,18 +88,24 @@ pub struct PipelineConfig {
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            enable_snip: true,
-            enable_micro_compact: true,
-            enable_collapse: false,
-            enable_auto_compact: true,
+            enable_snip: env_var_is_true("FASTCLAW_ENABLE_SNIP", true),
+            enable_micro_compact: env_var_is_true("FASTCLAW_ENABLE_MICROCOMPACT", true),
+            enable_collapse: env_var_is_true("FASTCLAW_ENABLE_COLLAPSE", false),
+            enable_auto_compact: env_var_is_true("FASTCLAW_ENABLE_AUTOCOMPACT", true),
 
-            snip_max_tokens: 128_000,
-            snip_min_rounds: 3,
+            snip_max_tokens: env_var_parse("FASTCLAW_SNIP_MAX_TOKENS", 128_000),
+            snip_min_rounds: env_var_parse("FASTCLAW_SNIP_MIN_ROUNDS", 3),
 
-            micro_max_messages: DEFAULT_IMPORTANCE_MAX_MESSAGES,
-            micro_recent_window: DEFAULT_IMPORTANCE_RECENT_WINDOW,
+            micro_max_messages: env_var_parse(
+                "FASTCLAW_MICRO_MAX_MESSAGES",
+                DEFAULT_IMPORTANCE_MAX_MESSAGES,
+            ),
+            micro_recent_window: env_var_parse(
+                "FASTCLAW_MICRO_RECENT_WINDOW",
+                DEFAULT_IMPORTANCE_RECENT_WINDOW,
+            ),
 
-            reactive_target_tokens: 128_000,
+            reactive_target_tokens: env_var_parse("FASTCLAW_REACTIVE_TARGET_TOKENS", 128_000),
         }
     }
 }
@@ -324,6 +353,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -335,6 +365,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -346,6 +377,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 

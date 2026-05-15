@@ -99,6 +99,8 @@ export interface Chat {
   usage?: ChatUsage;
   subAgentRuns: Record<string, SubAgentRunUI>;
   executionMode: ExecutionMode;
+  planFilePath?: string;
+  planFileExists?: boolean;
 }
 
 export interface AgentChats {
@@ -151,6 +153,7 @@ export interface AgentState {
   reorderQueue: (agentId: string, chatId: string, fromIndex: number, toIndex: number) => void;
 
   setChatExecutionMode: (agentId: string, chatId: string, mode: ExecutionMode) => void;
+  setChatPlanFile: (agentId: string, chatId: string, path: string, exists: boolean) => void;
 
   subAgentStart: (agentId: string, chatId: string, run: SubAgentRunUI) => void;
   subAgentDelta: (agentId: string, chatId: string, runId: string, content: string) => void;

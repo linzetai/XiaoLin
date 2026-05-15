@@ -12,6 +12,7 @@ fn make_system_msg(text: &str) -> ChatMessage {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     }
 }
 
@@ -23,6 +24,7 @@ fn make_user_msg(text: &str) -> ChatMessage {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     }
 }
 
@@ -34,6 +36,7 @@ fn make_assistant_msg(text: &str) -> ChatMessage {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     }
 }
 

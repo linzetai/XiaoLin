@@ -61,6 +61,7 @@ pub async fn chat_stream(
                 name,
                 tool_calls: None,
                 tool_call_id,
+                compact_metadata: None,
             }
         })
         .collect();
@@ -313,6 +314,7 @@ pub async fn chat_stream(
                         name: None,
                         tool_calls: saved_tool_calls,
                         tool_call_id: None,
+            compact_metadata: None,
                     };
                     let _ = after_chat(&app, &setup, &assistant_msg, false).await;
                 }
@@ -423,6 +425,7 @@ pub async fn chat_stream(
                         name: None,
                         tool_calls: err_tc,
                         tool_call_id: None,
+            compact_metadata: None,
                     };
                     let _ = after_chat(&app, &setup, &assistant_msg, false).await;
                 }
@@ -434,6 +437,7 @@ pub async fn chat_stream(
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 };
                 if let Err(persist_err) = app
                     .store
@@ -571,10 +575,27 @@ pub async fn chat_stream(
                     "data": {"from": format!("{from}"), "to": format!("{to}")}
                 }));
             }
+            StreamEvent::PlanFileUpdate { session_id, path, exists } => {
+                let _ = channel.send(json!({
+                    "type": "chat.plan_file",
+                    "data": {"sessionId": session_id, "path": path, "exists": exists}
+                }));
+            }
             StreamEvent::Suggestions { items } => {
                 let _ = channel.send(json!({
                     "type": "chat.suggestions",
                     "data": {"items": items}
+                }));
+            }
+            StreamEvent::CompactBoundary { trigger, pre_compact_tokens, post_compact_tokens, messages_removed } => {
+                let _ = channel.send(json!({
+                    "type": "chat.compact.boundary",
+                    "data": {
+                        "trigger": format!("{trigger:?}"),
+                        "preCompactTokens": pre_compact_tokens,
+                        "postCompactTokens": post_compact_tokens,
+                        "messagesRemoved": messages_removed
+                    }
                 }));
             }
         }
@@ -632,6 +653,7 @@ pub async fn chat_stream(
                     name: None,
                     tool_calls: build_tc_for_persist(),
                     tool_call_id: None,
+            compact_metadata: None,
                 };
                 let _ = after_chat(&app, &setup, &assistant_msg, false).await;
             }
@@ -643,6 +665,7 @@ pub async fn chat_stream(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             };
             let _ = app
                 .store
@@ -673,6 +696,7 @@ pub async fn chat_stream(
                     name: None,
                     tool_calls: build_tc_for_persist(),
                     tool_call_id: None,
+            compact_metadata: None,
                 };
                 let _ = after_chat(&app, &setup, &assistant_msg, false).await;
             }
@@ -684,6 +708,7 @@ pub async fn chat_stream(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             };
             let _ = app
                 .store
@@ -770,5 +795,30 @@ pub async fn set_execution_mode(
         "ok": true,
         "from": format!("{from}"),
         "to": format!("{to}"),
+    }))
+}
+
+// ─── Plan file access ───
+
+#[tauri::command]
+pub async fn get_plan_file(
+    state: tauri::State<'_, AppData>,
+    session_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let gw = state.gateway.lock().await;
+    let app = get_state(&gw)?;
+    let sid = session_id.as_deref().unwrap_or("default");
+    let store = &app.rt.plan_file_store;
+    let path = store.plan_path(sid);
+    let exists = store.plan_exists(sid);
+    let content = if exists {
+        store.read_plan(sid)
+    } else {
+        None
+    };
+    Ok(json!({
+        "path": path.to_string_lossy(),
+        "exists": exists,
+        "content": content,
     }))
 }

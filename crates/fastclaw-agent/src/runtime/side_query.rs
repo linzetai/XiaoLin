@@ -147,6 +147,7 @@ impl SideQueryHandle {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
         match self.query(system, msgs).await {
             Ok(Some(r)) => Some(r.content),
@@ -284,6 +285,7 @@ mod tests {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     },
                     finish_reason: Some("stop".into()),
                 }],
@@ -324,6 +326,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             }],
             ..Default::default()
         }

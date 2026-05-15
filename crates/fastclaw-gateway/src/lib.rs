@@ -293,6 +293,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             };
             let _ = self
                 .state
@@ -359,6 +360,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             };
             let _ = self
                 .state

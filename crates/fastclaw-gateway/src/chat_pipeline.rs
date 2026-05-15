@@ -207,6 +207,7 @@ pub async fn setup_chat(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
     }
 
@@ -418,6 +419,7 @@ fn inject_slash_intent_context(
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     },
                 );
                 skill_loaded = true;
@@ -437,6 +439,7 @@ fn inject_slash_intent_context(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         );
     }
@@ -528,6 +531,7 @@ fn apply_prompt_router(
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         } else {
@@ -558,6 +562,7 @@ fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<Cha
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     );
 }
@@ -609,6 +614,7 @@ Guidance:\n\
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     );
 }
@@ -692,6 +698,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     );
 }
@@ -747,6 +754,7 @@ fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessag
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     });
     let assistant_msg = assistant.clone();
 
@@ -844,6 +852,7 @@ pub async fn generate_smart_title(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
         ChatMessage {
             role: Role::User,
@@ -854,6 +863,7 @@ pub async fn generate_smart_title(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     ];
 

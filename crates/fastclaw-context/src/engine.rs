@@ -195,6 +195,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
     }
 
@@ -208,6 +209,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
     }
 
@@ -221,6 +223,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
     }
 
@@ -234,6 +237,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         });
     }
 
@@ -517,6 +521,7 @@ impl ContextHook for SystemReminderHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -700,6 +705,7 @@ impl ContextHook for PersonalityHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
             offset += 1;
@@ -718,6 +724,7 @@ impl ContextHook for PersonalityHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -829,6 +836,7 @@ impl ContextHook for MemoryIngestHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -909,6 +917,7 @@ impl ContextHook for AgentPersonalityHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
             offset += 1;
@@ -927,6 +936,7 @@ impl ContextHook for AgentPersonalityHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
             offset += 1;
@@ -945,6 +955,7 @@ impl ContextHook for AgentPersonalityHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -1056,6 +1067,7 @@ impl ContextHook for AgentMemoryIngestHook {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
             );
         }
@@ -1161,6 +1173,7 @@ impl ContextEngine {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             });
         }
         final_msgs.extend(kept);
@@ -1374,6 +1387,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1385,6 +1399,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1423,6 +1438,7 @@ mod tests {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     },
                 );
             }
@@ -1519,6 +1535,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: Some("id-1".to_string()),
+            compact_metadata: None,
         }
     }
 
@@ -1530,6 +1547,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -1564,6 +1582,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         };
         let mut msgs = vec![user("hi"), empty, assistant("bye")];
         hook.on_assemble(&mut msgs).await.unwrap();
@@ -1608,6 +1627,7 @@ mod tests {
                 duration_ms: None,
             }]),
             tool_call_id: None,
+            compact_metadata: None,
         };
         let mut msgs = vec![user("run it"), asst_with_tool];
         hook.on_assemble(&mut msgs).await.unwrap();

@@ -420,6 +420,7 @@ async fn handle_stream(
                             name: None,
                             tool_calls: final_tool_calls,
                             tool_call_id: None,
+                            compact_metadata: None,
                         };
                         let _ = after_chat(
                             &state_for_persist,
@@ -491,6 +492,7 @@ async fn handle_stream(
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
+            compact_metadata: None,
                         };
                         let _ = after_chat(
                             &state_for_persist,
@@ -590,9 +592,25 @@ async fn handle_stream(
                     });
                     yield Ok(format!("event: mode_change\ndata: {ev}\n\n"));
                 }
+                StreamEvent::PlanFileUpdate { session_id, path, exists } => {
+                    let ev = json!({
+                        "sessionId": session_id,
+                        "path": path,
+                        "exists": exists,
+                    });
+                    yield Ok(format!("event: plan_file\ndata: {ev}\n\n"));
+                }
                 StreamEvent::Suggestions { items } => {
                     let ev = json!({ "items": items });
                     yield Ok(format!("event: suggestions\ndata: {ev}\n\n"));
+                }
+                StreamEvent::CompactBoundary { trigger, pre_compact_tokens, post_compact_tokens, .. } => {
+                    let ev = json!({
+                        "trigger": format!("{trigger:?}"),
+                        "preCompactTokens": pre_compact_tokens,
+                        "postCompactTokens": post_compact_tokens,
+                    });
+                    yield Ok(format!("event: compact_boundary\ndata: {ev}\n\n"));
                 }
             }
         }

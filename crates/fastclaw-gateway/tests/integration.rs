@@ -33,6 +33,7 @@ impl LlmProvider for MockProvider {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("stop".into()),
             }],

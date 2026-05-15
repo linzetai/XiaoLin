@@ -201,6 +201,7 @@ pub(super) async fn test_plugin(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         temperature: 0.0,
         max_tokens: Some(16),

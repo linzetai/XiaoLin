@@ -105,6 +105,17 @@ if [ -n "$LINT_PID" ]; then
   fi
 fi
 
+#── 构建 CLI 二进制 (打包进 deb) ───────────────────────────────────────
+
+log "构建 FastClaw CLI (fastclaw)..."
+(cd "$PROJECT_ROOT" && cargo build --release --package fastclaw-cli -j "$NPROC")
+ok "CLI 构建完成"
+
+mkdir -p "$TAURI_DIR/binaries"
+cp "$PROJECT_ROOT/target/release/fastclaw" "$TAURI_DIR/binaries/fastclaw"
+chmod +x "$TAURI_DIR/binaries/fastclaw"
+ok "CLI 已放置: src-tauri/binaries/fastclaw (将打入 deb /usr/bin/fastclaw)"
+
 #── Tauri 构建 ────────────────────────────────────────────────────────
 
 log "构建 Tauri 应用 (Linux) [$NPROC jobs]..."
@@ -130,6 +141,18 @@ for BUNDLE_DIR in "$PROJECT_ROOT/target/tauri/release/bundle" "$PROJECT_ROOT/tar
     find "$BUNDLE_DIR" -maxdepth 2 -name "$pattern" -exec cp {} "$DIST_DIR/" \; 2>/dev/null || true
   done
 done
+
+# CLI binary
+CLI_BIN="$PROJECT_ROOT/target/release/fastclaw"
+if [ -f "$CLI_BIN" ]; then
+  cp "$CLI_BIN" "$DIST_DIR/fastclaw"
+  chmod +x "$DIST_DIR/fastclaw"
+  # Create tar.gz archive for distribution
+  (cd "$DIST_DIR" && tar czf "fastclaw-cli-${VERSION}-linux-x86_64.tar.gz" fastclaw)
+  ok "CLI 已打包: fastclaw-cli-${VERSION}-linux-x86_64.tar.gz"
+else
+  err "CLI 二进制未找到: $CLI_BIN"
+fi
 
 ok "产物已收集到 $DIST_DIR/"
 ls -lh "$DIST_DIR/"

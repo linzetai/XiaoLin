@@ -1,0 +1,16 @@
+---
+source: crates/fastclaw-cli/src/tui/mod.rs
+expression: terminal.backend().to_string()
+---
+"│ ❯ 10:00:00                                                                   │"
+"│  Hello                                                                       │"
+"│                                                                              │"
+"│ ⎿ 10:00:01                                                                   │"
+"│  Hi there! How can I help?                                                   │"
+"│                                                                              │"
+"│ · 10:00:02                                                                   │"
+"│  Session started                                                             │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"

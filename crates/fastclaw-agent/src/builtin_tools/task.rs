@@ -977,6 +977,7 @@ pub async fn summarize_agent_output(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         max_tokens: Some(config.max_summary_tokens),
         temperature: 0.0,

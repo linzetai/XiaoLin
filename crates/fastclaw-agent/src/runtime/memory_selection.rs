@@ -106,6 +106,7 @@ pub async fn select_relevant_memories(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         max_tokens: Some(100),
         temperature: 0.0,

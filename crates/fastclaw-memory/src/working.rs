@@ -86,10 +86,7 @@ impl WorkingMemory {
             out.push(ChatMessage {
                 role: fastclaw_core::types::Role::System,
                 content: Some(serde_json::Value::String(sp.clone())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
+                ..Default::default()
             });
         }
         out.extend(self.buffer.iter().map(|(m, _)| m.clone()));
@@ -106,10 +103,7 @@ impl WorkingMemory {
             content: Some(serde_json::Value::String(format!(
                 "[conversation recap] {summary}"
             ))),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
+            ..Default::default()
         };
         self.buffer.push_front((recap, tick));
         while self.buffer.len() > self.max_messages {
@@ -147,6 +141,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -158,6 +153,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 

@@ -396,6 +396,8 @@ export function StreamFooter({
   }, [streaming]);
 
   const executionMode = activeChat?.executionMode ?? "agent";
+  const planFilePath = activeChat?.planFilePath;
+  const planFileExists = activeChat?.planFileExists ?? false;
 
   const handleCompact = useCallback(() => {
     if (streaming) return;
@@ -596,7 +598,16 @@ export function StreamFooter({
             }}
           >
             <Compass size={16} strokeWidth={2} className="shrink-0" />
-            <span>Plan Mode — 只读探索模式，切换到 Agent 可进行修改</span>
+            <span className="min-w-0 truncate">
+              Plan Mode — 只读探索模式
+              {planFilePath && (
+                <span style={{ opacity: 0.7 }}>
+                  {" · "}
+                  {planFileExists ? "" : "(未创建) "}
+                  {planFilePath.replace(/^\/home\/[^/]+\//, "~/")}
+                </span>
+              )}
+            </span>
           </div>
         )}
 

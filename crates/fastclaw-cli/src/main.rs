@@ -76,6 +76,8 @@ enum Commands {
         token: Option<String>,
         #[arg(long, help = "Resume a specific session")]
         session: Option<String>,
+        #[arg(long, help = "Do not auto-start embedded gateway")]
+        no_server: bool,
     },
     /// Conversation trace management (harness / eval)
     Trace {
@@ -459,13 +461,11 @@ async fn main() -> anyhow::Result<()> {
             url,
             token,
             session,
+            no_server,
         } => {
             let config = fastclaw_core::config::load_config(&mode).unwrap_or_default();
-            let effective_url = if url == "ws://127.0.0.1:18789/ws" {
-                format!("ws://127.0.0.1:{}/ws", config.gateway.port)
-            } else {
-                url
-            };
+            let port = config.gateway.port;
+            let user_specified_url = url != "ws://127.0.0.1:18789/ws";
 
             let sd = state_dir(&mode);
             let ws_root = fastclaw_core::workspace::resolve_workspace_root(
@@ -474,16 +474,40 @@ async fn main() -> anyhow::Result<()> {
                 config.workspace.as_deref().map(std::path::Path::new),
             );
             let _ = std::fs::create_dir_all(&ws_root);
-            let work_dir = ws_root.to_string_lossy().to_string();
+            let work_dir = Some(ws_root.to_string_lossy().to_string());
 
-            tui::run_tui(
-                &effective_url,
-                token.as_deref(),
-                session.as_deref(),
-                Some(work_dir),
-                &mode,
-            )
-            .await?;
+            // If user gave explicit URL, use it directly
+            if user_specified_url {
+                tui::run_tui(&url, token.as_deref(), session.as_deref(), work_dir, &mode)
+                    .await?;
+                return Ok(());
+            }
+
+            // Probe existing gateway
+            let gateway_alive = probe_gateway(port).await;
+
+            if gateway_alive {
+                let ws = format!("ws://127.0.0.1:{port}/ws");
+                tui::run_tui(&ws, token.as_deref(), session.as_deref(), work_dir, &mode)
+                    .await?;
+            } else if no_server {
+                anyhow::bail!(
+                    "Gateway not running on port {port}. \
+                     Start it with `fastclaw serve`, or remove --no-server to auto-start."
+                );
+            } else {
+                eprintln!("  Gateway not running — starting embedded server...");
+                let (actual_port, shutdown_tx) =
+                    start_embedded_gateway(config).await?;
+                eprintln!("  ✓ Gateway ready on port {actual_port}");
+
+                let ws = format!("ws://127.0.0.1:{actual_port}/ws");
+                let result =
+                    tui::run_tui(&ws, token.as_deref(), session.as_deref(), work_dir, &mode)
+                        .await;
+                let _ = shutdown_tx.send(());
+                result?;
+            }
         }
         Commands::McpServer => {
             cmd_mcp_server().await?;
@@ -523,6 +547,53 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+// --- Embedded Gateway ---
+
+async fn probe_gateway(port: u16) -> bool {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+    else {
+        return false;
+    };
+    client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
+        .is_ok_and(|r| r.status().is_success())
+}
+
+async fn start_embedded_gateway(
+    config: fastclaw_core::config::FastClawConfig,
+) -> anyhow::Result<(u16, tokio::sync::oneshot::Sender<()>)> {
+    let port = config.gateway.port;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+        Ok(l) => l,
+        Err(_) => tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+    };
+    let actual_port = listener.local_addr()?.port();
+
+    tokio::spawn(async move {
+        if let Err(e) = fastclaw_gateway::run_with_listener(config, listener, shutdown_rx).await {
+            tracing::error!("embedded gateway error: {e}");
+        }
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(200))
+        .build()?;
+    let health = format!("http://127.0.0.1:{actual_port}/health");
+    for _ in 0..50 {
+        if client.get(&health).send().await.is_ok() {
+            return Ok((actual_port, shutdown_tx));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    anyhow::bail!("embedded gateway failed to start within 5s");
 }
 
 // --- Config ---

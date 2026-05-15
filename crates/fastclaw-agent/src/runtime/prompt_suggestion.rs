@@ -71,6 +71,7 @@ pub async fn generate_suggestions(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         max_tokens: Some(256),
         temperature: 0.7,
@@ -191,6 +192,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Assistant,
@@ -199,6 +201,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
         let result = generate_suggestions(&provider, &messages, &config).await;

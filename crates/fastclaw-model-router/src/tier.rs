@@ -166,6 +166,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }
     }
 
@@ -215,6 +216,7 @@ mod tests {
                     duration_ms: None,
                 }]),
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,

@@ -520,10 +520,7 @@ impl SessionStore {
             let msg = fastclaw_core::types::ChatMessage {
                 role: fastclaw_core::types::Role::Assistant,
                 content: Some(serde_json::Value::String(content.to_string())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
+                ..Default::default()
             };
             self.append_message(session_id, &msg).await?;
         } else {
@@ -631,10 +628,10 @@ impl SessionStore {
             messages.push(ChatMessage {
                 role,
                 content,
-                reasoning_content: None,
                 name: row.name,
                 tool_calls,
                 tool_call_id: row.tool_call_id,
+                ..Default::default()
             });
         }
 
@@ -1051,6 +1048,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Assistant,
@@ -1059,6 +1057,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
         store.append_messages("s1", &msgs).await.unwrap();
@@ -1094,6 +1093,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::User,
@@ -1102,6 +1102,7 @@ mod tests {
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         ];
 
@@ -1127,6 +1128,7 @@ mod tests {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
         assert!(store.append_messages("missing", &msgs).await.is_err());
     }

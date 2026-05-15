@@ -84,6 +84,45 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --locked
 
+      - name: Build CLI (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          cargo build --release --package fastclaw-cli
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Place in src-tauri/binaries for deb packaging
+          mkdir -p crates/fastclaw-app/src-tauri/binaries
+          cp target/release/fastclaw crates/fastclaw-app/src-tauri/binaries/fastclaw
+          chmod +x crates/fastclaw-app/src-tauri/binaries/fastclaw
+          # Also create standalone archive
+          mkdir -p cli-out
+          cp target/release/fastclaw cli-out/
+          cd cli-out && tar czf "fastclaw-cli-${VERSION}-linux-x86_64.tar.gz" fastclaw
+
+      - name: Build CLI (macOS universal)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          cargo build --release --package fastclaw-cli --target aarch64-apple-darwin
+          cargo build --release --package fastclaw-cli --target x86_64-apple-darwin
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p cli-out
+          lipo -create \
+            target/aarch64-apple-darwin/release/fastclaw \
+            target/x86_64-apple-darwin/release/fastclaw \
+            -output cli-out/fastclaw
+          cd cli-out && tar czf "fastclaw-cli-${VERSION}-darwin-universal.tar.gz" fastclaw
+
+      - name: Build CLI (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo build --release --package fastclaw-cli
+          $Version = "$env:GITHUB_REF_NAME" -replace "^v", ""
+          New-Item -ItemType Directory -Force -Path cli-out
+          Copy-Item target\release\fastclaw.exe cli-out\
+          Push-Location cli-out
+          Compress-Archive -Path fastclaw.exe -DestinationPath "fastclaw-cli-${Version}-windows-x86_64.zip"
+          Pop-Location
+
       - name: Build Tauri App
         working-directory: crates/fastclaw-app
         run: pnpm exec -- tauri build ${{ matrix.args }}
@@ -92,7 +131,7 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           mkdir -p upload
-          for dir in target/release/bundle target/*/release/bundle; do
+          for dir in target/release/bundle target/*/release/bundle target/tauri/release/bundle; do
             [ -d "$dir" ] || continue
             find "$dir" -type f \( \
               -name "*.AppImage" -o -name "*.AppImage.tar.gz" -o -name "*.AppImage.tar.gz.sig" \
@@ -100,6 +139,8 @@ jobs:
               -o -name "*.deb" \
             \) -exec cp {} upload/ \;
           done
+          # Add CLI archive
+          cp cli-out/fastclaw-cli-*.tar.gz upload/ 2>/dev/null || true
           ls -la upload/
 
       - name: Collect artifacts (Windows)
@@ -107,13 +148,15 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path upload
-          $dirs = @("target\release\bundle")
+          $dirs = @("target\release\bundle", "target\tauri\release\bundle")
           $dirs += Get-ChildItem -Path target -Directory | ForEach-Object { Join-Path $_.FullName "release\bundle" }
           foreach ($d in $dirs) {
             if (Test-Path $d) {
               Get-ChildItem -Recurse $d -Include *.exe,*.msi,*.nsis.zip,*.nsis.zip.sig | Copy-Item -Destination upload
             }
           }
+          # Add CLI archive
+          Copy-Item cli-out\fastclaw-cli-*.zip upload\ -ErrorAction SilentlyContinue
           Get-ChildItem upload
 
       - name: Upload artifacts

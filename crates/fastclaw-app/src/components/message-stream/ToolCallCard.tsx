@@ -3,10 +3,11 @@ import {
   FileText, PenLine, Search, Terminal, Globe, Download, Monitor,
   Brain, Database, Image, Volume2, PackageSearch, PackagePlus,
   TableProperties, Play, Wrench, Check, X as XIcon, ChevronRight, Plug,
-  Copy, Maximize2, ListTodo, Code2,
+  Copy, Maximize2, ListTodo, Code2, Compass,
 } from "lucide-react";
 import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
+import { PlanApprovalCard, isPlanExitResult } from "./PlanApprovalCard";
 
 export interface ToolCall {
   id: string;
@@ -48,6 +49,8 @@ const TOOL_META: Record<string, { icon: ReactNode; label?: string }> = {
   todo_write: { icon: <ListTodo {...ICON_PROPS} />, label: "任务管理" },
   edit_file: { icon: <Code2 {...ICON_PROPS} />, label: "编辑文件" },
   lsp: { icon: <Code2 {...ICON_PROPS} />, label: "代码分析" },
+  enter_plan_mode: { icon: <Compass {...ICON_PROPS} />, label: "进入 Plan 模式" },
+  exit_plan_mode: { icon: <Code2 {...ICON_PROPS} />, label: "退出 Plan 模式" },
 };
 
 const DEFAULT_META = { icon: <Wrench {...ICON_PROPS} /> };
@@ -471,6 +474,11 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
       {!isRunning && tool.result && isEditResult(tool.name, tool.result) && (
         <div className="px-3 pb-2">
           <DiffCard result={tool.result} args={tool.args} />
+        </div>
+      )}
+      {!isRunning && tool.result && isPlanExitResult(tool.name, tool.result) && (
+        <div className="px-3 pb-2">
+          <PlanApprovalCard result={tool.result} />
         </div>
       )}
 

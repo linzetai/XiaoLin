@@ -15,7 +15,7 @@ pub use agent::{
     read_identity_files, update_agent, update_agent_tools, upload_agent_avatar,
 };
 pub use channel::{bind_agent_channel, list_channels, reload_channel, unbind_agent_channel};
-pub use chat::{cancel_chat_stream, chat_stream, set_execution_mode, submit_tool_answer};
+pub use chat::{cancel_chat_stream, chat_stream, get_plan_file, set_execution_mode, submit_tool_answer};
 pub use config::{
     get_config, get_gateway_info, health_check, list_models, set_config, test_model_connection,
 };

@@ -127,6 +127,7 @@ impl LlmExtractionCallback for LlmSkillExtraction {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }];
         let params = fastclaw_agent::CompletionParams {
             model: &self.model,
@@ -1577,6 +1578,7 @@ mod reload_tests {
                         name: None,
                         tool_calls: None,
                         tool_call_id: None,
+            compact_metadata: None,
                     },
                     finish_reason: Some("stop".into()),
                 }],

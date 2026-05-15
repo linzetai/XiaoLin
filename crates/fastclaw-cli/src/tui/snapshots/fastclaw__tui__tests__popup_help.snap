@@ -1,0 +1,28 @@
+---
+source: crates/fastclaw-cli/src/tui/mod.rs
+expression: terminal.backend().to_string()
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"        ┌ Help ────────────────────────────────────────────────────────┐        "
+"        │ FastClaw Help                                                │        "
+"        │                                                              │        "
+"        │ Input Modes         Keyboard Shortcuts   Navigation          │        "
+"        │                                                              │        "
+"        │ / + cmd     Slash commandsCtrl+C      Quit          Enter    │        "
+"        │Send message                                                  │        "
+"        │ /help       This help menuCtrl+L      Clear+new sessionTab   │        "
+"        │   Auto-complete                                              │        "
+"        │ /plan       Toggle mode   Ctrl+U      Clear line    ↑/↓      │        "
+"        │History                                                       │        "
+"        │ /agents     List agents   Ctrl+W      Delete word   Shift+↑↓ │        "
+"        │Scroll msgs                                                   │        "
+"        └──────────────────────────────────────────────────────────────┘        "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "

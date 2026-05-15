@@ -38,6 +38,7 @@ impl LlmProvider for MockProvider {
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -370,6 +371,7 @@ async fn append_and_load_messages() {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     state
         .store
@@ -385,6 +387,7 @@ async fn append_and_load_messages() {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     state
         .store
@@ -434,6 +437,7 @@ async fn load_messages_preserves_content() {
         name: Some("test-user".into()),
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     state
         .store
@@ -536,6 +540,7 @@ async fn stream_chat_produces_events() {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         model: None,
         stream: true,
@@ -615,6 +620,7 @@ async fn stream_chat_delta_content_accumulates() {
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         }],
         model: None,
         stream: true,
@@ -681,6 +687,7 @@ async fn full_session_lifecycle() {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     state
         .store
@@ -696,6 +703,7 @@ async fn full_session_lifecycle() {
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
     state
         .store

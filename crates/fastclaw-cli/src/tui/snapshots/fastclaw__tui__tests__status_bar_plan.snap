@@ -1,0 +1,5 @@
+---
+source: crates/fastclaw-cli/src/tui/mod.rs
+expression: terminal.backend().to_string()
+---
+" PLAN  Connecting...  ctx:39%[███░░░░░░░] 50k/128k  ? help · Shift+Tab mode · Ctrl+R search         "

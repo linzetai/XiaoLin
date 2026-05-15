@@ -140,11 +140,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                     }))).await;
                     break;
                 }
-                send_resp(&mut sender, &WsResponse {
+                if send_resp(&mut sender, &WsResponse {
                     id: None, msg_type: "heartbeat".into(),
                     data: Some(json!({"ts": chrono::Utc::now().to_rfc3339()})),
                     error: None,
-                }).await;
+                }).await {
+                    // Heartbeat sent successfully means client is still connected;
+                    // keep the connection alive while LLM streaming is pending.
+                    last_activity = Instant::now();
+                }
             }
 
             // Broadcast events for subscriptions (wildcard "*" not allowed for security)
@@ -273,6 +277,15 @@ async fn dispatch(
         }
         "agents" => agents::handle_agents(sender, state, id).await,
         "chat" => {
+            // #region agent log
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/home/linzetai/workspace/my_tools/FastClaw/.cursor/debug-a57040.log") {
+                    let _ = writeln!(f, r#"{{"sessionId":"a57040","hypothesisId":"D","location":"ws/mod.rs:dispatch:chat","message":"Gateway received chat method","data":{{"req_id":"{}"}},"timestamp":{}}}"#,
+                        id.as_deref().unwrap_or("none"), chrono::Utc::now().timestamp_millis());
+                }
+            }
+            // #endregion
             chat::spawn_chat(
                 state,
                 owned_sessions,

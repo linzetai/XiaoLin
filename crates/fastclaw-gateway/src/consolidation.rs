@@ -169,6 +169,7 @@ async fn run_consolidation(
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     }];
 
     let params = CompletionParams {
@@ -334,6 +335,7 @@ FACT: user | prefers_theme | dark mode";
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
             ChatMessage {
                 role: Role::Tool,

@@ -445,6 +445,24 @@ export function buildSessionSlice({ set, get }: SetGet) {
       });
     },
 
+    setChatPlanFile: (agentId: string, chatId: string, path: string, exists: boolean) => {
+      set((state) => {
+        const ac = state.agentChats[agentId];
+        if (!ac) return state;
+        return {
+          agentChats: {
+            ...state.agentChats,
+            [agentId]: {
+              ...ac,
+              chatList: ac.chatList.map((c) =>
+                c.id === chatId ? { ...c, planFilePath: path, planFileExists: exists } : c,
+              ),
+            },
+          },
+        };
+      });
+    },
+
     subAgentStart: (agentId: string, chatId: string, run: SubAgentRunUI) => {
       set((state) => {
         const ac = state.agentChats[agentId];

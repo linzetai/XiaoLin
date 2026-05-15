@@ -149,6 +149,28 @@ pub enum Role {
     Tool,
 }
 
+/// Metadata attached to a compact boundary system message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactMetadata {
+    /// What triggered the compaction.
+    pub trigger: CompactTrigger,
+    /// Token count before compaction.
+    pub pre_compact_token_count: usize,
+    /// Token count after compaction.
+    pub post_compact_token_count: usize,
+}
+
+/// What triggered context compaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactTrigger {
+    /// Automatic compaction when context exceeds threshold.
+    Auto,
+    /// User-initiated via /compact command.
+    Manual,
+}
+
 /// A chat message. `content` can be:
 /// - `null` / absent
 /// - a plain string: `"hello"`
@@ -168,6 +190,10 @@ pub struct ChatMessage {
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<ToolCallId>,
+    /// When `role == System` and this is a compact boundary marker,
+    /// contains metadata about the compaction event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_metadata: Option<CompactMetadata>,
 }
 
 impl ChatMessage {
@@ -199,6 +225,44 @@ impl ChatMessage {
                 .iter()
                 .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("image_url")),
             _ => false,
+        }
+    }
+
+    /// Create a compact boundary system message marking where compaction occurred.
+    pub fn compact_boundary(trigger: CompactTrigger, pre_tokens: usize, post_tokens: usize) -> Self {
+        Self {
+            role: Role::System,
+            content: Some(serde_json::Value::String(
+                "[Context was compacted: earlier conversation summarized]".to_string(),
+            )),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            compact_metadata: Some(CompactMetadata {
+                trigger,
+                pre_compact_token_count: pre_tokens,
+                post_compact_token_count: post_tokens,
+            }),
+        }
+    }
+
+    /// Whether this message is a compact boundary marker.
+    pub fn is_compact_boundary(&self) -> bool {
+        self.compact_metadata.is_some()
+    }
+}
+
+impl Default for ChatMessage {
+    fn default() -> Self {
+        Self {
+            role: Role::User,
+            content: None,
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            compact_metadata: None,
         }
     }
 }
@@ -554,6 +618,13 @@ pub enum StreamEvent {
         to: ExecutionMode,
     },
 
+    /// Emitted when the plan file is created or updated.
+    PlanFileUpdate {
+        session_id: String,
+        path: String,
+        exists: bool,
+    },
+
     /// Emitted when context token usage exceeds a safety threshold.
     ContextLimitWarning {
         used_tokens: u32,
@@ -579,6 +650,19 @@ pub enum StreamEvent {
         compressed: bool,
         /// Tokens saved by compression (0 if not compressed).
         tokens_saved: u32,
+    },
+
+    /// Emitted when context compaction completes successfully.
+    /// Signals to the frontend that older messages were replaced by a summary.
+    CompactBoundary {
+        /// What triggered the compaction.
+        trigger: CompactTrigger,
+        /// Token count before compaction.
+        pre_compact_tokens: usize,
+        /// Token count after compaction.
+        post_compact_tokens: usize,
+        /// Number of messages removed.
+        messages_removed: usize,
     },
 
     // ── Sub-agent streaming events ──────────────────────────────────

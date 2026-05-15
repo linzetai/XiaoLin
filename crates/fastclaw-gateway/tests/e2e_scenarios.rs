@@ -77,6 +77,7 @@ impl LlmProvider for ScriptedProvider {
                     name: None,
                     tool_calls,
                     tool_call_id: None,
+            compact_metadata: None,
                 },
                 finish_reason: Some("stop".into()),
             }],

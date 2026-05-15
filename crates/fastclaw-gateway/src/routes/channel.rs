@@ -297,6 +297,7 @@ pub(crate) async fn handle_channel_message(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             },
         )
         .await?;
@@ -320,6 +321,7 @@ pub(crate) async fn handle_channel_message(
         name: None,
         tool_calls: None,
         tool_call_id: None,
+            compact_metadata: None,
     };
 
     let request = ChatRequest {
@@ -384,6 +386,7 @@ pub(crate) async fn handle_channel_message(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         };
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -426,6 +429,7 @@ pub(crate) async fn handle_channel_message(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+            compact_metadata: None,
             });
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -477,6 +481,7 @@ fn inject_channel_context(
             name: None,
             tool_calls: None,
             tool_call_id: None,
+            compact_metadata: None,
         },
     );
 }
