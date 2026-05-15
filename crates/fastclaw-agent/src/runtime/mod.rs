@@ -133,6 +133,8 @@ fn track_restoration_state(
         }
         "ExitPlanMode" => {
             restoration_state.is_plan_mode = false;
+            // Clear plan content when exiting plan mode
+            restoration_state.clear_plan();
         }
         _ => {}
     }
@@ -1223,6 +1225,13 @@ impl AgentRuntime {
             state
                 .iteration_msg_boundaries
                 .push((messages.len(), std::time::Instant::now()));
+
+            // ── Populate plan content for restoration ───────────────────────
+            // Read plan file content before compression so it can be restored.
+            if let Some(ref session_id) = request.session_id {
+                let plan_store = crate::builtin_tools::PlanFileStore::new(None);
+                state.restoration_state.populate_plan_from_store(session_id, &plan_store);
+            }
 
             // ── Unified context compaction (via QueryDeps) ─────────────────
             let compact_result = deps
