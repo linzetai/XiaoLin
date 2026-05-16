@@ -205,6 +205,10 @@ pub struct BehaviorConfig {
     /// When false, falls back to the legacy fixed-threshold behavior.
     #[serde(default = "default_true")]
     pub enable_smart_compression: bool,
+    /// Optional budget limit in USD. When set, the runtime tracks accumulated
+    /// LLM costs and stops execution when the limit is exceeded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_limit_usd: Option<f64>,
 }
 
 /// Policy governing sub-agent delegation for an agent.
@@ -290,6 +294,7 @@ impl Default for BehaviorConfig {
             subagent: SubAgentPolicy::default(),
             streaming_tool_execution: false,
             enable_smart_compression: true,
+            budget_limit_usd: None,
         }
     }
 }

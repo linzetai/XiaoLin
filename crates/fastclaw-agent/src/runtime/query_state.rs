@@ -100,6 +100,10 @@ pub(crate) struct QueryLoopState {
     /// Tracks recently read files, invoked skills, and plan content
     /// for restoration after context compaction.
     pub restoration_state: RestorationState,
+
+    // ── Session memory (incremental) ──────────────────────────────────
+    /// Accumulated session memory, updated incrementally on each compact.
+    pub session_memory: Option<super::session_memory::SessionMemory>,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -178,6 +182,8 @@ impl QueryLoopState {
             autofix: crate::autofix::AutoFixState::default(),
 
             restoration_state: RestorationState::new(),
+
+            session_memory: None,
         }
     }
 

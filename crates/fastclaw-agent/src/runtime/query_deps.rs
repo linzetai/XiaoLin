@@ -38,6 +38,7 @@ pub(crate) trait QueryDeps: Send + Sync {
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
         restoration_state: Option<&RestorationState>,
+        existing_memory: Option<&super::session_memory::SessionMemory>,
     ) -> UnifiedCompactResult;
 
     /// Emergency reactive compaction (prompt_too_long recovery).
@@ -93,6 +94,7 @@ impl QueryDeps for ProductionDeps {
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
         restoration_state: Option<&RestorationState>,
+        existing_memory: Option<&super::session_memory::SessionMemory>,
     ) -> UnifiedCompactResult {
         let mut pipeline = self.pipeline.lock().await;
         unified_pre_query_compact(
@@ -107,6 +109,7 @@ impl QueryDeps for ProductionDeps {
             todo_store,
             enable_smart_compression,
             restoration_state,
+            existing_memory,
         )
         .await
     }
@@ -188,6 +191,7 @@ pub(crate) mod mock {
             _todo_store: Option<&crate::builtin_tools::TodoStore>,
             _enable_smart_compression: bool,
             _restoration_state: Option<&RestorationState>,
+            _existing_memory: Option<&crate::runtime::session_memory::SessionMemory>,
         ) -> UnifiedCompactResult {
             let mut results = self.compact_results.lock().await;
             if results.is_empty() {
@@ -198,6 +202,7 @@ pub(crate) mod mock {
                     tokens_saved_by_llm: 0,
                     pipeline_applied: false,
                     session_memory_extracted: false,
+                    extracted_memory: None,
                     state_restored: false,
                 }
             } else {
@@ -308,7 +313,7 @@ mod tests {
         }];
 
         let result = deps
-            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[], None, true, None)
+            .pre_query_compact(&mut messages, 128_000, None, "test", 0, &[], None, true, None, None)
             .await;
         assert!(!result.compressed_by_llm);
         assert!(!result.pipeline_applied);

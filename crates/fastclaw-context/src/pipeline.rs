@@ -207,6 +207,16 @@ impl ContextPipeline {
         self.circuit_breaker.record_failure();
     }
 
+    /// Run cached microcompact independently, before the full pipeline.
+    /// This allows the unified_compact caller to benefit from cross-turn caching
+    /// before running other compression steps.
+    pub fn run_cached_microcompact(
+        &mut self,
+        messages: &mut [ChatMessage],
+    ) -> crate::cached_microcompact::CachedMicrocompactResult {
+        self.cached_mc.compact(messages)
+    }
+
     /// Run the pre-query compaction pipeline (layers 0-3, synchronous).
     ///
     /// Layer 4 (AutoCompact) is not executed here because it requires an

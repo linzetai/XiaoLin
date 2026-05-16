@@ -266,6 +266,17 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
+        // session_memory: persists SessionMemory JSON across compaction cycles
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS session_memory (
+                session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                memory_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
         // Migration: add source column to track session origin (client/feishu/api/cron)
         let has_source: bool = sqlx::query_scalar::<_, i32>(
             "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'source'",
@@ -987,6 +998,40 @@ impl SessionStore {
     pub async fn load_collapse_state(&self, session_id: &str) -> anyhow::Result<Option<String>> {
         let row = sqlx::query_scalar::<_, String>(
             "SELECT state_json FROM collapse_state WHERE session_id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    /// Persist session memory JSON for a session.
+    pub async fn save_session_memory(
+        &self,
+        session_id: &str,
+        memory_json: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO session_memory (session_id, memory_json, updated_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(session_id) DO UPDATE SET
+                memory_json = excluded.memory_json,
+                updated_at = excluded.updated_at",
+        )
+        .bind(session_id)
+        .bind(memory_json)
+        .execute(&self.pool)
+        .await?;
+
+        tracing::debug!(session_id, "saved session memory");
+        Ok(())
+    }
+
+    /// Load session memory JSON for a session.
+    pub async fn load_session_memory(&self, session_id: &str) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query_scalar::<_, String>(
+            "SELECT memory_json FROM session_memory WHERE session_id = ?",
         )
         .bind(session_id)
         .fetch_optional(&self.pool)

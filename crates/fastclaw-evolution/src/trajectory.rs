@@ -255,6 +255,30 @@ impl TrajectoryStore {
     }
 
     /// Recent successful trajectories across all agents (newest first).
+    /// List all trajectories for an agent (any outcome), most recent first.
+    pub async fn list_by_agent(&self, agent_id: &str, limit: usize) -> Result<Vec<Trajectory>> {
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        )> = sqlx::query_as(
+            "SELECT id, agent_id, session_id, outcome_kind, task_type, outcome_json, created_at
+             FROM trajectories
+             WHERE agent_id = ?
+             ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(agent_id)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        self.hydrate_trajectories(rows).await
+    }
+
     pub async fn get_recent_successful_global(&self, limit: i64) -> Result<Vec<Trajectory>> {
         let rows: Vec<(
             String,

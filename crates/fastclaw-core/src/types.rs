@@ -533,6 +533,9 @@ pub enum ExecutionMode {
     Agent,
     /// Read-only planning mode: write/edit/execute tools are blocked.
     Plan,
+    /// Coordinator mode: orchestrates sub-tasks via worker agents.
+    /// Unlocks team management tools (create_team, send_message, etc.).
+    Coordinator,
 }
 
 impl std::fmt::Display for ExecutionMode {
@@ -540,6 +543,7 @@ impl std::fmt::Display for ExecutionMode {
         match self {
             Self::Agent => write!(f, "agent"),
             Self::Plan => write!(f, "plan"),
+            Self::Coordinator => write!(f, "coordinator"),
         }
     }
 }

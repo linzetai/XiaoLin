@@ -16,6 +16,61 @@ pub(crate) struct SessionMemory {
     pub decisions_made: Vec<String>,
     pub current_task_state: String,
     pub files_modified: Vec<String>,
+    /// Number of messages that had been seen when this memory was last extracted.
+    /// Used for incremental extraction — only new messages since this watermark
+    /// are fed into the next extraction round.
+    #[serde(default)]
+    pub watermark: usize,
+}
+
+impl SessionMemory {
+    /// Merge incremental extraction results into existing memory.
+    /// New facts/decisions are appended (de-duplicated). `current_task_state`
+    /// and `files_modified` are replaced wholesale since they represent the
+    /// latest state.
+    pub fn merge_incremental(&mut self, delta: &SessionMemory) {
+        for fact in &delta.key_facts {
+            if !self.key_facts.iter().any(|f| f == fact) {
+                self.key_facts.push(fact.clone());
+            }
+        }
+        // Trim to max 20 facts (drop oldest)
+        if self.key_facts.len() > 20 {
+            let excess = self.key_facts.len() - 20;
+            self.key_facts.drain(0..excess);
+        }
+
+        for dec in &delta.decisions_made {
+            if !self.decisions_made.iter().any(|d| d == dec) {
+                self.decisions_made.push(dec.clone());
+            }
+        }
+        if self.decisions_made.len() > 15 {
+            let excess = self.decisions_made.len() - 15;
+            self.decisions_made.drain(0..excess);
+        }
+
+        if !delta.current_task_state.is_empty() {
+            self.current_task_state = delta.current_task_state.clone();
+        }
+
+        for f in &delta.files_modified {
+            if !self.files_modified.iter().any(|existing| existing == f) {
+                self.files_modified.push(f.clone());
+            }
+        }
+
+        self.watermark = delta.watermark.max(self.watermark);
+    }
+
+    /// Estimated character size of this memory when serialized.
+    pub fn estimated_chars(&self) -> usize {
+        self.key_facts.iter().map(|s| s.len() + 4).sum::<usize>()
+            + self.decisions_made.iter().map(|s| s.len() + 4).sum::<usize>()
+            + self.current_task_state.len()
+            + self.files_modified.iter().map(|s| s.len() + 4).sum::<usize>()
+            + 200 // XML tags overhead
+    }
 }
 
 /// Outcome of a session memory extraction attempt.
@@ -228,6 +283,160 @@ fn parse_session_memory(raw: &str) -> Option<SessionMemory> {
     serde_json::from_str::<SessionMemory>(json_str).ok()
 }
 
+/// Incremental extraction: only feeds messages since the last watermark
+/// into the LLM, then merges results into the existing memory.
+pub(crate) async fn extract_incremental(
+    messages: &[ChatMessage],
+    existing: &SessionMemory,
+    provider: &Arc<dyn LlmProvider>,
+    model: &str,
+    context_window: u32,
+    estimated_tokens: usize,
+) -> ExtractionResult {
+    let total_msgs = messages.len();
+    let new_start = existing.watermark;
+
+    // If fewer than 5 new messages since last extraction, skip.
+    if total_msgs.saturating_sub(new_start) < 5 {
+        return ExtractionResult {
+            memory: None,
+            token_estimate: estimated_tokens,
+        };
+    }
+
+    let threshold = (context_window as f32 * SESSION_MEMORY_THRESHOLD) as usize;
+    if estimated_tokens < threshold {
+        return ExtractionResult {
+            memory: None,
+            token_estimate: estimated_tokens,
+        };
+    }
+
+    // Only summarize new messages
+    let new_messages = &messages[new_start..];
+    let conversation_text = build_conversation_summary(new_messages);
+
+    let extraction_messages = vec![
+        ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(
+                EXTRACTION_SYSTEM_PROMPT.to_string(),
+            )),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            compact_metadata: None,
+        },
+        ChatMessage {
+            role: Role::User,
+            content: Some(serde_json::Value::String(conversation_text)),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            compact_metadata: None,
+        },
+    ];
+
+    let params = CompletionParams {
+        model,
+        messages: &extraction_messages,
+        temperature: 0.0,
+        max_tokens: Some(1024),
+        tools: None,
+    };
+
+    let raw_output = match provider.chat_completion(&params).await {
+        Ok(resp) => resp
+            .choices
+            .first()
+            .and_then(|c| c.message.text_content())
+            .unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!(error = %e, "incremental session memory extraction failed");
+            return ExtractionResult {
+                memory: None,
+                token_estimate: estimated_tokens,
+            };
+        }
+    };
+
+    match parse_session_memory(&raw_output) {
+        Some(mut delta) => {
+            delta.watermark = total_msgs;
+            let mut merged = existing.clone();
+            merged.merge_incremental(&delta);
+            tracing::info!(
+                new_facts = delta.key_facts.len(),
+                total_facts = merged.key_facts.len(),
+                watermark = merged.watermark,
+                "incremental session memory merged"
+            );
+            ExtractionResult {
+                memory: Some(merged),
+                token_estimate: estimated_tokens,
+            }
+        }
+        None => {
+            tracing::warn!("failed to parse incremental session memory");
+            ExtractionResult {
+                memory: None,
+                token_estimate: estimated_tokens,
+            }
+        }
+    }
+}
+
+/// Persist session memory to the session store.
+pub(crate) async fn persist_session_memory(
+    session_store: &fastclaw_session::SessionStore,
+    session_id: &str,
+    memory: &SessionMemory,
+) {
+    let json = match serde_json::to_string(memory) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to serialize session memory");
+            return;
+        }
+    };
+
+    if let Err(e) = session_store.save_session_memory(session_id, &json).await {
+        tracing::warn!(error = %e, "failed to persist session memory");
+    } else {
+        tracing::debug!(session_id, "session memory persisted");
+    }
+}
+
+/// Load session memory from the session store.
+pub(crate) async fn load_session_memory(
+    session_store: &fastclaw_session::SessionStore,
+    session_id: &str,
+) -> Option<SessionMemory> {
+    match session_store.load_session_memory(session_id).await {
+        Ok(Some(json)) => match serde_json::from_str::<SessionMemory>(&json) {
+            Ok(mem) => {
+                tracing::debug!(
+                    session_id,
+                    facts = mem.key_facts.len(),
+                    "session memory loaded from store"
+                );
+                Some(mem)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to parse persisted session memory");
+                None
+            }
+        },
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load session memory from store");
+            None
+        }
+    }
+}
+
 /// Inject extracted session memory into the system prompt as an additional
 /// context block. This preserves the memory across compression rounds.
 pub(crate) fn inject_session_memory(messages: &mut [ChatMessage], memory: &SessionMemory) {
@@ -362,6 +571,7 @@ mod tests {
             decisions_made: vec!["chose SQLite".into()],
             current_task_state: "implementing feature X".into(),
             files_modified: vec!["src/main.rs".into()],
+            watermark: 0,
         };
 
         inject_session_memory(&mut messages, &memory);

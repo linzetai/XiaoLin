@@ -83,7 +83,7 @@ pub fn format_candidate_skills_for_prompt(skills: &[ExtractedSkill]) -> String {
 }
 
 /// Summary counts returned by [`SkillStore::maintenance`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct MaintenanceReport {
     /// Candidate skills promoted to active.
     pub promoted: u32,

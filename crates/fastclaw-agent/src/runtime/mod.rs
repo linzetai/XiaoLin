@@ -24,42 +24,34 @@ use crate::llm::{CompletionParams, LlmProvider};
 use base64::Engine as _;
 
 mod accumulator;
-#[allow(dead_code)]
 pub mod api_errors;
 #[allow(dead_code)]
 pub mod cache_break_detection;
 pub(crate) mod context_budget;
 pub(crate) mod context_compressor;
-#[allow(dead_code)]
 pub mod cost_tracker;
 #[allow(dead_code)]
 pub mod file_persistence;
 pub mod file_state_cache;
-#[allow(dead_code)]
 pub mod hook_config;
-#[allow(dead_code)]
 pub mod hook_events;
-#[allow(dead_code)]
 pub mod hook_executor;
-#[allow(dead_code)]
 pub mod magic_docs;
 #[allow(dead_code)]
 pub mod memory_selection;
-#[allow(dead_code)]
 pub mod permissions;
 mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;
-#[allow(dead_code)]
 pub mod prompt_suggestion;
 pub(crate) mod query_deps;
 pub mod query_engine;
 mod query_state;
-#[allow(dead_code)]
 pub mod retry;
+pub(crate) mod observer;
+pub(crate) mod runtime_services;
 mod session_memory;
-#[allow(dead_code)]
 pub mod side_query;
 mod stop_hooks;
 mod stream_engine;
@@ -1165,6 +1157,13 @@ impl AgentRuntime {
         let skip_tool_names = build_skip_tool_names(tool_registry);
         let stream_start = std::time::Instant::now();
 
+        // Load session memory from store if resuming a session
+        if let (Some(store), Some(sid)) = (session_store, request.session_id.as_deref()) {
+            if let Some(mem) = session_memory::load_session_memory(store.as_ref(), sid).await {
+                state.session_memory = Some(mem);
+            }
+        }
+
         // Context window — constant across iterations
         let context_window = config.model.context_window.unwrap_or(
             fastclaw_context::infer_context_window_from_model(&config.model.model),
@@ -1194,6 +1193,16 @@ impl AgentRuntime {
             &request.messages,
         )
         .await;
+
+        // RuntimeServices: hook system, cost tracking, magic docs, permissions
+        let abort_token = tokio_util::sync::CancellationToken::new();
+        let workspace_dir = request.work_dir.as_ref().map(std::path::Path::new);
+        let budget_limit = config.behavior.budget_limit_usd;
+        let services = runtime_services::RuntimeServices::from_config(
+            workspace_dir,
+            budget_limit,
+            abort_token,
+        );
 
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
@@ -1248,10 +1257,19 @@ impl AgentRuntime {
                     todo_store.as_ref(),
                     config.behavior.enable_smart_compression,
                     Some(&state.restoration_state),
+                    state.session_memory.as_ref(),
                 )
                 .await;
             state.last_estimated_tokens = compact_result.estimated_tokens;
             let estimated_tokens = compact_result.estimated_tokens;
+
+            // Persist session memory if extracted/updated
+            if let Some(ref mem) = compact_result.extracted_memory {
+                state.session_memory = Some(mem.clone());
+                if let (Some(store), Some(sid)) = (session_store, request.session_id.as_deref()) {
+                    session_memory::persist_session_memory(store.as_ref(), sid, mem).await;
+                }
+            }
 
             // Emit live context usage update to frontend
             let _ = send_stream_event(
@@ -1383,6 +1401,7 @@ impl AgentRuntime {
             let mut accumulated_reasoning = String::new();
             let mut tool_call_accum: Vec<ToolCallAccumulator> = Vec::new();
             let mut stream_errored = false;
+            let mut force_stop = false;
             let mut last_finish_reason: Option<String> = None;
             let mut withheld_prompt_too_long: Option<String> = None;
 
@@ -1599,6 +1618,46 @@ impl AgentRuntime {
                         if u.prompt_tokens > 0 {
                             state.last_estimated_tokens = u.prompt_tokens as usize;
                         }
+
+                        // ── Cost tracker: record LLM usage ──
+                        if u.prompt_tokens > 0 || u.completion_tokens > 0 {
+                            let call_usage = cost_tracker::CallUsage {
+                                model: model.clone(),
+                                prompt_tokens: u.prompt_tokens,
+                                completion_tokens: u.completion_tokens,
+                                cache_read_tokens: 0,
+                                cache_creation_tokens: 0,
+                            };
+                            if let Some(alert) =
+                                services.record_llm_usage(call_usage).await
+                            {
+                                match alert {
+                                    cost_tracker::BudgetAlert::Warning => {
+                                        let cost = services.accumulated_cost_usd().await;
+                                        let _ = send_stream_event(
+                                            tx,
+                                            StreamEvent::Error(format!(
+                                                "Budget warning: accumulated cost ${:.4} is approaching the limit.",
+                                                cost,
+                                            )),
+                                            false,
+                                        ).await;
+                                    }
+                                    cost_tracker::BudgetAlert::Exceeded => {
+                                        let cost = services.accumulated_cost_usd().await;
+                                        let _ = send_stream_event(
+                                            tx,
+                                            StreamEvent::Error(format!(
+                                                "Budget exceeded: accumulated cost ${:.4}. Stopping execution.",
+                                                cost,
+                                            )),
+                                            false,
+                                        ).await;
+                                        force_stop = true;
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if tool_call_accum.is_empty() {
@@ -1659,6 +1718,13 @@ impl AgentRuntime {
                 return Err(anyhow::anyhow!(
                     "provider stream error (already sent to client)"
                 ));
+            }
+
+            if force_stop {
+                tracing::warn!("budget exceeded — stopping execution");
+                self.finalize_injected_skills(&injected_skill_ids, false)
+                    .await;
+                return Ok((state.iteration, state.total_tool_calls));
             }
 
             // max_output_tokens recovery: when finish_reason=length and no
@@ -1832,6 +1898,9 @@ impl AgentRuntime {
                         false,
                     )
                     .await;
+                    services
+                        .fire_stop_hooks(&messages, &[])
+                        .await;
                     self.finalize_injected_skills(&injected_skill_ids, true)
                         .await;
                     self.record_completed_trajectory(request, config, &trajectory_steps, true)
@@ -1864,6 +1933,9 @@ impl AgentRuntime {
                     false,
                 )
                 .await;
+                services
+                    .fire_stop_hooks(&messages, &[])
+                    .await;
                 self.finalize_injected_skills(&injected_skill_ids, true)
                     .await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
@@ -1950,8 +2022,33 @@ impl AgentRuntime {
 
             let mut force_stop_loop = false;
             for (tool_name, call_id, arguments, mut result) in stream_results {
+                let tool_start_time = std::time::Instant::now();
                 state.total_tool_calls += 1;
                 let rep_action = state.record_tool_call(&tool_name, &arguments);
+
+                // ── Permission check ──
+                if let Some(permissions::PermissionDecision::Denied(reason)) =
+                    services.check_permission(&tool_name)
+                {
+                    let msg = reason.unwrap_or_else(|| {
+                        format!("Tool '{}' is denied by permission rules", tool_name)
+                    });
+                    tracing::warn!(tool = %tool_name, %msg, "tool blocked by permission engine");
+                    result = fastclaw_core::tool::ToolResult::err(&msg);
+                }
+
+                // ── Pre-tool hook ──
+                let input_json: serde_json::Value =
+                    serde_json::from_str(&arguments).unwrap_or_default();
+                if let Some(hook_result) = services
+                    .fire_pre_tool_hooks(&tool_name, &call_id, &input_json)
+                    .await
+                {
+                    if let Some(err) = hook_result.blocking_error {
+                        tracing::warn!(tool = %tool_name, %err, "tool blocked by pre-hook");
+                        result = fastclaw_core::tool::ToolResult::err(&err);
+                    }
+                }
 
                 // ── Track restoration state for post-compact recovery ──
                 track_restoration_state(
@@ -1961,6 +2058,19 @@ impl AgentRuntime {
                     &result.output,
                     result.success,
                 );
+
+                // ── Post-tool hook (fire-and-forget) ──
+                let output_json =
+                    serde_json::Value::String(result.output.chars().take(2000).collect::<String>());
+                services
+                    .fire_post_tool_hooks(
+                        &tool_name,
+                        &call_id,
+                        &input_json,
+                        &output_json,
+                        tool_start_time.elapsed(),
+                    )
+                    .await;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),

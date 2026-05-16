@@ -11,6 +11,7 @@ use super::plan_file::PlanFileStore;
 
 const MODE_AGENT: u8 = 0;
 const MODE_PLAN: u8 = 1;
+const MODE_COORDINATOR: u8 = 2;
 
 tokio::task_local! {
     /// Per-session mode state set by the runtime before tool execution.
@@ -52,10 +53,10 @@ pub fn current_plan_context() -> Option<PlanContext> {
 }
 
 fn mode_from_u8(v: u8) -> ExecutionMode {
-    if v == MODE_PLAN {
-        ExecutionMode::Plan
-    } else {
-        ExecutionMode::Agent
+    match v {
+        MODE_PLAN => ExecutionMode::Plan,
+        MODE_COORDINATOR => ExecutionMode::Coordinator,
+        _ => ExecutionMode::Agent,
     }
 }
 
@@ -63,6 +64,7 @@ fn mode_to_u8(m: ExecutionMode) -> u8 {
     match m {
         ExecutionMode::Agent => MODE_AGENT,
         ExecutionMode::Plan => MODE_PLAN,
+        ExecutionMode::Coordinator => MODE_COORDINATOR,
     }
 }
 

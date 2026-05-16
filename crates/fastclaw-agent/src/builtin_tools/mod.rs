@@ -25,10 +25,12 @@ pub mod shell_snapshot;
 mod skill;
 mod snip;
 mod task;
+pub mod team;
 mod terminal;
 mod todo;
 mod tool_search;
 mod utility;
+pub mod worker;
 pub mod workflow;
 pub mod worktree;
 

@@ -65,6 +65,8 @@ pub(crate) struct UnifiedCompactResult {
     pub session_memory_extracted: bool,
     /// Whether post-compact state restoration was applied.
     pub state_restored: bool,
+    /// Extracted/updated session memory (if any), for the caller to persist.
+    pub extracted_memory: Option<session_memory::SessionMemory>,
 }
 
 /// Run all pre-query compression steps in a single call.
@@ -91,6 +93,7 @@ pub(crate) async fn unified_pre_query_compact(
     todo_store: Option<&crate::builtin_tools::TodoStore>,
     enable_smart_compression: bool,
     restoration_state: Option<&RestorationState>,
+    existing_memory: Option<&session_memory::SessionMemory>,
 ) -> UnifiedCompactResult {
     // Compute the protection window — tool results from the last N iterations
     // are immune to all forms of compression.
@@ -125,6 +128,18 @@ pub(crate) async fn unified_pre_query_compact(
                 "time-based microcompact collapsed stale tool results"
             );
         }
+    }
+
+    // Step 0.5: Cached microcompact — reuse cross-turn cache before other steps.
+    let cached_mc_result = pipeline.run_cached_microcompact(messages);
+    if cached_mc_result.tokens_freed > 0 {
+        tracing::debug!(
+            cache_hits = cached_mc_result.cache_hits,
+            new_compressions = cached_mc_result.new_compressions,
+            tokens_freed = cached_mc_result.tokens_freed,
+            entries_evicted = cached_mc_result.entries_evicted,
+            "cached microcompact applied"
+        );
     }
 
     // Step 1: Tier-aware microcompact of old tool results.
@@ -242,19 +257,33 @@ pub(crate) async fn unified_pre_query_compact(
     // Step 5.5: Session memory extraction — before LLM compression, try to
     // extract key facts/decisions/task state so that even aggressive compression
     // preserves essential context.
+    // When existing memory is available, use incremental extraction (only new msgs).
     let pre_compress_estimate = fastclaw_context::estimate_messages_tokens(messages);
-    let extraction = session_memory::extract_session_memory(
-        messages,
-        provider,
-        model,
-        context_window,
-        if last_estimated_tokens > 0 {
-            last_estimated_tokens
-        } else {
-            pre_compress_estimate
-        },
-    )
-    .await;
+    let effective_estimate = if last_estimated_tokens > 0 {
+        last_estimated_tokens
+    } else {
+        pre_compress_estimate
+    };
+    let extraction = if let Some(existing) = existing_memory {
+        session_memory::extract_incremental(
+            messages,
+            existing,
+            provider,
+            model,
+            context_window,
+            effective_estimate,
+        )
+        .await
+    } else {
+        session_memory::extract_session_memory(
+            messages,
+            provider,
+            model,
+            context_window,
+            effective_estimate,
+        )
+        .await
+    };
     let session_memory_extracted = extraction.memory.is_some();
     if let Some(ref mem) = extraction.memory {
         session_memory::inject_session_memory(messages, mem);
@@ -424,6 +453,7 @@ pub(crate) async fn unified_pre_query_compact(
         tokens_saved_by_llm,
         pipeline_applied,
         session_memory_extracted,
+        extracted_memory: extraction.memory,
         state_restored,
     }
 }
