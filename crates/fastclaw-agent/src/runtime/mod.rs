@@ -27,7 +27,11 @@ mod accumulator;
 pub mod api_errors;
 #[allow(dead_code)]
 pub mod cache_break_detection;
+pub mod context_assembly;
 pub(crate) mod context_budget;
+#[allow(dead_code)]
+pub mod lsp_actions;
+pub mod model_critic;
 pub(crate) mod context_compressor;
 pub mod cost_tracker;
 #[allow(dead_code)]
@@ -54,6 +58,10 @@ pub(crate) mod runtime_services;
 mod session_memory;
 pub mod side_query;
 mod stop_hooks;
+pub mod task_decomposer;
+pub mod undo_engine;
+#[allow(dead_code)]
+pub mod validation_pipeline;
 mod stream_engine;
 pub mod streaming_tool_executor;
 mod tool_executor;
@@ -375,6 +383,38 @@ pub(crate) fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, gui
             compact_metadata: None,
         },
     );
+}
+
+/// Append a block to the system message (first message), or create one.
+fn inject_system_block(messages: &mut Vec<ChatMessage>, block: &str) {
+    if let Some(first) = messages.first_mut() {
+        if matches!(first.role, Role::System) {
+            append_text_to_chat_content(&mut first.content, block);
+            return;
+        }
+    }
+    messages.insert(
+        0,
+        ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(block.to_string())),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            compact_metadata: None,
+        },
+    );
+}
+
+/// Extract file path from tool arguments JSON (looks for "path" or "file_path" fields).
+fn extract_file_path_from_args(arguments: &str) -> Option<std::path::PathBuf> {
+    let v: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    v.get("path")
+        .or_else(|| v.get("file_path"))
+        .or_else(|| v.get("file"))
+        .and_then(|p| p.as_str())
+        .map(std::path::PathBuf::from)
 }
 
 /// Manages the execution of a single agent invocation, including
@@ -1112,6 +1152,46 @@ impl AgentRuntime {
             "perf: inject_relevant_skills (stream)"
         );
 
+        // ── Context Assembly: inject project hints ──────────────────────
+        if let Some(ref wd) = request.work_dir {
+            let hints = context_assembly::detect_project_hints(std::path::Path::new(wd));
+            if !hints.is_empty() {
+                let hints_block = format!(
+                    "\n─── Project Context ───\n{}\n───────────────────────\n",
+                    hints.iter().map(|h| format!("• {}", h)).collect::<Vec<_>>().join("\n")
+                );
+                inject_system_block(&mut messages, &hints_block);
+                tracing::info!(hint_count = hints.len(), "context_assembly: project hints injected");
+            }
+        }
+
+        // ── Extract last user message for downstream injections ─────────
+        let last_user_msg = request.messages.iter().rev()
+            .find(|m| m.role == Role::User)
+            .and_then(|m| m.text_content())
+            .unwrap_or_default();
+
+        // ── Task Decomposer: decompose complex requests ─────────────────
+        if last_user_msg.len() >= 80 {
+            let decomp_provider = self.provider();
+            let decomp_config = task_decomposer::TaskDecomposerConfig {
+                model: config.model.model.clone(),
+                ..Default::default()
+            };
+            if let Some(decomp) = task_decomposer::decompose_task(
+                &decomp_provider, &last_user_msg, &decomp_config
+            ).await {
+                if let Some(block) = task_decomposer::format_decomposition_for_prompt(&decomp) {
+                    inject_system_block(&mut messages, &block);
+                    tracing::info!(
+                        task_type = decomp.task_type.as_str(),
+                        steps = decomp.steps.len(),
+                        "task_decomposer: plan injected"
+                    );
+                }
+            }
+        }
+
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
         let mut all_tool_defs = tool_registry.eager_definitions();
@@ -1203,6 +1283,45 @@ impl AgentRuntime {
             budget_limit,
             abort_token,
         );
+
+        // ── ValidationPipeline: post-tool output validation ─────────────
+        let validation_pipeline = validation_pipeline::ValidationPipeline::default();
+
+        // ── UndoEngine: file snapshot & rollback on consecutive failures ─
+        let undo_config = undo_engine::UndoEngineConfig::default();
+        let mut undo_engine = undo_engine::UndoEngine::new(undo_config);
+
+        // ── Observer: runtime event collection for evolution pipeline ────
+        let runtime_observer = observer::RuntimeObserver::new(
+            request.session_id.as_deref().unwrap_or("anonymous"),
+            &config.agent_id,
+            None,
+        );
+
+        // ── CacheBreakDetector: track prompt cache effectiveness ─────────
+        let mut cache_detector = cache_break_detection::CacheBreakDetector::new();
+
+        // ── FilePersistence: track all file changes in this session ──────
+        let mut file_tracker = file_persistence::SessionFileTracker::new();
+
+        // ── Magic Docs: inject relevant documentation ───────────────────
+        {
+            let keywords: Vec<&str> = last_user_msg.split_whitespace()
+                .filter(|w| w.len() > 3)
+                .take(10)
+                .collect();
+            if !keywords.is_empty() {
+                let docs_content = services.query_magic_docs(&keywords, 2000);
+                if !docs_content.is_empty() {
+                    let docs_block = format!(
+                        "\n─── Relevant Documentation ───\n{}\n──────────────────────────────\n",
+                        docs_content
+                    );
+                    inject_system_block(&mut messages, &docs_block);
+                    tracing::info!(chars = docs_content.len(), "magic_docs: documentation injected");
+                }
+            }
+        }
 
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
@@ -1657,6 +1776,33 @@ impl AgentRuntime {
                                     }
                                 }
                             }
+
+                            // ── Observer: record LLM call ──
+                            runtime_observer.record_llm_call(
+                                &model,
+                                u.prompt_tokens,
+                                u.completion_tokens,
+                                llm_call_t0.elapsed(),
+                            ).await;
+
+                            // ── CacheBreakDetector: check for cache invalidation ──
+                            let cache_usage = cache_break_detection::CacheAwareUsage {
+                                prompt_tokens: u.prompt_tokens,
+                                completion_tokens: u.completion_tokens,
+                                cache_read_tokens: 0,
+                                cache_creation_tokens: 0,
+                            };
+                            let cache_snapshot = cache_detector.pre_call_snapshot(
+                                "", &"", &model, false, false,
+                            );
+                            if let Some(report) = cache_detector.post_call_analyze(
+                                &cache_snapshot, &cache_usage
+                            ) {
+                                tracing::warn!(
+                                    cause = %report.summary(),
+                                    "cache_break_detection: prompt cache break detected"
+                                );
+                            }
                         }
                     }
 
@@ -1770,6 +1916,33 @@ impl AgentRuntime {
             match transition {
                 query_state::LoopTransition::Terminal(ref reason) => {
                     if matches!(reason, query_state::TerminalReason::EndTurn) {
+                        // ── Model Critic: review final output before accepting ──
+                        let critic_config = model_critic::CriticConfig {
+                            model: config.model.model.clone(),
+                            ..Default::default()
+                        };
+                        if critic_config.enabled && !accumulated_content.is_empty() {
+                            let critic_provider = self.provider();
+                            let task_type = task_decomposer::TaskType::from_str_loose_pub(&last_user_msg);
+                            if let Some(review) = model_critic::run_critic(
+                                &critic_provider,
+                                task_type,
+                                &accumulated_content,
+                                &critic_config,
+                            ).await {
+                                if !review.approved {
+                                    if let Some(feedback) = review.format_for_injection() {
+                                        tracing::info!(
+                                            issues = review.issues.len(),
+                                            "model_critic: output rejected, injecting feedback"
+                                        );
+                                        inject_tool_recovery_guidance(&mut messages, &feedback);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         let hook_result = stop_hooks::evaluate_stop_hooks(
                             &accumulated_content,
                             last_finish_reason.as_deref(),
@@ -2037,6 +2210,22 @@ impl AgentRuntime {
                     result = fastclaw_core::tool::ToolResult::err(&msg);
                 }
 
+                // ── UndoEngine + FilePersistence: capture file snapshot before edit ──
+                if matches!(tool_name.as_str(), "edit_file" | "write_file" | "create_file" | "str_replace_editor") {
+                    if let Some(file_path) = extract_file_path_from_args(&arguments) {
+                        let file_exists = file_path.exists();
+                        if let Ok(content) = std::fs::read_to_string(&file_path) {
+                            undo_engine.capture_before_edit(&file_path, &content);
+                        }
+                        let op = if file_exists {
+                            file_persistence::FileOp::Modified
+                        } else {
+                            file_persistence::FileOp::Created
+                        };
+                        file_tracker.record(file_path, op, &tool_name);
+                    }
+                }
+
                 // ── Pre-tool hook ──
                 let input_json: serde_json::Value =
                     serde_json::from_str(&arguments).unwrap_or_default();
@@ -2071,6 +2260,14 @@ impl AgentRuntime {
                         tool_start_time.elapsed(),
                     )
                     .await;
+
+                // ── Observer: record tool call observation ──
+                runtime_observer.record_tool_call(
+                    &tool_name,
+                    result.success,
+                    tool_start_time.elapsed(),
+                    &result.output.chars().take(200).collect::<String>(),
+                ).await;
 
                 trajectory_steps.push(TrajectoryStep {
                     role: "assistant".into(),
@@ -2161,23 +2358,72 @@ impl AgentRuntime {
 
                 if !result.success {
                     state.record_tool_error(&tool_name, &result.output);
+                    undo_engine.record_failure(&tool_name);
                 } else {
                     state.clear_error_streak();
+                    undo_engine.record_success();
+                }
+
+                // ── ValidationPipeline: append findings to tool output ───
+                let work_dir_for_validation = request.work_dir.as_ref()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                let val_ctx = validation_pipeline::ValidationContext {
+                    tool_name: &tool_name,
+                    arguments: &arguments,
+                    output: &result.output,
+                    success: result.success,
+                    work_dir: &work_dir_for_validation,
+                };
+                let val_result = validation_pipeline.validate(&val_ctx);
+                let validation_suffix = if !val_result.findings.is_empty() {
+                    let msgs: Vec<String> = val_result.findings.iter().map(|f| {
+                        format!("[{:?}] {}", f.severity, f.message)
+                    }).collect();
+                    tracing::info!(
+                        tool = %tool_name,
+                        findings = msgs.len(),
+                        "validation_pipeline: findings appended"
+                    );
+                    format!("\n\n─── Validation Findings ───\n{}", msgs.join("\n"))
+                } else {
+                    String::new()
+                };
+
+                // ── UndoEngine: rollback on excessive failures ───────────
+                if undo_engine.should_rollback() {
+                    if let Some(rb) = undo_engine.execute_rollback() {
+                        for file_path in &rb.restored_files {
+                            if let Some(content) = undo_engine.get_restore_content(file_path) {
+                                let _ = std::fs::write(file_path, content);
+                            }
+                        }
+                        inject_tool_recovery_guidance(&mut messages, &rb.guidance);
+                        tracing::warn!(
+                            restored = rb.restored_files.len(),
+                            "undo_engine: auto-rollback triggered"
+                        );
+                    }
                 }
 
                 let max_chars = tool_registry
                     .get(&tool_name)
                     .map(|t| t.max_result_size_chars())
                     .unwrap_or(100_000);
+                let tool_output_with_validation = if validation_suffix.is_empty() {
+                    result.output.clone()
+                } else {
+                    format!("{}{}", result.output, validation_suffix)
+                };
                 let processed = process_tool_output(
                     &tool_storage,
                     &tool_name,
                     &call_id,
-                    &result.output,
+                    &tool_output_with_validation,
                     max_chars,
                 );
                 let header =
-                    semantic_header(&tool_name, &arguments, &result.output, result.success);
+                    semantic_header(&tool_name, &arguments, &tool_output_with_validation, result.success);
                 let llm_out = format!("{header}\n{processed}");
                 let _ = send_stream_event(
                     tx,
