@@ -34,7 +34,8 @@ impl GatewayProcess {
     /// Flow:
     /// 1. Check gateway.json for existing gateway
     /// 2. If found and alive, use its connection info
-    /// 3. If not found or stale, start gateway daemon via fastclaw CLI
+    /// 3. Probe default port for orphaned gateway (no state file but port occupied)
+    /// 4. If not found or stale, start gateway daemon via fastclaw CLI
     pub async fn start(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<Self> {
         // 1. Check for existing gateway via gateway.json
         if let Ok(state) = GatewayState::read(mode) {
@@ -54,7 +55,21 @@ impl GatewayProcess {
             let _ = GatewayState::remove(mode);
         }
 
-        // 2. No existing gateway, start daemon
+        // 2. Probe default port for orphaned gateway (running but no state file)
+        let default_port = fastclaw_core::config::default_port_for_mode(mode);
+        if probe_gateway(default_port).await {
+            tracing::info!(
+                port = default_port,
+                "found orphaned gateway on default port (no state file), reconnecting"
+            );
+            let state = GatewayState::new(default_port);
+            if let Err(e) = state.write(mode) {
+                tracing::warn!(error = %e, "failed to write recovered gateway state file");
+            }
+            return Self::connect_existing(state);
+        }
+
+        // 3. No existing gateway, start daemon
         Self::start_daemon(mode).await
     }
 
@@ -134,8 +149,9 @@ impl GatewayProcess {
 ///
 /// Search order:
 /// 1. FASTCLAW_CLI env var
-/// 2. Same directory as current exe (for bundled installs)
-/// 3. PATH lookup
+/// 2. (Dev only) Cargo workspace target directory — ensures dev Tauri app uses dev-built CLI
+/// 3. Same directory as current exe (for bundled installs)
+/// 4. PATH lookup
 fn find_fastclaw_cli() -> anyhow::Result<std::path::PathBuf> {
     // 1. Check environment variable
     if let Ok(path) = std::env::var("FASTCLAW_CLI") {
@@ -145,7 +161,26 @@ fn find_fastclaw_cli() -> anyhow::Result<std::path::PathBuf> {
         }
     }
 
-    // 2. Check same directory as current exe (bundled install scenario)
+    // 2. (Dev only) Check cargo workspace target directory.
+    //    CARGO_MANIFEST_DIR is set at compile time to `crates/fastclaw-app/src-tauri/`.
+    //    Walk up to workspace root and look for `target/debug/fastclaw`.
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        if let Some(workspace_root) = manifest_dir.ancestors().nth(3) {
+            let dev_cli = workspace_root.join("target/debug/fastclaw");
+            if dev_cli.exists() {
+                tracing::debug!(path = %dev_cli.display(), "using dev-built CLI from workspace");
+                return Ok(dev_cli);
+            }
+            tracing::warn!(
+                expected = %dev_cli.display(),
+                "dev-built CLI not found; run `cargo build -p fastclaw-cli` first, falling back to PATH"
+            );
+        }
+    }
+
+    // 3. Check same directory as current exe (bundled install scenario)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let sibling = parent.join("fastclaw");
@@ -155,7 +190,7 @@ fn find_fastclaw_cli() -> anyhow::Result<std::path::PathBuf> {
         }
     }
 
-    // 3. Look up in PATH
+    // 4. Look up in PATH
     if let Some(path) = which_in_path("fastclaw") {
         return Ok(path);
     }

@@ -25,8 +25,8 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPDATA/**" },
-        { "path": "$HOME/.fastclaw/**" },
-        { "path": "$HOME/.fastclaw-dev/**" }
+        { "path": "$HOME/**" },
+        { "path": "/tmp/**" }
       ]
     },
     "dialog:allow-open",
