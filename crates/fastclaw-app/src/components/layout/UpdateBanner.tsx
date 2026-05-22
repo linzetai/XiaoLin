@@ -1,5 +1,6 @@
 import { memo, useCallback } from "react";
 import { Download, X, RotateCcw } from "lucide-react";
+import { ICON } from "../../lib/ui-tokens";
 import { useAppUpdater } from "../../lib/use-app-updater";
 
 export const UpdateBanner = memo(function UpdateBanner() {
@@ -57,7 +58,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
             className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-opacity duration-150 hover:opacity-80 disabled:cursor-default disabled:opacity-50"
             style={{ background: "rgba(255,255,255,0.2)" }}
           >
-            <ActionIcon size={14} />
+            <ActionIcon {...ICON.sm} />
             {actionLabel}
           </button>
         )}
@@ -68,7 +69,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
             style={{ background: "transparent" }}
             aria-label="关闭"
           >
-            <X size={16} />
+            <X {...ICON.md} />
           </button>
         )}
       </div>

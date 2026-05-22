@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type MouseEvent as RME } from "react";
 import { useGatewayStore } from "../../lib/store";
+import { useAgentStore } from "../../lib/agent-store";
 import { NotificationCenter } from "../notification/NotificationCenter";
 import { NotificationDetailPanel } from "../notification/NotificationDetailPanel";
 import { Minus, Square, Maximize2, X } from "lucide-react";
@@ -59,35 +60,35 @@ function WindowControls() {
 
   if (!isTauri) return null;
 
-  const btn = "flex items-center justify-center rounded-[4px] transition-all duration-150";
+  const btn = "flex items-center justify-center transition-all duration-150";
+  const iconProps = { size: 14, strokeWidth: 1.2 } as const;
 
   return (
-    <div className="ml-1 flex h-full items-stretch gap-px">
-      <div className="my-auto h-4 w-px" style={{ background: "var(--separator)" }} />
+    <div className="ml-1 flex h-full items-stretch">
+      <div className="my-auto h-3.5 w-px" style={{ background: "var(--separator)" }} />
       <button
         onClick={minimize}
-        className={`${btn} w-[42px] hover:bg-[var(--bg-hover)] hover:scale-[1.02] active:scale-95`}
-        style={{ color: "var(--fill-primary)" }}
+        className={`${btn} w-[36px] hover:bg-[var(--bg-hover)] active:scale-95`}
+        style={{ color: "var(--fill-quaternary)" }}
         title="最小化"
       >
-        <Minus size={16} strokeWidth={1.5} />
+        <Minus {...iconProps} />
       </button>
       <button
         onClick={toggleMaximize}
-        className={`${btn} w-[42px] hover:bg-[var(--bg-hover)] hover:scale-[1.02] active:scale-95`}
-        style={{ color: "var(--fill-primary)" }}
+        className={`${btn} w-[36px] hover:bg-[var(--bg-hover)] active:scale-95`}
+        style={{ color: "var(--fill-quaternary)" }}
         title={isMaximized ? "还原" : "最大化"}
       >
-        {isMaximized ? <Maximize2 size={16} strokeWidth={1.5} /> : <Square size={16} strokeWidth={1.5} />}
+        {isMaximized ? <Maximize2 {...iconProps} /> : <Square {...iconProps} />}
       </button>
       <button
         onClick={close}
-        className={`${btn} w-[42px] hover:bg-[#E81123] hover:text-white active:scale-95`}
-        style={{ color: "var(--fill-primary)", transition: "background 0.15s, color 0.15s, transform 0.1s, box-shadow 0.15s" }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 0 8px rgba(232,17,35,0.3)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+        className={`${btn} w-[36px] hover:bg-[#E81123] hover:text-white active:scale-95`}
+        style={{ color: "var(--fill-quaternary)", transition: "background 0.15s, color 0.15s, transform 0.1s" }}
+        title="关闭"
       >
-        <X size={16} strokeWidth={1.5} />
+        <X {...iconProps} />
       </button>
     </div>
   );
@@ -102,7 +103,7 @@ function ConnectionDot() {
     >
       <span className="relative inline-flex items-center justify-center">
         <span
-          className="inline-block h-[7px] w-[7px] rounded-full transition-colors duration-300"
+          className="inline-block h-[7px] w-[7px] rounded-full transition-colors duration-150"
           style={{ background: connected ? "var(--green)" : "var(--red)" }}
         />
         {connected && (
@@ -128,6 +129,27 @@ function ConnectionDot() {
   );
 }
 
+function AgentLabel() {
+  const agents = useAgentStore((s) => s.agents);
+  const activeAgentId = useAgentStore((s) => s.activeAgentId);
+  const agent = agents.find((a) => a.id === activeAgentId);
+
+  if (!agent) return null;
+
+  return (
+    <div className="pointer-events-none flex items-center gap-2 pl-4" data-tauri-drag-region="">
+      <span className="text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>
+        {agent.name}
+      </span>
+      {agent.model && (
+        <span className="text-[11px] font-mono" style={{ color: "var(--fill-quaternary)" }}>
+          {agent.model}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function TitleBar() {
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
 
@@ -147,9 +169,10 @@ export function TitleBar() {
         }}
       >
         <div
-          className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+          className="absolute inset-x-0 bottom-0 pointer-events-none h-px"
           style={{ background: "linear-gradient(90deg, transparent 5%, var(--separator) 50%, transparent 95%)" }}
         />
+        <AgentLabel />
         <div
           className="h-full flex-1"
           data-tauri-drag-region=""

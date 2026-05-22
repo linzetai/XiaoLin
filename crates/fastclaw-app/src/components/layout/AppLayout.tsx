@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
-import { PanelRightOpen, PanelRightClose, Search } from "lucide-react";
+import { MoreHorizontal, PanelRightClose, Search } from "lucide-react";
+import { BTN_ICON } from "../../lib/ui-tokens";
 import { useGatewayStore } from "../../lib/store";
 import { useAgentStore } from "../../lib/agent-store";
 import { AgentList } from "../agent-list/AgentList";
@@ -15,6 +16,42 @@ import type { NavItem } from "../../lib/stores/ui-store";
 const isTauri =
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+
+const RESIZE_HIT = 5;
+
+function WindowResizeHandles() {
+  if (!isTauri) return null;
+
+  const start = useCallback(
+    async (e: React.MouseEvent, direction: string) => {
+      e.preventDefault();
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (getCurrentWindow() as any).startResizeDragging(direction);
+    },
+    [],
+  );
+
+  const S = RESIZE_HIT;
+  const abs = (extra: React.CSSProperties): React.CSSProperties => ({
+    position: "absolute",
+    zIndex: 50,
+    ...extra,
+  });
+
+  return (
+    <>
+      <div style={abs({ top: 0, left: S, right: S, height: S, cursor: "n-resize" })} onMouseDown={(e) => start(e, "North")} />
+      <div style={abs({ bottom: 0, left: S, right: S, height: S, cursor: "s-resize" })} onMouseDown={(e) => start(e, "South")} />
+      <div style={abs({ left: 0, top: S, bottom: S, width: S, cursor: "w-resize" })} onMouseDown={(e) => start(e, "West")} />
+      <div style={abs({ right: 0, top: S, bottom: S, width: S, cursor: "e-resize" })} onMouseDown={(e) => start(e, "East")} />
+      <div style={abs({ top: 0, left: 0, width: S * 2, height: S * 2, cursor: "nw-resize" })} onMouseDown={(e) => start(e, "NorthWest")} />
+      <div style={abs({ top: 0, right: 0, width: S * 2, height: S * 2, cursor: "ne-resize" })} onMouseDown={(e) => start(e, "NorthEast")} />
+      <div style={abs({ bottom: 0, left: 0, width: S * 2, height: S * 2, cursor: "sw-resize" })} onMouseDown={(e) => start(e, "SouthWest")} />
+      <div style={abs({ bottom: 0, right: 0, width: S * 2, height: S * 2, cursor: "se-resize" })} onMouseDown={(e) => start(e, "SouthEast")} />
+    </>
+  );
+}
 
 const OnboardingWizard = lazy(() =>
   import("../onboarding/OnboardingWizard").then((m) => ({ default: m.OnboardingWizard })),
@@ -128,19 +165,19 @@ function ContentHeader({
       <div className="flex items-center gap-2">
         <button
           onClick={handleSearchClick}
-          className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+          className={BTN_ICON.sm}
           style={{ color: "var(--fill-quaternary)" }}
           title="搜索"
         >
-          <Search size={16} strokeWidth={1.5} />
+          <Search size={16} strokeWidth={1} />
         </button>
         <button
           onClick={onToggleDetail}
-          className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-[var(--bg-hover)]"
-          style={{ color: "var(--fill-tertiary)" }}
+          className={BTN_ICON.sm}
+          style={{ color: "var(--fill-quaternary)" }}
           title={detailOpen ? "收起 Agent 信息" : "展开 Agent 信息"}
         >
-          {detailOpen ? <PanelRightClose size={16} strokeWidth={1.5} /> : <PanelRightOpen size={16} strokeWidth={1.5} />}
+          {detailOpen ? <PanelRightClose size={16} strokeWidth={1} /> : <MoreHorizontal size={16} strokeWidth={1} />}
         </button>
       </div>
     </div>
@@ -296,7 +333,8 @@ export function AppLayout() {
   }
 
   return (
-    <div className={`app-shell flex h-full flex-col${isMaximized ? " maximized" : ""}`}>
+    <div className={`app-shell relative flex h-full flex-col${isMaximized ? " maximized" : ""}`}>
+      {!isMaximized && <WindowResizeHandles />}
       {content}
     </div>
   );

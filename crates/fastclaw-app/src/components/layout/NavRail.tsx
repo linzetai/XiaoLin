@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from "react";
-import { MessageSquare, Users, Layout, ListTodo, FolderOpen, Link2, HelpCircle, Settings } from "lucide-react";
+import { MessageSquare, Users, Layout, ListTodo, FolderOpen, Link2, Settings } from "lucide-react";
 import { useAgentStore } from "../../lib/agent-store";
 import { ClawIcon } from "./ClawIcon";
+import { ICON, BTN_ICON } from "../../lib/ui-tokens";
 import type { NavItem } from "../../lib/stores/ui-store";
 
 const SettingsPanel = lazy(() =>
@@ -45,12 +46,10 @@ export function NavRail() {
       >
         <div className="flex flex-col items-center gap-0.5">
           <div
-            className="mb-3 flex h-9 w-9 items-center justify-center transition-all duration-300"
-            style={{ color: "var(--fill-primary)", filter: "drop-shadow(0 0 0px transparent)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.filter = `drop-shadow(0 0 8px var(--tint))`; e.currentTarget.style.opacity = "1"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.filter = "drop-shadow(0 0 0px transparent)"; e.currentTarget.style.opacity = "0.85"; }}
+            className="mb-3 flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] transition-all duration-150"
+            style={{ color: "var(--fill-primary)" }}
           >
-            <ClawIcon size={28} />
+            <ClawIcon size={32} />
           </div>
 
           {TOP_ITEMS.map((item) => {
@@ -60,7 +59,7 @@ export function NavRail() {
               <button
                 key={item.id}
                 onClick={() => setActiveNav(item.id)}
-                className="group relative flex h-11 w-11 flex-col items-center justify-center rounded-xl transition-all duration-150"
+                className="group relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] transition-all duration-150"
                 style={{
                   background: active ? "var(--tint-bg)" : "transparent",
                   color: active ? "var(--tint)" : "var(--fill-tertiary)",
@@ -69,7 +68,7 @@ export function NavRail() {
               >
                 {active && (
                   <span
-                    className="absolute left-0 top-1/2 w-[3px] h-5 rounded-full -translate-y-1/2"
+                    className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full"
                     style={{
                       background: "var(--tint)",
                       animation: "scale-spring var(--duration-normal) var(--ease-spring)",
@@ -77,13 +76,7 @@ export function NavRail() {
                   />
                 )}
                 <span className="transition-transform duration-150 group-hover:scale-110">
-                  <Icon size={18} strokeWidth={active ? 2 : 1.5} />
-                </span>
-                <span
-                  className="mt-[2px] text-[9px] font-medium leading-none"
-                  style={{ color: active ? "var(--tint)" : "var(--fill-quaternary)" }}
-                >
-                  {item.label}
+                  <Icon size={ICON.lg.size} strokeWidth={active ? 1.75 : ICON.lg.strokeWidth} />
                 </span>
               </button>
             );
@@ -91,21 +84,14 @@ export function NavRail() {
         </div>
 
         <div className="flex flex-col items-center gap-1">
-          <div className="mb-1 w-6 h-px" style={{ background: "var(--separator)" }} />
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 hover:bg-[var(--bg-hover)] hover:scale-105 active:scale-95"
-            style={{ color: "var(--fill-tertiary)" }}
-            title="帮助"
-          >
-            <HelpCircle size={17} strokeWidth={1.5} />
-          </button>
+          <div className="mb-1 h-px w-6" style={{ background: "var(--separator)" }} />
           <button
             onClick={() => setSettingsOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 hover:bg-[var(--bg-hover)] hover:scale-105 active:scale-95"
+            className={`${BTN_ICON.lg} hover:scale-105 active:scale-95`}
             style={{ color: "var(--fill-tertiary)" }}
             title="设置"
           >
-            <Settings size={17} strokeWidth={1.5} />
+            <Settings {...ICON.lg} />
           </button>
         </div>
       </nav>
