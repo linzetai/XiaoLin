@@ -407,11 +407,16 @@ pub async fn handle_sessions_update_title(
         }
     }
 }
-/// Routes session-scoped operations through an ownership check.
+/// Routes session-scoped operations, auto-claiming ownership when needed.
+///
+/// Desktop clients reconnect across app restarts, so sessions created by a
+/// previous WebSocket connection must be accessible.  Instead of rejecting
+/// with 403, we verify the session exists in the DB and adopt it — the same
+/// strategy `spawn_chat` already uses for the "chat" command.
 pub async fn handle_session_scoped(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
-    owned_sessions: &HashSet<String>,
+    owned_sessions: &mut HashSet<String>,
     req_id: Option<String>,
     params: serde_json::Value,
     op: &str,
@@ -419,25 +424,39 @@ pub async fn handle_session_scoped(
     let sid = params.get("sessionId").and_then(|v| v.as_str());
     if let Some(sid) = sid {
         if !owned_sessions.contains(sid) {
-            tracing::warn!(
-                session_id = %sid,
-                operation = %op,
-                owned_count = owned_sessions.len(),
-                "ws: session access denied — not owned by this connection"
-            );
-            send_resp(
-                sender,
-                &WsResponse {
-                    id: req_id,
-                    msg_type: "error".into(),
-                    data: None,
-                    error: Some(
-                        json!({"code": 403, "message": "session not owned by this connection"}),
-                    ),
-                },
-            )
-            .await;
-            return;
+            match state.store.session_store.get_session(sid).await {
+                Ok(Some(_)) => {
+                    owned_sessions.insert(sid.to_string());
+                    tracing::debug!(session_id = %sid, operation = %op, "auto-claimed session");
+                }
+                Ok(None) => {
+                    send_resp(
+                        sender,
+                        &WsResponse {
+                            id: req_id,
+                            msg_type: "error".into(),
+                            data: None,
+                            error: Some(json!({"code": 404, "message": "session not found"})),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(session_id = %sid, error = %e, "failed to verify session for auto-claim");
+                    send_resp(
+                        sender,
+                        &WsResponse {
+                            id: req_id,
+                            msg_type: "error".into(),
+                            data: None,
+                            error: Some(json!({"code": 500, "message": "internal error"})),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            }
         }
     }
     match op {

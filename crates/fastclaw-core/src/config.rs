@@ -549,6 +549,17 @@ fn default_port() -> u16 {
     18789
 }
 
+/// Default gateway port for development mode, separate from production to avoid conflicts.
+const DEV_DEFAULT_PORT: u16 = 18790;
+
+/// Get the appropriate default port for the given config mode.
+pub fn default_port_for_mode(mode: &ConfigMode) -> u16 {
+    match mode {
+        ConfigMode::Development => DEV_DEFAULT_PORT,
+        _ => default_port(),
+    }
+}
+
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
@@ -1163,6 +1174,10 @@ pub fn load_config(mode: &ConfigMode) -> FastClawResult<FastClawConfig> {
                 ConfigMode::Production => home.join(".fastclaw"),
             };
             config.paths.state_dir = Some(default_dir.to_string_lossy().into_owned());
+        }
+        // Dev mode uses a separate port to avoid conflicts with production gateway
+        if matches!(mode, ConfigMode::Development) && config.gateway.port == default_port() {
+            config.gateway.port = default_port_for_mode(mode);
         }
         return Ok(config);
     }

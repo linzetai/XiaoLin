@@ -244,13 +244,25 @@ pub async fn spawn_chat(
     tokio::spawn(async move {
         let rid_for_cleanup = rid.clone();
 
-        let messages: Vec<ChatMessage> = match serde_json::from_value(
+        let messages: Vec<ChatMessage> = match serde_json::from_value::<Vec<ChatMessage>>(
             params
                 .get("messages")
                 .cloned()
                 .unwrap_or(serde_json::Value::Array(vec![])),
         ) {
-            Ok(m) => m,
+            Ok(m) => {
+                for msg in m.iter() {
+                    if let Some(ref content) = msg.content {
+                        if let serde_json::Value::Array(parts) = content {
+                            let image_count = parts.iter().filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url")).count();
+                            if image_count > 0 {
+                                tracing::info!(image_count, role = ?msg.role, "received multimodal message with images");
+                            }
+                        }
+                    }
+                }
+                m
+            }
             Err(e) => {
                 let _ = bg_tx
                     .send(WsResponse {
