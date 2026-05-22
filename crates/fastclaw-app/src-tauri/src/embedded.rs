@@ -18,7 +18,7 @@ pub struct GatewayInfo {
 ///
 /// This struct is responsible for:
 /// 1. Discovering an already-running Gateway via gateway.json
-/// 2. Starting a Gateway daemon process if none is found (using fastclaw CLI)
+/// 2. Starting a Gateway in-process or as daemon based on `gateway.embed` config
 /// 3. Providing connection info to the frontend
 ///
 /// The Tauri frontend connects to the Gateway via WebSocket for all
@@ -26,6 +26,8 @@ pub struct GatewayInfo {
 /// for business logic are needed - everything goes through WS.
 pub struct GatewayProcess {
     pub info: GatewayInfo,
+    /// Shutdown sender for in-process embedded gateway. None when connected to external daemon.
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl GatewayProcess {
@@ -35,7 +37,7 @@ impl GatewayProcess {
     /// 1. Check gateway.json for existing gateway
     /// 2. If found and alive, use its connection info
     /// 3. Probe default port for orphaned gateway (no state file but port occupied)
-    /// 4. If not found or stale, start gateway daemon via fastclaw CLI
+    /// 4. Based on `gateway.embed` config: start in-process or as external daemon
     pub async fn start(mode: &fastclaw_core::config::ConfigMode) -> anyhow::Result<Self> {
         // 1. Check for existing gateway via gateway.json
         if let Ok(state) = GatewayState::read(mode) {
@@ -69,8 +71,14 @@ impl GatewayProcess {
             return Self::connect_existing(state);
         }
 
-        // 3. No existing gateway, start daemon
-        Self::start_daemon(mode).await
+        // 3. Decide based on embed config
+        let config = fastclaw_core::config::load_config(mode)?;
+        if config.gateway.embed.should_embed() {
+            tracing::info!("starting embedded gateway in-process");
+            Self::start_embedded(config, mode).await
+        } else {
+            Self::start_daemon(mode).await
+        }
     }
 
     /// Connect to an existing gateway without starting a new one.
@@ -87,7 +95,69 @@ impl GatewayProcess {
             "connected to existing gateway"
         );
 
-        Ok(Self { info })
+        Ok(Self { info, shutdown_tx: None })
+    }
+
+    /// Start the gateway in-process using `run_with_listener`.
+    async fn start_embedded(
+        config: fastclaw_core::config::FastClawConfig,
+        mode: &fastclaw_core::config::ConfigMode,
+    ) -> anyhow::Result<Self> {
+        fastclaw_gateway::set_config_mode(mode.clone());
+
+        let port = config.gateway.port;
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => l,
+            Err(_) => tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+        };
+        let actual_port = listener.local_addr()?.port();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            if let Err(e) =
+                fastclaw_gateway::run_with_listener(config, listener, shutdown_rx).await
+            {
+                tracing::error!("embedded gateway error: {e}");
+            }
+        });
+
+        // Wait for health
+        let timeout = std::time::Duration::from_secs(15);
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if probe_gateway(actual_port).await {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        if !probe_gateway(actual_port).await {
+            anyhow::bail!(
+                "embedded gateway did not become ready within {}s",
+                timeout.as_secs()
+            );
+        }
+
+        let info = GatewayInfo {
+            port: actual_port,
+            ws_url: format!("ws://127.0.0.1:{actual_port}/ws"),
+            http_url: format!("http://127.0.0.1:{actual_port}"),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+
+        tracing::info!(port = actual_port, "embedded gateway ready");
+
+        Ok(Self {
+            info,
+            shutdown_tx: Some(shutdown_tx),
+        })
+    }
+
+    /// Send shutdown signal to the in-process gateway (no-op for external daemons).
+    pub fn shutdown(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+            tracing::info!("sent shutdown signal to embedded gateway");
+        }
     }
 
     /// Start a gateway daemon process using the fastclaw CLI.

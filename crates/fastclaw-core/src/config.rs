@@ -526,6 +526,43 @@ pub enum BindMode {
     Custom,
 }
 
+/// Controls whether the gateway runs in-process (embedded) or as an external daemon.
+///
+/// - `Auto`: debug builds use in-process, release builds use external daemon.
+/// - `Always`: force in-process in all builds.
+/// - `Never`: force external daemon in all builds.
+///
+/// Can be overridden by env var `FASTCLAW_EMBED_GATEWAY=auto|always|never`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbedMode {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl EmbedMode {
+    /// Resolve whether the gateway should run in-process, considering env var override.
+    pub fn should_embed(&self) -> bool {
+        let effective = std::env::var("FASTCLAW_EMBED_GATEWAY")
+            .ok()
+            .and_then(|v| match v.to_lowercase().as_str() {
+                "auto" => Some(EmbedMode::Auto),
+                "always" => Some(EmbedMode::Always),
+                "never" => Some(EmbedMode::Never),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.clone());
+
+        match effective {
+            EmbedMode::Always => true,
+            EmbedMode::Never => false,
+            EmbedMode::Auto => cfg!(debug_assertions),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GatewayConfig {
@@ -543,6 +580,9 @@ pub struct GatewayConfig {
     /// Use `["*"]` for permissive development mode.
     #[serde(default)]
     pub cors_origins: Vec<String>,
+    /// Whether to embed the gateway in-process or run as external daemon.
+    #[serde(default)]
+    pub embed: EmbedMode,
 }
 
 fn default_port() -> u16 {
@@ -569,6 +609,7 @@ impl Default for GatewayConfig {
             max_connections: 1024,
             rate_limit: RateLimitCfg::default(),
             cors_origins: Vec::new(),
+            embed: EmbedMode::default(),
         }
     }
 }

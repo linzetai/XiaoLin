@@ -226,6 +226,18 @@ pub fn run() {
             commands::clipboard::clipboard_read_image,
             commands::clipboard::read_image_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running FastClaw app");
+        .build(tauri::generate_context!())
+        .expect("error while building FastClaw app")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                let state = app.state::<AppData>();
+                let mut guard = match state.gateway.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                if let Some(ref mut process) = *guard {
+                    process.shutdown();
+                }
+            }
+        });
 }

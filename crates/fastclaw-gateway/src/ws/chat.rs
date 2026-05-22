@@ -252,12 +252,10 @@ pub async fn spawn_chat(
         ) {
             Ok(m) => {
                 for msg in m.iter() {
-                    if let Some(ref content) = msg.content {
-                        if let serde_json::Value::Array(parts) = content {
-                            let image_count = parts.iter().filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url")).count();
-                            if image_count > 0 {
-                                tracing::info!(image_count, role = ?msg.role, "received multimodal message with images");
-                            }
+                    if let Some(serde_json::Value::Array(parts)) = &msg.content {
+                        let image_count = parts.iter().filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url")).count();
+                        if image_count > 0 {
+                            tracing::info!(image_count, role = ?msg.role, "received multimodal message with images");
                         }
                     }
                 }
