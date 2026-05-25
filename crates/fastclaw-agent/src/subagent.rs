@@ -7,7 +7,8 @@ use tokio::sync::mpsc;
 
 use fastclaw_core::agent_config::SubAgentPolicy;
 use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolRegistry, ToolResult};
-use fastclaw_core::types::{StreamEvent, SubAgentType};
+use fastclaw_core::types::SubAgentType;
+use fastclaw_protocol::AgentEvent;
 
 use crate::subagent_manager::SubAgentManager;
 
@@ -20,7 +21,7 @@ pub struct SubAgentTool {
     parent_tool_registry: Arc<ToolRegistry>,
     policy: SubAgentPolicy,
     current_depth: u32,
-    parent_tx: Option<mpsc::Sender<StreamEvent>>,
+    parent_tx: Option<mpsc::Sender<AgentEvent>>,
     parent_session_id: String,
 }
 
@@ -45,7 +46,7 @@ impl SubAgentTool {
         self
     }
 
-    pub fn with_parent_tx(mut self, tx: mpsc::Sender<StreamEvent>) -> Self {
+    pub fn with_parent_tx(mut self, tx: mpsc::Sender<AgentEvent>) -> Self {
         self.parent_tx = Some(tx);
         self
     }

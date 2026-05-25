@@ -4,23 +4,23 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
-use fastclaw_core::types::{AskQuestionOption, StreamEvent};
+use fastclaw_protocol::{AgentEvent, AskQuestionOption, TurnId};
 
 pub(crate) use super::ask_question::ASK_QUESTION_STREAM_KEY;
 
-type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>;
+type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 type PendingAnswers = Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>;
 
 /// Lightweight yes/no confirmation tool. Presents a message to the user
 /// and waits for them to Allow or Deny. Reuses the same streaming
 /// infrastructure as `ask_question`.
 pub struct ConfirmTool {
-    stream_event_txs: StreamEventTxMap,
+    stream_event_txs: EventTxMap,
     pending: PendingAnswers,
 }
 
 impl ConfirmTool {
-    pub fn new(stream_event_txs: StreamEventTxMap, pending: PendingAnswers) -> Self {
+    pub fn new(stream_event_txs: EventTxMap, pending: PendingAnswers) -> Self {
         Self {
             stream_event_txs,
             pending,
@@ -98,7 +98,8 @@ impl Tool for ConfirmTool {
 
         if let Some(tx) = stream_tx {
             let _ = tx
-                .send(StreamEvent::AskQuestion {
+                .send(AgentEvent::AskQuestion {
+                    turn_id: TurnId::new("builtin"),
                     request_id: request_id.clone(),
                     question: message.clone(),
                     options: vec![
@@ -167,12 +168,12 @@ mod tests {
 
     async fn make_tool() -> (
         ConfirmTool,
-        Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>,
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>,
         Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
-        tokio::sync::mpsc::Receiver<StreamEvent>,
+        tokio::sync::mpsc::Receiver<AgentEvent>,
     ) {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
-        let txs: StreamEventTxMap = Arc::new(DashMap::new());
+        let txs: EventTxMap = Arc::new(DashMap::new());
         let pending: PendingAnswers = Arc::new(DashMap::new());
         txs.insert("test-stream".to_string(), tx);
         let tool = ConfirmTool::new(txs.clone(), pending.clone());
@@ -203,7 +204,7 @@ mod tests {
         });
 
         let event = rx.recv().await.expect("should receive AskQuestion");
-        if let StreamEvent::AskQuestion {
+        if let AgentEvent::AskQuestion {
             request_id,
             question,
             options,
@@ -243,7 +244,7 @@ mod tests {
         });
 
         let event = rx.recv().await.unwrap();
-        if let StreamEvent::AskQuestion { request_id, .. } = event {
+        if let AgentEvent::AskQuestion { request_id, .. } = event {
             let tx = pending.remove(&request_id).map(|(_k, v)| v).unwrap();
             tx.send("deny".to_string()).unwrap();
         }

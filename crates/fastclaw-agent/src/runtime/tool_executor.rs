@@ -1694,7 +1694,7 @@ pub(crate) async fn execute_tool_batch_with_hooks_and_stream(
     log_suffix: &str,
     hooks: &[Arc<dyn ToolHook>],
     agent_id: &str,
-    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
+    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>,
     mode_state: Option<&ExecutionModeState>,
 ) -> Vec<ToolExecResult> {
     // Batch-level dedup: when the same read_file path appears multiple times
@@ -1812,7 +1812,7 @@ async fn execute_single_tool(
     log_suffix: &str,
     hooks: &[Arc<dyn ToolHook>],
     agent_id: &str,
-    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
+    stream_tx: Option<&tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>,
     mode_state: Option<&ExecutionModeState>,
 ) -> ToolExecResult {
     let tool_name = tc.function.name.clone();
@@ -1922,7 +1922,8 @@ async fn execute_single_tool(
 
                 let bridge = tokio::spawn(async move {
                     while let Some(update) = progress_rx.recv().await {
-                        let event = fastclaw_core::types::StreamEvent::ToolProgress {
+                        let event = fastclaw_protocol::AgentEvent::ToolProgress {
+                            turn_id: fastclaw_protocol::TurnId::new("tool"),
                             tool_name: tn.clone(),
                             call_id: ci.clone(),
                             message: update.message,

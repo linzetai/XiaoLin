@@ -59,19 +59,33 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
         "connected" => {
             app.status = "Connected".into();
         }
-        "chat.start" => {
-            if let Some(sid) = msg["data"]["sessionId"].as_str() {
+        "turn_start" => {
+            if let Some(sid) = msg["data"]["session_id"]
+                .as_str()
+                .or_else(|| msg["data"]["sessionId"].as_str())
+            {
                 app.session_id = Some(sid.to_string());
             }
             app.spinner.set_thinking();
         }
-        "chat.delta" => {
-            // Handle reasoning_content (thinking) vs content
-            if let Some(thinking) = msg["data"]["reasoning_content"].as_str() {
+        "content_delta" => {
+            let delta = &msg["data"]["delta"];
+            let reasoning = delta
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("delta"))
+                .and_then(|d| d.get("reasoning_content"))
+                .and_then(|v| v.as_str());
+            let content = delta
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("delta"))
+                .and_then(|d| d.get("content"))
+                .and_then(|v| v.as_str());
+            if let Some(thinking) = reasoning {
                 app.thinking_content.push_str(thinking);
                 app.spinner.verb = "thinking".into();
-            } else if let Some(content) = msg["data"]["content"].as_str() {
-                // Flush thinking block before content starts
+            } else if let Some(text) = content {
                 if !app.thinking_content.is_empty() {
                     if let Some(last) = app.messages.last_mut() {
                         if last.role == "assistant" {
@@ -85,7 +99,7 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 }
                 if let Some(last) = app.messages.last_mut() {
                     if last.role == "assistant" {
-                        last.content.push_str(content);
+                        last.content.push_str(text);
                     }
                 }
                 app.spinner.verb = "writing".into();
@@ -93,14 +107,15 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
             }
             app.scroll_offset = 0;
         }
-        "chat.tool.start" => {
-            let tool = msg["data"]["tool"].as_str().unwrap_or("unknown");
+        "tool_executing" => {
+            let tool = msg["data"]["tool_name"].as_str().unwrap_or("unknown");
             app.spinner.set_tool(tool);
             if let Some(last) = app.messages.last_mut() {
                 if last.role == "assistant" {
                     let readable_name = tool_display_name(tool);
-                    let params_summary = msg["data"]["params"]
-                        .as_object()
+                    let args_summary = msg["data"]["args"]
+                        .as_str()
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok())
                         .and_then(|obj| {
                             obj.get("path")
                                 .or_else(|| obj.get("command"))
@@ -119,16 +134,16 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                                 })
                         })
                         .unwrap_or_default();
-                    let tool_line = if params_summary.is_empty() {
+                    let tool_line = if args_summary.is_empty() {
                         format!("\n● {readable_name}\n")
                     } else {
-                        format!("\n● {readable_name}: `{params_summary}`\n")
+                        format!("\n● {readable_name}: `{args_summary}`\n")
                     };
                     last.content.push_str(&tool_line);
                 }
             }
         }
-        "chat.tool.done" => {
+        "tool_result" => {
             app.spinner.set_thinking();
             if let Some(last) = app.messages.last_mut() {
                 if last.role == "assistant" {
@@ -137,31 +152,48 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                     } else {
                         "✗"
                     };
-                    let elapsed = msg["data"]["elapsedMs"]
-                        .as_u64()
-                        .map(|ms| format!(" {}", format_elapsed(ms)))
-                        .unwrap_or_default();
                     last.content
-                        .push_str(&format!("  ⎿ {status_icon}{elapsed}\n"));
+                        .push_str(&format!("  ⎿ {status_icon}\n"));
                 }
             }
         }
-        "chat.context_usage" => {
-            if let Some(used) = msg["data"]["usedTokens"].as_u64() {
+        "tool_progress" => {
+            let content = msg["data"]["message"]
+                .as_str()
+                .or_else(|| msg["data"]["partial_output"].as_str());
+            if let Some(text) = content {
+                if let Some(last) = app.messages.last_mut() {
+                    if last.role == "assistant" {
+                        last.content.push_str(&format!("  ⎿ {text}\n"));
+                    }
+                }
+            }
+        }
+        "context_usage_update" => {
+            if let Some(used) = msg["data"]["used_tokens"].as_u64() {
                 app.ctx_used_tokens = used as u32;
             }
-            if let Some(limit) = msg["data"]["limitTokens"].as_u64() {
+            if let Some(limit) = msg["data"]["limit_tokens"].as_u64() {
                 app.ctx_limit_tokens = limit as u32;
             }
         }
-        "chat.complete" => {
+        "turn_end" => {
             app.streaming = false;
 
             let elapsed_ms = msg["data"]["elapsedMs"]
                 .as_u64()
+                .or_else(|| msg["data"]["summary"]["elapsed_ms"].as_u64())
                 .or_else(|| app.chat_start_time.map(|t| t.elapsed().as_millis() as u64));
-            let input_tokens = msg["data"]["inputTokensEstimate"].as_u64();
-            let output_tokens = msg["data"]["outputTokensEstimate"].as_u64();
+            let input_tokens = msg["data"]["inputTokensEstimate"]
+                .as_u64()
+                .or_else(|| {
+                    msg["data"]["summary"]["usage"]["prompt_tokens"].as_u64()
+                });
+            let output_tokens = msg["data"]["outputTokensEstimate"]
+                .as_u64()
+                .or_else(|| {
+                    msg["data"]["summary"]["usage"]["completion_tokens"].as_u64()
+                });
 
             app.last_elapsed_ms = elapsed_ms;
             app.last_input_tokens = input_tokens;
@@ -191,17 +223,26 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
 
             app.status = format!("Ready · {time_str}");
         }
-        "chat.error" => {
+        "error" => {
             app.streaming = false;
             let err = msg["error"]["message"]
                 .as_str()
+                .or_else(|| msg["data"]["message"].as_str())
                 .unwrap_or("unknown error");
-            app.status = format!("Error: {err}");
+            let code = msg["error"]["code"].as_i64();
+            let status = match code {
+                Some(401) => format!("Auth error: {err}"),
+                Some(403) => format!("Access denied: {err}"),
+                Some(404) => format!("Not found: {err}"),
+                _ => format!("Error: {err}"),
+            };
             if let Some(last) = app.messages.last_mut() {
                 if last.role == "assistant" && last.content.is_empty() {
                     last.content = format!("[Error: {err}]");
                 }
             }
+            app.push_system(format!("[Error] {status}"));
+            app.status = status;
         }
         "sessions.list" => {
             if let Some(sessions) = msg["data"]["sessions"].as_array() {
@@ -294,8 +335,8 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 app.scroll_offset = 0;
             }
         }
-        "chat.ask_question" => {
-            let request_id = msg["data"]["requestId"]
+        "ask_question" => {
+            let request_id = msg["data"]["request_id"]
                 .as_str()
                 .unwrap_or("")
                 .to_string();
@@ -330,7 +371,7 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
             });
             app.status = "Agent is waiting for your answer...".into();
         }
-        "chat.set_mode" => {
+        "set_mode" => {
             if let Some(true) = msg["data"]["ok"].as_bool() {
                 let to = msg["data"]["to"].as_str().unwrap_or("agent");
                 app.execution_mode = to.to_string();
@@ -343,7 +384,7 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 app.status = format!("Mode: {to}");
             }
         }
-        "chat.mode_change" => {
+        "mode_change" => {
             let to = msg["data"]["to"].as_str().unwrap_or("agent");
             if to != app.execution_mode {
                 app.execution_mode = to.to_string();
@@ -359,7 +400,7 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 app.status = format!("Mode: {to}{plan_info}");
             }
         }
-        "chat.plan_file" => {
+        "plan_file_update" => {
             let path = msg["data"]["path"].as_str().map(|s| s.to_string());
             let exists = msg["data"]["exists"].as_bool().unwrap_or(false);
             app.plan_file_path = path.clone();
@@ -372,38 +413,77 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 app.push_system(format!("Plan file ({state}): {short}"));
             }
         }
-        "chat.cancel" => {
+        "cancel" => {
             let cancelled = msg["data"]["cancelled"].as_bool().unwrap_or(false);
             if cancelled {
                 app.streaming = false;
                 app.status = "Cancelled (server confirmed)".into();
             }
         }
-        "error" => {
-            let err_msg = msg["error"]["message"]
-                .as_str()
-                .unwrap_or("unknown error");
-            let code = msg["error"]["code"].as_i64();
-            let status = match code {
-                Some(401) => format!("Auth error: {err_msg}"),
-                Some(403) => format!("Access denied: {err_msg}"),
-                Some(404) => format!("Not found: {err_msg}"),
-                _ => format!("Error: {err_msg}"),
-            };
-            app.push_system(format!("[Error] {status}"));
-            app.status = status;
+        "turn_aborted" => {
+            app.streaming = false;
+            let reason = msg["data"]["reason"].as_str().unwrap_or("interrupted");
+            app.push_system(format!("Turn aborted: {reason}"));
+            app.status = format!("Aborted: {reason}");
         }
-        "chat.tool.progress" => {
-            if let Some(content) = msg["data"]["content"].as_str() {
-                if let Some(last) = app.messages.last_mut() {
-                    if last.role == "assistant" {
-                        last.content.push_str(&format!("  ⎿ {content}\n"));
-                    }
+        "stream_error" => {
+            let err = msg["data"]["message"].as_str().unwrap_or("stream error");
+            let retry = msg["data"]["retry_attempt"].as_u64().unwrap_or(0);
+            if retry > 0 {
+                app.push_system(format!("⚠ Stream error (retry {retry}): {err}"));
+            } else {
+                app.push_system(format!("⚠ Stream error: {err}"));
+            }
+        }
+        "warning" => {
+            let warn_msg = msg["data"]["message"].as_str().unwrap_or("warning");
+            app.push_system(format!("⚠ {warn_msg}"));
+        }
+        "approval_required" => {
+            let request_id = format!(
+                "approval:{}",
+                msg["data"]["approval_id"].as_str().unwrap_or("")
+            );
+            let action_desc = msg["data"]["action"]
+                .as_object()
+                .and_then(|a| a.get("type").and_then(|t| t.as_str()))
+                .unwrap_or("action");
+            let question = format!("Approve {action_desc}?");
+            let options = vec![
+                ("approved".to_string(), "Allow".to_string()),
+                ("denied".to_string(), "Deny".to_string()),
+                ("approved_for_session".to_string(), "Allow for session".to_string()),
+            ];
+            app.show_popup = Some(PopupKind::AskQuestion {
+                request_id,
+                question,
+                options,
+            });
+            app.status = "Waiting for approval...".into();
+        }
+        "approval_resolved" => {
+            app.show_popup = None;
+            app.status = "Ready".into();
+        }
+        "context_warning" => {
+            let msg_text = msg["data"]["message"].as_str().unwrap_or("");
+            app.push_system(format!("⚠ {msg_text}"));
+        }
+        "compact_boundary" => {
+            app.push_system("⚠ Context compacted to fit token limit.".into());
+        }
+        "brief_message" => {}
+        "suggestions" => {
+            if let Some(items) = msg["data"]["items"].as_array() {
+                let suggestions: Vec<&str> =
+                    items.iter().filter_map(|v| v.as_str()).take(3).collect();
+                if !suggestions.is_empty() {
+                    app.push_system(format!("Suggestions: {}", suggestions.join(" | ")));
                 }
             }
         }
-        "chat.subagent.start" => {
-            let label = msg["data"]["label"].as_str().unwrap_or("sub-agent");
+        "sub_agent_start" => {
+            let label = msg["data"]["task"].as_str().unwrap_or("sub-agent");
             app.spinner.verb = format!("sub-agent: {label}");
             if let Some(last) = app.messages.last_mut() {
                 if last.role == "assistant" {
@@ -412,7 +492,7 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 }
             }
         }
-        "chat.subagent.delta" => {
+        "sub_agent_delta" => {
             if let Some(content) = msg["data"]["content"].as_str() {
                 if let Some(last) = app.messages.last_mut() {
                     if last.role == "assistant" {
@@ -421,34 +501,15 @@ pub(crate) fn handle_ws_message(app: &mut TuiApp, text: &str) {
                 }
             }
         }
-        "chat.subagent.tool.start" => {
-            let tool = msg["data"]["tool"].as_str().unwrap_or("unknown");
+        "sub_agent_tool_executing" => {
+            let tool = msg["data"]["tool_name"].as_str().unwrap_or("unknown");
             app.spinner.verb = format!("sub-agent tool: {tool}");
         }
-        "chat.subagent.tool.done" => {
+        "sub_agent_tool_result" => {
             app.spinner.set_thinking();
         }
-        "chat.subagent.complete" => {
+        "sub_agent_complete" => {
             app.spinner.set_thinking();
-        }
-        "chat.context.warning" => {
-            let pct = msg["data"]["usedPercent"].as_f64().unwrap_or(0.0);
-            app.push_system(format!(
-                "⚠ Context window {pct:.0}% used. Consider starting a new session."
-            ));
-        }
-        "chat.compact.warning" => {
-            app.push_system("⚠ Context compacted to fit token limit.".into());
-        }
-        "chat.brief" => {}
-        "chat.suggestions" => {
-            if let Some(items) = msg["data"]["items"].as_array() {
-                let suggestions: Vec<&str> =
-                    items.iter().filter_map(|v| v.as_str()).take(3).collect();
-                if !suggestions.is_empty() {
-                    app.push_system(format!("Suggestions: {}", suggestions.join(" | ")));
-                }
-            }
         }
         "heartbeat" | "pong" => {}
         _ => {}

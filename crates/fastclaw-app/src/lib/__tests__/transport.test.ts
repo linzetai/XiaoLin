@@ -273,12 +273,12 @@ describe("transport layer (browser mode)", () => {
       transport.chatStream({ messages: [{ role: "user", content: "hi" }] }, onEvent);
 
       const registeredEvents = mockOn.mock.calls.map((c: unknown[]) => c[0]);
-      expect(registeredEvents).toContain("chat.start");
-      expect(registeredEvents).toContain("chat.delta");
-      expect(registeredEvents).toContain("chat.complete");
-      expect(registeredEvents).toContain("chat.tool.start");
-      expect(registeredEvents).toContain("chat.tool.done");
-      expect(registeredEvents).toContain("chat.error");
+      expect(registeredEvents).toContain("turn_start");
+      expect(registeredEvents).toContain("content_delta");
+      expect(registeredEvents).toContain("turn_end");
+      expect(registeredEvents).toContain("tool_executing");
+      expect(registeredEvents).toContain("tool_result");
+      expect(registeredEvents).toContain("error");
     });
 
     it("sends chat request via WS", () => {

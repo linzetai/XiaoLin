@@ -27,7 +27,8 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::state::AppState;
-use fastclaw_agent::QueryEngine;
+
+use fastclaw_protocol::ClientOp;
 use fastclaw_security::ApiKeyAuth;
 
 static CONN_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -74,7 +75,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
     let mut broadcast_rx = state.strm.ws_broadcast.subscribe();
     let mut subscriptions: HashSet<String> = HashSet::new();
     let mut owned_sessions: HashSet<String> = HashSet::new();
-    let mut query_engines: HashMap<String, QueryEngine> = HashMap::new();
     let cancel = CancellationToken::new();
     let active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
@@ -92,17 +92,19 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
             data: Some(json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "connId": conn_id,
-                "protocol": "fastclaw-ws/1",
+                "protocol": "fastclaw-ws/2",
+                "capabilities": ["approval", "history_items", "turn_coordinator", "structured_errors"],
                 "methods": ["ping", "chat", "agents", "auth",
                             "sessions.list", "sessions.get", "sessions.messages", "sessions.delete",
                             "sessions.new", "sessions.claim", "sessions.update_title",
-                            "chat.cancel", "chat.answer", "chat.set_mode",
+                            "cancel", "answer", "set_mode",
                             "models.list", "config.get", "config.set",
                             "mcp.status", "mcp.reload", "mcp.add", "mcp.remove",
                             "agents.get", "agents.create", "agents.update", "agents.delete",
                             "tools.list", "tools.update", "tools.submit_answer",
                             "skills.list", "skills.refresh",
                             "execution.set_mode", "execution.get_plan",
+                            "resolve_approval", "approval.resolve",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -120,11 +122,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
 
             // Background task responses (streaming chat events)
             Some(resp) = bg_rx.recv() => {
-                if resp.msg_type == "chat.complete" {
+                if resp.msg_type == "turn_end" {
                     if let Some(sid) = resp
                         .data
                         .as_ref()
-                        .and_then(|d| d.get("sessionId"))
+                        .and_then(|d| d.get("session_id"))
                         .and_then(|v| v.as_str())
                     {
                         owned_sessions.insert(sid.to_string());
@@ -239,7 +241,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                     &state,
                     &mut subscriptions,
                     &mut owned_sessions,
-                    &mut query_engines,
                     &bg_tx,
                     &cancel,
                     active_chat_cancels.clone(),
@@ -261,15 +262,32 @@ async fn dispatch(
     state: &AppState,
     subscriptions: &mut HashSet<String>,
     owned_sessions: &mut HashSet<String>,
-    query_engines: &mut HashMap<String, QueryEngine>,
     bg_tx: &tokio::sync::mpsc::Sender<WsResponse>,
     cancel: &CancellationToken,
     active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>>,
     req: WsRequest,
 ) {
     let id = req.id;
-    match req.method.as_str() {
-        "ping" => {
+
+    let op = match ClientOp::parse_request(&req.method, req.params.clone()) {
+        Ok(op) => op,
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32601, "message": e})),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
+    match op {
+        ClientOp::Ping => {
             send_resp(
                 sender,
                 &WsResponse {
@@ -281,8 +299,8 @@ async fn dispatch(
             )
             .await;
         }
-        "agents" => agents::handle_agents(sender, state, id).await,
-        "chat" => {
+        ClientOp::AgentsList => agents::handle_agents(sender, state, id).await,
+        ClientOp::Chat { params } => {
             chat::spawn_chat(
                 state,
                 owned_sessions,
@@ -290,36 +308,28 @@ async fn dispatch(
                 cancel.clone(),
                 active_chat_cancels.clone(),
                 id,
-                req.params,
+                params,
             )
             .await
         }
-        "chat.submit" => {
-            chat::handle_chat_submit(
-                sender,
-                state,
-                query_engines,
-                owned_sessions,
-                bg_tx.clone(),
-                id,
-                req.params,
-            )
-            .await
-        }
-        "chat.cancel" => {
+        ClientOp::ChatCancel { .. } => {
             chat::handle_chat_cancel(sender, id, req.params, active_chat_cancels.clone()).await
         }
-        "chat.answer" => chat::handle_chat_answer(sender, state, id, req.params).await,
-        "chat.set_mode" => {
+        ClientOp::ChatAnswer { .. } | ClientOp::ToolsSubmitAnswer { .. } => {
+            chat::handle_chat_answer(sender, state, id, req.params).await
+        }
+        ClientOp::ChatSetMode { .. } => {
             chat::handle_chat_set_mode(sender, state, id, req.params, &Some(bg_tx.clone()))
                 .await
         }
-        "sessions.list" => session::handle_sessions_list(sender, state, id, req.params).await,
-        "sessions.get" => {
+        ClientOp::SessionsList { params } => {
+            session::handle_sessions_list(sender, state, id, params).await
+        }
+        ClientOp::SessionsGet { .. } => {
             session::handle_session_scoped(sender, state, owned_sessions, id, req.params, "get")
                 .await
         }
-        "sessions.messages" => {
+        ClientOp::SessionsMessages { .. } => {
             session::handle_session_scoped(
                 sender,
                 state,
@@ -330,17 +340,17 @@ async fn dispatch(
             )
             .await
         }
-        "sessions.delete" => {
+        ClientOp::SessionsDelete { .. } => {
             session::handle_session_scoped(sender, state, owned_sessions, id, req.params, "delete")
                 .await
         }
-        "sessions.new" => {
-            session::handle_sessions_new(sender, state, owned_sessions, id, req.params).await
+        ClientOp::SessionsNew { params } => {
+            session::handle_sessions_new(sender, state, owned_sessions, id, params).await
         }
-        "sessions.claim" => {
+        ClientOp::SessionsClaim { .. } => {
             session::handle_sessions_claim(sender, state, owned_sessions, id, req.params).await
         }
-        "sessions.update_title" => {
+        ClientOp::SessionsUpdateTitle { .. } => {
             session::handle_session_scoped(
                 sender,
                 state,
@@ -351,34 +361,69 @@ async fn dispatch(
             )
             .await
         }
-        "models.list" => config::handle_models_list(sender, state, id).await,
-        "config.get" => config::handle_config_get(sender, state, id, req.params).await,
-        "config.set" => config::handle_config_set(sender, state, id, req.params).await,
-        "mcp.status" => mcp::handle_mcp_status(sender, state, id).await,
-        "mcp.reload" => mcp::handle_mcp_reload(sender, state, id).await,
-        "mcp.add" => mcp::handle_mcp_add(sender, state, id, req.params).await,
-        "mcp.remove" => mcp::handle_mcp_remove(sender, state, id, req.params).await,
-        // Agent CRUD
-        "agents.get" => agents::handle_agents_get(sender, state, id, req.params).await,
-        "agents.create" => agents::handle_agents_create(sender, state, id, req.params).await,
-        "agents.update" => agents::handle_agents_update(sender, state, id, req.params).await,
-        "agents.delete" => agents::handle_agents_delete(sender, state, id, req.params).await,
-        // Tools
-        "tools.list" => agents::handle_tools_list(sender, state, id, req.params).await,
-        "tools.update" => agents::handle_tools_update(sender, state, id, req.params).await,
-        "tools.submit_answer" => chat::handle_chat_answer(sender, state, id, req.params).await,
-        // Skills
-        "skills.list" => skills::handle_skills_list(sender, state, id, req.params).await,
-        "skills.refresh" => skills::handle_skills_refresh(sender, state, id).await,
-        // Execution mode
-        "execution.set_mode" => execution::handle_execution_set_mode(sender, state, id, req.params).await,
-        "execution.get_plan" => execution::handle_execution_get_plan(sender, state, id, req.params).await,
-        "subscribe" => {
-            let events: Vec<String> = req
-                .params
-                .get("events")
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
+        ClientOp::ModelsList => config::handle_models_list(sender, state, id).await,
+        ClientOp::ConfigGet { .. } => {
+            config::handle_config_get(sender, state, id, req.params).await
+        }
+        ClientOp::ConfigSet { .. } => {
+            config::handle_config_set(sender, state, id, req.params).await
+        }
+        ClientOp::McpStatus => mcp::handle_mcp_status(sender, state, id).await,
+        ClientOp::McpReload => mcp::handle_mcp_reload(sender, state, id).await,
+        ClientOp::McpAdd { params } => {
+            mcp::handle_mcp_add(sender, state, id, params).await
+        }
+        ClientOp::McpRemove { .. } => {
+            mcp::handle_mcp_remove(sender, state, id, req.params).await
+        }
+        ClientOp::AgentsGet { .. } => {
+            agents::handle_agents_get(sender, state, id, req.params).await
+        }
+        ClientOp::AgentsCreate { params } => {
+            agents::handle_agents_create(sender, state, id, params).await
+        }
+        ClientOp::AgentsUpdate { params, .. } => {
+            agents::handle_agents_update(sender, state, id, params).await
+        }
+        ClientOp::AgentsDelete { .. } => {
+            agents::handle_agents_delete(sender, state, id, req.params).await
+        }
+        ClientOp::ToolsList { params } => {
+            agents::handle_tools_list(sender, state, id, params).await
+        }
+        ClientOp::ToolsUpdate { params } => {
+            agents::handle_tools_update(sender, state, id, params).await
+        }
+        ClientOp::SkillsList { params } => {
+            skills::handle_skills_list(sender, state, id, params).await
+        }
+        ClientOp::SkillsRefresh => skills::handle_skills_refresh(sender, state, id).await,
+        ClientOp::ExecutionSetMode { .. } => {
+            execution::handle_execution_set_mode(sender, state, id, req.params).await
+        }
+        ClientOp::ExecutionGetPlan { .. } => {
+            execution::handle_execution_get_plan(sender, state, id, req.params).await
+        }
+        ClientOp::ResolveApproval {
+            approval_id,
+            decision,
+        } => {
+            let resolved = state
+                .strm
+                .tool_orchestrator
+                .resolve(&approval_id, decision.clone());
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "approval.resolved".into(),
+                    data: Some(json!({"approvalId": approval_id, "resolved": resolved})),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        ClientOp::Subscribe { events } => {
             for e in &events {
                 subscriptions.insert(e.clone());
             }
@@ -393,12 +438,7 @@ async fn dispatch(
             )
             .await;
         }
-        "unsubscribe" => {
-            let events: Vec<String> = req
-                .params
-                .get("events")
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
+        ClientOp::Unsubscribe { events } => {
             for e in &events {
                 subscriptions.remove(e);
             }
@@ -413,7 +453,7 @@ async fn dispatch(
             )
             .await;
         }
-        other => {
+        _ => {
             send_resp(
                 sender,
                 &WsResponse {
@@ -421,7 +461,7 @@ async fn dispatch(
                     msg_type: "error".into(),
                     data: None,
                     error: Some(
-                        json!({"code": -32601, "message": format!("unknown method: {other}")}),
+                        json!({"code": -32601, "message": format!("unsupported operation: {}", req.method)}),
                     ),
                 },
             )
@@ -432,13 +472,12 @@ async fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::chat::event_to_response;
-    use crate::state::AppState;
+    use super::chat::forward_event;
     use fastclaw_core::config_access::{
         filter_config_for_read, mask_secret_values, navigate_config, set_nested_key,
         CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS,
     };
-    use fastclaw_core::types::StreamEvent;
+    use fastclaw_protocol::{AgentEvent, AskQuestionOption, TurnId, TurnSummary};
     use serde_json::json;
 
     #[test]
@@ -526,9 +565,9 @@ mod tests {
     }
 
     #[test]
-    fn event_to_response_ask_question_format() {
-        use fastclaw_core::types::AskQuestionOption;
-        let event = StreamEvent::AskQuestion {
+    fn forward_event_ask_question_format() {
+        let event = AgentEvent::AskQuestion {
+            turn_id: TurnId::new("turn-1"),
             request_id: "q1".into(),
             question: "Pick one".into(),
             options: vec![
@@ -544,76 +583,37 @@ mod tests {
             timeout_secs: 30,
             allow_multiple: false,
         };
-        let state = {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let tmp = tempfile::tempdir().unwrap();
-            rt.block_on(async {
-                AppState::for_test(Box::new(NullProvider), tmp.path())
-                    .await
-                    .unwrap()
-            })
-        };
-        let resp = event_to_response(&event, &Some("r1".into()), &state, None);
-        assert_eq!(resp.msg_type, "chat.ask_question");
+        let resp = forward_event(&event, &Some("r1".into()));
+        assert_eq!(resp.msg_type, "ask_question");
         let data = resp.data.unwrap();
-        assert_eq!(data["requestId"], "q1");
+        assert_eq!(data["request_id"], "q1");
         assert_eq!(data["question"], "Pick one");
         assert_eq!(data["options"].as_array().unwrap().len(), 2);
-        assert_eq!(data["timeoutSecs"], 30);
+        assert_eq!(data["timeout_secs"], 30);
     }
 
     #[test]
-    fn event_to_response_done_includes_session_id() {
-        let event = StreamEvent::Done {
-            session_id: Some("sess-123".into()),
-            tool_calls_made: 2,
-            iterations: 1,
-            final_tool_calls: None,
-            usage: None,
-            elapsed_ms: 0,
-            context_tokens: None,
-            context_window: None,
-        };
-        let state = {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let tmp = tempfile::tempdir().unwrap();
-            rt.block_on(async {
-                AppState::for_test(Box::new(NullProvider), tmp.path())
-                    .await
-                    .unwrap()
-            })
-        };
-        let resp = event_to_response(&event, &Some("r2".into()), &state, None);
-        assert_eq!(resp.msg_type, "chat.complete");
-        let data = resp.data.unwrap();
-        assert_eq!(data["sessionId"], "sess-123");
-        assert_eq!(data["toolCallsMade"], 2);
-        assert_eq!(data["iterations"], 1);
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl fastclaw_agent::LlmProvider for NullProvider {
-        async fn chat_completion(
-            &self,
-            _params: &fastclaw_agent::CompletionParams<'_>,
-        ) -> anyhow::Result<fastclaw_core::types::ChatResponse> {
-            Ok(fastclaw_core::types::ChatResponse {
-                id: "null".into(),
-                object: "chat.completion".into(),
-                created: 0,
-                model: "null".into(),
-                choices: vec![],
+    fn forward_event_turn_end_includes_session_id() {
+        let turn_id = TurnId::new("turn-2");
+        let event = AgentEvent::TurnEnd {
+            turn_id: turn_id.clone(),
+            summary: TurnSummary {
+                turn_id,
+                tool_calls_made: 2,
+                iterations: 1,
                 usage: None,
-            })
-        }
-        async fn chat_completion_stream(
-            &self,
-            _params: &fastclaw_agent::CompletionParams<'_>,
-        ) -> anyhow::Result<
-            futures::stream::BoxStream<'static, anyhow::Result<fastclaw_core::types::StreamDelta>>,
-        > {
-            Ok(Box::pin(futures::stream::empty()))
-        }
+                elapsed_ms: 0,
+                context_tokens: None,
+                context_window: None,
+            },
+            session_id: Some("sess-123".into()),
+            final_tool_calls: None,
+        };
+        let resp = forward_event(&event, &Some("r2".into()));
+        assert_eq!(resp.msg_type, "turn_end");
+        let data = resp.data.unwrap();
+        assert_eq!(data["session_id"], "sess-123");
+        assert_eq!(data["summary"]["tool_calls_made"], 2);
+        assert_eq!(data["summary"]["iterations"], 1);
     }
 }

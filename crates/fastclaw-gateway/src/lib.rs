@@ -3,6 +3,7 @@ pub mod audit;
 pub mod channel_tool;
 pub mod chat_pipeline;
 pub mod consolidation;
+pub mod coordinator;
 pub mod cron_tool;
 pub mod error;
 pub mod extract;
@@ -25,6 +26,7 @@ use tower_http::trace::TraceLayer;
 use fastclaw_core::config::{ConfigMode, FastClawConfig, GatewayState};
 use fastclaw_security::{ApiKeyAuth, RateLimitConfig, RateLimiter};
 
+pub use coordinator::{CoordinatorRegistry, SessionCoordinator};
 pub use state::AppState;
 
 /// Configuration mode for gateway state file.
@@ -349,10 +351,24 @@ fn spawn_cron_scheduler(state: AppState) {
                 .session_store
                 .append_message(&sid, &user_msg)
                 .await;
+            {
+                let turn_id = fastclaw_protocol::TurnId::generate();
+                let history_items =
+                    fastclaw_core::history_compat::chat_message_to_history(&user_msg, turn_id);
+                if let Err(e) = self
+                    .state
+                    .store
+                    .session_store
+                    .append_history_items(&sid, &history_items)
+                    .await
+                {
+                    tracing::warn!(session_id = %sid, error = %e, "failed to dual-write cron user history items");
+                }
+            }
 
             let mut request = fastclaw_core::types::ChatRequest {
                 agent_id: Some(agent_id.into()),
-                session_id: Some(sid.clone()),
+                session_id: Some(sid.clone().into()),
                 messages: vec![user_msg],
                 model: None,
                 stream: false,
@@ -416,6 +432,22 @@ fn spawn_cron_scheduler(state: AppState) {
                 .session_store
                 .append_message(&sid, &assistant_msg)
                 .await;
+            {
+                let turn_id = fastclaw_protocol::TurnId::generate();
+                let history_items = fastclaw_core::history_compat::chat_message_to_history(
+                    &assistant_msg,
+                    turn_id,
+                );
+                if let Err(e) = self
+                    .state
+                    .store
+                    .session_store
+                    .append_history_items(&sid, &history_items)
+                    .await
+                {
+                    tracing::warn!(session_id = %sid, error = %e, "failed to dual-write cron assistant history items");
+                }
+            }
 
             // Send the agent reply directly through each notify channel so the
             // response appears in the conversation (not as a separate notification).

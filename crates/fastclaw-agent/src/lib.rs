@@ -2,6 +2,7 @@ pub mod agent_discovery;
 pub(crate) mod autofix;
 pub mod builtin_tools;
 pub mod code_graph;
+pub mod guardian;
 pub mod llm;
 pub mod llm_plugin;
 pub mod process_channel;
@@ -12,6 +13,7 @@ pub mod subagent_manager;
 pub mod symbol_index;
 
 pub use agent_discovery::{GetAgentInfoTool, ListAgentsTool};
+pub use guardian::{GuardianAssessment, GuardianReviewer};
 pub use builtin_tools::{
     engine_by_id, BaiduEngine, BingEngine, BuiltinMetaEngine, GoogleEngine, ImageGenerateTool,
     MemorySearchTool, MemoryStoreTool, Search360Engine, SearchEngine, SearxngEngine, SogouEngine,
@@ -25,6 +27,7 @@ pub use llm::{
     FallbackProvider, LlmApiError, LlmErrorCode, LlmProvider, OpenAiProvider,
 };
 pub use llm_plugin::{LlmPluginRegistry, MiddlewareLlmProvider, ProcessLlmProvider};
+pub use runtime::orchestrator::{map_tool_to_pending_action, ToolOrchestrator};
 pub use runtime::prompt_engine::{
     McpServerInfo, PromptContext, PromptEngine, PromptSection, SectionCompute,
 };

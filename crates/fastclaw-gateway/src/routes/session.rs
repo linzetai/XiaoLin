@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 
+use fastclaw_core::history_compat;
 use fastclaw_core::types::ChatMessage;
 use fastclaw_security::ApiKeyAuth;
 
@@ -103,10 +104,15 @@ pub async fn resolve_session_context(
 ) -> anyhow::Result<ResolvedSession> {
     if let Some(sid) = session_id {
         if let Some(session) = state.store.session_store.get_session(sid).await? {
-            let history = state.store.session_store.load_chat_messages(sid).await?;
+            let history_items = state.store.session_store.load_history(sid).await?;
+            let messages = if history_items.is_empty() {
+                state.store.session_store.load_chat_messages(sid).await?
+            } else {
+                history_compat::history_items_to_chat_messages(&history_items)
+            };
             return Ok(ResolvedSession {
                 session_id: sid.to_string(),
-                messages: history,
+                messages,
                 needs_title: session.title.is_none(),
             });
         }

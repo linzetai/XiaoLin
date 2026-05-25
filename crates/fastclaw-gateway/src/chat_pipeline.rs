@@ -244,7 +244,7 @@ pub async fn setup_chat(
     }
 
     if options.set_resolved_session_on_request {
-        enriched_request.session_id = Some(session_id.clone());
+        enriched_request.session_id = Some(session_id.clone().into());
     }
 
     let t0 = std::time::Instant::now();
@@ -716,6 +716,21 @@ pub async fn after_chat(
         .session_store
         .append_message(&setup.session_id, assistant)
         .await?;
+
+    // Dual-write: persist as HistoryItems alongside legacy messages
+    {
+        let turn_id = fastclaw_protocol::TurnId::generate();
+        let history_items =
+            fastclaw_core::history_compat::chat_message_to_history(assistant, turn_id);
+        if let Err(e) = state
+            .store
+            .session_store
+            .append_history_items(&setup.session_id, &history_items)
+            .await
+        {
+            tracing::warn!(session_id = %setup.session_id, error = %e, "failed to dual-write history items");
+        }
+    }
 
     if let Some(content) = assistant.text_content() {
         if !content.is_empty() {

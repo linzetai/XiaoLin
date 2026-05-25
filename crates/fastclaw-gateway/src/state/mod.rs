@@ -24,7 +24,7 @@ use fastclaw_evolution::{
 };
 use fastclaw_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use fastclaw_model_router::BudgetTracker;
-use fastclaw_session::SessionStore;
+use fastclaw_session::{EventLog, SessionStore};
 #[cfg(any(test, feature = "test-helpers"))]
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
@@ -89,6 +89,7 @@ pub struct RuntimeState {
 #[derive(Clone)]
 pub struct StorageState {
     pub session_store: Arc<SessionStore>,
+    pub event_log: Arc<EventLog>,
     pub cron_store: Arc<CronJobStore>,
     pub cron_wake: Arc<tokio::sync::Notify>,
     pub notification_store: Arc<crate::notification_store::NotificationStore>,
@@ -222,10 +223,14 @@ pub struct ObserveState {
 #[derive(Clone)]
 pub struct StreamState {
     pub stream_event_tx:
-        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>>,
     pub ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
+    pub pending_approvals:
+        Arc<DashMap<String, tokio::sync::oneshot::Sender<fastclaw_protocol::ApprovalDecision>>>,
+    pub tool_orchestrator: Arc<fastclaw_agent::ToolOrchestrator>,
     pub ws_broadcast: tokio::sync::broadcast::Sender<String>,
     pub subagent_manager: Arc<fastclaw_agent::SubAgentManager>,
+    pub coordinator_registry: Arc<crate::coordinator::CoordinatorRegistry>,
 }
 
 #[derive(Clone)]
@@ -1417,6 +1422,8 @@ impl AppState {
 
         let db_path = tmp.join("sessions.db");
         let session_store = Arc::new(SessionStore::open(&db_path).await?);
+        let event_log = Arc::new(EventLog::new(session_store.pool()));
+        event_log.ensure_table().await?;
         let message_bus = Arc::new(MessageBus::new(128));
         for aid in ["main"] {
             let mut rx = message_bus.register(aid).await;
@@ -1476,6 +1483,10 @@ impl AppState {
 
         let (ws_broadcast, _) = tokio::sync::broadcast::channel::<String>(256);
 
+        let pending_approvals = Arc::new(DashMap::new());
+        let tool_orchestrator =
+            Arc::new(fastclaw_agent::ToolOrchestrator::new(pending_approvals.clone()));
+
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let channel_inbound_tx = {
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1508,6 +1519,7 @@ impl AppState {
             },
             store: StorageState {
                 session_store,
+                event_log,
                 cron_store: Arc::new(cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(notification_store),
@@ -1540,8 +1552,11 @@ impl AppState {
             strm: StreamState {
                 stream_event_tx: Arc::new(DashMap::new()),
                 ask_question_pending: Arc::new(DashMap::new()),
+                pending_approvals,
+                tool_orchestrator,
                 ws_broadcast,
                 subagent_manager,
+                coordinator_registry: Arc::new(crate::coordinator::CoordinatorRegistry::new()),
             },
         })
     }

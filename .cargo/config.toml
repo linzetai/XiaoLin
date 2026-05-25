@@ -5,6 +5,9 @@
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
+[env]
+TS_RS_EXPORT_DIR = { value = "crates/fastclaw-protocol/generated", relative = true }
+
 # Uncomment to enable sccache for faster incremental builds:
 # [build]
 # rustc-wrapper = "sccache"

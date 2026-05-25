@@ -380,7 +380,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.start","data":{"sessionId":"sess-123"}}"#,
+            r#"{"type":"turn_start","data":{"session_id":"sess-123"}}"#,
         );
         assert_eq!(app.session_id, Some("sess-123".into()));
         assert_eq!(app.spinner.verb, "thinking");
@@ -396,7 +396,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":" world"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":" world"}}]}}}"#,
         );
         assert_eq!(app.messages.last().unwrap().content, "Hello world");
     }
@@ -411,7 +411,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"extra"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"extra"}}]}}}"#,
         );
         assert_eq!(app.messages.last().unwrap().content, "question");
     }
@@ -426,7 +426,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.start","data":{"tool":"file_read","params":{"path":"/tmp/x"}}}"#,
+            r#"{"type":"tool_executing","data":{"tool_name":"file_read","args":"{\"path\":\"/tmp/x\"}"}}"#,
         );
         assert!(app.messages.last().unwrap().content.contains("● Read"));
         assert!(app.messages.last().unwrap().content.contains("/tmp/x"));
@@ -443,11 +443,10 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.done","data":{"success":true,"elapsedMs":150}}"#,
+            r#"{"type":"tool_result","data":{"success":true,"tool_name":"unknown","output":""}}"#,
         );
         let content = &app.messages.last().unwrap().content;
         assert!(content.contains("✓"));
-        assert!(content.contains("150ms"));
     }
 
     #[test]
@@ -460,7 +459,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.done","data":{"success":false,"elapsedMs":50}}"#,
+            r#"{"type":"tool_result","data":{"success":false,"tool_name":"unknown","output":""}}"#,
         );
         assert!(app.messages.last().unwrap().content.contains("✗"));
     }
@@ -470,7 +469,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.context_usage","data":{"usedTokens":5000,"limitTokens":128000}}"#,
+            r#"{"type":"context_usage_update","data":{"used_tokens":5000,"limit_tokens":128000}}"#,
         );
         assert_eq!(app.ctx_used_tokens, 5000);
         assert_eq!(app.ctx_limit_tokens, 128000);
@@ -487,7 +486,7 @@ mod tests {
         app.streaming = true;
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.complete","data":{"elapsedMs":2000,"inputTokensEstimate":100,"outputTokensEstimate":50}}"#,
+            r#"{"type":"turn_end","data":{"elapsedMs":2000,"inputTokensEstimate":100,"outputTokensEstimate":50}}"#,
         );
         assert!(!app.streaming);
         assert_eq!(app.last_elapsed_ms, Some(2000));
@@ -507,7 +506,7 @@ mod tests {
         app.streaming = true;
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.error","error":{"message":"rate limited"}}"#,
+            r#"{"type":"error","error":{"message":"rate limited"}}"#,
         );
         assert!(!app.streaming);
         assert!(app.status.contains("rate limited"));
@@ -923,20 +922,20 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.start","data":{"sessionId":"s1","model":"gpt-4o"}}"#,
+            r#"{"type":"turn_start","data":{"session_id":"s1","model":"gpt-4o"}}"#,
         );
         assert_eq!(app.session_id, Some("s1".into()));
         assert!(app.streaming);
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"Hello "}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"Hello "}}]}}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"world!"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"world!"}}]}}}"#,
         );
         assert_eq!(app.messages.last().unwrap().content, "Hello world!");
-        handle_ws_message(&mut app, r#"{"type":"chat.complete","data":{"elapsedMs":1200,"inputTokensEstimate":50,"outputTokensEstimate":25}}"#);
+        handle_ws_message(&mut app, r#"{"type":"turn_end","data":{"elapsedMs":1200,"inputTokensEstimate":50,"outputTokensEstimate":25}}"#);
         assert!(!app.streaming);
         assert_eq!(app.total_messages, 1);
         assert_eq!(app.total_input_tokens, 50);
@@ -952,20 +951,20 @@ mod tests {
             content: String::new(),
             timestamp: "12:00:00".into(),
         });
-        handle_ws_message(&mut app, r#"{"type":"chat.tool.start","data":{"tool":"file_read","callId":"c1","params":{"path":"/tmp/test.rs"}}}"#);
+        handle_ws_message(&mut app, r#"{"type":"tool_executing","data":{"tool_name":"file_read","args":"{\"path\":\"/tmp/test.rs\"}"}}"#);
         assert_eq!(app.spinner.verb, "reading");
         let content = &app.messages.last().unwrap().content;
         assert!(content.contains("● Read"));
         assert!(content.contains("/tmp/test.rs"));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.progress","data":{"content":"reading file..."}}"#,
+            r#"{"type":"tool_progress","data":{"message":"reading file..."}}"#,
         );
         let content = &app.messages.last().unwrap().content;
         assert!(content.contains("reading file..."));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.done","data":{"success":true,"elapsedMs":150}}"#,
+            r#"{"type":"tool_result","data":{"success":true,"tool_name":"unknown","output":""}}"#,
         );
         assert_eq!(app.spinner.verb, "thinking");
         let content = &app.messages.last().unwrap().content;
@@ -983,28 +982,28 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.subagent.start","data":{"runId":"r1","label":"code-review"}}"#,
+            r#"{"type":"sub_agent_start","data":{"runId":"r1","task":"code-review"}}"#,
         );
         assert!(app.spinner.verb.contains("code-review"));
         assert!(app.messages.last().unwrap().content.contains("Task"));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.subagent.delta","data":{"runId":"r1","content":"Reviewing..."}}"#,
+            r#"{"type":"sub_agent_delta","data":{"runId":"r1","content":"Reviewing..."}}"#,
         );
         assert!(app.messages.last().unwrap().content.contains("Reviewing..."));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.subagent.tool.start","data":{"runId":"r1","tool":"grep"}}"#,
+            r#"{"type":"sub_agent_tool_executing","data":{"runId":"r1","tool_name":"grep"}}"#,
         );
         assert!(app.spinner.verb.contains("grep"));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.subagent.tool.done","data":{"runId":"r1"}}"#,
+            r#"{"type":"sub_agent_tool_result","data":{"runId":"r1"}}"#,
         );
         assert_eq!(app.spinner.verb, "thinking");
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.subagent.complete","data":{"runId":"r1","elapsedMs":3000}}"#,
+            r#"{"type":"sub_agent_complete","data":{"runId":"r1","elapsedMs":3000}}"#,
         );
         assert_eq!(app.spinner.verb, "thinking");
     }
@@ -1014,12 +1013,12 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.context.warning","data":{"usedPercent":85}}"#,
+            r#"{"type":"context_warning","data":{"message":"Context window 85% used"}}"#,
         );
         assert!(app.messages.iter().any(|m| m.content.contains("85%")));
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.compact.warning","data":{}}"#,
+            r#"{"type":"compact_boundary","data":{"trigger":"manual","pre_compact_tokens":0,"post_compact_tokens":0,"messages_removed":0}}"#,
         );
         assert!(app.messages.iter().any(|m| m.content.contains("compacted")));
     }
@@ -1029,7 +1028,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.context_usage","data":{"usedTokens":5000,"limitTokens":128000}}"#,
+            r#"{"type":"context_usage_update","data":{"used_tokens":5000,"limit_tokens":128000}}"#,
         );
         assert_eq!(app.ctx_used_tokens, 5000);
         assert_eq!(app.ctx_limit_tokens, 128000);
@@ -1040,7 +1039,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.suggestions","data":{"items":["fix the bug","add tests","refactor"]}}"#,
+            r#"{"type":"suggestions","data":{"items":["fix the bug","add tests","refactor"]}}"#,
         );
         assert!(app
             .messages
@@ -1059,7 +1058,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.error","error":{"message":"rate limit exceeded"}}"#,
+            r#"{"type":"error","error":{"message":"rate limit exceeded"}}"#,
         );
         assert!(!app.streaming);
         assert!(app.status.contains("rate limit"));
@@ -1097,12 +1096,12 @@ mod tests {
         assert_eq!(app.execution_mode, "agent");
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.set_mode","data":{"ok":true,"from":"agent","to":"plan"}}"#,
+            r#"{"type":"set_mode","data":{"ok":true,"from":"agent","to":"plan"}}"#,
         );
         assert_eq!(app.execution_mode, "plan");
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.mode_change","data":{"to":"agent"}}"#,
+            r#"{"type":"mode_change","data":{"to":"agent"}}"#,
         );
         assert_eq!(app.execution_mode, "agent");
     }
@@ -1112,7 +1111,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.plan_file","data":{"path":"/tmp/plan.md","exists":true}}"#,
+            r#"{"type":"plan_file_update","data":{"path":"/tmp/plan.md","exists":true}}"#,
         );
         assert_eq!(app.plan_file_path, Some("/tmp/plan.md".into()));
         assert!(app.plan_file_exists);
@@ -1121,7 +1120,7 @@ mod tests {
     #[test]
     fn integration_ask_question() {
         let mut app = new_app();
-        handle_ws_message(&mut app, r#"{"type":"chat.ask_question","data":{"requestId":"q1","question":"Proceed?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]}}"#);
+        handle_ws_message(&mut app, r#"{"type":"ask_question","data":{"request_id":"q1","question":"Proceed?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]}}"#);
         assert!(app.show_popup.is_some());
         match &app.show_popup {
             Some(PopupKind::AskQuestion {
@@ -1143,7 +1142,7 @@ mod tests {
         app.streaming = true;
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.cancel","data":{"cancelled":true}}"#,
+            r#"{"type":"cancel","data":{"cancelled":true}}"#,
         );
         assert!(!app.streaming);
         assert!(app.status.contains("Cancelled"));
@@ -1337,13 +1336,13 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.start","data":{"sessionId":"s1"}}"#,
+            r#"{"type":"turn_start","data":{"session_id":"s1"}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"Turn 1 reply"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"Turn 1 reply"}}]}}}"#,
         );
-        handle_ws_message(&mut app, r#"{"type":"chat.complete","data":{"elapsedMs":500,"inputTokensEstimate":10,"outputTokensEstimate":5}}"#);
+        handle_ws_message(&mut app, r#"{"type":"turn_end","data":{"elapsedMs":500,"inputTokensEstimate":10,"outputTokensEstimate":5}}"#);
         assert!(!app.streaming);
         assert_eq!(app.session_id, Some("s1".into()));
         assert_eq!(app.total_messages, 1);
@@ -1356,13 +1355,13 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.start","data":{"sessionId":"s1"}}"#,
+            r#"{"type":"turn_start","data":{"session_id":"s1"}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"Turn 2 reply"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"Turn 2 reply"}}]}}}"#,
         );
-        handle_ws_message(&mut app, r#"{"type":"chat.complete","data":{"elapsedMs":800,"inputTokensEstimate":20,"outputTokensEstimate":15}}"#);
+        handle_ws_message(&mut app, r#"{"type":"turn_end","data":{"elapsedMs":800,"inputTokensEstimate":20,"outputTokensEstimate":15}}"#);
         assert!(!app.streaming);
         assert_eq!(app.total_messages, 2);
         assert_eq!(app.total_input_tokens, 30);
@@ -1381,22 +1380,25 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.start","data":{"sessionId":"s1"}}"#,
+            r#"{"type":"turn_start","data":{"session_id":"s1"}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"partial response..."}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"partial response..."}}]}}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.error","error":{"message":"upstream timeout"}}"#,
+            r#"{"type":"error","error":{"message":"upstream timeout"}}"#,
         );
         assert!(!app.streaming);
         assert!(app.status.contains("upstream timeout"));
-        assert_eq!(
-            app.messages.last().unwrap().content,
-            "partial response..."
-        );
+        let assistant_msg = app
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant")
+            .expect("should have assistant message");
+        assert_eq!(assistant_msg.content, "partial response...");
     }
 
     #[test]
@@ -1484,7 +1486,7 @@ mod tests {
         });
         let long_cjk = "你".repeat(100);
         let msg = format!(
-            r#"{{"type":"chat.tool.start","data":{{"tool":"file_read","callId":"c1","params":{{"path":"{long_cjk}"}}}}}}"#
+            r#"{{"type":"tool_executing","data":{{"tool_name":"file_read","args":"{{\"path\":\"{long_cjk}\"}}"}}}}"#,
         );
         handle_ws_message(&mut app, &msg);
         let content = &app.messages.last().unwrap().content;
@@ -1503,7 +1505,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":""}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":""}}]}}}"#,
         );
         assert_eq!(app.messages.last().unwrap().content, "");
     }
@@ -1519,7 +1521,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":null}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":null}}]}}}"#,
         );
         assert_eq!(app.messages.last().unwrap().content, "before");
     }
@@ -1534,7 +1536,7 @@ mod tests {
             timestamp: "12:00:00".into(),
         });
         for i in 0..100 {
-            let msg = format!(r#"{{"type":"chat.delta","data":{{"content":"chunk{i} "}}}}"#);
+            let msg = format!(r#"{{"type":"content_delta","data":{{"delta":{{"choices":[{{"delta":{{"content":"chunk{i} "}}}}]}}}}}}"#);
             handle_ws_message(&mut app, &msg);
         }
         let content = &app.messages.last().unwrap().content;
@@ -1553,7 +1555,7 @@ mod tests {
             timestamp: "12:00:00".into(),
         });
         let big = "x".repeat(100_000);
-        let msg = format!(r#"{{"type":"chat.delta","data":{{"content":"{big}"}}}}"#);
+        let msg = format!(r#"{{"type":"content_delta","data":{{"delta":{{"choices":[{{"delta":{{"content":"{big}"}}}}]}}}}}}"#);
         handle_ws_message(&mut app, &msg);
         assert_eq!(app.messages.last().unwrap().content.len(), 100_000);
     }
@@ -1569,7 +1571,7 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"emoji: 🦀🔥 tab:\t newline:\n null\u0000byte"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"emoji: 🦀🔥 tab:\t newline:\n null\u0000byte"}}]}}}"#,
         );
         let content = &app.messages.last().unwrap().content;
         assert!(content.contains("🦀🔥"));
@@ -1587,9 +1589,9 @@ mod tests {
         });
         for tool in &["file_read", "shell_exec", "web_search"] {
             let start = format!(
-                r#"{{"type":"chat.tool.start","data":{{"tool":"{tool}","callId":"c","params":{{}}}}}}"#
+                r#"{{"type":"tool_executing","data":{{"tool_name":"{tool}","args":"{{}}"}}}}"#,
             );
-            let done = r#"{"type":"chat.tool.done","data":{"success":true,"elapsedMs":100}}"#;
+            let done = r#"{"type":"tool_result","data":{"success":true,"tool_name":"unknown","output":""}}"#;
             handle_ws_message(&mut app, &start);
             handle_ws_message(&mut app, done);
         }
@@ -1611,11 +1613,11 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.start","data":{"tool":"shell_exec","callId":"c1","params":{"command":"rm -rf /"}}}"#,
+            r#"{"type":"tool_executing","data":{"tool_name":"shell_exec","args":"{\"command\":\"rm -rf /\"}"}}"#,
         );
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.tool.done","data":{"success":false,"elapsedMs":50}}"#,
+            r#"{"type":"tool_result","data":{"success":false,"tool_name":"unknown","output":""}}"#,
         );
         let content = &app.messages.last().unwrap().content;
         assert!(content.contains('✗'));
@@ -1632,14 +1634,14 @@ mod tests {
         });
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"reasoning_content":"Let me think about this...\nStep 1: analyze\nStep 2: implement"}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"reasoning_content":"Let me think about this...\nStep 1: analyze\nStep 2: implement"}}]}}}"#,
         );
         assert!(app.thinking_content.contains("Step 1"));
         assert_eq!(app.spinner.verb, "thinking");
 
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.delta","data":{"content":"Here is my answer."}}"#,
+            r#"{"type":"content_delta","data":{"delta":{"choices":[{"delta":{"content":"Here is my answer."}}]}}}"#,
         );
         assert!(app.thinking_content.is_empty());
         let content = &app.messages.last().unwrap().content;
@@ -1674,7 +1676,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.context_usage","data":{"usedTokens":90000,"limitTokens":128000}}"#,
+            r#"{"type":"context_usage_update","data":{"used_tokens":90000,"limit_tokens":128000}}"#,
         );
         assert_eq!(app.ctx_used_tokens, 90000);
         assert_eq!(app.ctx_limit_tokens, 128000);
@@ -1683,7 +1685,7 @@ mod tests {
     #[test]
     fn edge_compact_warning() {
         let mut app = new_app();
-        handle_ws_message(&mut app, r#"{"type":"chat.compact.warning"}"#);
+        handle_ws_message(&mut app, r#"{"type":"compact_boundary","data":{"trigger":"manual","pre_compact_tokens":0,"post_compact_tokens":0,"messages_removed":0}}"#);
         assert!(app
             .messages
             .iter()
@@ -1695,7 +1697,7 @@ mod tests {
         let mut app = new_app();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.context.warning","data":{"usedPercent":99.9}}"#,
+            r#"{"type":"context_warning","data":{"message":"Context window 100% used"}}"#,
         );
         assert!(app.messages.iter().any(|m| m.content.contains("100%")));
     }
@@ -1721,7 +1723,7 @@ mod tests {
             content: "reply1".into(),
             timestamp: "12:00:00".into(),
         });
-        handle_ws_message(&mut app, r#"{"type":"chat.complete","data":{"elapsedMs":1000,"inputTokensEstimate":100,"outputTokensEstimate":50}}"#);
+        handle_ws_message(&mut app, r#"{"type":"turn_end","data":{"elapsedMs":1000,"inputTokensEstimate":100,"outputTokensEstimate":50}}"#);
         assert_eq!(app.total_elapsed_ms, 1000);
         assert_eq!(app.total_input_tokens, 100);
 
@@ -1732,7 +1734,7 @@ mod tests {
             content: "reply2".into(),
             timestamp: "12:01:00".into(),
         });
-        handle_ws_message(&mut app, r#"{"type":"chat.complete","data":{"elapsedMs":2000,"inputTokensEstimate":200,"outputTokensEstimate":100}}"#);
+        handle_ws_message(&mut app, r#"{"type":"turn_end","data":{"elapsedMs":2000,"inputTokensEstimate":200,"outputTokensEstimate":100}}"#);
         assert_eq!(app.total_elapsed_ms, 3000);
         assert_eq!(app.total_input_tokens, 300);
         assert_eq!(app.total_output_tokens, 150);
@@ -1869,7 +1871,7 @@ mod tests {
         app.execution_mode = "agent".into();
         handle_ws_message(
             &mut app,
-            r#"{"type":"chat.mode_change","data":{"to":"agent"}}"#,
+            r#"{"type":"mode_change","data":{"to":"agent"}}"#,
         );
         assert_eq!(app.execution_mode, "agent");
         assert!(!app.status.contains("Mode"));

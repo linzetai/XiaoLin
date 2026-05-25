@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use fastclaw_core::types::StreamEvent;
+use fastclaw_protocol::AgentEvent;
 
 /// Trace of a single tool call (used by query_state.rs and self-iter).
 /// When the `self-iter` feature is enabled, this re-exports from fastclaw_self_iter.
@@ -21,8 +21,8 @@ pub(crate) struct ToolCallTrace {
 // ToolCallTrace is still defined here for shared use.
 
 pub(crate) async fn send_stream_event(
-    tx: &tokio::sync::mpsc::Sender<StreamEvent>,
-    ev: StreamEvent,
+    tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    ev: AgentEvent,
     lossy: bool,
 ) -> bool {
     let dur = if lossy {

@@ -23,6 +23,7 @@ pub struct FeishuChannel {
     router: Arc<std::sync::RwLock<fastclaw_core::Router>>,
     tool_registry: Arc<fastclaw_core::tool::ToolRegistry>,
     session_store: Arc<fastclaw_session::SessionStore>,
+    event_log: Arc<fastclaw_session::EventLog>,
 }
 
 impl FeishuChannel {
@@ -33,6 +34,7 @@ impl FeishuChannel {
         tool_registry: Arc<fastclaw_core::tool::ToolRegistry>,
         session_store: Arc<fastclaw_session::SessionStore>,
     ) -> Self {
+        let event_log = Arc::new(fastclaw_session::EventLog::new(session_store.pool()));
         let client = Arc::new(FeishuClient::new(&config.app_id, &config.app_secret));
         Self {
             client,
@@ -41,6 +43,7 @@ impl FeishuChannel {
             router,
             tool_registry,
             session_store,
+            event_log,
         }
     }
 
@@ -82,22 +85,37 @@ impl FeishuMessageHandler for FeishuChannel {
             .await?
             .ok_or_else(|| anyhow::anyhow!("failed to create session"))?;
 
-        self.session_store
-            .append_message(
-                &session.id,
-                &ChatMessage {
-                    role: Role::User,
-                    content: Some(serde_json::Value::String(text.to_string())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
+        let user_msg = ChatMessage {
+            role: Role::User,
+            content: Some(serde_json::Value::String(text.to_string())),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
             compact_metadata: None,
-                },
-            )
+        };
+        self.session_store
+            .append_message(&session.id, &user_msg)
             .await?;
+        {
+            let turn_id = fastclaw_protocol::TurnId::generate();
+            let items =
+                fastclaw_core::history_compat::chat_message_to_history(&user_msg, turn_id);
+            if let Err(e) = self
+                .session_store
+                .append_history_items(&session.id, &items)
+                .await
+            {
+                tracing::warn!(session = %session.id, error = %e, "failed to dual-write user history items");
+            }
+        }
 
-        let messages = self.session_store.load_chat_messages(&session.id).await?;
+        let history_items = self.session_store.load_history(&session.id).await?;
+        let messages = if history_items.is_empty() {
+            self.session_store.load_chat_messages(&session.id).await?
+        } else {
+            fastclaw_core::history_compat::history_items_to_chat_messages(&history_items)
+        };
 
         let request = ChatRequest {
             messages,
@@ -106,7 +124,7 @@ impl FeishuMessageHandler for FeishuChannel {
             temperature: None,
             max_tokens: None,
             agent_id: Some(self.config.agent_id.clone().into()),
-            session_id: Some(session.id.clone()),
+            session_id: Some(session.id.clone().into()),
             tools: None,
             slash_intent: None,
             work_dir: None,
@@ -132,20 +150,59 @@ impl FeishuMessageHandler for FeishuChannel {
             .and_then(|c| c.message.text_content())
             .unwrap_or_else(|| "(no response)".to_string());
 
-        self.session_store
-            .append_message(
-                &session.id,
-                &ChatMessage {
-                    role: Role::Assistant,
-                    content: Some(serde_json::Value::String(reply.clone())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
+        let assistant_msg = ChatMessage {
+            role: Role::Assistant,
+            content: Some(serde_json::Value::String(reply.clone())),
+            reasoning_content: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
             compact_metadata: None,
-                },
-            )
+        };
+        self.session_store
+            .append_message(&session.id, &assistant_msg)
             .await?;
+        {
+            let turn_id = fastclaw_protocol::TurnId::generate();
+            let items =
+                fastclaw_core::history_compat::chat_message_to_history(&assistant_msg, turn_id);
+            if let Err(e) = self
+                .session_store
+                .append_history_items(&session.id, &items)
+                .await
+            {
+                tracing::warn!(session = %session.id, error = %e, "failed to dual-write assistant history items");
+            }
+        }
+
+        // Synthesize events and write to event_log for audit trail
+        {
+            use fastclaw_protocol::AgentEvent;
+            let turn_id = fastclaw_protocol::TurnId::generate();
+            let turn_start = AgentEvent::TurnStart {
+                turn_id: turn_id.clone(),
+                session_id: Some(session.id.clone()),
+            };
+            let turn_end = AgentEvent::TurnEnd {
+                turn_id: turn_id.clone(),
+                summary: fastclaw_protocol::TurnSummary {
+                    turn_id,
+                    tool_calls_made: result.tool_calls_made,
+                    iterations: result.iterations,
+                    usage: None,
+                    elapsed_ms: 0,
+                    context_tokens: None,
+                    context_window: None,
+                },
+                session_id: Some(session.id.clone()),
+                final_tool_calls: None,
+            };
+            for event in [turn_start, turn_end] {
+                if let Err(e) = self.event_log.append(&session.id, &event).await {
+                    tracing::warn!(session = %session.id, error = %e, "feishu: failed to append event to log");
+                }
+            }
+        }
 
         tracing::info!(
             session = %session.id,

@@ -207,53 +207,56 @@ async fn ws_chat_collect(
         let ty = msg["type"].as_str().unwrap_or("").to_string();
 
         match ty.as_str() {
-            "chat.start" => {
-                if let Some(sid) = msg["data"]["sessionId"].as_str() {
+            "turn_start" => {
+                if let Some(sid) = msg["data"]["session_id"]
+                    .as_str()
+                    .or_else(|| msg["data"]["sessionId"].as_str())
+                {
                     session_id_out = Some(sid.to_string());
                 }
             }
-            "chat.delta" => {
-                if let Some(content) = msg["data"]["content"].as_str() {
+            "content_delta" => {
+                if let Some(content) = msg["data"]["delta"]["choices"][0]["delta"]["content"].as_str() {
                     accumulated_text.push_str(content);
                 }
             }
-            "chat.tool.start" => {
+            "tool_executing" => {
                 metrics.tool_starts += 1;
-                let tool = msg["data"]["tool"].as_str().unwrap_or("?");
+                let tool = msg["data"]["tool_name"].as_str().unwrap_or("?");
                 eprintln!("  [tool.start] {} (#{} total)", tool, metrics.tool_starts);
             }
-            "chat.tool.done" => {
+            "tool_result" => {
                 if msg["data"]["success"].as_bool() == Some(false) {
                     metrics.tool_errors += 1;
                 }
             }
-            "chat.context.usage" => {
+            "context_usage_update" => {
                 metrics.context_usage_events += 1;
-                if let Some(used) = msg["data"]["usedTokens"].as_u64() {
+                if let Some(used) = msg["data"]["used_tokens"].as_u64() {
                     metrics.final_used_tokens = used as u32;
                 }
-                if let Some(limit) = msg["data"]["limitTokens"].as_u64() {
+                if let Some(limit) = msg["data"]["limit_tokens"].as_u64() {
                     metrics.final_limit_tokens = limit as u32;
                 }
                 if msg["data"]["compressed"].as_bool() == Some(true) {
                     metrics.compact_triggered = true;
                 }
             }
-            "chat.compact.warning" => {
+            "context_warning" => {
                 metrics.compact_triggered = true;
             }
-            "chat.complete" => {
+            "turn_end" => {
                 metrics.completed_normally = true;
-                if let Some(tc) = msg["data"]["toolCallsMade"].as_u64() {
+                if let Some(tc) = msg["data"]["summary"]["tool_calls_made"].as_u64() {
                     metrics.tool_calls_made = tc as u32;
                 }
-                if let Some(it) = msg["data"]["iterations"].as_u64() {
+                if let Some(it) = msg["data"]["summary"]["iterations"].as_u64() {
                     metrics.iterations = it as u32;
                 }
                 break;
             }
-            "chat.error" => {
-                eprintln!("[chat.error] {}", msg["error"]);
+            "error" => {
+                eprintln!("[error] {}", msg["error"]);
                 break;
             }
             _ => {}

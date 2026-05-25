@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
-use fastclaw_core::types::{AskQuestionOption, StreamEvent};
+use fastclaw_protocol::{AgentEvent, AskQuestionOption, TurnId};
 
 tokio::task_local! {
     pub(crate) static ASK_QUESTION_STREAM_KEY: String;
@@ -17,16 +17,16 @@ where
     ASK_QUESTION_STREAM_KEY.scope(stream_key, fut).await
 }
 
-type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>;
+type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 type PendingAnswers = Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>;
 
 pub struct AskQuestionTool {
-    stream_event_txs: StreamEventTxMap,
+    stream_event_txs: EventTxMap,
     pending: PendingAnswers,
 }
 
 impl AskQuestionTool {
-    pub fn new(stream_event_txs: StreamEventTxMap, pending: PendingAnswers) -> Self {
+    pub fn new(stream_event_txs: EventTxMap, pending: PendingAnswers) -> Self {
         Self {
             stream_event_txs,
             pending,
@@ -164,7 +164,8 @@ impl Tool for AskQuestionTool {
         {
             if let Some(tx) = stream_tx {
                 let _ = tx
-                    .send(StreamEvent::AskQuestion {
+                    .send(AgentEvent::AskQuestion {
+                        turn_id: TurnId::new("builtin"),
                         request_id: request_id.clone(),
                         question: question.clone(),
                         options,

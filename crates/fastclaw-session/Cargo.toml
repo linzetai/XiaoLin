@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-protocol = { path = "../fastclaw-protocol" }
 sqlx.workspace = true
 tokio.workspace = true
 serde.workspace = true

@@ -48,6 +48,8 @@ pub struct SessionMessage {
     pub total_tokens: i64,
     #[serde(default)]
     pub elapsed_ms: i64,
+    pub reasoning_content: Option<String>,
+    pub compact_metadata_json: Option<String>,
 }
 
 /// A persisted sub-agent run record.

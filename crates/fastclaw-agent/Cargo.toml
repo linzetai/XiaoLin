@@ -10,6 +10,7 @@ browser = ["dep:headless_chrome"]
 
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-protocol = { path = "../fastclaw-protocol" }
 fastclaw-context = { path = "../fastclaw-context" }
 fastclaw-evolution = { path = "../fastclaw-evolution" }
 fastclaw-session = { path = "../fastclaw-session" }
@@ -50,6 +51,7 @@ chardetng = "1.0"
 pdf-extract = "0.10"
 rusqlite = { version = "0.29", features = ["bundled"] }
 notify.workspace = true
+shell-words = "1.1.1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

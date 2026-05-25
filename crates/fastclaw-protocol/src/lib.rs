@@ -1,0 +1,29 @@
+pub mod approval;
+pub mod envelope;
+pub mod event;
+pub mod history;
+pub mod id;
+pub mod message;
+pub mod op;
+pub mod tool_spec;
+pub mod usage;
+
+pub use approval::{ApprovalDecision, PendingAction};
+pub use envelope::Envelope;
+pub use event::{
+    AbortReason, AgentEvent, ContextWarningLevel, ErrorCode, GuardianOutcome, RiskLevel,
+    ToolCallData, ToolCallFunction, TurnContextItem, TurnSummary, WarningCategory,
+};
+pub use history::HistoryItem;
+pub use id::{AgentId, MessageId, SessionId, SubmissionId, ToolCallId, TurnId};
+pub use message::{
+    AskQuestionOption, CompactTrigger, ContentPart, ExecutionMode, MessagePhase, MessageTarget,
+    Role,
+};
+#[allow(deprecated)]
+pub use op::{
+    ChatParams, ChatSubmitParams, ClientOp, McpAddParams, SessionsListParams, SessionsNewParams,
+    SkillsListParams, ToolsListParams, ToolsUpdateParams,
+};
+pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
+pub use usage::TokenUsage;

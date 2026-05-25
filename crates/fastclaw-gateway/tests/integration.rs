@@ -634,23 +634,27 @@ async fn ws_chat_stream_and_session_persistence() {
     loop {
         let msg = recv_json(&mut rx).await;
         match msg["type"].as_str().unwrap() {
-            "chat.start" => {
+            "turn_start" => {
                 got_start = true;
-                session_id = msg["data"]["sessionId"].as_str().unwrap().to_string();
+                session_id = msg["data"]["session_id"]
+                    .as_str()
+                    .or_else(|| msg["data"]["sessionId"].as_str())
+                    .unwrap()
+                    .to_string();
             }
-            "chat.delta" => got_delta = true,
-            "chat.complete" => {
+            "content_delta" => got_delta = true,
+            "turn_end" => {
                 got_complete = true;
                 break;
             }
-            "chat.context.usage" => {}
-            "chat.error" => panic!("unexpected chat error: {msg}"),
+            "context_usage_update" => {}
+            "error" => panic!("unexpected chat error: {msg}"),
             other => panic!("unexpected event type: {other}"),
         }
     }
-    assert!(got_start, "should receive chat.start");
-    assert!(got_delta, "should receive at least one chat.delta");
-    assert!(got_complete, "should receive chat.complete");
+    assert!(got_start, "should receive turn_start");
+    assert!(got_delta, "should receive at least one content_delta");
+    assert!(got_complete, "should receive turn_end");
     assert!(!session_id.is_empty());
 
     // Verify session messages are persisted
@@ -691,13 +695,17 @@ async fn ws_session_crud() {
     let mut session_id = String::new();
     loop {
         let msg = recv_json(&mut rx).await;
-        if msg["type"] == "chat.start" {
-            session_id = msg["data"]["sessionId"].as_str().unwrap().to_string();
+        if msg["type"] == "turn_start" {
+            session_id = msg["data"]["session_id"]
+                .as_str()
+                .or_else(|| msg["data"]["sessionId"].as_str())
+                .unwrap()
+                .to_string();
         }
-        if msg["type"] == "chat.complete" {
+        if msg["type"] == "turn_end" {
             break;
         }
-        if msg["type"] == "chat.error" {
+        if msg["type"] == "error" {
             panic!("chat error: {msg}");
         }
     }

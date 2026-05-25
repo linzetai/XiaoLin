@@ -5,8 +5,11 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::tool::ToolRegistry;
-use fastclaw_core::types::ExecutionMode;
-use fastclaw_core::types::{ChatMessage, ChatRequest, ChatResponse, Role, StreamEvent, ToolCall};
+use fastclaw_core::types::{ChatMessage, ChatRequest, ChatResponse, Role, ToolCall};
+use fastclaw_protocol::{
+    AgentEvent, ApprovalDecision, AskQuestionOption, ContextWarningLevel, ErrorCode, ExecutionMode,
+    TokenUsage, ToolCallData, ToolCallFunction, TurnId, TurnSummary, WarningCategory,
+};
 
 use fastclaw_evolution::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, infer_task_type, SkillStatus,
@@ -46,12 +49,13 @@ pub mod memory_selection;
 pub mod model_critic;
 #[allow(dead_code)] // TODO(integrate): consolidate trajectory path
 pub(crate) mod observer;
+pub mod orchestrator;
 pub mod permissions;
 mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;
-#[allow(dead_code)] // TODO(integrate): wire into StreamEvent::Suggestions
+#[allow(dead_code)] // TODO(integrate): wire into AgentEvent::Suggestions
 pub mod prompt_suggestion;
 pub(crate) mod query_deps;
 pub mod query_engine;
@@ -176,6 +180,10 @@ fn build_skip_tool_names(
                 .unwrap_or(false)
         })
         .collect()
+}
+
+fn classify_stream_error_code(message: &str) -> Option<ErrorCode> {
+    Some(ErrorCode::classify(message))
 }
 
 /// Process a tool result: try ToolResultStorage.process_result() first,
@@ -307,8 +315,75 @@ pub struct ExecutionParams<'a> {
 
 /// Additional parameters specific to the streaming execution path.
 pub struct StreamParams {
-    pub tx: tokio::sync::mpsc::Sender<StreamEvent>,
+    pub tx: tokio::sync::mpsc::Sender<AgentEvent>,
     pub confirm_pending: Option<Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    pub orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
+}
+
+fn tool_calls_to_data(calls: Vec<ToolCall>) -> Vec<ToolCallData> {
+    calls
+        .into_iter()
+        .map(|tc| ToolCallData {
+            id: tc.id,
+            call_type: tc.call_type,
+            function: ToolCallFunction {
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+            },
+            output: tc.output,
+            success: tc.success,
+            duration_ms: tc.duration_ms,
+        })
+        .collect()
+}
+
+fn make_turn_end_event(
+    turn_id: &TurnId,
+    request: &ChatRequest,
+    state: &QueryLoopState,
+    stream_start: std::time::Instant,
+    context_window: u32,
+    final_tool_calls: Option<Vec<ToolCallData>>,
+) -> AgentEvent {
+    AgentEvent::TurnEnd {
+        turn_id: turn_id.clone(),
+        summary: TurnSummary {
+            turn_id: turn_id.clone(),
+            tool_calls_made: state.total_tool_calls,
+            iterations: state.iteration,
+            usage: state.build_usage().map(|u| TokenUsage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            }),
+            elapsed_ms: stream_start.elapsed().as_millis() as u64,
+            context_tokens: Some(state.last_estimated_tokens as u32),
+            context_window: Some(context_window),
+        },
+        session_id: request.session_id.clone().map(Into::into),
+        final_tool_calls,
+    }
+}
+
+fn make_turn_summary(
+    turn_id: &TurnId,
+    state: &QueryLoopState,
+    stream_start: std::time::Instant,
+    context_window: u32,
+) -> TurnSummary {
+    TurnSummary {
+        turn_id: turn_id.clone(),
+        tool_calls_made: state.total_tool_calls,
+        iterations: state.iteration,
+        usage: state.build_usage().map(|u| TokenUsage {
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens,
+        }),
+        elapsed_ms: stream_start.elapsed().as_millis() as u64,
+        context_tokens: Some(state.last_estimated_tokens as u32),
+        context_window: Some(context_window),
+    }
 }
 
 /// Build recovery guidance from a streak of consecutive tool failures.
@@ -1034,9 +1109,9 @@ impl AgentRuntime {
         config: &AgentConfig,
         request: &ChatRequest,
         tool_registry: &Arc<ToolRegistry>,
-        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+        tx: tokio::sync::mpsc::Sender<AgentEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
-    ) -> anyhow::Result<(u32, u32)> {
+    ) -> anyhow::Result<TurnSummary> {
         let exec = ExecutionParams {
             config,
             request,
@@ -1050,6 +1125,7 @@ impl AgentRuntime {
         let stream = StreamParams {
             tx,
             confirm_pending: None,
+            orchestrator: None,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1059,10 +1135,10 @@ impl AgentRuntime {
         config: &AgentConfig,
         request: &ChatRequest,
         tool_registry: &Arc<ToolRegistry>,
-        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+        tx: tokio::sync::mpsc::Sender<AgentEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
-    ) -> anyhow::Result<(u32, u32)> {
+    ) -> anyhow::Result<TurnSummary> {
         let exec = ExecutionParams {
             config,
             request,
@@ -1076,6 +1152,7 @@ impl AgentRuntime {
         let stream = StreamParams {
             tx,
             confirm_pending: None,
+            orchestrator: None,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1086,14 +1163,15 @@ impl AgentRuntime {
         config: &AgentConfig,
         request: &ChatRequest,
         tool_registry: &Arc<ToolRegistry>,
-        tx: tokio::sync::mpsc::Sender<StreamEvent>,
+        tx: tokio::sync::mpsc::Sender<AgentEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
         confirm_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
         subagent_prompt: Option<String>,
         mode_state: Option<crate::builtin_tools::ExecutionModeState>,
         session_store: Option<Arc<fastclaw_session::SessionStore>>,
         todo_store: Option<crate::builtin_tools::TodoStore>,
-    ) -> anyhow::Result<(u32, u32)> {
+        orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
+    ) -> anyhow::Result<TurnSummary> {
         let exec = ExecutionParams {
             config,
             request,
@@ -1107,6 +1185,7 @@ impl AgentRuntime {
         let stream = StreamParams {
             tx,
             confirm_pending: Some(confirm_pending),
+            orchestrator,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1115,7 +1194,7 @@ impl AgentRuntime {
         &self,
         params: &ExecutionParams<'_>,
         stream_params: StreamParams,
-    ) -> anyhow::Result<(u32, u32)> {
+    ) -> anyhow::Result<TurnSummary> {
         let ExecutionParams {
             config,
             request,
@@ -1129,7 +1208,9 @@ impl AgentRuntime {
         let StreamParams {
             ref tx,
             ref confirm_pending,
+            ref orchestrator,
         } = stream_params;
+        let turn_id = TurnId::generate();
         let max_iterations = config.behavior.max_tool_calls_per_turn;
         let max_errors = config.behavior.max_consecutive_errors;
 
@@ -1339,6 +1420,16 @@ impl AgentRuntime {
             }
         }
 
+        send_stream_event(
+            tx,
+            AgentEvent::TurnStart {
+                turn_id: turn_id.clone(),
+                session_id: request.session_id.as_ref().map(|s| s.to_string()),
+            },
+            false,
+        )
+        .await;
+
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
                 tracing::warn!(
@@ -1358,7 +1449,16 @@ impl AgentRuntime {
                         failure_detail
                     )
                 };
-                let _ = send_stream_event(tx, StreamEvent::Error(user_msg.clone()), false).await;
+                let _ = send_stream_event(
+                    tx,
+                    AgentEvent::Error {
+                        turn_id: turn_id.clone(),
+                        message: user_msg.clone(),
+                        error_code: None,
+                    },
+                    false,
+                )
+                .await;
                 self.finalize_injected_skills(&injected_skill_ids, false)
                     .await;
                 return Err(anyhow::anyhow!(
@@ -1411,7 +1511,8 @@ impl AgentRuntime {
             // Emit live context usage update to frontend
             let _ = send_stream_event(
                 tx,
-                StreamEvent::ContextUsageUpdate {
+                AgentEvent::ContextUsageUpdate {
+                    turn_id: turn_id.clone(),
                     used_tokens: estimated_tokens as u32,
                     limit_tokens: context_window,
                     compressed: compact_result.compressed_by_llm,
@@ -1428,7 +1529,9 @@ impl AgentRuntime {
                 state.compact_warning_sent = true;
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::CompactWarning {
+                    AgentEvent::ContextWarning {
+                        turn_id: turn_id.clone(),
+                        level: ContextWarningLevel::Soft,
                         used_tokens: estimated_tokens as u32,
                         limit_tokens: context_window,
                         message: format!(
@@ -1447,7 +1550,9 @@ impl AgentRuntime {
             if usage_ratio > 0.90 {
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::ContextLimitWarning {
+                    AgentEvent::ContextWarning {
+                        turn_id: turn_id.clone(),
+                        level: ContextWarningLevel::Hard,
                         used_tokens: estimated_tokens as u32,
                         limit_tokens: context_window,
                         message: format!(
@@ -1480,19 +1585,28 @@ impl AgentRuntime {
                 );
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::Error(format!(
-                        "Context window is nearly full ({}/{} tokens, {:.0}%). \
-                         Please run /compact to free space, or start a new session.",
-                        estimated_tokens,
-                        context_window,
-                        usage_ratio * 100.0,
-                    )),
+                    AgentEvent::Error {
+                        turn_id: turn_id.clone(),
+                        message: format!(
+                            "Context window is nearly full ({}/{} tokens, {:.0}%). \
+                             Please run /compact to free space, or start a new session.",
+                            estimated_tokens,
+                            context_window,
+                            usage_ratio * 100.0,
+                        ),
+                        error_code: Some(fastclaw_protocol::ErrorCode::ContextWindowExceeded),
+                    },
                     false,
                 )
                 .await;
                 self.finalize_injected_skills(&injected_skill_ids, false)
                     .await;
-                return Ok((state.total_tool_calls, state.iteration));
+                return Ok(make_turn_summary(
+                    &turn_id,
+                    &state,
+                    stream_start,
+                    context_window,
+                ));
             }
 
             let total_est_with_tools = estimated_tokens + tool_defs_est_tokens;
@@ -1676,8 +1790,18 @@ impl AgentRuntime {
                                 should_resume = true;
                                 break;
                             }
-                            let _ = send_stream_event(tx, StreamEvent::Error(e.to_string()), false)
-                                .await;
+                            let err_msg = e.to_string();
+                            let _ = send_stream_event(
+                                tx,
+                                AgentEvent::StreamError {
+                                    turn_id: turn_id.clone(),
+                                    message: err_msg.clone(),
+                                    error_code: classify_stream_error_code(&err_msg),
+                                    retry_attempt: stream_resume_attempts,
+                                },
+                                false,
+                            )
+                            .await;
                             stream_errored = true;
                             break;
                         }
@@ -1771,10 +1895,14 @@ impl AgentRuntime {
                                         let cost = services.accumulated_cost_usd().await;
                                         let _ = send_stream_event(
                                             tx,
-                                            StreamEvent::Error(format!(
-                                                "Budget warning: accumulated cost ${:.4} is approaching the limit.",
-                                                cost,
-                                            )),
+                                            AgentEvent::Warning {
+                                                turn_id: turn_id.clone(),
+                                                message: format!(
+                                                    "Budget warning: accumulated cost ${:.4} is approaching the limit.",
+                                                    cost,
+                                                ),
+                                                category: WarningCategory::Budget,
+                                            },
                                             false,
                                         ).await;
                                     }
@@ -1782,10 +1910,14 @@ impl AgentRuntime {
                                         let cost = services.accumulated_cost_usd().await;
                                         let _ = send_stream_event(
                                             tx,
-                                            StreamEvent::Error(format!(
-                                                "Budget exceeded: accumulated cost ${:.4}. Stopping execution.",
-                                                cost,
-                                            )),
+                                            AgentEvent::Error {
+                                                turn_id: turn_id.clone(),
+                                                message: format!(
+                                                    "Budget exceeded: accumulated cost ${:.4}. Stopping execution.",
+                                                    cost,
+                                                ),
+                                                error_code: Some(fastclaw_protocol::ErrorCode::UsageLimitExceeded),
+                                            },
                                             false,
                                         ).await;
                                         force_stop = true;
@@ -1824,7 +1956,15 @@ impl AgentRuntime {
                     }
 
                     if tool_call_accum.is_empty() {
-                        let _ = send_stream_event(tx, StreamEvent::Delta(delta), true).await;
+                        let _ = send_stream_event(
+                            tx,
+                            AgentEvent::ContentDelta {
+                                turn_id: turn_id.clone(),
+                                delta: serde_json::to_value(&delta).unwrap_or_default(),
+                            },
+                            true,
+                        )
+                        .await;
                     }
                 }
 
@@ -1868,8 +2008,16 @@ impl AgentRuntime {
                     error = %withheld_err,
                     "withheld prompt_too_long: reactive compact failed — yielding error to client"
                 );
-                let _ =
-                    send_stream_event(tx, StreamEvent::Error(withheld_err.clone()), false).await;
+                let _ = send_stream_event(
+                    tx,
+                    AgentEvent::Error {
+                        turn_id: turn_id.clone(),
+                        message: withheld_err.clone(),
+                        error_code: None,
+                    },
+                    false,
+                )
+                .await;
                 self.finalize_injected_skills(&injected_skill_ids, false)
                     .await;
                 return Err(anyhow::anyhow!("prompt_too_long: recovery failed"));
@@ -1887,7 +2035,12 @@ impl AgentRuntime {
                 tracing::warn!("budget exceeded — stopping execution");
                 self.finalize_injected_skills(&injected_skill_ids, false)
                     .await;
-                return Ok((state.iteration, state.total_tool_calls));
+                return Ok(make_turn_summary(
+                    &turn_id,
+                    &state,
+                    stream_start,
+                    context_window,
+                ));
             }
 
             // max_output_tokens recovery: when finish_reason=length and no
@@ -2062,9 +2215,16 @@ impl AgentRuntime {
                                     }],
                                     usage: None,
                                 };
-                                let _ =
-                                    send_stream_event(tx, StreamEvent::Delta(summary_delta), false)
-                                        .await;
+                                let _ = send_stream_event(
+                                    tx,
+                                    AgentEvent::ContentDelta {
+                                        turn_id: turn_id.clone(),
+                                        delta: serde_json::to_value(&summary_delta)
+                                            .unwrap_or_default(),
+                                    },
+                                    false,
+                                )
+                                .await;
                             }
                         }
                     }
@@ -2076,18 +2236,17 @@ impl AgentRuntime {
                         content_len = accumulated_content.len(),
                         "streaming execution complete — sending Done"
                     );
+                    let final_tool_calls = final_tc.map(tool_calls_to_data);
                     let _ = send_stream_event(
                         tx,
-                        StreamEvent::Done {
-                            session_id: request.session_id.clone(),
-                            tool_calls_made: state.total_tool_calls,
-                            iterations: state.iteration,
-                            final_tool_calls: final_tc,
-                            usage: state.build_usage(),
-                            elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                            context_tokens: Some(state.last_estimated_tokens as u32),
-                            context_window: Some(context_window),
-                        },
+                        make_turn_end_event(
+                            &turn_id,
+                            request,
+                            &state,
+                            stream_start,
+                            context_window,
+                            final_tool_calls,
+                        ),
                         false,
                     )
                     .await;
@@ -2096,7 +2255,12 @@ impl AgentRuntime {
                         .await;
                     self.record_completed_trajectory(request, config, &trajectory_steps, true)
                         .await;
-                    return Ok((state.total_tool_calls, state.iteration));
+                    return Ok(make_turn_summary(
+                        &turn_id,
+                        &state,
+                        stream_start,
+                        context_window,
+                    ));
                 }
                 query_state::LoopTransition::Continue(_) => {}
             }
@@ -2111,16 +2275,14 @@ impl AgentRuntime {
                 tracing::warn!("stream tool call deltas produced no valid tool calls, stopping");
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::Done {
-                        session_id: request.session_id.clone(),
-                        tool_calls_made: state.total_tool_calls,
-                        iterations: state.iteration,
-                        final_tool_calls: None,
-                        usage: state.build_usage(),
-                        elapsed_ms: stream_start.elapsed().as_millis() as u64,
-                        context_tokens: Some(state.last_estimated_tokens as u32),
-                        context_window: Some(context_window),
-                    },
+                    make_turn_end_event(
+                        &turn_id,
+                        request,
+                        &state,
+                        stream_start,
+                        context_window,
+                        None,
+                    ),
                     false,
                 )
                 .await;
@@ -2129,7 +2291,12 @@ impl AgentRuntime {
                     .await;
                 self.record_completed_trajectory(request, config, &trajectory_steps, true)
                     .await;
-                return Ok((state.total_tool_calls, state.iteration));
+                return Ok(make_turn_summary(
+                    &turn_id,
+                    &state,
+                    stream_start,
+                    context_window,
+                ));
             }
 
             messages.push(ChatMessage {
@@ -2159,7 +2326,8 @@ impl AgentRuntime {
                 };
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::ToolExecuting {
+                    AgentEvent::ToolExecuting {
+                        turn_id: turn_id.clone(),
                         tool_name: tc.function.name.clone(),
                         call_id: tc.id.clone(),
                         args: args_str,
@@ -2313,18 +2481,68 @@ impl AgentRuntime {
                     query_state::ToolRepetitionAction::None => {}
                 }
 
-                // ── Runtime-driven confirmation flow (sequential, requires user interaction) ──
+                // ── Approval flow via ToolOrchestrator (preferred) or legacy confirm ──
                 if result.needs_confirmation {
-                    if let Some(ref pending_map) = confirm_pending {
-                        use fastclaw_core::types::AskQuestionOption;
+                    if let Some(ref orch) = orchestrator {
+                        let action = crate::runtime::orchestrator::map_tool_to_pending_action(
+                            &tool_name,
+                            &arguments,
+                            request.work_dir.as_deref(),
+                        );
+                        let decision = orch
+                            .request_approval(
+                                &turn_id,
+                                action,
+                                result.output.clone(),
+                                tx,
+                            )
+                            .await;
+                        match decision {
+                            ApprovalDecision::Approved | ApprovalDecision::ApprovedForSession => {
+                                let mut args: serde_json::Value =
+                                    serde_json::from_str(&arguments).unwrap_or_default();
+                                if let Some(obj) = args.as_object_mut() {
+                                    obj.insert(
+                                        "confirmed".into(),
+                                        serde_json::Value::Bool(true),
+                                    );
+                                }
+                                let confirmed_args =
+                                    serde_json::to_string(&args).unwrap_or_default();
 
+                                if let Some(tool) = tool_registry.get(&tool_name) {
+                                    let work_dir_path =
+                                        request.work_dir.as_ref().map(std::path::PathBuf::from);
+                                    result = with_file_access_mode(
+                                        config.behavior.file_access,
+                                        crate::builtin_tools::with_additional_allowed_paths(
+                                            Vec::new(),
+                                            with_work_dir(
+                                                work_dir_path,
+                                                tool.execute(&confirmed_args),
+                                            ),
+                                        ),
+                                    )
+                                    .await;
+                                }
+                            }
+                            _ => {
+                                result = fastclaw_core::tool::ToolResult::err(
+                                    "User denied the operation.",
+                                );
+                            }
+                        }
+                    } else if let Some(ref pending_map) = confirm_pending {
+                        // Legacy fallback for callers not providing orchestrator
                         let confirm_request_id = uuid::Uuid::new_v4().to_string();
-                        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
+                        let (answer_tx, answer_rx) =
+                            tokio::sync::oneshot::channel::<String>();
                         pending_map.insert(confirm_request_id.clone(), answer_tx);
 
                         let _ = send_stream_event(
                             tx,
-                            StreamEvent::AskQuestion {
+                            AgentEvent::AskQuestion {
+                                turn_id: turn_id.clone(),
                                 request_id: confirm_request_id.clone(),
                                 question: result.output.clone(),
                                 options: vec![
@@ -2345,18 +2563,21 @@ impl AgentRuntime {
                         .await;
 
                         let user_answer = answer_rx.await;
-
                         pending_map.remove(&confirm_request_id);
-
-                        let approved = matches!(user_answer, Ok(ref a) if a == "allow");
+                        let approved =
+                            matches!(user_answer, Ok(ref a) if a == "allow");
 
                         if approved {
                             let mut args: serde_json::Value =
                                 serde_json::from_str(&arguments).unwrap_or_default();
                             if let Some(obj) = args.as_object_mut() {
-                                obj.insert("confirmed".into(), serde_json::Value::Bool(true));
+                                obj.insert(
+                                    "confirmed".into(),
+                                    serde_json::Value::Bool(true),
+                                );
                             }
-                            let confirmed_args = serde_json::to_string(&args).unwrap_or_default();
+                            let confirmed_args =
+                                serde_json::to_string(&args).unwrap_or_default();
 
                             if let Some(tool) = tool_registry.get(&tool_name) {
                                 let work_dir_path =
@@ -2365,14 +2586,18 @@ impl AgentRuntime {
                                     config.behavior.file_access,
                                     crate::builtin_tools::with_additional_allowed_paths(
                                         Vec::new(),
-                                        with_work_dir(work_dir_path, tool.execute(&confirmed_args)),
+                                        with_work_dir(
+                                            work_dir_path,
+                                            tool.execute(&confirmed_args),
+                                        ),
                                     ),
                                 )
                                 .await;
                             }
                         } else {
-                            result =
-                                fastclaw_core::tool::ToolResult::err("User denied the operation.");
+                            result = fastclaw_core::tool::ToolResult::err(
+                                "User denied the operation.",
+                            );
                         }
                     }
                 }
@@ -2456,7 +2681,8 @@ impl AgentRuntime {
                 let llm_out = format!("{header}\n{processed}");
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::ToolResult {
+                    AgentEvent::ToolResult {
+                        turn_id: turn_id.clone(),
                         tool_name: tool_name.clone(),
                         call_id: call_id.clone(),
                         output: result.ui_output().to_string(),
@@ -2590,7 +2816,8 @@ impl AgentRuntime {
                 state.last_estimated_tokens = post_tool_tokens;
                 let _ = send_stream_event(
                     tx,
-                    StreamEvent::ContextUsageUpdate {
+                    AgentEvent::ContextUsageUpdate {
+                        turn_id: turn_id.clone(),
                         used_tokens: post_tool_tokens as u32,
                         limit_tokens: context_window,
                         compressed: false,
@@ -2606,7 +2833,8 @@ impl AgentRuntime {
                 if before != after {
                     let _ = send_stream_event(
                         tx,
-                        StreamEvent::ModeChange {
+                        AgentEvent::ModeChange {
+                            turn_id: turn_id.clone(),
                             from: before,
                             to: after,
                         },
@@ -2619,7 +2847,8 @@ impl AgentRuntime {
                         let exists = pc.store.plan_exists(&pc.session_id);
                         let _ = send_stream_event(
                             tx,
-                            StreamEvent::PlanFileUpdate {
+                            AgentEvent::PlanFileUpdate {
+                                turn_id: turn_id.clone(),
                                 session_id: pc.session_id.clone(),
                                 path: path.to_string_lossy().to_string(),
                                 exists,
@@ -2705,6 +2934,7 @@ impl AgentRuntime {
                 let session = request
                     .session_id
                     .clone()
+                    .map(|s| s.to_string())
                     .unwrap_or_else(|| "default".to_string());
                 let diagnoses = engine.diagnose_tool_failure_streak(
                     &config.agent_id,
@@ -2767,6 +2997,7 @@ impl AgentRuntime {
         let session_id = request
             .session_id
             .clone()
+            .map(|s| s.to_string())
             .unwrap_or_else(|| "default".to_string());
 
         let outcome = if run_succeeded {
@@ -3257,7 +3488,7 @@ mod stream_resume_tests {
         });
         let runtime = AgentRuntime::new(provider);
         let registry = Arc::new(ToolRegistry::new());
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
 
         let req = ChatRequest {
             model: None,
@@ -3291,13 +3522,21 @@ mod stream_resume_tests {
             let mut s = String::new();
             while let Some(ev) = rx.recv().await {
                 match ev {
-                    StreamEvent::Delta(d) => {
-                        if let Some(c) = d.choices.first().and_then(|x| x.delta.content.as_ref()) {
+                    AgentEvent::ContentDelta { delta, .. } => {
+                        if let Some(c) = delta
+                            .get("choices")
+                            .and_then(|c| c.get(0))
+                            .and_then(|c| c.get("delta"))
+                            .and_then(|d| d.get("content"))
+                            .and_then(|c| c.as_str())
+                        {
                             s.push_str(c);
                         }
                     }
-                    StreamEvent::Done { .. } => break,
-                    StreamEvent::Error(e) => panic!("unexpected stream error: {e}"),
+                    AgentEvent::TurnEnd { .. } => break,
+                    AgentEvent::Error { message, .. } => {
+                        panic!("unexpected stream error: {message}")
+                    }
                     _ => {}
                 }
             }

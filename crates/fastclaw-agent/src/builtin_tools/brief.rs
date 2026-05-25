@@ -4,11 +4,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
-use fastclaw_core::types::StreamEvent;
+use fastclaw_protocol::{AgentEvent, TurnId};
 
 use super::ask_question::ASK_QUESTION_STREAM_KEY;
 
-type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEvent>>>;
+type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 
 /// Pushes a markdown message (and optional file attachments) to the user
 /// without waiting for a response.  Two modes are supported:
@@ -16,11 +16,11 @@ type StreamEventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<StreamEven
 /// * **normal** — the agent is replying to a user action.
 /// * **proactive** — the agent initiates communication unprompted.
 pub struct BriefTool {
-    stream_event_txs: StreamEventTxMap,
+    stream_event_txs: EventTxMap,
 }
 
 impl BriefTool {
-    pub fn new(stream_event_txs: StreamEventTxMap) -> Self {
+    pub fn new(stream_event_txs: EventTxMap) -> Self {
         Self { stream_event_txs }
     }
 }
@@ -141,7 +141,8 @@ impl Tool for BriefTool {
         let attachment_count = attachments.len();
         if let Some(tx) = stream_tx {
             let _ = tx
-                .send(StreamEvent::BriefMessage {
+                .send(AgentEvent::BriefMessage {
+                    turn_id: TurnId::new("builtin"),
                     content: content.clone(),
                     attachments,
                     mode: mode.clone(),
@@ -166,11 +167,11 @@ mod tests {
     use super::*;
 
     fn setup() -> (
-        StreamEventTxMap,
-        tokio::sync::mpsc::Receiver<StreamEvent>,
+        EventTxMap,
+        tokio::sync::mpsc::Receiver<AgentEvent>,
         BriefTool,
     ) {
-        let txs: StreamEventTxMap = Arc::new(DashMap::new());
+        let txs: EventTxMap = Arc::new(DashMap::new());
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         txs.insert("test-stream".to_string(), tx);
         let tool = BriefTool::new(txs.clone());
@@ -195,10 +196,11 @@ mod tests {
 
         let event = rx.try_recv().unwrap();
         match event {
-            StreamEvent::BriefMessage {
+            AgentEvent::BriefMessage {
                 content,
                 attachments,
                 mode,
+                ..
             } => {
                 assert_eq!(content, "Hello user!");
                 assert!(attachments.is_empty());
@@ -221,7 +223,7 @@ mod tests {
 
         let event = rx.try_recv().unwrap();
         match event {
-            StreamEvent::BriefMessage { attachments, .. } => {
+            AgentEvent::BriefMessage { attachments, .. } => {
                 assert_eq!(attachments, vec!["/tmp/a.txt", "/tmp/b.png"]);
             }
             other => panic!("expected BriefMessage, got {other:?}"),
@@ -237,7 +239,7 @@ mod tests {
         assert_eq!(v["mode"], "normal");
 
         match rx.try_recv().unwrap() {
-            StreamEvent::BriefMessage { mode, .. } => assert_eq!(mode, "normal"),
+            AgentEvent::BriefMessage { mode, .. } => assert_eq!(mode, "normal"),
             other => panic!("expected BriefMessage, got {other:?}"),
         }
     }

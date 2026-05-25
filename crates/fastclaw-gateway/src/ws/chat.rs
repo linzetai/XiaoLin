@@ -9,8 +9,8 @@ use crate::chat_pipeline::{
     after_chat, maybe_spawn_smart_title_background, setup_chat, SetupChatOptions,
 };
 use crate::state::AppState;
-use fastclaw_agent::QueryEngine;
-use fastclaw_core::types::{AgentId, ChatMessage, ChatRequest, StreamEvent};
+use fastclaw_core::types::{AgentId, ChatMessage, ChatRequest};
+use fastclaw_protocol::{AgentEvent, ChatParams};
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -51,7 +51,7 @@ pub async fn handle_chat_cancel(
         sender,
         &WsResponse {
             id: req_id,
-            msg_type: "chat.cancel".into(),
+            msg_type: "cancel".into(),
             data: Some(json!({"requestId": target_req_id, "cancelled": cancelled})),
             error: None,
         },
@@ -103,7 +103,7 @@ pub async fn handle_chat_answer(
         sender,
         &WsResponse {
             id: req_id,
-            msg_type: "chat.answer".into(),
+            msg_type: "answer".into(),
             data: Some(json!({"requestId": request_id, "ok": ok})),
             error: None,
         },
@@ -166,7 +166,7 @@ pub async fn handle_chat_set_mode(
         sender,
         &WsResponse {
             id: req_id,
-            msg_type: "chat.set_mode".into(),
+            msg_type: "set_mode".into(),
             data: Some(json!({"ok": true, "from": format!("{from}"), "to": format!("{to}")})),
             error: None,
         },
@@ -179,7 +179,7 @@ pub async fn handle_chat_set_mode(
             let _ = tx
                 .send(WsResponse {
                     id: None,
-                    msg_type: "chat.mode_change".into(),
+                    msg_type: "mode_change".into(),
                     data: Some(
                         json!({"from": format!("{from}"), "to": format!("{to}"), "session_id": session_id}),
                     ),
@@ -200,12 +200,12 @@ pub async fn spawn_chat(
     cancel: CancellationToken,
     active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>>,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: ChatParams,
 ) {
     let chat_start = Instant::now();
     // Auto-claim session if provided and not yet owned.
     // This allows the frontend to chat directly without an explicit claim step.
-    if let Some(sid) = params.get("sessionId").and_then(|v| v.as_str()) {
+    if let Some(sid) = params.session_id.as_deref() {
         if !owned_sessions.contains(sid) {
             // Verify session exists before claiming
             match state.store.session_store.get_session(sid).await {
@@ -221,7 +221,7 @@ pub async fn spawn_chat(
                     let _ = bg_tx
                         .send(WsResponse {
                             id: req_id,
-                            msg_type: "chat.error".into(),
+                            msg_type: "error".into(),
                             data: None,
                             error: Some(json!({"code": 500, "message": format!("failed to verify session: {e}")})),
                         })
@@ -245,10 +245,11 @@ pub async fn spawn_chat(
         let rid_for_cleanup = rid.clone();
 
         let messages: Vec<ChatMessage> = match serde_json::from_value::<Vec<ChatMessage>>(
-            params
-                .get("messages")
-                .cloned()
-                .unwrap_or(serde_json::Value::Array(vec![])),
+            if params.messages.is_null() {
+                serde_json::Value::Array(vec![])
+            } else {
+                params.messages.clone()
+            },
         ) {
             Ok(m) => {
                 for msg in m.iter() {
@@ -265,7 +266,7 @@ pub async fn spawn_chat(
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
-                        msg_type: "chat.error".into(),
+                        msg_type: "error".into(),
                         data: None,
                         error: Some(json!({"message": format!("invalid messages: {e}")})),
                     })
@@ -281,35 +282,17 @@ pub async fn spawn_chat(
         let request = ChatRequest {
             messages,
             stream: true,
-            model: params
-                .get("model")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            temperature: params
-                .get("temperature")
-                .and_then(|v| v.as_f64())
-                .map(|f| f as f32),
-            max_tokens: params
-                .get("maxTokens")
-                .and_then(|v| v.as_u64())
-                .map(|n| n as u32),
-            agent_id: params
-                .get("agentId")
-                .and_then(|v| v.as_str())
-                .map(AgentId::from),
-            session_id: params
-                .get("sessionId")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            model: params.model.clone(),
+            temperature: params.temperature.map(|f| f as f32),
+            max_tokens: params.max_tokens,
+            agent_id: params.agent_id.as_deref().map(AgentId::from),
+            session_id: params.session_id.as_deref().map(Into::into),
             tools: None,
             slash_intent: params
+                .extra
                 .get("slashIntent")
-                .cloned()
-                .and_then(|v| serde_json::from_value(v).ok()),
-            work_dir: params
-                .get("workDir")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            work_dir: params.work_dir.clone(),
         };
 
         let setup = match setup_chat(
@@ -329,7 +312,7 @@ pub async fn spawn_chat(
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
-                        msg_type: "chat.error".into(),
+                        msg_type: "error".into(),
                         data: None,
                         error: Some(e.to_ws_error_value()),
                     })
@@ -365,6 +348,14 @@ pub async fn spawn_chat(
         let model_for_budget = setup.model_for_budget.clone();
         let state_budget = state.clone();
 
+        let coordinator = state
+            .strm
+            .coordinator_registry
+            .get_or_create(&fastclaw_protocol::SessionId::new(&session_id));
+        if coordinator.is_active().await {
+            coordinator.cancel_active_turn().await;
+        }
+
         // Persist user messages to session
         for msg in &setup.user_messages {
             let _ = state
@@ -372,6 +363,20 @@ pub async fn spawn_chat(
                 .session_store
                 .append_message(&session_id, msg)
                 .await;
+            // Dual-write: persist as HistoryItems alongside legacy messages
+            {
+                let turn_id = fastclaw_protocol::TurnId::generate();
+                let history_items =
+                    fastclaw_core::history_compat::chat_message_to_history(msg, turn_id);
+                if let Err(e) = state
+                    .store
+                    .session_store
+                    .append_history_items(&session_id, &history_items)
+                    .await
+                {
+                    tracing::warn!(session_id = %session_id, error = %e, "failed to dual-write history items");
+                }
+            }
         }
 
         let (mut reserved, budget_degraded) = (setup.reserved_cost, setup.budget_degraded);
@@ -395,13 +400,13 @@ pub async fn spawn_chat(
         let _ = bg_tx
             .send(WsResponse {
                 id: rid.clone(),
-                msg_type: "chat.start".into(),
+                msg_type: "turn_start".into(),
                 data: Some(start_payload),
                 error: None,
             })
             .await;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
 
         let after_turn_messages = setup.enriched_request.messages.clone();
 
@@ -432,6 +437,7 @@ pub async fn spawn_chat(
         let mode_state_for_task = state.rt.session_modes.get_or_create(&session_id);
         let session_store_for_task = Some(state.store.session_store.clone());
         let todo_store_for_task = Some(state.rt.todo_store.clone());
+        let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
         let plan_ctx_for_task = Some(fastclaw_agent::builtin_tools::PlanContext {
             session_id: session_id.clone(),
             store: state.rt.plan_file_store.clone(),
@@ -444,7 +450,7 @@ pub async fn spawn_chat(
                     fastclaw_agent::builtin_tools::with_session_mode(
                         ms_clone,
                         plan_ctx_for_task,
-                        runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task),
+                        runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task, orchestrator_for_task),
                     ),
                 ) => result,
                 _ = cancel2.cancelled() => Err(anyhow::anyhow!("cancelled")),
@@ -456,13 +462,14 @@ pub async fn spawn_chat(
         let mut assistant_content = String::new();
         let mut pending_question_ids: Vec<String> = Vec::new();
         let mut stream_ended = false; // true if Done or Error received
+        let mut current_turn_id: Option<fastclaw_protocol::TurnId> = None;
 
         // Use tokio::select! to race rx.recv() against task completion.
         // This prevents a deadlock when the task panics/errors but the extra
         // tx clone in stream_event_tx keeps the channel alive.
         let mut task = task;
         let mut task_completed = false;
-        let mut task_result: Option<Result<anyhow::Result<(u32, u32)>, tokio::task::JoinError>> = None;
+        let mut task_result: Option<Result<anyhow::Result<fastclaw_protocol::TurnSummary>, tokio::task::JoinError>> = None;
 
         loop {
             let event = tokio::select! {
@@ -482,6 +489,12 @@ pub async fn spawn_chat(
                     continue;
                 }
             };
+            if let AgentEvent::TurnStart { turn_id, .. } = &event {
+                current_turn_id = Some(turn_id.clone());
+                let _ = coordinator
+                    .register_turn(turn_id.clone(), turn_cancel.clone())
+                    .await;
+            }
             if turn_cancel.is_cancelled() {
                 if reserved > 0.0 {
                     let _ = state.obs.budget_tracker.release_reservation(reserved);
@@ -501,7 +514,15 @@ pub async fn spawn_chat(
                 }
                 break;
             }
-            if matches!(&event, StreamEvent::Error(_)) {
+            if let Err(e) = state.store.event_log.append(&session_id, &event).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to append stream event to event log"
+                );
+            }
+            let _ = coordinator.event_sender().send(event.clone());
+            if matches!(&event, AgentEvent::Error { .. }) {
                 if reserved > 0.0 {
                     let _ = state.obs.budget_tracker.release_reservation(reserved);
                     reserved = 0.0;
@@ -519,20 +540,22 @@ pub async fn spawn_chat(
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
                 }
             }
-            if let StreamEvent::Delta(ref delta) = event {
+            if let AgentEvent::ContentDelta { ref delta, .. } = event {
                 if let Some(text) = delta
-                    .choices
-                    .first()
-                    .and_then(|c| c.delta.content.as_deref())
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
                 {
                     assistant_content.push_str(text);
                 }
             }
-            let is_done = matches!(&event, StreamEvent::Done { .. });
-            if is_done || matches!(&event, StreamEvent::Error(_)) {
+            let is_done = matches!(&event, AgentEvent::TurnEnd { .. });
+            if is_done || matches!(&event, AgentEvent::Error { .. }) {
                 stream_ended = true;
             }
-            if let StreamEvent::AskQuestion { request_id, .. } = &event {
+            if let AgentEvent::AskQuestion { request_id, .. } = &event {
                 pending_question_ids.push(request_id.clone());
             }
             if is_done {
@@ -556,17 +579,20 @@ pub async fn spawn_chat(
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
             // Persist per-message and session-level usage on Done
-            if let StreamEvent::Done {
-                ref usage,
-                ref elapsed_ms,
+            if let AgentEvent::TurnEnd {
+                ref summary,
                 ..
             } = event
             {
                 let wall_ms = chat_start.elapsed().as_millis() as u64;
-                let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
-                let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                let ems = if wall_ms > 0 { wall_ms } else { *elapsed_ms };
+                let pt = summary.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
+                let ct = summary.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+                let tt = summary.usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                let ems = if wall_ms > 0 {
+                    wall_ms
+                } else {
+                    summary.elapsed_ms
+                };
                 let _ = state
                     .store
                     .session_store
@@ -578,7 +604,17 @@ pub async fn spawn_chat(
                     .stamp_last_assistant_usage(&session_id, pt, ct, tt, ems)
                     .await;
             }
-            let mut resp = event_to_response(&event, &rid, &state, setup.context_tokens_estimate);
+            if let AgentEvent::TurnEnd {
+                session_id: Some(ref sid),
+                ..
+            } = &event
+            {
+                let _ = state.strm.ws_broadcast.send(
+                    json!({"type":"event","event":"sessions.changed","data":{"sessionId": sid}})
+                        .to_string(),
+                );
+            }
+            let mut resp = forward_event(&event, &rid);
             if is_done {
                 if let Some(data) = resp.data.as_mut().and_then(|d| d.as_object_mut()) {
                     let elapsed_ms = chat_start.elapsed().as_millis() as u64;
@@ -592,6 +628,26 @@ pub async fn spawn_chat(
                 break;
             }
         }
+
+        if turn_cancel.is_cancelled() {
+            let turn_id = current_turn_id.unwrap_or_else(fastclaw_protocol::TurnId::generate);
+            let aborted = AgentEvent::TurnAborted {
+                turn_id: turn_id.clone(),
+                reason: fastclaw_protocol::AbortReason::Interrupted,
+                completed_at: Some(chrono::Utc::now().to_rfc3339()),
+                duration_ms: Some(chat_start.elapsed().as_millis() as u64),
+            };
+            if let Err(e) = state.store.event_log.append(&session_id, &aborted).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to append turn_aborted event to event log"
+                );
+            }
+            let _ = bg_tx.send(forward_event(&aborted, &rid)).await;
+        }
+
+        coordinator.complete_turn().await;
 
         // Run after_turn hooks (memory updates, compaction, etc.)
         if !turn_cancel.is_cancelled() {
@@ -632,7 +688,7 @@ pub async fn spawn_chat(
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
-                        msg_type: "chat.error".into(),
+                        msg_type: "error".into(),
                         data: None,
                         error: Some(json!({"message": format!("{e}")})),
                     })
@@ -659,7 +715,7 @@ pub async fn spawn_chat(
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
-                        msg_type: "chat.error".into(),
+                        msg_type: "error".into(),
                         data: None,
                         error: Some(json!({"message": format!("task panic: {e}")})),
                     })
@@ -672,7 +728,7 @@ pub async fn spawn_chat(
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
-                        msg_type: "chat.error".into(),
+                        msg_type: "error".into(),
                         data: None,
                         error: Some(json!({"message": "Chat completed without response. The model provider may be unavailable."})),
                     })
@@ -694,416 +750,24 @@ pub async fn spawn_chat(
     });
 }
 
-/// Stateful chat submission via `QueryEngine`. Each session gets its own
-/// `QueryEngine` instance that accumulates messages across turns. The engine
-/// is automatically dropped when the WebSocket connection closes.
-#[allow(clippy::too_many_arguments)]
-pub async fn handle_chat_submit(
-    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
-    state: &AppState,
-    query_engines: &mut HashMap<String, QueryEngine>,
-    owned_sessions: &mut HashSet<String>,
-    bg_tx: tokio::sync::mpsc::Sender<WsResponse>,
-    req_id: Option<String>,
-    params: serde_json::Value,
-) {
-    let Some(message_text) = params.get("message").and_then(|v| v.as_str()) else {
-        send_resp(
-            sender,
-            &WsResponse {
-                id: req_id,
-                msg_type: "error".into(),
-                data: None,
-                error: Some(json!({"code": -32602, "message": "message (string) required"})),
-            },
-        )
-        .await;
-        return;
-    };
-
-    let session_key = params
-        .get("sessionId")
+pub fn forward_event(event: &AgentEvent, req_id: &Option<String>) -> WsResponse {
+    let data = serde_json::to_value(event).unwrap_or_default();
+    let msg_type = data
+        .get("type")
         .and_then(|v| v.as_str())
-        .unwrap_or("default")
+        .unwrap_or("unknown")
         .to_string();
 
-    let agent_id_str = params
-        .get("agentId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("main");
+    let error = if matches!(event, AgentEvent::Error { .. }) {
+        data.get("message").map(|msg| json!({"message": msg}))
+    } else {
+        None
+    };
 
-    if !query_engines.contains_key(&session_key) {
-        let lookup_req = ChatRequest {
-            model: None,
-            messages: vec![],
-            agent_id: Some(AgentId::from(agent_id_str.to_string())),
-            session_id: None,
-            stream: false,
-            temperature: None,
-            max_tokens: None,
-            tools: None,
-            slash_intent: None,
-            work_dir: None,
-        };
-        let agent_config = {
-            let router = state.rt.router.read().await;
-            match router.resolve(&lookup_req).cloned() {
-                Ok(cfg) => cfg,
-                Err(_) => {
-                    send_resp(
-                        sender,
-                        &WsResponse {
-                            id: req_id,
-                            msg_type: "error".into(),
-                            data: None,
-                            error: Some(
-                                json!({"code": 404, "message": format!("agent not found: {}", agent_id_str)}),
-                            ),
-                        },
-                    )
-                    .await;
-                    return;
-                }
-            }
-        };
-
-        let engine = QueryEngine::new(
-            state.rt.runtime.clone(),
-            agent_config,
-            state.rt.tool_registry.clone(),
-        );
-        query_engines.insert(session_key.clone(), engine);
-    }
-
-    let engine = query_engines.get_mut(&session_key).unwrap();
-    let message_text = message_text.to_string();
-    let rid = req_id.clone();
-
-    let mut rx = engine.submit_message(&message_text).await;
-
-    let rid_clone = rid.clone();
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            let is_done = matches!(&event, StreamEvent::Done { .. });
-            let resp = event_to_response(&event, &rid_clone, &state_clone, None);
-            if bg_tx.send(resp).await.is_err() {
-                break;
-            }
-            if is_done {
-                break;
-            }
-        }
-    });
-
-    owned_sessions.insert(session_key);
-}
-
-pub fn event_to_response(
-    event: &StreamEvent,
-    req_id: &Option<String>,
-    state: &AppState,
-    context_estimate: Option<(u32, u32)>,
-) -> WsResponse {
-    match event {
-        StreamEvent::Delta(delta) => {
-            let text = delta
-                .choices
-                .first()
-                .and_then(|c| c.delta.content.as_deref());
-            WsResponse {
-                id: req_id.clone(),
-                msg_type: "chat.delta".into(),
-                data: Some(json!({"content": text, "model": delta.model})),
-                error: None,
-            }
-        }
-        StreamEvent::ToolExecuting {
-            tool_name,
-            call_id,
-            args,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.tool.start".into(),
-            data: Some(json!({"tool": tool_name, "callId": call_id, "args": args})),
-            error: None,
-        },
-        StreamEvent::ToolResult {
-            tool_name,
-            call_id,
-            output,
-            display_output,
-            success,
-            metadata,
-        } => {
-            let mut data = json!({"tool": tool_name, "callId": call_id, "output": display_output.as_ref().unwrap_or(output), "success": success});
-            if let Some(meta) = metadata {
-                data["metadata"] = meta.clone();
-            }
-            WsResponse {
-                id: req_id.clone(),
-                msg_type: "chat.tool.done".into(),
-                data: Some(data),
-                error: None,
-            }
-        }
-        StreamEvent::ToolProgress {
-            tool_name,
-            call_id,
-            message,
-            progress,
-            partial_output,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.tool.progress".into(),
-            data: Some(json!({
-                "tool": tool_name,
-                "callId": call_id,
-                "message": message,
-                "progress": progress,
-                "partialOutput": partial_output,
-            })),
-            error: None,
-        },
-        StreamEvent::Done {
-            session_id,
-            tool_calls_made,
-            iterations,
-            usage,
-            elapsed_ms,
-            ..
-        } => {
-            let _ = state.strm.ws_broadcast.send(
-                json!({"type":"event","event":"sessions.changed","data":{"sessionId":session_id}})
-                    .to_string(),
-            );
-            let mut data = json!({"sessionId": session_id, "toolCallsMade": tool_calls_made, "iterations": iterations, "elapsedMs": elapsed_ms});
-            if let Some(ref u) = usage {
-                data["usage"] = json!({"promptTokens": u.prompt_tokens, "completionTokens": u.completion_tokens, "totalTokens": u.total_tokens});
-            }
-            if let Some((est_tokens, ctx_window)) = context_estimate {
-                let actual_prompt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                data["contextTokens"] = json!(if actual_prompt > 0 {
-                    actual_prompt
-                } else {
-                    est_tokens
-                });
-                if ctx_window > 0 {
-                    data["contextWindow"] = json!(ctx_window);
-                }
-            }
-            WsResponse {
-                id: req_id.clone(),
-                msg_type: "chat.complete".into(),
-                data: Some(data),
-                error: None,
-            }
-        }
-        StreamEvent::AskQuestion {
-            request_id,
-            question,
-            options,
-            timeout_secs,
-            allow_multiple,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.ask_question".into(),
-            data: Some(json!({
-                "requestId": request_id,
-                "question": question,
-                "options": options,
-                "timeoutSecs": timeout_secs,
-                "allowMultiple": allow_multiple,
-            })),
-            error: None,
-        },
-        StreamEvent::Error(msg) => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.error".into(),
-            data: None,
-            error: Some(json!({"message": msg})),
-        },
-
-        // ── Sub-agent streaming events ──────────────────────────────
-        StreamEvent::SubAgentStart {
-            run_id,
-            agent_id,
-            subagent_type,
-            task,
-            depth,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.subagent.start".into(),
-            data: Some(json!({
-                "runId": run_id, "agentId": agent_id,
-                "subagentType": subagent_type, "task": task, "depth": depth,
-            })),
-            error: None,
-        },
-        StreamEvent::SubAgentDelta { run_id, content } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.subagent.delta".into(),
-            data: Some(json!({"runId": run_id, "content": content})),
-            error: None,
-        },
-        StreamEvent::SubAgentToolExecuting {
-            run_id,
-            tool_name,
-            call_id,
-            args,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.subagent.tool.start".into(),
-            data: Some(json!({
-                "runId": run_id, "tool": tool_name, "callId": call_id, "args": args,
-            })),
-            error: None,
-        },
-        StreamEvent::SubAgentToolResult {
-            run_id,
-            tool_name,
-            call_id,
-            output,
-            success,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.subagent.tool.done".into(),
-            data: Some(json!({
-                "runId": run_id, "tool": tool_name, "callId": call_id,
-                "output": output, "success": success,
-            })),
-            error: None,
-        },
-        StreamEvent::SubAgentComplete {
-            run_id,
-            status,
-            result,
-            tool_calls_made,
-            iterations,
-            usage,
-            elapsed_ms,
-        } => {
-            let mut data = json!({
-                "runId": run_id, "status": status, "result": result,
-                "toolCallsMade": tool_calls_made, "iterations": iterations,
-                "elapsedMs": elapsed_ms,
-            });
-            if let Some(ref u) = usage {
-                data["usage"] = json!({
-                    "promptTokens": u.prompt_tokens,
-                    "completionTokens": u.completion_tokens,
-                    "totalTokens": u.total_tokens,
-                });
-            }
-            WsResponse {
-                id: req_id.clone(),
-                msg_type: "chat.subagent.complete".into(),
-                data: Some(data),
-                error: None,
-            }
-        }
-        StreamEvent::ContextLimitWarning {
-            used_tokens,
-            limit_tokens,
-            message,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.context.warning".into(),
-            data: Some(json!({
-                "usedTokens": used_tokens,
-                "limitTokens": limit_tokens,
-                "message": message,
-            })),
-            error: None,
-        },
-        StreamEvent::CompactWarning {
-            used_tokens,
-            limit_tokens,
-            message,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.compact.warning".into(),
-            data: Some(json!({
-                "usedTokens": used_tokens,
-                "limitTokens": limit_tokens,
-                "message": message,
-            })),
-            error: None,
-        },
-        StreamEvent::ContextUsageUpdate {
-            used_tokens,
-            limit_tokens,
-            compressed,
-            tokens_saved,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.context.usage".into(),
-            data: Some(json!({
-                "usedTokens": used_tokens,
-                "limitTokens": limit_tokens,
-                "compressed": compressed,
-                "tokensSaved": tokens_saved,
-            })),
-            error: None,
-        },
-        StreamEvent::BriefMessage {
-            content,
-            attachments,
-            mode,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.brief".into(),
-            data: Some(json!({
-                "content": content,
-                "attachments": attachments,
-                "mode": mode,
-            })),
-            error: None,
-        },
-        StreamEvent::ModeChange { from, to } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.mode_change".into(),
-            data: Some(json!({
-                "from": format!("{from}"),
-                "to": format!("{to}"),
-            })),
-            error: None,
-        },
-        StreamEvent::PlanFileUpdate {
-            session_id,
-            path,
-            exists,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.plan_file".into(),
-            data: Some(json!({
-                "sessionId": session_id,
-                "path": path,
-                "exists": exists,
-            })),
-            error: None,
-        },
-        StreamEvent::Suggestions { items } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.suggestions".into(),
-            data: Some(json!({ "items": items })),
-            error: None,
-        },
-        StreamEvent::CompactBoundary {
-            trigger,
-            pre_compact_tokens,
-            post_compact_tokens,
-            messages_removed,
-        } => WsResponse {
-            id: req_id.clone(),
-            msg_type: "chat.compact.boundary".into(),
-            data: Some(json!({
-                "trigger": format!("{trigger:?}"),
-                "preCompactTokens": pre_compact_tokens,
-                "postCompactTokens": post_compact_tokens,
-                "messagesRemoved": messages_removed,
-            })),
-            error: None,
-        },
+    WsResponse {
+        id: req_id.clone(),
+        msg_type,
+        data: Some(data),
+        error,
     }
 }

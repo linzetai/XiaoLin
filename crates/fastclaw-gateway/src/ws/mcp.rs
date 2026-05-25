@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::state::AppState;
 use fastclaw_core::config_access::persist_config_key;
+use fastclaw_protocol::McpAddParams;
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -67,44 +68,11 @@ pub async fn handle_mcp_add(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: McpAddParams,
 ) {
-    let id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(s) => s.to_string(),
-        None => {
-            send_resp(
-                sender,
-                &WsResponse {
-                    id: req_id,
-                    msg_type: "error".into(),
-                    data: None,
-                    error: Some(json!({"code": -32602, "message": "id required"})),
-                },
-            )
-            .await;
-            return;
-        }
-    };
-    let command = match params.get("command").and_then(|v| v.as_str()) {
-        Some(s) => s.to_string(),
-        None => {
-            send_resp(
-                sender,
-                &WsResponse {
-                    id: req_id,
-                    msg_type: "error".into(),
-                    data: None,
-                    error: Some(json!({"code": -32602, "message": "command required"})),
-                },
-            )
-            .await;
-            return;
-        }
-    };
-    let args: Vec<String> = params
-        .get("args")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
+    let id = params.id;
+    let command = params.command;
+    let args = params.args;
 
     let new_server = fastclaw_core::agent_config::McpServerConfig {
         id: id.clone(),

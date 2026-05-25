@@ -7,7 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use fastclaw_core::agent_config::{AgentConfig, SubAgentPolicy};
 use fastclaw_core::tool::ToolRegistry;
-use fastclaw_core::types::{StreamEvent, SubAgentRun, SubAgentStatus, SubAgentType, Usage};
+use fastclaw_core::types::{SubAgentRun, SubAgentStatus, SubAgentType, Usage};
+use fastclaw_protocol::{AgentEvent, TokenUsage, TurnId};
 
 use crate::llm::LlmProvider;
 use crate::runtime::AgentRuntime;
@@ -79,7 +80,7 @@ impl SubAgentManager {
     /// Spawn a sub-agent run. Returns the run_id immediately.
     ///
     /// The sub-agent executes asynchronously; progress streams to `parent_tx`
-    /// as `StreamEvent::SubAgent*` variants. The caller (usually `SubAgentTool`)
+    /// as `AgentEvent::SubAgent*` variants. The caller (usually `SubAgentTool`)
     /// collects the final result from the `SubAgentComplete` event or queries
     /// `get_run()`.
     #[allow(clippy::too_many_arguments)]
@@ -94,7 +95,7 @@ impl SubAgentManager {
         current_depth: u32,
         policy: &SubAgentPolicy,
         tool_registry: Arc<ToolRegistry>,
-        parent_tx: mpsc::Sender<StreamEvent>,
+        parent_tx: mpsc::Sender<AgentEvent>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<String> {
         if !policy.enabled {
@@ -132,8 +133,11 @@ impl SubAgentManager {
         self.cancel_tokens
             .insert(run_id.clone(), cancel_token.clone());
 
+        let turn_id = TurnId::generate();
+
         let _ = parent_tx
-            .send(StreamEvent::SubAgentStart {
+            .send(AgentEvent::SubAgentStart {
+                turn_id: turn_id.clone(),
                 run_id: run_id.clone(),
                 agent_id: agent_config.agent_id.to_string(),
                 subagent_type: subagent_type.to_string(),
@@ -149,6 +153,7 @@ impl SubAgentManager {
         let timeout = Duration::from_secs(policy.timeout_seconds);
         let max_depth = policy.max_depth;
         let rid = run_id.clone();
+        let forward_turn_id = turn_id.clone();
 
         tokio::spawn(async move {
             let _permit = match concurrency.acquire().await {
@@ -164,6 +169,7 @@ impl SubAgentManager {
             }
 
             let t0 = std::time::Instant::now();
+            let complete_turn_id = forward_turn_id.clone();
 
             let result: anyhow::Result<(String, u32, u32, Option<Usage>)> = tokio::select! {
                 _ = cancel_token.cancelled() => {
@@ -183,6 +189,7 @@ impl SubAgentManager {
                     &tool_registry,
                     parent_tx.clone(),
                     &rid,
+                    forward_turn_id,
                     llm_override,
                 ) => {
                     res
@@ -194,13 +201,18 @@ impl SubAgentManager {
             match result {
                 Ok((response_text, tool_calls_made, iterations, usage)) => {
                     let _ = parent_tx
-                        .send(StreamEvent::SubAgentComplete {
+                        .send(AgentEvent::SubAgentComplete {
+                            turn_id: complete_turn_id.clone(),
                             run_id: rid.clone(),
                             status: "completed".into(),
                             result: Some(response_text.clone()),
                             tool_calls_made,
                             iterations,
-                            usage: usage.clone(),
+                            usage: usage.clone().map(|u| TokenUsage {
+                                prompt_tokens: u.prompt_tokens,
+                                completion_tokens: u.completion_tokens,
+                                total_tokens: u.total_tokens,
+                            }),
                             elapsed_ms,
                         })
                         .await;
@@ -224,7 +236,8 @@ impl SubAgentManager {
                     };
 
                     let _ = parent_tx
-                        .send(StreamEvent::SubAgentComplete {
+                        .send(AgentEvent::SubAgentComplete {
+                            turn_id: complete_turn_id.clone(),
                             run_id: rid.clone(),
                             status: status_str.into(),
                             result: None,
@@ -263,8 +276,9 @@ impl SubAgentManager {
         _depth: u32,
         _max_depth: u32,
         tool_registry: &Arc<ToolRegistry>,
-        parent_tx: mpsc::Sender<StreamEvent>,
+        parent_tx: mpsc::Sender<AgentEvent>,
         run_id: &str,
+        turn_id: TurnId,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<(String, u32, u32, Option<Usage>)> {
         use fastclaw_core::types::{ChatMessage, ChatRequest, Role};
@@ -306,10 +320,11 @@ impl SubAgentManager {
             work_dir: None,
         };
 
-        let (child_tx, mut child_rx) = mpsc::channel::<StreamEvent>(256);
+        let (child_tx, mut child_rx) = mpsc::channel::<AgentEvent>(256);
 
         let run_id_owned = run_id.to_string();
         let parent_tx_clone = parent_tx.clone();
+        let forward_turn_id = turn_id.clone();
 
         let forwarder = tokio::spawn(async move {
             let mut accumulated_text = String::new();
@@ -317,28 +332,33 @@ impl SubAgentManager {
 
             while let Some(event) = child_rx.recv().await {
                 match &event {
-                    StreamEvent::Delta(delta) => {
+                    AgentEvent::ContentDelta { delta, .. } => {
                         if let Some(content) = delta
-                            .choices
-                            .first()
-                            .and_then(|c| c.delta.content.as_deref())
+                            .get("choices")
+                            .and_then(|c| c.get(0))
+                            .and_then(|c| c.get("delta"))
+                            .and_then(|d| d.get("content"))
+                            .and_then(|c| c.as_str())
                         {
                             accumulated_text.push_str(content);
                             let _ = parent_tx_clone
-                                .send(StreamEvent::SubAgentDelta {
+                                .send(AgentEvent::SubAgentDelta {
+                                    turn_id: forward_turn_id.clone(),
                                     run_id: run_id_owned.clone(),
                                     content: content.to_string(),
                                 })
                                 .await;
                         }
                     }
-                    StreamEvent::ToolExecuting {
+                    AgentEvent::ToolExecuting {
                         tool_name,
                         call_id,
                         args,
+                        ..
                     } => {
                         let _ = parent_tx_clone
-                            .send(StreamEvent::SubAgentToolExecuting {
+                            .send(AgentEvent::SubAgentToolExecuting {
+                                turn_id: forward_turn_id.clone(),
                                 run_id: run_id_owned.clone(),
                                 tool_name: tool_name.clone(),
                                 call_id: call_id.clone(),
@@ -346,7 +366,7 @@ impl SubAgentManager {
                             })
                             .await;
                     }
-                    StreamEvent::ToolResult {
+                    AgentEvent::ToolResult {
                         tool_name,
                         call_id,
                         output,
@@ -356,7 +376,8 @@ impl SubAgentManager {
                     } => {
                         let ui_out = display_output.as_ref().unwrap_or(output);
                         let _ = parent_tx_clone
-                            .send(StreamEvent::SubAgentToolResult {
+                            .send(AgentEvent::SubAgentToolResult {
+                                turn_id: forward_turn_id.clone(),
                                 run_id: run_id_owned.clone(),
                                 tool_name: tool_name.clone(),
                                 call_id: call_id.clone(),
@@ -365,8 +386,14 @@ impl SubAgentManager {
                             })
                             .await;
                     }
-                    StreamEvent::Done { usage, .. } => {
-                        final_usage = usage.clone();
+                    AgentEvent::TurnEnd { summary, .. } => {
+                        if let Some(u) = &summary.usage {
+                            final_usage = Some(Usage {
+                                prompt_tokens: u.prompt_tokens,
+                                completion_tokens: u.completion_tokens,
+                                total_tokens: u.total_tokens,
+                            });
+                        }
                     }
                     _ => {}
                 }
@@ -384,9 +411,12 @@ impl SubAgentManager {
             .map_err(|e| anyhow::anyhow!("forwarder task panicked: {e}"))?;
 
         match stream_result {
-            Ok((tool_calls_made, iterations)) => {
-                Ok((accumulated_text, tool_calls_made, iterations, final_usage))
-            }
+            Ok(summary) => Ok((
+                accumulated_text,
+                summary.tool_calls_made,
+                summary.iterations,
+                final_usage,
+            )),
             Err(e) => Err(e),
         }
     }

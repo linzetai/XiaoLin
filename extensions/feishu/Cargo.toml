@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 fastclaw-core = { path = "../../crates/fastclaw-core" }
 fastclaw-agent = { path = "../../crates/fastclaw-agent" }
+fastclaw-protocol = { path = "../../crates/fastclaw-protocol" }
 fastclaw-session = { path = "../../crates/fastclaw-session" }
 tokio.workspace = true
 reqwest = { workspace = true, features = ["multipart"] }

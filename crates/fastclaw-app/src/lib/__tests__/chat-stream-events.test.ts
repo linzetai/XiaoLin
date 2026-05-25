@@ -38,40 +38,54 @@ describe("chat stream event flow", () => {
     events = [];
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // AC1: 发送消息后流式回复事件正确传递
-  // ═══════════════════════════════════════════════════════════════════
-
   describe("streaming text reply", () => {
-    it("delivers start → delta → complete event sequence", () => {
+    it("delivers delta → turn_end event sequence", () => {
       mock.chatStream(
         { messages: [{ role: "user", content: "Hello" }] },
         (e) => events.push(e),
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.delta", data: { content: "Hi" } });
-      mock.fire({ type: "chat.delta", data: { content: " there!" } });
       mock.fire({
-        type: "chat.complete",
+        type: "content_delta",
         data: {
-          sessionId: "s-1",
-          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-          elapsedMs: 200,
+          type: "content_delta",
+          turn_id: "t1",
+          delta: { choices: [{ delta: { content: "Hi" } }] },
+        },
+      });
+      mock.fire({
+        type: "content_delta",
+        data: {
+          type: "content_delta",
+          turn_id: "t1",
+          delta: { choices: [{ delta: { content: " there!" } }] },
+        },
+      });
+      mock.fire({
+        type: "turn_end",
+        data: {
+          type: "turn_end",
+          turn_id: "t1",
+          session_id: "s-1",
+          summary: {
+            tool_calls_made: 0,
+            iterations: 1,
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            elapsed_ms: 200,
+          },
         },
       });
 
-      expect(events).toHaveLength(4);
+      expect(events).toHaveLength(3);
       expect(events.map((e) => e.type)).toEqual([
-        "chat.start",
-        "chat.delta",
-        "chat.delta",
-        "chat.complete",
+        "content_delta",
+        "content_delta",
+        "turn_end",
       ]);
 
       const deltas = events
-        .filter((e) => e.type === "chat.delta")
-        .map((e) => e.data?.content);
+        .filter((e) => e.type === "content_delta")
+        .map((e) => (e.data?.delta as { choices?: Array<{ delta?: { content?: string } }> })?.choices?.[0]?.delta?.content);
       expect(deltas).toEqual(["Hi", " there!"]);
     });
 
@@ -80,53 +94,76 @@ describe("chat stream event flow", () => {
       mock.chatStream(
         { messages: [{ role: "user", content: "Tell me a story" }] },
         (e) => {
-          if (e.type === "chat.delta" && e.data?.content) {
-            accumulated += e.data.content as string;
+          if (e.type === "content_delta" && e.data?.delta) {
+            const text = (e.data.delta as { choices?: Array<{ delta?: { content?: string } }> })
+              ?.choices?.[0]?.delta?.content;
+            if (text) accumulated += text;
           }
         },
       );
 
       const chunks = ["Once ", "upon ", "a ", "time, ", "there ", "was ", "a Rust programmer."];
-      mock.fire({ type: "chat.start", data: {} });
       for (const c of chunks) {
-        mock.fire({ type: "chat.delta", data: { content: c } });
+        mock.fire({
+          type: "content_delta",
+          data: {
+            type: "content_delta",
+            turn_id: "t1",
+            delta: { choices: [{ delta: { content: c } }] },
+          },
+        });
       }
-      mock.fire({ type: "chat.complete", data: {} });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
 
       expect(accumulated).toBe("Once upon a time, there was a Rust programmer.");
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Tool call event processing
-  // ═══════════════════════════════════════════════════════════════════
-
   describe("tool call events", () => {
-    it("processes tool.start and tool.done events", () => {
+    it("processes tool_executing and tool_result events", () => {
       const toolEvents: ChatStreamEvent[] = [];
       mock.chatStream(
         { messages: [{ role: "user", content: "Read my file" }] },
         (e) => {
-          if (e.type.startsWith("chat.tool")) toolEvents.push(e);
+          if (e.type === "tool_executing" || e.type === "tool_result") toolEvents.push(e);
         },
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.delta", data: { content: "Let me read that file." } });
       mock.fire({
-        type: "chat.tool.start",
-        data: { tool: "file_read", callId: "tc-1", args: '{"path":"src/main.rs"}' },
+        type: "content_delta",
+        data: {
+          type: "content_delta",
+          turn_id: "t1",
+          delta: { choices: [{ delta: { content: "Let me read that file." } }] },
+        },
       });
       mock.fire({
-        type: "chat.tool.done",
-        data: { tool: "file_read", callId: "tc-1", success: true, output: "fn main() {}" },
+        type: "tool_executing",
+        data: {
+          type: "tool_executing",
+          turn_id: "t1",
+          tool_name: "file_read",
+          call_id: "tc-1",
+          args: '{"path":"src/main.rs"}',
+        },
       });
-      mock.fire({ type: "chat.complete", data: {} });
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result",
+          turn_id: "t1",
+          tool_name: "file_read",
+          call_id: "tc-1",
+          success: true,
+          output: "fn main() {}",
+        },
+      });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
 
       expect(toolEvents).toHaveLength(2);
-      expect(toolEvents[0].type).toBe("chat.tool.start");
-      expect(toolEvents[0].data?.tool).toBe("file_read");
-      expect(toolEvents[1].type).toBe("chat.tool.done");
+      expect(toolEvents[0].type).toBe("tool_executing");
+      expect(toolEvents[0].data?.tool_name).toBe("file_read");
+      expect(toolEvents[1].type).toBe("tool_result");
       expect(toolEvents[1].data?.success).toBe(true);
       expect(toolEvents[1].data?.output).toBe("fn main() {}");
     });
@@ -138,17 +175,16 @@ describe("chat stream event flow", () => {
       mock.chatStream(
         { messages: [{ role: "user", content: "Search and read" }] },
         (e) => {
-          if (e.type === "chat.tool.start") toolStarts.push(e.data!.callId as string);
-          if (e.type === "chat.tool.done") toolDones.push(e.data!.callId as string);
+          if (e.type === "tool_executing") toolStarts.push(e.data!.call_id as string);
+          if (e.type === "tool_result") toolDones.push(e.data!.call_id as string);
         },
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.tool.start", data: { tool: "file_search", callId: "tc-1" } });
-      mock.fire({ type: "chat.tool.done", data: { tool: "file_search", callId: "tc-1", success: true, output: "found: main.rs" } });
-      mock.fire({ type: "chat.tool.start", data: { tool: "file_read", callId: "tc-2" } });
-      mock.fire({ type: "chat.tool.done", data: { tool: "file_read", callId: "tc-2", success: true, output: "fn main() {}" } });
-      mock.fire({ type: "chat.complete", data: {} });
+      mock.fire({ type: "tool_executing", data: { type: "tool_executing", turn_id: "t1", tool_name: "file_search", call_id: "tc-1" } });
+      mock.fire({ type: "tool_result", data: { type: "tool_result", turn_id: "t1", tool_name: "file_search", call_id: "tc-1", success: true, output: "found: main.rs" } });
+      mock.fire({ type: "tool_executing", data: { type: "tool_executing", turn_id: "t1", tool_name: "file_read", call_id: "tc-2" } });
+      mock.fire({ type: "tool_result", data: { type: "tool_result", turn_id: "t1", tool_name: "file_read", call_id: "tc-2", success: true, output: "fn main() {}" } });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
 
       expect(toolStarts).toEqual(["tc-1", "tc-2"]);
       expect(toolDones).toEqual(["tc-1", "tc-2"]);
@@ -159,19 +195,25 @@ describe("chat stream event flow", () => {
       mock.chatStream(
         { messages: [{ role: "user", content: "run bad command" }] },
         (e) => {
-          if (e.type === "chat.tool.done" && e.data?.success === false) {
+          if (e.type === "tool_result" && e.data?.success === false) {
             failedTool = e;
           }
         },
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.tool.start", data: { tool: "shell", callId: "tc-1" } });
+      mock.fire({ type: "tool_executing", data: { type: "tool_executing", turn_id: "t1", tool_name: "shell", call_id: "tc-1" } });
       mock.fire({
-        type: "chat.tool.done",
-        data: { tool: "shell", callId: "tc-1", success: false, output: "command not found" },
+        type: "tool_result",
+        data: {
+          type: "tool_result",
+          turn_id: "t1",
+          tool_name: "shell",
+          call_id: "tc-1",
+          success: false,
+          output: "command not found",
+        },
       });
-      mock.fire({ type: "chat.complete", data: {} });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
 
       expect(failedTool).not.toBeNull();
       expect(failedTool!.data?.success).toBe(false);
@@ -179,25 +221,24 @@ describe("chat stream event flow", () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Error handling
-  // ═══════════════════════════════════════════════════════════════════
-
   describe("error handling", () => {
-    it("delivers chat.error event", () => {
+    it("delivers error event", () => {
       let errorEvent: ChatStreamEvent | null = null;
       mock.chatStream(
         { messages: [{ role: "user", content: "Hi" }] },
         (e) => {
-          if (e.type === "chat.error") errorEvent = e;
+          if (e.type === "error") errorEvent = e;
         },
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.error", error: { message: "Rate limit exceeded" } });
+      mock.fire({
+        type: "error",
+        data: { type: "error", turn_id: "t1", message: "Rate limit exceeded" },
+        error: { message: "Rate limit exceeded" },
+      });
 
       expect(errorEvent).not.toBeNull();
-      expect(errorEvent!.error?.message).toBe("Rate limit exceeded");
+      expect(errorEvent!.data?.message ?? errorEvent!.error?.message).toBe("Rate limit exceeded");
     });
 
     it("stops delivering events after cleanup", () => {
@@ -206,19 +247,29 @@ describe("chat stream event flow", () => {
         (e) => events.push(e),
       );
 
-      mock.fire({ type: "chat.start", data: {} });
+      mock.fire({
+        type: "content_delta",
+        data: {
+          type: "content_delta",
+          turn_id: "t1",
+          delta: { choices: [{ delta: { content: "Hello" } }] },
+        },
+      });
       expect(events).toHaveLength(1);
 
       cleanup();
 
-      mock.fire({ type: "chat.delta", data: { content: "Should not arrive" } });
+      mock.fire({
+        type: "content_delta",
+        data: {
+          type: "content_delta",
+          turn_id: "t1",
+          delta: { choices: [{ delta: { content: "Should not arrive" } }] },
+        },
+      });
       expect(events).toHaveLength(1);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Context usage events
-  // ═══════════════════════════════════════════════════════════════════
 
   describe("context usage events", () => {
     it("passes context usage data through", () => {
@@ -226,45 +277,50 @@ describe("chat stream event flow", () => {
       mock.chatStream(
         { messages: [{ role: "user", content: "Hi" }] },
         (e) => {
-          if (e.type === "chat.context.usage") usageEvent = e;
+          if (e.type === "context_usage_update") usageEvent = e;
         },
       );
 
       mock.fire({
-        type: "chat.context.usage",
-        data: { usedTokens: 10200, limitTokens: 128000, compressed: true, tokensSaved: 5000 },
+        type: "context_usage_update",
+        data: {
+          type: "context_usage_update",
+          turn_id: "t1",
+          used_tokens: 10200,
+          limit_tokens: 128000,
+          compressed: true,
+          tokens_saved: 5000,
+        },
       });
 
       expect(usageEvent).not.toBeNull();
-      expect(usageEvent!.data?.usedTokens).toBe(10200);
-      expect(usageEvent!.data?.limitTokens).toBe(128000);
+      expect(usageEvent!.data?.used_tokens).toBe(10200);
+      expect(usageEvent!.data?.limit_tokens).toBe(128000);
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Ask question (human-in-the-loop) events
-  // ═══════════════════════════════════════════════════════════════════
-
   describe("ask question events", () => {
-    it("delivers chat.ask_question event with options", () => {
+    it("delivers ask_question event with options", () => {
       let questionEvent: ChatStreamEvent | null = null;
       mock.chatStream(
         { messages: [{ role: "user", content: "deploy" }] },
         (e) => {
-          if (e.type === "chat.ask_question") questionEvent = e;
+          if (e.type === "ask_question") questionEvent = e;
         },
       );
 
       mock.fire({
-        type: "chat.ask_question",
+        type: "ask_question",
         data: {
-          requestId: "q-1",
+          type: "ask_question",
+          turn_id: "t1",
+          request_id: "q-1",
           question: "Are you sure you want to deploy to production?",
           options: [
             { id: "yes", label: "Yes, deploy" },
             { id: "no", label: "Cancel" },
           ],
-          timeoutSecs: 60,
+          timeout_secs: 60,
         },
       });
 
@@ -274,34 +330,29 @@ describe("chat stream event flow", () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Sub-agent events
-  // ═══════════════════════════════════════════════════════════════════
-
   describe("sub-agent events", () => {
     it("delivers sub-agent lifecycle events", () => {
       const subEvents: string[] = [];
       mock.chatStream(
         { messages: [{ role: "user", content: "do complex task" }] },
         (e) => {
-          if (e.type.startsWith("chat.subagent")) subEvents.push(e.type);
+          if (e.type.startsWith("sub_agent")) subEvents.push(e.type);
         },
       );
 
-      mock.fire({ type: "chat.start", data: {} });
-      mock.fire({ type: "chat.subagent.start", data: { runId: "run-1", agentId: "code", task: "analyze code" } });
-      mock.fire({ type: "chat.subagent.delta", data: { runId: "run-1", content: "Analyzing..." } });
-      mock.fire({ type: "chat.subagent.tool.start", data: { runId: "run-1", tool: "file_read", callId: "stc-1" } });
-      mock.fire({ type: "chat.subagent.tool.done", data: { runId: "run-1", callId: "stc-1", success: true, output: "code" } });
-      mock.fire({ type: "chat.subagent.complete", data: { runId: "run-1", status: "completed", result: "Done" } });
-      mock.fire({ type: "chat.complete", data: {} });
+      mock.fire({ type: "sub_agent_start", data: { type: "sub_agent_start", turn_id: "t1", run_id: "run-1", agent_id: "code", task: "analyze code" } });
+      mock.fire({ type: "sub_agent_delta", data: { type: "sub_agent_delta", turn_id: "t1", run_id: "run-1", content: "Analyzing..." } });
+      mock.fire({ type: "sub_agent_tool_executing", data: { type: "sub_agent_tool_executing", turn_id: "t1", run_id: "run-1", tool_name: "file_read", call_id: "stc-1" } });
+      mock.fire({ type: "sub_agent_tool_result", data: { type: "sub_agent_tool_result", turn_id: "t1", run_id: "run-1", call_id: "stc-1", success: true, output: "code" } });
+      mock.fire({ type: "sub_agent_complete", data: { type: "sub_agent_complete", turn_id: "t1", run_id: "run-1", status: "completed", result: "Done" } });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
 
       expect(subEvents).toEqual([
-        "chat.subagent.start",
-        "chat.subagent.delta",
-        "chat.subagent.tool.start",
-        "chat.subagent.tool.done",
-        "chat.subagent.complete",
+        "sub_agent_start",
+        "sub_agent_delta",
+        "sub_agent_tool_executing",
+        "sub_agent_tool_result",
+        "sub_agent_complete",
       ]);
     });
   });

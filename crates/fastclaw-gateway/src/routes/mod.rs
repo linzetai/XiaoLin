@@ -40,6 +40,10 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/chat", post(chat::chat_completions))
         .route("/api/v1/chat/completions", post(chat::chat_completions))
         .route(
+            "/api/v1/chat/resolve-approval",
+            post(chat::resolve_approval),
+        )
+        .route(
             "/api/v1/agents",
             get(chat::list_agents).post(agents::post_agent),
         )

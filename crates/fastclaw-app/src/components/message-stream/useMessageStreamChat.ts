@@ -248,27 +248,39 @@ export function useMessageStreamChat({
       },
       (event) => {
         switch (event.type) {
-          case "chat.start": {
+          case "turn_start": {
             streamAccRef.current = "";
             segmentsRef.current = [];
             const ds = detachedStreams.get(capturedChatId);
             if (ds) ds.acc = "";
             break;
           }
-          case "chat.delta": {
-            const c = event.data?.content as string | undefined;
-            if (!c) return;
+          case "content_delta": {
+            const delta = event.data?.delta as Record<string, unknown> | undefined;
+            if (!delta) return;
+            const text = (delta as { choices?: Array<{ delta?: { content?: string } }> })
+              ?.choices?.[0]?.delta?.content;
+            if (!text) return;
             if (isActive()) {
-              appendText(c);
+              appendText(text);
               flushSegments();
             } else {
               const ds = detachedStreams.get(capturedChatId);
-              if (ds) ds.acc += c;
+              if (ds) ds.acc += text;
             }
             break;
           }
-          case "chat.complete": {
-            const sid = event.data?.sessionId as string | undefined;
+          case "turn_end": {
+            const d = event.data;
+            const sid = d?.session_id as string | undefined;
+            const summary = d?.summary as {
+              tool_calls_made?: number;
+              iterations?: number;
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+              elapsed_ms?: number;
+              context_tokens?: number;
+              context_window?: number;
+            } | undefined;
             const ds = detachedStreams.get(capturedChatId);
             const finalContent = isActive() ? streamAccRef.current : ds?.acc ?? streamAccRef.current;
             const savedToolCalls = (isActive() ? segmentsRef.current : [])
@@ -306,16 +318,16 @@ export function useMessageStreamChat({
               updateChatBackendId(capturedAgentId, capturedChatId, sid);
             }
 
-            const usageData = event.data?.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
-            const elapsedMs = (event.data?.elapsedMs as number) ?? 0;
-            const contextTokens = (event.data?.contextTokens as number) || undefined;
-            const contextWindow = (event.data?.contextWindow as number) || undefined;
+            const usageData = summary?.usage;
+            const elapsedMs = (d?.elapsedMs as number) ?? summary?.elapsed_ms ?? 0;
+            const contextTokens = (d?.contextTokens as number) ?? summary?.context_tokens ?? undefined;
+            const contextWindow = (d?.contextWindow as number) ?? summary?.context_window ?? undefined;
             if (usageData || elapsedMs || contextTokens) {
               const resolvedChatId = sid ?? capturedChatId;
               updateChatUsage(capturedAgentId, resolvedChatId, {
-                promptTokens: usageData?.promptTokens ?? 0,
-                completionTokens: usageData?.completionTokens ?? 0,
-                totalTokens: usageData?.totalTokens ?? 0,
+                promptTokens: usageData?.prompt_tokens ?? 0,
+                completionTokens: usageData?.completion_tokens ?? 0,
+                totalTokens: usageData?.total_tokens ?? 0,
                 elapsedMs,
                 contextTokens,
                 contextWindow,
@@ -326,7 +338,6 @@ export function useMessageStreamChat({
               requestBottomScroll("smooth");
             }
 
-            // 处理队列：自动发送下一条
             if (isActive()) {
               const state = useAgentStore.getState();
               const ac = state.agentChats[capturedAgentId];
@@ -348,12 +359,50 @@ export function useMessageStreamChat({
             }
             break;
           }
-          case "chat.tool.start": {
+          case "turn_aborted": {
             const d = event.data;
-            if (!d?.tool) return;
+            const reason = (d?.reason as string) ?? "interrupted";
+            if (isActive()) {
+              cancelAnimationFrame(rafIdRef.current);
+              rafIdRef.current = 0;
+              const content = streamAccRef.current;
+              const savedTC = segmentsRef.current
+                .filter((s) => s.type === "tool" && s.toolCall)
+                .map((s) => {
+                  const tc = s.toolCall!;
+                  return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration };
+                });
+              streamAccRef.current = "";
+              segmentsRef.current = [];
+              currentStreamChatRef.current = null;
+              setStreamSegments([]);
+              setStreaming(false);
+              setPendingQuestion(null);
+              if (content) {
+                addMessage(capturedAgentId, {
+                  role: "assistant",
+                  content,
+                  timestamp: new Date(),
+                  toolCalls: savedTC.length > 0 ? savedTC : undefined,
+                }, capturedChatId);
+              }
+              addMessage(capturedAgentId, {
+                role: "system",
+                content: `回合已中止: ${reason}`,
+                timestamp: new Date(),
+              }, capturedChatId);
+            }
+            const ds = detachedStreams.get(capturedChatId);
+            if (ds) { ds.done = true; detachedStreams.delete(capturedChatId); }
+            cleanup();
+            break;
+          }
+          case "tool_executing": {
+            const d = event.data;
+            if (!d?.tool_name) return;
             const tc: ToolCall = {
-              id: (d.callId ?? d.tool) as string,
-              name: d.tool as string,
+              id: (d.call_id ?? d.tool_name) as string,
+              name: d.tool_name as string,
               status: "running",
               args: d.args as string | undefined,
               startTime: Date.now(),
@@ -367,15 +416,16 @@ export function useMessageStreamChat({
             }
             break;
           }
-          case "chat.tool.done": {
+          case "tool_result": {
             const d = event.data;
-            if (!d?.tool) return;
-            const callId = (d.callId ?? d.tool) as string;
+            if (!d?.tool_name) return;
+            const callId = (d.call_id ?? d.tool_name) as string;
+            const output = (d.display_output ?? d.output) as string | undefined;
             if (isActive()) {
               const seg = segmentsRef.current.find((s) => s.type === "tool" && s.toolCall?.id === callId);
               if (seg?.toolCall) {
                 seg.toolCall.status = d.success ? "success" : "error";
-                seg.toolCall.result = d.output as string | undefined;
+                seg.toolCall.result = output;
                 seg.toolCall.duration = seg.toolCall.startTime ? Date.now() - seg.toolCall.startTime : undefined;
               }
               flushSegments();
@@ -384,29 +434,29 @@ export function useMessageStreamChat({
               if (ds) {
                 ds.toolCalls = ds.toolCalls.map((t) =>
                   t.id === callId
-                    ? { ...t, status: d.success ? "success" : "error", result: d.output as string | undefined, duration: t.startTime ? Date.now() - t.startTime : undefined }
+                    ? { ...t, status: d.success ? "success" : "error", result: output, duration: t.startTime ? Date.now() - t.startTime : undefined }
                     : t,
                 );
               }
             }
             break;
           }
-          case "chat.ask_question": {
+          case "ask_question": {
             const d = event.data;
-            if (d?.requestId && d?.question && isActive()) {
-              const timeoutSecs = (d.timeoutSecs as number) ?? 0;
+            if (d?.request_id && d?.question && isActive()) {
+              const timeoutSecs = (d.timeout_secs as number) ?? 0;
               setPendingQuestion({
-                requestId: d.requestId as string,
+                requestId: d.request_id as string,
                 question: d.question as string,
                 options: (d.options as Array<{ id: string; label: string }>) ?? [],
                 timeoutSecs,
                 expiresAt: timeoutSecs > 0 ? Date.now() + timeoutSecs * 1000 : 0,
-                allowMultiple: d.allowMultiple as boolean | undefined,
+                allowMultiple: d.allow_multiple as boolean | undefined,
               });
             }
             break;
           }
-          case "chat.mode_change": {
+          case "mode_change": {
             const d = event.data;
             const newMode = d?.to as string | undefined;
             if (newMode && (newMode === "agent" || newMode === "plan")) {
@@ -414,14 +464,14 @@ export function useMessageStreamChat({
             }
             break;
           }
-          case "chat.plan_file": {
+          case "plan_file_update": {
             const d = event.data;
             if (d?.path) {
-              setChatPlanFile(capturedAgentId, capturedChatId, d.path as string, d.exists as boolean ?? false);
+              setChatPlanFile(capturedAgentId, capturedChatId, d.path as string, (d.exists as boolean) ?? false);
             }
             break;
           }
-          case "chat.context.warning": {
+          case "context_warning": {
             const d = event.data;
             if (d?.message && isActive()) {
               addMessage(capturedAgentId, {
@@ -432,35 +482,35 @@ export function useMessageStreamChat({
             }
             break;
           }
-          case "chat.context.usage": {
+          case "context_usage_update": {
             const d = event.data;
-            if (d?.usedTokens != null && d?.limitTokens != null && isActive()) {
+            if (d?.used_tokens != null && d?.limit_tokens != null && isActive()) {
               const resolvedChatId = capturedChatId;
               updateChatUsage(capturedAgentId, resolvedChatId, {
                 promptTokens: 0,
                 completionTokens: 0,
                 totalTokens: 0,
                 elapsedMs: 0,
-                contextTokens: d.usedTokens as number,
-                contextWindow: d.limitTokens as number,
+                contextTokens: d.used_tokens as number,
+                contextWindow: d.limit_tokens as number,
               });
-              if (d.compressed && (d.tokensSaved as number) > 0) {
+              if (d.compressed && (d.tokens_saved as number) > 0) {
                 addMessage(capturedAgentId, {
                   role: "system",
-                  content: `上下文已压缩，节省了约 ${Math.round((d.tokensSaved as number) / 1000 * 10) / 10}k tokens`,
+                  content: `上下文已压缩，节省了约 ${Math.round((d.tokens_saved as number) / 1000 * 10) / 10}k tokens`,
                   timestamp: new Date(),
                 }, resolvedChatId);
               }
             }
             break;
           }
-          case "chat.subagent.start": {
+          case "sub_agent_start": {
             const d = event.data;
-            if (!d?.runId) break;
+            if (!d?.run_id) break;
             const run: SubAgentRunUI = {
-              runId: d.runId as string,
-              agentId: (d.agentId ?? "default") as string,
-              subagentType: (d.subagentType ?? "general") as string,
+              runId: d.run_id as string,
+              agentId: (d.agent_id ?? "default") as string,
+              subagentType: (d.subagent_type ?? "general") as string,
               task: (d.task ?? "") as string,
               depth: (d.depth as number) ?? 1,
               status: "running",
@@ -472,52 +522,52 @@ export function useMessageStreamChat({
             subAgentStart(capturedAgentId, capturedChatId, run);
             break;
           }
-          case "chat.subagent.delta": {
+          case "sub_agent_delta": {
             const d = event.data;
-            if (d?.runId && d?.content) {
-              subAgentDelta(capturedAgentId, capturedChatId, d.runId as string, d.content as string);
+            if (d?.run_id && d?.content) {
+              subAgentDelta(capturedAgentId, capturedChatId, d.run_id as string, d.content as string);
             }
             break;
           }
-          case "chat.subagent.tool.start": {
+          case "sub_agent_tool_executing": {
             const d = event.data;
-            if (d?.runId && d?.tool) {
-              subAgentToolStart(capturedAgentId, capturedChatId, d.runId as string, {
-                id: (d.callId ?? d.tool) as string,
-                name: d.tool as string,
+            if (d?.run_id && d?.tool_name) {
+              subAgentToolStart(capturedAgentId, capturedChatId, d.run_id as string, {
+                id: (d.call_id ?? d.tool_name) as string,
+                name: d.tool_name as string,
                 status: "running",
                 args: d.args as string | undefined,
               });
             }
             break;
           }
-          case "chat.subagent.tool.done": {
+          case "sub_agent_tool_result": {
             const d = event.data;
-            if (d?.runId && d?.callId) {
+            if (d?.run_id && d?.call_id) {
               subAgentToolDone(
                 capturedAgentId, capturedChatId,
-                d.runId as string, d.callId as string,
+                d.run_id as string, d.call_id as string,
                 (d.output ?? "") as string, d.success as boolean,
               );
             }
             break;
           }
-          case "chat.subagent.complete": {
+          case "sub_agent_complete": {
             const d = event.data;
-            if (d?.runId) {
+            if (d?.run_id) {
               subAgentComplete(
                 capturedAgentId, capturedChatId,
-                d.runId as string, (d.status ?? "completed") as string,
+                d.run_id as string, (d.status ?? "completed") as string,
                 d.result as string | undefined,
-                d.toolCallsMade as number | undefined,
+                d.tool_calls_made as number | undefined,
                 d.iterations as number | undefined,
-                d.elapsedMs as number | undefined,
+                d.elapsed_ms as number | undefined,
               );
             }
             break;
           }
-          case "chat.error": {
-            const e = event.error?.message ?? "未知错误";
+          case "error": {
+            const e = (event.data?.message as string) ?? event.error?.message ?? "未知错误";
             if (isActive()) {
               cancelAnimationFrame(rafIdRef.current);
               rafIdRef.current = 0;
@@ -564,6 +614,65 @@ export function useMessageStreamChat({
                   }
                 }
               }
+            }
+            break;
+          }
+          case "stream_error": {
+            const d = event.data;
+            const msg = (d?.message as string) ?? "流错误";
+            const code = (d?.error_code as string) ?? "";
+            const retry = (d?.retry_attempt as number) ?? 0;
+            if (isActive()) {
+              addMessage(capturedAgentId, {
+                role: "system",
+                content: `流错误${code ? ` [${code}]` : ""}: ${msg}${retry > 0 ? ` (重试 #${retry})` : ""}`,
+                timestamp: new Date(),
+              }, capturedChatId);
+            }
+            break;
+          }
+          case "warning": {
+            const d = event.data;
+            const msg = (d?.message as string) ?? "";
+            if (msg && isActive()) {
+              addMessage(capturedAgentId, {
+                role: "system",
+                content: `⚠ ${msg}`,
+                timestamp: new Date(),
+              }, capturedChatId);
+            }
+            break;
+          }
+          case "approval_required": {
+            const d = event.data;
+            if (d?.approval_id && d?.reason && isActive()) {
+              const approvalId = d.approval_id as string;
+              const reason = d.reason as string;
+              const action = d.action as Record<string, unknown> | undefined;
+              const actionType = action?.action_type as string ?? "unknown";
+              const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
+
+              setPendingQuestion({
+                requestId: `approval:${approvalId}`,
+                question: `${reason}\n操作类型: ${actionType}`,
+                options: decisions.map((dec) => {
+                  const label = dec.decision === "approved" ? "批准"
+                    : dec.decision === "approved_for_session" ? "本次全部批准"
+                    : dec.decision === "denied" ? "拒绝"
+                    : dec.decision === "abort" ? "中止"
+                    : dec.decision;
+                  return { id: dec.decision, label };
+                }),
+                timeoutSecs: 0,
+                expiresAt: 0,
+                allowMultiple: false,
+              });
+            }
+            break;
+          }
+          case "approval_resolved": {
+            if (isActive()) {
+              setPendingQuestion(null);
             }
             break;
           }

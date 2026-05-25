@@ -46,11 +46,19 @@ pub(crate) async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: Ke
                         let answer_id = options[idx].0.clone();
                         let answer_label = options[idx].1.clone();
                         let id = app.next_id();
-                        let req = json!({
-                            "id": id,
-                            "method": "chat.answer",
-                            "params": {"requestId": request_id, "answer": answer_id}
-                        });
+                        let req = if let Some(approval_id) = request_id.strip_prefix("approval:") {
+                            json!({
+                                "id": id,
+                                "method": "resolve_approval",
+                                "params": {"approvalId": approval_id, "decision": {"decision": answer_id}}
+                            })
+                        } else {
+                            json!({
+                                "id": id,
+                                "method": "answer",
+                                "params": {"requestId": request_id, "answer": answer_id}
+                            })
+                        };
                         let _ = ws_tx.send(Message::Text(req.to_string())).await;
                         app.push_system(format!("Answered: {answer_label}"));
                         app.show_popup = None;
@@ -128,7 +136,7 @@ pub(crate) async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: Ke
             };
             let id = app.next_id();
             let req =
-                json!({"id": id, "method": "chat.set_mode", "params": {"mode": new_mode}});
+                json!({"id": id, "method": "set_mode", "params": {"mode": new_mode}});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
         }
 
@@ -266,7 +274,7 @@ pub(crate) async fn handle_key_event(app: &mut TuiApp, ws_tx: &mut WsTx, key: Ke
             if app.streaming {
                 if let Some(rid) = app.last_request_id.take() {
                     let cancel_id = app.next_id();
-                    let cancel_req = json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
+                    let cancel_req = json!({"id": cancel_id, "method": "cancel", "params": {"requestId": rid}});
                     let _ = ws_tx.send(Message::Text(cancel_req.to_string())).await;
                 }
                 app.streaming = false;

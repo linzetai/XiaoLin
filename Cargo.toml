@@ -23,6 +23,7 @@ members = [
     "crates/fastclaw-network-proxy",
     "crates/fastclaw-linux-sandbox",
     "extensions/feishu",
+    "crates/fastclaw-protocol",
     "crates/fastclaw-app/src-tauri",
 ]
 resolver = "2"

@@ -3,6 +3,7 @@ use serde_json::json;
 use std::collections::HashSet;
 
 use crate::state::AppState;
+use fastclaw_protocol::{SessionsListParams, SessionsNewParams};
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -11,18 +12,13 @@ pub async fn handle_sessions_list(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: SessionsListParams,
 ) {
     let limit = params
-        .get("limit")
-        .and_then(|v| v.as_i64())
+        .limit
         .unwrap_or(50)
-        .clamp(1, 200);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0)
-        .max(0);
+        .clamp(1, 200) as i64;
+    let offset = params.offset.unwrap_or(0) as i64;
     match state.store.session_store.list_sessions(limit, offset).await {
         Ok(sessions) => {
             let count = sessions.len();
@@ -237,11 +233,12 @@ pub async fn handle_sessions_new(
     state: &AppState,
     owned_sessions: &mut HashSet<String>,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: SessionsNewParams,
 ) {
     let agent_id = params
-        .get("agentId")
-        .and_then(|v| v.as_str())
+        .agent_id
+        .as_ref()
+        .map(|a| a.as_str())
         .unwrap_or("main");
     let new_id = uuid::Uuid::new_v4().to_string();
     let work_dir = state

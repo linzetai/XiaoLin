@@ -277,6 +277,24 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
+        // Migration: add reasoning_content and compact_metadata_json to messages
+        let has_reasoning: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'reasoning_content'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_reasoning {
+            sqlx::query("ALTER TABLE messages ADD COLUMN reasoning_content TEXT")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("ALTER TABLE messages ADD COLUMN compact_metadata_json TEXT")
+                .execute(&self.pool)
+                .await?;
+            tracing::info!("migrated messages table: added reasoning_content and compact_metadata_json columns");
+        }
+
         // Migration: add source column to track session origin (client/feishu/api/cron)
         let has_source: bool = sqlx::query_scalar::<_, i32>(
             "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'source'",
@@ -300,6 +318,32 @@ impl SessionStore {
                 .await?;
             tracing::info!("migrated sessions table: added source column with backfill");
         }
+
+        // history_items: canonical HistoryItem persistence (Sprint 7)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS history_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                turn_id TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                item_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_hi_session ON history_items(session_id, id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_hi_turn ON history_items(session_id, turn_id)",
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
@@ -459,9 +503,15 @@ impl SessionStore {
             Some(v) => Some(serde_json::to_string(v)?),
         };
 
+        let compact_metadata_json = msg
+            .compact_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+
         sqlx::query(
-            "INSERT INTO messages (session_id, role, content, name, tool_calls_json, tool_call_id)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (session_id, role, content, name, tool_calls_json, tool_call_id, reasoning_content, compact_metadata_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(session_id)
         .bind(role)
@@ -469,6 +519,8 @@ impl SessionStore {
         .bind(&msg.name)
         .bind(&tool_calls_json)
         .bind(&msg.tool_call_id)
+        .bind(&msg.reasoning_content)
+        .bind(&compact_metadata_json)
         .execute(&mut **tx)
         .await?;
 
@@ -570,7 +622,8 @@ impl SessionStore {
     pub async fn load_messages(&self, session_id: &str) -> anyhow::Result<Vec<SessionMessage>> {
         let messages = sqlx::query_as::<_, SessionMessage>(
             "SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
-                    prompt_tokens, completion_tokens, total_tokens, elapsed_ms
+                    prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
+                    reasoning_content, compact_metadata_json
              FROM messages WHERE session_id = ? ORDER BY id ASC",
         )
         .bind(session_id)
@@ -636,13 +689,20 @@ impl SessionStore {
                 },
             };
 
+            let compact_metadata = row
+                .compact_metadata_json
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?;
+
             messages.push(ChatMessage {
                 role,
                 content,
+                reasoning_content: row.reasoning_content,
                 name: row.name,
                 tool_calls,
                 tool_call_id: row.tool_call_id,
-                ..Default::default()
+                compact_metadata,
             });
         }
 
@@ -1038,6 +1098,104 @@ impl SessionStore {
         .await?;
 
         Ok(row)
+    }
+
+    /// Append a single HistoryItem.
+    pub async fn append_history_item(
+        &self,
+        session_id: &str,
+        item: &fastclaw_protocol::HistoryItem,
+    ) -> anyhow::Result<()> {
+        let turn_id = item.turn_id().as_str();
+        let item_type = extract_history_item_type(item);
+        let item_json = serde_json::to_string(item)?;
+
+        sqlx::query(
+            "INSERT INTO history_items (session_id, turn_id, item_type, item_json) VALUES (?, ?, ?, ?)",
+        )
+        .bind(session_id)
+        .bind(turn_id)
+        .bind(item_type)
+        .bind(&item_json)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Append multiple HistoryItems in a single transaction.
+    pub async fn append_history_items(
+        &self,
+        session_id: &str,
+        items: &[fastclaw_protocol::HistoryItem],
+    ) -> anyhow::Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await?;
+        for item in items {
+            let turn_id = item.turn_id().as_str();
+            let item_type = extract_history_item_type(item);
+            let item_json = serde_json::to_string(item)?;
+
+            sqlx::query(
+                "INSERT INTO history_items (session_id, turn_id, item_type, item_json) VALUES (?, ?, ?, ?)",
+            )
+            .bind(session_id)
+            .bind(turn_id)
+            .bind(item_type)
+            .bind(&item_json)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Load all HistoryItems for a session, ordered by insertion.
+    pub async fn load_history(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<fastclaw_protocol::HistoryItem>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT item_json FROM history_items WHERE session_id = ? ORDER BY id",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter()
+            .map(|(json,)| serde_json::from_str(json).map_err(Into::into))
+            .collect()
+    }
+
+    /// Load HistoryItems for a specific turn.
+    pub async fn load_history_for_turn(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+    ) -> anyhow::Result<Vec<fastclaw_protocol::HistoryItem>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT item_json FROM history_items WHERE session_id = ? AND turn_id = ? ORDER BY id",
+        )
+        .bind(session_id)
+        .bind(turn_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter()
+            .map(|(json,)| serde_json::from_str(json).map_err(Into::into))
+            .collect()
+    }
+}
+
+fn extract_history_item_type(item: &fastclaw_protocol::HistoryItem) -> &'static str {
+    match item {
+        fastclaw_protocol::HistoryItem::Message { .. } => "message",
+        fastclaw_protocol::HistoryItem::ToolUse { .. } => "tool_use",
+        fastclaw_protocol::HistoryItem::CompactBoundary { .. } => "compact_boundary",
+        fastclaw_protocol::HistoryItem::TurnUsage { .. } => "turn_usage",
+        _ => "unknown",
     }
 }
 
@@ -1597,5 +1755,46 @@ mod tests {
 
         let s2 = store.load_collapse_state("s2").await.unwrap();
         assert!(s2.is_none(), "s2 should have no state");
+    }
+
+    #[tokio::test]
+    async fn history_items_roundtrip() {
+        use fastclaw_protocol::{ContentPart, HistoryItem, TurnId};
+
+        let store = SessionStore::open_memory().await.unwrap();
+        store
+            .create_session("s1", "agent-1", Some("test"))
+            .await
+            .unwrap();
+
+        let turn_id = TurnId::new("t1");
+        let items = vec![
+            HistoryItem::Message {
+                turn_id: turn_id.clone(),
+                role: Role::User,
+                content: vec![ContentPart::Text {
+                    text: "hello".into(),
+                }],
+                phase: None,
+                reasoning_content: None,
+            },
+            HistoryItem::ToolUse {
+                turn_id: turn_id.clone(),
+                call_id: "tc-1".into(),
+                tool_name: "read_file".into(),
+                arguments: r#"{"path":"a.txt"}"#.into(),
+                output: "file contents".into(),
+                success: true,
+                duration_ms: Some(42),
+            },
+        ];
+
+        store.append_history_items("s1", &items).await.unwrap();
+
+        let loaded = store.load_history("s1").await.unwrap();
+        assert_eq!(loaded.len(), 2);
+
+        let turn_items = store.load_history_for_turn("s1", "t1").await.unwrap();
+        assert_eq!(turn_items.len(), 2);
     }
 }

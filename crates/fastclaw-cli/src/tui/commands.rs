@@ -148,7 +148,7 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
             let id = app.next_id();
             let req = json!({
                 "id": id,
-                "method": "chat.set_mode",
+                "method": "set_mode",
                 "params": {"mode": new_mode}
             });
             if ws_tx.send(Message::Text(req.to_string())).await.is_err() {
@@ -161,7 +161,7 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
             if app.streaming {
                 if let Some(rid) = app.last_request_id.take() {
                     let cancel_id = app.next_id();
-                    let cancel_req = json!({"id": cancel_id, "method": "chat.cancel", "params": {"requestId": rid}});
+                    let cancel_req = json!({"id": cancel_id, "method": "cancel", "params": {"requestId": rid}});
                     let _ = ws_tx.send(Message::Text(cancel_req.to_string())).await;
                 }
                 app.streaming = false;
@@ -247,7 +247,7 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
         }
         "/compact" => {
             let id = app.next_id();
-            let req = json!({"id": id, "method": "chat.compact"});
+            let req = json!({"id": id, "method": "compact"});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.push_system("Compacting context...".into());
         }
@@ -268,13 +268,13 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
         }
         "/undo" => {
             let id = app.next_id();
-            let req = json!({"id": id, "method": "chat.undo"});
+            let req = json!({"id": id, "method": "undo"});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.push_system("Reverting last file change...".into());
         }
         "/diff" => {
             let id = app.next_id();
-            let req = json!({"id": id, "method": "chat.diff"});
+            let req = json!({"id": id, "method": "diff"});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.push_system("Fetching recent changes...".into());
         }
@@ -356,14 +356,14 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
                 app.push_system("Usage: /bug <description of issue or feedback>".into());
             } else {
                 let id = app.next_id();
-                let req = json!({"id": id, "method": "chat.feedback", "params": {"message": arg}});
+                let req = json!({"id": id, "method": "feedback", "params": {"message": arg}});
                 let _ = ws_tx.send(Message::Text(req.to_string())).await;
                 app.push_system("Feedback sent. Thank you!".into());
             }
         }
         "/files" => {
             let id = app.next_id();
-            let req = json!({"id": id, "method": "chat.files"});
+            let req = json!({"id": id, "method": "files"});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.status = "Loading files...".into();
         }
@@ -438,7 +438,7 @@ pub(crate) async fn handle_slash_command(app: &mut TuiApp, ws_tx: &mut WsTx, tex
         }
         "/rewind" => {
             let id = app.next_id();
-            let req = json!({"id": id, "method": "chat.undo"});
+            let req = json!({"id": id, "method": "undo"});
             let _ = ws_tx.send(Message::Text(req.to_string())).await;
             app.push_system("Reverting last file change...".into());
         }

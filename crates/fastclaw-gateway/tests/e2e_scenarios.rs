@@ -624,13 +624,14 @@ async fn ws_chat_to_completion(
         let msg = ws_recv_json(rx).await;
         let ty = msg["type"].as_str().unwrap_or("unknown").to_string();
         event_types.push(ty.clone());
-        if ty == "chat.start" {
-            sid = msg["data"]["sessionId"]
+        if ty == "turn_start" {
+            sid = msg["data"]["session_id"]
                 .as_str()
+                .or_else(|| msg["data"]["sessionId"].as_str())
                 .unwrap_or_default()
                 .to_string();
         }
-        if ty == "chat.complete" || ty == "chat.error" {
+        if ty == "turn_end" || ty == "error" {
             break;
         }
     }
@@ -662,14 +663,14 @@ async fn e2e_ws_multi_turn_streaming() {
     let (session_id, events1) =
         ws_chat_to_completion(&mut tx, &mut rx, "t1", "Hello WebSocket!", None).await;
     assert!(!session_id.is_empty(), "should receive a session ID");
-    assert!(events1.contains(&"chat.start".to_string()));
-    assert!(events1.contains(&"chat.complete".to_string()));
+    assert!(events1.contains(&"turn_start".to_string()));
+    assert!(events1.contains(&"turn_end".to_string()));
 
     // Turn 2: continue same session
     let (sid2, events2) =
         ws_chat_to_completion(&mut tx, &mut rx, "t2", "Continue please", Some(&session_id)).await;
     assert_eq!(sid2, session_id, "should reuse same session");
-    assert!(events2.contains(&"chat.start".to_string()));
+    assert!(events2.contains(&"turn_start".to_string()));
 
     // Verify messages persisted
     ws_send_json(
@@ -1338,7 +1339,7 @@ async fn e2e_session_claim_allows_resume() {
     )
     .await;
     assert_eq!(sid2, session_id);
-    assert!(events.contains(&"chat.complete".to_string()));
+    assert!(events.contains(&"turn_end".to_string()));
 }
 
 // ===================================================================
@@ -1367,7 +1368,7 @@ async fn e2e_session_claim_rejects_missing() {
 }
 
 // ===================================================================
-// Scenario: chat.cancel via WS
+// Scenario: cancel via WS
 // ===================================================================
 
 #[tokio::test]
@@ -1380,11 +1381,11 @@ async fn e2e_chat_cancel_via_ws() {
     // Cancel a non-existent request ID
     ws_send_json(
         &mut tx,
-        json!({"id": "cancel1", "method": "chat.cancel", "params": {"requestId": "fake-id"}}),
+        json!({"id": "cancel1", "method": "cancel", "params": {"requestId": "fake-id"}}),
     )
     .await;
     let resp = ws_recv_json(&mut rx).await;
-    assert_eq!(resp["type"], "chat.cancel");
+    assert_eq!(resp["type"], "cancel");
     assert_eq!(
         resp["data"]["cancelled"], false,
         "non-existent request should not cancel"
@@ -1393,7 +1394,7 @@ async fn e2e_chat_cancel_via_ws() {
     // Cancel without requestId
     ws_send_json(
         &mut tx,
-        json!({"id": "cancel2", "method": "chat.cancel", "params": {}}),
+        json!({"id": "cancel2", "method": "cancel", "params": {}}),
     )
     .await;
     let resp = ws_recv_json(&mut rx).await;
@@ -1401,7 +1402,7 @@ async fn e2e_chat_cancel_via_ws() {
 }
 
 // ===================================================================
-// Scenario: chat.complete includes elapsed time and token estimates
+// Scenario: turn_end includes elapsed time and token estimates
 // ===================================================================
 
 #[tokio::test]
@@ -1427,27 +1428,27 @@ async fn e2e_chat_complete_includes_usage_stats() {
     loop {
         let msg = ws_recv_json(&mut rx).await;
         let ty = msg["type"].as_str().unwrap_or("");
-        if ty == "chat.complete" {
+        if ty == "turn_end" {
             complete_data = msg.get("data").cloned();
             break;
         }
-        if ty == "chat.error" {
+        if ty == "error" {
             panic!("chat failed: {:?}", msg["error"]);
         }
     }
 
-    let data = complete_data.expect("should have chat.complete data");
+    let data = complete_data.expect("should have turn_end data");
     assert!(
         data.get("elapsedMs").is_some(),
-        "chat.complete should include elapsedMs"
+        "turn_end should include elapsedMs"
     );
     assert!(
         data.get("inputTokensEstimate").is_some(),
-        "chat.complete should include inputTokensEstimate"
+        "turn_end should include inputTokensEstimate"
     );
     assert!(
         data.get("outputTokensEstimate").is_some(),
-        "chat.complete should include outputTokensEstimate"
+        "turn_end should include outputTokensEstimate"
     );
     let elapsed = data["elapsedMs"].as_u64().unwrap();
     assert!(elapsed > 0, "elapsed should be positive");
@@ -1473,8 +1474,9 @@ async fn e2e_connected_advertises_all_methods() {
 
     for expected in &[
         "sessions.claim",
-        "chat.cancel",
-        "chat.answer",
+        "cancel",
+        "answer",
+        "set_mode",
         "mcp.status",
         "mcp.reload",
         "mcp.add",

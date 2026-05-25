@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
+fastclaw-protocol = { path = "../fastclaw-protocol" }
 fastclaw-agent = { path = "../fastclaw-agent", features = ["browser"] }
 fastclaw-session = { path = "../fastclaw-session" }
 fastclaw-security = { path = "../fastclaw-security" }

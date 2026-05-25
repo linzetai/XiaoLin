@@ -2,6 +2,7 @@ use axum::extract::ws::{Message, WebSocket};
 use serde_json::json;
 
 use crate::state::AppState;
+use fastclaw_protocol::SkillsListParams;
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -11,11 +12,12 @@ pub async fn handle_skills_list(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: SkillsListParams,
 ) {
     let agent_id = params
-        .get("agentId")
-        .and_then(|v| v.as_str())
+        .agent_id
+        .as_deref()
+        .or_else(|| params.extra.get("agentId").and_then(|v| v.as_str()))
         .unwrap_or("main");
 
     let registry = state.skill_registry_for(agent_id);

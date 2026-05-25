@@ -38,6 +38,7 @@ chrono = { workspace = true }
 cron = "0.12"
 
 fastclaw-core = { path = "../../fastclaw-core" }
+fastclaw-protocol = { path = "../../fastclaw-protocol" }
 fastclaw-gateway = { path = "../../fastclaw-gateway" }
 fastclaw-agent = { path = "../../fastclaw-agent" }
 fastclaw-cron = { path = "../../fastclaw-cron" }

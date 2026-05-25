@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+fastclaw-protocol = { path = "../fastclaw-protocol" }
 serde.workspace = true
 serde_json.workspace = true
 json5.workspace = true

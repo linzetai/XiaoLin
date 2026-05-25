@@ -534,7 +534,12 @@ export function StreamFooter({
           question={pendingQuestion}
           onAnswer={async (answer) => {
             setPendingQuestion(null);
-            await transport.submitToolAnswerIpc(pendingQuestion.requestId, answer);
+            if (pendingQuestion.requestId.startsWith("approval:")) {
+              const approvalId = pendingQuestion.requestId.slice("approval:".length);
+              await transport.resolveApproval(approvalId, answer);
+            } else {
+              await transport.submitToolAnswerIpc(pendingQuestion.requestId, answer);
+            }
           }}
           onTimeout={() => setPendingQuestion(null)}
         />

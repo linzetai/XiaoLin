@@ -528,7 +528,7 @@ async fn config_serialization_roundtrip() {
 
 #[tokio::test]
 async fn stream_chat_produces_events() {
-    use fastclaw_core::types::StreamEvent;
+    use fastclaw_protocol::AgentEvent;
 
     let (state, _tmp) = test_state().await;
 
@@ -558,7 +558,7 @@ async fn stream_chat_produces_events() {
         router.resolve(&request).unwrap().clone()
     };
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
 
     let runtime = state.rt.runtime.clone();
     let tool_reg = state.rt.tool_registry.clone();
@@ -576,21 +576,23 @@ async fn stream_chat_produces_events() {
 
     while let Some(event) = rx.recv().await {
         match event {
-            StreamEvent::Delta(delta) => {
+            AgentEvent::ContentDelta { ref delta, .. } => {
                 got_delta = true;
                 if let Some(text) = delta
-                    .choices
-                    .first()
-                    .and_then(|c| c.delta.content.as_deref())
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
                 {
                     content.push_str(text);
                 }
             }
-            StreamEvent::Done { .. } => {
+            AgentEvent::TurnEnd { .. } => {
                 got_done = true;
             }
-            StreamEvent::Error(e) => {
-                panic!("unexpected stream error: {e}");
+            AgentEvent::Error { ref message, .. } => {
+                panic!("unexpected stream error: {message}");
             }
             _ => {}
         }
@@ -608,7 +610,7 @@ async fn stream_chat_produces_events() {
 
 #[tokio::test]
 async fn stream_chat_delta_content_accumulates() {
-    use fastclaw_core::types::StreamEvent;
+    use fastclaw_protocol::AgentEvent;
 
     let (state, _tmp) = test_state().await;
 
@@ -638,7 +640,7 @@ async fn stream_chat_delta_content_accumulates() {
         router.resolve(&request).unwrap().clone()
     };
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(64);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
 
     let runtime = state.rt.runtime.clone();
     let tool_reg = state.rt.tool_registry.clone();
@@ -651,7 +653,7 @@ async fn stream_chat_delta_content_accumulates() {
 
     let mut delta_count = 0;
     while let Some(event) = rx.recv().await {
-        if matches!(event, StreamEvent::Delta(_)) {
+        if matches!(event, AgentEvent::ContentDelta { .. }) {
             delta_count += 1;
         }
     }

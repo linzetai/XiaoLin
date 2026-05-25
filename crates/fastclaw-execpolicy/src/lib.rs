@@ -4,8 +4,8 @@ pub mod executable_name;
 mod matcher;
 
 pub use config::{
-    normalize_network_rule_host, Defaults, NetworkRule, NetworkRuleProtocol, PolicyConfig,
-    PolicyTest, PrefixRule,
+    normalize_network_rule_host, Defaults, NetworkRule, NetworkRuleProtocol, PatternElement,
+    PolicyConfig, PolicyTest, PrefixRule,
 };
 
 use std::collections::HashMap;

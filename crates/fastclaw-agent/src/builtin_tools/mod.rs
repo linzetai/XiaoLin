@@ -202,7 +202,7 @@ pub fn register_snip_tool(
 pub fn register_brief_tool(
     registry: &ToolRegistry,
     stream_event_txs: std::sync::Arc<
-        dashmap::DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>,
+        dashmap::DashMap<String, tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>,
     >,
 ) {
     registry.register(Arc::new(BriefTool::new(stream_event_txs)));

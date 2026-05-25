@@ -285,22 +285,34 @@ pub(crate) async fn handle_channel_message(
             .await?;
     }
 
+    let user_msg = ChatMessage {
+        role: Role::User,
+        content: Some(serde_json::Value::String(text.to_string())),
+        reasoning_content: None,
+        name: None,
+        tool_calls: None,
+        tool_call_id: None,
+        compact_metadata: None,
+    };
     state
         .store
         .session_store
-        .append_message(
-            &session_key,
-            &ChatMessage {
-                role: Role::User,
-                content: Some(serde_json::Value::String(text.to_string())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
-            },
-        )
+        .append_message(&session_key, &user_msg)
         .await?;
+    // Dual-write: persist as HistoryItems alongside legacy messages
+    {
+        let turn_id = fastclaw_protocol::TurnId::generate();
+        let history_items =
+            fastclaw_core::history_compat::chat_message_to_history(&user_msg, turn_id);
+        if let Err(e) = state
+            .store
+            .session_store
+            .append_history_items(&session_key, &history_items)
+            .await
+        {
+            tracing::warn!(session_key = %session_key, error = %e, "failed to dual-write history items in channel");
+        }
+    }
 
     // Resolve the agent's workspace root so file tools target the correct directory.
     let work_dir = state
@@ -314,16 +326,6 @@ pub(crate) async fn handle_channel_message(
     // Build a ChatRequest and run through the shared setup_chat() pipeline.
     // This gives IM channels the same enrichment as HTTP/WS: Runtime Paths,
     // context engine (memory/RAG), model routing, prompt routing, skills, and budget.
-    let user_msg = ChatMessage {
-        role: Role::User,
-        content: Some(serde_json::Value::String(text.to_string())),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-            compact_metadata: None,
-    };
-
     let request = ChatRequest {
         messages: vec![user_msg],
         stream: use_streaming,
@@ -331,7 +333,7 @@ pub(crate) async fn handle_channel_message(
         temperature: None,
         max_tokens: None,
         agent_id: Some(agent_id.into()),
-        session_id: Some(session_key.clone()),
+        session_id: Some(session_key.clone().into()),
         tools: None,
         slash_intent: None,
         work_dir,
@@ -842,7 +844,7 @@ async fn handle_channel_streaming(
     llm_override: Option<Arc<dyn fastclaw_agent::LlmProvider>>,
 ) -> anyhow::Result<String> {
     use crate::ask_question_card::{AskQuestionCardBuilder, QuestionOption};
-    use fastclaw_core::types::StreamEvent;
+    use fastclaw_protocol::{AgentEvent, TurnId};
 
     let placeholder_resp = channel
         .reply_streaming_placeholder(original_message_id, "思考中...")
@@ -894,7 +896,7 @@ async fn handle_channel_streaming(
         .clone()
         .unwrap_or_else(|| agent_config.model.model.clone());
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(1024);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(1024);
 
     let runtime = state.rt.runtime.clone();
     let tool_reg = state.rt.tool_registry.clone();
@@ -910,6 +912,7 @@ async fn handle_channel_streaming(
 
     let stream_key_for_task = stream_context_key.clone();
     let confirm_pending_for_task = confirm_pending.clone();
+    let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
     tokio::spawn(async move {
         let result = fastclaw_agent::builtin_tools::with_stream_context(
             stream_key_for_task,
@@ -924,11 +927,18 @@ async fn handle_channel_streaming(
                 None,
                 None,
                 None,
+                orchestrator_for_task,
             ),
         )
         .await;
         if let Err(e) = result {
-            let _ = tx.send(StreamEvent::Error(e.to_string())).await;
+            let _ = tx
+                .send(AgentEvent::Error {
+                    turn_id: TurnId::generate(),
+                    message: e.to_string(),
+                    error_code: None,
+                })
+                .await;
         }
     });
 
@@ -947,25 +957,44 @@ async fn handle_channel_streaming(
     let mut segments_dirty = false;
 
     while let Some(event) = rx.recv().await {
+        if let Err(e) = state.store.event_log.append(&session_id, &event).await {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "channel streaming: failed to append event to log"
+            );
+        }
         match event {
-            StreamEvent::Delta(delta) => {
-                for choice in &delta.choices {
-                    if let Some(ref reasoning) = choice.delta.reasoning_content {
-                        if !reasoning.is_empty() {
-                            match segments.last_mut() {
-                                Some(ChannelSegment::Thinking(ref mut t)) => t.push_str(reasoning),
-                                _ => segments.push(ChannelSegment::Thinking(reasoning.clone())),
+            AgentEvent::ContentDelta { delta, .. } => {
+                if let Some(choices) = delta.get("choices").and_then(|c| c.as_array()) {
+                    for choice in choices {
+                        if let Some(reasoning) = choice
+                            .get("delta")
+                            .and_then(|d| d.get("reasoning_content"))
+                            .and_then(|c| c.as_str())
+                        {
+                            if !reasoning.is_empty() {
+                                match segments.last_mut() {
+                                    Some(ChannelSegment::Thinking(ref mut t)) => {
+                                        t.push_str(reasoning)
+                                    }
+                                    _ => segments.push(ChannelSegment::Thinking(reasoning.to_string())),
+                                }
+                                segments_dirty = true;
                             }
-                            segments_dirty = true;
                         }
-                    }
-                    if let Some(ref content) = choice.delta.content {
-                        if !content.is_empty() {
-                            match segments.last_mut() {
-                                Some(ChannelSegment::Text(ref mut t)) => t.push_str(content),
-                                _ => segments.push(ChannelSegment::Text(content.clone())),
+                        if let Some(content) = choice
+                            .get("delta")
+                            .and_then(|d| d.get("content"))
+                            .and_then(|c| c.as_str())
+                        {
+                            if !content.is_empty() {
+                                match segments.last_mut() {
+                                    Some(ChannelSegment::Text(ref mut t)) => t.push_str(content),
+                                    _ => segments.push(ChannelSegment::Text(content.to_string())),
+                                }
+                                segments_dirty = true;
                             }
-                            segments_dirty = true;
                         }
                     }
                 }
@@ -984,10 +1013,11 @@ async fn handle_channel_streaming(
                     segments_dirty = false;
                 }
             }
-            StreamEvent::ToolExecuting {
+            AgentEvent::ToolExecuting {
                 tool_name,
                 call_id,
                 args,
+                ..
             } => {
                 tool_start_times.insert(call_id.clone(), std::time::Instant::now());
                 segments.push(ChannelSegment::ToolCall {
@@ -1008,7 +1038,7 @@ async fn handle_channel_streaming(
                 last_update = std::time::Instant::now();
                 segments_dirty = false;
             }
-            StreamEvent::ToolResult {
+            AgentEvent::ToolResult {
                 call_id,
                 output,
                 display_output,
@@ -1055,7 +1085,7 @@ async fn handle_channel_streaming(
                 last_update = std::time::Instant::now();
                 segments_dirty = false;
             }
-            StreamEvent::ToolProgress {
+            AgentEvent::ToolProgress {
                 call_id, message, ..
             } => {
                 for seg in segments.iter_mut().rev() {
@@ -1079,12 +1109,13 @@ async fn handle_channel_streaming(
                     last_update = std::time::Instant::now();
                 }
             }
-            StreamEvent::AskQuestion {
+            AgentEvent::AskQuestion {
                 request_id,
                 question,
                 options,
                 timeout_secs,
                 allow_multiple,
+                ..
             } => {
                 for seg in segments.iter_mut().rev() {
                     if let ChannelSegment::ToolCall {
@@ -1120,7 +1151,7 @@ async fn handle_channel_streaming(
                     let mut builder = AskQuestionCardBuilder::new(
                         question.clone(),
                         card_options,
-                        session_id.clone(),
+                        session_id.to_string(),
                         request_id.clone(),
                     );
                     builder = builder.allow_multiple(allow_multiple);
@@ -1155,7 +1186,11 @@ async fn handle_channel_streaming(
                     }
                 }
             }
-            StreamEvent::Done { .. } => {
+            AgentEvent::TurnStart { session_id: Some(sid), .. } => {
+                tracing::debug!(session_id = %sid, "channel streaming: turn started");
+            }
+            AgentEvent::TurnStart { .. } => {}
+            AgentEvent::TurnEnd { .. } => {
                 let plain = segments_plain_text(&segments);
                 record_chat_budget_stream_estimate(
                     &state_budget,
@@ -1165,10 +1200,51 @@ async fn handle_channel_streaming(
                 );
                 break;
             }
-            StreamEvent::Error(e) => {
-                tracing::error!(error = %e, "streaming: LLM error");
+            AgentEvent::StreamError { message, retry_attempt, .. } => {
+                if retry_attempt > 0 {
+                    tracing::warn!(retry = retry_attempt, error = %message, "streaming: stream error (retrying)");
+                } else {
+                    tracing::error!(error = %message, "streaming: stream error");
+                    segments.push(ChannelSegment::Text(format!("⚠ 流式错误: {message}")));
+                    segments_dirty = true;
+                }
+            }
+            AgentEvent::Warning { message, .. } => {
+                tracing::info!(warning = %message, "streaming: warning");
+                segments.push(ChannelSegment::Text(format!("⚠ {message}")));
+                segments_dirty = true;
+            }
+            AgentEvent::ApprovalRequired {
+                approval_id,
+                action,
+                reason,
+                available_decisions,
+                ..
+            } => {
+                tracing::info!(
+                    approval_id = %approval_id,
+                    reason = %reason,
+                    "streaming: approval required — auto-denying for IM channel"
+                );
+                let action_type = serde_json::to_value(&action)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(String::from))
+                    .unwrap_or_else(|| "action".to_string());
+                segments.push(ChannelSegment::Text(format!(
+                    "⚠ 需要审批 ({action_type}): {reason} — 在 IM 通道中自动拒绝"
+                )));
+                segments_dirty = true;
+                let deny = available_decisions
+                    .iter()
+                    .find(|d| matches!(d, fastclaw_protocol::approval::ApprovalDecision::Denied))
+                    .cloned()
+                    .unwrap_or(fastclaw_protocol::approval::ApprovalDecision::Denied);
+                state.strm.tool_orchestrator.resolve(&approval_id, deny);
+            }
+            AgentEvent::Error { message, .. } => {
+                tracing::error!(error = %message, "streaming: LLM error");
                 if segments.is_empty() {
-                    segments.push(ChannelSegment::Text(format!("(错误: {e})")));
+                    segments.push(ChannelSegment::Text(format!("(错误: {message})")));
                 }
                 break;
             }

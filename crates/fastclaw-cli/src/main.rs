@@ -1,3 +1,4 @@
+mod exec;
 mod tui;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -91,6 +92,17 @@ enum Commands {
     },
     /// Start MCP server (stdio transport) — exposes FastClaw tools to external agents
     McpServer,
+    /// Execute a single prompt non-interactively (for CI/scripts)
+    Exec {
+        /// The prompt to execute
+        prompt: String,
+        /// Automatically approve all tool calls
+        #[arg(long)]
+        auto_approve: bool,
+        /// Deny all tool calls that require approval
+        #[arg(long)]
+        deny_all: bool,
+    },
     /// Generate shell completions (bash, zsh, fish, powershell, elvish)
     Completions {
         #[arg(value_enum)]
@@ -403,6 +415,7 @@ async fn main() -> anyhow::Result<()> {
             | Commands::Backup { .. }
             | Commands::Health
             | Commands::Doctor
+            | Commands::Exec { .. }
     );
 
     if !quiet {
@@ -492,6 +505,23 @@ async fn main() -> anyhow::Result<()> {
 
             tui::run_tui(&ws, token.as_deref(), session.as_deref(), work_dir, &mode)
                 .await?;
+        }
+        Commands::Exec {
+            prompt,
+            auto_approve,
+            deny_all,
+        } => {
+            let policy = if auto_approve {
+                exec::ApprovalPolicy::AutoApprove
+            } else if deny_all {
+                exec::ApprovalPolicy::DenyAll
+            } else {
+                exec::ApprovalPolicy::PolicyBased
+            };
+            let exit_code = exec::run_exec(&prompt, cli.json, policy, &mode).await;
+            if exit_code != std::process::ExitCode::SUCCESS {
+                std::process::exit(1);
+            }
         }
         Commands::McpServer => {
             cmd_mcp_server().await?;

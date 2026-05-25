@@ -33,6 +33,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # ── TypeScript bindings sync ───────────────────────────────────────────────
+  ts-bindings:
+    name: TS Bindings Sync
+    runs-on: ubuntu-latest
+    env:
+      TS_RS_EXPORT_DIR: crates/fastclaw-protocol/generated
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check TS bindings are up-to-date
+        run: |
+          cargo test -p fastclaw-protocol --features ts export_all_bindings -- --nocapture
+          git diff --quiet crates/fastclaw-protocol/generated/ || {
+            echo "::error::Generated TypeScript bindings are out of date. Run 'cargo test -p fastclaw-protocol --features ts export_bindings' and commit the changes."
+            exit 1
+          }
+
   # ── Tests (multi-platform) ─────────────────────────────────────────────────
   test:
     name: Test (${{ matrix.os }})

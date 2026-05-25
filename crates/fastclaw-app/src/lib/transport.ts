@@ -324,6 +324,8 @@ export async function setConfig(
 }
 
 // ─── Chat Streaming (WebSocket) ───
+// Protocol types are generated from Rust: see fastclaw-protocol/generated/protocol.ts
+export type { AgentEvent, TurnSummary, TokenUsage, ToolCallData, ClientOp, AbortReason, ErrorCode, WarningCategory, TurnContextItem } from "../../../fastclaw-protocol/generated/protocol";
 
 export interface ChatStreamEvent {
   type: string;
@@ -343,6 +345,37 @@ export interface ChatStreamParams {
   workDir?: string;
 }
 
+const CHAT_EVENT_TYPES = [
+  "turn_start",
+  "content_delta",
+  "reasoning_delta",
+  "turn_end",
+  "turn_aborted",
+  "tool_executing",
+  "tool_result",
+  "tool_progress",
+  "ask_question",
+  "brief_message",
+  "suggestions",
+  "context_warning",
+  "context_usage_update",
+  "compact_boundary",
+  "mode_change",
+  "plan_file_update",
+  "sub_agent_start",
+  "sub_agent_delta",
+  "sub_agent_tool_executing",
+  "sub_agent_tool_result",
+  "sub_agent_complete",
+  "approval_required",
+  "approval_resolved",
+  "error",
+  "stream_error",
+  "warning",
+  "memory_stored",
+  "memory_recalled",
+] as const;
+
 export function chatStream(
   params: ChatStreamParams,
   onEvent: ChatEventHandler,
@@ -350,20 +383,12 @@ export function chatStream(
   const handlers: Array<(() => void) | undefined> = [];
   let done = false;
 
-  const wrap = (type: string) => {
+  for (const type of CHAT_EVENT_TYPES) {
     const unsub = wsClient.on(type, (m: unknown) => {
       if (!done) onEvent(m as ChatStreamEvent);
     });
     handlers.push(unsub);
-  };
-
-  wrap("chat.start");
-  wrap("chat.delta");
-  wrap("chat.complete");
-  wrap("chat.tool.start");
-  wrap("chat.tool.done");
-  wrap("chat.ask_question");
-  wrap("chat.error");
+  }
 
   const cleanup = () => {
     done = true;
@@ -506,6 +531,17 @@ export async function submitToolAnswer(requestId: string, answer: string): Promi
     data?: { ok?: boolean };
   };
   return { ok: resp?.data?.ok ?? false };
+}
+
+export async function resolveApproval(
+  approvalId: string,
+  decision: string,
+): Promise<{ ok: boolean }> {
+  const resp = (await wsClient.send("resolve_approval", {
+    approvalId,
+    decision: { decision },
+  })) as { data?: { resolved?: boolean } };
+  return { ok: resp?.data?.resolved ?? false };
 }
 
 // ─── Tools (raw IPC) ───

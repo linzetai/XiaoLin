@@ -5,6 +5,7 @@ use crate::routes::agents::{
     rebuild_behavior_tool_lists, tool_effective_enabled, write_agent_config_file,
 };
 use crate::state::AppState;
+use fastclaw_protocol::{ToolsListParams, ToolsUpdateParams};
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -390,9 +391,13 @@ pub async fn handle_tools_list(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: ToolsListParams,
 ) {
-    let Some(agent_id) = params.get("agentId").and_then(|v| v.as_str()) else {
+    let Some(agent_id) = params
+        .agent_id
+        .as_deref()
+        .or_else(|| params.extra.get("agentId").and_then(|v| v.as_str()))
+    else {
         send_resp(
             sender,
             &WsResponse {
@@ -458,9 +463,10 @@ pub async fn handle_tools_update(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
     req_id: Option<String>,
-    params: serde_json::Value,
+    params: ToolsUpdateParams,
 ) {
-    let Some(agent_id) = params.get("agentId").and_then(|v| v.as_str()) else {
+    let params_value = serde_json::to_value(&params).unwrap_or_default();
+    let Some(agent_id) = params_value.get("agentId").and_then(|v| v.as_str()) else {
         send_resp(
             sender,
             &WsResponse {
@@ -474,7 +480,7 @@ pub async fn handle_tools_update(
         return;
     };
 
-    let Some(tools_val) = params.get("tools") else {
+    let Some(tools_val) = params_value.get("tools") else {
         send_resp(
             sender,
             &WsResponse {

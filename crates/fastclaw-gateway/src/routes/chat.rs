@@ -155,6 +155,20 @@ async fn handle_non_stream(
             .session_store
             .append_message(&setup.session_id, msg)
             .await?;
+        // Dual-write: persist as HistoryItems alongside legacy messages
+        {
+            let turn_id = fastclaw_protocol::TurnId::generate();
+            let history_items =
+                fastclaw_core::history_compat::chat_message_to_history(msg, turn_id);
+            if let Err(e) = state
+                .store
+                .session_store
+                .append_history_items(&setup.session_id, &history_items)
+                .await
+            {
+                tracing::warn!(session_id = %setup.session_id, error = %e, "failed to dual-write history items");
+            }
+        }
     }
     if let Some(choice) = result.response.choices.first() {
         after_chat(&state, &setup, &choice.message, false).await?;
@@ -250,7 +264,7 @@ async fn handle_stream(
     state: AppState,
     request: ChatRequest,
 ) -> Result<axum::response::Response, AppError> {
-    use fastclaw_core::types::StreamEvent;
+    use fastclaw_protocol::{AgentEvent, SessionId, TurnId};
 
     let setup = setup_chat(
         &state,
@@ -286,12 +300,34 @@ async fn handle_stream(
                 error = %e,
                 "stream: failed to persist user message to session"
             );
+        } else {
+            // Dual-write: persist as HistoryItems alongside legacy messages
+            let turn_id = fastclaw_protocol::TurnId::generate();
+            let history_items =
+                fastclaw_core::history_compat::chat_message_to_history(msg, turn_id);
+            if let Err(e) = state
+                .store
+                .session_store
+                .append_history_items(&session_id, &history_items)
+                .await
+            {
+                tracing::warn!(session_id = %session_id, error = %e, "failed to dual-write history items");
+            }
         }
     }
 
     let state_budget = state.clone();
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(SSE_EVENT_CHANNEL_CAP);
+    let coordinator = state
+        .strm
+        .coordinator_registry
+        .get_or_create(&SessionId::new(&session_id));
+    let turn_cancel = tokio_util::sync::CancellationToken::new();
+    if coordinator.is_active().await {
+        coordinator.cancel_active_turn().await;
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(SSE_EVENT_CHANNEL_CAP);
 
     let state_for_task = state.clone();
     let config_for_task = agent_config.clone();
@@ -300,17 +336,36 @@ async fn handle_stream(
     let session_id_for_hook = session_id.clone();
 
     let subagent_prompt = build_subagent_prompt_for_agent(&state, &agent_config);
+    let confirm_pending_for_task = state.strm.ask_question_pending.clone();
+    let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
+    let mode_state_for_task = state.rt.session_modes.get_or_create(&session_id);
+    let session_store_for_task = Some(state.store.session_store.clone());
+    let todo_store_for_task = Some(state.rt.todo_store.clone());
+
+    let sse_turn_id = TurnId::generate();
+    if let Err(e) = coordinator
+        .register_turn(sse_turn_id.clone(), turn_cancel.clone())
+        .await
+    {
+        tracing::warn!(session_id = %session_id, error = %e, "sse: failed to register turn with coordinator");
+    }
+
     tokio::spawn(async move {
         let result = state_for_task
             .rt
             .runtime
-            .execute_stream_with_subagent_prompt(
+            .execute_stream_with_confirm(
                 &config_for_task,
                 &enriched,
                 &state_for_task.rt.tool_registry,
                 tx.clone(),
                 llm_for_task,
+                confirm_pending_for_task,
                 subagent_prompt,
+                Some(mode_state_for_task),
+                session_store_for_task,
+                todo_store_for_task,
+                orchestrator_for_task,
             )
             .await;
 
@@ -322,9 +377,15 @@ async fn handle_stream(
             .await;
 
         if let Err(e) = result {
-            let _ =
-                tokio::time::timeout(SSE_SEND_TIMEOUT, tx.send(StreamEvent::Error(e.to_string())))
-                    .await;
+            let _ = tokio::time::timeout(
+                SSE_SEND_TIMEOUT,
+                tx.send(AgentEvent::Error {
+                    turn_id: TurnId::generate(),
+                    message: e.to_string(),
+                    error_code: None,
+                }),
+            )
+            .await;
         }
     });
 
@@ -332,67 +393,69 @@ async fn handle_stream(
     let state_for_persist = state.clone();
     let setup_for_persist = setup.clone();
 
+    let coordinator_for_stream = coordinator.clone();
     let sse_stream = async_stream::stream! {
         let mut streamed_chars: usize = 0;
         let mut assistant_content = String::new();
         while let Some(event) = rx.recv().await {
+            if let Err(e) = state_for_persist.store.event_log.append(&session_id, &event).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to append stream event to event log"
+                );
+            }
+            let _ = coordinator_for_stream.event_sender().send(event.clone());
             match event {
-                StreamEvent::Delta(delta) => {
-                    let has_content = delta.choices.iter().any(|c| {
-                        c.delta.role.is_some()
-                            || c.delta
-                                .content
-                                .as_deref()
-                                .map(|s| !s.is_empty())
-                                .unwrap_or(false)
-                            || c.delta.tool_calls.as_ref().map(|t| !t.is_empty()).unwrap_or(false)
-                    });
+                AgentEvent::ContentDelta { delta, .. } => {
+                    let has_content = delta
+                        .get("choices")
+                        .and_then(|c| c.as_array())
+                        .map(|choices| {
+                            choices.iter().any(|choice| {
+                                choice
+                                    .get("delta")
+                                    .map(|d| {
+                                        d.get("role").and_then(|v| v.as_str()).is_some()
+                                            || d.get("content")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| !s.is_empty())
+                                                .unwrap_or(false)
+                                            || d.get("tool_calls")
+                                                .and_then(|v| v.as_array())
+                                                .map(|t| !t.is_empty())
+                                                .unwrap_or(false)
+                                    })
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false);
                     if !has_content {
                         continue;
                     }
-                    for choice in &delta.choices {
-                        if let Some(ref c) = choice.delta.content {
-                            assistant_content.push_str(c);
-                            streamed_chars = streamed_chars.saturating_add(c.len());
+                    if let Some(choices) = delta.get("choices").and_then(|c| c.as_array()) {
+                        for choice in choices {
+                            if let Some(content) = choice
+                                .get("delta")
+                                .and_then(|d| d.get("content"))
+                                .and_then(|c| c.as_str())
+                            {
+                                assistant_content.push_str(content);
+                                streamed_chars = streamed_chars.saturating_add(content.len());
+                            }
                         }
                     }
                     let json_str = serde_json::to_string(&delta).unwrap_or_default();
                     yield Ok::<_, std::io::Error>(format!("data: {json_str}\n\n"));
                 }
-                StreamEvent::ToolExecuting { tool_name, call_id, args } => {
-                    let ev = json!({
-                        "type": "tool_executing",
-                        "tool": tool_name,
-                        "call_id": call_id,
-                        "args": args,
-                    });
-                    yield Ok(format!("event: tool\ndata: {ev}\n\n"));
-                }
-                StreamEvent::ToolResult { tool_name, call_id, output, display_output, success, metadata } => {
-                    let mut ev = json!({
-                        "type": "tool_result",
-                        "tool": tool_name,
-                        "call_id": call_id,
-                        "output": display_output.as_ref().unwrap_or(&output),
-                        "success": success,
-                    });
-                    if let Some(meta) = metadata {
-                        ev["metadata"] = meta;
-                    }
-                    yield Ok(format!("event: tool\ndata: {ev}\n\n"));
-                }
-                StreamEvent::ToolProgress { tool_name, call_id, message, progress, partial_output } => {
-                    let ev = json!({
-                        "type": "tool_progress",
-                        "tool": tool_name,
-                        "call_id": call_id,
-                        "message": message,
-                        "progress": progress,
-                        "partial_output": partial_output,
-                    });
-                    yield Ok(format!("event: tool\ndata: {ev}\n\n"));
-                }
-                StreamEvent::Done { session_id, tool_calls_made, iterations, final_tool_calls, usage, elapsed_ms, .. } => {
+                AgentEvent::TurnEnd {
+                    ref session_id,
+                    ref summary,
+                    ref final_tool_calls,
+                    ..
+                } => {
+                    let usage = summary.usage.as_ref();
+                    let elapsed_ms = summary.elapsed_ms;
                     record_chat_budget_stream_estimate(
                         &state_budget,
                         model_for_budget.as_str(),
@@ -401,14 +464,28 @@ async fn handle_stream(
                     );
                     state_budget.obs.metrics_collector.record_request(&setup_for_persist.agent_id, "http-stream");
                     state_budget.obs.metrics_collector.record_latency_ms("/api/v1/chat", elapsed_ms as f64);
-                    if let Some(ref u) = usage {
+                    if let Some(u) = usage {
                         let total = u.total_tokens as u64;
                         if total > 0 {
                             state_budget.obs.metrics_collector.record_tokens(model_for_budget.as_str(), total);
                         }
                     }
-                    // Persist assistant message (matching non-stream + WS path behavior)
-                    if !assistant_content.is_empty() || final_tool_calls.is_some() {
+                    let core_tool_calls = final_tool_calls.as_ref().map(|tcs| {
+                        tcs.iter()
+                            .map(|tc| fastclaw_core::types::ToolCall {
+                                id: tc.id.clone(),
+                                call_type: tc.call_type.clone(),
+                                function: fastclaw_core::types::FunctionCall {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                                output: tc.output.clone(),
+                                success: tc.success,
+                                duration_ms: tc.duration_ms,
+                            })
+                            .collect()
+                    });
+                    if !assistant_content.is_empty() || core_tool_calls.is_some() {
                         let assistant_msg = fastclaw_core::types::ChatMessage {
                             role: fastclaw_core::types::Role::Assistant,
                             content: if assistant_content.is_empty() {
@@ -418,7 +495,7 @@ async fn handle_stream(
                             },
                             reasoning_content: None,
                             name: None,
-                            tool_calls: final_tool_calls,
+                            tool_calls: core_tool_calls,
                             tool_call_id: None,
                             compact_metadata: None,
                         };
@@ -430,57 +507,41 @@ async fn handle_stream(
                         )
                         .await;
                     }
-                    // Persist per-message and session-level usage
                     if let Some(ref sid) = session_id {
-                        let pt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                        let ct = usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
-                        let tt = usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                        let pt = usage.map(|u| u.prompt_tokens).unwrap_or(0);
+                        let ct = usage.map(|u| u.completion_tokens).unwrap_or(0);
+                        let tt = usage.map(|u| u.total_tokens).unwrap_or(0);
                         let _ = state_for_persist.store.session_store.accumulate_usage(sid, pt, ct, elapsed_ms).await;
                         let _ = state_for_persist.store.session_store.stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms).await;
                     }
-                    let mut done_ev = json!({
-                        "type": "done",
-                        "sessionId": session_id,
-                        "toolCallsMade": tool_calls_made,
-                        "iterations": iterations,
-                        "resolvedAgent": &setup_for_persist.agent_id,
-                        "resolveReason": resolve_reason,
-                        "elapsedMs": elapsed_ms,
-                    });
-                    if let Some(ref u) = usage {
-                        done_ev["usage"] = json!({
-                            "promptTokens": u.prompt_tokens,
-                            "completionTokens": u.completion_tokens,
-                            "totalTokens": u.total_tokens,
-                        });
-                    }
-                    if budget_degraded {
-                        done_ev["budgetDegraded"] = json!(true);
-                    }
-                    if let Some((est_tokens, ctx_window)) = setup_for_persist.context_tokens_estimate {
-                        let actual_prompt = usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                        done_ev["contextTokens"] = json!(if actual_prompt > 0 { actual_prompt } else { est_tokens });
-                        if ctx_window > 0 {
-                            done_ev["contextWindow"] = json!(ctx_window);
+                    let mut val = serde_json::to_value(&event).unwrap_or_default();
+                    if let Some(obj) = val.as_object_mut() {
+                        if budget_degraded {
+                            obj.insert("budgetDegraded".into(), json!(true));
+                        }
+                        obj.insert("resolvedAgent".into(), json!(&setup_for_persist.agent_id));
+                        obj.insert("resolveReason".into(), json!(resolve_reason));
+                        if let Some((est_tokens, ctx_window)) = setup_for_persist.context_tokens_estimate {
+                            let actual_prompt = usage.map(|u| u.prompt_tokens).unwrap_or(0);
+                            obj.insert(
+                                "contextTokens".into(),
+                                json!(if actual_prompt > 0 {
+                                    actual_prompt
+                                } else {
+                                    est_tokens
+                                }),
+                            );
+                            if ctx_window > 0 {
+                                obj.insert("contextWindow".into(), json!(ctx_window));
+                            }
                         }
                     }
-                    let ev = done_ev;
-                    yield Ok(format!("event: done\ndata: {ev}\n\n"));
+                    let json_str = serde_json::to_string(&val).unwrap_or_default();
+                    yield Ok(format!("event: turn_end\ndata: {json_str}\n\n"));
                     yield Ok("data: [DONE]\n\n".to_string());
                     break;
                 }
-                StreamEvent::AskQuestion { request_id, question, options, timeout_secs, allow_multiple } => {
-                    let ev = json!({
-                        "type": "ask_question",
-                        "requestId": request_id,
-                        "question": question,
-                        "options": options,
-                        "timeoutSecs": timeout_secs,
-                        "allowMultiple": allow_multiple,
-                    });
-                    yield Ok(format!("event: ask_question\ndata: {ev}\n\n"));
-                }
-                StreamEvent::Error(e) => {
+                AgentEvent::Error { .. } => {
                     if reserved > 0.0 {
                         let _ = state_budget.obs.budget_tracker.release_reservation(reserved);
                     }
@@ -492,7 +553,7 @@ async fn handle_stream(
                             name: None,
                             tool_calls: None,
                             tool_call_id: None,
-            compact_metadata: None,
+                            compact_metadata: None,
                         };
                         let _ = after_chat(
                             &state_for_persist,
@@ -502,118 +563,20 @@ async fn handle_stream(
                         )
                         .await;
                     }
-                    let ev = json!({"error": e});
-                    yield Ok(format!("data: {ev}\n\n"));
+                    let json_str = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok(format!("data: {json_str}\n\n"));
                     yield Ok("data: [DONE]\n\n".to_string());
                     break;
                 }
-
-                // ── Sub-agent streaming events (SSE) ────────────────
-                StreamEvent::SubAgentStart { run_id, agent_id, subagent_type, task, depth } => {
-                    let ev = json!({
-                        "type": "subagent_start", "runId": run_id,
-                        "agentId": agent_id, "subagentType": subagent_type,
-                        "task": task, "depth": depth,
-                    });
-                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
-                }
-                StreamEvent::SubAgentDelta { run_id, content } => {
-                    let ev = json!({"type": "subagent_delta", "runId": run_id, "content": content});
-                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
-                }
-                StreamEvent::SubAgentToolExecuting { run_id, tool_name, call_id, args } => {
-                    let ev = json!({
-                        "type": "subagent_tool_executing", "runId": run_id,
-                        "tool": tool_name, "callId": call_id, "args": args,
-                    });
-                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
-                }
-                StreamEvent::SubAgentToolResult { run_id, tool_name, call_id, output, success } => {
-                    let ev = json!({
-                        "type": "subagent_tool_result", "runId": run_id,
-                        "tool": tool_name, "callId": call_id,
-                        "output": output, "success": success,
-                    });
-                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
-                }
-                StreamEvent::SubAgentComplete { run_id, status, result, tool_calls_made, iterations, usage, elapsed_ms } => {
-                    let mut ev = json!({
-                        "type": "subagent_complete", "runId": run_id,
-                        "status": status, "result": result,
-                        "toolCallsMade": tool_calls_made, "iterations": iterations,
-                        "elapsedMs": elapsed_ms,
-                    });
-                    if let Some(ref u) = usage {
-                        ev["usage"] = json!({
-                            "promptTokens": u.prompt_tokens,
-                            "completionTokens": u.completion_tokens,
-                            "totalTokens": u.total_tokens,
-                        });
-                    }
-                    yield Ok(format!("event: subagent\ndata: {ev}\n\n"));
-                }
-                StreamEvent::ContextLimitWarning { used_tokens, limit_tokens, message } => {
-                    let ev = json!({
-                        "usedTokens": used_tokens,
-                        "limitTokens": limit_tokens,
-                        "message": message,
-                    });
-                    yield Ok(format!("event: context_warning\ndata: {ev}\n\n"));
-                }
-                StreamEvent::CompactWarning { used_tokens, limit_tokens, message } => {
-                    let ev = json!({
-                        "usedTokens": used_tokens,
-                        "limitTokens": limit_tokens,
-                        "message": message,
-                    });
-                    yield Ok(format!("event: compact_warning\ndata: {ev}\n\n"));
-                }
-                StreamEvent::ContextUsageUpdate { used_tokens, limit_tokens, compressed, tokens_saved } => {
-                    let ev = json!({
-                        "usedTokens": used_tokens,
-                        "limitTokens": limit_tokens,
-                        "compressed": compressed,
-                        "tokensSaved": tokens_saved,
-                    });
-                    yield Ok(format!("event: context_usage\ndata: {ev}\n\n"));
-                }
-                StreamEvent::BriefMessage { content, attachments, mode } => {
-                    let ev = json!({
-                        "content": content,
-                        "attachments": attachments,
-                        "mode": mode,
-                    });
-                    yield Ok(format!("event: brief\ndata: {ev}\n\n"));
-                }
-                StreamEvent::ModeChange { from, to } => {
-                    let ev = json!({
-                        "from": format!("{from}"),
-                        "to": format!("{to}"),
-                    });
-                    yield Ok(format!("event: mode_change\ndata: {ev}\n\n"));
-                }
-                StreamEvent::PlanFileUpdate { session_id, path, exists } => {
-                    let ev = json!({
-                        "sessionId": session_id,
-                        "path": path,
-                        "exists": exists,
-                    });
-                    yield Ok(format!("event: plan_file\ndata: {ev}\n\n"));
-                }
-                StreamEvent::Suggestions { items } => {
-                    let ev = json!({ "items": items });
-                    yield Ok(format!("event: suggestions\ndata: {ev}\n\n"));
-                }
-                StreamEvent::CompactBoundary { trigger, pre_compact_tokens, post_compact_tokens, .. } => {
-                    let ev = json!({
-                        "trigger": format!("{trigger:?}"),
-                        "preCompactTokens": pre_compact_tokens,
-                        "postCompactTokens": post_compact_tokens,
-                    });
-                    yield Ok(format!("event: compact_boundary\ndata: {ev}\n\n"));
+                _ => {
+                    let val = serde_json::to_value(&event).unwrap_or_default();
+                    let event_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("event");
+                    let json_str = serde_json::to_string(&val).unwrap_or_default();
+                    yield Ok(format!("event: {event_type}\ndata: {json_str}\n\n"));
                 }
             }
         }
+        coordinator_for_stream.complete_turn().await;
     };
 
     let body = Body::from_stream(sse_stream);
@@ -626,4 +589,35 @@ async fn handle_stream(
         .map_err(|e| anyhow::anyhow!("failed to build SSE response: {e}"))?;
 
     Ok(response)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ResolveApprovalRequest {
+    pub approval_id: String,
+    pub decision: String,
+}
+
+pub(super) async fn resolve_approval(
+    State(state): State<AppState>,
+    Json(body): Json<ResolveApprovalRequest>,
+) -> impl IntoResponse {
+    use fastclaw_protocol::approval::ApprovalDecision;
+
+    let decision = match body.decision.as_str() {
+        "approved" => ApprovalDecision::Approved,
+        "denied" => ApprovalDecision::Denied,
+        "approved_for_session" => ApprovalDecision::ApprovedForSession,
+        other => {
+            return Json(json!({"ok": false, "error": format!("unknown decision: {other}")}))
+                .into_response();
+        }
+    };
+
+    let resolved = state
+        .strm
+        .tool_orchestrator
+        .resolve(&body.approval_id, decision);
+
+    Json(json!({"ok": resolved})).into_response()
 }

@@ -16,7 +16,7 @@ use fastclaw_cron::CronJobStore;
 use fastclaw_evolution::{FeedbackStore, PromptDistiller, SkillStore, TrajectoryStore};
 use fastclaw_memory::{DreamingPipeline, EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use fastclaw_model_router::BudgetTracker;
-use fastclaw_session::SessionStore;
+use fastclaw_session::{EventLog, SessionStore};
 
 use crate::memory_scope::memory_tool_agent_suffix;
 use crate::scoped_tool::RenamedTool;
@@ -31,6 +31,7 @@ struct BuildPhase1 {
     agent_count: usize,
     db_path: PathBuf,
     session_store: Arc<SessionStore>,
+    event_log: Arc<EventLog>,
 }
 
 struct BuildPhase3 {
@@ -52,8 +53,11 @@ struct BuildPhase4 {
     inbound_rx: tokio::sync::mpsc::UnboundedReceiver<fastclaw_core::channel::InboundMessage>,
     base_skill_registry: Arc<SkillRegistry>,
     stream_event_tx:
-        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_core::types::StreamEvent>>>,
+        Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>>,
     ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
+    pending_approvals:
+        Arc<DashMap<String, tokio::sync::oneshot::Sender<fastclaw_protocol::ApprovalDecision>>>,
+    tool_orchestrator: Arc<fastclaw_agent::ToolOrchestrator>,
     mcp_status_init: std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>,
     session_modes: fastclaw_agent::builtin_tools::SessionModeRegistry,
@@ -96,11 +100,14 @@ impl StateBuilder {
         let agent_count = agents.len();
         let db_path = helpers::resolve_db_path(&config.paths)?;
         let session_store = Arc::new(SessionStore::open(&db_path).await?);
+        let event_log = Arc::new(EventLog::new(session_store.pool()));
+        event_log.ensure_table().await?;
         Ok(BuildPhase1 {
             agents,
             agent_count,
             db_path,
             session_store,
+            event_log,
         })
     }
 
@@ -364,6 +371,9 @@ impl StateBuilder {
 
         let stream_event_tx = Arc::new(DashMap::new());
         let ask_question_pending = Arc::new(DashMap::new());
+        let pending_approvals = Arc::new(DashMap::new());
+        let tool_orchestrator =
+            Arc::new(fastclaw_agent::ToolOrchestrator::new(pending_approvals.clone()));
         p3.tool_registry.register(Arc::new(
             fastclaw_agent::builtin_tools::AskQuestionTool::new(
                 stream_event_tx.clone(),
@@ -395,6 +405,8 @@ impl StateBuilder {
             base_skill_registry,
             stream_event_tx,
             ask_question_pending,
+            pending_approvals,
+            tool_orchestrator,
             mcp_status_init,
             mcp_handles_init,
             session_modes,
@@ -664,6 +676,7 @@ impl StateBuilder {
             },
             store: super::StorageState {
                 session_store: p5.phase2.phase4.phase3.phase1.session_store,
+                event_log: p5.phase2.phase4.phase3.phase1.event_log,
                 cron_store: Arc::new(p5.cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(p5.notification_store),
@@ -698,12 +711,15 @@ impl StateBuilder {
             strm: super::StreamState {
                 stream_event_tx: p5.phase2.phase4.stream_event_tx,
                 ask_question_pending: p5.phase2.phase4.ask_question_pending,
+                pending_approvals: p5.phase2.phase4.pending_approvals,
+                tool_orchestrator: p5.phase2.phase4.tool_orchestrator,
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: Arc::new(fastclaw_agent::SubAgentManager::new(
                     runtime_for_subagent,
                     initial_agents.clone(),
                     fastclaw_core::agent_config::SubAgentPolicy::default(),
                 )),
+                coordinator_registry: Arc::new(crate::coordinator::CoordinatorRegistry::new()),
             },
         };
 

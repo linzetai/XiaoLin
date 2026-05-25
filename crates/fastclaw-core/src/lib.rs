@@ -19,4 +19,9 @@ pub mod migration;
 pub mod skill;
 pub mod tool;
 pub mod types;
+pub mod history_compat;
 pub mod workspace;
+
+/// Re-export all protocol types so downstream crates can keep using
+/// `fastclaw_core::protocol::*` without adding a direct protocol dependency.
+pub use fastclaw_protocol as protocol;
