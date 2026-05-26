@@ -2068,6 +2068,7 @@ dependencies = [
  "fastclaw-security",
  "fastclaw-self-iter",
  "fastclaw-session",
+ "fastclaw-session-actor",
  "fastclaw-treesitter",
  "futures",
  "glob",
@@ -2142,6 +2143,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "crossterm",
+ "dashmap",
  "dirs 5.0.1",
  "fastclaw-agent",
  "fastclaw-core",
@@ -2316,6 +2318,7 @@ dependencies = [
  "fastclaw-security",
  "fastclaw-self-iter",
  "fastclaw-session",
+ "fastclaw-session-actor",
  "futures",
  "http-body-util",
  "json5",
@@ -2556,6 +2559,22 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "fastclaw-session-actor"
+version = "0.0.6"
+dependencies = [
+ "async-channel",
+ "async-trait",
+ "fastclaw-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -8356,6 +8375,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

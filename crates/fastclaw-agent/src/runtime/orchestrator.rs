@@ -1,11 +1,17 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use fastclaw_execpolicy::{PolicyDecision, PolicyEngine};
 use fastclaw_protocol::{AgentEvent, ApprovalDecision, PendingAction, TurnId};
+use fastclaw_session_actor::InteractionHandle;
 use tokio::sync::Mutex;
 
 use crate::guardian::GuardianReviewer;
+
+/// Shared, per-session approval cache. Matches the type exposed by
+/// `fastclaw-session-actor`.
+pub type SessionApprovalCache = Arc<std::sync::Mutex<HashMap<String, ApprovalDecision>>>;
 
 /// Result of policy pre-check before entering the user-approval flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,14 +155,21 @@ impl ToolOrchestrator {
     ///
     /// Steps:
     /// 1. Check ExecPolicy — `Allow` skips approval, `Forbidden` rejects immediately
-    /// 2. Check session-level cache
+    /// 2. Check session-level cache (from actor-owned `SessionApprovalCache` if
+    ///    provided, otherwise the orchestrator's own DashMap)
     /// 3. Otherwise request user confirmation
+    ///
+    /// When `session_cache` is `Some`, `ApprovedForSession` decisions are stored
+    /// there (scoped to the session). When `None`, the orchestrator's internal
+    /// DashMap is used (legacy path).
     pub async fn request_approval(
         &self,
         turn_id: &TurnId,
         action: PendingAction,
         reason: String,
         tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+        session_cache: Option<&SessionApprovalCache>,
+        interaction: Option<&InteractionHandle>,
     ) -> ApprovalDecision {
         // Step 1: ExecPolicy pre-check
         match self.check_policy(&action).await {
@@ -203,7 +216,6 @@ impl ToolOrchestrator {
                     if assessment.outcome == fastclaw_protocol::GuardianOutcome::Allow {
                         return ApprovalDecision::Approved;
                     }
-                    // Deny → fall through to user approval (fail-closed)
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "guardian review failed, falling through to user approval");
@@ -213,15 +225,17 @@ impl ToolOrchestrator {
 
         let action_key = self.action_cache_key(&action);
 
-        // Step 2: Check session-level cached approvals
-        if let Some(cached) = self.session_approvals.get(&action_key) {
+        // Step 2: Check session-level cached approvals (prefer actor-owned cache)
+        if let Some(cache) = session_cache {
+            if let Some(cached) = cache.lock().unwrap().get(&action_key).cloned() {
+                return cached;
+            }
+        } else if let Some(cached) = self.session_approvals.get(&action_key) {
             return cached.clone();
         }
 
-        // Step 3: Ask the user
+        // Step 3: Ask the user — via InteractionHandle (actor path) or DashMap (legacy/CLI)
         let approval_id = uuid::Uuid::new_v4().to_string();
-        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<ApprovalDecision>();
-        self.pending_approvals.insert(approval_id.clone(), answer_tx);
 
         let available_decisions = vec![
             ApprovalDecision::Approved,
@@ -237,20 +251,34 @@ impl ToolOrchestrator {
                 action: action.clone(),
                 reason,
                 available_decisions,
+                session_id: None,
             })
             .await;
 
-        let decision = match answer_rx.await {
-            Ok(d) => d,
-            Err(_) => ApprovalDecision::TimedOut,
+        let decision = if let Some(ih) = interaction {
+            let rx = ih.request_approval(approval_id.clone(), &action);
+            rx.await.unwrap_or(ApprovalDecision::TimedOut)
+        } else {
+            let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<ApprovalDecision>();
+            self.pending_approvals.insert(approval_id.clone(), answer_tx);
+            let d = match answer_rx.await {
+                Ok(d) => d,
+                Err(_) => ApprovalDecision::TimedOut,
+            };
+            self.pending_approvals.remove(&approval_id);
+            d
         };
 
-        self.pending_approvals.remove(&approval_id);
-
         if decision == ApprovalDecision::ApprovedForSession {
-            // Cache for future calls and amend the policy with an allow rule
-            self.session_approvals
-                .insert(action_key, ApprovalDecision::Approved);
+            if let Some(cache) = session_cache {
+                cache
+                    .lock()
+                    .unwrap()
+                    .insert(action_key, ApprovalDecision::Approved);
+            } else {
+                self.session_approvals
+                    .insert(action_key, ApprovalDecision::Approved);
+            }
 
             let tokens = action_to_command_tokens(&action);
             let pattern_elements: Vec<fastclaw_execpolicy::PatternElement> = tokens
@@ -276,6 +304,13 @@ impl ToolOrchestrator {
             .await;
 
         decision
+    }
+
+    /// Access the underlying pending-approvals map (used by relay tasks).
+    pub fn pending_approvals(
+        &self,
+    ) -> Arc<DashMap<String, tokio::sync::oneshot::Sender<ApprovalDecision>>> {
+        self.pending_approvals.clone()
     }
 
     /// Resolve a pending approval from the gateway (user input).
@@ -324,6 +359,8 @@ mod tests {
                 action,
                 "write file".into(),
                 &tx_for_task,
+                None,
+                None,
             )
             .await
         });
@@ -368,7 +405,7 @@ mod tests {
             let action = action.clone();
             async move {
                 orchestrator
-                    .request_approval(&turn_id, action, "run shell".into(), &tx)
+                    .request_approval(&turn_id, action, "run shell".into(), &tx, None, None)
                     .await
             }
         });
@@ -385,7 +422,7 @@ mod tests {
         let _ = rx.recv().await;
 
         let second = orchestrator
-            .request_approval(&turn_id, action, "run shell again".into(), &tx)
+            .request_approval(&turn_id, action, "run shell again".into(), &tx, None, None)
             .await;
         assert_eq!(second, ApprovalDecision::Approved);
     }
@@ -421,7 +458,7 @@ decision = "allow"
         };
 
         let decision = orch
-            .request_approval(&turn_id, action, "run echo".into(), &tx)
+            .request_approval(&turn_id, action, "run echo".into(), &tx, None, None)
             .await;
         assert_eq!(decision, ApprovalDecision::Approved);
     }
@@ -451,7 +488,7 @@ justification = "destructive"
         };
 
         let decision = orch
-            .request_approval(&turn_id, action, "danger".into(), &tx)
+            .request_approval(&turn_id, action, "danger".into(), &tx, None, None)
             .await;
         assert_eq!(decision, ApprovalDecision::Denied);
 

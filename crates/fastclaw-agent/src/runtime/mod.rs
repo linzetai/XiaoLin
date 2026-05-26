@@ -318,6 +318,13 @@ pub struct StreamParams {
     pub tx: tokio::sync::mpsc::Sender<AgentEvent>,
     pub confirm_pending: Option<Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pub orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
+    /// Per-session approval cache from the session actor. When present, the
+    /// orchestrator uses this instead of its own internal DashMap.
+    pub session_approval_cache: Option<crate::runtime::orchestrator::SessionApprovalCache>,
+    /// When running inside a Session Actor, this handle lets the orchestrator
+    /// wait for approval/answer resolution directly via the actor, bypassing
+    /// the legacy DashMap + polling relay.
+    pub interaction_handle: Option<fastclaw_session_actor::InteractionHandle>,
 }
 
 fn tool_calls_to_data(calls: Vec<ToolCall>) -> Vec<ToolCallData> {
@@ -1126,6 +1133,8 @@ impl AgentRuntime {
             tx,
             confirm_pending: None,
             orchestrator: None,
+            session_approval_cache: None,
+            interaction_handle: None,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1153,6 +1162,8 @@ impl AgentRuntime {
             tx,
             confirm_pending: None,
             orchestrator: None,
+            session_approval_cache: None,
+            interaction_handle: None,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1171,6 +1182,8 @@ impl AgentRuntime {
         session_store: Option<Arc<fastclaw_session::SessionStore>>,
         todo_store: Option<crate::builtin_tools::TodoStore>,
         orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
+        session_approval_cache: Option<crate::runtime::orchestrator::SessionApprovalCache>,
+        interaction_handle: Option<fastclaw_session_actor::InteractionHandle>,
     ) -> anyhow::Result<TurnSummary> {
         let exec = ExecutionParams {
             config,
@@ -1186,6 +1199,8 @@ impl AgentRuntime {
             tx,
             confirm_pending: Some(confirm_pending),
             orchestrator,
+            session_approval_cache,
+            interaction_handle,
         };
         self.execute_stream_inner(&exec, stream).await
     }
@@ -1209,6 +1224,8 @@ impl AgentRuntime {
             ref tx,
             ref confirm_pending,
             ref orchestrator,
+            ref session_approval_cache,
+            ref interaction_handle,
         } = stream_params;
         let turn_id = TurnId::generate();
         let max_iterations = config.behavior.max_tool_calls_per_turn;
@@ -2495,6 +2512,8 @@ impl AgentRuntime {
                                 action,
                                 result.output.clone(),
                                 tx,
+                                session_approval_cache.as_ref(),
+                                interaction_handle.as_ref(),
                             )
                             .await;
                         match decision {
@@ -2557,6 +2576,7 @@ impl AgentRuntime {
                                 ],
                                 timeout_secs: 0,
                                 allow_multiple: false,
+                                session_id: None,
                             },
                             true,
                         )

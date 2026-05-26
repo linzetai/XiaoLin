@@ -120,6 +120,15 @@ pub struct SkillsListParams {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// A single message in a steer request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct ChatSteerMessage {
+    pub role: String,
+    pub content: String,
+}
+
 /// Type-safe client operations replacing string-based WS dispatch.
 ///
 /// Each variant maps to a WS method string (see `parse_request`).
@@ -145,6 +154,8 @@ pub enum ClientOp {
         answer: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         selected_ids: Vec<String>,
+        #[serde(default, alias = "sessionId", skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     ChatSetMode {
         session_id: SessionId,
@@ -233,6 +244,8 @@ pub enum ClientOp {
         answer: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         selected_ids: Vec<String>,
+        #[serde(default, alias = "sessionId", skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
 
     // ── Skills ──────────────────────────────────────────────────────
@@ -259,10 +272,23 @@ pub enum ClientOp {
         events: Vec<String>,
     },
 
+    // ── Compaction ──────────────────────────────────────────────────
+    ChatCompact {
+        session_id: String,
+    },
+
+    // ── Steering ────────────────────────────────────────────────────
+    ChatSteer {
+        session_id: String,
+        messages: Vec<ChatSteerMessage>,
+    },
+
     // ── Approval ──────────────────────────────────────────────────
     ResolveApproval {
         approval_id: String,
         decision: crate::approval::ApprovalDecision,
+        #[serde(default, alias = "sessionId", skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
 
     // ── Keepalive ───────────────────────────────────────────────────
@@ -298,6 +324,11 @@ impl ClientOp {
                     .or_else(|| params.get("selected_ids"))
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default(),
+                session_id: params
+                    .get("sessionId")
+                    .or_else(|| params.get("session_id"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             }),
             "set_mode" => Ok(Self::ChatSetMode {
                 session_id: extract_session_id(&params)?,
@@ -412,6 +443,24 @@ impl ClientOp {
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default(),
             }),
+            "chat.compact" | "compact" => {
+                let session_id = extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?;
+                Ok(Self::ChatCompact { session_id })
+            }
+            "chat.steer" | "steer" => {
+                let session_id = extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?;
+                let messages: Vec<ChatSteerMessage> = params
+                    .get("messages")
+                    .cloned()
+                    .and_then(|v| serde_json::from_value(v).ok())
+                    .ok_or("missing or invalid 'messages'")?;
+                Ok(Self::ChatSteer {
+                    session_id,
+                    messages,
+                })
+            }
             "resolve_approval" | "approval.resolve" => {
                 let approval_id = params
                     .get("approvalId")
@@ -426,9 +475,15 @@ impl ClientOp {
                         .ok_or("decision required")?,
                 )
                 .map_err(|e| format!("invalid decision: {e}"))?;
+                let session_id = params
+                    .get("sessionId")
+                    .or_else(|| params.get("session_id"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 Ok(Self::ResolveApproval {
                     approval_id,
                     decision,
+                    session_id,
                 })
             }
             other => Err(format!("unknown method: {other}")),
@@ -593,6 +648,7 @@ mod tests {
         if let ClientOp::ResolveApproval {
             approval_id,
             decision,
+            ..
         } = op
         {
             assert_eq!(approval_id, "ap-1");

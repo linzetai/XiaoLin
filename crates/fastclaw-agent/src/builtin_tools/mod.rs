@@ -45,7 +45,7 @@ use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_session::SessionStore;
 
-pub use ask_question::{with_stream_context, AskQuestionTool};
+pub use ask_question::{with_interaction_handle, with_stream_context, AskQuestionTool};
 pub use brief::BriefTool;
 pub use code_intel::{
     CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,

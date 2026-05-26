@@ -3,7 +3,6 @@ pub mod audit;
 pub mod channel_tool;
 pub mod chat_pipeline;
 pub mod consolidation;
-pub mod coordinator;
 pub mod cron_tool;
 pub mod error;
 pub mod extract;
@@ -26,7 +25,6 @@ use tower_http::trace::TraceLayer;
 use fastclaw_core::config::{ConfigMode, FastClawConfig, GatewayState};
 use fastclaw_security::{ApiKeyAuth, RateLimitConfig, RateLimiter};
 
-pub use coordinator::{CoordinatorRegistry, SessionCoordinator};
 pub use state::AppState;
 
 /// Configuration mode for gateway state file.

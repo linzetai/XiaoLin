@@ -11,6 +11,7 @@ browser = ["dep:headless_chrome"]
 [dependencies]
 fastclaw-core = { path = "../fastclaw-core" }
 fastclaw-protocol = { path = "../fastclaw-protocol" }
+fastclaw-session-actor = { path = "../fastclaw-session-actor" }
 fastclaw-context = { path = "../fastclaw-context" }
 fastclaw-evolution = { path = "../fastclaw-evolution" }
 fastclaw-session = { path = "../fastclaw-session" }

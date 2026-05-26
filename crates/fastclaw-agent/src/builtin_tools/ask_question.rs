@@ -5,9 +5,11 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use fastclaw_protocol::{AgentEvent, AskQuestionOption, TurnId};
+use fastclaw_session_actor::InteractionHandle;
 
 tokio::task_local! {
     pub(crate) static ASK_QUESTION_STREAM_KEY: String;
+    pub(crate) static TASK_INTERACTION_HANDLE: InteractionHandle;
 }
 
 pub async fn with_stream_context<F, T>(stream_key: String, fut: F) -> T
@@ -15,6 +17,16 @@ where
     F: std::future::Future<Output = T>,
 {
     ASK_QUESTION_STREAM_KEY.scope(stream_key, fut).await
+}
+
+/// Run a future with an `InteractionHandle` available via task-local.
+/// When set, builtin tools (`ask_question`, `confirm`) use the actor path
+/// instead of the DashMap + oneshot path.
+pub async fn with_interaction_handle<F, T>(handle: InteractionHandle, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    TASK_INTERACTION_HANDLE.scope(handle, fut).await
 }
 
 type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
@@ -153,27 +165,33 @@ impl Tool for AskQuestionTool {
             }
         };
 
-        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-        self.pending.insert(request_id.clone(), answer_tx);
+        let ih = TASK_INTERACTION_HANDLE.try_with(|h| h.clone()).ok();
+
+        let answer_rx = if let Some(ref handle) = ih {
+            handle.request_answer(request_id.clone())
+        } else {
+            let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
+            self.pending.insert(request_id.clone(), answer_tx);
+            answer_rx
+        };
 
         let stream_tx = self
             .stream_event_txs
             .get(&stream_key)
             .map(|r| r.value().clone());
 
-        {
-            if let Some(tx) = stream_tx {
-                let _ = tx
-                    .send(AgentEvent::AskQuestion {
-                        turn_id: TurnId::new("builtin"),
-                        request_id: request_id.clone(),
-                        question: question.clone(),
-                        options,
-                        timeout_secs,
-                        allow_multiple,
-                    })
-                    .await;
-            }
+        if let Some(tx) = stream_tx {
+            let _ = tx
+                .send(AgentEvent::AskQuestion {
+                    turn_id: TurnId::new("builtin"),
+                    request_id: request_id.clone(),
+                    question: question.clone(),
+                    options,
+                    timeout_secs,
+                    allow_multiple,
+                    session_id: None,
+                })
+                .await;
         }
 
         let result = if timeout_secs == 0 {
@@ -187,7 +205,9 @@ impl Tool for AskQuestionTool {
             {
                 Ok(inner) => inner.map_err(|_| ()),
                 Err(_) => {
-                    self.pending.remove(&request_id);
+                    if ih.is_none() {
+                        self.pending.remove(&request_id);
+                    }
                     return ToolResult::ok(
                         serde_json::json!({ "answer": null, "timed_out": true, "question": question })
                             .to_string(),
@@ -196,7 +216,9 @@ impl Tool for AskQuestionTool {
             }
         };
 
-        self.pending.remove(&request_id);
+        if ih.is_none() {
+            self.pending.remove(&request_id);
+        }
 
         match result {
             Ok(answer) => ToolResult::ok(

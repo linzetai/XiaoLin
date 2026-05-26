@@ -24,6 +24,7 @@ members = [
     "crates/fastclaw-linux-sandbox",
     "extensions/feishu",
     "crates/fastclaw-protocol",
+    "crates/fastclaw-session-actor",
     "crates/fastclaw-app/src-tauri",
 ]
 resolver = "2"
@@ -91,7 +92,9 @@ anyhow = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+async-channel = "2"
 async-trait = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 notify = "6"
 dirs = "5"

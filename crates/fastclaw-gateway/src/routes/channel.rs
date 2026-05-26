@@ -844,7 +844,7 @@ async fn handle_channel_streaming(
     llm_override: Option<Arc<dyn fastclaw_agent::LlmProvider>>,
 ) -> anyhow::Result<String> {
     use crate::ask_question_card::{AskQuestionCardBuilder, QuestionOption};
-    use fastclaw_protocol::{AgentEvent, TurnId};
+    use fastclaw_protocol::AgentEvent;
 
     let placeholder_resp = channel
         .reply_streaming_placeholder(original_message_id, "思考中...")
@@ -896,51 +896,50 @@ async fn handle_channel_streaming(
         .clone()
         .unwrap_or_else(|| agent_config.model.model.clone());
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(1024);
-
-    let runtime = state.rt.runtime.clone();
-    let tool_reg = state.rt.tool_registry.clone();
-    let config = agent_config.clone();
-    let req = request.clone();
-    let llm_spawn = llm_override.clone();
     let state_budget = state.clone();
-    let confirm_pending = state.strm.ask_question_pending.clone();
-    let stream_event_tx_map = state.strm.stream_event_tx.clone();
     let stream_context_key = uuid::Uuid::new_v4().to_string();
 
-    stream_event_tx_map.insert(stream_context_key.clone(), tx.clone());
+    let mut op_extra = serde_json::Map::new();
+    if let Ok(enriched_val) = serde_json::to_value(request) {
+        op_extra.insert("_enriched_request".into(), enriched_val);
+    }
+    if let Ok(cfg_val) = serde_json::to_value(agent_config) {
+        op_extra.insert("_agent_config".into(), cfg_val);
+    }
+    op_extra.insert(
+        "_stream_context_key".into(),
+        serde_json::Value::String(stream_context_key.clone()),
+    );
 
-    let stream_key_for_task = stream_context_key.clone();
-    let confirm_pending_for_task = confirm_pending.clone();
-    let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
-    tokio::spawn(async move {
-        let result = fastclaw_agent::builtin_tools::with_stream_context(
-            stream_key_for_task,
-            runtime.execute_stream_with_confirm(
-                &config,
-                &req,
-                &tool_reg,
-                tx.clone(),
-                llm_spawn,
-                confirm_pending_for_task,
-                None,
-                None,
-                None,
-                None,
-                orchestrator_for_task,
-            ),
-        )
+    let session_id = request
+        .session_id
+        .clone()
+        .unwrap_or_else(|| fastclaw_protocol::SessionId::new(uuid::Uuid::new_v4().to_string()));
+
+    let session_handle = state
+        .svc
+        .session_manager
+        .get_or_create(session_id.clone(), &agent_config.agent_id.to_string())
         .await;
-        if let Err(e) = result {
-            let _ = tx
-                .send(AgentEvent::Error {
-                    turn_id: TurnId::generate(),
-                    message: e.to_string(),
-                    error_code: None,
-                })
-                .await;
+
+    let (_sub_id, mut event_rx) = match session_handle
+        .submit_and_subscribe(
+            fastclaw_session_actor::SessionOp::UserTurn {
+                messages: serde_json::to_value(&request.messages).unwrap_or_default(),
+                agent_id: Some(agent_config.agent_id.to_string()),
+                model: request.model.clone(),
+                work_dir: request.work_dir.clone(),
+                extra: op_extra,
+            },
+            128,
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(anyhow::anyhow!("session submit error: {e}"));
         }
-    });
+    };
 
     let mut segments: Vec<ChannelSegment> = Vec::new();
     let stream_fmt = ChannelStreamFormat::default();
@@ -948,15 +947,14 @@ async fn handle_channel_streaming(
     let update_interval = std::time::Duration::from_millis(800);
     let channel_for_update = channel.clone();
     let supports_cards = channel.supports_interactive_questions();
-    let session_id = request.session_id.clone().unwrap_or_default();
 
-    // Track start times for in-flight tool calls so we can compute duration.
     let mut tool_start_times: std::collections::HashMap<String, std::time::Instant> =
         std::collections::HashMap::new();
 
     let mut segments_dirty = false;
 
-    while let Some(event) = rx.recv().await {
+    while let Some(se) = event_rx.recv().await {
+        let event = se.msg;
         if let Err(e) = state.store.event_log.append(&session_id, &event).await {
             tracing::warn!(
                 session_id = %session_id,
@@ -1172,18 +1170,24 @@ async fn handle_channel_streaming(
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "streaming: failed to send ask_question card, answering with fallback");
-                            if let Some((_, tx)) = confirm_pending.remove(&request_id) {
-                                let _ = tx.send(
-                                    options.first().map(|o| o.id.clone()).unwrap_or_default(),
-                                );
-                            }
+                            let fallback_answer = options.first().map(|o| o.id.clone()).unwrap_or_default();
+                            let _ = session_handle
+                                .submit(fastclaw_session_actor::SessionOp::ResolveAnswer {
+                                    interaction_id: request_id.clone(),
+                                    answer: fallback_answer.clone(),
+                                })
+                                .await;
                         }
                     }
                 } else {
                     tracing::debug!("streaming: channel does not support interactive cards, auto-selecting first option");
-                    if let Some((_, tx)) = confirm_pending.remove(&request_id) {
-                        let _ = tx.send(options.first().map(|o| o.id.clone()).unwrap_or_default());
-                    }
+                    let fallback_answer = options.first().map(|o| o.id.clone()).unwrap_or_default();
+                    let _ = session_handle
+                        .submit(fastclaw_session_actor::SessionOp::ResolveAnswer {
+                            interaction_id: request_id.clone(),
+                            answer: fallback_answer.clone(),
+                        })
+                        .await;
                 }
             }
             AgentEvent::TurnStart { session_id: Some(sid), .. } => {
@@ -1239,7 +1243,12 @@ async fn handle_channel_streaming(
                     .find(|d| matches!(d, fastclaw_protocol::approval::ApprovalDecision::Denied))
                     .cloned()
                     .unwrap_or(fastclaw_protocol::approval::ApprovalDecision::Denied);
-                state.strm.tool_orchestrator.resolve(&approval_id, deny);
+                let _ = session_handle
+                    .submit(fastclaw_session_actor::SessionOp::ResolveApproval {
+                        interaction_id: approval_id.clone(),
+                        decision: deny.clone(),
+                    })
+                    .await;
             }
             AgentEvent::Error { message, .. } => {
                 tracing::error!(error = %message, "streaming: LLM error");
@@ -1251,8 +1260,6 @@ async fn handle_channel_streaming(
             _ => {}
         }
     }
-
-    stream_event_tx_map.remove(&stream_context_key);
 
     let final_rendered = render_segments(&segments, false, &stream_fmt);
     let final_text = if final_rendered.is_empty() {

@@ -11,15 +11,17 @@ use crate::chat_pipeline::{
 use crate::state::AppState;
 use fastclaw_core::types::{AgentId, ChatMessage, ChatRequest};
 use fastclaw_protocol::{AgentEvent, ChatParams};
+use fastclaw_session_actor::SessionOp;
 
 use super::send_resp;
 use super::types::WsResponse;
 
 pub async fn handle_chat_cancel(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
     req_id: Option<String>,
     params: serde_json::Value,
-    active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>>,
+    active_chat_sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
 ) {
     let Some(target_req_id) = params.get("requestId").and_then(|v| v.as_str()) else {
         send_resp(
@@ -35,17 +37,18 @@ pub async fn handle_chat_cancel(
         return;
     };
 
-    let token = {
-        let mut guard = active_chat_cancels.lock().await;
+    let session_id_for_cancel = {
+        let mut guard = active_chat_sessions.lock().await;
         guard.remove(target_req_id)
     };
 
-    let cancelled = if let Some(token) = token {
-        token.cancel();
-        true
-    } else {
-        false
-    };
+    let mut cancelled = false;
+    if let Some(sid) = session_id_for_cancel {
+        if let Some(handle) = state.svc.session_manager.get(&fastclaw_protocol::SessionId::new(&sid)).await {
+            let _ = handle.submit(SessionOp::Interrupt).await;
+            cancelled = true;
+        }
+    }
 
     send_resp(
         sender,
@@ -86,18 +89,28 @@ pub async fn handle_chat_answer(
         .unwrap_or("")
         .to_string();
 
-    let tx = state
-        .strm
-        .ask_question_pending
-        .remove(request_id)
-        .map(|(_k, v)| v);
+    let session_id = params
+        .get("sessionId")
+        .or_else(|| params.get("session_id"))
+        .and_then(|v| v.as_str());
 
-    let ok = if let Some(tx) = tx {
-        let _ = tx.send(answer);
-        true
-    } else {
-        false
-    };
+    let mut ok = false;
+    if let Some(sid) = session_id {
+        if let Some(handle) = state
+            .svc
+            .session_manager
+            .get(&fastclaw_protocol::SessionId::new(sid))
+            .await
+        {
+            ok = handle
+                .submit(fastclaw_session_actor::SessionOp::ResolveAnswer {
+                    interaction_id: request_id.to_string(),
+                    answer: answer.clone(),
+                })
+                .await
+                .is_ok();
+        }
+    }
 
     send_resp(
         sender,
@@ -105,6 +118,122 @@ pub async fn handle_chat_answer(
             id: req_id,
             msg_type: "answer".into(),
             data: Some(json!({"requestId": request_id, "ok": ok})),
+            error: None,
+        },
+    )
+    .await;
+}
+
+/// Triggers manual context compaction for a session via `SessionOp::Compact`.
+pub async fn handle_chat_compact(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    session_id: &str,
+    bg_tx: &tokio::sync::mpsc::Sender<WsResponse>,
+) {
+    let sid = fastclaw_protocol::SessionId::new(session_id);
+    let Some(handle) = state.svc.session_manager.get(&sid).await else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "session not found"})),
+            },
+        )
+        .await;
+        return;
+    };
+
+    match handle
+        .submit_and_subscribe(SessionOp::Compact, 16)
+        .await
+    {
+        Ok((_sub_id, mut event_rx)) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id.clone(),
+                    msg_type: "compact.started".into(),
+                    data: Some(json!({"sessionId": session_id})),
+                    error: None,
+                },
+            )
+            .await;
+
+            let bg_tx = bg_tx.clone();
+            let rid = req_id;
+            tokio::spawn(async move {
+                while let Some(event) = event_rx.recv().await {
+                    let resp = forward_event(&event.msg, &rid);
+                    if bg_tx.send(resp).await.is_err() {
+                        break;
+                    }
+                    if matches!(
+                        event.msg,
+                        fastclaw_protocol::AgentEvent::TurnEnd { .. }
+                            | fastclaw_protocol::AgentEvent::Error { .. }
+                            | fastclaw_protocol::AgentEvent::CompactBoundary { .. }
+                    ) {
+                        break;
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"message": format!("compact failed: {e}")})),
+                },
+            )
+            .await;
+        }
+    }
+}
+
+/// Injects mid-turn steering input into an active session turn.
+pub async fn handle_chat_steer(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    session_id: &str,
+    messages: Vec<fastclaw_protocol::ChatSteerMessage>,
+) {
+    let steer_messages: Vec<fastclaw_session_actor::turn::SteerMessage> = messages
+        .into_iter()
+        .map(|m| fastclaw_session_actor::turn::SteerMessage {
+            role: m.role,
+            content: m.content,
+        })
+        .collect();
+
+    let mut ok = false;
+    if let Some(handle) = state
+        .svc
+        .session_manager
+        .get(&fastclaw_protocol::SessionId::new(session_id))
+        .await
+    {
+        ok = handle
+            .submit(SessionOp::SteerInput {
+                messages: steer_messages,
+            })
+            .await
+            .is_ok();
+    }
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: "steer.ok".into(),
+            data: Some(json!({"sessionId": session_id, "ok": ok})),
             error: None,
         },
     )
@@ -198,7 +327,7 @@ pub async fn spawn_chat(
     owned_sessions: &mut HashSet<String>,
     bg_tx: tokio::sync::mpsc::Sender<WsResponse>,
     cancel: CancellationToken,
-    active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>>,
+    active_chat_sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     req_id: Option<String>,
     params: ChatParams,
 ) {
@@ -235,11 +364,7 @@ pub async fn spawn_chat(
     let rid = req_id.clone();
     let req_cancel = CancellationToken::new();
     let stream_context_key = uuid::Uuid::new_v4().to_string();
-    if let Some(ref rid_str) = rid {
-        let mut guard = active_chat_cancels.lock().await;
-        guard.insert(rid_str.clone(), req_cancel.clone());
-    }
-    let active_chat_cancels_for_task = active_chat_cancels.clone();
+    let active_chat_sessions_for_task = active_chat_sessions.clone();
 
     tokio::spawn(async move {
         let rid_for_cleanup = rid.clone();
@@ -272,7 +397,7 @@ pub async fn spawn_chat(
                     })
                     .await;
                 if let Some(rid) = &rid_for_cleanup {
-                    let mut guard = active_chat_cancels_for_task.lock().await;
+                    let mut guard = active_chat_sessions_for_task.lock().await;
                     guard.remove(rid);
                 }
                 return;
@@ -318,7 +443,7 @@ pub async fn spawn_chat(
                     })
                     .await;
                 if let Some(rid) = &rid_for_cleanup {
-                    let mut guard = active_chat_cancels_for_task.lock().await;
+                    let mut guard = active_chat_sessions_for_task.lock().await;
                     guard.remove(rid);
                 }
                 return;
@@ -347,14 +472,6 @@ pub async fn spawn_chat(
         let input_estimate = setup.input_estimate;
         let model_for_budget = setup.model_for_budget.clone();
         let state_budget = state.clone();
-
-        let coordinator = state
-            .strm
-            .coordinator_registry
-            .get_or_create(&fastclaw_protocol::SessionId::new(&session_id));
-        if coordinator.is_active().await {
-            coordinator.cancel_active_turn().await;
-        }
 
         // Persist user messages to session
         for msg in &setup.user_messages {
@@ -406,94 +523,83 @@ pub async fn spawn_chat(
             })
             .await;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
-
         let after_turn_messages = setup.enriched_request.messages.clone();
 
-        let runtime = state.rt.runtime.clone();
-        let tool_reg = state.rt.tool_registry.clone();
-        let cfg = agent_config;
-        let enriched = setup.enriched_request.clone();
-        let cancel2 = turn_cancel.clone();
-        let llm_for_task = setup.llm_override.clone();
-        state
-            .strm
-            .stream_event_tx
-            .insert(stream_context_key.clone(), tx.clone());
-        let stream_context_key_for_task = stream_context_key.clone();
-        let stream_event_map_for_task = state.strm.stream_event_tx.clone();
-        let confirm_pending_for_task = state.strm.ask_question_pending.clone();
-        let subagent_prompt = {
-            let policy = &cfg.behavior.subagent;
-            let available = state.strm.subagent_manager.agent_descriptions();
-            let ctx = fastclaw_agent::SubAgentPromptContext {
-                policy,
-                available_agents: &available,
-                current_depth: 0,
-            };
-            fastclaw_agent::build_subagent_prompt_block(&ctx)
-        };
+        // Build extra fields for the executor.
+        let mut op_extra = serde_json::Map::new();
+        if let Ok(enriched_val) = serde_json::to_value(&setup.enriched_request) {
+            op_extra.insert("_enriched_request".into(), enriched_val);
+        }
+        if let Ok(cfg_val) = serde_json::to_value(&agent_config) {
+            op_extra.insert("_agent_config".into(), cfg_val);
+        }
+        op_extra.insert(
+            "_stream_context_key".into(),
+            serde_json::Value::String(stream_context_key.clone()),
+        );
 
-        let mode_state_for_task = state.rt.session_modes.get_or_create(&session_id);
-        let session_store_for_task = Some(state.store.session_store.clone());
-        let todo_store_for_task = Some(state.rt.todo_store.clone());
-        let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
-        let plan_ctx_for_task = Some(fastclaw_agent::builtin_tools::PlanContext {
-            session_id: session_id.clone(),
-            store: state.rt.plan_file_store.clone(),
-        });
-        let task = tokio::spawn(async move {
-            let ms_clone = mode_state_for_task.clone();
-            tokio::select! {
-                result = fastclaw_agent::builtin_tools::with_stream_context(
-                    stream_context_key_for_task.clone(),
-                    fastclaw_agent::builtin_tools::with_session_mode(
-                        ms_clone,
-                        plan_ctx_for_task,
-                        runtime.execute_stream_with_confirm(&cfg, &enriched, &tool_reg, tx, llm_for_task, confirm_pending_for_task, subagent_prompt, Some(mode_state_for_task), session_store_for_task, todo_store_for_task, orchestrator_for_task),
-                    ),
-                ) => result,
-                _ = cancel2.cancelled() => Err(anyhow::anyhow!("cancelled")),
+        // Get session handle and submit turn via session actor.
+        let session_handle = state
+            .svc
+            .session_manager
+            .get_or_create(
+                fastclaw_protocol::SessionId::new(&session_id),
+                &agent_id,
+            )
+            .await;
+
+        // Register requestId → session_id for cancel routing.
+        if let Some(ref rid_str) = rid {
+            let mut guard = active_chat_sessions_for_task.lock().await;
+            guard.insert(rid_str.clone(), session_id.clone());
+        }
+
+        let (sub_id, mut event_rx) = match session_handle
+            .submit_and_subscribe(
+                SessionOp::UserTurn {
+                    messages: serde_json::to_value(&setup.enriched_request.messages)
+                        .unwrap_or_default(),
+                    agent_id: Some(agent_id.clone()),
+                    model: setup.enriched_request.model.clone(),
+                    work_dir: setup.enriched_request.work_dir.clone(),
+                    extra: op_extra,
+                },
+                128,
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = bg_tx
+                    .send(WsResponse {
+                        id: rid,
+                        msg_type: "error".into(),
+                        data: None,
+                        error: Some(json!({"message": format!("session error: {e}")})),
+                    })
+                    .await;
+                if let Some(rid) = &rid_for_cleanup {
+                    let mut guard = active_chat_sessions_for_task.lock().await;
+                    guard.remove(rid);
+                }
+                return;
             }
-        });
+        };
+        let _sub_id = sub_id;
 
         // Forward stream events → WsResponse → bg_tx, collect assistant content.
         // On Done: persist assistant message BEFORE forwarding to client.
         let mut assistant_content = String::new();
-        let mut pending_question_ids: Vec<String> = Vec::new();
-        let mut stream_ended = false; // true if Done or Error received
-        let mut current_turn_id: Option<fastclaw_protocol::TurnId> = None;
-
-        // Use tokio::select! to race rx.recv() against task completion.
-        // This prevents a deadlock when the task panics/errors but the extra
-        // tx clone in stream_event_tx keeps the channel alive.
-        let mut task = task;
-        let mut task_completed = false;
-        let mut task_result: Option<Result<anyhow::Result<fastclaw_protocol::TurnSummary>, tokio::task::JoinError>> = None;
+        let mut stream_ended = false;
+        let mut _current_turn_id: Option<fastclaw_protocol::TurnId> = None;
 
         loop {
-            let event = tokio::select! {
-                biased;
-                ev = rx.recv() => {
-                    match ev {
-                        Some(e) => e,
-                        None => break,
-                    }
-                }
-                result = &mut task, if !task_completed => {
-                    task_completed = true;
-                    task_result = Some(result);
-                    // Drop the extra tx clone so rx.recv() can return None
-                    // once any buffered events are drained.
-                    stream_event_map_for_task.remove(&stream_context_key);
-                    continue;
-                }
+            let event = match event_rx.recv().await {
+                Some(se) => se.msg,
+                None => break,
             };
             if let AgentEvent::TurnStart { turn_id, .. } = &event {
-                current_turn_id = Some(turn_id.clone());
-                let _ = coordinator
-                    .register_turn(turn_id.clone(), turn_cancel.clone())
-                    .await;
+                _current_turn_id = Some(turn_id.clone());
             }
             if turn_cancel.is_cancelled() {
                 if reserved > 0.0 {
@@ -521,7 +627,6 @@ pub async fn spawn_chat(
                     "failed to append stream event to event log"
                 );
             }
-            let _ = coordinator.event_sender().send(event.clone());
             if matches!(&event, AgentEvent::Error { .. }) {
                 if reserved > 0.0 {
                     let _ = state.obs.budget_tracker.release_reservation(reserved);
@@ -554,9 +659,6 @@ pub async fn spawn_chat(
             let is_done = matches!(&event, AgentEvent::TurnEnd { .. });
             if is_done || matches!(&event, AgentEvent::Error { .. }) {
                 stream_ended = true;
-            }
-            if let AgentEvent::AskQuestion { request_id, .. } = &event {
-                pending_question_ids.push(request_id.clone());
             }
             if is_done {
                 crate::routes::record_chat_budget_stream_estimate(
@@ -629,25 +731,8 @@ pub async fn spawn_chat(
             }
         }
 
-        if turn_cancel.is_cancelled() {
-            let turn_id = current_turn_id.unwrap_or_else(fastclaw_protocol::TurnId::generate);
-            let aborted = AgentEvent::TurnAborted {
-                turn_id: turn_id.clone(),
-                reason: fastclaw_protocol::AbortReason::Interrupted,
-                completed_at: Some(chrono::Utc::now().to_rfc3339()),
-                duration_ms: Some(chat_start.elapsed().as_millis() as u64),
-            };
-            if let Err(e) = state.store.event_log.append(&session_id, &aborted).await {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "failed to append turn_aborted event to event log"
-                );
-            }
-            let _ = bg_tx.send(forward_event(&aborted, &rid)).await;
-        }
-
-        coordinator.complete_turn().await;
+        // Session actor emits TurnAborted when cancelled, so the event loop
+        // above already forwards it. No need to synthesize one.
 
         // Run after_turn hooks (memory updates, compaction, etc.)
         if !turn_cancel.is_cancelled() {
@@ -663,68 +748,22 @@ pub async fn spawn_chat(
             maybe_spawn_smart_title_background(&state, &setup, &assistant_content);
         }
 
-        // If select! already captured the task result, use it; otherwise await.
-        let task_result = match task_result {
-            Some(r) => r,
-            None => task.await,
-        };
-        match task_result {
-            Ok(Err(e)) if !turn_cancel.is_cancelled() => {
-                if reserved > 0.0 {
-                    let _ = state.obs.budget_tracker.release_reservation(reserved);
-                }
-                if !assistant_content.is_empty() {
-                    let assistant_msg = ChatMessage {
-                        role: fastclaw_core::types::Role::Assistant,
-                        content: Some(serde_json::Value::String(assistant_content.clone())),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
-                    };
-                    let _ = after_chat(&state, &setup, &assistant_msg, false).await;
-                }
-                let _ = bg_tx
-                    .send(WsResponse {
-                        id: rid,
-                        msg_type: "error".into(),
-                        data: None,
-                        error: Some(json!({"message": format!("{e}")})),
-                    })
-                    .await;
+        // Release budget reservation if not consumed.
+        if !stream_ended && reserved > 0.0 {
+            let _ = state.obs.budget_tracker.release_reservation(reserved);
+            if !assistant_content.is_empty() {
+                let assistant_msg = ChatMessage {
+                    role: fastclaw_core::types::Role::Assistant,
+                    content: Some(serde_json::Value::String(assistant_content.clone())),
+                    reasoning_content: None,
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    compact_metadata: None,
+                };
+                let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
-            Err(e) => {
-                if reserved > 0.0 {
-                    let _ = state.obs.budget_tracker.release_reservation(reserved);
-                }
-                if !assistant_content.is_empty() {
-                    let assistant_msg = ChatMessage {
-                        role: fastclaw_core::types::Role::Assistant,
-                        content: Some(serde_json::Value::String(std::mem::take(
-                            &mut assistant_content,
-                        ))),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
-                    };
-                    let _ = after_chat(&state, &setup, &assistant_msg, false).await;
-                }
-                let _ = bg_tx
-                    .send(WsResponse {
-                        id: rid,
-                        msg_type: "error".into(),
-                        data: None,
-                        error: Some(json!({"message": format!("task panic: {e}")})),
-                    })
-                    .await;
-            }
-            Ok(Ok(_)) if !turn_cancel.is_cancelled() && !stream_ended => {
-                if reserved > 0.0 {
-                    let _ = state.obs.budget_tracker.release_reservation(reserved);
-                }
+            if !turn_cancel.is_cancelled() {
                 let _ = bg_tx
                     .send(WsResponse {
                         id: rid,
@@ -734,17 +773,10 @@ pub async fn spawn_chat(
                     })
                     .await;
             }
-            _ => {}
         }
-        if !pending_question_ids.is_empty() {
-            let pending = &state.strm.ask_question_pending;
-            for request_id in pending_question_ids {
-                pending.remove(&request_id);
-            }
-        }
-        stream_event_map_for_task.remove(&stream_context_key);
+
         if let Some(rid) = &rid_for_cleanup {
-            let mut guard = active_chat_cancels_for_task.lock().await;
+            let mut guard = active_chat_sessions_for_task.lock().await;
             guard.remove(rid);
         }
     });

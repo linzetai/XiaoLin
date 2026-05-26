@@ -88,7 +88,7 @@ pub async fn run_exec(
     let tool_reg = state.rt.tool_registry.clone();
     let config_clone = agent_config.clone();
     let request_clone = request.clone();
-    let confirm_pending = state.strm.ask_question_pending.clone();
+    let confirm_pending = std::sync::Arc::new(dashmap::DashMap::new());
 
     tokio::spawn(async move {
         let result = runtime
@@ -104,6 +104,8 @@ pub async fn run_exec(
                 None,
                 None,
                 orchestrator,
+                None,
+                None,
             )
             .await;
         if let Err(e) = result {

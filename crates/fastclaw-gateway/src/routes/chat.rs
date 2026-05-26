@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use axum::{
     body::Body,
     extract::{Query, State},
@@ -257,14 +255,12 @@ async fn handle_non_stream(
 
 /// SSE queue capacity between the LLM streaming task and the HTTP SSE encoder.
 /// Token deltas may be dropped under backpressure (see `send_stream_event` in `fastclaw-agent`).
-const SSE_EVENT_CHANNEL_CAP: usize = 1024;
-const SSE_SEND_TIMEOUT: Duration = Duration::from_millis(150);
-
 async fn handle_stream(
     state: AppState,
     request: ChatRequest,
 ) -> Result<axum::response::Response, AppError> {
-    use fastclaw_protocol::{AgentEvent, SessionId, TurnId};
+    use fastclaw_protocol::{AgentEvent, SessionId};
+    use fastclaw_session_actor::SessionOp;
 
     let setup = setup_chat(
         &state,
@@ -285,7 +281,6 @@ async fn handle_stream(
     let input_estimate = setup.input_estimate;
     let budget_degraded = setup.budget_degraded;
     let reserved = setup.reserved_cost;
-    let enriched = setup.enriched_request.clone();
     let agent_config = setup.agent_config.clone();
 
     for msg in &setup.user_messages {
@@ -301,7 +296,6 @@ async fn handle_stream(
                 "stream: failed to persist user message to session"
             );
         } else {
-            // Dual-write: persist as HistoryItems alongside legacy messages
             let turn_id = fastclaw_protocol::TurnId::generate();
             let history_items =
                 fastclaw_core::history_compat::chat_message_to_history(msg, turn_id);
@@ -318,86 +312,52 @@ async fn handle_stream(
 
     let state_budget = state.clone();
 
-    let coordinator = state
-        .strm
-        .coordinator_registry
-        .get_or_create(&SessionId::new(&session_id));
-    let turn_cancel = tokio_util::sync::CancellationToken::new();
-    if coordinator.is_active().await {
-        coordinator.cancel_active_turn().await;
+    let stream_context_key = uuid::Uuid::new_v4().to_string();
+    let mut op_extra = serde_json::Map::new();
+    if let Ok(enriched_val) = serde_json::to_value(&setup.enriched_request) {
+        op_extra.insert("_enriched_request".into(), enriched_val);
     }
+    if let Ok(cfg_val) = serde_json::to_value(&agent_config) {
+        op_extra.insert("_agent_config".into(), cfg_val);
+    }
+    op_extra.insert(
+        "_stream_context_key".into(),
+        serde_json::Value::String(stream_context_key),
+    );
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(SSE_EVENT_CHANNEL_CAP);
+    let session_handle = state
+        .svc
+        .session_manager
+        .get_or_create(
+            SessionId::new(&session_id),
+            &setup.agent_id,
+        )
+        .await;
 
-    let state_for_task = state.clone();
-    let config_for_task = agent_config.clone();
-    let llm_for_task = setup.llm_override.clone();
-    let agent_id_for_hook = setup.agent_id.clone();
-    let session_id_for_hook = session_id.clone();
-
-    let subagent_prompt = build_subagent_prompt_for_agent(&state, &agent_config);
-    let confirm_pending_for_task = state.strm.ask_question_pending.clone();
-    let orchestrator_for_task = Some(state.strm.tool_orchestrator.clone());
-    let mode_state_for_task = state.rt.session_modes.get_or_create(&session_id);
-    let session_store_for_task = Some(state.store.session_store.clone());
-    let todo_store_for_task = Some(state.rt.todo_store.clone());
-
-    let sse_turn_id = TurnId::generate();
-    if let Err(e) = coordinator
-        .register_turn(sse_turn_id.clone(), turn_cancel.clone())
+    let (_sub_id, mut event_rx) = session_handle
+        .submit_and_subscribe(
+            SessionOp::UserTurn {
+                messages: serde_json::to_value(&setup.enriched_request.messages)
+                    .unwrap_or_default(),
+                agent_id: Some(setup.agent_id.clone()),
+                model: setup.enriched_request.model.clone(),
+                work_dir: setup.enriched_request.work_dir.clone(),
+                extra: op_extra,
+            },
+            128,
+        )
         .await
-    {
-        tracing::warn!(session_id = %session_id, error = %e, "sse: failed to register turn with coordinator");
-    }
-
-    tokio::spawn(async move {
-        let result = state_for_task
-            .rt
-            .runtime
-            .execute_stream_with_confirm(
-                &config_for_task,
-                &enriched,
-                &state_for_task.rt.tool_registry,
-                tx.clone(),
-                llm_for_task,
-                confirm_pending_for_task,
-                subagent_prompt,
-                Some(mode_state_for_task),
-                session_store_for_task,
-                todo_store_for_task,
-                orchestrator_for_task,
-            )
-            .await;
-
-        // Run after_turn hooks (matching non-stream path behavior)
-        let _ = state_for_task
-            .store
-            .context_engine
-            .after_turn(&enriched.messages, &agent_id_for_hook, &session_id_for_hook)
-            .await;
-
-        if let Err(e) = result {
-            let _ = tokio::time::timeout(
-                SSE_SEND_TIMEOUT,
-                tx.send(AgentEvent::Error {
-                    turn_id: TurnId::generate(),
-                    message: e.to_string(),
-                    error_code: None,
-                }),
-            )
-            .await;
-        }
-    });
+        .map_err(|e| anyhow::anyhow!("session submit error: {e}"))?;
 
     let session_id_header = session_id.clone();
     let state_for_persist = state.clone();
     let setup_for_persist = setup.clone();
 
-    let coordinator_for_stream = coordinator.clone();
     let sse_stream = async_stream::stream! {
         let mut streamed_chars: usize = 0;
         let mut assistant_content = String::new();
-        while let Some(event) = rx.recv().await {
+        while let Some(se) = event_rx.recv().await {
+            let event = se.msg;
             if let Err(e) = state_for_persist.store.event_log.append(&session_id, &event).await {
                 tracing::warn!(
                     session_id = %session_id,
@@ -405,7 +365,6 @@ async fn handle_stream(
                     "failed to append stream event to event log"
                 );
             }
-            let _ = coordinator_for_stream.event_sender().send(event.clone());
             match event {
                 AgentEvent::ContentDelta { delta, .. } => {
                     let has_content = delta
@@ -576,7 +535,6 @@ async fn handle_stream(
                 }
             }
         }
-        coordinator_for_stream.complete_turn().await;
     };
 
     let body = Body::from_stream(sse_stream);
@@ -596,6 +554,8 @@ async fn handle_stream(
 pub(super) struct ResolveApprovalRequest {
     pub approval_id: String,
     pub decision: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 pub(super) async fn resolve_approval(
@@ -614,10 +574,29 @@ pub(super) async fn resolve_approval(
         }
     };
 
-    let resolved = state
-        .strm
-        .tool_orchestrator
-        .resolve(&body.approval_id, decision);
+    let mut resolved = false;
+    if let Some(ref sid) = body.session_id {
+        if let Some(handle) = state
+            .svc
+            .session_manager
+            .get(&fastclaw_protocol::SessionId::new(sid))
+            .await
+        {
+            resolved = handle
+                .submit(fastclaw_session_actor::SessionOp::ResolveApproval {
+                    interaction_id: body.approval_id.clone(),
+                    decision: decision.clone(),
+                })
+                .await
+                .is_ok();
+        }
+    }
+    if !resolved {
+        resolved = state
+            .strm
+            .tool_orchestrator
+            .resolve(&body.approval_id, decision);
+    }
 
     Json(json!({"ok": resolved})).into_response()
 }

@@ -220,17 +220,40 @@ pub struct ObserveState {
 }
 
 /// Streaming and real-time state.
+///
+/// After Phase A, approvals and answers resolve directly via `InteractionHandle`
+/// inside the Session Actor. The DashMap bridges have been removed. Only
+/// `stream_event_tx` remains for builtin-tool event delivery and
+/// `tool_orchestrator` for policy-only checks (no pending DashMap).
 #[derive(Clone)]
 pub struct StreamState {
+    /// Used by `RuntimeTurnExecutor` for `ask_question`/`confirm`
+    /// builtin tool integration via task-local context key.
     pub stream_event_tx:
         Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>>,
-    pub ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
-    pub pending_approvals:
-        Arc<DashMap<String, tokio::sync::oneshot::Sender<fastclaw_protocol::ApprovalDecision>>>,
+    /// Policy-only orchestrator. Approvals are resolved via `InteractionHandle`
+    /// when running inside a Session Actor, or via the internal DashMap
+    /// when running in CLI/non-actor mode.
     pub tool_orchestrator: Arc<fastclaw_agent::ToolOrchestrator>,
     pub ws_broadcast: tokio::sync::broadcast::Sender<String>,
     pub subagent_manager: Arc<fastclaw_agent::SubAgentManager>,
-    pub coordinator_registry: Arc<crate::coordinator::CoordinatorRegistry>,
+    pub session_manager: Arc<fastclaw_session_actor::SessionManager>,
+}
+
+/// Services shared across session actors and the gateway.
+///
+/// Extracted from `AppState` to provide a clean dependency-injection boundary
+/// between the session-actor layer and the transport/gateway layer. The
+/// `SessionManager` receives a `TurnExecutor` backed by these services.
+#[derive(Clone)]
+pub struct SharedServices {
+    pub runtime: Arc<AgentRuntime>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub session_store: Arc<SessionStore>,
+    pub event_log: Arc<EventLog>,
+    pub context_engine: Arc<fastclaw_context::ContextEngine>,
+    pub prompt_guard: Arc<fastclaw_security::PromptGuard>,
+    pub session_manager: Arc<fastclaw_session_actor::SessionManager>,
 }
 
 #[derive(Clone)]
@@ -242,6 +265,7 @@ pub struct AppState {
     pub ext: ExtensionState,
     pub obs: ObserveState,
     pub strm: StreamState,
+    pub svc: SharedServices,
 }
 
 impl AppState {
@@ -1005,13 +1029,35 @@ impl AppState {
                         .unwrap_or(&msg.text)
                         .to_string();
 
-                    if let Some((_, tx)) = state.strm.ask_question_pending.remove(&request_id) {
+                    let card_session_id = msg
+                        .extra
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+
+                    let mut resolved = false;
+                    if let Some(sid) = &card_session_id {
+                        if let Some(handle) = state
+                            .svc
+                            .session_manager
+                            .get(&fastclaw_protocol::SessionId::new(sid))
+                            .await
+                        {
+                            resolved = handle
+                                .submit(fastclaw_session_actor::SessionOp::ResolveAnswer {
+                                    interaction_id: request_id.clone(),
+                                    answer: answer.clone(),
+                                })
+                                .await
+                                .is_ok();
+                        }
+                    }
+                    if resolved {
                         tracing::info!(
                             request_id = %request_id,
                             answer = %answer,
                             "resolved ask_question from card callback"
                         );
-                        let _ = tx.send(answer);
                     } else {
                         tracing::debug!(
                             request_id = %request_id,
@@ -1396,6 +1442,7 @@ impl AppState {
         let todo_store = fastclaw_agent::builtin_tools::TodoStore::new();
         fastclaw_agent::builtin_tools::register_todo_tools(&tool_registry, todo_store.clone());
 
+        let default_agent_cfg = agents.first().expect("need at least one agent").clone();
         let subagent_manager = Arc::new(fastclaw_agent::SubAgentManager::new(
             runtime.clone(),
             agents,
@@ -1483,15 +1530,40 @@ impl AppState {
 
         let (ws_broadcast, _) = tokio::sync::broadcast::channel::<String>(256);
 
-        let pending_approvals = Arc::new(DashMap::new());
         let tool_orchestrator =
-            Arc::new(fastclaw_agent::ToolOrchestrator::new(pending_approvals.clone()));
+            Arc::new(fastclaw_agent::ToolOrchestrator::new(Arc::new(DashMap::new())));
 
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let channel_inbound_tx = {
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             tx
         };
+
+        let tool_registry = {
+            let reg = Arc::new(tool_registry);
+            fastclaw_agent::builtin_tools::register_tool_search(&reg);
+            reg
+        };
+        let prompt_guard = Arc::new(fastclaw_security::PromptGuard::new());
+        let context_engine = Arc::new(context_engine);
+
+        let executor: Arc<dyn fastclaw_session_actor::TurnExecutor> =
+            Arc::new(fastclaw_agent::RuntimeTurnExecutor {
+                runtime: runtime.clone(),
+                config: default_agent_cfg,
+                tool_registry: tool_registry.clone(),
+                llm_override: None,
+                session_store: Some(session_store.clone()),
+                mode_registry: None,
+                todo_store: None,
+                plan_file_store: None,
+                stream_event_tx: None,
+                subagent_manager: None,
+                tool_orchestrator: None,
+                confirm_pending: None,
+            });
+        let session_manager = Arc::new(fastclaw_session_actor::SessionManager::new(executor));
+
         Ok(Self {
             cfg: ConfigState {
                 config: Arc::new(config),
@@ -1501,25 +1573,21 @@ impl AppState {
             },
             rt: RuntimeState {
                 router: Arc::new(tokio::sync::RwLock::new(router)),
-                runtime,
-                tool_registry: {
-                    let reg = Arc::new(tool_registry);
-                    fastclaw_agent::builtin_tools::register_tool_search(&reg);
-                    reg
-                },
+                runtime: runtime.clone(),
+                tool_registry: tool_registry.clone(),
                 base_skill_registry: Arc::new(ArcSwap::new(Arc::new(SkillRegistry::new()))),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     std::collections::HashMap::new(),
                 ))),
                 workspaces: Arc::new(std::collections::HashMap::new()),
-                prompt_guard: Arc::new(fastclaw_security::PromptGuard::new()),
+                prompt_guard: prompt_guard.clone(),
                 session_modes: fastclaw_agent::builtin_tools::SessionModeRegistry::new(),
                 todo_store,
                 plan_file_store: fastclaw_agent::builtin_tools::PlanFileStore::default(),
             },
             store: StorageState {
-                session_store,
-                event_log,
+                session_store: session_store.clone(),
+                event_log: event_log.clone(),
                 cron_store: Arc::new(cron_store),
                 cron_wake: Arc::new(tokio::sync::Notify::new()),
                 notification_store: Arc::new(notification_store),
@@ -1527,7 +1595,7 @@ impl AppState {
                 prompt_distiller: Arc::new(prompt_distiller),
                 trajectory_store,
                 skill_store,
-                context_engine: Arc::new(context_engine),
+                context_engine: context_engine.clone(),
             },
             mem: MemoryState {
                 agent_episodic: Arc::new(test_ep_map),
@@ -1551,12 +1619,19 @@ impl AppState {
             },
             strm: StreamState {
                 stream_event_tx: Arc::new(DashMap::new()),
-                ask_question_pending: Arc::new(DashMap::new()),
-                pending_approvals,
                 tool_orchestrator,
                 ws_broadcast,
                 subagent_manager,
-                coordinator_registry: Arc::new(crate::coordinator::CoordinatorRegistry::new()),
+                session_manager: session_manager.clone(),
+            },
+            svc: SharedServices {
+                runtime,
+                tool_registry,
+                session_store,
+                event_log,
+                context_engine,
+                prompt_guard,
+                session_manager,
             },
         })
     }

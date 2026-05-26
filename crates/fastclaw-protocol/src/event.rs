@@ -227,6 +227,8 @@ pub enum AgentEvent {
         options: Vec<AskQuestionOption>,
         timeout_secs: u32,
         allow_multiple: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     BriefMessage {
         turn_id: TurnId,
@@ -326,6 +328,8 @@ pub enum AgentEvent {
         action: crate::approval::PendingAction,
         reason: String,
         available_decisions: Vec<crate::approval::ApprovalDecision>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     ApprovalResolved {
         turn_id: TurnId,

@@ -717,6 +717,39 @@ impl SessionStore {
         Self::parse_chat_messages_from_rows(rows)
     }
 
+    /// Replace all messages in a session atomically (used by compaction).
+    pub async fn replace_messages(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+    ) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("DELETE FROM messages WHERE session_id = ?")
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Reset message_count before re-inserting (each append increments by 1).
+        sqlx::query(
+            "UPDATE sessions SET message_count = 0, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+        for msg in messages {
+            Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+        }
+
+        tx.commit().await?;
+
+        let mut cache = self.msg_cache.write().await;
+        cache.insert(session_id.to_string(), messages.to_vec());
+
+        Ok(())
+    }
+
     /// Invalidate the message cache for a session (e.g. after external edits).
     pub async fn invalidate_msg_cache(&self, session_id: &str) {
         let mut cache = self.msg_cache.write().await;

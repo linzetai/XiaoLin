@@ -54,9 +54,9 @@ struct BuildPhase4 {
     base_skill_registry: Arc<SkillRegistry>,
     stream_event_tx:
         Arc<DashMap<String, tokio::sync::mpsc::Sender<fastclaw_protocol::AgentEvent>>>,
+    /// Internal: passed to builtin tools for non-actor (CLI) path. Not
+    /// exposed on `StreamState` — actor path uses task-local InteractionHandle.
     ask_question_pending: Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>,
-    pending_approvals:
-        Arc<DashMap<String, tokio::sync::oneshot::Sender<fastclaw_protocol::ApprovalDecision>>>,
     tool_orchestrator: Arc<fastclaw_agent::ToolOrchestrator>,
     mcp_status_init: std::collections::HashMap<String, fastclaw_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, fastclaw_mcp::SharedMcpClient>,
@@ -372,8 +372,7 @@ impl StateBuilder {
         let stream_event_tx = Arc::new(DashMap::new());
         let ask_question_pending = Arc::new(DashMap::new());
         let pending_approvals = Arc::new(DashMap::new());
-        let tool_orchestrator =
-            Arc::new(fastclaw_agent::ToolOrchestrator::new(pending_approvals.clone()));
+        let tool_orchestrator = Arc::new(fastclaw_agent::ToolOrchestrator::new(pending_approvals));
         p3.tool_registry.register(Arc::new(
             fastclaw_agent::builtin_tools::AskQuestionTool::new(
                 stream_event_tx.clone(),
@@ -405,7 +404,6 @@ impl StateBuilder {
             base_skill_registry,
             stream_event_tx,
             ask_question_pending,
-            pending_approvals,
             tool_orchestrator,
             mcp_status_init,
             mcp_handles_init,
@@ -645,6 +643,43 @@ impl StateBuilder {
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let runtime_for_subagent = p5.phase2.phase4.phase3.runtime.clone();
+        let runtime_for_session = p5.phase2.phase4.phase3.runtime.clone();
+        let session_store_for_session = p5.phase2.phase4.phase3.phase1.session_store.clone();
+        let event_log_for_svc = p5.phase2.phase4.phase3.phase1.event_log.clone();
+        let default_agent_config = initial_agents
+            .first()
+            .expect("at least one agent must be configured")
+            .clone();
+
+        let prompt_guard = {
+            let mut pg = fastclaw_security::PromptGuard::new();
+            pg.set_enabled(prompt_injection_enabled);
+            Arc::new(pg)
+        };
+
+        let stream_event_tx_for_executor = p5.phase2.phase4.stream_event_tx.clone();
+        let mode_registry_for_executor = p5.phase2.phase4.session_modes.clone();
+        let todo_store_for_executor = p5.phase2.phase4.phase3.todo_store.clone();
+        let plan_file_store_for_executor =
+            fastclaw_agent::builtin_tools::PlanFileStore::default();
+        let tool_orchestrator_for_executor = p5.phase2.phase4.tool_orchestrator.clone();
+        let confirm_pending_for_executor = p5.phase2.phase4.ask_question_pending.clone();
+        let session_manager = Arc::new(fastclaw_session_actor::SessionManager::new(
+            Arc::new(fastclaw_agent::RuntimeTurnExecutor {
+                runtime: runtime_for_session.clone(),
+                config: default_agent_config,
+                tool_registry: Arc::new(ToolRegistry::new()),
+                llm_override: None,
+                session_store: Some(session_store_for_session.clone()),
+                mode_registry: Some(mode_registry_for_executor),
+                todo_store: Some(todo_store_for_executor),
+                plan_file_store: Some(plan_file_store_for_executor),
+                stream_event_tx: Some(stream_event_tx_for_executor),
+                subagent_manager: None,
+                tool_orchestrator: Some(tool_orchestrator_for_executor),
+                confirm_pending: Some(confirm_pending_for_executor),
+            }),
+        ));
         let state = AppState {
             cfg: super::ConfigState {
                 config: Arc::new(config),
@@ -665,11 +700,7 @@ impl StateBuilder {
                     p5.phase2.phase4.phase3.agent_skill_registries,
                 ))),
                 workspaces: Arc::new(p5.phase2.phase4.phase3.workspaces),
-                prompt_guard: {
-                    let mut pg = fastclaw_security::PromptGuard::new();
-                    pg.set_enabled(prompt_injection_enabled);
-                    Arc::new(pg)
-                },
+                prompt_guard: prompt_guard.clone(),
                 session_modes: p5.phase2.phase4.session_modes,
                 todo_store: p5.phase2.phase4.phase3.todo_store,
                 plan_file_store: fastclaw_agent::builtin_tools::PlanFileStore::default(),
@@ -710,16 +741,27 @@ impl StateBuilder {
             },
             strm: super::StreamState {
                 stream_event_tx: p5.phase2.phase4.stream_event_tx,
-                ask_question_pending: p5.phase2.phase4.ask_question_pending,
-                pending_approvals: p5.phase2.phase4.pending_approvals,
-                tool_orchestrator: p5.phase2.phase4.tool_orchestrator,
+                tool_orchestrator: p5.phase2.phase4.tool_orchestrator.clone(),
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: Arc::new(fastclaw_agent::SubAgentManager::new(
                     runtime_for_subagent,
                     initial_agents.clone(),
                     fastclaw_core::agent_config::SubAgentPolicy::default(),
                 )),
-                coordinator_registry: Arc::new(crate::coordinator::CoordinatorRegistry::new()),
+                session_manager: session_manager.clone(),
+            },
+            svc: super::SharedServices {
+                runtime: runtime_for_session,
+                tool_registry: Arc::new(ToolRegistry::new()),
+                session_store: session_store_for_session,
+                event_log: event_log_for_svc,
+                context_engine: Arc::new(
+                    fastclaw_context::ContextEngine::new(
+                        fastclaw_context::DEFAULT_COMPACTION_THRESHOLD,
+                    ),
+                ),
+                prompt_guard,
+                session_manager,
             },
         };
 

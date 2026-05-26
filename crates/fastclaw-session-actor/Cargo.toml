@@ -1,0 +1,23 @@
+[package]
+name = "fastclaw-session-actor"
+version.workspace = true
+edition.workspace = true
+description = "Session Actor engine — SQ/EQ queue-pair per session for ordered async processing"
+
+[dependencies]
+fastclaw-protocol = { path = "../fastclaw-protocol" }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+async-channel.workspace = true
+async-trait.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true

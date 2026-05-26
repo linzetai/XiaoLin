@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use fastclaw_protocol::{AgentEvent, AskQuestionOption, TurnId};
 
-pub(crate) use super::ask_question::ASK_QUESTION_STREAM_KEY;
+pub(crate) use super::ask_question::{ASK_QUESTION_STREAM_KEY, TASK_INTERACTION_HANDLE};
 
 type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 type PendingAnswers = Arc<DashMap<String, tokio::sync::oneshot::Sender<String>>>;
@@ -88,8 +88,15 @@ impl Tool for ConfirmTool {
         };
 
         let request_id = uuid::Uuid::new_v4().to_string();
-        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
-        self.pending.insert(request_id.clone(), answer_tx);
+        let ih = TASK_INTERACTION_HANDLE.try_with(|h| h.clone()).ok();
+
+        let answer_rx = if let Some(ref handle) = ih {
+            handle.request_answer(request_id.clone())
+        } else {
+            let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
+            self.pending.insert(request_id.clone(), answer_tx);
+            answer_rx
+        };
 
         let stream_tx = self
             .stream_event_txs
@@ -114,6 +121,7 @@ impl Tool for ConfirmTool {
                     ],
                     timeout_secs,
                     allow_multiple: false,
+                    session_id: None,
                 })
                 .await;
         }
@@ -129,7 +137,9 @@ impl Tool for ConfirmTool {
             {
                 Ok(inner) => inner.map_err(|_| ()),
                 Err(_) => {
-                    self.pending.remove(&request_id);
+                    if ih.is_none() {
+                        self.pending.remove(&request_id);
+                    }
                     return ToolResult::ok(
                         serde_json::json!({
                             "confirmed": false,
@@ -142,7 +152,9 @@ impl Tool for ConfirmTool {
             }
         };
 
-        self.pending.remove(&request_id);
+        if ih.is_none() {
+            self.pending.remove(&request_id);
+        }
 
         match result {
             Ok(answer) => {

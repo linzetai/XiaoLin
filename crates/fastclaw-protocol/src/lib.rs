@@ -22,8 +22,8 @@ pub use message::{
 };
 #[allow(deprecated)]
 pub use op::{
-    ChatParams, ChatSubmitParams, ClientOp, McpAddParams, SessionsListParams, SessionsNewParams,
-    SkillsListParams, ToolsListParams, ToolsUpdateParams,
+    ChatParams, ChatSteerMessage, ChatSubmitParams, ClientOp, McpAddParams, SessionsListParams,
+    SessionsNewParams, SkillsListParams, ToolsListParams, ToolsUpdateParams,
 };
 pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
 pub use usage::TokenUsage;

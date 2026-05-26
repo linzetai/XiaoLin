@@ -76,7 +76,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
     let mut subscriptions: HashSet<String> = HashSet::new();
     let mut owned_sessions: HashSet<String> = HashSet::new();
     let cancel = CancellationToken::new();
-    let active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>> =
+    let active_chat_sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     // Channel for background tasks (chat streaming) to send responses back to the client.
@@ -105,6 +105,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "skills.list", "skills.refresh",
                             "execution.set_mode", "execution.get_plan",
                             "resolve_approval", "approval.resolve",
+                            "chat.compact", "compact",
+                            "chat.steer", "steer",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -243,7 +245,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                     &mut owned_sessions,
                     &bg_tx,
                     &cancel,
-                    active_chat_cancels.clone(),
+                    active_chat_sessions.clone(),
                     req,
                 )
                 .await;
@@ -251,6 +253,22 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
         }
     }
 
+    // Interrupt all in-flight sessions on disconnect.
+    {
+        let sessions = active_chat_sessions.lock().await;
+        for (_rid, sid) in sessions.iter() {
+            if let Some(handle) = state
+                .svc
+                .session_manager
+                .get(&fastclaw_protocol::SessionId::new(sid))
+                .await
+            {
+                let _ = handle
+                    .submit(fastclaw_session_actor::SessionOp::Interrupt)
+                    .await;
+            }
+        }
+    }
     cancel.cancel();
     fastclaw_observe::record_ws_connection(-1);
     tracing::info!(conn_id, "websocket session ended");
@@ -264,7 +282,7 @@ async fn dispatch(
     owned_sessions: &mut HashSet<String>,
     bg_tx: &tokio::sync::mpsc::Sender<WsResponse>,
     cancel: &CancellationToken,
-    active_chat_cancels: Arc<tokio::sync::Mutex<HashMap<String, CancellationToken>>>,
+    active_chat_sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     req: WsRequest,
 ) {
     let id = req.id;
@@ -306,14 +324,14 @@ async fn dispatch(
                 owned_sessions,
                 bg_tx.clone(),
                 cancel.clone(),
-                active_chat_cancels.clone(),
+                active_chat_sessions.clone(),
                 id,
                 params,
             )
             .await
         }
         ClientOp::ChatCancel { .. } => {
-            chat::handle_chat_cancel(sender, id, req.params, active_chat_cancels.clone()).await
+            chat::handle_chat_cancel(sender, state, id, req.params, active_chat_sessions.clone()).await
         }
         ClientOp::ChatAnswer { .. } | ClientOp::ToolsSubmitAnswer { .. } => {
             chat::handle_chat_answer(sender, state, id, req.params).await
@@ -404,14 +422,37 @@ async fn dispatch(
         ClientOp::ExecutionGetPlan { .. } => {
             execution::handle_execution_get_plan(sender, state, id, req.params).await
         }
+        ClientOp::ChatCompact { session_id } => {
+            chat::handle_chat_compact(sender, state, id, &session_id, bg_tx).await;
+        }
+        ClientOp::ChatSteer {
+            session_id,
+            messages,
+        } => {
+            chat::handle_chat_steer(sender, state, id, &session_id, messages).await;
+        }
         ClientOp::ResolveApproval {
             approval_id,
             decision,
+            session_id,
         } => {
-            let resolved = state
-                .strm
-                .tool_orchestrator
-                .resolve(&approval_id, decision.clone());
+            let mut resolved = false;
+            if let Some(sid) = &session_id {
+                if let Some(handle) = state
+                    .svc
+                    .session_manager
+                    .get(&fastclaw_protocol::SessionId::new(sid))
+                    .await
+                {
+                    resolved = handle
+                        .submit(fastclaw_session_actor::SessionOp::ResolveApproval {
+                            interaction_id: approval_id.clone(),
+                            decision: decision.clone(),
+                        })
+                        .await
+                        .is_ok();
+                }
+            }
             send_resp(
                 sender,
                 &WsResponse {
@@ -582,6 +623,7 @@ mod tests {
             ],
             timeout_secs: 30,
             allow_multiple: false,
+            session_id: None,
         };
         let resp = forward_event(&event, &Some("r1".into()));
         assert_eq!(resp.msg_type, "ask_question");

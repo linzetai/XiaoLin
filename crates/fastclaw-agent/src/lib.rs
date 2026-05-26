@@ -8,6 +8,7 @@ pub mod llm_plugin;
 pub mod process_channel;
 pub mod rpc;
 mod runtime;
+pub mod session_bridge;
 pub mod subagent;
 pub mod subagent_manager;
 pub mod symbol_index;
@@ -36,5 +37,6 @@ pub use runtime::query_engine::QueryEngine;
 pub use runtime::{
     build_subagent_prompt_block, AgentRuntime, ExecutionResult, SubAgentPromptContext,
 };
+pub use session_bridge::RuntimeTurnExecutor;
 pub use subagent::{SubAgentGetTool, SubAgentListTool, SubAgentTool};
 pub use subagent_manager::SubAgentManager;
