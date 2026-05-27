@@ -70,6 +70,9 @@ impl Tool for HttpFetchTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Fetch
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "http_fetch"
     }
@@ -1205,6 +1208,9 @@ impl Tool for WebSearchTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Search
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "web_search"
     }
@@ -1342,6 +1348,9 @@ impl WebFetchTool {
 impl Tool for WebFetchTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Fetch
+    }
+    fn supports_parallel(&self) -> bool {
+        true
     }
     fn name(&self) -> &str {
         "web_fetch"

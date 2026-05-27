@@ -697,6 +697,9 @@ impl Tool for UnifiedLspTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Search
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "lsp"
     }

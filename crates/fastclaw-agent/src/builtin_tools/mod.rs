@@ -2,10 +2,11 @@ mod ask_question;
 mod brief;
 mod code_intel;
 mod confirm;
-#[allow(dead_code)]
 pub mod coordinator;
+pub mod exec_command;
 mod filesystem;
 mod git;
+pub mod goal;
 mod identity;
 mod lsp_manager;
 mod media;
@@ -14,14 +15,13 @@ mod network;
 mod notebook;
 pub mod plan_file;
 pub mod plan_mode;
+mod request_permissions;
 mod screenshot;
 mod session;
 mod shell;
 pub mod shell_path_validation;
 pub mod shell_readonly;
 pub mod shell_security;
-#[allow(dead_code)]
-pub mod shell_snapshot;
 mod skill;
 mod snip;
 mod task;
@@ -57,10 +57,11 @@ pub use filesystem::{
     with_file_state_cache, with_work_dir,
 };
 pub use filesystem::{
-    EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool, SearchInFilesTool,
-    WriteFileTool,
+    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
+    SearchInFilesTool, WriteFileTool,
 };
 pub use git::GitTool;
+pub use goal::{CreateGoalTool, GetGoalTool, GoalStore, UpdateGoalTool};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
@@ -75,6 +76,7 @@ pub use plan_mode::{
     with_session_mode, EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool, PlanContext,
     SessionModeRegistry,
 };
+pub use request_permissions::RequestPermissionsTool;
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
 pub use shell::{
@@ -140,7 +142,9 @@ pub fn register_builtin_tools_full(
     registry.register_deferred(Arc::new(FileOutlineTool));
     registry.register_deferred(Arc::new(CodeSectionsTool));
     registry.register_deferred(Arc::new(MultiEditTool));
+    registry.register_deferred(Arc::new(ApplyPatchTool));
     registry.register_deferred(Arc::new(NotebookEditTool));
+    registry.register_deferred(Arc::new(RequestPermissionsTool));
     registry.register_deferred(Arc::new(TerminalCaptureTool::new()));
 }
 
@@ -242,4 +246,22 @@ pub fn register_session_tools(
         bus.clone(),
     )));
     registry.register_deferred(Arc::new(SessionsSendTool::new(sessions, bus)));
+}
+
+/// Register PTY interactive terminal tools (exec_command + write_stdin).
+pub fn register_exec_command_tools(
+    registry: &ToolRegistry,
+    session_manager: Arc<exec_command::PtySessionManager>,
+) {
+    registry.register_deferred(Arc::new(exec_command::ExecCommandTool::new(
+        session_manager.clone(),
+    )));
+    registry.register_deferred(Arc::new(exec_command::WriteStdinTool::new(session_manager)));
+}
+
+/// Register goal management tools (get_goal, create_goal, update_goal).
+pub fn register_goal_tools(registry: &ToolRegistry, store: Arc<GoalStore>) {
+    registry.register_deferred(Arc::new(GetGoalTool::new(store.clone())));
+    registry.register_deferred(Arc::new(CreateGoalTool::new(store.clone())));
+    registry.register_deferred(Arc::new(UpdateGoalTool::new(store)));
 }

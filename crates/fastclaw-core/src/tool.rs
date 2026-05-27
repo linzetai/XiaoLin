@@ -54,6 +54,7 @@ pub enum ToolKind {
 
 impl ToolKind {
     /// Whether this kind of tool is safe to execute concurrently with others.
+    #[deprecated(note = "use Tool::supports_parallel() instead for per-tool concurrency control")]
     pub fn is_concurrency_safe(&self) -> bool {
         matches!(self, Self::Read | Self::Search | Self::Fetch | Self::Think)
     }
@@ -305,6 +306,14 @@ pub trait Tool: Send + Sync {
         ""
     }
 
+    /// Whether this tool can safely execute concurrently with other parallel tools.
+    /// Tools returning `true` acquire a shared (read) lock; tools returning `false`
+    /// acquire an exclusive (write) lock, serializing all concurrent execution.
+    /// Default is `false` (conservative). Override for read-only / stateless tools.
+    fn supports_parallel(&self) -> bool {
+        false
+    }
+
     /// Deferred tools are not included in the initial prompt's tool list.
     /// They become available only after activation via `ToolSearchTool`.
     fn is_deferred(&self) -> bool {
@@ -539,10 +548,12 @@ impl ToolRegistry {
     }
 
     /// Search deferred tools by matching `query` against name, description,
-    /// and `search_hint`. Uses a scoring approach:
-    ///  - All query words match (exact substring) → highest score
-    ///  - Partial word matches (prefix ≥3 chars) → medium score
-    ///  - At least one word matches → included with lower score
+    /// and `search_hint`. Uses BM25-inspired scoring:
+    ///  - Term frequency with saturation (k1=1.2) — diminishing returns
+    ///  - Inverse document frequency — rarer terms weight more
+    ///  - Document length normalization (b=0.75) — shorter docs score higher
+    ///  - Prefix matching bonus for query terms ≥3 chars
+    ///  - Name match bonus for exact query in tool name
     ///
     /// Results are sorted by score descending; tools with zero matches are excluded.
     pub fn search_deferred(&self, query: &str) -> Vec<ToolDefinition> {
@@ -554,47 +565,97 @@ impl ToolRegistry {
             return Vec::new();
         }
 
-        let mut scored: Vec<(u32, ToolDefinition)> = tools
+        // Collect deferred tool documents for BM25 scoring
+        let deferred_tools: Vec<_> = tools
             .values()
             .filter(|t| deferred.contains(t.name()))
-            .filter_map(|t| {
-                let haystack =
-                    format!("{} {} {}", t.name(), t.description(), t.search_hint()).to_lowercase();
-                let haystack_words: Vec<&str> = haystack.split_whitespace().collect();
+            .collect();
 
-                let mut score: u32 = 0;
-                let mut matched_words = 0u32;
+        let n = deferred_tools.len() as f64;
+        if n == 0.0 {
+            return Vec::new();
+        }
 
-                for &qw in &query_words {
-                    if haystack.contains(qw) {
-                        score += 10;
-                        matched_words += 1;
-                    } else if qw.len() >= 3 {
-                        let has_prefix = haystack_words.iter().any(|hw| hw.starts_with(qw));
-                        if has_prefix {
-                            score += 5;
-                            matched_words += 1;
-                        }
-                    }
-                }
+        // Build haystacks and compute avg doc length
+        let haystacks: Vec<String> = deferred_tools
+            .iter()
+            .map(|t| format!("{} {} {}", t.name(), t.description(), t.search_hint()).to_lowercase())
+            .collect();
 
-                if matched_words == 0 {
-                    return None;
-                }
+        let doc_lengths: Vec<f64> = haystacks
+            .iter()
+            .map(|h| h.split_whitespace().count() as f64)
+            .collect();
+        let avg_dl = doc_lengths.iter().sum::<f64>() / n;
 
-                if matched_words == query_words.len() as u32 {
-                    score += 20;
-                }
-
-                if t.name().to_lowercase().contains(&q) {
-                    score += 15;
-                }
-
-                Some((score, t.to_definition()))
+        // IDF for each query word: how many docs contain it
+        let doc_freqs: Vec<f64> = query_words
+            .iter()
+            .map(|&qw| {
+                haystacks
+                    .iter()
+                    .filter(|h| h.contains(qw) || (qw.len() >= 3 && h.split_whitespace().any(|w| w.starts_with(qw))))
+                    .count() as f64
             })
             .collect();
 
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        // BM25 parameters
+        let k1: f64 = 1.2;
+        let b: f64 = 0.75;
+
+        let mut scored: Vec<(f64, ToolDefinition)> = deferred_tools
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let haystack = &haystacks[i];
+                let haystack_words: Vec<&str> = haystack.split_whitespace().collect();
+                let dl = doc_lengths[i];
+
+                let mut total_score: f64 = 0.0;
+                let mut matched_terms = 0u32;
+
+                for (qi, &qw) in query_words.iter().enumerate() {
+                    // Count term frequency
+                    let tf = if haystack.contains(qw) {
+                        haystack.matches(qw).count() as f64
+                    } else if qw.len() >= 3 && haystack_words.iter().any(|hw| hw.starts_with(qw)) {
+                        // Prefix match counts as 0.5 TF
+                        0.5
+                    } else {
+                        continue;
+                    };
+
+                    matched_terms += 1;
+
+                    // IDF: log((N - df + 0.5) / (df + 0.5) + 1)
+                    let df = doc_freqs[qi];
+                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+
+                    // BM25 TF saturation with length normalization
+                    let tf_norm = (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * dl / avg_dl));
+
+                    total_score += idf * tf_norm;
+                }
+
+                if matched_terms == 0 {
+                    return None;
+                }
+
+                // Bonus: all query words matched
+                if matched_terms == query_words.len() as u32 {
+                    total_score *= 1.5;
+                }
+
+                // Bonus: tool name contains the full query
+                if t.name().to_lowercase().contains(&q) {
+                    total_score += 3.0;
+                }
+
+                Some((total_score, t.to_definition()))
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.into_iter().map(|(_, def)| def).collect()
     }
 
@@ -679,6 +740,199 @@ pub trait ToolHook: Send + Sync {
 
     /// Called after a tool completes. Useful for logging, metrics, or follow-up actions.
     async fn post_tool_use(&self, _ctx: &ToolHookContext, _info: &PostToolInfo) {}
+}
+
+// ─── Tool Contributor (Extension Plugin Pattern) ─────────────────────
+
+/// Context provided to ToolContributors when collecting tools.
+#[derive(Debug, Clone)]
+pub struct ContributorContext {
+    pub agent_id: String,
+    pub channel_id: Option<String>,
+}
+
+/// Trait for extension modules that contribute tools to the registry at runtime.
+///
+/// Implementations can dynamically provide tools based on configuration, session
+/// state, or external plugin discovery. Tools returned by `contribute_tools` are
+/// registered into the `ToolRegistry` during initialization or reload.
+#[async_trait]
+pub trait ToolContributor: Send + Sync {
+    /// Unique identifier for this contributor (e.g. "memory", "feishu", "browser").
+    fn name(&self) -> &str;
+
+    /// Whether this contributor is currently enabled. Disabled contributors are
+    /// skipped during tool collection.
+    fn is_enabled(&self) -> bool {
+        true
+    }
+
+    /// Return the tools this contributor provides. Called during registry
+    /// construction or when tools need to be refreshed.
+    fn contribute_tools(&self, ctx: &ContributorContext) -> Vec<Arc<dyn Tool>>;
+
+    /// Whether the contributed tools should be registered as deferred (hidden
+    /// from initial prompt until discovered via tool_search).
+    fn is_deferred(&self) -> bool {
+        false
+    }
+
+    /// Whether the contributed tools are channel-scoped (only injected for
+    /// requests from a specific channel).
+    fn is_channel_scoped(&self) -> bool {
+        false
+    }
+}
+
+/// Registry that collects tools from all registered ToolContributors and
+/// registers them into a ToolRegistry.
+pub struct ContributorRegistry {
+    contributors: Vec<Arc<dyn ToolContributor>>,
+}
+
+impl ContributorRegistry {
+    pub fn new() -> Self {
+        Self {
+            contributors: Vec::new(),
+        }
+    }
+
+    pub fn register(&mut self, contributor: Arc<dyn ToolContributor>) {
+        self.contributors.push(contributor);
+    }
+
+    /// Collect tools from all enabled contributors and register them in the
+    /// provided ToolRegistry. Returns the count of tools registered.
+    pub fn apply_to_registry(&self, registry: &ToolRegistry, ctx: &ContributorContext) -> usize {
+        let mut count = 0;
+        for contributor in &self.contributors {
+            if !contributor.is_enabled() {
+                continue;
+            }
+            let tools = contributor.contribute_tools(ctx);
+            for tool in tools {
+                if contributor.is_channel_scoped() {
+                    registry.register_channel_scoped(tool);
+                } else if contributor.is_deferred() {
+                    registry.register_deferred(tool);
+                } else {
+                    registry.register(tool);
+                }
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn contributor_count(&self) -> usize {
+        self.contributors.len()
+    }
+}
+
+impl Default for ContributorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ─── Dynamic Tools (Config-Defined External Tools) ───────────────────
+
+/// How a dynamic tool is executed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DynamicExecutor {
+    /// Route execution to an MCP server by server_id.
+    Mcp { server_id: String },
+    /// Execute via HTTP request to an external endpoint.
+    Http { url: String, method: String },
+    /// Emit an event on a channel, letting the external client handle execution.
+    Event { channel: String },
+}
+
+/// A tool defined dynamically via configuration or API, rather than compiled Rust code.
+/// Supports deferred registration and flexible execution backends.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters_schema: serde_json::Value,
+    pub deferred: bool,
+    pub executor: DynamicExecutor,
+}
+
+/// Backend that executes dynamic tools based on their executor type.
+#[async_trait]
+pub trait DynamicExecutorBackend: Send + Sync {
+    async fn execute_mcp(&self, server_id: &str, tool_name: &str, arguments: &str) -> ToolResult;
+    async fn execute_http(&self, url: &str, method: &str, arguments: &str) -> ToolResult;
+    async fn execute_event(&self, channel: &str, tool_name: &str, arguments: &str) -> ToolResult;
+}
+
+/// A concrete Tool implementation backed by a DynamicToolSpec and an executor backend.
+pub struct DynamicTool {
+    pub spec: DynamicToolSpec,
+    backend: Arc<dyn DynamicExecutorBackend>,
+}
+
+impl DynamicTool {
+    pub fn new(spec: DynamicToolSpec, backend: Arc<dyn DynamicExecutorBackend>) -> Self {
+        Self { spec, backend }
+    }
+}
+
+#[async_trait]
+impl Tool for DynamicTool {
+    fn name(&self) -> &str {
+        &self.spec.name
+    }
+
+    fn description(&self) -> &str {
+        &self.spec.description
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let props = self
+            .spec
+            .parameters_schema
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let required = self
+            .spec
+            .parameters_schema
+            .get("required")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required,
+        }
+    }
+
+    fn is_deferred(&self) -> bool {
+        self.spec.deferred
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        match &self.spec.executor {
+            DynamicExecutor::Mcp { server_id } => {
+                self.backend.execute_mcp(server_id, &self.spec.name, arguments).await
+            }
+            DynamicExecutor::Http { url, method } => {
+                self.backend.execute_http(url, method, arguments).await
+            }
+            DynamicExecutor::Event { channel } => {
+                self.backend.execute_event(channel, &self.spec.name, arguments).await
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -28,7 +28,6 @@ mod accumulator;
 pub mod api_errors;
 pub mod approval_cache;
 pub mod runtimes;
-#[allow(dead_code)]
 pub mod cache_break_detection;
 #[allow(dead_code)] // TODO(integrate): assemble related files at query start
 pub mod context_assembly;
@@ -47,6 +46,7 @@ pub mod magic_docs;
 pub mod memory_selection;
 pub mod model_critic;
 pub(crate) mod observer;
+pub mod dispatcher;
 pub mod orchestrator;
 pub mod permissions;
 mod post_compact_restore;
@@ -82,7 +82,6 @@ use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
 use query_deps::QueryDeps;
 use query_state::QueryLoopState;
 use stream_engine::send_stream_event;
-use tool_executor::execute_tool_batch;
 use tool_executor::filter_tool_definitions;
 use tool_executor::semantic_header;
 #[allow(deprecated)]
@@ -661,17 +660,8 @@ impl AgentRuntime {
         tool_registry: &Arc<ToolRegistry>,
         llm_override: Option<Arc<dyn LlmProvider>>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams {
-            config,
-            request,
-            tool_registry,
-            llm_override,
-            subagent_prompt: None,
-            mode_state: None,
-            session_store: None,
-            todo_store: None,
-        };
-        self.execute_inner(&params).await
+        self.execute_with_subagent_prompt(config, request, tool_registry, llm_override, None)
+            .await
     }
 
     pub async fn execute_with_subagent_prompt(
@@ -682,425 +672,84 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<ExecutionResult> {
-        let params = ExecutionParams {
-            config,
-            request,
-            tool_registry,
-            llm_override,
-            subagent_prompt,
-            mode_state: None,
-            session_store: None,
-            todo_store: None,
-        };
-        self.execute_inner(&params).await
-    }
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(512);
+        let orchestrator = Arc::new(orchestrator::ToolOrchestrator::new());
+        let approval_strategy =
+            fastclaw_core::tool_runtime::ApprovalStrategy::AutoApprove;
 
-    async fn execute_inner(&self, params: &ExecutionParams<'_>) -> anyhow::Result<ExecutionResult> {
-        let ExecutionParams {
-            config,
-            request,
-            tool_registry,
-            ref llm_override,
-            subagent_prompt: _,
-            ref mode_state,
-            ref session_store,
-            todo_store: _,
-        } = *params;
-        let max_iterations = config.behavior.max_tool_calls_per_turn;
-        let max_errors = config.behavior.max_consecutive_errors;
+        let summary = self
+            .execute_unified(
+                config,
+                request,
+                tool_registry,
+                tx,
+                approval_strategy,
+                llm_override,
+                orchestrator,
+                None,
+                subagent_prompt,
+                None,
+                None,
+                None,
+            )
+            .await?;
 
-        let t0 = std::time::Instant::now();
-        let mut messages = self.build_messages(params);
-        tracing::info!(
-            elapsed_ms = t0.elapsed().as_millis() as u64,
-            "perf: build_messages"
-        );
-
-        let mut injected_skill_ids: Vec<String> = Vec::new();
-        {
-            let t0_skills = std::time::Instant::now();
-            if let Err(e) = self
-                .inject_relevant_skills(&mut messages, request, &mut injected_skill_ids)
-                .await
-            {
-                tracing::warn!(error = %e, "skill injection skipped");
+        // Collect streamed content to reconstruct ExecutionResult
+        let mut text = String::new();
+        while let Ok(evt) = rx.try_recv() {
+            if let AgentEvent::ContentDelta { ref delta, .. } = evt {
+                if let Some(content) = delta
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    text.push_str(content);
+                }
             }
-            tracing::info!(
-                elapsed_ms = t0_skills.elapsed().as_millis() as u64,
-                "perf: inject_relevant_skills"
-            );
         }
 
-        let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
-        let t0 = std::time::Instant::now();
-        let mut all_tool_defs = tool_registry.eager_definitions();
-        if let Some(extra) = &request.tools {
-            all_tool_defs.extend(extra.iter().cloned());
-        }
-        let tool_defs = filter_tool_definitions(&all_tool_defs, config);
-        tracing::info!(
-            elapsed_ms = t0.elapsed().as_millis() as u64,
-            count = tool_defs.len(),
-            "perf: tool_definitions"
-        );
-        let tools_for_llm = if tool_defs.is_empty() {
-            None
-        } else {
-            Some(tool_defs.as_slice())
-        };
-
-        let temperature = request.temperature.unwrap_or(config.model.temperature);
-        let model = request.model.as_deref().unwrap_or(&config.model.model);
-        let max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
-            let inferred = fastclaw_context::infer_output_limit_from_model(model);
-            if inferred > 0 {
-                Some(inferred)
-            } else {
-                None
+        let model = request
+            .model
+            .clone()
+            .unwrap_or_else(|| config.model.model.clone());
+        let usage = summary.usage.map(|u| {
+            fastclaw_core::types::Usage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
             }
         });
+        let response = ChatResponse {
+            id: summary.turn_id.to_string(),
+            object: "chat.completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            model,
+            choices: vec![fastclaw_core::types::ChatChoice {
+                index: 0,
+                finish_reason: Some("stop".to_string()),
+                message: ChatMessage {
+                    role: Role::Assistant,
+                    content: Some(serde_json::Value::String(text)),
+                    reasoning_content: None,
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    compact_metadata: None,
+                },
+            }],
+            usage,
+        };
 
-        let mut state = QueryLoopState::new(max_iterations);
-        let tool_storage = create_tool_result_storage(request.session_id.as_deref());
-        let skip_tool_names = build_skip_tool_names(tool_registry);
-
-        // Reconstruct ContentReplacementState from persisted records on session resume
-        let mut replacement_state = Self::load_or_create_replacement_state(
-            session_store,
-            request.session_id.as_deref(),
-            &request.messages,
-        )
-        .await;
-
-        loop {
-            if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    consecutive_errors = state.consecutive_errors,
-                    "stopping outer loop — consecutive error limit reached"
-                );
-                self.finalize_injected_skills(&injected_skill_ids, false)
-                    .await;
-                self.record_completed_trajectory(request, config, &trajectory_steps, false)
-                    .await;
-                anyhow::bail!(
-                    "agent '{}' stopped: {} consecutive tool errors",
-                    config.agent_id,
-                    state.consecutive_errors
-                );
-            }
-
-            state.begin_iteration();
-            state
-                .iteration_msg_boundaries
-                .push((messages.len(), std::time::Instant::now()));
-
-            tracing::info!(
-                agent_id = %config.agent_id,
-                model,
-                iteration = state.iteration,
-                msg_count = messages.len(),
-                "LLM call"
-            );
-
-            let newly_replaced = apply_message_budget(
-                &tool_storage,
-                &mut messages,
-                &mut replacement_state,
-                &skip_tool_names,
-            );
-            Self::persist_replacement_records(
-                session_store,
-                request.session_id.as_deref(),
-                &newly_replaced,
-            )
-            .await;
-
-            fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
-            fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
-
-            if !fastclaw_context::model_supports_vision_with_caps(
-                model,
-                config.model.capabilities.as_ref(),
-            ) {
-                fastclaw_context::compressor::strip_image_content(&mut messages);
-            }
-
-            let params = CompletionParams {
-                model,
-                messages: &messages,
-                temperature,
-                max_tokens,
-                tools: tools_for_llm,
-            };
-
-            let provider = match &llm_override {
-                Some(p) => p.clone(),
-                None => self.resolve_provider(&config.agent_id)?,
-            };
-            let llm_t0 = std::time::Instant::now();
-            let response = provider.chat_completion(&params).await?;
-            {
-                let llm_ms = llm_t0.elapsed().as_millis() as f64;
-                let pname = provider.provider_name();
-                let mc = fastclaw_observe::default_metrics_collector();
-                mc.record_provider_request(pname, &response.model);
-                mc.record_provider_latency_ms(pname, &response.model, llm_ms);
-                if let Some(ref u) = response.usage {
-                    mc.record_provider_tokens(pname, &response.model, u.total_tokens as u64);
-                }
-            }
-
-            let choice = response
-                .choices
-                .first()
-                .ok_or_else(|| anyhow::anyhow!("LLM returned no choices"))?;
-
-            let has_tool_calls = choice
-                .message
-                .tool_calls
-                .as_ref()
-                .is_some_and(|tc| !tc.is_empty());
-
-            let transition = state.determine_post_llm_transition(has_tool_calls);
-            match transition {
-                query_state::LoopTransition::Terminal(ref reason) => {
-                    tracing::info!(
-                        agent_id = %config.agent_id,
-                        reason = %reason,
-                        iterations = state.iteration,
-                        total_tool_calls = state.total_tool_calls,
-                        "agent execution complete"
-                    );
-                    self.finalize_injected_skills(&injected_skill_ids, true)
-                        .await;
-                    self.record_completed_trajectory(request, config, &trajectory_steps, true)
-                        .await;
-                    return Ok(ExecutionResult {
-                        response,
-                        tool_calls_made: state.total_tool_calls,
-                        iterations: state.iteration,
-                    });
-                }
-                query_state::LoopTransition::Continue(_) => {}
-            }
-
-            messages.push(choice.message.clone());
-
-            let tool_calls = choice
-                .message
-                .tool_calls
-                .as_ref()
-                .filter(|t| !t.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("LLM reported tool_calls but none were present"))?;
-
-            let results = execute_tool_batch(
-                tool_calls,
-                tool_registry,
-                &config.behavior,
-                &request.work_dir,
-                "",
-                mode_state.as_ref(),
-            )
-            .await;
-
-            let mut force_stop_loop = false;
-            for (tool_name, call_id, arguments, result) in results {
-                state.total_tool_calls += 1;
-                let rep_action = state.record_tool_call(&tool_name, &arguments);
-
-                // ── Track restoration state for post-compact recovery ──
-                track_restoration_state(
-                    &mut state.restoration_state,
-                    &tool_name,
-                    &arguments,
-                    &result.output,
-                    result.success,
-                );
-
-                trajectory_steps.push(TrajectoryStep {
-                    role: "assistant".into(),
-                    action_type: "tool_call".into(),
-                    tool_name: Some(tool_name.clone()),
-                    summary: truncate_for_trajectory(""),
-                    success: None,
-                });
-
-                if !result.success {
-                    state.record_tool_error(&tool_name, &result.output);
-                } else {
-                    state.clear_error_streak();
-                }
-
-                match rep_action {
-                    query_state::ToolRepetitionAction::ForceStop => {
-                        if let Some(nudge) = state.build_repetition_nudge(true) {
-                            inject_tool_recovery_guidance(&mut messages, &nudge);
-                        }
-                        force_stop_loop = true;
-                    }
-                    query_state::ToolRepetitionAction::Warn => {
-                        if let Some(nudge) = state.build_repetition_nudge(false) {
-                            inject_tool_recovery_guidance(&mut messages, &nudge);
-                        }
-                    }
-                    query_state::ToolRepetitionAction::None => {}
-                }
-
-                let max_chars = tool_registry
-                    .get(&tool_name)
-                    .map(|t| t.max_result_size_chars())
-                    .unwrap_or(100_000);
-                let processed = process_tool_output(
-                    &tool_storage,
-                    &tool_name,
-                    &call_id,
-                    &result.output,
-                    max_chars,
-                );
-                let header =
-                    semantic_header(&tool_name, &arguments, &result.output, result.success);
-                let out = format!("{header}\n{processed}");
-                let content = tool_result_content(&out, &result);
-                messages.push(ChatMessage {
-                    role: Role::Tool,
-                    content: Some(content),
-                    name: Some(tool_name.clone()),
-                    tool_call_id: Some(call_id),
-                    ..Default::default()
-                });
-
-                trajectory_steps.push(TrajectoryStep {
-                    role: "tool".into(),
-                    action_type: "tool_result".into(),
-                    tool_name: Some(tool_name.clone()),
-                    summary: truncate_for_trajectory(&result.output),
-                    success: Some(result.success),
-                });
-
-                // ── Auto-fix loop: detect compiler errors and inject fix guidance ──
-                if !result.success {
-                    if let Some(build_cmd) =
-                        crate::autofix::extract_build_command(&tool_name, &arguments)
-                    {
-                        if let Some(guide) = crate::autofix::detect_and_plan(
-                            &build_cmd,
-                            &result.output,
-                            -1, // non-zero exit
-                            state.autofix.iteration,
-                        ) {
-                            let error_count_for_state = guide.diagnostics.len();
-                            state.autofix.record_build_result(
-                                &build_cmd,
-                                -1,
-                                error_count_for_state,
-                            );
-                            inject_tool_recovery_guidance(&mut messages, &guide.formatted);
-                            tracing::info!(
-                                compiler = %crate::autofix::compiler_name(guide.compiler),
-                                errors = error_count_for_state,
-                                iteration = guide.iteration,
-                                "auto-fix guidance injected"
-                            );
-                        }
-                    }
-                } else if crate::autofix::extract_build_command(&tool_name, &arguments).is_some() {
-                    // Build succeeded — reset auto-fix state.
-                    state.autofix.reset();
-                }
-
-                if self.try_self_iter_tool_recovery(
-                    &mut messages,
-                    config,
-                    request,
-                    state.iteration,
-                    state.consecutive_errors,
-                    max_errors,
-                    &state.failure_streak_traces,
-                    &mut state.self_iter_recovery_used,
-                ) {
-                    state.clear_error_streak();
-                }
-
-                let failure_summary = state.format_failure_summary();
-                let error_count = state.consecutive_errors;
-                if let Some(transition) = state.check_error_limit(max_errors) {
-                    match transition {
-                        query_state::LoopTransition::Terminal(
-                            query_state::TerminalReason::ConsecutiveErrors,
-                        ) => {
-                            tracing::warn!(
-                                agent_id = %config.agent_id,
-                                consecutive_errors = error_count,
-                                "consecutive error limit reached after grace turn (non-stream)"
-                            );
-                            break;
-                        }
-                        _ => break,
-                    }
-                } else if state.grace_turn_active {
-                    tracing::info!(
-                        agent_id = %config.agent_id,
-                        consecutive_errors = error_count,
-                        "consecutive error limit reached — entering grace turn (non-stream)"
-                    );
-                    messages.push(ChatMessage {
-                        role: Role::System,
-                        content: Some(serde_json::Value::String(format!(
-                            "[TOOL ERROR LIMIT] You have hit {error_count} consecutive tool errors. \
-                             The failing calls were:\n{failure_summary}\n\n\
-                             STOP calling the tools that keep failing. Instead:\n\
-                             1. Explain to the user what you were trying to do and what went wrong.\n\
-                             2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
-                             3. Ask the user if they want you to try a different approach.\n\n\
-                             Do NOT retry the same failing tool calls.",
-                        ))),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
-                    });
-                    break;
-                }
-            }
-
-            if force_stop_loop {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    "tool repetition hard limit reached — giving LLM one final turn to explain (non-stream)"
-                );
-                continue;
-            }
-
-            if choice.finish_reason.as_deref() == Some("length") {
-                let has_write_tools = tool_calls.iter().any(|tc| {
-                    let n = tc.function.name.as_str();
-                    n == "write_file" || n == "edit_file" || n == "multi_edit"
-                });
-                if has_write_tools {
-                    tracing::warn!(
-                        agent_id = %config.agent_id,
-                        "LLM output truncated (finish_reason=length) with write/edit tool calls — injecting retry guidance"
-                    );
-                    messages.push(ChatMessage {
-                        role: Role::System,
-                        content: Some(serde_json::Value::String(
-                            "[WARNING] Your previous response was truncated (finish_reason=length). \
-                            The file content you wrote may be incomplete. Please verify the file \
-                            with read_file and fix any truncated content. When writing large files, \
-                            break the work into smaller edit_file calls instead of one large write_file."
-                                .to_string(),
-                        )),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
-                    });
-                }
-            }
-        }
+        Ok(ExecutionResult {
+            response,
+            tool_calls_made: summary.tool_calls_made,
+            iterations: summary.iterations,
+        })
     }
 
     /// Streaming agentic loop: streams text deltas to the caller while handling
@@ -1382,6 +1031,21 @@ impl AgentRuntime {
         // ── Orchestrator context: per-turn approval cache + denial tracker ──
         let mut orch_approval_cache = approval_cache::ApprovalCache::new();
         let mut orch_denial_tracker = permissions::DenialTracker::new();
+
+        // ── ToolDispatcher: unified tool routing through orchestrator/direct ──
+        let rt_reg = runtime_registry
+            .as_ref()
+            .map(Arc::clone)
+            .unwrap_or_else(|| Arc::new(runtimes::register_default_runtimes()));
+        let orch = orchestrator
+            .as_ref()
+            .map(Arc::clone)
+            .unwrap_or_else(|| Arc::new(orchestrator::ToolOrchestrator::new()));
+        let dispatcher = dispatcher::ToolDispatcher::new(
+            Arc::clone(tool_registry),
+            rt_reg,
+            orch,
+        );
 
         // ── Observer: runtime event collection for evolution pipeline ────
         let runtime_observer = observer::RuntimeObserver::new(
@@ -1676,9 +1340,9 @@ impl AgentRuntime {
             let mut streaming_executor = if streaming_exec_enabled {
                 let exec_config = streaming_tool_executor::StreamingExecutorConfig {
                     sibling_cancel_on_error: true,
-                    work_dir: request.work_dir.as_ref().map(std::path::PathBuf::from),
-                    file_access: config.behavior.file_access,
-                    additional_allowed_paths: Vec::new(),
+                    work_dir: request.work_dir.clone(),
+                    behavior: config.behavior.clone(),
+                    execution_mode: mode_state.as_ref().map(|ms| ms.current_mode()),
                 };
                 Some(streaming_tool_executor::StreamingToolExecutor::new(
                     Arc::clone(tool_registry),
@@ -2364,122 +2028,70 @@ impl AgentRuntime {
 
             let mode_before = mode_state.as_ref().map(|ms| ms.current_mode());
 
-            // Split tools: guarded tools go through orchestrator, others through legacy path.
-            let stream_results = {
-                let has_registry = runtime_registry.is_some() && orchestrator.is_some();
-
-                // Partition tool calls into guarded (orchestrator) and unguarded (legacy)
-                let (guarded_indices, unguarded_calls): (Vec<usize>, Vec<ToolCall>) = if has_registry {
-                    let reg = runtime_registry.as_ref().unwrap();
-                    let mut guarded = Vec::new();
-                    let mut unguarded = Vec::new();
-                    for (i, tc) in assembled_calls.iter().enumerate() {
-                        if reg.has(&tc.function.name) {
-                            guarded.push(i);
-                        } else {
-                            unguarded.push(tc.clone());
-                        }
+            // Execute tool calls through the ToolDispatcher (unified pipeline).
+            //
+            // When a streaming executor exists, drain it for tools already submitted
+            // and route remaining guarded tools through dispatch_one.
+            // When no streaming executor, dispatch_batch handles everything.
+            let stream_results = if let Some(mut executor) = streaming_executor.take() {
+                // Streaming path: some tools were already submitted during streaming.
+                let submit_start = last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
+                for tc in &assembled_calls[submit_start..] {
+                    if !dispatcher.is_guarded(&tc.function.name) && !tc.function.name.is_empty() {
+                        executor.add_tool(tc.clone());
                     }
-                    (guarded, unguarded)
-                } else {
-                    (Vec::new(), assembled_calls.clone())
-                };
-
-                // Execute unguarded tools via existing batch/streaming path
+                }
+                let completed = executor.drain_remaining().await;
                 let mut all_results: Vec<Option<(String, String, String, fastclaw_core::tool::ToolResult)>> =
                     vec![None; assembled_calls.len()];
 
-                let unguarded_results = if let Some(mut executor) = streaming_executor.take() {
-                    // Only submit tools not yet submitted during streaming.
-                    // During streaming, guarded tools were skipped but indices still tracked.
-                    let submit_start = last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
-                    for tc in &assembled_calls[submit_start..] {
-                        if !runtime_registry.as_ref().is_some_and(|r| r.has(&tc.function.name))
-                            && !tc.function.name.is_empty()
-                        {
-                            executor.add_tool(tc.clone());
-                        }
-                    }
-                    let completed = executor.drain_remaining().await;
-                    completed
-                        .into_iter()
-                        .map(|ct| (ct.tool_name, ct.call_id, ct.result))
-                        .collect::<Vec<_>>()
-                } else if !unguarded_calls.is_empty() {
-                    execute_tool_batch(
-                        &unguarded_calls,
-                        tool_registry,
-                        &config.behavior,
-                        &request.work_dir,
-                        " (stream)",
-                        mode_state.as_ref(),
-                    )
-                    .await
-                    .into_iter()
-                    .map(|(name, id, _args, result)| (name, id, result))
-                    .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-
-                // Place unguarded results back into their original positions
-                let mut ug_iter = unguarded_results.into_iter();
+                // Place streaming results
+                let mut completed_iter = completed.into_iter()
+                    .map(|ct| (ct.tool_name, ct.call_id, ct.result));
                 for (i, tc) in assembled_calls.iter().enumerate() {
-                    if !guarded_indices.contains(&i) {
-                        if let Some((name, id, result)) = ug_iter.next() {
+                    if !dispatcher.is_guarded(&tc.function.name) {
+                        if let Some((name, id, result)) = completed_iter.next() {
                             all_results[i] = Some((name, id, tc.function.arguments.clone(), result));
                         }
                     }
                 }
 
-                // Execute guarded tools through orchestrator (sequentially for context safety)
-                if !guarded_indices.is_empty() {
-                    let orch = orchestrator.as_ref().unwrap();
-                    let reg = runtime_registry.as_ref().unwrap();
-                    let cwd = request.work_dir.as_ref()
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-                    for &idx in &guarded_indices {
-                        let tc = &assembled_calls[idx];
-                        let tool_name = &tc.function.name;
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments).unwrap_or_default();
-
-                        let result = if let Some(rt) = reg.get(tool_name) {
-                            let mut orch_ctx = orchestrator::OrchestratorContext {
-                                turn_id: &turn_id,
-                                cwd: &cwd,
-                                approval_cache: &mut orch_approval_cache,
-                                approval_strategy,
-                                interaction_handle: interaction_handle.as_ref(),
-                                event_tx: tx,
-                                denial_tracker: &mut orch_denial_tracker,
-                            };
-                            match orch.run(rt.as_ref(), &args, &mut orch_ctx).await {
-                                Ok(orch_result) => fastclaw_core::tool::ToolResult::ok(orch_result.output),
-                                Err(fastclaw_core::tool_runtime::ToolRuntimeError::Rejected { reason }) => {
-                                    fastclaw_core::tool::ToolResult::err(format!("Denied: {reason}"))
-                                }
-                                Err(fastclaw_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms }) => {
-                                    fastclaw_core::tool::ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
-                                }
-                                Err(e) => fastclaw_core::tool::ToolResult::err(e.to_string()),
-                            }
-                        } else {
-                            fastclaw_core::tool::ToolResult::err(format!("runtime not found: {tool_name}"))
+                // Dispatch guarded tools through ToolDispatcher
+                for (i, tc) in assembled_calls.iter().enumerate() {
+                    if dispatcher.is_guarded(&tc.function.name) {
+                        let mut dispatch_ctx = dispatcher::DispatchContext {
+                            turn_id: &turn_id,
+                            behavior: &config.behavior,
+                            work_dir: &request.work_dir,
+                            mode_state: mode_state.as_ref(),
+                            event_tx: tx,
+                            approval_strategy,
+                            interaction_handle: interaction_handle.as_ref(),
+                            approval_cache: &mut orch_approval_cache,
+                            denial_tracker: &mut orch_denial_tracker,
+                            agent_id: &config.agent_id,
                         };
-
-                        all_results[idx] = Some((
-                            tool_name.clone(),
-                            tc.id.clone(),
-                            tc.function.arguments.clone(),
-                            result,
-                        ));
+                        let result = dispatcher.dispatch_one(tc, &mut dispatch_ctx).await;
+                        all_results[i] = Some(result);
                     }
                 }
 
                 all_results.into_iter().flatten().collect::<Vec<_>>()
+            } else {
+                // Non-streaming path: dispatch_batch handles everything.
+                let mut dispatch_ctx = dispatcher::DispatchContext {
+                    turn_id: &turn_id,
+                    behavior: &config.behavior,
+                    work_dir: &request.work_dir,
+                    mode_state: mode_state.as_ref(),
+                    event_tx: tx,
+                    approval_strategy,
+                    interaction_handle: interaction_handle.as_ref(),
+                    approval_cache: &mut orch_approval_cache,
+                    denial_tracker: &mut orch_denial_tracker,
+                    agent_id: &config.agent_id,
+                };
+                dispatcher.dispatch_batch(&assembled_calls, &mut dispatch_ctx).await
             };
 
             let mut force_stop_loop = false;

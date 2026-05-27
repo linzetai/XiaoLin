@@ -25,7 +25,7 @@ FastClaw 是一个用 **Rust** 构建的 AI Agent 编排引擎，专为构建、
 
 - **极致性能** — 纯 Rust 实现，异步 I/O，单二进制文件部署，内存占用 < 50MB
 - **多 Agent 编排** — Agent 间消息总线、Sub-agent 任务分发
-- **丰富的工具生态** — 文件系统、Shell、代码智能（LSP）、Web 搜索、记忆检索等 30+ 内置工具
+- **丰富的工具生态** — 文件系统、Shell、PTY 终端、代码智能（LSP）、Web 搜索、记忆检索等 35+ 内置工具
 - **多模型路由** — 支持 OpenAI / Anthropic / DashScope / DeepSeek / Ollama 等，按复杂度自动路由
 - **语义记忆** — 向量检索 + 知识图谱双引擎，支持本地嵌入（无需外部 API）
 - **MCP 协议** — 同时支持 MCP Server 和 Client，与外部 Agent 生态互通
@@ -44,7 +44,7 @@ FastClaw 是一个用 **Rust** 构建的 AI Agent 编排引擎，专为构建、
 | **Model Router** | 按任务复杂度（tiny → frontier）自动选择最优模型，支持 fallback 链 |
 | **Session** | SQLite 持久化会话，自动压缩、TTL 过期清理 |
 | **Memory** | Episodic（情景记忆）+ Semantic（语义事实），向量检索（usearch）+ 知识图谱 |
-| **Tool System** | 30+ 内置工具，OpenAI 兼容 tool calling 协议，并行执行调度 |
+| **Tool System** | 35+ 内置工具，OpenAI 兼容 tool calling 协议，per-tool 并行调度（RwLock gate），Pre/Post Hook 管线，ToolContributor 扩展插件 |
 | **MCP** | stdio 传输的 MCP Server + 连接外部 MCP Server 的 Client |
 | **Plugins (WASM)** | Wasmtime Component Model，沙箱化执行，热加载 |
 | **Channels** | 飞书机器人扩展，支持 WebSocket 长连接和 Webhook 模式 |
@@ -172,7 +172,7 @@ docker compose up -d
 |--------|------|
 | `config` | 配置数据模型（`FastClawConfig`），支持 JSON5、`$include` 引用、多 profile |
 | `agent_config` | Agent 定义（模型、System Prompt、工具权限、MCP 绑定） |
-| `tool` | 工具 trait（`Tool`）和注册表（`ToolRegistry`），定义 OpenAI 兼容的 tool calling 协议 |
+| `tool` | 工具 trait（`Tool`）、注册表（`ToolRegistry`）、ToolContributor 扩展插件、DynamicTool 动态工具 |
 | `skill` | 技能 trait 和注册表，支持 SKILL.md 文件加载 |
 | `bus` | Agent 消息总线：跨 Agent 异步消息传递和请求-响应模式 |
 | `channel` | 渠道抽象（`ChannelPlugin` trait），统一飞书/Webhook 等入站消息 |
@@ -188,18 +188,20 @@ Agent 运行时引擎，负责完整的对话循环。
 |--------|------|
 | `runtime` | 核心执行循环：消息构建 → LLM 调用 → 流式输出 → 工具调用 → 递归 |
 | `llm` | LLM Provider 抽象层：支持 OpenAI / Anthropic / DashScope 等多种协议 |
-| `builtin_tools` | 30+ 内置工具实现（文件系统、Shell、LSP、搜索、记忆等） |
+| `builtin_tools` | 35+ 内置工具实现（文件系统、Shell、PTY、LSP、搜索、目标管理等） |
 | `prompt_engine` | Prompt 组装引擎：静态段 + 动态段，按 token 预算裁剪 |
 | `stream_engine` | SSE 流式输出引擎：增量 token、工具调用、状态事件 |
-| `tool_executor` | 工具并行调度器：批量执行、超时控制、结果截断 |
+| `tool_executor` | 工具并行调度器：RwLock gate（per-tool 并行声明）、Pre/Post Hook、批量执行、结果截断 |
 | `trajectory` | 轨迹记录：记录每轮 LLM 调用和工具执行的步骤 |
 | `file_state_cache` | 文件状态缓存：跟踪 Agent 读写过的文件，优化重复访问 |
 
 **关键能力**:
 - 流式输出：通过 `mpsc` channel 逐 token 推送到 Gateway
-- 工具调用：支持并行批量执行（最高 128 并发），自动重试
-- 子任务分发：`spawn_subagent` 工具创建独立子 Agent 执行复杂子任务
+- 工具调用：per-tool 并行声明 + RwLock gate 并发控制，Pre/Post Hook 管线
+- 流式工具执行：LLM 输出期间即刻启动 unguarded 工具（StreamingToolExecutor）
+- 子任务分发：`task_create` 工具创建独立子 Agent 执行复杂子任务
 - Token 预算管理：自动计算并遵守模型 context window 限制
+- 目标管理：`get_goal` / `create_goal` / `update_goal` 追踪 Agent 目标与 token 预算
 - 自迭代：检测工具执行失败后自动诊断并重试（需 `self-iter` feature）
 
 ### fastclaw-gateway
@@ -449,55 +451,68 @@ Global Flags:
 ## 内置工具一览
 
 <details>
-<summary>展开查看 30+ 内置工具</summary>
+<summary>展开查看 35+ 内置工具</summary>
 
 **文件系统**
-- `read_file` — 读取文件内容
+- `read_file` — 读取文件内容（支持并行）
 - `write_file` — 写入文件
 - `edit_file` — 字符串替换编辑
-- `multi_edit` — 批量多文件编辑
-- `apply_patch` — 应用 unified diff 补丁
-- `glob` — 文件名模式搜索
-- `grep` — 正则表达式搜索
-- `list_directory` — 列出目录内容
+- `multi_edit` — 批量多文件编辑（deferred）
+- `apply_patch` — 应用 unified diff 补丁（deferred）
+- `glob` — 文件名模式搜索（支持并行）
+- `search_in_files` — 正则表达式搜索（支持并行）
+- `list_directory` — 列出目录内容（支持并行）
 
-**Shell 执行**
-- `shell_exec` — 沙箱化 Shell 命令执行（可配置安全策略）
+**Shell 与终端**
+- `shell_exec` — 沙箱化 Shell 命令执行（通过 Orchestrator 审批）
+- `exec_command` — PTY 交互式终端会话（deferred）
+- `write_stdin` — 向 PTY 会话发送输入（deferred）
+- `terminal_capture` — 终端输出捕获（支持并行）
 
 **代码智能**
-- `lsp` — 统一 LSP 工具（Go to Definition / Find References / Workspace Symbols）
-- `file_outline` — 文件结构大纲
-- `code_sections` — 语义代码分段
+- `lsp` — 统一 LSP 工具：Go to Definition / Find References / Workspace Symbols（支持并行）
+- `file_outline` — 文件结构大纲（deferred）
+- `code_sections` — 语义代码分段（deferred）
 
 **网络**
-- `web_search` — 网页搜索（支持 Tavily / SearXNG / Google / Baidu / Bing 等）
-- `web_fetch` — 获取网页内容
-- `http_fetch` — HTTP 请求
+- `web_search` — 网页搜索：Tavily / SearXNG / Google / Baidu / Bing 等（支持并行）
+- `web_fetch` — 获取网页内容（支持并行）
+- `http_fetch` — HTTP 请求（支持并行）
 
 **记忆**
-- `memory_search` — 搜索语义记忆
-- `memory_store` — 存储记忆条目
+- `memory` — 统一记忆工具（搜索 + 存储语义记忆）
 
-**实用工具**
-- `calculator` — 数学计算
-- `current_time` — 获取当前时间
-- `sleep` — 等待指定时间
+**目标管理**
+- `get_goal` — 获取当前目标与 token 预算（deferred）
+- `create_goal` — 创建目标与预算约束（deferred）
+- `update_goal` — 标记目标完成/失败（deferred）
 
 **任务管理**
-- `todo_write` — 待办事项管理
-- `task_create` / `task_list` / `task_get` / `task_stop` — 子任务管理
+- `todo_write` / `todo_read` — 待办事项管理
+- `task_create` / `task_list` / `task_get` / `task_update` / `task_stop` — 子任务（Sub-agent）管理
 
-**交互**
+**交互与权限**
 - `ask_question` — 向用户提问
 - `confirm` — 确认操作
 - `send_user_message` — 发送中间消息
+- `request_permissions` — 请求额外文件/网络权限（deferred）
 
-**其他**
-- `notebook_edit` — Jupyter Notebook 编辑
-- `terminal_capture` — 终端输出捕获
-- `tool_search` — 搜索可用工具
-- `skill` — 技能管理（读取/写入）
-- `identity` — 身份配置管理
+**计划模式**
+- `enter_plan_mode` / `exit_plan_mode` — Agent/Plan 执行模式切换（deferred）
+
+**实用工具**
+- `current_time` — 获取当前时间（deferred）
+- `sleep` — 等待指定时间（deferred）
+- `tool_search` — BM25 模糊搜索可用工具（支持并行）
+- `screenshot` — 屏幕截图（支持并行）
+- `git` — Git 版本控制操作（支持并行）
+- `notebook_edit` — Jupyter Notebook 编辑（deferred）
+- `skill` — 技能管理：列出/读取/写入
+- `identity` — Agent 身份配置管理（SOUL.md / USER.md / AGENTS.md）
+
+**媒体生成**
+- `image_generate` — 图像生成（deferred，需 API 配置）
+- `tts` — 文本转语音（deferred，需 API 配置）
 
 </details>
 

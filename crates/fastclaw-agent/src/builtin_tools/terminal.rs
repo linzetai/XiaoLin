@@ -89,6 +89,9 @@ impl Default for TerminalCaptureTool {
 
 #[async_trait]
 impl Tool for TerminalCaptureTool {
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn kind(&self) -> ToolKind {
         ToolKind::Read
     }

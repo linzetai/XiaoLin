@@ -2002,6 +2002,9 @@ impl Tool for ReadFileTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Read
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "read_file"
     }
@@ -3934,6 +3937,9 @@ impl Tool for SearchInFilesTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Search
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "search_in_files"
     }
@@ -4194,8 +4200,8 @@ without extra read_file calls. Use for exploratory queries like \
 }
 
 /// Apply multiple string replacement edits to one file atomically.
-/// Superseded by MultiEditTool but kept for backward compatibility in tests.
-#[allow(dead_code)]
+/// Coexists with `edit_file` / `multi_edit`: use `apply_patch` for large batch
+/// changes across many locations in a single file, `edit_file` for precision edits.
 pub struct ApplyPatchTool;
 
 #[async_trait]
@@ -4205,6 +4211,14 @@ impl Tool for ApplyPatchTool {
     }
     fn name(&self) -> &str {
         "apply_patch"
+    }
+
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
+    fn search_hint(&self) -> &str {
+        "patch batch edit replace multiple edits atomic file"
     }
 
     fn description(&self) -> &str {
@@ -4406,6 +4420,9 @@ impl Tool for ListDirectoryTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Read
     }
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn name(&self) -> &str {
         "list_directory"
     }
@@ -4519,6 +4536,9 @@ pub struct GlobTool;
 impl Tool for GlobTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Read
+    }
+    fn supports_parallel(&self) -> bool {
+        true
     }
     fn name(&self) -> &str {
         "glob"

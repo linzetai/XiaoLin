@@ -5,16 +5,13 @@
 //! Mutating tools (Edit/Execute/Other) are serialized to avoid conflicts.
 //! Results are yielded in insertion order regardless of completion order.
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 
-use fastclaw_core::agent_config::FileAccessMode;
-use fastclaw_core::tool::{ToolKind, ToolRegistry, ToolResult};
-use fastclaw_core::types::ToolCall;
-use tokio::sync::Mutex as TokioMutex;
+use fastclaw_core::agent_config::BehaviorConfig;
+use fastclaw_core::tool::{ToolRegistry, ToolResult};
+use fastclaw_core::types::{ExecutionMode, ToolCall};
+use tokio::sync::RwLock as TokioRwLock;
 use tokio_util::sync::CancellationToken;
-
-use crate::builtin_tools::{with_additional_allowed_paths, with_file_access_mode, with_work_dir};
 
 /// State of a tracked tool through its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,8 +27,6 @@ pub enum ToolState {
 #[derive(Debug)]
 struct TrackedTool {
     call: ToolCall,
-    #[allow(dead_code)]
-    kind: ToolKind,
     state: ToolState,
     result: Option<ToolResult>,
 }
@@ -50,12 +45,12 @@ pub struct CompletedTool {
 pub struct StreamingExecutorConfig {
     /// Whether to cancel sibling tools when one fails.
     pub sibling_cancel_on_error: bool,
-    /// Working directory to scope tool execution.
-    pub work_dir: Option<PathBuf>,
-    /// File access mode for the execution context.
-    pub file_access: FileAccessMode,
-    /// Extra allowed filesystem paths beyond the workspace and well-known dirs.
-    pub additional_allowed_paths: Vec<PathBuf>,
+    /// Working directory to scope tool execution (as String for ChatRequest compat).
+    pub work_dir: Option<String>,
+    /// Agent behavior config (carries allow/deny lists, file_access, additional_allowed_paths).
+    pub behavior: BehaviorConfig,
+    /// Current execution mode (Plan vs Agent) for policy checks.
+    pub execution_mode: Option<ExecutionMode>,
 }
 
 impl Default for StreamingExecutorConfig {
@@ -63,8 +58,8 @@ impl Default for StreamingExecutorConfig {
         Self {
             sibling_cancel_on_error: true,
             work_dir: None,
-            file_access: FileAccessMode::default(),
-            additional_allowed_paths: Vec::new(),
+            behavior: BehaviorConfig::default(),
+            execution_mode: None,
         }
     }
 }
@@ -79,7 +74,9 @@ pub struct StreamingToolExecutor {
     tools: Arc<StdMutex<Vec<TrackedTool>>>,
     registry: Arc<ToolRegistry>,
     cancel_token: CancellationToken,
-    serial_lock: Arc<TokioMutex<()>>,
+    /// Concurrency gate: parallel tools take a read lock (shared), exclusive
+    /// tools take a write lock (blocking all others). Holds no data.
+    parallel_gate: Arc<TokioRwLock<()>>,
     handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -90,27 +87,24 @@ impl StreamingToolExecutor {
             tools: Arc::new(StdMutex::new(Vec::new())),
             registry,
             cancel_token: CancellationToken::new(),
-            serial_lock: Arc::new(TokioMutex::new(())),
+            parallel_gate: Arc::new(TokioRwLock::new(())),
             handles: Vec::new(),
         }
     }
 
-    /// Add a tool for execution. Starts immediately if concurrency-safe,
-    /// or queues behind the serial lock for mutating tools.
+    /// Add a tool for execution. Starts immediately if the tool declares
+    /// `supports_parallel() == true` (shared read lock), or serializes behind
+    /// an exclusive write lock otherwise.
     pub fn add_tool(&mut self, call: ToolCall) {
         let tool_name = &call.function.name;
-        let kind = self
-            .registry
-            .get(tool_name)
-            .map(|t| t.kind())
-            .unwrap_or(ToolKind::Other);
+        let tool_ref = self.registry.get(tool_name);
+        let is_parallel = tool_ref.as_ref().map(|t| t.supports_parallel()).unwrap_or(false);
 
         let index = {
             let mut tools = self.tools.lock().unwrap();
             let idx = tools.len();
             tools.push(TrackedTool {
                 call: call.clone(),
-                kind,
                 state: ToolState::Queued,
                 result: None,
             });
@@ -120,12 +114,12 @@ impl StreamingToolExecutor {
         let tools_ref = Arc::clone(&self.tools);
         let registry = Arc::clone(&self.registry);
         let cancel = self.cancel_token.clone();
-        let serial_lock = Arc::clone(&self.serial_lock);
+        let parallel_gate = Arc::clone(&self.parallel_gate);
         let sibling_cancel = self.config.sibling_cancel_on_error;
         let cancel_for_sibling = self.cancel_token.clone();
         let work_dir = self.config.work_dir.clone();
-        let file_access = self.config.file_access;
-        let extra_allowed = self.config.additional_allowed_paths.clone();
+        let behavior = self.config.behavior.clone();
+        let execution_mode = self.config.execution_mode;
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
@@ -136,12 +130,18 @@ impl StreamingToolExecutor {
                 return;
             }
 
-            // Acquire serial lock for non-concurrent tools
-            let _serial_guard = if !kind.is_concurrency_safe() {
-                Some(serial_lock.lock().await)
+            // Acquire the parallel gate: read lock for parallel tools (shared),
+            // write lock for exclusive tools (blocks everything else).
+            let read_guard;
+            let write_guard;
+            if is_parallel {
+                read_guard = Some(parallel_gate.read().await);
+                write_guard = None;
             } else {
-                None
-            };
+                read_guard = None;
+                write_guard = Some(parallel_gate.write().await);
+            }
+            let _gate_guard = (&read_guard, &write_guard);
 
             if cancel.is_cancelled() {
                 let mut tools = tools_ref.lock().unwrap();
@@ -168,7 +168,7 @@ impl StreamingToolExecutor {
                     }
                     return;
                 }
-                r = execute_single_tool_with_context(&call, &registry, work_dir, file_access, extra_allowed) => r,
+                r = execute_single_tool_with_context(&call, &registry, &behavior, &work_dir, execution_mode) => r,
             };
 
             // Store result
@@ -267,33 +267,19 @@ impl StreamingToolExecutor {
 async fn execute_single_tool_with_context(
     call: &ToolCall,
     registry: &ToolRegistry,
-    work_dir: Option<PathBuf>,
-    file_access: FileAccessMode,
-    extra_allowed_paths: Vec<PathBuf>,
+    behavior: &BehaviorConfig,
+    work_dir: &Option<String>,
+    execution_mode: Option<ExecutionMode>,
 ) -> ToolResult {
-    let tool_name = &call.function.name;
-    let arguments = &call.function.arguments;
-
-    match registry.get(tool_name) {
-        Some(tool) => {
-            with_file_access_mode(
-                file_access,
-                with_additional_allowed_paths(
-                    extra_allowed_paths,
-                    with_work_dir(work_dir, tool.execute(arguments)),
-                ),
-            )
-            .await
-        }
-        None => ToolResult {
-            success: false,
-            output: format!("Unknown tool: {}", tool_name),
-            display_output: None,
-            error_type: None,
-            metadata: None,
-            images: Vec::new(),
-        },
-    }
+    let result = super::dispatcher::ToolDispatcher::execute_unguarded_standalone(
+        call,
+        registry,
+        behavior,
+        work_dir,
+        execution_mode,
+    )
+    .await;
+    super::dispatcher::ToolDispatcher::truncate_result_static(&call.function.name, result)
 }
 
 #[cfg(test)]
@@ -564,7 +550,7 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert!(!results[0].result.success);
-        assert!(results[0].result.output.contains("Unknown tool"));
+        assert!(results[0].result.output.contains("tool not found"));
     }
 
     #[tokio::test]
@@ -684,15 +670,15 @@ mod tests {
     /// Feature flag behavior: executor respects work_dir/file_access config.
     #[tokio::test]
     async fn streaming_executor_respects_config() {
-        use fastclaw_core::agent_config::FileAccessMode;
-        use std::path::PathBuf;
+        let mut behavior = BehaviorConfig::default();
+        behavior.file_access = fastclaw_core::agent_config::FileAccessMode::Full;
 
         let registry = build_registry(vec![Arc::new(MockReadTool)]);
         let config = StreamingExecutorConfig {
             sibling_cancel_on_error: false,
-            work_dir: Some(PathBuf::from("/tmp/test-workspace")),
-            file_access: FileAccessMode::Full,
-            additional_allowed_paths: Vec::new(),
+            work_dir: Some("/tmp/test-workspace".to_string()),
+            behavior,
+            execution_mode: None,
         };
         let mut executor = StreamingToolExecutor::new(registry, config);
 

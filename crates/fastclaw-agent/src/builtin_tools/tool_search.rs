@@ -21,6 +21,9 @@ impl ToolSearchTool {
 
 #[async_trait]
 impl Tool for ToolSearchTool {
+    fn supports_parallel(&self) -> bool {
+        true
+    }
     fn kind(&self) -> ToolKind {
         ToolKind::Think
     }

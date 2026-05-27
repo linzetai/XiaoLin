@@ -496,6 +496,10 @@ impl Tool for ScreenshotTool {
         ToolKind::Read
     }
 
+    fn supports_parallel(&self) -> bool {
+        true
+    }
+
     fn search_hint(&self) -> &str {
         "screenshot screen capture desktop window region visual computer use"
     }

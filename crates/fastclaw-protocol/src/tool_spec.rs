@@ -19,6 +19,7 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
+    #[deprecated(note = "use Tool::supports_parallel() instead for per-tool concurrency control")]
     pub fn is_concurrency_safe(&self) -> bool {
         matches!(self, Self::Read | Self::Search | Self::Fetch | Self::Think)
     }
@@ -63,6 +64,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(deprecated)]
     fn tool_kind_concurrency() {
         assert!(ToolKind::Read.is_concurrency_safe());
         assert!(ToolKind::Search.is_concurrency_safe());

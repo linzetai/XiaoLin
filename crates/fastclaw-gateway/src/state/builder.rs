@@ -9,7 +9,7 @@ use fastclaw_core::bus::MessageBus;
 use fastclaw_core::channel::ChannelRegistry;
 use fastclaw_core::config::FastClawConfig;
 use fastclaw_core::skill::SkillRegistry;
-use fastclaw_core::tool::{Tool, ToolRegistry};
+use fastclaw_core::tool::{ContributorContext, ContributorRegistry, Tool, ToolRegistry};
 use fastclaw_core::workspace::AgentWorkspace;
 use fastclaw_core::Router as AgentRouter;
 use fastclaw_cron::CronJobStore;
@@ -391,6 +391,32 @@ impl StateBuilder {
             default_mode,
         );
         tracing::info!("registered plan mode tools (enter/exit_plan_mode)");
+
+        // PTY interactive terminal tools
+        let pty_manager = Arc::new(
+            fastclaw_agent::builtin_tools::exec_command::PtySessionManager::with_default_timeout(),
+        );
+        fastclaw_agent::builtin_tools::register_exec_command_tools(
+            &p3.tool_registry,
+            pty_manager,
+        );
+
+        // Goal management tools
+        let goal_store = Arc::new(fastclaw_agent::builtin_tools::GoalStore::new());
+        fastclaw_agent::builtin_tools::register_goal_tools(&p3.tool_registry, goal_store);
+
+        // ContributorRegistry: extension point for external tool contributors.
+        // External plugins can register ToolContributor implementations here.
+        let contributor_registry = ContributorRegistry::new();
+        // (Future: contributors are registered via config or plugin discovery)
+        let contributor_ctx = ContributorContext {
+            agent_id: p3.phase1.agents.first().map(|a| a.agent_id.to_string()).unwrap_or_default(),
+            channel_id: None,
+        };
+        let contributor_tool_count = contributor_registry.apply_to_registry(&p3.tool_registry, &contributor_ctx);
+        if contributor_tool_count > 0 {
+            tracing::info!(count = contributor_tool_count, "contributor tools registered");
+        }
 
         Ok(BuildPhase4 {
             phase3: p3,

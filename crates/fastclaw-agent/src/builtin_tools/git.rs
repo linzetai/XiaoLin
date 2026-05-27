@@ -13,6 +13,10 @@ impl Tool for GitTool {
         ToolKind::Execute
     }
 
+    fn supports_parallel(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         "git"
     }
