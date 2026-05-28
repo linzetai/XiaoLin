@@ -18,6 +18,7 @@ import { openLightbox } from "../common/ImageLightbox";
 const isMacPlatform = /Mac|iPhone|iPad/.test((navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "");
 const MOD_KEY = isMacPlatform ? "⌘" : "Ctrl+";
 const MOD_LABEL = isMacPlatform ? "⌘" : "Ctrl";
+const STABLE_EMPTY_QUEUE: never[] = [];
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -386,7 +387,7 @@ export function StreamFooter({
   const messageQueue = useAgentStore((s) => {
     const agentId = s.activeAgentId;
     const ac = s.agentChats[agentId];
-    return ac?.messageQueue ?? [];
+    return ac?.messageQueue ?? STABLE_EMPTY_QUEUE;
   });
   const updateQueuedMessage = useAgentStore((s) => s.updateQueuedMessage);
   const removeQueuedMessage = useAgentStore((s) => s.removeQueuedMessage);
@@ -536,7 +537,7 @@ export function StreamFooter({
             setPendingQuestion(null);
             if (pendingQuestion.requestId.startsWith("approval:")) {
               const approvalId = pendingQuestion.requestId.slice("approval:".length);
-              await transport.resolveApproval(approvalId, answer);
+              await transport.resolveApproval(approvalId, answer, activeChat?.id);
             } else {
               await transport.submitToolAnswerIpc(pendingQuestion.requestId, answer);
             }

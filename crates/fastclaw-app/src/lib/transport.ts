@@ -536,10 +536,12 @@ export async function submitToolAnswer(requestId: string, answer: string): Promi
 export async function resolveApproval(
   approvalId: string,
   decision: string,
+  sessionId?: string,
 ): Promise<{ ok: boolean }> {
   const resp = (await wsClient.send("resolve_approval", {
     approvalId,
     decision: { decision },
+    ...(sessionId && { sessionId }),
   })) as { data?: { resolved?: boolean } };
   return { ok: resp?.data?.resolved ?? false };
 }

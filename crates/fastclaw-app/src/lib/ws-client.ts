@@ -124,6 +124,7 @@ function doConnect(url: string, token?: string): Promise<void> {
         pending.delete(msg.id);
         if (msg.type.endsWith(".error") || msg.type === "error") {
           p.reject(new Error(msg.error?.message ?? "unknown error"));
+          return;
         } else {
           p.resolve(msg);
         }
@@ -219,11 +220,14 @@ export function send(
 export function on(event: string, handler: EventHandler) {
   if (!listeners.has(event)) listeners.set(event, new Set());
   listeners.get(event)!.add(handler);
-  return () => listeners.get(event)?.delete(handler);
+  return () => {
+    listeners.get(event)?.delete(handler);
+  };
 }
 
 function emit(event: string, data: unknown) {
-  listeners.get(event)?.forEach((h) => h(data));
+  const set = listeners.get(event);
+  set?.forEach((h) => h(data));
 }
 
 export function isConnected(): boolean {

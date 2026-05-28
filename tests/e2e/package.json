@@ -1,0 +1,30 @@
+{
+  "name": "fastclaw-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx runner.ts",
+    "test:suite": "tsx runner.ts --suite",
+    "test:basic": "tsx runner.ts --suite 01-basic-chat",
+    "test:file": "tsx runner.ts --suite 02-file-tools",
+    "test:code": "tsx runner.ts --suite 03-code-tools",
+    "test:shell": "tsx runner.ts --suite 04-shell-tools",
+    "test:web": "tsx runner.ts --suite 05-web-tools",
+    "test:memory": "tsx runner.ts --suite 06-memory",
+    "test:multiturn": "tsx runner.ts --suite 07-multi-turn",
+    "test:toolsearch": "tsx runner.ts --suite 08-tool-search",
+    "test:session": "tsx runner.ts --suite 09-session-mgmt",
+    "test:plan": "tsx runner.ts --suite 10-plan-mode",
+    "test:goal": "tsx runner.ts --suite 11-goal-todo"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  }
+}

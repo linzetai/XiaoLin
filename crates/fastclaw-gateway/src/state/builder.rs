@@ -684,11 +684,22 @@ impl StateBuilder {
         let plan_file_store_for_executor =
             fastclaw_agent::builtin_tools::PlanFileStore::default();
         let tool_orchestrator_for_executor = p5.phase2.phase4.tool_orchestrator.clone();
+
+        // Wrap the tool registry in Arc early so the same instance is shared
+        // between the session executor and state.rt.tool_registry. ToolRegistry
+        // uses interior mutability (RwLock) so later registrations are visible
+        // to both holders.
+        let shared_tool_registry = {
+            let reg = Arc::new(p5.phase2.phase4.phase3.tool_registry);
+            fastclaw_agent::builtin_tools::register_tool_search(&reg);
+            reg
+        };
+
         let session_manager = Arc::new(fastclaw_session_actor::SessionManager::new(
             Arc::new(fastclaw_agent::RuntimeTurnExecutor {
                 runtime: runtime_for_session.clone(),
                 config: default_agent_config,
-                tool_registry: Arc::new(ToolRegistry::new()),
+                tool_registry: shared_tool_registry.clone(),
                 llm_override: None,
                 session_store: Some(session_store_for_session.clone()),
                 mode_registry: Some(mode_registry_for_executor),
@@ -709,11 +720,7 @@ impl StateBuilder {
             rt: super::RuntimeState {
                 router: Arc::new(tokio::sync::RwLock::new(p5.phase2.phase4.phase3.router)),
                 runtime: p5.phase2.phase4.phase3.runtime,
-                tool_registry: {
-                    let reg = Arc::new(p5.phase2.phase4.phase3.tool_registry);
-                    fastclaw_agent::builtin_tools::register_tool_search(&reg);
-                    reg
-                },
+                tool_registry: shared_tool_registry.clone(),
                 base_skill_registry: Arc::new(ArcSwap::new(p5.phase2.phase4.base_skill_registry)),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     p5.phase2.phase4.phase3.agent_skill_registries,
@@ -771,7 +778,7 @@ impl StateBuilder {
             },
             svc: super::SharedServices {
                 runtime: runtime_for_session,
-                tool_registry: Arc::new(ToolRegistry::new()),
+                tool_registry: shared_tool_registry,
                 session_store: session_store_for_session,
                 event_log: event_log_for_svc,
                 context_engine: Arc::new(

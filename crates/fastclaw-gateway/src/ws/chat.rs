@@ -591,7 +591,7 @@ pub async fn spawn_chat(
         // On Done: persist assistant message BEFORE forwarding to client.
         let mut assistant_content = String::new();
         let mut stream_ended = false;
-        let mut _current_turn_id: Option<fastclaw_protocol::TurnId> = None;
+        let mut current_turn_id: Option<fastclaw_protocol::TurnId> = None;
 
         loop {
             let event = match event_rx.recv().await {
@@ -599,7 +599,20 @@ pub async fn spawn_chat(
                 None => break,
             };
             if let AgentEvent::TurnStart { turn_id, .. } = &event {
-                _current_turn_id = Some(turn_id.clone());
+                current_turn_id = Some(turn_id.clone());
+            }
+            // Skip TurnAborted events from a previous turn that was replaced by
+            // our submission. The subscriber is registered before the actor
+            // processes the op, so it may receive abort events for the old turn.
+            if let AgentEvent::TurnAborted { ref turn_id, .. } = event {
+                if current_turn_id.as_ref().is_some_and(|id| id != turn_id) {
+                    continue;
+                }
+                if current_turn_id.is_none() {
+                    // We haven't received our TurnStart yet — this abort
+                    // belongs to a prior turn; skip it.
+                    continue;
+                }
             }
             if turn_cancel.is_cancelled() {
                 if reserved > 0.0 {
@@ -727,6 +740,9 @@ pub async fn spawn_chat(
                 }
             }
             if bg_tx.send(resp).await.is_err() {
+                break;
+            }
+            if is_done || matches!(&event, AgentEvent::TurnAborted { .. } | AgentEvent::Error { .. }) {
                 break;
             }
         }

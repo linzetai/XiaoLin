@@ -401,12 +401,14 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
         setMentions([]);
         historyRef.current = [{ text: "", mentions: [], cursor: 0 }];
         historyIdxRef.current = 0;
+        onContentChange?.(false);
         if (taRef.current) taRef.current.style.height = "auto";
       },
       getText: () => text,
       setText: (value: string) => {
         setText(value);
         setMentions([]);
+        onContentChange?.(!!value.trim());
       },
       getMentions: () => mentions,
     }));

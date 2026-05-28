@@ -194,6 +194,10 @@ export function useMessageStreamChat({
       timestamp: new Date(),
       images: imageDataUrls.length > 0 ? imageDataUrls : undefined,
     }, capturedChatId);
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
     atBottomRef.current = true;
     setStreaming(true);
     requestBottomScroll("auto");
@@ -408,7 +412,14 @@ export function useMessageStreamChat({
               startTime: Date.now(),
             };
             if (isActive()) {
-              segmentsRef.current.push({ id: `tool-${tc.id}`, type: "tool", toolCall: tc });
+              const existing = segmentsRef.current.find((s) => s.type === "tool" && s.toolCall?.id === tc.id);
+              if (existing?.toolCall) {
+                existing.toolCall.status = "running";
+                existing.toolCall.args = tc.args;
+                existing.toolCall.startTime = tc.startTime;
+              } else {
+                segmentsRef.current.push({ id: `tool-${tc.id}`, type: "tool", toolCall: tc });
+              }
               flushSegments();
             } else {
               const ds = detachedStreams.get(capturedChatId);
@@ -682,8 +693,16 @@ export function useMessageStreamChat({
 
     cleanupRef.current = cleanup;
 
-    chatPromise.catch(() => {
-      if (isActive()) { setStreaming(false); setPendingQuestion(null); }
+    chatPromise.catch((err: unknown) => {
+      if (isActive()) {
+        setStreaming(false);
+        setPendingQuestion(null);
+        segmentsRef.current = [];
+        currentStreamChatRef.current = null;
+        setStreamSegments([]);
+      }
+      const errMsg = err instanceof Error ? err.message : "连接失败";
+      addMessage(capturedAgentId, { role: "system", content: `错误: ${errMsg}`, timestamp: new Date() }, capturedChatId);
       cleanup();
     });
   };
