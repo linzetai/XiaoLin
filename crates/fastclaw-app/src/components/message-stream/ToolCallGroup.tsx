@@ -1,3 +1,7 @@
+/**
+ * @deprecated Use StepGroup from ./StepGroup.tsx instead.
+ * Kept temporarily for backward compatibility during message-stream-redesign transition.
+ */
 import { useState, useMemo, memo, useCallback } from "react";
 import {
   ChevronRight, AlertTriangle, Clock, Layers,

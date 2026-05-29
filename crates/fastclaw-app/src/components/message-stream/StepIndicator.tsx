@@ -1,7 +1,3 @@
-/**
- * @deprecated Use StepIndicator from ./StepIndicator.tsx instead.
- * Kept temporarily for backward compatibility during message-stream-redesign transition.
- */
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ReactNode } from "react";
 import {
   FileText, PenLine, Search, Terminal, Globe, Download, Monitor,
@@ -67,7 +63,6 @@ function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
   return { icon: <Plug {...ICON.sm} />, label: `${serverId}/${toolName}` };
 }
 
-
 function ElapsedTimer({ startTime }: { startTime: number }) {
   const [elapsed, setElapsed] = useState(0);
   const ref = useRef<ReturnType<typeof setInterval>>(null);
@@ -85,7 +80,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function extractKeyInfo(tool: ToolCall): string | null {
+export function extractKeyInfo(tool: ToolCall): string | null {
   if (!tool.args) return null;
   try {
     const args = JSON.parse(tool.args);
@@ -115,7 +110,18 @@ function tryPrettyJson(text: string): string {
   }
 }
 
-function ImageViewer({ src }: { src: string }) {
+const IMAGE_DATA_URI_RE = /!\[image\]\((data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)\)/g;
+
+function extractImages(text: string): { images: string[]; textOnly: string } {
+  const images: string[] = [];
+  const textOnly = text.replace(IMAGE_DATA_URI_RE, (_match, dataUri: string) => {
+    images.push(dataUri);
+    return "";
+  }).trim();
+  return { images, textOnly };
+}
+
+export function ImageViewer({ src }: { src: string }) {
   const [lightbox, setLightbox] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -140,9 +146,7 @@ function ImageViewer({ src }: { src: string }) {
           style={{ background: "var(--bg-primary)" }}
           onClick={() => setLightbox(true)}
         />
-        <div
-          className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-        >
+        <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
           <button
             onClick={handleCopy}
             className="flex h-7 w-7 items-center justify-center rounded-md backdrop-blur-sm transition-colors hover:brightness-125"
@@ -230,10 +234,10 @@ function StreamingDiffPreview({ args }: { args: string }) {
 
   return (
     <div
-      className="mx-3 mb-2 overflow-hidden rounded-md"
+      className="ml-6 mt-0.5 mb-1 overflow-hidden rounded-md"
       style={{ border: "0.5px solid var(--separator)", background: "var(--bg-primary)" }}
     >
-      <div className="flex items-center gap-2 px-2.5 py-1.5" style={{ borderBottom: "0.5px solid var(--separator)" }}>
+      <div className="flex items-center gap-2 px-2.5 py-1" style={{ borderBottom: "0.5px solid var(--separator)" }}>
         <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--tint, #4299E1)" }}>
           {isCreate ? "创建" : "变更预览"}
         </span>
@@ -243,7 +247,7 @@ function StreamingDiffPreview({ args }: { args: string }) {
       </div>
       <pre
         className="overflow-x-auto text-[11px] leading-[1.6]"
-        style={{ fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace', maxHeight: "200px", overflowY: "auto" }}
+        style={{ fontFamily: 'var(--font-mono)', maxHeight: "200px", overflowY: "auto" }}
       >
         {isCreate ? (
           newStr.split("\n").slice(0, 20).map((line: string, i: number) => (
@@ -305,17 +309,6 @@ function renderSimpleDiff(oldStr: string, newStr: string): ReactNode[] {
 const MAX_OUTPUT_LINES = 16;
 const MAX_OUTPUT_CHARS = 1200;
 
-const IMAGE_DATA_URI_RE = /!\[image\]\((data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)\)/g;
-
-function extractImages(text: string): { images: string[]; textOnly: string } {
-  const images: string[] = [];
-  const textOnly = text.replace(IMAGE_DATA_URI_RE, (_match, dataUri: string) => {
-    images.push(dataUri);
-    return "";
-  }).trim();
-  return { images, textOnly };
-}
-
 function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const { images, textOnly } = extractImages(content);
@@ -327,14 +320,14 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
     : lines.slice(0, MAX_OUTPUT_LINES).join("\n").slice(0, MAX_OUTPUT_CHARS);
 
   return (
-    <div className="mt-1.5 space-y-2">
+    <div className="mt-1 space-y-2">
       {images.map((src, i) => (
         <ImageViewer key={i} src={src} />
       ))}
       {formatted && (
         <>
           <pre
-            className="overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2.5 text-[11px] leading-[1.55]"
+            className="overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.55]"
             style={{
               background: "var(--bg-primary)",
               color: error ? "var(--red)" : "var(--fill-secondary)",
@@ -350,7 +343,7 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
           {needsTruncate && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="mt-1 cursor-pointer text-[11px] font-medium"
+              className="mt-0.5 cursor-pointer text-[11px] font-medium"
               style={{ color: "var(--fill-tertiary)" }}
             >
               {expanded ? "收起" : `展开全部 (${lines.length} 行)`}
@@ -362,7 +355,11 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   );
 }
 
-export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCall }) {
+/**
+ * Minimal inline step indicator — replaces the heavier ToolCallCard.
+ * ~28px row height, no border/background/shadow.
+ */
+export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? TOOL_META[tool.name] ?? DEFAULT_META;
@@ -374,53 +371,59 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
   const isError = tool.status === "error";
 
   const resultImages = tool.result ? extractImages(tool.result).images : [];
+  const hasSpecialResult = tool.result && (
+    isTodoResult(tool.name, tool.result) ||
+    isEditResult(tool.name, tool.result) ||
+    isPlanExitResult(tool.name, tool.result)
+  );
 
   return (
     <div
-      className="my-1.5 overflow-hidden rounded-lg"
+      className="step-indicator"
       style={{
-        border: `0.5px solid ${isError ? "color-mix(in srgb, var(--red) 30%, transparent)" : "var(--border-subtle)"}`,
-        borderLeft: isError ? "3px solid var(--red)" : "3px solid var(--tint)",
-        background: isError ? "color-mix(in srgb, var(--red) 4%, transparent)" : "var(--bg-surface)",
-        boxShadow: isError ? "none" : "inset 0 1px 0 var(--highlight-top)",
-        animation: "slide-up var(--duration-fast) var(--ease-out)",
-        maxWidth: "min(100%, 600px)",
+        animation: "fade-in var(--duration-fast) var(--ease-out)",
       }}
     >
-      {/* Header — always visible, clickable to expand */}
+      {/* Row — always visible */}
       <button
-        onClick={() => hasDetails && setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100"
-        style={{ cursor: hasDetails ? "pointer" : "default" }}
-        aria-expanded={hasDetails ? expanded : undefined}
+        onClick={() => hasDetails && !hasSpecialResult && setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors duration-100 rounded"
+        style={{
+          cursor: hasDetails && !hasSpecialResult ? "pointer" : "default",
+          minHeight: "var(--step-height)",
+          background: isRunning ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
+        }}
+        onMouseEnter={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
+        onMouseLeave={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = ""; }}
+        aria-expanded={hasDetails && !hasSpecialResult ? expanded : undefined}
       >
         {/* Status icon */}
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
           {isRunning ? (
             <span
-              className="inline-block h-3 w-3 rounded-full border-[1.5px]"
+              className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px]"
               style={{
                 borderColor: "var(--tint) transparent transparent transparent",
                 animation: "spin 0.8s linear infinite",
               }}
             />
           ) : isError ? (
-            <XIcon {...ICON.sm} style={{ color: "var(--red)", animation: "shake 0.3s ease-in-out" }} />
+            <XIcon size={14} strokeWidth={1.5} style={{ color: "var(--red)" }} />
           ) : (
-            <Check {...ICON.sm} style={{ color: "var(--green)", animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} />
+            <Check size={14} strokeWidth={1.5} style={{ color: "var(--green)" }} />
           )}
         </span>
 
         {/* Tool icon + label + key info */}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
           <span className="shrink-0" style={{ color: "var(--fill-tertiary)" }}>{meta.icon}</span>
-          <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-primary)" }}>
+          <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}>
             {label}
           </span>
           {keyInfo && (
             <span
               className="min-w-0 truncate font-mono text-[11px]"
-              style={{ color: "var(--fill-tertiary)" }}
+              style={{ color: "var(--fill-quaternary)" }}
               title={keyInfo}
             >
               {keyInfo}
@@ -434,71 +437,65 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
           {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
         </span>
 
-        {/* Expand chevron */}
-        {hasDetails && (
+        {/* Expand chevron (only for generic details, not special results) */}
+        {hasDetails && !hasSpecialResult && (
           <ChevronRight
-            {...ICON.sm}
+            size={12}
+            strokeWidth={1.5}
             className="shrink-0 transition-transform duration-150"
             style={{
-              color: "var(--fill-tertiary)",
+              color: "var(--fill-quaternary)",
               transform: expanded ? "rotate(90deg)" : "rotate(0)",
-              transition: "transform var(--duration-normal) var(--ease-spring)",
             }}
           />
         )}
       </button>
 
-      {isRunning && (
-        <div className="h-[3px] w-full overflow-hidden" style={{ background: "var(--bg-tertiary)" }}>
-          <div className="h-full w-1/3 rounded-full" style={{ background: "linear-gradient(90deg, transparent 0%, var(--tint) 50%, transparent 100%)", animation: "shimmer 1.5s ease-in-out infinite" }} />
-        </div>
-      )}
-
-      {/* Auto-display images from tool results without needing to expand */}
+      {/* Auto-display images from tool results */}
       {resultImages.length > 0 && (
-        <div className="px-3 pb-2 space-y-2">
+        <div className="pl-6 pb-1 space-y-1.5">
           {resultImages.map((src, i) => (
             <ImageViewer key={i} src={src} />
           ))}
         </div>
       )}
 
-      {/* Streaming diff preview — show while edit_file/write_file is running */}
+      {/* Streaming diff preview while edit_file is running */}
       {isRunning && isEditLikeTool(tool.name) && tool.args && (
         <StreamingDiffPreview args={tool.args} />
       )}
 
-      {/* Specialized tool result cards — shown without expanding */}
+      {/* Specialized results — rendered as independent blocks below the step row */}
       {!isRunning && tool.result && isTodoResult(tool.name, tool.result) && (
-        <div className="px-3 pb-2">
+        <div className="pl-6 pb-1">
           <TodoCard result={tool.result} />
         </div>
       )}
       {!isRunning && tool.result && isEditResult(tool.name, tool.result) && (
-        <div className="px-3 pb-2">
+        <div className="pl-6 pb-1">
           <DiffCard result={tool.result} args={tool.args} />
         </div>
       )}
       {!isRunning && tool.result && isPlanExitResult(tool.name, tool.result) && (
-        <div className="px-3 pb-2">
+        <div className="pl-6 pb-1">
           <PlanApprovalCard result={tool.result} />
         </div>
       )}
 
-      {/* Expanded details */}
-      {expanded && hasDetails && (
+      {/* Expanded inline details (for non-special results) */}
+      {expanded && hasDetails && !hasSpecialResult && (
         <div
-          className="px-3 pb-2.5"
+          className="pl-6 pb-1"
           style={{
-            borderTop: `0.5px solid var(--separator)`,
-            animation: "fade-slide-up var(--duration-normal) var(--ease-out)",
+            borderTop: "1px dashed var(--separator)",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
           }}
         >
           {tool.args && (
-            <div className="mt-1.5">
+            <div className="mt-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>参数</span>
               <pre
-                className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
+                className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
                 style={{
                   background: "var(--bg-primary)",
                   color: "var(--fill-secondary)",

@@ -198,7 +198,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
         style={{ color: "var(--fill-quaternary)" }}
         title="消息中心"
       >
-        <Bell size={14} strokeWidth={1.2} />
+        <Bell size={14} strokeWidth={1.5} />
         {unreadCount > 0 && (
           <span
             key={unreadCount}

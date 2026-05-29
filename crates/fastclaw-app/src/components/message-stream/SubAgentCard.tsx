@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
-  Bot, ChevronRight, Check, X as XIcon, Loader, Search, Terminal,
+  Bot, ChevronRight, Check, X as XIcon, Search, Terminal,
   Globe, Wrench, Square,
 } from "lucide-react";
 import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/agent-store";
+import { StepIndicator, type ToolCall } from "./StepIndicator";
 import { ICON } from "../../lib/ui-tokens";
 
 const TYPE_META: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -17,52 +18,14 @@ function getTypeMeta(type: string) {
   return TYPE_META[type] ?? { icon: <Wrench {...ICON.sm} />, label: type, color: "var(--fill-tertiary)" };
 }
 
-function StatusIndicator({ status }: { status: SubAgentRunUI["status"] }) {
-  switch (status) {
-    case "pending":
-    case "running":
-      return (
-        <span
-          className="inline-block h-3 w-3 rounded-full border-[1.5px]"
-          style={{
-            borderColor: "var(--tint) transparent transparent transparent",
-            animation: "spin 0.8s linear infinite",
-          }}
-        />
-      );
-    case "completed":
-      return <Check {...ICON.sm} style={{ color: "var(--green, #34c759)" }} />;
-    case "failed":
-      return <XIcon {...ICON.sm} style={{ color: "var(--red)" }} />;
-    case "cancelled":
-      return <Square {...ICON.sm} style={{ color: "var(--fill-quaternary)" }} />;
-  }
-}
-
-function MiniToolCall({ tc }: { tc: SubAgentToolCall }) {
-  const isRunning = tc.status === "running";
-  const isError = tc.status === "error";
-  return (
-    <div
-      className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px]"
-      style={{
-        background: "var(--bg-primary)",
-        border: "0.5px solid var(--separator)",
-        color: isError ? "var(--red)" : "var(--fill-secondary)",
-      }}
-    >
-      <span className="flex h-3 w-3 items-center justify-center">
-        {isRunning ? (
-          <Loader {...ICON.sm} className="animate-spin" style={{ color: "var(--fill-tertiary)" }} />
-        ) : isError ? (
-          <XIcon {...ICON.sm} style={{ color: "var(--red)" }} />
-        ) : (
-          <Check {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
-        )}
-      </span>
-      <span className="truncate font-mono">{tc.name}</span>
-    </div>
-  );
+function adaptToolCall(tc: SubAgentToolCall): ToolCall {
+  return {
+    id: tc.id,
+    name: tc.name,
+    status: tc.status as "running" | "success" | "error",
+    args: tc.args,
+    result: tc.result,
+  };
 }
 
 interface SubAgentCardProps {
@@ -75,44 +38,61 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
   const meta = getTypeMeta(run.subagentType);
   const isActive = run.status === "running" || run.status === "pending";
   const isFailed = run.status === "failed" || run.status === "cancelled";
+  const isDone = run.status === "completed";
+
+  const toolCallsAsSteps = useMemo(
+    () => run.toolCalls.map(adaptToolCall),
+    [run.toolCalls],
+  );
 
   return (
-    <div
-      className="my-2 overflow-hidden rounded-lg"
-      style={{
-        border: `0.5px solid ${isFailed ? "color-mix(in srgb, var(--red) 25%, transparent)" : `color-mix(in srgb, ${meta.color} 30%, var(--separator))`}`,
-        background: isFailed
-          ? "color-mix(in srgb, var(--red) 3%, var(--bg-secondary))"
-          : "var(--bg-secondary)",
-        animation: "slide-up var(--duration-fast) var(--ease-out)",
-        maxWidth: "min(100%, 640px)",
-      }}
-    >
-      {/* Header */}
+    <div style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
+      {/* Summary row — same visual pattern as StepIndicator */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors duration-100"
-        style={{ cursor: "pointer" }}
+        className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors duration-100 rounded"
+        style={{
+          cursor: "pointer",
+          minHeight: "var(--step-height)",
+          background: isActive ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
+        }}
+        onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
+        onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = ""; }}
         aria-expanded={expanded}
       >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          <StatusIndicator status={run.status} />
+        {/* Status icon */}
+        <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+          {isActive ? (
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px]"
+              style={{
+                borderColor: "var(--tint) transparent transparent transparent",
+                animation: "spin 0.8s linear infinite",
+              }}
+            />
+          ) : isFailed ? (
+            <XIcon size={14} strokeWidth={1.5} style={{ color: "var(--red)" }} />
+          ) : (
+            <Check size={14} strokeWidth={1.5} style={{ color: "var(--green)" }} />
+          )}
         </span>
 
+        {/* Type icon + label + task */}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
           <span className="shrink-0" style={{ color: meta.color }}>{meta.icon}</span>
-          <span className="shrink-0 font-medium" style={{ color: "var(--fill-primary)" }}>
+          <span className="shrink-0 font-medium" style={{ color: isFailed ? "var(--red)" : "var(--fill-secondary)" }}>
             {meta.label}
           </span>
           <span
             className="min-w-0 truncate text-[11px]"
-            style={{ color: "var(--fill-tertiary)" }}
+            style={{ color: "var(--fill-quaternary)" }}
             title={run.task}
           >
             {run.task.length > 60 ? run.task.slice(0, 60) + "…" : run.task}
           </span>
         </span>
 
+        {/* Duration */}
         {run.elapsedMs != null && (
           <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
             {run.elapsedMs < 1000 ? `${run.elapsedMs}ms` : `${(run.elapsedMs / 1000).toFixed(1)}s`}
@@ -131,44 +111,28 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
         )}
 
         <ChevronRight
-          {...ICON.sm}
+          size={12}
+          strokeWidth={1.5}
           className="shrink-0 transition-transform duration-150"
           style={{
-            color: "var(--fill-tertiary)",
+            color: "var(--fill-quaternary)",
             transform: expanded ? "rotate(90deg)" : "rotate(0)",
           }}
         />
       </button>
 
-      {/* Collapsed: show tool call chips */}
-      {!expanded && run.toolCalls.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-3 pb-2">
-          {run.toolCalls.slice(0, 6).map((tc: SubAgentToolCall) => (
-            <MiniToolCall key={tc.id} tc={tc} />
-          ))}
-          {run.toolCalls.length > 6 && (
-            <span className="self-center text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-              +{run.toolCalls.length - 6} more
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Expanded content */}
+      {/* Expanded: task + tool calls as StepIndicator rows */}
       {expanded && (
         <div
-          className="px-3 pb-3"
+          className="pl-6 pb-1"
           style={{
-            borderTop: "0.5px solid var(--separator)",
-            animation: "fade-in var(--duration-instant) var(--ease-out)",
+            borderTop: "1px dashed var(--separator)",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
           }}
         >
-          {/* Task */}
-          <div className="mt-2">
-            <span
-              className="text-[10px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--fill-quaternary)" }}
-            >
+          {/* Task detail */}
+          <div className="mt-1.5 mb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
               任务
             </span>
             <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--fill-secondary)" }}>
@@ -178,21 +142,15 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
 
           {/* Streaming content */}
           {run.content && (
-            <div className="mt-2">
-              <span
-                className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--fill-quaternary)" }}
-              >
-                输出
-              </span>
+            <div className="mt-1">
               <pre
-                className="mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2.5 text-[11px] leading-[1.55]"
+                className="overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2 text-[11px] leading-[1.55]"
                 style={{
                   background: "var(--bg-primary)",
                   color: "var(--fill-secondary)",
                   border: "0.5px solid var(--separator)",
-                  fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace',
-                  maxHeight: "300px",
+                  fontFamily: 'var(--font-mono)',
+                  maxHeight: "200px",
                   overflowY: "auto",
                 }}
               >
@@ -201,42 +159,15 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             </div>
           )}
 
-          {/* Tool calls */}
-          {run.toolCalls.length > 0 && (
-            <div className="mt-2">
-              <span
-                className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--fill-quaternary)" }}
-              >
-                工具调用 ({run.toolCalls.length})
+          {/* Tool calls — rendered as StepIndicator rows */}
+          {toolCallsAsSteps.length > 0 && (
+            <div className="mt-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
+                工具调用 ({toolCallsAsSteps.length})
               </span>
-              <div className="mt-1 space-y-1">
-                {run.toolCalls.map((tc: SubAgentToolCall) => (
-                  <div
-                    key={tc.id}
-                    className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px]"
-                    style={{
-                      background: "var(--bg-primary)",
-                      border: "0.5px solid var(--separator)",
-                      color: tc.status === "error" ? "var(--red)" : "var(--fill-secondary)",
-                    }}
-                  >
-                    <span className="flex h-3.5 w-3.5 items-center justify-center">
-                      {tc.status === "running" ? (
-                        <Loader {...ICON.sm} className="animate-spin" style={{ color: "var(--fill-tertiary)" }} />
-                      ) : tc.status === "error" ? (
-                        <XIcon {...ICON.sm} />
-                      ) : (
-                        <Check {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
-                      )}
-                    </span>
-                    <span className="font-mono font-medium">{tc.name}</span>
-                    {tc.args && (
-                      <span className="min-w-0 truncate font-mono" style={{ color: "var(--fill-quaternary)" }}>
-                        {tc.args.slice(0, 80)}
-                      </span>
-                    )}
-                  </div>
+              <div className="mt-0.5">
+                {toolCallsAsSteps.map((tc) => (
+                  <StepIndicator key={tc.id} tool={tc} />
                 ))}
               </div>
             </div>
@@ -244,20 +175,17 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
 
           {/* Result */}
           {run.result && (
-            <div className="mt-2">
-              <span
-                className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--fill-quaternary)" }}
-              >
+            <div className="mt-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
                 结果
               </span>
               <pre
-                className="mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2.5 text-[11px] leading-[1.55]"
+                className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2 text-[11px] leading-[1.55]"
                 style={{
                   background: "var(--bg-primary)",
                   color: isFailed ? "var(--red)" : "var(--fill-secondary)",
                   border: "0.5px solid var(--separator)",
-                  fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace',
+                  fontFamily: 'var(--font-mono)',
                   maxHeight: "300px",
                   overflowY: "auto",
                 }}
@@ -267,9 +195,9 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             </div>
           )}
 
-          {/* Stats footer */}
+          {/* Stats */}
           {(run.toolCallsMade > 0 || run.iterations > 0) && (
-            <div className="mt-2 flex gap-3 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+            <div className="mt-1.5 flex gap-3 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
               {run.toolCallsMade > 0 && <span>{run.toolCallsMade} 次工具调用</span>}
               {run.iterations > 0 && <span>{run.iterations} 轮迭代</span>}
               {run.elapsedMs != null && <span>耗时 {(run.elapsedMs / 1000).toFixed(1)}s</span>}

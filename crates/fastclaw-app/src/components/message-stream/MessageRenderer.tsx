@@ -1,16 +1,16 @@
 import { Component, memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense, type ReactNode, type ErrorInfo } from "react";
 import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
 import { ICON, ICON_ACTIVE_STROKE, BTN_ICON } from "../../lib/ui-tokens";
-import { ToolCallCard } from "./ToolCallCard";
+import { StepIndicator } from "./StepIndicator";
 import { SubAgentCard } from "./SubAgentCard";
 import {
   groupConsecutiveSegments,
   groupConsecutiveToolCalls,
-  ToolCallGroupCard,
-  ToolCallGroupTimeline,
-} from "./ToolCallGroup";
+  StepGroup,
+} from "./StepGroup";
 import { AlertTriangle } from "lucide-react";
 import { openLightbox } from "../common/ImageLightbox";
+import { UserInput } from "./UserInput";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
@@ -213,39 +213,40 @@ const AiReactionBar = memo(function AiReactionBar({ content }: { content: string
   }, [content]);
 
   const btnCls = `${BTN_ICON.sm} transition-all duration-150 active:scale-90`;
-  const thin = { ...ICON.sm, strokeWidth: 1.2 } as const;
+  const iconProps = { ...ICON.sm, strokeWidth: 1.5 } as const;
+  const defaultColor = "var(--fill-tertiary)";
 
   return (
     <div
       className="mt-1 flex items-center gap-0.5 -ml-1.5"
     >
-      <button onClick={handleCopy} className={btnCls} style={{ color: copied ? "var(--green)" : "var(--fill-quaternary)" }} title="复制">
-        {copied ? <Check {...thin} strokeWidth={ICON_ACTIVE_STROKE} style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy {...thin} />}
+      <button onClick={handleCopy} className={btnCls} style={{ color: copied ? "var(--green)" : defaultColor }} title="复制">
+        {copied ? <Check {...iconProps} strokeWidth={ICON_ACTIVE_STROKE} style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy {...iconProps} />}
       </button>
       <button
         onClick={() => { setLiked(!liked); if (disliked) setDisliked(false); }}
         className={btnCls}
-        style={{ color: liked ? "var(--tint)" : "var(--fill-quaternary)" }}
+        style={{ color: liked ? "var(--tint)" : defaultColor }}
         title="点赞"
       >
-        <ThumbsUp {...thin} strokeWidth={liked ? ICON_ACTIVE_STROKE : thin.strokeWidth} />
+        <ThumbsUp {...iconProps} strokeWidth={liked ? ICON_ACTIVE_STROKE : iconProps.strokeWidth} />
       </button>
       <button
         onClick={() => { setDisliked(!disliked); if (liked) setLiked(false); }}
         className={btnCls}
-        style={{ color: disliked ? "var(--red)" : "var(--fill-quaternary)" }}
+        style={{ color: disliked ? "var(--red)" : defaultColor }}
         title="点踩"
       >
-        <ThumbsDown {...thin} strokeWidth={disliked ? ICON_ACTIVE_STROKE : thin.strokeWidth} />
+        <ThumbsDown {...iconProps} strokeWidth={disliked ? ICON_ACTIVE_STROKE : iconProps.strokeWidth} />
       </button>
-      <button className={btnCls} style={{ color: "var(--fill-quaternary)" }} title="重试">
-        <RotateCw {...thin} />
+      <button className={btnCls} style={{ color: defaultColor }} title="重试">
+        <RotateCw {...iconProps} />
       </button>
     </div>
   );
 });
 
-const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
+const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void }) {
   const toolCalls = msg.toolCalls;
   const aiThreshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
   const groupedToolCalls = useMemo(() => {
@@ -254,7 +255,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
     return groupConsecutiveToolCalls(typed, aiThreshold);
   }, [toolCalls, aiThreshold]);
   return (
-    <div className="pb-5 group/message" style={{ animation: animate ? "slide-left var(--duration-normal) var(--ease-out)" : "none", maxWidth: "75%" }}>
+    <div className="pb-3 group/message" style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
       <div className="flex items-start gap-2">
         {onToggleSelect && (
           <button
@@ -273,10 +274,10 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         <div className="mb-2">
           {groupedToolCalls.map((item) => {
             if (item.type === "single") {
-              return <ToolCallCard key={item.tool.id} tool={item.tool} />;
+              return <StepIndicator key={item.tool.id} tool={item.tool} />;
             }
             return (
-              <ToolCallGroupCard
+              <StepGroup
                 key={item.tools[0].id}
                 tools={item.tools}
               />
@@ -284,9 +285,11 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
           })}
         </div>
       )}
-      <Suspense fallback={<div className="animate-pulse rounded py-2" style={{ background: "var(--bg-tertiary)", height: 20 }} />}>
-        <MarkdownContent content={msg.content} />
-      </Suspense>
+      <div style={{ maxWidth: "720px" }}>
+        <Suspense fallback={<div className="animate-pulse rounded py-2" style={{ background: "var(--bg-tertiary)", height: 20 }} />}>
+          <MarkdownContent content={msg.content} />
+        </Suspense>
+      </div>
       <div className="mt-1 flex items-center gap-2.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
         <span
           className="cursor-default"
@@ -312,15 +315,18 @@ function SystemMsg({ msg }: { msg: ChatMessage }) {
   const isError = typeof msg.content === "string" && msg.content.startsWith("错误:");
   return (
     <div
-      className="pb-4 break-words rounded-xl px-3 py-2 text-[13px]"
+      className="pb-2 flex items-start gap-2 text-[13px]"
       style={{
-        background: isError ? "var(--error-subtle, rgba(239,68,68,0.08))" : "var(--tint-subtle)",
-        color: isError ? "var(--error-text, #dc2626)" : "var(--fill-secondary)",
-        borderLeft: isError ? "3px solid var(--error-border, #f87171)" : "none",
+        color: isError ? "var(--red)" : "var(--fill-tertiary)",
         overflowWrap: "anywhere",
+        animation: "fade-in var(--duration-fast) var(--ease-out)",
       }}
     >
-      {msg.content}
+      <span
+        className="mt-[7px] inline-block h-[6px] w-[6px] shrink-0 rounded-full"
+        style={{ background: isError ? "var(--red)" : "var(--tint)" }}
+      />
+      <span className="break-words min-w-0">{msg.content}</span>
     </div>
   );
 }
@@ -654,13 +660,13 @@ export function MessageRendererRow({
     const activeSubRuns = subAgentRuns ? Object.values(subAgentRuns) : [];
     return (
       <MessageErrorBoundary>
-      <div className="px-6 pb-4">
+      <div className="px-6 pb-2">
         {!hasContent && activeSubRuns.length === 0 && <Typing />}
         {grouped.map((group, gi) => {
           if (group.type === "text" && group.segment.content) {
             const isLastSegment = gi === grouped.length - 1 && lastIsText;
             return (
-              <div key={group.segment.id} className="pb-1" style={{ maxWidth: "75%" }}>
+              <div key={group.segment.id} className="pb-1" style={{ maxWidth: "720px" }}>
                 <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
                   <MarkdownContent content={group.segment.content} streaming />
                 </Suspense>
@@ -674,16 +680,17 @@ export function MessageRendererRow({
             );
           }
           if (group.type === "single-tool" && group.segment.toolCall) {
-            return <ToolCallCard key={group.segment.id} tool={group.segment.toolCall} />;
+            return <StepIndicator key={group.segment.id} tool={group.segment.toolCall} />;
           }
           if (group.type === "tool-group") {
             const tools = group.segments
               .map((s) => s.toolCall)
               .filter((tc): tc is NonNullable<typeof tc> => !!tc);
             return (
-              <ToolCallGroupTimeline
+              <StepGroup
                 key={group.segments[0].id}
                 tools={tools}
+                streaming
               />
             );
           }
@@ -712,12 +719,11 @@ export function MessageRendererRow({
       className="px-6"
     >
       {cm.role === "user" ? (
-        <UserBubble
+        <UserInput
           msg={cm}
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
-          animate={animate}
         />
       ) : cm.role === "system" ? (
         <SystemMsg msg={cm} />
@@ -728,7 +734,6 @@ export function MessageRendererRow({
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
-          animate={animate}
         />
       )}
     </div>

@@ -31,7 +31,7 @@
   --fill-primary: #1d1d1f;
   --fill-secondary: #374151;
   --fill-tertiary: #4B5563;
-  --fill-quaternary: #aeaeb2;
+  --fill-quaternary: #8b8b90;
   --fill-inverse: #ffffff;
 
   --tint: #2563EB;
@@ -51,6 +51,7 @@
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0.5px 1px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
 
+  /* DEPRECATED — kept for backward compat during message-stream-redesign transition */
   --bubble-user: #2563EB;
   --bubble-user-text: #ffffff;
   --bubble-them: #f0f0f2;
@@ -96,6 +97,13 @@
   --item-gap: 8px;
   --inline-gap: 6px;
 
+  /* Step indicator (document-flow redesign) */
+  --step-height: 28px;
+  --step-gap: 2px;
+  --step-hover-bg: color-mix(in srgb, var(--fill-primary) 4%, transparent);
+  --user-input-divider: var(--separator);
+  --user-input-label-color: var(--fill-quaternary);
+
   /* Stagger animation */
   --stagger: 30ms;
 
@@ -106,7 +114,7 @@
 
   /* Aesthetic tokens */
   --gradient-hero: radial-gradient(ellipse 600px 400px at 50% 40%, color-mix(in srgb, var(--tint) 8%, transparent), transparent);
-  --bubble-user-gradient: linear-gradient(135deg, var(--bubble-user), color-mix(in srgb, var(--bubble-user) 80%, #000));
+  /* DEPRECATED */ --bubble-user-gradient: linear-gradient(135deg, var(--bubble-user), color-mix(in srgb, var(--bubble-user) 80%, #000));
   --noise-overlay: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
 
   /* Code */
@@ -171,7 +179,7 @@
   --fill-primary: #f5f5f7;
   --fill-secondary: #A1A1A6;
   --fill-tertiary: #8E8E93;
-  --fill-quaternary: #48484a;
+  --fill-quaternary: #636366;
   --fill-inverse: #0A0A0B;
 
   --bg-selected: #1E1E22;
@@ -191,8 +199,8 @@
   --shadow-md: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 2px 8px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 4px 20px rgba(0, 0, 0, 0.6);
 
-  --bubble-user: #3B82F6;
-  --bubble-user-text: #ffffff;
+  /* DEPRECATED */ --bubble-user: #3B82F6;
+  /* DEPRECATED */ --bubble-user-text: #ffffff;
   --bubble-them: #1A1A1D;
   --bubble-them-text: #f5f5f7;
 
@@ -202,7 +210,7 @@
   --yellow: #FFD60A;
 
   --gradient-hero: radial-gradient(ellipse 600px 400px at 50% 40%, color-mix(in srgb, var(--tint) 12%, transparent), transparent);
-  --bubble-user-gradient: linear-gradient(135deg, var(--bubble-user), color-mix(in srgb, var(--bubble-user) 70%, #000));
+  /* DEPRECATED */ --bubble-user-gradient: linear-gradient(135deg, var(--bubble-user), color-mix(in srgb, var(--bubble-user) 70%, #000));
 }
 
 /* ━━━ Full Immersive Theme Overrides ━━━

@@ -13,7 +13,7 @@ interface TodoItem {
   status: "completed" | "in_progress" | "pending" | "cancelled";
 }
 
-interface TodoSummary {
+export interface TodoSummary {
   total: number;
   completed: number;
   inProgress: number;
@@ -21,7 +21,7 @@ interface TodoSummary {
   cancelled: number;
 }
 
-function parseTodoResult(text: string): { summary: TodoSummary; items: TodoItem[] } | null {
+export function parseTodoResult(text: string): { summary: TodoSummary; items: TodoItem[] } | null {
   const lines = text.split("\n").filter(Boolean);
   if (lines.length < 2) return null;
 

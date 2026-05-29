@@ -12,6 +12,8 @@ import { X, ChevronUp, ChevronDown, Upload, Search, ArrowDown } from "lucide-rea
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { StreamEmptyState } from "./StreamEmptyState";
+import { StickyContextBar } from "./StickyContextBar";
+import { parseTodoResult, type TodoSummary } from "./TodoCard";
 import { ICON } from "../../lib/ui-tokens";
 
 const VIEWPORT_INCREASE = { top: 200, bottom: 200 };
@@ -419,9 +421,70 @@ export function MessageStream(_props: MessageStreamProps) {
     return () => ro.disconnect();
   }, [chatKey]);
 
+  const [visibleRange, setVisibleRange] = useState<{ startIndex: number; endIndex: number }>({ startIndex: 0, endIndex: 0 });
   const handleRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
     firstVisibleIndexRef.current = range.startIndex;
+    setVisibleRange(range);
   }, []);
+
+  const lastUserMessage = useMemo(() => {
+    for (let i = stream.length - 1; i >= 0; i--) {
+      if (stream[i].data.role === "user") return { content: stream[i].data.content, index: i };
+    }
+    return null;
+  }, [stream]);
+
+  const lastUserDisplayIndex = useMemo(() => {
+    if (!lastUserMessage) return -1;
+    const globalIdx = lastUserMessage.index;
+    return globalIdx - paginationOffset;
+  }, [lastUserMessage, paginationOffset]);
+
+  const todoProgress = useMemo<TodoSummary | null>(() => {
+    if (!streamSegments || streamSegments.length === 0) return null;
+    for (let i = streamSegments.length - 1; i >= 0; i--) {
+      const seg = streamSegments[i];
+      if (seg.type === "tool" && seg.toolCall?.name === "todo_write" && seg.toolCall.result) {
+        const parsed = parseTodoResult(seg.toolCall.result);
+        if (parsed) return parsed.summary;
+      }
+    }
+    if (!streaming) {
+      for (let i = stream.length - 1; i >= 0; i--) {
+        const msg = stream[i].data;
+        if (msg.role === "assistant" && msg.toolCalls) {
+          for (let j = msg.toolCalls.length - 1; j >= 0; j--) {
+            const tc = msg.toolCalls[j];
+            if (tc.name === "todo_write" && tc.result) {
+              const parsed = parseTodoResult(tc.result);
+              if (parsed) return parsed.summary;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }, [streamSegments, stream, streaming]);
+
+  const showContextBar = useMemo(() => {
+    if (!lastUserMessage) return false;
+    if (streaming) return true;
+    if (lastUserDisplayIndex >= 0) {
+      return lastUserDisplayIndex < visibleRange.startIndex || lastUserDisplayIndex > visibleRange.endIndex;
+    }
+    return lastUserDisplayIndex < 0;
+  }, [lastUserMessage, streaming, lastUserDisplayIndex, visibleRange]);
+
+  const handleEditFromBar = useCallback(() => {
+    if (!lastUserMessage) return;
+    if (streaming) stopStream();
+    window.dispatchEvent(new CustomEvent("fastclaw:edit-message", { detail: { text: lastUserMessage.content } }));
+  }, [lastUserMessage, streaming, stopStream]);
+
+  const handleResendFromBar = useCallback(() => {
+    if (!lastUserMessage) return;
+    handleMentionSend(lastUserMessage.content, []);
+  }, [lastUserMessage, handleMentionSend]);
 
   const isEmpty = stream.length === 0 && !streaming;
 
@@ -523,6 +586,16 @@ export function MessageStream(_props: MessageStreamProps) {
         </div>
       ) : (
         <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
+          {showContextBar && lastUserMessage && (
+            <StickyContextBar
+              userMessage={lastUserMessage.content}
+              streaming={streaming}
+              todoProgress={todoProgress}
+              onStop={stopStream}
+              onEdit={handleEditFromBar}
+              onResend={handleResendFromBar}
+            />
+          )}
           <Virtuoso
             ref={virtuosoRef}
             key={chatKey}
