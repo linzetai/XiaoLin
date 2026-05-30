@@ -6,18 +6,20 @@
 //! tools (via task-local), so approvals and answers resolve without polling.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use fastclaw_core::agent_config::AgentConfig;
 use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::types::ChatRequest;
-use fastclaw_protocol::{AgentEvent, AgentId, SessionId};
+use fastclaw_protocol::{AgentEvent, AgentId, SessionId, TurnId};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use fastclaw_session_actor::{InteractionHandle, TurnError, TurnExecutor, TurnParams, TurnResult};
 
 use crate::llm::LlmProvider;
+use crate::reactive_loop;
 use crate::AgentRuntime;
 
 /// Adapter implementing `TurnExecutor` by delegating to `AgentRuntime`.
@@ -183,6 +185,195 @@ impl RuntimeTurnExecutor {
     }
 }
 
+impl RuntimeTurnExecutor {
+    /// Reactive loop: after initial execute_unified, if sub-agents are active,
+    /// wait for completions → inject notification → re-prompt until all done.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_reactive_loop(
+        &self,
+        first_result: anyhow::Result<fastclaw_protocol::TurnSummary>,
+        config: &AgentConfig,
+        request: &ChatRequest,
+        session_id: &str,
+        tx: &mpsc::Sender<AgentEvent>,
+        orchestrator: &Arc<crate::runtime::orchestrator::ToolOrchestrator>,
+        llm: &Option<Arc<dyn LlmProvider>>,
+        interaction: &InteractionHandle,
+        subagent_prompt: &Option<String>,
+        mode_state: &Option<crate::builtin_tools::ExecutionModeState>,
+        plan_ctx: &Option<crate::builtin_tools::PlanContext>,
+        session_store: &Option<Arc<fastclaw_session::SessionStore>>,
+        todo_store: &Option<crate::builtin_tools::TodoStore>,
+        stream_context_key: &str,
+        cancel: &CancellationToken,
+    ) -> anyhow::Result<fastclaw_protocol::TurnSummary> {
+        let mgr = self.subagent_manager.as_ref().unwrap();
+        let policy = &config.behavior.subagent;
+        let batch_window = Duration::from_millis(policy.batch_window_ms);
+        let max_reprompts = policy.max_reprompts_per_turn;
+        let suppress_ack = policy.suppress_intermediate_ack;
+
+        let mut accumulated_result = first_result?;
+        let mut reprompt_count: u32 = 0;
+
+        loop {
+            let active = mgr.active_runs(session_id);
+            if active.is_empty() {
+                tracing::debug!(
+                    session_id,
+                    reprompt_count,
+                    "reactive loop: no active sub-agents, turn complete"
+                );
+                break;
+            }
+
+            if reprompt_count >= max_reprompts {
+                tracing::warn!(
+                    session_id,
+                    reprompt_count,
+                    max_reprompts,
+                    "reactive loop: max reprompts reached, ending turn with active sub-agents"
+                );
+                break;
+            }
+
+            tracing::info!(
+                session_id,
+                active_count = active.len(),
+                reprompt_count,
+                "reactive loop: waiting for sub-agent completions"
+            );
+
+            // Subscribe and wait for completions with batch window.
+            let mut completion_rx = mgr.subscribe_completions(session_id);
+
+            let completions = tokio::select! {
+                c = reactive_loop::wait_for_completions(&mut completion_rx, batch_window) => c,
+                () = cancel.cancelled() => {
+                    return Err(anyhow::anyhow!("cancelled by session actor"));
+                }
+            };
+
+            if completions.is_empty() {
+                tracing::debug!(session_id, "reactive loop: channel closed, ending");
+                break;
+            }
+
+            let remaining_active = mgr.active_runs(session_id).len() as u32;
+            let turn_id = TurnId::generate();
+
+            // Emit notification event for frontend.
+            reactive_loop::emit_notification_event(
+                tx,
+                &turn_id,
+                &completions,
+                remaining_active,
+            )
+            .await;
+
+            // Build notification message and inject into conversation.
+            let notification_text =
+                reactive_loop::build_completion_notification(&completions, remaining_active as usize);
+
+            // Load current messages, append notification, and re-prompt.
+            let mut reprompt_request = request.clone();
+            if let Some(ref store) = session_store {
+                if let Some(ref sid) = request.session_id {
+                    if let Ok(mut messages) = store.load_chat_messages(&sid.to_string()).await {
+                        messages.push(reactive_loop::notification_as_system_message(&notification_text));
+                        reprompt_request.messages = messages;
+                    }
+                }
+            } else {
+                // Fallback: append to request messages.
+                reprompt_request
+                    .messages
+                    .push(reactive_loop::notification_as_system_message(&notification_text));
+            }
+
+            // Re-prompt LLM.
+            let runtime = self.runtime.clone();
+            let tool_registry = self.tool_registry.clone();
+            let ih_for_tools = interaction.clone();
+            let stream_ctx_key_inner = stream_context_key.to_string();
+            let mode_state_c = mode_state.clone();
+            let plan_ctx_c = plan_ctx.clone();
+
+            let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<fastclaw_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified(
+                config,
+                &reprompt_request,
+                &tool_registry,
+                tx.clone(),
+                fastclaw_core::tool_runtime::ApprovalStrategy::Interactive,
+                llm.clone(),
+                orchestrator.clone(),
+                Some(interaction.clone()),
+                subagent_prompt.clone(),
+                mode_state.clone(),
+                session_store.clone(),
+                todo_store.clone(),
+            ));
+
+            let reprompt_result = {
+                let wrapped_fut = async move {
+                    let runtime_with_ih = crate::builtin_tools::with_interaction_handle(
+                        ih_for_tools,
+                        runtime_fut,
+                    );
+                    if let Some(ms) = mode_state_c {
+                        crate::builtin_tools::with_stream_context(
+                            stream_ctx_key_inner,
+                            crate::builtin_tools::with_session_mode(ms, plan_ctx_c, runtime_with_ih),
+                        )
+                        .await
+                    } else {
+                        crate::builtin_tools::with_stream_context(
+                            stream_ctx_key_inner,
+                            runtime_with_ih,
+                        )
+                        .await
+                    }
+                };
+
+                tokio::select! {
+                    r = wrapped_fut => r,
+                    () = cancel.cancelled() => Err(anyhow::anyhow!("cancelled by session actor")),
+                }
+            };
+
+            match reprompt_result {
+                Ok(summary) => {
+                    // If suppress_ack is enabled and the LLM just acknowledged
+                    // without doing anything meaningful, don't count it as progress.
+                    if suppress_ack
+                        && reactive_loop::is_intermediate_ack(&summary)
+                        && !mgr.active_runs(session_id).is_empty()
+                    {
+                        tracing::debug!(
+                            session_id,
+                            "reactive loop: suppressing intermediate ack"
+                        );
+                    }
+
+                    accumulated_result.tool_calls_made += summary.tool_calls_made;
+                    accumulated_result.iterations += summary.iterations;
+                    reprompt_count += 1;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        session_id,
+                        error = %e,
+                        "reactive loop: re-prompt failed, ending loop"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(accumulated_result)
+    }
+}
+
 #[async_trait::async_trait]
 impl TurnExecutor for RuntimeTurnExecutor {
     async fn execute(
@@ -265,10 +456,25 @@ impl TurnExecutor for RuntimeTurnExecutor {
         let subagent_prompt = self.subagent_manager.as_ref().and_then(|mgr| {
             let policy = &config.behavior.subagent;
             let available = mgr.agent_descriptions();
+            let active = mgr.active_runs(&params.session_id.to_string());
+            let active_summaries: Vec<crate::runtime::ActiveRunSummary> = active
+                .iter()
+                .map(|r| crate::runtime::ActiveRunSummary {
+                    run_id: r.run_id.clone(),
+                    subagent_type: r.subagent_type.to_string(),
+                    task: r.task.clone(),
+                    elapsed_ms: r.elapsed_ms.unwrap_or(0),
+                })
+                .collect();
             let ctx = crate::SubAgentPromptContext {
                 policy,
                 available_agents: &available,
                 current_depth: 0,
+                active_runs: if active_summaries.is_empty() {
+                    None
+                } else {
+                    Some(&active_summaries)
+                },
             };
             crate::build_subagent_prompt_block(&ctx)
         });
@@ -319,19 +525,23 @@ impl TurnExecutor for RuntimeTurnExecutor {
             let stream_ctx_key_inner = stream_context_key.clone();
             let ih_for_tools = interaction.clone();
 
+            // Clone for the reactive loop (the first closure moves these).
+            let mode_state_for_loop = mode_state.clone();
+            let plan_ctx_for_loop = plan_ctx.clone();
+
             let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<fastclaw_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified(
                 &config,
                 &request,
                 &tool_registry,
-                inner_tx,
+                inner_tx.clone(),
                 fastclaw_core::tool_runtime::ApprovalStrategy::Interactive,
-                llm,
+                llm.clone(),
                 orchestrator.clone(),
-                Some(interaction),
-                subagent_prompt,
+                Some(interaction.clone()),
+                subagent_prompt.clone(),
                 mode_state.clone(),
-                session_store,
-                todo_store,
+                session_store.clone(),
+                todo_store.clone(),
             ));
 
             let wrapped_fut = async move {
@@ -354,9 +564,37 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 }
             };
 
-            tokio::select! {
+            let first_result = tokio::select! {
                 r = wrapped_fut => r,
                 () = cancel.cancelled() => Err(anyhow::anyhow!("cancelled by session actor")),
+            };
+
+            // ── Reactive Loop: check for active sub-agents and re-prompt ──
+            let policy = &config.behavior.subagent;
+            let reactive_enabled = policy.reactive_loop_enabled
+                && self.subagent_manager.is_some();
+
+            if reactive_enabled {
+                self.run_reactive_loop(
+                    first_result,
+                    &config,
+                    &request,
+                    &session_id_str,
+                    &inner_tx,
+                    &orchestrator,
+                    &llm,
+                    &interaction,
+                    &subagent_prompt,
+                    &mode_state_for_loop,
+                    &plan_ctx_for_loop,
+                    &session_store,
+                    &todo_store,
+                    &stream_context_key,
+                    &cancel,
+                )
+                .await
+            } else {
+                first_result
             }
         };
 

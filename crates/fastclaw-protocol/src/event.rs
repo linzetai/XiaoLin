@@ -320,6 +320,13 @@ pub enum AgentEvent {
         usage: Option<TokenUsage>,
         elapsed_ms: u64,
     },
+    /// Emitted when the harness reactive loop re-prompts the LLM after
+    /// one or more sub-agents complete.
+    SubAgentNotification {
+        turn_id: TurnId,
+        completions: Vec<CompletionSummary>,
+        remaining_active: u32,
+    },
 
     // ── Approval / policy ────────────────────────────────────────────
     ApprovalRequired {
@@ -415,6 +422,7 @@ impl AgentEvent {
             | Self::SubAgentToolExecuting { turn_id, .. }
             | Self::SubAgentToolResult { turn_id, .. }
             | Self::SubAgentComplete { turn_id, .. }
+            | Self::SubAgentNotification { turn_id, .. }
             | Self::ApprovalRequired { turn_id, .. }
             | Self::ApprovalResolved { turn_id, .. }
             | Self::GuardianAssessment { turn_id, .. }
@@ -427,6 +435,25 @@ impl AgentEvent {
             | Self::MemoryRecalled { turn_id, .. } => turn_id,
         }
     }
+}
+
+/// Summary of a completed sub-agent run, used for reactive loop notifications.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct CompletionSummary {
+    pub run_id: String,
+    pub agent_id: String,
+    pub subagent_type: String,
+    pub task: String,
+    pub status: String,
+    pub elapsed_ms: u64,
+    pub tool_call_count: u32,
+    /// Truncated result preview (max 2000 chars).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_preview: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Lightweight data for a tool call, carried in `TurnEnd`.

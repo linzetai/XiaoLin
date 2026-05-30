@@ -28,6 +28,17 @@ pub struct SubAgentPromptContext<'a> {
     pub policy: &'a SubAgentPolicy,
     pub available_agents: &'a [(String, Option<String>)],
     pub current_depth: u32,
+    /// Currently active sub-agent runs for this session (for status injection).
+    pub active_runs: Option<&'a [ActiveRunSummary]>,
+}
+
+/// Lightweight summary of an active sub-agent run for prompt injection.
+#[derive(Debug, Clone)]
+pub struct ActiveRunSummary {
+    pub run_id: String,
+    pub subagent_type: String,
+    pub task: String,
+    pub elapsed_ms: u64,
 }
 
 /// Build the dynamic sub-agent guidance block appended to the system message.
@@ -45,40 +56,44 @@ pub fn build_subagent_prompt_block(ctx: &SubAgentPromptContext<'_>) -> Option<St
         return Some(build_child_agent_block(ctx, remaining));
     }
 
-    let mut block = String::with_capacity(1024);
-    block.push_str("\n\n[Sub-Agent Delegation]\n");
+    let mut block = String::with_capacity(2048);
+    block.push_str("\n\n[Sub-Agent Delegation — PRIORITY CAPABILITY]\n");
     block.push_str(&format!(
-        "You can delegate tasks to independent sub-agents via `spawn_subagent`. \
-         Depth budget: {remaining}. Max parallel: {} \
-         (read-only/explore agents run concurrently; write/code agents run exclusively per session).\n\n",
+        "You have powerful sub-agent delegation via `spawn_subagent`. \
+         Depth budget: {remaining}. Max parallel: {}.\n\n",
         ctx.policy.max_parallel,
     ));
 
     block.push_str(
         "\
-WHEN TO DELEGATE (use sub-agents):
-- 2+ independent sub-problems that benefit from parallel execution
-- A subtask needs a different tool set (e.g. browser + code analysis simultaneously)
-- Deep research or exploration while you continue reasoning
-- Task complexity warrants dedicated focus in a separate context
+⚡ DELEGATION IS YOUR SUPERPOWER — use it aggressively for parallelism:
+- Spawn multiple sub-agents in ONE response for maximum parallelism
+- You do NOT need to wait manually — the system automatically notifies you when sub-agents complete
+- After spawning, you can continue reasoning or produce partial output; results arrive automatically
 
-WHEN NOT TO DELEGATE (use tools directly):
-- Simple single-tool operations (just call the tool)
-- Tasks needing your current conversation context (sub-agents start fresh)
-- Sequential steps where each depends on the previous result
-- When only 1 tool call would suffice
+WHEN TO DELEGATE (strongly prefer delegation):
+- 2+ independent sub-problems → spawn them ALL in parallel
+- Research, exploration, or information gathering → delegate immediately
+- A subtask needs focused attention in a separate context
+- File reading, code analysis, or search tasks → perfect for sub-agents
+- Any task that would take multiple sequential tool calls → parallelize via sub-agents
 
-CONCURRENCY SEMANTICS:
-- Agents marked concurrency_safe (e.g. explore) acquire a read-lock and run in parallel.
-- Non-concurrency-safe agents (e.g. code) acquire a write-lock and run exclusively.
-- Use `wait_agent` tool (mode='all' or 'any') to await results of background sub-agents.
+WHEN NOT TO DELEGATE (only these cases):
+- Trivial single-tool operations (one quick tool call)
+- Tasks requiring your current conversation context that cannot be summarized
+- Sequential steps where EACH step depends on the PREVIOUS result with no parallelism
+
+EXECUTION MODEL (Supervised Reactive Loop):
+- You spawn sub-agents → system automatically waits for completions
+- When ANY sub-agent completes, you receive a structured notification with results
+- You then decide: spawn more tasks, reason about findings, or produce final response
+- Your turn does NOT end until all sub-agents complete — no need to manage this yourself
+
+CONCURRENCY:
+- explore/research agents (concurrency_safe) run in parallel (read-lock)
+- code/write agents run exclusively per session (write-lock)
 
 ",
-    );
-    block.push_str(
-        "WORKFLOW: `list_agents` → pick agent_id → `spawn_subagent`. \
-         Batch multiple spawn calls in one response for parallel execution. \
-         Use `wait_agent` to collect results when needed.\n\n",
     );
 
     if !ctx.policy.allowed_types.is_empty() {
@@ -101,7 +116,7 @@ Types: general (full tools), explore (read-only research), shell (commands/build
         .collect();
 
     if !delegatable.is_empty() {
-        block.push_str("Agents:\n");
+        block.push_str("\nAvailable Agents:\n");
         for (id, desc) in &delegatable {
             let d = desc.as_deref().unwrap_or("(no description)");
             block.push_str(&format!("- `{id}`: {d}\n"));
@@ -119,6 +134,25 @@ TASK DESCRIPTION RULES:
 
     if let Some(budget) = ctx.policy.token_budget {
         block.push_str(&format!("\nToken budget per sub-agent: {budget}.\n"));
+    }
+
+    // Inject current active run status if any.
+    if let Some(active) = ctx.active_runs {
+        if !active.is_empty() {
+            block.push_str(&format!(
+                "\n[Active Sub-Agents: {}]\n",
+                active.len()
+            ));
+            for run in active {
+                block.push_str(&format!(
+                    "- {} ({}): \"{}\" [{:.1}s elapsed]\n",
+                    run.run_id,
+                    run.subagent_type,
+                    run.task,
+                    run.elapsed_ms as f64 / 1000.0,
+                ));
+            }
+        }
     }
 
     Some(block)

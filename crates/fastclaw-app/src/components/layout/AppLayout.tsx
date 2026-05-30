@@ -5,6 +5,7 @@ import { useGatewayStore } from "../../lib/store";
 import { useAgentStore } from "../../lib/agent-store";
 import { SessionList } from "../session-list/SessionList";
 import { MessageStream } from "../message-stream/MessageStream";
+import { SubAgentMonitor } from "../message-stream/SubAgentMonitor";
 import { TitleBar } from "./TitleBar";
 import { NavRail } from "./NavRail";
 import { ClawIcon } from "./ClawIcon";
@@ -278,7 +279,12 @@ export function AppLayout() {
               <SessionList collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
               <main className="relative flex min-w-0 flex-1 flex-col">
                 <ContentHeader />
-                <MessageStream />
+                <div className="flex min-h-0 flex-1">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <MessageStream />
+                  </div>
+                  <SubAgentMonitor />
+                </div>
                 {!connected && mode !== "browser" && (
                   <div
                     className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5"

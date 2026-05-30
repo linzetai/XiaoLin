@@ -338,6 +338,23 @@ pub struct SubAgentPolicy {
     /// Allowed child agent IDs to delegate to (empty = all agents allowed).
     #[serde(default)]
     pub allowed_agents: Vec<String>,
+
+    // ── Reactive loop settings ───────────────────────────────────────
+    /// Enable the reactive loop (harness auto-waits for sub-agent completions).
+    #[serde(default = "default_true")]
+    pub reactive_loop_enabled: bool,
+    /// Batch window in ms: after first completion, wait this long to collect more (default 2000).
+    #[serde(default = "default_batch_window_ms")]
+    pub batch_window_ms: u64,
+    /// Max re-prompts per turn to prevent infinite loops (default 10).
+    #[serde(default = "default_max_reprompts")]
+    pub max_reprompts_per_turn: u32,
+    /// Max sub-agent spawns per turn (default 20).
+    #[serde(default = "default_max_spawns_per_turn")]
+    pub max_spawns_per_turn: u32,
+    /// Suppress intermediate ack text when LLM responds without tool calls and active runs remain.
+    #[serde(default)]
+    pub suppress_intermediate_ack: bool,
 }
 
 fn default_subagent_max_depth() -> u32 {
@@ -348,6 +365,15 @@ fn default_subagent_max_parallel() -> u32 {
 }
 fn default_subagent_timeout() -> u64 {
     300
+}
+fn default_batch_window_ms() -> u64 {
+    2000
+}
+fn default_max_reprompts() -> u32 {
+    10
+}
+fn default_max_spawns_per_turn() -> u32 {
+    20
 }
 
 /// Top-level concurrency configuration (typically from `[concurrency]` in config.toml).
@@ -395,6 +421,11 @@ impl Default for SubAgentPolicy {
             token_budget: None,
             allowed_types: Vec::new(),
             allowed_agents: Vec::new(),
+            reactive_loop_enabled: true,
+            batch_window_ms: default_batch_window_ms(),
+            max_reprompts_per_turn: default_max_reprompts(),
+            max_spawns_per_turn: default_max_spawns_per_turn(),
+            suppress_intermediate_ack: false,
         }
     }
 }

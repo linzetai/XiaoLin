@@ -232,6 +232,10 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await wsClient.send("sessions.delete", { sessionId });
 }
 
+export async function cancelSubAgentRun(runId: string): Promise<void> {
+  await wsClient.send("subagents.cancel", { runId });
+}
+
 export async function setSessionWorkDir(sessionId: string, workDir: string | null): Promise<void> {
   await wsClient.send("sessions.set_work_dir", { sessionId, workDir });
 }
@@ -377,6 +381,7 @@ const CHAT_EVENT_TYPES = [
   "sub_agent_tool_executing",
   "sub_agent_tool_result",
   "sub_agent_complete",
+  "sub_agent_notification",
   "approval_required",
   "approval_resolved",
   "error",

@@ -695,6 +695,7 @@ mod skill_tool_tests {
                 ..Default::default()
             },
             layer: SkillLayer::Project,
+            source: None,
         });
         reg.register(SkillEntry {
             id: "calc".into(),
@@ -709,6 +710,7 @@ mod skill_tool_tests {
                 ..Default::default()
             },
             layer: SkillLayer::Project,
+            source: None,
         });
         reg.register(SkillEntry {
             id: "disabled-one".into(),
@@ -721,6 +723,7 @@ mod skill_tool_tests {
                 ..Default::default()
             },
             layer: SkillLayer::Project,
+            source: None,
         });
         Arc::new(reg)
     }
@@ -988,6 +991,7 @@ mod skill_tool_tests {
                 enabled: Some(true),
             },
             layer: fastclaw_core::skill::SkillLayer::Project,
+            source: None,
         };
         let keywords = vec!["deploy"];
         let score = compute_relevance(&keywords, &skill);
@@ -1013,6 +1017,7 @@ mod skill_tool_tests {
                 enabled: Some(true),
             },
             layer: fastclaw_core::skill::SkillLayer::Project,
+            source: None,
         };
         let keywords = vec!["deploy"];
         let score = compute_relevance(&keywords, &skill);
@@ -1044,6 +1049,7 @@ mod skill_tool_tests {
                 enabled: Some(true),
             },
             layer: fastclaw_core::skill::SkillLayer::Project,
+            source: None,
         });
         let tool = SearchSkillTool::new(Arc::new(registry));
         let result = tool.execute(r#"{"query": "deploy"}"#).await;

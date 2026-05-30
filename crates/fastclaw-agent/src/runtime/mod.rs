@@ -75,7 +75,7 @@ mod unified_compact;
 #[allow(dead_code)]
 pub mod validation_pipeline;
 
-pub use prompt_builder::{build_subagent_prompt_block, SubAgentPromptContext};
+pub use prompt_builder::{build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext};
 
 use accumulator::{accumulate_tool_call, ToolCallAccumulator};
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;

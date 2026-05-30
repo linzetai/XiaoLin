@@ -11,8 +11,8 @@ pub mod usage;
 pub use approval::{ApprovalDecision, PendingAction};
 pub use envelope::Envelope;
 pub use event::{
-    AbortReason, AgentEvent, ContextWarningLevel, ErrorCode, GuardianOutcome, RiskLevel,
-    ToolCallData, ToolCallFunction, TurnContextItem, TurnSummary, WarningCategory,
+    AbortReason, AgentEvent, CompletionSummary, ContextWarningLevel, ErrorCode, GuardianOutcome,
+    RiskLevel, ToolCallData, ToolCallFunction, TurnContextItem, TurnSummary, WarningCategory,
 };
 pub use history::HistoryItem;
 pub use id::{AgentId, MessageId, SessionId, SubmissionId, ToolCallId, TurnId};

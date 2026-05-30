@@ -27,6 +27,7 @@ fn build_subagent_prompt_for_agent(state: &AppState, config: &AgentConfig) -> Op
         policy,
         available_agents: &available,
         current_depth: 0,
+        active_runs: None,
     };
     build_subagent_prompt_block(&ctx)
 }

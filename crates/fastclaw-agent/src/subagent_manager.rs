@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use fastclaw_core::agent_config::{AgentConfig, SubAgentDef, SubAgentPolicy};
 use fastclaw_core::tool::ToolRegistry;
 use fastclaw_core::types::{SubAgentRun, SubAgentStatus, SubAgentType, Usage};
-use fastclaw_protocol::{AgentEvent, TokenUsage, TurnId};
+use fastclaw_protocol::{AgentEvent, CompletionSummary, TokenUsage, TurnId};
 
 use crate::llm::LlmProvider;
 use crate::runtime::AgentRuntime;
@@ -27,6 +27,8 @@ pub struct SubAgentManager {
     orchestrator: Arc<ToolOrchestrator>,
     #[allow(dead_code)]
     default_policy: SubAgentPolicy,
+    /// Per-session completion broadcast channels for the reactive loop.
+    completion_channels: Arc<DashMap<String, broadcast::Sender<CompletionSummary>>>,
 }
 
 impl SubAgentManager {
@@ -45,6 +47,7 @@ impl SubAgentManager {
             controller,
             orchestrator: Arc::new(ToolOrchestrator::new()),
             default_policy,
+            completion_channels: Arc::new(DashMap::new()),
         }
     }
 
@@ -109,6 +112,67 @@ impl SubAgentManager {
             .iter()
             .map(|d| (d.id.clone(), d.description.clone()))
             .collect()
+    }
+
+    /// Subscribe to completion notifications for a given session.
+    /// The returned receiver will get a `CompletionSummary` each time a sub-agent
+    /// in that session finishes (success, failure, or cancel).
+    pub fn subscribe_completions(&self, session_id: &str) -> broadcast::Receiver<CompletionSummary> {
+        let entry = self
+            .completion_channels
+            .entry(session_id.to_string())
+            .or_insert_with(|| broadcast::channel(64).0);
+        entry.subscribe()
+    }
+
+    /// List all currently active (Pending or Running) runs for a session.
+    pub fn active_runs(&self, session_id: &str) -> Vec<SubAgentRun> {
+        self.runs
+            .iter()
+            .filter(|r| r.parent_session_id == session_id && !r.status.is_terminal())
+            .map(|r| r.value().clone())
+            .collect()
+    }
+
+    /// Build a `CompletionSummary` from a finished run.
+    pub fn get_completion_summary(&self, run_id: &str) -> Option<CompletionSummary> {
+        self.runs.get(run_id).and_then(|r| {
+            if !r.status.is_terminal() {
+                return None;
+            }
+            let (status_str, error) = match &r.status {
+                SubAgentStatus::Completed => ("completed".to_string(), None),
+                SubAgentStatus::Failed(msg) => ("failed".to_string(), Some(msg.clone())),
+                SubAgentStatus::Cancelled => ("cancelled".to_string(), None),
+                _ => return None,
+            };
+            let result_preview = r.result.as_ref().map(|text| {
+                if text.len() > 2000 {
+                    format!("{}…", &text[..2000])
+                } else {
+                    text.clone()
+                }
+            });
+            Some(CompletionSummary {
+                run_id: r.run_id.clone(),
+                agent_id: r.agent_id.to_string(),
+                subagent_type: r.subagent_type.to_string(),
+                task: r.task.clone(),
+                status: status_str,
+                elapsed_ms: r.elapsed_ms.unwrap_or(0),
+                tool_call_count: r.tool_calls_made,
+                result_preview,
+                error,
+            })
+        })
+    }
+
+    /// Broadcast a completion event for a run to the session's reactive loop subscriber.
+    #[allow(dead_code)]
+    fn broadcast_completion(&self, session_id: &str, summary: CompletionSummary) {
+        if let Some(tx) = self.completion_channels.get(session_id) {
+            let _ = tx.send(summary);
+        }
     }
 
     fn now_ms() -> u64 {
@@ -213,6 +277,7 @@ impl SubAgentManager {
         let runtime = self.runtime.clone();
         let controller = self.controller.clone();
         let orchestrator = self.orchestrator.clone();
+        let completion_channels = self.completion_channels.clone();
         let timeout = Duration::from_secs(policy.timeout_seconds);
         let slot_timeout = controller.config().slot_acquire_timeout;
         let max_depth = policy.max_depth;
@@ -305,11 +370,30 @@ impl SubAgentManager {
                     if let Some(mut r) = runs.get_mut(&rid) {
                         r.status = SubAgentStatus::Completed;
                         r.completed_at = Some(Self::now_ms());
-                        r.result = Some(response_text);
+                        r.result = Some(response_text.clone());
                         r.tool_calls_made = tool_calls_made;
                         r.iterations = iterations;
                         r.token_usage = usage;
                         r.elapsed_ms = Some(elapsed_ms);
+                    }
+
+                    let result_preview = if response_text.len() > 2000 {
+                        Some(format!("{}…", &response_text[..2000]))
+                    } else {
+                        Some(response_text)
+                    };
+                    if let Some(tx) = completion_channels.get(&session_id_owned) {
+                        let _ = tx.send(CompletionSummary {
+                            run_id: rid.clone(),
+                            agent_id: agent_config.agent_id.to_string(),
+                            subagent_type: subagent_type.to_string(),
+                            task: task.clone(),
+                            status: "completed".into(),
+                            elapsed_ms,
+                            tool_call_count: tool_calls_made,
+                            result_preview,
+                            error: None,
+                        });
                     }
                 }
                 Err(e) => {
@@ -342,10 +426,24 @@ impl SubAgentManager {
                         if msg.contains("cancelled") {
                             r.status = SubAgentStatus::Cancelled;
                         } else {
-                            r.status = SubAgentStatus::Failed(msg);
+                            r.status = SubAgentStatus::Failed(msg.clone());
                         }
                         r.completed_at = Some(Self::now_ms());
                         r.elapsed_ms = Some(elapsed_ms);
+                    }
+
+                    if let Some(tx) = completion_channels.get(&session_id_owned) {
+                        let _ = tx.send(CompletionSummary {
+                            run_id: rid.clone(),
+                            agent_id: agent_config.agent_id.to_string(),
+                            subagent_type: subagent_type.to_string(),
+                            task: task.clone(),
+                            status: status_str.into(),
+                            elapsed_ms,
+                            tool_call_count: 0,
+                            result_preview: None,
+                            error: Some(msg),
+                        });
                     }
                 }
             }

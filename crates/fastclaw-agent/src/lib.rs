@@ -6,6 +6,7 @@ pub mod guardian;
 pub mod llm;
 pub mod llm_plugin;
 pub mod process_channel;
+pub mod reactive_loop;
 pub mod rpc;
 pub mod runtime;
 pub mod session_bridge;
