@@ -311,26 +311,36 @@ function ModeToggle({
 }) {
   const isPlan = mode === "plan";
   return (
-    <button
-      onClick={onToggle}
-      disabled={disabled}
-      className="flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium transition-all duration-150 hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-      style={{
-        background: isPlan
-          ? "color-mix(in srgb, var(--tint, #4299E1) 12%, transparent)"
-          : "color-mix(in srgb, var(--green, #48BB78) 12%, transparent)",
-        color: isPlan ? "var(--tint, #4299E1)" : "var(--green, #48BB78)",
-        border: `0.5px solid ${isPlan ? "color-mix(in srgb, var(--tint, #4299E1) 25%, transparent)" : "color-mix(in srgb, var(--green, #48BB78) 25%, transparent)"}`,
-      }}
-      title={isPlan ? "Plan Mode -- 只读探索模式" : "Agent Mode -- 完整工具访问"}
+    <div
+      className="flex h-7 items-center overflow-hidden rounded-lg text-[11px] font-medium"
+      style={{ border: "1px solid var(--separator)" }}
     >
-      {isPlan ? (
-        <Compass {...ICON.md} />
-      ) : (
-        <Code2 {...ICON.md} />
-      )}
-      <span>{isPlan ? "Plan" : "Agent"}</span>
-    </button>
+      <button
+        onClick={!isPlan ? undefined : onToggle}
+        disabled={disabled}
+        className="flex h-full items-center gap-1 px-2.5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{
+          background: !isPlan ? "var(--tint-bg)" : "transparent",
+          color: !isPlan ? "var(--tint)" : "var(--fill-tertiary)",
+        }}
+      >
+        <Code2 size={12} strokeWidth={1.5} />
+        Agent
+      </button>
+      <button
+        onClick={isPlan ? undefined : onToggle}
+        disabled={disabled}
+        className="flex h-full items-center gap-1 px-2.5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{
+          background: isPlan ? "oklch(94% 0.05 310)" : "transparent",
+          color: isPlan ? "oklch(56% 0.18 310)" : "var(--fill-tertiary)",
+          borderLeft: "1px solid var(--separator)",
+        }}
+      >
+        <Compass size={12} strokeWidth={1.5} />
+        Plan
+      </button>
+    </div>
   );
 }
 
@@ -547,13 +557,11 @@ export function StreamFooter({
       )}
 
       <div
-        className="overflow-hidden rounded-2xl transition-all duration-200"
+        className="input-box overflow-hidden transition-all duration-200"
         style={{
-          backdropFilter: "saturate(180%) blur(12px)",
-          WebkitBackdropFilter: "saturate(180%) blur(12px)",
-          background: "color-mix(in srgb, var(--bg-elevated) 88%, transparent)",
-          border: `1px solid var(--separator)`,
-          boxShadow: "var(--shadow-md), inset 0 1px 0 var(--highlight-top)",
+          border: "1.5px solid var(--separator)",
+          borderRadius: "18px",
+          background: "var(--bg-surface)",
         }}
       >
         {messageQueue.length > 0 && (

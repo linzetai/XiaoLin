@@ -38,7 +38,6 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
   const meta = getTypeMeta(run.subagentType);
   const isActive = run.status === "running" || run.status === "pending";
   const isFailed = run.status === "failed" || run.status === "cancelled";
-  const isDone = run.status === "completed";
 
   const toolCallsAsSteps = useMemo(
     () => run.toolCalls.map(adaptToolCall),
@@ -167,7 +166,7 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
               </span>
               <div className="mt-0.5">
                 {toolCallsAsSteps.map((tc) => (
-                  <StepIndicator key={tc.id} tool={tc} />
+                  <StepIndicator key={tc.id} tool={tc} compact />
                 ))}
               </div>
             </div>

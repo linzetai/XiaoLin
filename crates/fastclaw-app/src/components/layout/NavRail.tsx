@@ -59,18 +59,19 @@ export function NavRail() {
               <button
                 key={item.id}
                 onClick={() => setActiveNav(item.id)}
+                data-tooltip={item.label}
                 className="group relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] transition-all duration-150"
                 style={{
                   background: active ? "var(--tint-bg)" : "transparent",
                   color: active ? "var(--tint)" : "var(--fill-tertiary)",
                 }}
-                title={item.label}
               >
                 {active && (
                   <span
-                    className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full"
+                    className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2"
                     style={{
                       background: "var(--tint)",
+                      borderRadius: "0 3px 3px 0",
                       animation: "scale-spring var(--duration-normal) var(--ease-spring)",
                     }}
                   />

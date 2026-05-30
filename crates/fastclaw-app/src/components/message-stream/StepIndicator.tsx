@@ -20,6 +20,24 @@ export interface ToolCall {
   startTime?: number;
 }
 
+export type ToolCategory = "shell" | "read" | "write" | "edit" | "search" | "web" | "mcp" | "default";
+
+const CATEGORY_MAP: Record<string, ToolCategory> = {
+  shell: "shell", shell_exec: "shell", code_execute: "shell",
+  file_read: "read", read_file: "read", read_skill: "read",
+  list_skills: "read", list_directory: "read",
+  file_write: "write", write_file: "write", write_skill: "write",
+  edit_file: "edit",
+  file_search: "search", hub_search: "search", memory_search: "search",
+  web_search: "web", web_fetch: "web", http_fetch: "web",
+};
+
+export function getToolCategory(name: string): ToolCategory {
+  if (CATEGORY_MAP[name]) return CATEGORY_MAP[name];
+  if (name.startsWith("mcp_")) return "mcp";
+  return "default";
+}
+
 const TOOL_META: Record<string, { icon: ReactNode; label?: string }> = {
   file_read: { icon: <FileText {...ICON.sm} />, label: "读取文件" },
   file_write: { icon: <PenLine {...ICON.sm} />, label: "写入文件" },
@@ -356,16 +374,17 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
 }
 
 /**
- * Minimal inline step indicator — replaces the heavier ToolCallCard.
- * ~28px row height, no border/background/shadow.
+ * Card-style step indicator with category-colored icon badge.
+ * 36px row height, 1px border, 8px radius.
  */
-export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolCall }) {
+export const StepIndicator = memo(function StepIndicator({ tool, compact }: { tool: ToolCall; compact?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? TOOL_META[tool.name] ?? DEFAULT_META;
   const label = meta.label ?? tool.name;
   const keyInfo = useMemo(() => extractKeyInfo(tool), [tool.args]);
   const hasDetails = !!(tool.args || tool.result);
+  const category = getToolCategory(tool.name);
 
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
@@ -379,15 +398,19 @@ export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolC
 
   return (
     <div
-      className="step-indicator"
+      className={`step-indicator${expanded ? " open" : ""}`}
       style={{
         animation: "fade-in var(--duration-fast) var(--ease-out)",
+        border: compact ? "none" : "1px solid var(--step-border)",
+        borderRadius: compact ? "0" : "var(--step-radius)",
+        marginBottom: "var(--step-gap)",
+        overflow: "hidden",
       }}
     >
-      {/* Row — always visible */}
+      {/* Header row */}
       <button
         onClick={() => hasDetails && !hasSpecialResult && setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors duration-100 rounded"
+        className="tc-h flex w-full items-center gap-2 px-2.5 text-left transition-colors duration-100"
         style={{
           cursor: hasDetails && !hasSpecialResult ? "pointer" : "default",
           minHeight: "var(--step-height)",
@@ -397,33 +420,29 @@ export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolC
         onMouseLeave={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = ""; }}
         aria-expanded={hasDetails && !hasSpecialResult ? expanded : undefined}
       >
-        {/* Status icon */}
-        <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
-          {isRunning ? (
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px]"
-              style={{
-                borderColor: "var(--tint) transparent transparent transparent",
-                animation: "spin 0.8s linear infinite",
-              }}
-            />
-          ) : isError ? (
-            <XIcon size={14} strokeWidth={1.5} style={{ color: "var(--red)" }} />
-          ) : (
-            <Check size={14} strokeWidth={1.5} style={{ color: "var(--green)" }} />
-          )}
+        {/* Category-colored icon badge */}
+        <span
+          className="tico grid shrink-0 place-items-center"
+          style={{
+            width: "var(--step-icon-size)",
+            height: "var(--step-icon-size)",
+            borderRadius: "var(--step-icon-radius)",
+            background: `var(--tc-${category}-bg)`,
+            color: `var(--tc-${category}-fg)`,
+          } as React.CSSProperties}
+        >
+          {meta.icon}
         </span>
 
-        {/* Tool icon + label + key info */}
+        {/* Label + key info */}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
-          <span className="shrink-0" style={{ color: "var(--fill-tertiary)" }}>{meta.icon}</span>
-          <span className="shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}>
+          <span className="tl shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}>
             {label}
           </span>
           {keyInfo && (
             <span
-              className="min-w-0 truncate font-mono text-[11px]"
-              style={{ color: "var(--fill-quaternary)" }}
+              className="tp min-w-0 truncate text-[11px]"
+              style={{ color: "var(--fill-quaternary)", fontFamily: "var(--font-mono)" }}
               title={keyInfo}
             >
               {keyInfo}
@@ -431,18 +450,38 @@ export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolC
           )}
         </span>
 
-        {/* Duration */}
-        <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-          {isRunning && tool.startTime ? <ElapsedTimer startTime={tool.startTime} /> : null}
-          {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
+        {/* Status area: dot + duration */}
+        <span className="ts flex shrink-0 items-center gap-1.5">
+          {/* Status dot */}
+          <span className="flex h-[14px] w-[14px] items-center justify-center">
+            {isRunning ? (
+              <span
+                className="sd inline-block h-[5px] w-[5px] rounded-full border-[1px]"
+                style={{
+                  borderColor: "var(--tint) transparent transparent transparent",
+                  animation: "spin 0.8s linear infinite",
+                }}
+              />
+            ) : isError ? (
+              <span className="sd inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--red)" }} />
+            ) : (
+              <span className="sd inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--green)" }} />
+            )}
+          </span>
+
+          {/* Duration */}
+          <span className="text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
+            {isRunning && tool.startTime ? <ElapsedTimer startTime={tool.startTime} /> : null}
+            {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
+          </span>
         </span>
 
-        {/* Expand chevron (only for generic details, not special results) */}
+        {/* Expand chevron */}
         {hasDetails && !hasSpecialResult && (
           <ChevronRight
             size={12}
             strokeWidth={1.5}
-            className="shrink-0 transition-transform duration-150"
+            className="tv shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",
               transform: expanded ? "rotate(90deg)" : "rotate(0)",
@@ -453,7 +492,7 @@ export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolC
 
       {/* Auto-display images from tool results */}
       {resultImages.length > 0 && (
-        <div className="pl-6 pb-1 space-y-1.5">
+        <div className="px-2.5 pb-2 space-y-1.5">
           {resultImages.map((src, i) => (
             <ImageViewer key={i} src={src} />
           ))}
@@ -467,51 +506,59 @@ export const StepIndicator = memo(function StepIndicator({ tool }: { tool: ToolC
 
       {/* Specialized results — rendered as independent blocks below the step row */}
       {!isRunning && tool.result && isTodoResult(tool.name, tool.result) && (
-        <div className="pl-6 pb-1">
+        <div className="px-2.5 pb-2">
           <TodoCard result={tool.result} />
         </div>
       )}
       {!isRunning && tool.result && isEditResult(tool.name, tool.result) && (
-        <div className="pl-6 pb-1">
+        <div className="px-2.5 pb-2">
           <DiffCard result={tool.result} args={tool.args} />
         </div>
       )}
       {!isRunning && tool.result && isPlanExitResult(tool.name, tool.result) && (
-        <div className="pl-6 pb-1">
+        <div className="px-2.5 pb-2">
           <PlanApprovalCard result={tool.result} />
         </div>
       )}
 
-      {/* Expanded inline details (for non-special results) */}
-      {expanded && hasDetails && !hasSpecialResult && (
-        <div
-          className="pl-6 pb-1"
-          style={{
-            borderTop: "1px dashed var(--separator)",
-            animation: "fade-in var(--duration-fast) var(--ease-out)",
-          }}
-        >
-          {tool.args && (
-            <div className="mt-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>参数</span>
-              <pre
-                className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
-                style={{
-                  background: "var(--bg-primary)",
-                  color: "var(--fill-secondary)",
-                  border: `0.5px solid var(--separator)`,
-                  fontFamily: 'var(--font-mono)',
-                  maxHeight: "200px",
-                  overflowY: "auto",
-                }}
-              >
-                {tryPrettyJson(tool.args)}
-              </pre>
+      {/* Expandable body — grid-template-rows animation */}
+      <div
+        className="tc-bd"
+        style={{
+          display: "grid",
+          gridTemplateRows: expanded && hasDetails && !hasSpecialResult ? "1fr" : "0fr",
+          transition: "grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1)",
+        }}
+      >
+        <div className="tc-bd-in overflow-hidden">
+          {hasDetails && !hasSpecialResult && (
+            <div
+              className="px-2.5 pb-2 pt-1.5"
+              style={{ borderTop: "1px solid var(--separator)" }}
+            >
+              {tool.args && (
+                <div className="mb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>参数</span>
+                  <pre
+                    className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
+                    style={{
+                      background: "var(--bg-primary)",
+                      color: "var(--fill-secondary)",
+                      border: "0.5px solid var(--separator)",
+                      fontFamily: "var(--font-mono)",
+                      maxHeight: "200px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {tryPrettyJson(tool.args)}
+                  </pre>
+                </div>
+              )}
+              {tool.result && <OutputBlock content={tool.result} error={isError} />}
             </div>
           )}
-          {tool.result && <OutputBlock content={tool.result} error={isError} />}
         </div>
-      )}
+      </div>
     </div>
   );
 });

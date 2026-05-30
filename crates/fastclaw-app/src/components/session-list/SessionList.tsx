@@ -277,41 +277,66 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
               {chats.map((chat) => {
                 const active = activeChatId === chat.id;
                 const isRenaming = renamingChatId === chat.id;
+                const lastMsg = chat.stream?.length ? chat.stream[chat.stream.length - 1] : null;
+                const preview = lastMsg?.type === "message" && lastMsg.data?.content
+                  ? lastMsg.data.content.slice(0, 50)
+                  : "等待输入...";
                 return (
                   <div
                     key={chat.id}
-                    className={`group/chat relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors duration-100 ${
+                    className={`group/chat relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-100 ${
                       active ? "" : "hover:bg-[var(--bg-hover)]"
                     }`}
                     style={active ? { background: "var(--tint-bg)" } : undefined}
                   >
-                    <MessageCircle
-                      {...ICON.sm}
-                      style={{ color: active ? "var(--tint)" : "var(--fill-quaternary)", flexShrink: 0 }}
-                    />
-                    {isRenaming ? (
-                      <input
-                        ref={renameInputRef}
-                        type="text"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={handleRenameSubmit}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleRenameSubmit();
-                          if (e.key === "Escape") { setRenamingChatId(null); setRenameValue(""); }
-                        }}
-                        className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
-                        style={{ color: "var(--fill-primary)" }}
+                    {/* Icon box */}
+                    <div
+                      className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        background: active ? "var(--tint)" : "var(--bg-secondary)",
+                        border: active ? "none" : "0.5px solid var(--separator)",
+                      }}
+                    >
+                      <MessageCircle
+                        size={14}
+                        strokeWidth={1.5}
+                        style={{ color: active ? "#fff" : "var(--fill-quaternary)" }}
                       />
-                    ) : (
-                      <button
-                        onClick={() => handleSelectChat(chat.id)}
-                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px]"
-                        style={{ color: active ? "var(--tint)" : "var(--fill-secondary)" }}
-                      >
-                        {chat.title || "新会话"}
-                      </button>
-                    )}
+                    </div>
+                    {/* Text: title + preview */}
+                    <div className="min-w-0 flex-1">
+                      {isRenaming ? (
+                        <input
+                          ref={renameInputRef}
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={handleRenameSubmit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRenameSubmit();
+                            if (e.key === "Escape") { setRenamingChatId(null); setRenameValue(""); }
+                          }}
+                          className="w-full bg-transparent text-[12px] outline-none"
+                          style={{ color: "var(--fill-primary)" }}
+                        />
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleSelectChat(chat.id)}
+                            className="block w-full cursor-pointer truncate text-left text-[12px] font-medium"
+                            style={{ color: active ? "var(--tint)" : "var(--fill-secondary)" }}
+                          >
+                            {chat.title || "新会话"}
+                          </button>
+                          <div
+                            className="mt-0.5 truncate text-[11px]"
+                            style={{ color: "var(--fill-quaternary)" }}
+                          >
+                            {preview}
+                          </div>
+                        </>
+                      )}
+                    </div>
                     {!isRenaming && (
                       <button
                         onClick={(e) => {

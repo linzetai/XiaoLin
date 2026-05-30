@@ -69,7 +69,6 @@
   --radius-xl: 20px;
 
   --sidebar-w: 320px;
-  --nav-rail-w: 48px;
   --titlebar-h: 44px;
   --statusbar-h: 30px;
 
@@ -97,12 +96,29 @@
   --item-gap: 8px;
   --inline-gap: 6px;
 
-  /* Step indicator (document-flow redesign) */
-  --step-height: 28px;
-  --step-gap: 2px;
+  /* Step indicator */
+  --step-height: 36px;
+  --step-gap: 3px;
   --step-hover-bg: color-mix(in srgb, var(--fill-primary) 4%, transparent);
+  --step-border: var(--separator);
+  --step-radius: 8px;
+  --step-icon-size: 24px;
+  --step-icon-radius: 6px;
   --user-input-divider: var(--separator);
   --user-input-label-color: var(--fill-quaternary);
+
+  --nav-rail-w: 54px;
+
+  /* Tool category colors (semantic) */
+  --tc-shell-bg: #EDE5F4;   --tc-shell-fg: #6D44A0;
+  --tc-read-bg: #E0EDF3;    --tc-read-fg: #2D6A86;
+  --tc-write-bg: #DFF2E6;   --tc-write-fg: #2B6B48;
+  --tc-edit-bg: #F3E0EC;    --tc-edit-fg: #8A3572;
+  --tc-search-bg: #F0EAD4;  --tc-search-fg: #7B6225;
+  --tc-web-bg: #E0F0F0;     --tc-web-fg: #2D7070;
+  --tc-mcp-bg: #E8E8ED;     --tc-mcp-fg: #5A5A65;
+  --tc-default-bg: var(--bg-secondary);
+  --tc-default-fg: var(--fill-tertiary);
 
   /* Stagger animation */
   --stagger: 30ms;
@@ -211,6 +227,17 @@
 
   --gradient-hero: radial-gradient(ellipse 600px 400px at 50% 40%, color-mix(in srgb, var(--tint) 12%, transparent), transparent);
   /* DEPRECATED */ --bubble-user-gradient: linear-gradient(135deg, var(--bubble-user), color-mix(in srgb, var(--bubble-user) 70%, #000));
+
+  /* Tool category colors (dark) */
+  --tc-shell-bg: rgba(139,92,246,0.15);   --tc-shell-fg: #A78BFA;
+  --tc-read-bg: rgba(56,189,248,0.12);    --tc-read-fg: #7DD3FC;
+  --tc-write-bg: rgba(52,211,153,0.12);   --tc-write-fg: #6EE7B7;
+  --tc-edit-bg: rgba(244,114,182,0.12);   --tc-edit-fg: #F9A8D4;
+  --tc-search-bg: rgba(251,191,36,0.12);  --tc-search-fg: #FCD34D;
+  --tc-web-bg: rgba(45,212,191,0.12);     --tc-web-fg: #5EEAD4;
+  --tc-mcp-bg: rgba(148,163,184,0.12);    --tc-mcp-fg: #94A3B8;
+  --tc-default-bg: var(--bg-secondary);
+  --tc-default-fg: var(--fill-tertiary);
 }
 
 /* ━━━ Full Immersive Theme Overrides ━━━
@@ -790,6 +817,36 @@
     border-color: var(--tint);
   }
 
+  /* StreamFooter input box focus glow */
+  .input-box:focus-within {
+    border-color: var(--tint);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--tint) 8%, transparent);
+  }
+
+  /* NavRail tooltip */
+  [data-tooltip] {
+    position: relative;
+  }
+  [data-tooltip]::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 10px;
+    background: oklch(18% 0.01 250);
+    color: oklch(92% 0.005 250);
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 100ms;
+    z-index: 200;
+  }
+  [data-tooltip]:hover::before { opacity: 1; }
+
   /* Styled select — premium native dropdown */
   .select-premium {
     appearance: none;
@@ -1075,6 +1132,9 @@
 @keyframes fade-slide-up {
   from { opacity: 0; transform: translateY(var(--move-sm)); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mIn {
+  from { opacity: 0; transform: translateY(4px); }
 }
 @keyframes shimmer {
   0% { transform: translateX(-100%); }

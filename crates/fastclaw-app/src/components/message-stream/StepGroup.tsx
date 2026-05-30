@@ -1,11 +1,9 @@
 import { useState, useMemo, memo, useCallback } from "react";
-import { ChevronRight, AlertTriangle, Check } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { StepIndicator, type ToolCall } from "./StepIndicator";
 import type { StreamSegment } from "./types";
 import { isTodoResult } from "./TodoCard";
 import { isEditResult } from "./DiffCard";
-import { ICON } from "../../lib/ui-tokens";
-
 const DEFAULT_THRESHOLD = 3;
 
 export interface StepGroupItem {
@@ -176,11 +174,19 @@ export const StepGroup = memo(function StepGroup({
   }, [tools, expanded, streaming]);
 
   return (
-    <div style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
+    <div
+      style={{
+        animation: "fade-in var(--duration-fast) var(--ease-out)",
+        border: "1px solid var(--step-border)",
+        borderRadius: "var(--step-radius)",
+        marginBottom: "var(--step-gap)",
+        overflow: "hidden",
+      }}
+    >
       {/* Summary row */}
       <button
         onClick={handleToggle}
-        className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors duration-100 rounded"
+        className="flex w-full items-center gap-2 px-2.5 text-left transition-colors duration-100"
         style={{
           cursor: "pointer",
           minHeight: "var(--step-height)",
@@ -190,20 +196,20 @@ export const StepGroup = memo(function StepGroup({
         aria-expanded={expanded}
         aria-label={`${semanticSummary}${expanded ? "，已展开" : "，已折叠"}`}
       >
-        {/* Status */}
+        {/* Status dot */}
         <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
           {!allDone ? (
             <span
-              className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px]"
+              className="inline-block h-[5px] w-[5px] rounded-full border-[1px]"
               style={{
                 borderColor: "var(--tint) transparent transparent transparent",
                 animation: "spin 0.8s linear infinite",
               }}
             />
           ) : hasErrors ? (
-            <AlertTriangle size={14} strokeWidth={1.5} style={{ color: "var(--red)" }} />
+            <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--red)" }} />
           ) : (
-            <Check size={14} strokeWidth={1.5} style={{ color: "var(--green)" }} />
+            <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--green)" }} />
           )}
         </span>
 
@@ -237,23 +243,26 @@ export const StepGroup = memo(function StepGroup({
         />
       </button>
 
-      {/* Expanded/streaming visible tools */}
+      {/* Expanded/streaming visible tools — compact (no borders) inside group */}
       {visibleTools.length > 0 && (
         <div
-          className="pl-4"
-          style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}
+          className="px-1 pb-1"
+          style={{
+            borderTop: "1px solid var(--separator)",
+            animation: "fade-in var(--duration-fast) var(--ease-out)",
+          }}
         >
           {!expanded && streaming && tools.length > 2 && (
             <button
               onClick={handleToggle}
-              className="py-0.5 text-[11px] cursor-pointer"
+              className="py-0.5 px-2 text-[11px] cursor-pointer"
               style={{ color: "var(--fill-quaternary)" }}
             >
               +{tools.length - 2} 个已完成
             </button>
           )}
           {visibleTools.map((tc) => (
-            <StepIndicator key={tc.id} tool={tc} />
+            <StepIndicator key={tc.id} tool={tc} compact />
           ))}
         </div>
       )}

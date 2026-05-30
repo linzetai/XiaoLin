@@ -9,8 +9,8 @@ import {
   StepGroup,
 } from "./StepGroup";
 import { AlertTriangle } from "lucide-react";
-import { openLightbox } from "../common/ImageLightbox";
 import { UserInput } from "./UserInput";
+import { ClawIcon } from "../layout/ClawIcon";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
@@ -57,10 +57,31 @@ class MessageErrorBoundary extends Component<
   }
 }
 import {
-  Clock, Copy, Check, ThumbsUp, ThumbsDown, RotateCw, Pencil,
+  Clock, Copy, Check, ThumbsUp, ThumbsDown, RotateCw,
 } from "lucide-react";
 import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
+
+function MessageAvatar({ role }: { role: "user" | "assistant" }) {
+  if (role === "user") {
+    return (
+      <div
+        className="w-[30px] h-[30px] rounded-full grid place-items-center text-[12px] font-bold text-white shrink-0"
+        style={{ background: "linear-gradient(135deg, var(--tint), color-mix(in srgb, var(--tint) 70%, #6366F1))" }}
+      >
+        U
+      </div>
+    );
+  }
+  return (
+    <div
+      className="w-[30px] h-[30px] rounded-full grid place-items-center shrink-0"
+      style={{ background: "var(--bg-surface)", border: "1.5px solid var(--separator)" }}
+    >
+      <ClawIcon size={14} />
+    </div>
+  );
+}
 
 function ts(d: Date) {
   const now = new Date();
@@ -75,130 +96,6 @@ function ts(d: Date) {
     " " +
     d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
-
-const REF_PATTERN = /\n\n\[(引用|附件): ([^\]]+)\]$/;
-
-function parseUserContent(content: string): { text: string; tags: Array<{ type: string; items: string[] }> } {
-  const tags: Array<{ type: string; items: string[] }> = [];
-  let text = content;
-  let match: RegExpExecArray | null;
-  while ((match = REF_PATTERN.exec(text)) !== null) {
-    tags.unshift({ type: match[1], items: match[2].split(", ") });
-    text = text.slice(0, match.index);
-  }
-  return { text, tags };
-}
-
-const UserBubble = memo(function UserBubble({ msg, copyable, selected, onToggleSelect, animate = true }: { msg: ChatMessage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; animate?: boolean }) {
-  const { text, tags } = useMemo(() => parseUserContent(msg.content), [msg.content]);
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
-  const handleEdit = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("fastclaw:edit-message", { detail: { text, images: msg.images } }));
-  }, [text, msg.images]);
-  return (
-    <div className="pb-5 flex justify-end group/message" style={{ animation: animate ? "slide-right var(--duration-normal) var(--ease-out)" : "none" }}>
-      <div className="flex flex-col items-end" style={{ maxWidth: "65%" }}>
-        <div className="flex items-start gap-2">
-          {onToggleSelect && (
-            <button
-              onClick={onToggleSelect}
-              className="mt-3 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors duration-100 hover:border-[var(--fill-secondary)]"
-              style={{
-                borderColor: selected ? "var(--tint)" : "var(--fill-quaternary)",
-                background: selected ? "var(--tint)" : "transparent",
-              }}
-            >
-              {selected && <Check size={14} strokeWidth={2.5} style={{ color: "white" }} />}
-            </button>
-          )}
-          <div
-            className="user-bubble-content px-3.5 py-2 text-[14px] leading-[1.6] break-words relative"
-            style={{
-              background: "var(--bubble-user)",
-              color: "var(--bubble-user-text)",
-              borderRadius: "var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg)",
-              overflowWrap: "anywhere",
-              backgroundImage: "var(--bubble-user-gradient)",
-              boxShadow: "0 2px 8px color-mix(in srgb, var(--bubble-user) 25%, transparent), inset 0 1px 0 rgba(255,255,255,0.12)",
-            }}
-          >
-          {text}
-          {msg.images && msg.images.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {msg.images.map((img, i) => (
-                <img
-                  key={i}
-                  src={img.url}
-                  alt={img.alt || "attached image"}
-                  className="cursor-pointer rounded-md object-cover"
-                  style={{
-                    maxHeight: 200,
-                    maxWidth: "100%",
-                    border: "0.5px solid rgba(255,255,255,0.2)",
-                  }}
-                  loading="lazy"
-                  onClick={() => openLightbox(img.url, img.alt || "attached image")}
-                />
-              ))}
-            </div>
-          )}
-          {tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {tags.map((tag, ti) =>
-                tag.items.map((item, ii) => (
-                  <span
-                    key={`${ti}-${ii}`}
-                    className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium"
-                    style={{
-                      background: "rgba(255,255,255,0.15)",
-                      color: "var(--bubble-user-text)",
-                      border: "0.5px solid rgba(255,255,255,0.2)",
-                    }}
-                  >
-                    <span className="text-[10px]">{tag.type === "引用" ? "📎" : "📄"}</span>
-                    <span className="max-w-[120px] truncate">{item}</span>
-                  </span>
-                ))
-              )}
-            </div>
-          )}
-          </div>
-        </div>
-        <div className="mt-1 flex w-full flex-col items-end gap-0.5">
-          <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-            {ts(msg.timestamp)}
-          </span>
-          {copyable && (
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={handleCopy}
-                className="flex h-6 w-6 items-center justify-center rounded transition-all duration-150 hover:bg-[var(--bg-hover)] active:scale-90"
-                style={{ color: copied ? "var(--green)" : "var(--fill-quaternary)" }}
-                title="复制"
-              >
-                {copied ? <Check size={12} strokeWidth={1.5} style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy size={12} strokeWidth={1.2} />}
-              </button>
-              <button
-                onClick={handleEdit}
-                className="flex h-6 w-6 items-center justify-center rounded transition-all duration-150 hover:bg-[var(--bg-hover)] active:scale-90"
-                style={{ color: "var(--fill-quaternary)" }}
-                title="编辑"
-              >
-                <Pencil size={12} strokeWidth={1.2} />
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-});
 
 const AiReactionBar = memo(function AiReactionBar({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
@@ -218,7 +115,7 @@ const AiReactionBar = memo(function AiReactionBar({ content }: { content: string
 
   return (
     <div
-      className="mt-1 flex items-center gap-0.5 -ml-1.5"
+      className="mt-1 flex items-center gap-0.5 -ml-1.5 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150"
     >
       <button onClick={handleCopy} className={btnCls} style={{ color: copied ? "var(--green)" : defaultColor }} title="复制">
         {copied ? <Check {...iconProps} strokeWidth={ICON_ACTIVE_STROKE} style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy {...iconProps} />}
@@ -256,7 +153,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
   }, [toolCalls, aiThreshold]);
   return (
     <div className="pb-3 group/message" style={{ animation: "fade-in var(--duration-fast) var(--ease-out)" }}>
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-[14px]">
         {onToggleSelect && (
           <button
             onClick={onToggleSelect}
@@ -269,7 +166,25 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
             {selected && <Check size={14} strokeWidth={2.5} style={{ color: "white" }} />}
           </button>
         )}
+        <MessageAvatar role="assistant" />
         <div className="flex-1 min-w-0">
+      {/* Message head: name + time + duration pill */}
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>FastClaw</span>
+        <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
+          {ts(msg.timestamp)}
+        </span>
+        {usage && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10.5px]"
+            style={{ background: "var(--bg-secondary)", color: "var(--fill-quaternary)" }}
+            title={`上行 ${formatTokens(usage.promptTokens)} · 下行 ${formatTokens(usage.completionTokens)}`}
+          >
+            <Clock size={10} strokeWidth={1.2} />
+            {formatElapsed(usage.elapsedMs)}
+          </span>
+        )}
+      </div>
       {groupedToolCalls && groupedToolCalls.length > 0 && (
         <div className="mb-2">
           {groupedToolCalls.map((item) => {
@@ -289,20 +204,6 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         <Suspense fallback={<div className="animate-pulse rounded py-2" style={{ background: "var(--bg-tertiary)", height: 20 }} />}>
           <MarkdownContent content={msg.content} />
         </Suspense>
-      </div>
-      <div className="mt-1 flex items-center gap-2.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-        <span
-          className="cursor-default"
-          title={usage ? `耗时 ${formatElapsed(usage.elapsedMs)} · 上行 ${formatTokens(usage.promptTokens)} · 下行 ${formatTokens(usage.completionTokens)}` : undefined}
-        >
-          {ts(msg.timestamp)}
-          {usage && (
-            <span className="ml-1.5">
-              <Clock size={10} strokeWidth={1.2} className="mr-0.5 inline-block translate-y-[-0.5px]" />
-              {formatElapsed(usage.elapsedMs)}
-            </span>
-          )}
-        </span>
       </div>
       {copyable && <AiReactionBar content={msg.content} />}
         </div>
@@ -724,6 +625,7 @@ export function MessageRendererRow({
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
+          animate={animate}
         />
       ) : cm.role === "system" ? (
         <SystemMsg msg={cm} />
