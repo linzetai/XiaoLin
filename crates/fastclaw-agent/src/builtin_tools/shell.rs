@@ -16,12 +16,12 @@ impl Tool for ShellDefinitionStub {
         "shell_exec"
     }
     fn description(&self) -> &str {
-        "Run a shell command. Returns exit_code, stdout, stderr, and signal info. \
-         Default shell: bash (Unix) or cmd.exe (Windows). \
-         Set is_background=true for dev servers, watchers, and processes you don't need to wait for; \
-         set is_background=false for commands you want to wait for (timeout: 5 minutes). \
-         For very long tasks (>5min), use background mode with output redirection, \
-         then poll with 'sleep N' + 'read_file' to monitor progress."
+        "Run a shell command (sh -c). Returns exit_code, duration, stdout, stderr. \
+         Read-only commands (ls, cat, git status, etc.) execute directly without sandbox. \
+         Write commands run inside a sandbox with filesystem isolation. \
+         Default timeout: 120s (override with timeout_ms). \
+         For long-running processes (dev servers, watchers), use 'nohup cmd > output.log 2>&1 &' \
+         and poll with 'cat output.log' to monitor progress."
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         shell_parameter_schema(true)
@@ -42,7 +42,7 @@ impl Tool for ShellDefinitionStub {
 }
 
 /// Build common shell parameter schema.
-fn shell_parameter_schema(include_is_background: bool) -> ToolParameterSchema {
+fn shell_parameter_schema(_include_is_background: bool) -> ToolParameterSchema {
     let mut props = HashMap::new();
     props.insert(
         "command".to_string(),
@@ -66,24 +66,12 @@ fn shell_parameter_schema(include_is_background: bool) -> ToolParameterSchema {
         }),
     );
     props.insert(
-        "shell".to_string(),
+        "timeout_ms".to_string(),
         serde_json::json!({
-            "type": "string",
-            "enum": ["bash", "sh", "cmd", "powershell"],
-            "description": "Shell to use. On Windows: 'cmd' (default) or 'powershell'. \
-             On Unix: 'bash' (default) or 'sh'. Omit to use the platform default."
+            "type": "integer",
+            "description": "Timeout in milliseconds. Default 120000 (120s). Max 300000 (5min)."
         }),
     );
-    if include_is_background {
-        props.insert(
-            "is_background".to_string(),
-            serde_json::json!({
-                "type": "boolean",
-                "description": "Run in background for long-running processes (dev servers, watchers). \
-                 Default false (foreground, waits for completion)."
-            }),
-        );
-    }
     let required = vec!["command".to_string()];
     ToolParameterSchema {
         schema_type: "object".to_string(),

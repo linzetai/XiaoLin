@@ -55,7 +55,7 @@ pub fn transform(
             "-c".to_string(),
             command.to_string(),
         ],
-        working_dir: None,
+        working_dir: Some(cwd.to_path_buf()),
         env,
         env_remove: Vec::new(),
         sandbox_type: SandboxType::Seatbelt,
@@ -337,24 +337,40 @@ fn build_filesystem_policy(fs_policy: &FileSystemSandboxPolicy, cwd: &Path) -> S
             let mut rules = Vec::new();
             rules.push("; filesystem access rules".to_string());
 
-            let readable_paths: Vec<PathBuf> = fs_policy
-                .entries
-                .iter()
-                .filter(|e| e.access.can_read() && !e.access.can_write())
-                .filter_map(|e| match &e.path {
-                    FileSystemPath::Path { path } => normalize_path_for_sandbox(path),
-                    _ => None,
-                })
-                .collect();
-
-            if !readable_paths.is_empty() {
-                let roots: Vec<SeatbeltAccessRoot> = readable_paths
+            if fs_policy.has_full_disk_read_access() {
+                rules.push("(allow file-read* (subpath \"/\"))".to_string());
+            } else {
+                let readable_paths: Vec<PathBuf> = fs_policy
+                    .entries
                     .iter()
-                    .map(SeatbeltAccessRoot::simple)
+                    .filter(|e| e.access.can_read() && !e.access.can_write())
+                    .filter_map(|e| match &e.path {
+                        FileSystemPath::Path { path } => normalize_path_for_sandbox(path),
+                        _ => None,
+                    })
                     .collect();
-                let (_params, policy) =
-                    build_seatbelt_access_policy("file-read*", "READABLE_ROOT", &roots);
-                rules.push(policy);
+
+                if !readable_paths.is_empty() {
+                    let roots: Vec<SeatbeltAccessRoot> = readable_paths
+                        .iter()
+                        .map(SeatbeltAccessRoot::simple)
+                        .collect();
+                    let (_params, policy) =
+                        build_seatbelt_access_policy("file-read*", "READABLE_ROOT", &roots);
+                    rules.push(policy);
+                }
+
+                for sys_path in &[
+                    "/usr/lib",
+                    "/usr/share",
+                    "/usr/bin",
+                    "/bin",
+                    "/dev",
+                    "/private/var/tmp",
+                    "/Library/Developer",
+                ] {
+                    rules.push(format!("(allow file-read* (subpath \"{sys_path}\"))"));
+                }
             }
 
             let rich_writable_roots = fs_policy.get_rich_writable_roots_with_cwd(cwd);
@@ -383,18 +399,6 @@ fn build_filesystem_policy(fs_policy: &FileSystemSandboxPolicy, cwd: &Path) -> S
                     );
                     rules.push(policy);
                 }
-            }
-
-            for sys_path in &[
-                "/usr/lib",
-                "/usr/share",
-                "/usr/bin",
-                "/bin",
-                "/dev",
-                "/private/var/tmp",
-                "/Library/Developer",
-            ] {
-                rules.push(format!("(allow file-read* (subpath \"{sys_path}\"))"));
             }
 
             rules.push("(allow file-write* (literal \"/dev/null\"))".to_string());
@@ -624,7 +628,7 @@ pub fn transform_with_proxy(params: &CreateSeatbeltCommandArgsParams<'_>) -> San
             "-c".to_string(),
             params.command.to_string(),
         ],
-        working_dir: None,
+        working_dir: Some(params.cwd.to_path_buf()),
         env,
         env_remove: Vec::new(),
         sandbox_type: SandboxType::Seatbelt,
@@ -1282,5 +1286,49 @@ mod tests {
     fn glob_double_star_trailing() {
         let regex = seatbelt_regex_for_unreadable_glob("/home/user/**");
         assert_eq!(regex, r"/home/user/.*");
+    }
+
+    #[test]
+    fn full_disk_read_generates_subpath_root() {
+        let fs = FileSystemSandboxPolicy::default(); // has Root read
+        assert!(fs.has_full_disk_read_access());
+        let policy = build_seatbelt_policy(&fs, NetworkSandboxPolicy::Enabled, &test_cwd());
+        assert!(policy.contains("(allow file-read* (subpath \"/\"))"));
+        // Should NOT contain hardcoded system paths since subpath "/" covers everything
+        assert!(!policy.contains("(allow file-read* (subpath \"/usr/lib\"))"));
+    }
+
+    #[test]
+    fn non_full_disk_read_uses_specific_paths() {
+        let fs = restricted_fs(&["/tmp"], &["/usr/local"], &[]);
+        assert!(!fs.has_full_disk_read_access());
+        let policy = build_seatbelt_policy(&fs, NetworkSandboxPolicy::Enabled, &test_cwd());
+        assert!(!policy.contains("(allow file-read* (subpath \"/\"))"));
+        assert!(policy.contains("/usr/local"));
+        assert!(policy.contains("/usr/lib")); // hardcoded fallback
+    }
+
+    #[test]
+    fn seatbelt_transform_sets_working_dir() {
+        let cwd = PathBuf::from("/home/user/project");
+        let cmd = transform("echo hi", "sh", &unrestricted_fs(), NetworkSandboxPolicy::Enabled, &cwd);
+        assert_eq!(cmd.working_dir, Some(cwd));
+    }
+
+    #[test]
+    fn seatbelt_transform_with_proxy_sets_working_dir() {
+        let cwd = test_cwd();
+        let params = CreateSeatbeltCommandArgsParams {
+            command: "ls",
+            shell: "sh",
+            fs_policy: &unrestricted_fs(),
+            net_policy: NetworkSandboxPolicy::Enabled,
+            cwd: &cwd,
+            enforce_managed_network: false,
+            network_proxy: None,
+            extra_allow_unix_sockets: vec![],
+        };
+        let cmd = transform_with_proxy(&params);
+        assert_eq!(cmd.working_dir, Some(cwd));
     }
 }

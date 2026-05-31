@@ -9,6 +9,8 @@ use fastclaw_protocol::approval::PendingAction;
 use fastclaw_sandbox::SandboxManager;
 use fastclaw_security::dangerous_ops::{self, CheckResult};
 
+use crate::builtin_tools::shell::validate_readonly_command;
+
 /// Unified shell execution runtime.
 ///
 /// Replaces both `ShellTool` and `SandboxedShellTool` by combining:
@@ -95,9 +97,10 @@ impl ToolRuntime for ShellRuntime {
             })?;
 
         let timeout_ms = args
-            .get("timeout")
+            .get("timeout_ms")
+            .or_else(|| args.get("timeout"))
             .and_then(|v| v.as_u64())
-            .unwrap_or(30_000);
+            .unwrap_or(120_000);
 
         let cwd = args
             .get("working_dir")
@@ -106,27 +109,35 @@ impl ToolRuntime for ShellRuntime {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| ctx.cwd.clone());
 
-        let mut cmd = match sandbox.sandbox_type {
+        let is_readonly = validate_readonly_command(command).is_ok();
+
+        let effective_sandbox = if is_readonly {
+            SandboxBackend::None
+        } else {
+            sandbox.sandbox_type
+        };
+
+        let mut cmd = match effective_sandbox {
             SandboxBackend::None => {
                 build_plain_command(command, &cwd)
             }
             _ => {
-                let sandbox_type = map_backend_to_sandbox_type(sandbox.sandbox_type);
+                let sandbox_type = map_backend_to_sandbox_type(effective_sandbox);
                 let mgr = SandboxManager::with_type(sandbox_type);
                 if mgr.is_available() {
                     let fs_policy = build_fs_policy(&cwd);
-                    let net_policy = fastclaw_security::NetworkSandboxPolicy::default();
+                    let net_policy = fastclaw_security::NetworkSandboxPolicy::Enabled;
                     let shell = preferred_shell();
                     let sandboxed = mgr.transform(command, shell, &fs_policy, net_policy, &cwd);
                     tracing::debug!(
-                        sandbox = %sandbox.sandbox_type,
+                        sandbox = %effective_sandbox,
                         command = %command,
                         "executing shell command in sandbox"
                     );
                     sandboxed.into_tokio_command()
                 } else {
                     tracing::warn!(
-                        sandbox = %sandbox.sandbox_type,
+                        sandbox = %effective_sandbox,
                         "sandbox requested but not available, falling back to plain execution"
                     );
                     build_plain_command(command, &cwd)
@@ -136,6 +147,8 @@ impl ToolRuntime for ShellRuntime {
 
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+
+        let start = std::time::Instant::now();
 
         let child = cmd.spawn().map_err(|e| ToolRuntimeError::Internal {
             message: format!("failed to spawn shell: {e}"),
@@ -153,15 +166,48 @@ impl ToolRuntime for ShellRuntime {
             message: format!("process error: {e}"),
         })?;
 
+        let duration_ms = start.elapsed().as_millis();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let exit_code = output.status.code().unwrap_or(-1);
 
-        let result = if stderr.is_empty() {
-            format!("exit_code={exit_code}\n{stdout}")
-        } else {
-            format!("exit_code={exit_code}\nstdout:\n{stdout}\nstderr:\n{stderr}")
+        #[cfg(unix)]
+        let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
+        #[cfg(not(unix))]
+        let signal: Option<i32> = None;
+
+        // Signal-death escalation: if killed by SIGABRT/SIGKILL/SIGSYS with
+        // empty stdout while inside a sandbox, treat as sandbox policy failure.
+        if let Some(sig) = signal {
+            let sandbox_active = effective_sandbox != SandboxBackend::None;
+            let is_sandbox_signal = matches!(sig, 6 | 9 | 31); // SIGABRT, SIGKILL, SIGSYS
+            if sandbox_active && is_sandbox_signal && stdout.is_empty() {
+                return Err(ToolRuntimeError::SandboxDenied {
+                    reason: format!(
+                        "process killed by signal {sig} (sandbox policy violation suspected)"
+                    ),
+                });
+            }
+        }
+
+        let exit_code_str = match (output.status.code(), signal) {
+            (Some(code), _) => format!("{code}"),
+            (None, Some(sig)) => format!("SIGNAL({sig})"),
+            (None, None) => "-1".to_string(),
         };
+
+        let cwd_display = cwd.display();
+        let mut result = format!(
+            "exit_code={exit_code_str}\nduration_ms={duration_ms}\ncwd={cwd_display}\n---\n"
+        );
+
+        if stderr.is_empty() {
+            result.push_str(&stdout);
+        } else {
+            result.push_str("stdout:\n");
+            result.push_str(&stdout);
+            result.push_str("\nstderr:\n");
+            result.push_str(&stderr);
+        }
 
         Ok(result)
     }
@@ -285,5 +331,67 @@ mod tests {
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
         assert!(result.contains("hello"));
         assert!(result.contains("exit_code=0"));
+        assert!(result.contains("duration_ms="));
+        assert!(result.contains("cwd=/tmp"));
+    }
+
+    #[tokio::test]
+    async fn run_readonly_bypasses_sandbox() {
+        let rt = ShellRuntime;
+        let args = serde_json::json!({"command": "echo bypass_test"});
+        // Even with Seatbelt requested, readonly commands should bypass it
+        let sandbox = SandboxAttempt {
+            sandbox_type: SandboxBackend::Seatbelt,
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let ctx = ToolExecContext {
+            turn_id: fastclaw_protocol::TurnId::new("t1"),
+            session_id: fastclaw_protocol::SessionId::new("s1"),
+            call_id: "c1".into(),
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
+        assert!(result.contains("bypass_test"));
+        assert!(result.contains("exit_code=0"));
+    }
+
+    #[tokio::test]
+    async fn output_format_includes_metadata() {
+        let rt = ShellRuntime;
+        let args = serde_json::json!({"command": "echo metadata_test"});
+        let sandbox = SandboxAttempt {
+            sandbox_type: SandboxBackend::None,
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let ctx = ToolExecContext {
+            turn_id: fastclaw_protocol::TurnId::new("t1"),
+            session_id: fastclaw_protocol::SessionId::new("s1"),
+            call_id: "c1".into(),
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(lines[0].starts_with("exit_code="));
+        assert!(lines[1].starts_with("duration_ms="));
+        assert!(lines[2].starts_with("cwd="));
+        assert_eq!(lines[3], "---");
+    }
+
+    #[tokio::test]
+    async fn timeout_ms_parameter_works() {
+        let rt = ShellRuntime;
+        let args = serde_json::json!({"command": "sleep 10", "timeout_ms": 500});
+        let sandbox = SandboxAttempt {
+            sandbox_type: SandboxBackend::None,
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let ctx = ToolExecContext {
+            turn_id: fastclaw_protocol::TurnId::new("t1"),
+            session_id: fastclaw_protocol::SessionId::new("s1"),
+            call_id: "c1".into(),
+            cwd: std::path::PathBuf::from("/tmp"),
+        };
+        let result = rt.run(&args, &sandbox, &ctx).await;
+        assert!(matches!(result, Err(ToolRuntimeError::Timeout { .. })));
     }
 }

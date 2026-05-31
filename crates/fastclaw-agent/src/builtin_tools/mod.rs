@@ -17,7 +17,7 @@ pub mod plan_mode;
 mod request_permissions;
 mod screenshot;
 mod session;
-mod shell;
+pub(crate) mod shell;
 pub mod shell_path_validation;
 pub mod shell_readonly;
 pub mod shell_security;

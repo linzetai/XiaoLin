@@ -54,7 +54,7 @@ pub fn transform(
     SandboxedCommand {
         program: shell.to_string(),
         args: vec!["-c".to_string(), command.to_string()],
-        working_dir: None,
+        working_dir: Some(cwd.to_path_buf()),
         env,
         env_remove: build_env_remove_list(fs_policy, net_policy),
         sandbox_type: SandboxType::Landlock,
@@ -141,7 +141,7 @@ pub fn transform_external(
     SandboxedCommand {
         program: sandbox_exe.to_string_lossy().into_owned(),
         args: sandbox_args,
-        working_dir: None,
+        working_dir: Some(sandbox_policy_cwd.to_path_buf()),
         env,
         env_remove: build_env_remove_list(fs_policy, net_policy),
         sandbox_type: SandboxType::ExternalBinary,
