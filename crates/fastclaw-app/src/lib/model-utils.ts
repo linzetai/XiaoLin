@@ -157,5 +157,7 @@ export async function saveModelConfig(opts: SaveModelOpts): Promise<void> {
     await api.setConfig("credentials", newCreds);
   }
 
+  await api.setConfig("agents", { defaults: { model: `${key}/${model}` } });
+
   window.dispatchEvent(new CustomEvent("fastclaw:models-updated"));
 }

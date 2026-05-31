@@ -552,10 +552,16 @@ export function StreamFooter({
               const approvalId = pendingQuestion.requestId.slice("approval:".length);
               await transport.resolveApproval(approvalId, answer, activeChat?.id);
             } else {
-              await transport.submitToolAnswerIpc(pendingQuestion.requestId, answer);
+              await transport.submitToolAnswerIpc(pendingQuestion.requestId, answer, activeChat?.id);
             }
           }}
-          onTimeout={() => setPendingQuestion(null)}
+          onTimeout={() => {
+            const q = pendingQuestion;
+            setPendingQuestion(null);
+            if (q && !q.requestId.startsWith("approval:")) {
+              transport.submitToolAnswerIpc(q.requestId, "", activeChat?.id);
+            }
+          }}
         />
       )}
 

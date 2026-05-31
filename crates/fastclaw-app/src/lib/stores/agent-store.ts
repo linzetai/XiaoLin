@@ -15,8 +15,16 @@ export function buildAgentSlice({ set }: SetGet) {
       // No-op in single-agent mode — activeAgentId is always "main"
     },
 
-    syncAgentsFromBackend: (_backendAgents: Array<{ agentId: string; name: string; model: string; avatar?: string | null }>) => {
-      // No-op in single-agent mode
+    syncAgentsFromBackend: (backendAgents: Array<{ agentId: string; name: string; model: string; avatar?: string | null }>) => {
+      const main = backendAgents.find((a) => a.agentId === DEFAULT_AGENT_ID);
+      if (!main) return;
+      set((state) => {
+        const agents = state.agents.map((a) => {
+          if (a.id !== DEFAULT_AGENT_ID) return a;
+          return { ...a, model: main.model || a.model, name: main.name || a.name };
+        });
+        return { agents };
+      });
     },
 
     updateAgentProps: (_agentId: string, props: Partial<Pick<Agent, "name" | "model" | "avatar">>) => {

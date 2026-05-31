@@ -813,9 +813,15 @@ export function useMessageStreamChat({
         toolCalls: savedTC.length > 0 ? savedTC : undefined,
       }, currentStreamChatRef.current ?? undefined);
     }
+    const sessionId = currentStreamChatRef.current ?? undefined;
     currentStreamChatRef.current = null;
     setStreaming(false);
-    setPendingQuestion(null);
+    setPendingQuestion((prev) => {
+      if (prev && !prev.requestId.startsWith("approval:")) {
+        transport.submitToolAnswer(prev.requestId, "", sessionId);
+      }
+      return null;
+    });
   }, [activeAgentId, addMessage]);
 
   const handleNewTopic = useCallback(() => {

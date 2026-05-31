@@ -25,11 +25,16 @@ let sessionChangedUnsub: (() => void) | null = null;
 
 async function syncBackendData() {
   try {
-    const sessions = await transport.listSessions(50);
+    const [sessions, agents] = await Promise.all([
+      transport.listSessions(50),
+      transport.listAgents(),
+    ]);
+    const store = useAgentStore.getState();
+    if (agents.length > 0) {
+      store.syncAgentsFromBackend(agents);
+    }
     if (sessions.length > 0) {
-      useAgentStore
-        .getState()
-        .syncSessionsForAgent("main", sessions);
+      store.syncSessionsForAgent("main", sessions);
     }
   } catch {
     /* sync failure is non-fatal */

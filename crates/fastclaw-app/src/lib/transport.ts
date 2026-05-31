@@ -417,6 +417,10 @@ export function chatStream(
       messages: params.messages,
       sessionId: params.sessionId,
       stream: true,
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      ...(params.model ? { model: params.model } : {}),
+      ...(params.temperature != null ? { temperature: params.temperature } : {}),
+      ...(params.maxTokens != null ? { maxTokens: params.maxTokens } : {}),
       ...(params.workDir ? { workDir: params.workDir } : {}),
     })
     .then(() => {})
@@ -540,8 +544,8 @@ export async function getPlanFile(sessionId?: string): Promise<{ path: string; c
   };
 }
 
-export async function submitToolAnswer(requestId: string, answer: string): Promise<{ ok: boolean }> {
-  const resp = (await wsClient.send("tools.submit_answer", { requestId, answer })) as {
+export async function submitToolAnswer(requestId: string, answer: string, sessionId?: string): Promise<{ ok: boolean }> {
+  const resp = (await wsClient.send("tools.submit_answer", { requestId, answer, sessionId })) as {
     data?: { ok?: boolean };
   };
   return { ok: resp?.data?.ok ?? false };

@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "nsis", "appimage", "dmg"],
+    "targets": ["app", "deb", "nsis", "appimage", "dmg"],
     "createUpdaterArtifacts": true,
     "resources": [
       "resources/lsp/*"
@@ -51,6 +51,9 @@
           "/usr/bin/fastclaw": "binaries/fastclaw"
         }
       }
+    },
+    "macOS": {
+      "entitlements": "Entitlements.plist"
     },
     "windows": {
       "nsis": {
