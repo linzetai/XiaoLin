@@ -1936,7 +1936,7 @@ impl AgentRuntime {
                                         index: 0,
                                         delta: DeltaContent {
                                             role: Some(Role::Assistant),
-                                            content: Some(text),
+                                            content: Some(text.into_owned()),
                                             reasoning_content: None,
                                             tool_calls: None,
                                         },

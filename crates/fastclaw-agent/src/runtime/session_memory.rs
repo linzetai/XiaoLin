@@ -188,7 +188,7 @@ pub(crate) async fn extract_session_memory(
         Ok(resp) => resp
             .choices
             .first()
-            .and_then(|c| c.message.text_content())
+            .and_then(|c| c.message.text_content().map(|c| c.into_owned()))
             .unwrap_or_default(),
         Err(e) => {
             tracing::warn!(error = %e, "session memory extraction LLM call failed");
@@ -361,7 +361,7 @@ pub(crate) async fn extract_incremental(
         Ok(resp) => resp
             .choices
             .first()
-            .and_then(|c| c.message.text_content())
+            .and_then(|c| c.message.text_content().map(|c| c.into_owned()))
             .unwrap_or_default(),
         Err(e) => {
             tracing::warn!(error = %e, "incremental session memory extraction failed");

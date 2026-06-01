@@ -106,7 +106,8 @@ pub async fn resolve_session_context(
         if let Some(session) = state.store.session_store.get_session(sid).await? {
             let history_items = state.store.session_store.load_history(sid).await?;
             let messages = if history_items.is_empty() {
-                state.store.session_store.load_chat_messages(sid).await?
+                let arc = state.store.session_store.load_chat_messages(sid).await?;
+                std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
             } else {
                 history_compat::history_items_to_chat_messages(&history_items)
             };

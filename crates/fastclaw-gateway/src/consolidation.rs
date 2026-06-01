@@ -143,7 +143,7 @@ fn build_compact_context(messages: &[ChatMessage]) -> String {
             let end = text.floor_char_boundary(MAX_TOOL_RESULT_CHARS);
             format!("{}...", &text[..end])
         } else {
-            text
+            text.into_owned()
         };
         buf.push_str(&format!("{role_label}: {text}\n"));
     }

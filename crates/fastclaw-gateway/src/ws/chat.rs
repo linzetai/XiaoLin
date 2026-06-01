@@ -563,6 +563,7 @@ pub async fn spawn_chat(
                     model: setup.enriched_request.model.clone(),
                     work_dir: setup.enriched_request.work_dir.clone(),
                     extra: op_extra,
+                    typed_data: None,
                 },
                 128,
             )
@@ -645,13 +646,7 @@ pub async fn spawn_chat(
                 }
                 break;
             }
-            if let Err(e) = state.store.event_log.append(&session_id, &event).await {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "failed to append stream event to event log"
-                );
-            }
+            state.store.event_log.append(&session_id, &event);
             if matches!(&event, AgentEvent::Error { .. }) {
                 if reserved > 0.0 {
                     let _ = state.obs.budget_tracker.release_reservation(reserved);

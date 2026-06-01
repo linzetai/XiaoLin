@@ -862,7 +862,7 @@ impl AnthropicProvider {
                 fastclaw_core::types::Role::System => {
                     if let Some(t) = msg.text_content() {
                         if !t.is_empty() {
-                            system_parts.push(t);
+                            system_parts.push(t.into_owned());
                         }
                     }
                 }

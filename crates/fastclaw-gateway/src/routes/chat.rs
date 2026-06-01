@@ -189,7 +189,7 @@ async fn handle_non_stream(
         .first()
         .and_then(|c| c.message.text_content())
     {
-        maybe_spawn_smart_title_background(&state, &setup, assistant_text.as_str());
+        maybe_spawn_smart_title_background(&state, &setup, &*assistant_text);
     }
 
     fastclaw_observe::record_chat_latency(&setup.agent_id, request_start);
@@ -315,15 +315,14 @@ async fn handle_stream(
 
     let stream_context_key = uuid::Uuid::new_v4().to_string();
     let mut op_extra = serde_json::Map::new();
-    if let Ok(enriched_val) = serde_json::to_value(&setup.enriched_request) {
-        op_extra.insert("_enriched_request".into(), enriched_val);
-    }
-    if let Ok(cfg_val) = serde_json::to_value(&agent_config) {
-        op_extra.insert("_agent_config".into(), cfg_val);
-    }
     op_extra.insert(
         "_stream_context_key".into(),
         serde_json::Value::String(stream_context_key),
+    );
+
+    let typed_data = fastclaw_core::typed_turn_data::TypedTurnData::wrap(
+        setup.enriched_request.clone(),
+        agent_config.clone(),
     );
 
     let session_handle = state
@@ -344,6 +343,7 @@ async fn handle_stream(
                 model: setup.enriched_request.model.clone(),
                 work_dir: setup.enriched_request.work_dir.clone(),
                 extra: op_extra,
+                typed_data: Some(typed_data),
             },
             128,
         )
@@ -359,13 +359,7 @@ async fn handle_stream(
         let mut assistant_content = String::new();
         while let Some(se) = event_rx.recv().await {
             let event = se.msg;
-            if let Err(e) = state_for_persist.store.event_log.append(&session_id, &event).await {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "failed to append stream event to event log"
-                );
-            }
+            state_for_persist.store.event_log.append(&session_id, &event);
             match event {
                 AgentEvent::ContentDelta { delta, .. } => {
                     let has_content = delta

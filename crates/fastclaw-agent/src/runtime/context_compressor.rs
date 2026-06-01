@@ -438,7 +438,7 @@ pub async fn try_compress_chat_with_threshold(
         Ok(resp) => resp
             .choices
             .first()
-            .and_then(|c| c.message.text_content())
+            .and_then(|c| c.message.text_content().map(|c| c.into_owned()))
             .unwrap_or_default(),
         Err(e) => {
             tracing::warn!(error = %e, "LLM compression failed, falling back to rule-based");

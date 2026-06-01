@@ -37,6 +37,8 @@ pub struct TurnParams {
     /// Receiver for mid-turn steer inputs. The executor should drain this
     /// before each LLM sampling iteration and append to messages.
     pub steer_rx: tokio::sync::mpsc::UnboundedReceiver<SteerMessage>,
+    /// Type-erased data passed from the gateway to avoid JSON round-trips.
+    pub typed_data: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 /// Result of a completed turn execution (success case).

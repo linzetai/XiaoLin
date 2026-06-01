@@ -1219,14 +1219,22 @@ impl AppState {
         let gc_stats = self.strm.session_manager.gc_with_stats().await;
         let active_ids = self.strm.session_manager.active_session_id_set().await;
 
-        // Clean chat_locks for sessions that no longer exist
+        // Clean chat_locks: keep entries that match active session IDs OR have
+        // a corresponding active cancel token (channel dispatches use raw chat_id,
+        // not session_key, so they won't appear in active_ids).
         let locks_before = self.ext.chat_locks.len();
-        self.ext.chat_locks.retain(|k, _| active_ids.contains(k));
+        self.ext.chat_locks.retain(|k, sem| {
+            active_ids.contains(k)
+                || self.ext.chat_cancels.contains_key(k)
+                || sem.available_permits() == 0 // still processing
+        });
         let locks_removed = locks_before - self.ext.chat_locks.len();
 
         // Clean chat_model_overrides
         let overrides_before = self.ext.chat_model_overrides.len();
-        self.ext.chat_model_overrides.retain(|k, _| active_ids.contains(k));
+        self.ext.chat_model_overrides.retain(|k, _| {
+            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
+        });
         let overrides_removed = overrides_before - self.ext.chat_model_overrides.len();
 
         // Clean stream_event_tx (remove closed senders)
@@ -1234,9 +1242,12 @@ impl AppState {
         self.strm.stream_event_tx.retain(|_, tx| !tx.is_closed());
         let streams_removed = streams_before - self.strm.stream_event_tx.len();
 
-        // Clean chat_cancels for sessions that no longer exist
+        // Clean chat_cancels: cancel tokens self-remove on task completion
+        // (see inbound dispatcher), but GC any orphans.
         let cancels_before = self.ext.chat_cancels.len();
-        self.ext.chat_cancels.retain(|k, _| active_ids.contains(k));
+        self.ext.chat_cancels.retain(|k, _| {
+            active_ids.contains(k) || self.ext.chat_locks.contains_key(k)
+        });
         let cancels_removed = cancels_before - self.ext.chat_cancels.len();
 
         // GC SubAgentManager: remove terminal runs older than 5 minutes and

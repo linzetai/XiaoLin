@@ -605,6 +605,7 @@ pub(crate) async fn handle_channel_message(
             .choices
             .first()
             .and_then(|c| c.message.text_content())
+            .map(|c| c.into_owned())
             .unwrap_or_else(|| "(no response)".to_string());
 
         channel.reply_message(message_id, &reply_text).await?;
@@ -1079,6 +1080,7 @@ async fn handle_channel_streaming(
             .choices
             .first()
             .and_then(|c| c.message.text_content())
+            .map(|c| c.into_owned())
             .unwrap_or_else(|| "(no response)".to_string());
         return Ok(text);
     }
@@ -1129,6 +1131,7 @@ async fn handle_channel_streaming(
                 model: request.model.clone(),
                 work_dir: request.work_dir.clone(),
                 extra: op_extra,
+                typed_data: None,
             },
             128,
         )
@@ -1154,13 +1157,7 @@ async fn handle_channel_streaming(
 
     while let Some(se) = event_rx.recv().await {
         let event = se.msg;
-        if let Err(e) = state.store.event_log.append(&session_id, &event).await {
-            tracing::warn!(
-                session_id = %session_id,
-                error = %e,
-                "channel streaming: failed to append event to log"
-            );
-        }
+        state.store.event_log.append(&session_id, &event);
         match event {
             AgentEvent::ContentDelta { delta, .. } => {
                 if let Some(choices) = delta.get("choices").and_then(|c| c.as_array()) {

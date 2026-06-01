@@ -59,13 +59,16 @@ impl RuntimeTurnExecutor {
             });
         };
 
-        let mut messages = store
-            .load_chat_messages(&session_id)
-            .await
-            .map_err(|e| TurnError::Runtime {
-                message: format!("failed to load messages: {e}"),
-                code: fastclaw_protocol::event::ErrorCode::Other,
-            })?;
+        let mut messages = std::sync::Arc::try_unwrap(
+            store
+                .load_chat_messages(&session_id)
+                .await
+                .map_err(|e| TurnError::Runtime {
+                    message: format!("failed to load messages: {e}"),
+                    code: fastclaw_protocol::event::ErrorCode::Other,
+                })?,
+        )
+        .unwrap_or_else(|arc| (*arc).clone());
 
         let pre_count = messages.len();
         let pre_tokens = fastclaw_context::compressor::estimate_messages_tokens(&messages);
@@ -136,15 +139,18 @@ impl RuntimeTurnExecutor {
         let threshold = (context_window as f64 * 0.85) as usize;
         let session_id = params.session_id.to_string();
 
-        let mut messages = match store.load_chat_messages(&session_id).await {
+        let messages_arc = match store.load_chat_messages(&session_id).await {
             Ok(m) => m,
             Err(_) => return,
         };
 
-        let estimated = fastclaw_context::compressor::estimate_messages_tokens(&messages);
+        let estimated = fastclaw_context::compressor::estimate_messages_tokens(&messages_arc);
         if estimated <= threshold {
             return;
         }
+
+        let mut messages = std::sync::Arc::try_unwrap(messages_arc)
+            .unwrap_or_else(|arc| (*arc).clone());
 
         tracing::info!(
             session_id = %session_id,
@@ -186,6 +192,36 @@ impl RuntimeTurnExecutor {
 }
 
 impl RuntimeTurnExecutor {
+    fn request_from_extra(params: &fastclaw_session_actor::turn::TurnParams) -> ChatRequest {
+        params
+            .extra
+            .get("_enriched_request")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| ChatRequest {
+                messages: serde_json::from_value(params.messages.clone()).unwrap_or_default(),
+                session_id: Some(SessionId::new(params.session_id.to_string())),
+                agent_id: Some(AgentId::new(params.agent_id.clone())),
+                model: params.model.clone(),
+                max_tokens: None,
+                temperature: None,
+                stream: true,
+                tools: None,
+                work_dir: params.work_dir.clone(),
+                slash_intent: None,
+            })
+    }
+
+    fn config_from_extra(
+        params: &fastclaw_session_actor::turn::TurnParams,
+        default: &AgentConfig,
+    ) -> AgentConfig {
+        params
+            .extra
+            .get("_agent_config")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| default.clone())
+    }
+
     /// Reactive loop: after initial execute_unified, if sub-agents are active,
     /// wait for completions → inject notification → re-prompt until all done.
     #[allow(clippy::too_many_arguments)]
@@ -281,7 +317,9 @@ impl RuntimeTurnExecutor {
             let reprompt_messages = if let Some(ref store) = session_store {
                 if let Some(ref sid) = request.session_id {
                     match store.load_chat_messages(&sid.to_string()).await {
-                        Ok(mut messages) => {
+                        Ok(arc) => {
+                            let mut messages = std::sync::Arc::try_unwrap(arc)
+                                .unwrap_or_else(|a| (*a).clone());
                             messages.push(reactive_loop::notification_as_system_message(&notification_text));
                             messages
                         }
@@ -423,28 +461,15 @@ impl TurnExecutor for RuntimeTurnExecutor {
         // If exceeding threshold, run inline compaction.
         self.maybe_auto_compact(&params, &tx).await;
 
-        let request: ChatRequest = params
-            .extra
-            .get("_enriched_request")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_else(|| ChatRequest {
-                messages: serde_json::from_value(params.messages.clone()).unwrap_or_default(),
-                session_id: Some(SessionId::new(params.session_id.to_string())),
-                agent_id: Some(AgentId::new(params.agent_id.clone())),
-                model: params.model.clone(),
-                max_tokens: None,
-                temperature: None,
-                stream: true,
-                tools: None,
-                work_dir: params.work_dir.clone(),
-                slash_intent: None,
-            });
-
-        let config: AgentConfig = params
-            .extra
-            .get("_agent_config")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_else(|| self.config.clone());
+        let (request, config) = if let Some(ref td) = params.typed_data {
+            if let Some(typed) = fastclaw_core::typed_turn_data::TypedTurnData::extract(td) {
+                (typed.enriched_request.clone(), typed.agent_config.clone())
+            } else {
+                (Self::request_from_extra(&params), Self::config_from_extra(&params, &self.config))
+            }
+        } else {
+            (Self::request_from_extra(&params), Self::config_from_extra(&params, &self.config))
+        };
 
         let orchestrator = self.tool_orchestrator.clone().unwrap_or_else(|| {
             Arc::new(crate::runtime::orchestrator::ToolOrchestrator::new())

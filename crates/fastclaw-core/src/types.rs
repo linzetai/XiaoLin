@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 pub use fastclaw_protocol::{AgentId, AskQuestionOption, CompactTrigger, ExecutionMode, Role, SessionId};
@@ -110,9 +111,11 @@ pub struct ChatMessage {
 
 impl ChatMessage {
     /// Extract the text portion of `content`, regardless of format.
-    pub fn text_content(&self) -> Option<String> {
+    /// Returns `Cow::Borrowed` for plain strings (zero-copy) and
+    /// `Cow::Owned` for multimodal arrays (join required).
+    pub fn text_content(&self) -> Option<Cow<'_, str>> {
         match &self.content {
-            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(serde_json::Value::String(s)) => Some(Cow::Borrowed(s.as_str())),
             Some(serde_json::Value::Array(arr)) => {
                 let mut texts = Vec::new();
                 for item in arr {
@@ -123,7 +126,7 @@ impl ChatMessage {
                 if texts.is_empty() {
                     None
                 } else {
-                    Some(texts.join("\n"))
+                    Some(Cow::Owned(texts.join("\n")))
                 }
             }
             _ => None,

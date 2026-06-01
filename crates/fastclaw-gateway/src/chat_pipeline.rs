@@ -123,6 +123,7 @@ pub async fn setup_chat(
             .iter()
             .find(|m| m.role == fastclaw_core::types::Role::User && m.content.is_some())
             .and_then(|m| m.text_content())
+            .map(|c| c.into_owned())
     } else {
         None
     };
@@ -836,7 +837,7 @@ pub async fn after_chat(
         maybe_spawn_smart_title_background(
             state,
             setup,
-            assistant.text_content().unwrap_or_default().as_str(),
+            &*assistant.text_content().unwrap_or_default(),
         );
     }
 

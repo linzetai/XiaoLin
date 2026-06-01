@@ -53,15 +53,37 @@ pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
 }
 
 fn estimate_single_message_tokens(msg: &ChatMessage) -> usize {
-    let content_chars = msg.content.as_ref().map_or(0, |c| {
-        serde_json::to_string(c).map(|s| s.len()).unwrap_or(0)
-    });
+    let content_chars = msg.content.as_ref().map_or(0, |c| value_char_count(c));
     let tool_chars = msg.tool_calls.as_ref().map_or(0, |tc| {
         tc.iter()
             .map(|t| t.function.name.len() + t.function.arguments.len())
             .sum()
     });
     (content_chars + tool_chars) / DEFAULT_CHARS_PER_TOKEN + PER_MESSAGE_OVERHEAD
+}
+
+/// Recursively count characters in a `serde_json::Value` without serializing.
+/// Walks the tree and sums string lengths, number representations, and key names.
+fn value_char_count(v: &serde_json::Value) -> usize {
+    match v {
+        serde_json::Value::Null => 4,
+        serde_json::Value::Bool(b) => if *b { 4 } else { 5 },
+        serde_json::Value::Number(n) => {
+            // Approximate: integer digits + potential decimal
+            let n_f = n.as_f64().unwrap_or(0.0);
+            format!("{n_f}").len()
+        }
+        serde_json::Value::String(s) => s.len() + 2, // +2 for quotes in JSON
+        serde_json::Value::Array(arr) => {
+            arr.iter().map(value_char_count).sum::<usize>() + arr.len() + 1 // commas + brackets
+        }
+        serde_json::Value::Object(obj) => {
+            obj.iter()
+                .map(|(k, v)| k.len() + 2 + 1 + value_char_count(v)) // key quotes + colon
+                .sum::<usize>()
+                + obj.len() + 1 // commas + braces
+        }
+    }
 }
 
 /// How many trailing conversational messages count as “recent” for [`IMPORTANCE_RECENT_MESSAGES`].
@@ -750,7 +772,7 @@ impl ContextCompactor {
                                 .unwrap_or(0);
                             format!("{}...", &content[..end])
                         } else {
-                            content.clone()
+                            content.into_owned()
                         };
                         topics.push(format!("- User: {preview}"));
                     }

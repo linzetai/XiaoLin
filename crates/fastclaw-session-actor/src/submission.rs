@@ -1,3 +1,6 @@
+use std::any::Any;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use fastclaw_protocol::approval::ApprovalDecision;
@@ -41,6 +44,10 @@ pub enum SessionOp {
         work_dir: Option<String>,
         #[serde(default, flatten)]
         extra: serde_json::Map<String, serde_json::Value>,
+        /// Type-erased typed data to avoid JSON serialization round-trip.
+        /// Used by the stream path to pass ChatRequest and AgentConfig directly.
+        #[serde(skip)]
+        typed_data: Option<Arc<dyn Any + Send + Sync>>,
     },
 
     /// Abort the current turn without terminating the session.

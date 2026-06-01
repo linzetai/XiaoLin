@@ -164,8 +164,9 @@ impl SessionActor {
                 model,
                 work_dir,
                 extra,
+                typed_data,
             } => {
-                self.handle_user_turn(sub.id, messages, agent_id, model, work_dir, extra)
+                self.handle_user_turn(sub.id, messages, agent_id, model, work_dir, extra, typed_data)
                     .await;
                 false
             }
@@ -243,6 +244,7 @@ impl SessionActor {
         model: Option<String>,
         work_dir: Option<String>,
         extra: serde_json::Map<String, serde_json::Value>,
+        typed_data: Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
     ) {
         // 1. Abort any active turn.
         if self.active_turn.is_some() {
@@ -317,6 +319,7 @@ impl SessionActor {
                 extra,
                 approval_cache: task_approval_cache,
                 steer_rx,
+                typed_data,
             };
 
             let outcome = executor
@@ -469,6 +472,7 @@ impl SessionActor {
             None,
             None,
             extra,
+            None,
         )
         .await;
     }

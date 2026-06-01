@@ -11,7 +11,7 @@ pub(crate) fn append_text_to_chat_content(content: &mut Option<serde_json::Value
         tool_call_id: None,
         compact_metadata: None,
     };
-    let mut s = tmp.text_content().unwrap_or_default();
+    let mut s = tmp.text_content().map(|c| c.into_owned()).unwrap_or_default();
     s.push_str(block);
     *content = if s.is_empty() {
         None
@@ -25,7 +25,7 @@ pub(crate) fn last_user_turn_text(messages: &[ChatMessage]) -> String {
         .iter()
         .rev()
         .filter(|m| matches!(m.role, Role::User))
-        .find_map(|m| m.text_content())
+        .find_map(|m| m.text_content().map(|c| c.into_owned()))
         .unwrap_or_default()
 }
 

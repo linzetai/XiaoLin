@@ -387,6 +387,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 .choices
                 .first()
                 .and_then(|c| c.message.text_content())
+                .map(|c| c.into_owned())
                 .unwrap_or_default();
 
             let assistant_msg = fastclaw_core::types::ChatMessage {

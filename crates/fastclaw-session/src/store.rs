@@ -21,8 +21,9 @@ const MSG_CACHE_MAX_MESSAGES_PER_SESSION: usize = 200;
 pub struct SessionStore {
     pool: Pool<Sqlite>,
     /// In-memory cache of ChatMessage lists keyed by session_id.
-    /// Avoids re-reading the full history from SQLite on every turn.
-    msg_cache: Arc<RwLock<HashMap<String, Vec<ChatMessage>>>>,
+    /// Uses `Arc` so readers get a cheap reference-counted clone instead of
+    /// deep-copying the entire message list on every cache hit.
+    msg_cache: Arc<RwLock<HashMap<String, Arc<Vec<ChatMessage>>>>>,
 }
 
 impl SessionStore {
@@ -523,10 +524,11 @@ impl SessionStore {
 
         let mut cache = self.msg_cache.write().await;
         if let Some(cached) = cache.get_mut(session_id) {
-            cached.push(msg.clone());
-            if cached.len() > MSG_CACHE_MAX_MESSAGES_PER_SESSION {
-                let excess = cached.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION;
-                cached.drain(..excess);
+            let vec = Arc::make_mut(cached);
+            vec.push(msg.clone());
+            if vec.len() > MSG_CACHE_MAX_MESSAGES_PER_SESSION {
+                let excess = vec.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION;
+                vec.drain(..excess);
             }
         }
 
@@ -601,10 +603,11 @@ impl SessionStore {
 
         let mut cache = self.msg_cache.write().await;
         if let Some(cached) = cache.get_mut(session_id) {
-            cached.extend_from_slice(messages);
-            if cached.len() > MSG_CACHE_MAX_MESSAGES_PER_SESSION {
-                let excess = cached.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION;
-                cached.drain(..excess);
+            let vec = Arc::make_mut(cached);
+            vec.extend_from_slice(messages);
+            if vec.len() > MSG_CACHE_MAX_MESSAGES_PER_SESSION {
+                let excess = vec.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION;
+                vec.drain(..excess);
             }
         }
 
@@ -688,17 +691,18 @@ impl SessionStore {
 
     /// Convert stored messages back into ChatMessage format for the LLM.
     /// Uses an in-memory cache to avoid re-reading from SQLite on every turn.
-    pub async fn load_chat_messages(&self, session_id: &str) -> anyhow::Result<Vec<ChatMessage>> {
+    /// Returns `Arc<Vec<ChatMessage>>` so callers share the same allocation.
+    pub async fn load_chat_messages(&self, session_id: &str) -> anyhow::Result<Arc<Vec<ChatMessage>>> {
         {
             let cache = self.msg_cache.read().await;
             if let Some(cached) = cache.get(session_id) {
-                return Ok(cached.clone());
+                return Ok(Arc::clone(cached));
             }
         }
 
         let messages = self.load_chat_messages_from_db(session_id).await?;
 
-        {
+        let arc = {
             let mut cache = self.msg_cache.write().await;
             if cache.len() >= MSG_CACHE_MAX_SESSIONS && !cache.contains_key(session_id) {
                 if let Some(oldest) = cache.keys().next().cloned() {
@@ -706,14 +710,15 @@ impl SessionStore {
                 }
             }
             let cached = if messages.len() > MSG_CACHE_MAX_MESSAGES_PER_SESSION {
-                messages[messages.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION..].to_vec()
+                Arc::new(messages[messages.len() - MSG_CACHE_MAX_MESSAGES_PER_SESSION..].to_vec())
             } else {
-                messages.clone()
+                Arc::new(messages)
             };
-            cache.insert(session_id.to_string(), cached);
-        }
+            cache.insert(session_id.to_string(), Arc::clone(&cached));
+            cached
+        };
 
-        Ok(messages)
+        Ok(arc)
     }
 
     fn parse_chat_messages_from_rows(
@@ -803,7 +808,7 @@ impl SessionStore {
         tx.commit().await?;
 
         let mut cache = self.msg_cache.write().await;
-        cache.insert(session_id.to_string(), messages.to_vec());
+        cache.insert(session_id.to_string(), Arc::new(messages.to_vec()));
 
         Ok(())
     }

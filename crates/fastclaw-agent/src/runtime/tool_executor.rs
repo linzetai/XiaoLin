@@ -517,7 +517,7 @@ pub(crate) fn snapshot_tool_contents(
         .filter(|(_, m)| matches!(m.role, Role::Tool))
         .filter_map(|(i, m)| {
             let name = m.name.as_deref()?.to_string();
-            let content = m.text_content()?;
+            let content = m.text_content()?.into_owned();
             let args = m.tool_call_id.as_deref().and_then(|call_id| {
                 messages[..i]
                     .iter()

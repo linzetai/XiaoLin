@@ -22,6 +22,7 @@ pub mod tool;
 pub mod tool_runtime;
 pub mod types;
 pub mod history_compat;
+pub mod typed_turn_data;
 pub mod workspace;
 
 /// Re-export all protocol types so downstream crates can keep using

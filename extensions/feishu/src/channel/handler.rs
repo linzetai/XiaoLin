@@ -116,8 +116,9 @@ impl FeishuMessageHandler for FeishuChannel {
         }
 
         let history_items = self.session_store.load_history(&session.id).await?;
-        let messages = if history_items.is_empty() {
-            self.session_store.load_chat_messages(&session.id).await?
+        let messages: Vec<fastclaw_core::types::ChatMessage> = if history_items.is_empty() {
+            let arc = self.session_store.load_chat_messages(&session.id).await?;
+            std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
         } else {
             fastclaw_core::history_compat::history_items_to_chat_messages(&history_items)
         };
@@ -224,9 +225,7 @@ impl FeishuMessageHandler for FeishuChannel {
                 final_tool_calls: None,
             };
             for event in [turn_start, turn_end] {
-                if let Err(e) = self.event_log.append(&session.id, &event).await {
-                    tracing::warn!(session = %session.id, error = %e, "feishu: failed to append event to log");
-                }
+                self.event_log.append(&session.id, &event);
             }
         }
 
