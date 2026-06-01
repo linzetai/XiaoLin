@@ -543,6 +543,7 @@ mod tests {
                 .send(AgentEvent::ContentDelta {
                     turn_id: params.turn_id,
                     delta: serde_json::json!({"content": "hello"}),
+                    raw_bytes: None,
                 })
                 .await;
             Ok(TurnResult {

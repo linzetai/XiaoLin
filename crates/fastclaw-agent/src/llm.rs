@@ -635,7 +635,11 @@ impl LlmProvider for OpenAiProvider {
                             continue;
                         }
                         match serde_json::from_str::<StreamDelta>(data) {
-                            Ok(delta) => deltas.push(Ok(delta)),
+                            Ok(mut delta) => {
+                                delta.raw_sse_json =
+                                    Some(bytes::Bytes::copy_from_slice(data.as_bytes()));
+                                deltas.push(Ok(delta));
+                            }
                             Err(e) => {
                                 tracing::debug!(error = %e, "failed to parse SSE chunk");
                             }
@@ -1283,6 +1287,7 @@ impl LlmProvider for AnthropicProvider {
                                                             finish_reason: None,
                                                         }],
                                                         usage: None,
+                                                        raw_sse_json: None,
                                                     }));
                                                 }
                                             }
@@ -1340,6 +1345,7 @@ impl LlmProvider for AnthropicProvider {
                                                     finish_reason: None,
                                                 }],
                                                 usage: None,
+                                                raw_sse_json: None,
                                             }));
                                         }
                                     }
@@ -1381,6 +1387,7 @@ impl LlmProvider for AnthropicProvider {
                                         finish_reason: finish,
                                     }],
                                     usage,
+                                    raw_sse_json: None,
                                 }));
                             }
                             _ => {}

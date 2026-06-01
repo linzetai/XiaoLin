@@ -28,6 +28,12 @@ pub use common::{
 pub use memory::auto_record_episode;
 pub use session::{resolve_session_context, ResolvedSession};
 
+pub fn chat_routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/v1/chat", post(chat::chat_completions))
+        .route("/api/v1/chat/completions", post(chat::chat_completions))
+}
+
 pub fn api_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(health::serve_ui))
@@ -38,8 +44,6 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/metrics", get(health::structured_metrics_v1))
         .route("/api/v1/auth/status", get(health::auth_status))
         .route("/ws", get(crate::ws::ws_handler))
-        .route("/api/v1/chat", post(chat::chat_completions))
-        .route("/api/v1/chat/completions", post(chat::chat_completions))
         .route(
             "/api/v1/chat/resolve-approval",
             post(chat::resolve_approval),

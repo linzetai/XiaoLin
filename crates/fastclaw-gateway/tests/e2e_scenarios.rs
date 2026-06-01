@@ -109,6 +109,7 @@ impl LlmProvider for ScriptedProvider {
                     finish_reason: None,
                 }],
                 usage: None,
+                raw_sse_json: None,
             }),
             Ok(StreamDelta {
                 id: resp.id.clone(),
@@ -126,6 +127,7 @@ impl LlmProvider for ScriptedProvider {
                     finish_reason: Some("stop".into()),
                 }],
                 usage: None,
+                raw_sse_json: None,
             }),
         ];
         Ok(Box::pin(stream::iter(deltas)))

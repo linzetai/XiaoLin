@@ -9,6 +9,7 @@ default = []
 ts = ["dep:ts-rs"]
 
 [dependencies]
+bytes = "1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

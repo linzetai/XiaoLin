@@ -105,9 +105,16 @@ pub fn build_app(state: AppState, auth: ApiKeyAuth) -> Router {
     let rate_limiter = RateLimiter::new(&rl_cfg);
     let cors = build_cors(&state.cfg.config);
 
-    Router::new()
+    let chat = routes::chat_routes().with_state(state.clone());
+
+    let main = Router::new()
         .merge(routes::api_routes())
         .with_state(state)
+        .layer(CompressionLayer::new().gzip(true));
+
+    Router::new()
+        .merge(chat)
+        .merge(main)
         .layer(middleware::from_fn(
             fastclaw_security::rate_limit::rate_limit_middleware,
         ))
@@ -116,7 +123,6 @@ pub fn build_app(state: AppState, auth: ApiKeyAuth) -> Router {
         ))
         .layer(Extension(auth))
         .layer(Extension(rate_limiter))
-        .layer(CompressionLayer::new().gzip(true))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
 }

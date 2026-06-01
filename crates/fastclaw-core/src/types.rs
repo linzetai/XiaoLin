@@ -272,6 +272,9 @@ pub struct StreamDelta {
     pub choices: Vec<StreamChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// Original JSON from an SSE `data:` line (OpenAI-compatible streams).
+    #[serde(skip)]
+    pub raw_sse_json: Option<bytes::Bytes>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

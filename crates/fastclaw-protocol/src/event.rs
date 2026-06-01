@@ -182,6 +182,8 @@ pub enum AgentEvent {
         turn_id: TurnId,
         #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
         delta: serde_json::Value,
+        #[serde(skip)]
+        raw_bytes: Option<bytes::Bytes>,
     },
     ReasoningDelta {
         turn_id: TurnId,
@@ -494,6 +496,7 @@ mod tests {
         let evt = AgentEvent::ContentDelta {
             turn_id: sample_turn_id(),
             delta: serde_json::json!({"content": "hello"}),
+            raw_bytes: None,
         };
         let json = serde_json::to_string(&evt).unwrap();
         let back: AgentEvent = serde_json::from_str(&json).unwrap();

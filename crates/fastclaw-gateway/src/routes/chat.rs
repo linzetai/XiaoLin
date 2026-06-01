@@ -338,8 +338,7 @@ async fn handle_stream(
     let (_sub_id, mut event_rx) = session_handle
         .submit_and_subscribe(
             SessionOp::UserTurn {
-                messages: serde_json::to_value(&setup.enriched_request.messages)
-                    .unwrap_or_default(),
+                messages: serde_json::Value::Array(vec![]),
                 agent_id: Some(setup.agent_id.clone()),
                 model: setup.enriched_request.model.clone(),
                 work_dir: setup.enriched_request.work_dir.clone(),
@@ -362,7 +361,11 @@ async fn handle_stream(
             let event = se.msg;
             state_for_persist.store.event_log.append(&session_id, &event);
             match event {
-                AgentEvent::ContentDelta { delta, .. } => {
+                AgentEvent::ContentDelta {
+                    delta,
+                    raw_bytes,
+                    ..
+                } => {
                     let has_content = delta
                         .get("choices")
                         .and_then(|c| c.as_array())
@@ -400,7 +403,11 @@ async fn handle_stream(
                             }
                         }
                     }
-                    let json_str = serde_json::to_string(&delta).unwrap_or_default();
+                    let json_str = if let Some(ref raw) = raw_bytes {
+                        String::from_utf8_lossy(raw).into_owned()
+                    } else {
+                        serde_json::to_string(&delta).unwrap_or_default()
+                    };
                     yield Ok::<_, std::io::Error>(format!("data: {json_str}\n\n"));
                 }
                 AgentEvent::TurnEnd {

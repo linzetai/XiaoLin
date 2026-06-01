@@ -570,7 +570,11 @@ impl MiddlewareLlmProvider {
                             continue;
                         }
                         match serde_json::from_str::<StreamDelta>(data) {
-                            Ok(delta) => deltas.push(Ok(delta)),
+                            Ok(mut delta) => {
+                                delta.raw_sse_json =
+                                    Some(bytes::Bytes::copy_from_slice(data.as_bytes()));
+                                deltas.push(Ok(delta));
+                            }
                             Err(e) => {
                                 tracing::debug!(error = %e, "plugin stream: failed to parse SSE chunk");
                             }
@@ -823,6 +827,7 @@ impl MiddlewareLlmProvider {
                                                             finish_reason: None,
                                                         }],
                                                         usage: None,
+                                                        raw_sse_json: None,
                                                     }));
                                                 }
                                             }
@@ -877,6 +882,7 @@ impl MiddlewareLlmProvider {
                                                     finish_reason: None,
                                                 }],
                                                 usage: None,
+                                                raw_sse_json: None,
                                             }));
                                         }
                                     }
@@ -915,6 +921,7 @@ impl MiddlewareLlmProvider {
                                         finish_reason: finish,
                                     }],
                                     usage,
+                                    raw_sse_json: None,
                                 }));
                             }
                             _ => {}
@@ -1489,6 +1496,7 @@ async fn process_stream_line(
                             finish_reason: Some("stop".to_string()),
                         }],
                         usage: Some(usage),
+                        raw_sse_json: None,
                     }))
                     .await;
             }
@@ -1515,7 +1523,8 @@ async fn process_stream_line(
 
     // Try strict parse first.
     match serde_json::from_str::<StreamDelta>(trimmed) {
-        Ok(delta) => {
+        Ok(mut delta) => {
+            delta.raw_sse_json = Some(bytes::Bytes::copy_from_slice(trimmed.as_bytes()));
             if tx.send(Ok(delta)).await.is_err() {
                 return Err(true);
             }
@@ -1602,6 +1611,7 @@ fn stream_delta_from_value(v: &serde_json::Value) -> StreamDelta {
         model,
         choices,
         usage,
+        raw_sse_json: None,
     }
 }
 
@@ -1631,6 +1641,7 @@ fn chat_response_to_stream_deltas(resp: ChatResponse) -> Vec<StreamDelta> {
                     finish_reason: None,
                 }],
                 usage: None,
+                raw_sse_json: None,
             });
         }
         if let Some(ref tcs) = choice.message.tool_calls {
@@ -1659,6 +1670,7 @@ fn chat_response_to_stream_deltas(resp: ChatResponse) -> Vec<StreamDelta> {
                         finish_reason: None,
                     }],
                     usage: None,
+                    raw_sse_json: None,
                 });
             }
         }
@@ -1679,6 +1691,7 @@ fn chat_response_to_stream_deltas(resp: ChatResponse) -> Vec<StreamDelta> {
                 finish_reason: choice.finish_reason.clone(),
             }],
             usage: resp.usage.clone(),
+            raw_sse_json: None,
         });
     }
     deltas

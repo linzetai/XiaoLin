@@ -297,6 +297,7 @@ mod tests {
                 finish_reason: None,
             }],
             usage: None,
+            raw_sse_json: None,
         }
     }
 
@@ -317,6 +318,7 @@ mod tests {
                 finish_reason: Some("stop".into()),
             }],
             usage: None,
+            raw_sse_json: None,
         }
     }
 

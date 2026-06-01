@@ -63,6 +63,7 @@ impl LlmProvider for MockProvider {
                     finish_reason: None,
                 }],
                 usage: None,
+                raw_sse_json: None,
             }),
             Ok(StreamDelta {
                 id: "mock-stream".into(),
@@ -80,6 +81,7 @@ impl LlmProvider for MockProvider {
                     finish_reason: Some("stop".into()),
                 }],
                 usage: None,
+                raw_sse_json: None,
             }),
         ];
         Ok(Box::pin(stream::iter(deltas)))

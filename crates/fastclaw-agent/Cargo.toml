@@ -9,6 +9,7 @@ self-iter = ["dep:fastclaw-self-iter"]
 browser = ["dep:headless_chrome"]
 
 [dependencies]
+bytes = "1"
 fastclaw-core = { path = "../fastclaw-core" }
 fastclaw-protocol = { path = "../fastclaw-protocol" }
 fastclaw-session-actor = { path = "../fastclaw-session-actor" }

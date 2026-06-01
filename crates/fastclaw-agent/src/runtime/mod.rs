@@ -1655,6 +1655,7 @@ impl AgentRuntime {
                             AgentEvent::ContentDelta {
                                 turn_id: turn_id.clone(),
                                 delta: serde_json::to_value(&delta).unwrap_or_default(),
+                                raw_bytes: delta.raw_sse_json.clone(),
                             },
                             true,
                         )
@@ -1951,6 +1952,7 @@ impl AgentRuntime {
                                         finish_reason: Some("stop".to_string()),
                                     }],
                                     usage: None,
+                                    raw_sse_json: None,
                                 };
                                 let _ = send_stream_event(
                                     tx,
@@ -1958,6 +1960,7 @@ impl AgentRuntime {
                                         turn_id: turn_id.clone(),
                                         delta: serde_json::to_value(&summary_delta)
                                             .unwrap_or_default(),
+                                        raw_bytes: None,
                                     },
                                     false,
                                 )
@@ -3089,6 +3092,7 @@ mod stream_resume_tests {
                 finish_reason: None,
             }],
             usage: None,
+            raw_sse_json: None,
         }
     }
 
@@ -3109,6 +3113,7 @@ mod stream_resume_tests {
                 finish_reason: Some("stop".into()),
             }],
             usage: None,
+            raw_sse_json: None,
         }
     }
 

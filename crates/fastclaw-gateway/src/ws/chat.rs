@@ -525,14 +525,12 @@ pub async fn spawn_chat(
 
         let after_turn_messages = setup.enriched_request.messages.clone();
 
-        // Build extra fields for the executor.
+        let typed_data = Some(fastclaw_core::typed_turn_data::TypedTurnData::wrap(
+            setup.enriched_request.clone(),
+            agent_config.clone(),
+        ));
+
         let mut op_extra = serde_json::Map::new();
-        if let Ok(enriched_val) = serde_json::to_value(&setup.enriched_request) {
-            op_extra.insert("_enriched_request".into(), enriched_val);
-        }
-        if let Ok(cfg_val) = serde_json::to_value(&agent_config) {
-            op_extra.insert("_agent_config".into(), cfg_val);
-        }
         op_extra.insert(
             "_stream_context_key".into(),
             serde_json::Value::String(stream_context_key.clone()),
@@ -557,13 +555,12 @@ pub async fn spawn_chat(
         let (sub_id, mut event_rx) = match session_handle
             .submit_and_subscribe(
                 SessionOp::UserTurn {
-                    messages: serde_json::to_value(&setup.enriched_request.messages)
-                        .unwrap_or_default(),
+                    messages: serde_json::Value::Array(vec![]),
                     agent_id: Some(agent_id.clone()),
                     model: setup.enriched_request.model.clone(),
                     work_dir: setup.enriched_request.work_dir.clone(),
                     extra: op_extra,
-                    typed_data: None,
+                    typed_data,
                 },
                 128,
             )

@@ -46,7 +46,7 @@ impl GatewayProcess {
         });
 
         // Wait for health
-        let timeout = std::time::Duration::from_secs(15);
+        let timeout = std::time::Duration::from_secs(60);
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
             if probe_gateway(actual_port).await {
