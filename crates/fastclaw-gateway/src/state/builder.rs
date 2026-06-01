@@ -30,6 +30,7 @@ struct BuildPhase1 {
     agents: Vec<AgentConfig>,
     agent_count: usize,
     db_path: PathBuf,
+    pool: sqlx::SqlitePool,
     session_store: Arc<SessionStore>,
     event_log: Arc<EventLog>,
 }
@@ -90,19 +91,21 @@ struct BuildPhase5 {
 pub(crate) struct StateBuilder;
 
 impl StateBuilder {
-    /// Phase 1: config paths, agent list, SQLite session store.
+    /// Phase 1: config paths, agent list, unified SQLite pool, session store.
     async fn phase1_config_session(config: &FastClawConfig) -> anyhow::Result<BuildPhase1> {
         fastclaw_core::paths::ensure_state_dir_from(Some(&config.paths))?;
         let agents = helpers::load_agents(config)?;
         let agent_count = agents.len();
         let db_path = helpers::resolve_db_path(&config.paths)?;
-        let session_store = Arc::new(SessionStore::open(&db_path).await?);
-        let event_log = Arc::new(EventLog::new(session_store.pool()));
+        let pool = helpers::open_unified_pool(&db_path).await?;
+        let session_store = Arc::new(SessionStore::from_pool(pool.clone()).await?);
+        let event_log = Arc::new(EventLog::new(pool.clone()));
         event_log.ensure_table().await?;
         Ok(BuildPhase1 {
             agents,
             agent_count,
             db_path,
+            pool,
             session_store,
             event_log,
         })
@@ -323,16 +326,17 @@ impl StateBuilder {
             }
         }
 
-        let (mcp_status_init, mcp_handles_init) = super::AppState::register_mcp_and_subagent_tools(
-            &p3.phase1.agents,
-            &all_mcp_servers,
-            p3.runtime.clone(),
-            &p3.tool_registry,
-        )
-        .await?;
-
-        let (channel_registry, channel_inbound_tx, inbound_rx) =
-            super::AppState::build_channels(config, &p3.tool_registry).await?;
+        let (mcp_result, channel_result) = tokio::join!(
+            super::AppState::register_mcp_and_subagent_tools(
+                &p3.phase1.agents,
+                &all_mcp_servers,
+                p3.runtime.clone(),
+                &p3.tool_registry,
+            ),
+            super::AppState::build_channels(config, &p3.tool_registry),
+        );
+        let (mcp_status_init, mcp_handles_init) = mcp_result?;
+        let (channel_registry, channel_inbound_tx, inbound_rx) = channel_result?;
 
         let base_skill_registry = Arc::new(p3.base_skill_registry.filtered(
             &config.skills.allow,
@@ -468,14 +472,14 @@ impl StateBuilder {
     async fn phase2_memory_evolution(
         config: &FastClawConfig,
         p4: BuildPhase4,
+        preloaded_embedding: Option<Arc<dyn EmbeddingProvider>>,
     ) -> anyhow::Result<BuildPhase2Memory> {
-        let creds = &config.credentials;
         let (agent_episodic_map, agent_semantic_map, embedding_provider) =
-            super::AppState::build_memory(
+            super::AppState::build_memory_with_provider(
                 config,
-                creds,
                 &p4.phase3.workspaces,
                 &p4.phase3.tool_registry,
+                preloaded_embedding,
             )
             .await?;
 
@@ -494,12 +498,11 @@ impl StateBuilder {
         );
 
         let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
-            let evo_pool =
-                helpers::open_memory_pool_named(&p4.phase3.phase1.db_path, "evolution.db").await?;
-            let fs = FeedbackStore::open(evo_pool.clone()).await?;
-            let ts = TrajectoryStore::open(evo_pool.clone()).await?;
-            let ss = SkillStore::open(evo_pool.clone()).await?;
-            let pd = PromptDistiller::open(evo_pool).await?;
+            let shared_pool = p4.phase3.phase1.pool.clone();
+            let fs = FeedbackStore::open(shared_pool.clone()).await?;
+            let ts = TrajectoryStore::open(shared_pool.clone()).await?;
+            let ss = SkillStore::open(shared_pool.clone()).await?;
+            let pd = PromptDistiller::open(shared_pool).await?;
             (fs, ts, ss, pd)
         };
 
@@ -593,11 +596,10 @@ impl StateBuilder {
         config: &FastClawConfig,
         p2: BuildPhase2Memory,
     ) -> anyhow::Result<BuildPhase5> {
-        let cron_pool =
-            helpers::open_memory_pool_named(&p2.phase4.phase3.phase1.db_path, "cron.db").await?;
-        let cron_store = CronJobStore::open(cron_pool.clone()).await?;
+        let shared_pool = p2.phase4.phase3.phase1.pool.clone();
+        let cron_store = CronJobStore::open(shared_pool.clone()).await?;
         let notification_store =
-            crate::notification_store::NotificationStore::open(cron_pool).await?;
+            crate::notification_store::NotificationStore::open(shared_pool).await?;
 
         let budget_tracker = BudgetTracker::new(config.model_router.daily_budget);
 
@@ -661,10 +663,55 @@ impl StateBuilder {
         );
 
         let p1 = Self::phase1_config_session(&config).await?;
+
+        // Start embedding model loading early (parallel with Phase 3 + 4).
+        let embedding_handle = {
+            let mem_enabled = config.memory.enabled;
+            let emb_cfg = config.memory.embedding.clone();
+            let creds = config.credentials.clone();
+            tokio::spawn(async move {
+                if !mem_enabled {
+                    return Ok::<_, anyhow::Error>(None);
+                }
+                match fastclaw_memory::create_embedding_provider(&emb_cfg, Some(&creds)).await {
+                    Ok(ep) => {
+                        tracing::info!(
+                            provider = ep.name(),
+                            dims = ep.dimensions(),
+                            "embedding provider initialized (preloaded)"
+                        );
+                        Ok(Some(Arc::from(ep) as Arc<dyn EmbeddingProvider>))
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "embedding provider unavailable, memory will use keyword-only search"
+                        );
+                        Ok(None)
+                    }
+                }
+            })
+        };
+
         let p3 = Self::phase3_agent_runtime_tools(&config, p1).await?;
         let p4 = Self::phase4_channels_mcp(&config, p3).await?;
-        let p2 = Self::phase2_memory_evolution(&config, p4).await?;
+
+        // Await the pre-loaded embedding provider.
+        let preloaded_embedding: Option<Arc<dyn EmbeddingProvider>> = embedding_handle
+            .await
+            .map_err(|e| anyhow::anyhow!("embedding preload task panicked: {e}"))??;
+
+        let p2 = Self::phase2_memory_evolution(&config, p4, preloaded_embedding).await?;
         let p5 = Self::phase5_cron(&config, p2).await?;
+
+        // All stores have created their tables; migrate legacy DBs if present.
+        if let Some(parent) = p5.phase2.phase4.phase3.phase1.db_path.parent() {
+            helpers::migrate_legacy_databases(
+                &p5.phase2.phase4.phase3.phase1.pool,
+                parent,
+            )
+            .await?;
+        }
 
         let agent_count = p5.phase2.phase4.phase3.phase1.agent_count;
         let tool_count = p5.phase2.tool_count;

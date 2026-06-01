@@ -54,6 +54,17 @@ impl SessionStore {
         Ok(store)
     }
 
+    /// Create a SessionStore backed by an existing pool (tables are created if missing).
+    pub async fn from_pool(pool: Pool<Sqlite>) -> anyhow::Result<Self> {
+        let store = Self {
+            pool,
+            msg_cache: Arc::new(RwLock::new(HashMap::new())),
+        };
+        store.run_migrations().await?;
+        tracing::info!("session store opened (shared pool)");
+        Ok(store)
+    }
+
     pub fn pool(&self) -> Pool<Sqlite> {
         self.pool.clone()
     }

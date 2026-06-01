@@ -3,7 +3,6 @@ pub mod embedded;
 
 use embedded::{GatewayInfo, GatewayProcess};
 use serde_json::json;
-use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -28,8 +27,7 @@ pub enum GatewayStartupState {
 /// (chat, sessions, agents, etc.) goes through WebSocket to the Gateway.
 pub struct AppData {
     pub gateway: Mutex<Option<GatewayProcess>>,
-    /// Gateway 启动状态，用于前端轮询或通知
-    pub gateway_startup_state: Arc<Mutex<GatewayStartupState>>,
+    pub startup_watch: tokio::sync::watch::Receiver<GatewayStartupState>,
 }
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -104,15 +102,16 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
-        .manage(AppData {
-            gateway: Mutex::new(None),
-            gateway_startup_state: Arc::new(Mutex::new(GatewayStartupState::Starting)),
-        })
         .setup(|app| {
+            let (watch_tx, watch_rx) = tokio::sync::watch::channel(GatewayStartupState::Starting);
+
+            app.manage(AppData {
+                gateway: Mutex::new(None),
+                startup_watch: watch_rx,
+            });
+
             setup_tray(app)?;
 
-            // macOS: re-enable native shadow on transparent window and set
-            // framework-level rounded corners via windowEffects.
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_shadow(true);
@@ -144,10 +143,8 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
-            let startup_state = handle.state::<AppData>().gateway_startup_state.clone();
 
             tauri::async_runtime::spawn(async move {
-                // 根据编译模式自动选择配置模式
                 let config_mode = if cfg!(debug_assertions) {
                     fastclaw_core::config::ConfigMode::Development
                 } else {
@@ -157,17 +154,12 @@ pub fn run() {
                 match GatewayProcess::start(&config_mode).await {
                     Ok(gw) => {
                         let state = handle.state::<AppData>();
-                        let mut lock = state.gateway.lock().await;
                         let info = gw.info().clone();
-                        *lock = Some(gw);
+                        *state.gateway.lock().await = Some(gw);
 
-                        // 更新状态为 Running
-                        let mut startup_state = startup_state.lock().await;
-                        *startup_state = GatewayStartupState::Running { info };
-
+                        let _ = watch_tx.send(GatewayStartupState::Running { info });
                         tracing::info!("gateway process ready");
 
-                        // 发送通知到前端
                         let _ = handle.emit(
                             "gateway://started",
                             json!({
@@ -180,13 +172,10 @@ pub fn run() {
                         let error_msg = format!("failed to start gateway: {e}");
                         tracing::error!("{}", error_msg);
 
-                        // 更新状态为 Failed
-                        let mut startup_state = startup_state.lock().await;
-                        *startup_state = GatewayStartupState::Failed {
+                        let _ = watch_tx.send(GatewayStartupState::Failed {
                             error: error_msg.clone(),
-                        };
+                        });
 
-                        // 发送通知到前端
                         let _ = handle.emit(
                             "gateway://started",
                             json!({

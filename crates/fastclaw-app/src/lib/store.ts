@@ -10,7 +10,8 @@ export interface GatewayInfo {
 }
 
 interface GatewayState {
-  mode: "ready" | "connecting" | "browser";
+  /** shell → connecting → ready (Tauri) or shell → connecting → browser */
+  mode: "shell" | "ready" | "connecting" | "browser";
   info: GatewayInfo | null;
   connected: boolean;
   error: string | null;
@@ -22,6 +23,22 @@ interface GatewayState {
 let disconnectUnsub: (() => void) | null = null;
 let reconnectedUnsub: (() => void) | null = null;
 let sessionChangedUnsub: (() => void) | null = null;
+
+const SESSION_CACHE_KEY = "fastclaw:session-cache";
+
+/** Restore cached sessions so the UI can render a skeleton sidebar immediately. */
+function restoreCachedSessions() {
+  try {
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return;
+    const sessions = JSON.parse(raw);
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      useAgentStore.getState().syncSessionsForAgent("main", sessions);
+    }
+  } catch {
+    /* cache miss is fine */
+  }
+}
 
 async function syncBackendData() {
   try {
@@ -35,6 +52,11 @@ async function syncBackendData() {
     }
     if (sessions.length > 0) {
       store.syncSessionsForAgent("main", sessions);
+      try {
+        localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(sessions));
+      } catch {
+        /* storage full or unavailable */
+      }
     }
   } catch {
     /* sync failure is non-fatal */
@@ -42,7 +64,7 @@ async function syncBackendData() {
 }
 
 export const useGatewayStore = create<GatewayState>((set) => ({
-  mode: "connecting",
+  mode: "shell",
   info: null,
   connected: false,
   error: null,
@@ -53,6 +75,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
       reconnectedUnsub?.();
       sessionChangedUnsub?.();
 
+      restoreCachedSessions();
       set({ mode: "connecting", error: null });
 
       if (transport.isTauri) {

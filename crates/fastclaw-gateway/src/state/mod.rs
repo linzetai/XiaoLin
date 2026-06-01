@@ -602,7 +602,7 @@ impl AppState {
         let (inbound_tx, inbound_rx) =
             tokio::sync::mpsc::unbounded_channel::<fastclaw_core::channel::InboundMessage>();
 
-        // Load built-in Feishu plugin.
+        // Build Feishu and WeChat channel plugins in parallel.
         let feishu_config = config.channels.get("feishu").and_then(|ch| {
             if ch.enabled == Some(false) {
                 None
@@ -610,44 +610,60 @@ impl AppState {
                 fastclaw_feishu::FeishuPluginConfig::from_channel_config(ch)
             }
         });
-        if let Some(feishu_plugin) = feishu_config.map(fastclaw_feishu::FeishuPlugin::new) {
-            let feishu_plugin = Arc::new(feishu_plugin);
-            let mode = feishu_plugin.connection_mode().to_string();
-            if let Err(e) = feishu_plugin.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start Feishu channel plugin");
-            }
+        let wechat_config = config
+            .channels
+            .get("wechat")
+            .and_then(fastclaw_wechat::WechatChannelConfig::from_channel_config);
 
+        let feishu_tx = inbound_tx.clone();
+        let wechat_tx = inbound_tx.clone();
+
+        let (feishu_result, wechat_result) = tokio::join!(
+            async {
+                if let Some(plugin) = feishu_config.map(fastclaw_feishu::FeishuPlugin::new) {
+                    let plugin = Arc::new(plugin);
+                    let mode = plugin.connection_mode().to_string();
+                    if let Err(e) = plugin.start(feishu_tx).await {
+                        tracing::error!(error = %e, "failed to start Feishu channel plugin");
+                    }
+                    Some((plugin, mode))
+                } else {
+                    tracing::debug!("feishu channel not configured, plugin not loaded");
+                    None
+                }
+            },
+            async {
+                if let Some(wechat_cfg) = wechat_config {
+                    let plugin = Arc::new(fastclaw_wechat::WechatPlugin::new(wechat_cfg));
+                    let mode = plugin.connection_mode().to_string();
+                    if let Err(e) = plugin.start(wechat_tx).await {
+                        tracing::error!(error = %e, "failed to start WeChat channel plugin");
+                    }
+                    Some((plugin, mode))
+                } else {
+                    tracing::debug!("wechat channel not configured, plugin not loaded");
+                    None
+                }
+            },
+        );
+
+        if let Some((feishu_plugin, mode)) = feishu_result {
             let llm_tools = feishu_plugin.llm_tools();
             let tool_count = llm_tools.len();
             for tool in llm_tools {
                 tool_registry.register_channel_scoped(tool);
             }
-
             channel_registry.register(feishu_plugin);
             tracing::info!(
                 mode,
                 tool_count,
                 "Feishu channel plugin registered (tools channel-scoped, not globally visible)"
             );
-        } else {
-            tracing::debug!("feishu channel not configured, plugin not loaded");
         }
 
-        // Load built-in WeChat plugin (requires "wechat" entry in config.channels).
-        let wechat_config = config
-            .channels
-            .get("wechat")
-            .and_then(fastclaw_wechat::WechatChannelConfig::from_channel_config);
-        if let Some(wechat_cfg) = wechat_config {
-            let wechat_plugin = Arc::new(fastclaw_wechat::WechatPlugin::new(wechat_cfg));
-            let mode = wechat_plugin.connection_mode().to_string();
-            if let Err(e) = wechat_plugin.start(inbound_tx.clone()).await {
-                tracing::error!(error = %e, "failed to start WeChat channel plugin");
-            }
+        if let Some((wechat_plugin, mode)) = wechat_result {
             channel_registry.register(wechat_plugin);
             tracing::info!(mode, "WeChat channel plugin registered");
-        } else {
-            tracing::debug!("wechat channel not configured, plugin not loaded");
         }
 
         // Load process-based channel plugins from config files.
@@ -837,6 +853,8 @@ impl AppState {
                 )
                 .collect();
 
+        // Partition configs: disabled/duplicate → immediate status; enabled → parallel connect.
+        let mut to_connect = Vec::new();
         for (mcp_cfg, scope) in &all_mcp_configs {
             if mcp_cfg.enabled == Some(false) {
                 status_map.insert(
@@ -859,51 +877,68 @@ impl AppState {
                 );
                 continue;
             }
-            let args_ref: Vec<&str> = mcp_cfg.args.iter().map(|s| s.as_str()).collect();
-            let prefix = format!("mcp_{}_", mcp_cfg.id);
-            let tool_count_before = tool_registry.len();
-            match fastclaw_mcp::register_mcp_tools(
-                &mcp_cfg.command,
-                &args_ref,
-                tool_registry,
-                &prefix,
-                &mcp_cfg.env,
-            )
-            .await
-            {
+            registered_ids.insert(mcp_cfg.id.clone());
+            to_connect.push((*mcp_cfg, *scope));
+        }
+
+        let futs: Vec<_> = to_connect
+            .iter()
+            .map(|(mcp_cfg, scope)| {
+                let id = mcp_cfg.id.clone();
+                let command = mcp_cfg.command.clone();
+                let args: Vec<String> = mcp_cfg.args.clone();
+                let env = mcp_cfg.env.clone();
+                let prefix = format!("mcp_{}_", id);
+                let scope = scope.to_string();
+                let registry = tool_registry.clone();
+                async move {
+                    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    let result = fastclaw_mcp::register_mcp_tools(
+                        &command, &args_ref, &registry, &prefix, &env,
+                    )
+                    .await;
+                    (id, scope, result)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futs).await;
+        for (id, scope, result) in results {
+            match result {
                 Ok(handle) => {
-                    let tool_count = tool_registry.len() - tool_count_before;
                     tracing::info!(
-                        mcp_id = %mcp_cfg.id,
+                        mcp_id = %id,
                         scope = %scope,
-                        tool_count,
                         "MCP client connected"
                     );
-                    registered_ids.insert(mcp_cfg.id.clone());
                     let now = chrono::Utc::now().to_rfc3339();
+                    let tool_count = {
+                        let client = handle.lock().await;
+                        client.tools().len()
+                    };
                     status_map.insert(
-                        mcp_cfg.id.clone(),
+                        id.clone(),
                         McpServerStatus {
-                            id: mcp_cfg.id.clone(),
+                            id: id.clone(),
                             status: McpStatus::Connected,
                             error: None,
                             tool_count,
                             connected_at: Some(now),
                         },
                     );
-                    handles_map.insert(mcp_cfg.id.clone(), handle);
+                    handles_map.insert(id, handle);
                 }
                 Err(e) => {
                     tracing::warn!(
-                        mcp_id = %mcp_cfg.id,
+                        mcp_id = %id,
                         scope = %scope,
                         error = %e,
                         "failed to connect MCP server, skipping"
                     );
                     status_map.insert(
-                        mcp_cfg.id.clone(),
+                        id.clone(),
                         McpServerStatus {
-                            id: mcp_cfg.id.clone(),
+                            id,
                             status: McpStatus::Failed,
                             error: Some(e.to_string()),
                             tool_count: 0,
@@ -925,12 +960,12 @@ impl AppState {
         Ok((status_map, handles_map))
     }
 
-    /// Per-workspace SQLite memory, optional embeddings, and memory tools on `tool_registry`.
-    async fn build_memory(
+    /// Per-workspace SQLite memory, pre-loaded embeddings, and memory tools on `tool_registry`.
+    async fn build_memory_with_provider(
         config: &FastClawConfig,
-        creds: &fastclaw_core::config::CredentialsConfig,
         workspaces: &std::collections::HashMap<String, AgentWorkspace>,
         tool_registry: &ToolRegistry,
+        preloaded_embedding: Option<Arc<dyn EmbeddingProvider>>,
     ) -> anyhow::Result<(
         std::collections::HashMap<String, Arc<EpisodicMemory>>,
         std::collections::HashMap<String, Arc<SemanticMemory>>,
@@ -957,26 +992,7 @@ impl AppState {
             agent_semantic_map.insert(agent_id.clone(), Arc::new(sem));
         }
 
-        let embedding_provider =
-            match fastclaw_memory::create_embedding_provider(&config.memory.embedding, Some(creds))
-                .await
-            {
-                Ok(ep) => {
-                    tracing::info!(
-                        provider = ep.name(),
-                        dims = ep.dimensions(),
-                        "embedding provider initialized"
-                    );
-                    Some(Arc::from(ep))
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "embedding provider unavailable, memory will use keyword-only search"
-                    );
-                    None
-                }
-            };
+        let embedding_provider = preloaded_embedding;
 
         let multi_agent_memory = agent_episodic_map.len() > 1;
         for agent_id in agent_episodic_map.keys() {

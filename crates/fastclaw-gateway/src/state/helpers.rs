@@ -35,6 +35,27 @@ pub(crate) fn merge_model_base_urls_into_credentials(
     merged
 }
 
+pub(crate) async fn open_unified_pool(
+    db_dir: &std::path::Path,
+) -> anyhow::Result<sqlx::SqlitePool> {
+    let unified_db = db_dir.with_file_name("fastclaw.db");
+    if let Some(parent) = unified_db.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let options = SqliteConnectOptions::new()
+        .filename(&unified_db)
+        .create_if_missing(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .foreign_keys(true)
+        .busy_timeout(std::time::Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(options)
+        .await?;
+    tracing::info!(path = %unified_db.display(), "unified database pool opened");
+    Ok(pool)
+}
+
 pub(crate) async fn open_memory_pool_at(
     db_path: &std::path::Path,
 ) -> anyhow::Result<sqlx::SqlitePool> {
@@ -51,25 +72,122 @@ pub(crate) async fn open_memory_pool_at(
     Ok(pool)
 }
 
-pub(crate) async fn open_memory_pool_named(
-    db_path: &std::path::Path,
-    name: &str,
-) -> anyhow::Result<sqlx::SqlitePool> {
-    let target_db = db_path.with_file_name(name);
-    if let Some(parent) = target_db.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+/// Migrate legacy per-database files (sessions.db, evolution.db, cron.db)
+/// into the unified fastclaw.db, then rename the old files to `.bak`.
+///
+/// Each legacy DB is ATTACHed, its tables' data is `INSERT OR IGNORE`-ed
+/// into the main DB, then DETACHed. This is idempotent: running twice
+/// on already-migrated files is harmless because the `.bak` rename prevents
+/// re-processing.
+///
+/// IMPORTANT: ATTACH DATABASE is per-connection in SQLite, so we acquire
+/// a single connection from the pool and run the entire ATTACH→copy→DETACH
+/// sequence on it.
+pub(crate) async fn migrate_legacy_databases(
+    pool: &sqlx::SqlitePool,
+    db_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let legacy_dbs: &[(&str, &[&str])] = &[
+        (
+            "sessions.db",
+            &[
+                "sessions",
+                "messages",
+                "conversation_traces",
+                "subagent_runs",
+                "content_replacement_records",
+                "collapse_state",
+                "session_memory",
+                "history_items",
+                "event_log",
+            ],
+        ),
+        (
+            "evolution.db",
+            &[
+                "feedback",
+                "trajectories",
+                "trajectory_steps",
+                "extracted_skills",
+                "skill_parameters",
+                "skill_usages",
+                "evolution_session_skills",
+                "prompt_candidates",
+            ],
+        ),
+        (
+            "cron.db",
+            &["cron_jobs", "cron_job_runs", "notifications"],
+        ),
+    ];
+
+    let mut conn = pool.acquire().await?;
+
+    for (filename, tables) in legacy_dbs {
+        let legacy_path = db_dir.join(filename);
+        if !legacy_path.exists() {
+            continue;
+        }
+
+        tracing::info!(file = %legacy_path.display(), "migrating legacy database");
+
+        let path_str = legacy_path.to_string_lossy().to_string();
+        let attach = format!("ATTACH DATABASE '{}' AS legacy", path_str);
+        sqlx::query(&attach).execute(&mut *conn).await?;
+
+        for table in *tables {
+            let sql = format!(
+                "INSERT OR IGNORE INTO main.{t} SELECT * FROM legacy.{t}",
+                t = table
+            );
+            match sqlx::query(&sql).execute(&mut *conn).await {
+                Ok(result) => {
+                    let rows = result.rows_affected();
+                    if rows > 0 {
+                        tracing::info!(table, rows, "migrated rows from {}", filename);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        table,
+                        error = %e,
+                        "skipped table migration from {} (table may not exist in legacy DB)",
+                        filename
+                    );
+                }
+            }
+        }
+
+        sqlx::query("DETACH DATABASE legacy")
+            .execute(&mut *conn)
+            .await?;
+
+        let bak_path = legacy_path.with_extension("db.bak");
+        if let Err(e) = tokio::fs::rename(&legacy_path, &bak_path).await {
+            tracing::warn!(
+                from = %legacy_path.display(),
+                to = %bak_path.display(),
+                error = %e,
+                "failed to rename legacy db to .bak"
+            );
+        } else {
+            tracing::info!(
+                from = %legacy_path.display(),
+                to = %bak_path.display(),
+                "legacy database renamed to .bak"
+            );
+        }
+
+        for ext in &["db-wal", "db-shm"] {
+            let wal_path = legacy_path.with_extension(ext);
+            if wal_path.exists() {
+                let bak_wal = bak_path.with_extension(ext);
+                let _ = tokio::fs::rename(&wal_path, &bak_wal).await;
+            }
+        }
     }
-    let options = SqliteConnectOptions::new()
-        .filename(&target_db)
-        .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .foreign_keys(true)
-        .busy_timeout(std::time::Duration::from_secs(5));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(options)
-        .await?;
-    Ok(pool)
+
+    Ok(())
 }
 
 pub(crate) fn resolve_db_path(

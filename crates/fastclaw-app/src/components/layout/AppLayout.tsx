@@ -213,7 +213,7 @@ export function AppLayout() {
   }, []);
 
   useEffect(() => {
-    if (mode === "connecting" || !connected) return;
+    if (mode === "shell" || mode === "connecting" || !connected) return;
     let cancelled = false;
     (async () => {
       try {
@@ -256,7 +256,7 @@ export function AppLayout() {
 
   let content: React.ReactNode;
 
-  if (mode === "connecting" || !onboardingChecked) {
+  if (mode === "shell" || mode === "connecting" || !onboardingChecked) {
     content = <Loading error={error} />;
   } else if (showOnboarding) {
     content = (

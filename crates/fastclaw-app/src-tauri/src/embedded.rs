@@ -45,16 +45,15 @@ impl GatewayProcess {
             }
         });
 
-        // Wait for health
         let timeout = std::time::Duration::from_secs(60);
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
-            if probe_gateway(actual_port).await {
+            if probe_health(actual_port).await {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        if !probe_gateway(actual_port).await {
+        if !probe_health(actual_port).await {
             anyhow::bail!(
                 "embedded gateway did not become ready within {}s",
                 timeout.as_secs()
@@ -89,8 +88,7 @@ impl GatewayProcess {
     }
 }
 
-/// Probe whether a gateway is alive on the given port via HTTP health check.
-async fn probe_gateway(port: u16) -> bool {
+async fn probe_health(port: u16) -> bool {
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(500))
         .build()
