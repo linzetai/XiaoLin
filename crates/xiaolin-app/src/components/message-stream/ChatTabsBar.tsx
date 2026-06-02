@@ -1,12 +1,12 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, Plus, ChevronDown, MessageSquare } from "lucide-react";
-import type { Chat } from "../../lib/agent-store";
+import { useChatMetaStore } from "../../lib/stores";
+import type { ChatMeta } from "../../lib/stores/types";
 import { ICON } from "../../lib/ui-tokens";
 
-export interface ChatTabsBarProps {
-  agentId: string;
-  chats: Chat[];
+export interface ChatTabsBarViewProps {
+  chats: ChatMeta[];
   activeChatId: string;
   streamingChatIds: Set<string>;
   attentionChatIds?: Set<string>;
@@ -23,11 +23,11 @@ function SwitcherItem({
   onSelect, onClose, onDoubleClick,
   onEditChange, onCommitRename, onCancelEdit,
 }: {
-  chat: Chat; isActive: boolean; isStreaming: boolean; needsAttention: boolean;
+  chat: ChatMeta; isActive: boolean; isStreaming: boolean; needsAttention: boolean;
   editingId: string | null; editValue: string;
   editRef: React.RefObject<HTMLInputElement | null>;
   onSelect: (id: string) => void; onClose: (id: string) => void;
-  onDoubleClick: (chat: Chat) => void;
+  onDoubleClick: (chat: ChatMeta) => void;
   onEditChange: (v: string) => void; onCommitRename: () => void; onCancelEdit: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -101,7 +101,7 @@ function SwitcherItem({
   );
 }
 
-export function ChatTabsBar({ chats, activeChatId, streamingChatIds, attentionChatIds, onSelect, onClose, onNew, onRename, onReorder: _onReorder }: ChatTabsBarProps) {
+export function ChatTabsBarView({ chats, activeChatId, streamingChatIds, attentionChatIds, onSelect, onClose, onNew, onRename, onReorder: _onReorder }: ChatTabsBarViewProps) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -143,7 +143,7 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, attentionCh
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
 
-  const handleDblClick = useCallback((chat: Chat) => {
+  const handleDblClick = useCallback((chat: ChatMeta) => {
     setEditingId(chat.id);
     setEditValue(chat.title);
     setTimeout(() => editRef.current?.select(), 0);
@@ -260,5 +260,40 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, attentionCh
         document.body,
       )}
     </div>
+  );
+}
+
+export interface ChatTabsBarProps {
+  streamingChatIds: Set<string>;
+  attentionChatIds?: Set<string>;
+}
+
+export function ChatTabsBar({ streamingChatIds, attentionChatIds }: ChatTabsBarProps) {
+  const chatsRecord = useChatMetaStore((s) => s.chats);
+  const chatOrder = useChatMetaStore((s) => s.chatOrder);
+  const activeChatId = useChatMetaStore((s) => s.activeChatId);
+  const setActiveChat = useChatMetaStore((s) => s.setActiveChat);
+  const closeChat = useChatMetaStore((s) => s.closeChat);
+  const newChat = useChatMetaStore((s) => s.newChat);
+  const renameChat = useChatMetaStore((s) => s.renameChat);
+  const reorderChats = useChatMetaStore((s) => s.reorderChats);
+
+  const chats = useMemo(
+    () => chatOrder.map((id) => chatsRecord[id]).filter((c): c is ChatMeta => c != null),
+    [chatsRecord, chatOrder],
+  );
+
+  return (
+    <ChatTabsBarView
+      chats={chats}
+      activeChatId={activeChatId}
+      streamingChatIds={streamingChatIds}
+      attentionChatIds={attentionChatIds}
+      onSelect={setActiveChat}
+      onClose={closeChat}
+      onNew={() => newChat()}
+      onRename={renameChat}
+      onReorder={reorderChats}
+    />
   );
 }

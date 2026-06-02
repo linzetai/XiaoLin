@@ -1,7 +1,16 @@
 import { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useAgentStore } from "../../lib/agent-store";
-import { useActiveAgentChats } from "../../lib/stores/selectors";
+import {
+  useChatMetaStore,
+  useStreamStore,
+  useActiveChatId,
+  useActiveChatMeta,
+  useActiveStream,
+  useActiveSubAgentRuns,
+  useChatLastSegments,
+  useChatUsage,
+} from "../../lib/stores";
+import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
 import { MessageRendererRow } from "./MessageRenderer";
 
@@ -23,33 +32,54 @@ interface MessageStreamProps {
 }
 
 export function MessageStream(_props: MessageStreamProps) {
-  const activeAgentId = useAgentStore((s) => s.activeAgentId);
-  const ac = useActiveAgentChats();
-  const setWorkDir = useAgentStore((s) => s.setWorkDir);
-  const loadChatStream = useAgentStore((s) => s.loadChatStream);
+  const activeAgentId = useChatMetaStore((s) => s.activeAgentId);
+  const activeChatId = useActiveChatId();
+  const activeChatMeta = useActiveChatMeta();
+  const stream = useActiveStream();
+  const subAgentRuns = useActiveSubAgentRuns();
+  const lastSegments = useChatLastSegments(activeChatId);
+  const usage = useChatUsage(activeChatId);
+  const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
+  const loadChatStream = useStreamStore((s) => s.loadChatStream);
 
-  const activeChat = ac?.chatList.find((c) => c.id === ac.activeChatId);
-  const stream = activeChat?.stream ?? [];
-  const workDir = activeChat?.workDir ?? null;
+  const activeChat = useMemo((): Chat | undefined => {
+    if (!activeChatMeta) return undefined;
+    return {
+      ...activeChatMeta,
+      stream,
+      usage,
+      subAgentRuns,
+      lastSegments,
+    };
+  }, [activeChatMeta, stream, usage, subAgentRuns, lastSegments]);
+
+  const workDir = activeChatMeta?.workDir ?? null;
+
+  const setWorkDir = useCallback(
+    (_agentId: string, chatId: string, path: string) => {
+      setWorkDirRaw(chatId, path);
+    },
+    [setWorkDirRaw],
+  );
 
   const loadingChats = useRef(new Set<string>());
   const loadedChats = useRef(new Set<string>());
   useEffect(() => {
-    if (!activeChat) return;
-    if (activeChat.messageCount === 0 && activeChat.stream.length === 0) return;
-    if (loadingChats.current.has(activeChat.id)) return;
-    if (loadedChats.current.has(activeChat.id)) return;
+    if (!activeChatMeta) return;
+    if (activeChatMeta.messageCount === 0 && stream.length === 0) return;
+    if (loadingChats.current.has(activeChatMeta.id)) return;
+    if (loadedChats.current.has(activeChatMeta.id)) return;
 
-    loadingChats.current.add(activeChat.id);
-    transport.getSessionMessages(activeChat.id).then((messages) => {
-      if (messages && messages.length > 0 && messages.length > activeChat.stream.length) {
-        loadChatStream(activeAgentId, activeChat.id, messages);
+    loadingChats.current.add(activeChatMeta.id);
+    transport.getSessionMessages(activeChatMeta.id).then((messages) => {
+      if (messages && messages.length > 0 && messages.length > stream.length) {
+        loadChatStream(activeChatMeta.id, messages);
       }
-      loadedChats.current.add(activeChat.id);
+      loadedChats.current.add(activeChatMeta.id);
     }).catch(() => {}).finally(() => {
-      loadingChats.current.delete(activeChat.id);
+      loadingChats.current.delete(activeChatMeta.id);
     });
-  }, [activeChat?.id, activeChat?.messageCount, activeChat?.stream.length, activeAgentId, loadChatStream]);
+  }, [activeChatMeta?.id, activeChatMeta?.messageCount, stream.length, loadChatStream]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -78,10 +108,9 @@ export function MessageStream(_props: MessageStreamProps) {
   const prevStreamingRef = useRef(false);
   const chatScrollKey = useCallback((chatId: string | undefined) => {
     if (!chatId) return undefined;
-    const chat = ac?.chatList.find((c) => c.id === chatId);
-    const stableKey = chat?.localKey ?? chatId;
-    return `${activeAgentId}:${stableKey}`;
-  }, [ac?.chatList, activeAgentId]);
+    const chat = useChatMetaStore.getState().chats[chatId];
+    return chat?.localKey ?? chatId;
+  }, []);
 
   const {
     streaming,
@@ -277,7 +306,7 @@ export function MessageStream(_props: MessageStreamProps) {
     });
   }, []);
 
-  const chatKey = `${activeAgentId}:${activeChat?.localKey ?? ac?.activeChatId ?? ""}`;
+  const chatKey = activeChatMeta?.localKey ?? activeChatId ?? "";
   const firstVisibleIndexRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -506,9 +535,9 @@ export function MessageStream(_props: MessageStreamProps) {
   const [showPlanPanel, setShowPlanPanel] = useState(false);
   const togglePlanPanel = useCallback(() => setShowPlanPanel((v) => !v), []);
 
-  const chatSessionId = activeChat?.id ?? "";
-  const planFilePath = activeChat?.planFilePath;
-  const planFileExists = activeChat?.planFileExists ?? false;
+  const chatSessionId = activeChatMeta?.id ?? "";
+  const planFilePath = activeChatMeta?.planFilePath;
+  const planFileExists = activeChatMeta?.planFileExists ?? false;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -656,9 +685,9 @@ export function MessageStream(_props: MessageStreamProps) {
                     searchIdx={searchIdx}
                     searchResults={searchResults}
                     streamSegments={streamSegments}
-                    subAgentRuns={activeChat?.subAgentRuns}
+                    subAgentRuns={subAgentRuns}
                     bottomRef={bottomRef}
-                    lastSegments={virtualItem.index === lastAssistantDisplayIdx ? activeChat?.lastSegments as import("./types").StreamSegment[] | undefined : undefined}
+                    lastSegments={virtualItem.index === lastAssistantDisplayIdx ? lastSegments as import("./types").StreamSegment[] | undefined : undefined}
                   />
                 </div>
               ))}

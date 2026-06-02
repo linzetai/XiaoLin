@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as transport from "./transport";
-import { useAgentStore } from "./agent-store";
+import { useChatMetaStore } from "./stores/chat-meta-store";
 
 export interface GatewayInfo {
   port: number;
@@ -33,7 +33,7 @@ function restoreCachedSessions() {
     if (!raw) return;
     const sessions = JSON.parse(raw);
     if (Array.isArray(sessions) && sessions.length > 0) {
-      useAgentStore.getState().syncSessionsForAgent("main", sessions);
+      useChatMetaStore.getState().syncSessionsForAgent(sessions);
     }
   } catch {
     /* cache miss is fine */
@@ -46,12 +46,12 @@ async function syncBackendData() {
       transport.listSessions(50),
       transport.listAgents(),
     ]);
-    const store = useAgentStore.getState();
+    const metaStore = useChatMetaStore.getState();
     if (agents.length > 0) {
-      store.syncAgentsFromBackend(agents);
+      metaStore.syncAgentsFromBackend(agents);
     }
     if (sessions.length > 0) {
-      store.syncSessionsForAgent("main", sessions);
+      metaStore.syncSessionsForAgent(sessions);
       try {
         localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(sessions));
       } catch {
@@ -107,9 +107,9 @@ export const useGatewayStore = create<GatewayState>((set) => ({
           try {
             const session = await transport.getSession(sid);
             if (session) {
-              const store = useAgentStore.getState();
-              if (session.title) store.renameChat("main", sid, session.title);
-              if (session.workDir !== undefined) store.setWorkDir("main", sid, session.workDir ?? null);
+              const metaStore = useChatMetaStore.getState();
+              if (session.title) metaStore.renameChat(sid, session.title);
+              if (session.workDir !== undefined) metaStore.setWorkDir(sid, session.workDir ?? null);
             }
           } catch {
             /* ignore */
@@ -142,9 +142,9 @@ export const useGatewayStore = create<GatewayState>((set) => ({
             try {
               const session = await transport.getSession(sid);
               if (session) {
-                const store = useAgentStore.getState();
-                if (session.title) store.renameChat("main", sid, session.title);
-                if (session.workDir !== undefined) store.setWorkDir("main", sid, session.workDir ?? null);
+                const metaStore = useChatMetaStore.getState();
+                if (session.title) metaStore.renameChat(sid, session.title);
+                if (session.workDir !== undefined) metaStore.setWorkDir(sid, session.workDir ?? null);
               }
             } catch {
               /* ignore */

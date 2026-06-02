@@ -5,11 +5,19 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { ICON, BTN_ICON } from "../../lib/ui-tokens";
-import { useAgentStore } from "../../lib/agent-store";
+import { useChatMetaStore, useStreamStore } from "../../lib/stores";
 import { useGatewayStore } from "../../lib/store";
-import { DEFAULT_AGENT_ID } from "../../lib/stores/chat-helpers";
 import { fuzzyMatch } from "../../lib/fuzzy";
-import type { Chat } from "../../lib/stores/types";
+import type { ChatMeta, StreamItem } from "../../lib/stores/types";
+
+function chatPreview(stream: StreamItem[] | undefined): string {
+  if (!stream?.length) return "等待输入...";
+  const lastMsg = stream[stream.length - 1];
+  if (lastMsg?.type === "message" && lastMsg.data?.content) {
+    return lastMsg.data.content.slice(0, 50);
+  }
+  return "等待输入...";
+}
 
 function ChatContextMenu({
   x, y, onClose, onRename, onSetWorkDir, onDelete,
@@ -82,15 +90,20 @@ interface SessionListProps {
 }
 
 export function SessionList({ collapsed = false, onToggleCollapse }: SessionListProps) {
-  const agentChats = useAgentStore((s) => s.agentChats[DEFAULT_AGENT_ID]);
-  const setActiveChat = useAgentStore((s) => s.setActiveChat);
-  const newChat = useAgentStore((s) => s.newChat);
-  const closeChat = useAgentStore((s) => s.closeChat);
-  const renameChat = useAgentStore((s) => s.renameChat);
+  const chats = useChatMetaStore((s) => s.chats);
+  const chatOrder = useChatMetaStore((s) => s.chatOrder);
+  const activeChatId = useChatMetaStore((s) => s.activeChatId);
+  const setActiveChat = useChatMetaStore((s) => s.setActiveChat);
+  const newChat = useChatMetaStore((s) => s.newChat);
+  const closeChat = useChatMetaStore((s) => s.closeChat);
+  const renameChat = useChatMetaStore((s) => s.renameChat);
+  const streams = useStreamStore((s) => s.streams);
   const gatewayReady = useGatewayStore((s) => s.connected);
 
-  const chatList = agentChats?.chatList ?? [];
-  const activeChatId = agentChats?.activeChatId ?? "";
+  const chatList = useMemo(
+    () => chatOrder.map((id) => chats[id]).filter((c): c is ChatMeta => c != null),
+    [chats, chatOrder],
+  );
 
   const [query, setQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<{ chatId: string; x: number; y: number } | null>(null);
@@ -113,27 +126,27 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
         const result = fuzzyMatch(query, chat.title || "新会话");
         return result ? { chat, score: result.score } : null;
       })
-      .filter((r): r is { chat: Chat; score: number } => r !== null)
+      .filter((r): r is { chat: ChatMeta; score: number } => r !== null)
       .sort((a, b) => b.score - a.score)
       .map((r) => r.chat);
   }, [chatList, query]);
 
   const handleNewChat = useCallback(() => {
     const activeChat = chatList.find((c) => c.id === activeChatId);
-    newChat(DEFAULT_AGENT_ID, activeChat?.workDir ?? undefined);
+    newChat(activeChat?.workDir ?? undefined);
   }, [newChat, chatList, activeChatId]);
 
   const handleSelectChat = useCallback((chatId: string) => {
-    setActiveChat(DEFAULT_AGENT_ID, chatId);
+    setActiveChat(chatId);
   }, [setActiveChat]);
 
   const handleDeleteChat = useCallback((chatId: string) => {
-    closeChat(DEFAULT_AGENT_ID, chatId);
+    closeChat(chatId);
   }, [closeChat]);
 
   const handleRenameSubmit = useCallback(() => {
     if (renamingChatId && renameValue.trim()) {
-      renameChat(DEFAULT_AGENT_ID, renamingChatId, renameValue.trim());
+      renameChat(renamingChatId, renameValue.trim());
     }
     setRenamingChatId(null);
     setRenameValue("");
@@ -145,7 +158,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
   }, []);
 
   const groupedChats = useMemo(() => {
-    const groups: Record<string, { workDir: string | null; chats: Chat[] }> = {};
+    const groups: Record<string, { workDir: string | null; chats: ChatMeta[] }> = {};
     for (const chat of filteredChats) {
       const label = chat.workDir
         ? extractProjectName(chat.workDir)
@@ -268,7 +281,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                 <span className="truncate">{label}</span>
                 <span className="shrink-0 opacity-60">{chats.length}</span>
                 <button
-                  onClick={() => newChat(DEFAULT_AGENT_ID, groupWorkDir ?? undefined)}
+                  onClick={() => newChat(groupWorkDir ?? undefined)}
                   className="ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity duration-100 hover:bg-[var(--bg-hover)] group-hover/grp:opacity-100"
                   style={{ color: "var(--fill-tertiary)" }}
                   title={groupWorkDir ? `在 ${label} 新建对话` : "新建对话"}
@@ -279,10 +292,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
               {chats.map((chat) => {
                 const active = activeChatId === chat.id;
                 const isRenaming = renamingChatId === chat.id;
-                const lastMsg = chat.stream?.length ? chat.stream[chat.stream.length - 1] : null;
-                const preview = lastMsg?.type === "message" && lastMsg.data?.content
-                  ? lastMsg.data.content.slice(0, 50)
-                  : "等待输入...";
+                const preview = chatPreview(streams[chat.id]);
                 return (
                   <div
                     key={chat.id}

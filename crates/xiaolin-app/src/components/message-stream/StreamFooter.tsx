@@ -5,7 +5,13 @@ import {
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption, type SlashCommand } from "./MentionInput";
-import { useAgentStore } from "../../lib/agent-store";
+import {
+  useChatMetaStore,
+  useQueueStore,
+  useActiveChatId,
+  useChatQueue,
+  useActiveStream,
+} from "../../lib/stores";
 import { ICON, BTN_ICON } from "../../lib/ui-tokens";
 import { QuestionPanel } from "./MessageRenderer";
 import { ApprovalCard, type ApprovalData } from "./ApprovalCard";
@@ -16,14 +22,12 @@ import { QueuePanel } from "./QueuePanel";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { useConfigStore } from "../../lib/stores/config-store";
-import type { Chat } from "../../lib/agent-store";
+import type { Chat } from "../../lib/stores/types";
 import { openLightbox } from "../common/ImageLightbox";
 
 const isMacPlatform = /Mac|iPhone|iPad/.test((navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "");
 const MOD_KEY = isMacPlatform ? "⌘" : "Ctrl+";
 const MOD_LABEL = isMacPlatform ? "⌘" : "Ctrl";
-const STABLE_EMPTY_QUEUE: never[] = [];
-
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -231,10 +235,9 @@ function ModelSelector() {
   const modelsLoaded = useConfigStore((s) => s.modelsLoaded);
   const refreshModels = useConfigStore((s) => s.refreshModels);
   const [open, setOpen] = useState(false);
-  const activeAgentId = useAgentStore((s) => s.activeAgentId);
-  const agents = useAgentStore((s) => s.agents);
-  const updateAgentProps = useAgentStore((s) => s.updateAgentProps);
-  const agent = agents.find((a) => a.id === activeAgentId);
+  const agents = useChatMetaStore((s) => s.agents);
+  const updateAgentProps = useChatMetaStore((s) => s.updateAgentProps);
+  const agent = agents.find((a) => a.id === "main") ?? agents[0];
   const currentModel = agent?.model ?? "";
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -281,7 +284,7 @@ function ModelSelector() {
                 <button
                   key={`${m.provider}/${m.model}`}
                   onClick={() => {
-                    updateAgentProps(activeAgentId, { model: m.model });
+                    updateAgentProps({ model: m.model });
                     setOpen(false);
                   }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"
@@ -429,15 +432,11 @@ export function StreamFooter({
   const [dragOver, setDragOver] = useState(false);
   const [queueExpanded, setQueueExpanded] = useState(false);
 
-  // 队列状态
-  const messageQueue = useAgentStore((s) => {
-    const agentId = s.activeAgentId;
-    const ac = s.agentChats[agentId];
-    return ac?.messageQueue ?? STABLE_EMPTY_QUEUE;
-  });
-  const updateQueuedMessage = useAgentStore((s) => s.updateQueuedMessage);
-  const removeQueuedMessage = useAgentStore((s) => s.removeQueuedMessage);
-  const reorderQueue = useAgentStore((s) => s.reorderQueue);
+  const activeChatId = useActiveChatId();
+  const messageQueue = useChatQueue(activeChatId);
+  const updateQueuedMessage = useQueueStore((s) => s.updateQueuedMessage);
+  const removeQueuedMessage = useQueueStore((s) => s.removeQueuedMessage);
+  const reorderQueue = useQueueStore((s) => s.reorderQueue);
 
   useEffect(() => {
     if (streaming) setSendPending(false);
@@ -458,10 +457,8 @@ export function StreamFooter({
     const sessionId = activeChat?.id;
     const resp = await transport.setExecutionModeIpc(newMode, sessionId ?? undefined);
     if (resp.ok) {
-      const state = useAgentStore.getState();
-      const agentId = state.activeAgentId;
-      const chatId = state.agentChats[agentId]?.activeChatId ?? "";
-      state.setChatExecutionMode(agentId, chatId, newMode);
+      const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
+      setChatExecutionMode(chatId, newMode);
     }
   }, [streaming, executionMode, activeChat?.id]);
 
@@ -499,19 +496,14 @@ export function StreamFooter({
     handleMentionSend(txt, mentions);
   }, [handleMentionSend]);
 
+  const stream = useActiveStream();
   const handleRecallLastMessage = useCallback((): string | null => {
-    const state = useAgentStore.getState();
-    const agentId = state.activeAgentId;
-    const ac = state.agentChats[agentId];
-    if (!ac) return null;
-    const chat = ac.chatList.find((c) => c.id === ac.activeChatId);
-    if (!chat) return null;
-    for (let i = chat.stream.length - 1; i >= 0; i--) {
-      const item = chat.stream[i];
+    for (let i = stream.length - 1; i >= 0; i--) {
+      const item = stream[i];
       if (item.type === "message" && item.data.role === "user") return item.data.content;
     }
     return null;
-  }, []);
+  }, [stream]);
 
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
@@ -624,24 +616,16 @@ export function StreamFooter({
           <QueuePanel
             queue={messageQueue}
             onEdit={(id, content) => {
-              const agentId = useAgentStore.getState().activeAgentId;
-              const chatId = useAgentStore.getState().agentChats[agentId]?.activeChatId ?? "";
-              updateQueuedMessage(agentId, chatId, id, { content });
+              updateQueuedMessage(activeChatId, id, { content });
             }}
             onRemove={(id) => {
-              const agentId = useAgentStore.getState().activeAgentId;
-              const chatId = useAgentStore.getState().agentChats[agentId]?.activeChatId ?? "";
-              removeQueuedMessage(agentId, chatId, id);
+              removeQueuedMessage(activeChatId, id);
             }}
             onReorder={(from, to) => {
-              const agentId = useAgentStore.getState().activeAgentId;
-              const chatId = useAgentStore.getState().agentChats[agentId]?.activeChatId ?? "";
-              reorderQueue(agentId, chatId, from, to);
+              reorderQueue(activeChatId, from, to);
             }}
             onRetry={(id) => {
-              const agentId = useAgentStore.getState().activeAgentId;
-              const chatId = useAgentStore.getState().agentChats[agentId]?.activeChatId ?? "";
-              updateQueuedMessage(agentId, chatId, id, { status: "pending", error: undefined });
+              updateQueuedMessage(activeChatId, id, { status: "pending", error: undefined });
             }}
           />
         )}
@@ -728,10 +712,8 @@ export function StreamFooter({
             </button>
             <button
               onClick={async () => {
-                const currentState = useAgentStore.getState();
-                const curAgentId = currentState.activeAgentId;
-                const curAc = currentState.agentChats[curAgentId];
-                const curChat = curAc?.chatList.find((c) => c.id === curAc.activeChatId);
+                const { activeChatId: chatId, chats } = useChatMetaStore.getState();
+                const curChat = chats[chatId];
                 if (!curChat) return;
                 let selected: string | null = null;
                 try {
@@ -741,7 +723,7 @@ export function StreamFooter({
                   selected = prompt("输入工作目录路径:", curChat.workDir ?? "");
                 }
                 if (typeof selected === "string" && selected) {
-                  setWorkDir(curAgentId, curChat.id, selected);
+                  setWorkDir("", chatId, selected);
                 }
               }}
               className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"

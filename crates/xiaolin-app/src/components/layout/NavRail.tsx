@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { MessageSquare, Layout, ListTodo, FolderOpen, Link2, Settings } from "lucide-react";
-import { useAgentStore } from "../../lib/agent-store";
+import { useUIStore } from "../../lib/stores";
 import { ClawIcon } from "./ClawIcon";
 import { ICON, BTN_ICON } from "../../lib/ui-tokens";
 import type { NavItem } from "../../lib/stores/ui-store";
@@ -24,8 +24,8 @@ const TOP_ITEMS: NavEntry[] = [
 ];
 
 export function NavRail() {
-  const activeNav = useAgentStore((s) => s.activeNav);
-  const setActiveNav = useAgentStore((s) => s.setActiveNav);
+  const activeNav = useUIStore((s) => s.activeNav);
+  const setActiveNav = useUIStore((s) => s.setActiveNav);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (

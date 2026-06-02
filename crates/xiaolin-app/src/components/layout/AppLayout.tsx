@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Search, PanelLeftOpen } from "lucide-react";
 import { BTN_ICON } from "../../lib/ui-tokens";
 import { useGatewayStore } from "../../lib/store";
-import { useAgentStore } from "../../lib/agent-store";
+import { useUIStore } from "../../lib/stores";
 import { SessionList } from "../session-list/SessionList";
 import { MessageStream } from "../message-stream/MessageStream";
 import { SubAgentMonitor } from "../message-stream/SubAgentMonitor";
@@ -131,8 +131,8 @@ function Loading({ error }: { error: string | null }) {
 }
 
 function ContentHeader() {
-  const sidebarCollapsed = useAgentStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useAgentStore((s) => s.toggleSidebar);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   const handleSearchClick = useCallback(() => {
     window.dispatchEvent(new CustomEvent("xiaolin:toggle-search"));
@@ -189,9 +189,9 @@ export function AppLayout() {
   const error = useGatewayStore((s) => s.error);
   const connected = useGatewayStore((s) => s.connected);
 
-  const sidebarCollapsed = useAgentStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useAgentStore((s) => s.toggleSidebar);
-  const activeNav = useAgentStore((s) => s.activeNav);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const activeNav = useUIStore((s) => s.activeNav);
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);

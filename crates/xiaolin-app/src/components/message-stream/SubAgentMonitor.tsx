@@ -3,7 +3,7 @@ import {
   Bot, Search, Terminal, Globe, Wrench, X, ChevronDown, ChevronRight,
   Clock, Zap, Copy, Square,
 } from "lucide-react";
-import { useAgentStore } from "../../lib/agent-store";
+import { useActiveSubAgentRuns } from "../../lib/stores";
 import { ICON } from "../../lib/ui-tokens";
 import type { SubAgentRunUI } from "../../lib/stores/types";
 import * as api from "../../lib/api";
@@ -137,22 +137,16 @@ function RunItem({ run, onCancel }: { run: SubAgentRunUI; onCancel: (id: string)
 }
 
 export function SubAgentMonitor() {
-  const activeAgentId = useAgentStore((s) => s.activeAgentId);
-  const agentChats = useAgentStore((s) => s.agentChats);
-  const activeChatId = activeAgentId ? agentChats[activeAgentId]?.activeChatId : null;
+  const subAgentRuns = useActiveSubAgentRuns();
 
   const runs = useMemo(() => {
-    if (!activeAgentId || !activeChatId) return [];
-    const ac = agentChats[activeAgentId];
-    const chat = ac?.chatList.find((c) => c.id === activeChatId);
-    if (!chat?.subAgentRuns) return [];
-    return Object.values(chat.subAgentRuns).sort((a, b) => {
+    return Object.values(subAgentRuns).sort((a, b) => {
       const activeA = a.status === "running" || a.status === "pending" ? 0 : 1;
       const activeB = b.status === "running" || b.status === "pending" ? 0 : 1;
       if (activeA !== activeB) return activeA - activeB;
       return (b.elapsedMs ?? 0) - (a.elapsedMs ?? 0);
     });
-  }, [activeAgentId, activeChatId, agentChats]);
+  }, [subAgentRuns]);
 
   const activeCount = useMemo(
     () => runs.filter((r) => r.status === "running" || r.status === "pending").length,

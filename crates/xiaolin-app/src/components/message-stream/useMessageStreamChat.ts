@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type RefObject, type Dispatch, type SetStateAction } from "react";
-import { useAgentStore, type SubAgentRunUI } from "../../lib/agent-store";
+import { useChatMetaStore, useStreamStore, useQueueStore } from "../../lib/stores";
+import type { ChatMessage, SubAgentRunUI } from "../../lib/stores/types";
 import { type ToolCall } from "./ToolCallCard";
 import type { MentionInputHandle, InlineMention } from "./MentionInput";
 import type { AttachedFile } from "./StreamFooter";
@@ -45,19 +46,27 @@ export function useMessageStreamChat({
   attachedFilesRef: MutableRefObject<AttachedFile[]>;
   setAttachedFiles: Dispatch<SetStateAction<AttachedFile[]>>;
 }) {
-  const addMessage = useAgentStore((s) => s.addMessage);
-  const newChat = useAgentStore((s) => s.newChat);
-  const updateChatBackendId = useAgentStore((s) => s.updateChatBackendId);
-  const updateChatUsage = useAgentStore((s) => s.updateChatUsage);
-  const setChatExecutionMode = useAgentStore((s) => s.setChatExecutionMode);
-  const setChatPlanFile = useAgentStore((s) => s.setChatPlanFile);
-  const subAgentStart = useAgentStore((s) => s.subAgentStart);
-  const subAgentDelta = useAgentStore((s) => s.subAgentDelta);
-  const subAgentToolStart = useAgentStore((s) => s.subAgentToolStart);
-  const subAgentToolDone = useAgentStore((s) => s.subAgentToolDone);
-  const subAgentComplete = useAgentStore((s) => s.subAgentComplete);
-  const enqueueMessage = useAgentStore((s) => s.enqueueMessage);
-  const addBriefMessage = useAgentStore((s) => s.addBriefMessage);
+  const newChat = useChatMetaStore((s) => s.newChat);
+  const updateChatBackendId = useChatMetaStore((s) => s.updateChatBackendId);
+  const setChatExecutionMode = useChatMetaStore((s) => s.setChatExecutionMode);
+  const setChatPlanFile = useChatMetaStore((s) => s.setChatPlanFile);
+  const updateChatUsage = useStreamStore((s) => s.updateChatUsage);
+  const subAgentStart = useStreamStore((s) => s.subAgentStart);
+  const subAgentDelta = useStreamStore((s) => s.subAgentDelta);
+  const subAgentToolStart = useStreamStore((s) => s.subAgentToolStart);
+  const subAgentToolDone = useStreamStore((s) => s.subAgentToolDone);
+  const subAgentComplete = useStreamStore((s) => s.subAgentComplete);
+  const addBriefMessage = useStreamStore((s) => s.addBriefMessage);
+
+  const addMessage = useCallback((
+    msg: Omit<ChatMessage, "id" | "chatId">,
+    targetChatId?: string,
+  ) => {
+    const chatId = targetChatId ?? useChatMetaStore.getState().activeChatId;
+    useStreamStore.getState().addMessage(chatId, msg);
+    const title = msg.role === "user" ? msg.content.slice(0, 20) : undefined;
+    useChatMetaStore.getState().incrementMessageCount(chatId, title);
+  }, []);
 
   const [streaming, setStreaming] = useState(false);
   const [streamSegments, setStreamSegments] = useState<StreamSegment[]>([]);
@@ -257,14 +266,13 @@ export function useMessageStreamChat({
       );
     }
 
-    const currentState = useAgentStore.getState();
-    const capturedAgentId = currentState.activeAgentId;
-    const currentAgent = currentState.agents.find((a) => a.id === capturedAgentId);
-    const currentAc = currentState.agentChats[capturedAgentId];
-    const currentActiveChat = currentAc?.chatList.find((c) => c.id === currentAc.activeChatId);
-    const capturedChatId = currentActiveChat?.id ?? "temp";
+    const metaState = useChatMetaStore.getState();
+    const capturedAgentId = metaState.activeAgentId;
+    const currentAgent = metaState.agents.find((a) => a.id === capturedAgentId);
+    const capturedChatId = metaState.activeChatId;
+    const currentActiveChat = metaState.chats[capturedChatId];
 
-    addMessage(capturedAgentId, {
+    addMessage({
       role: "user",
       content: txt + mentionDesc + fileDesc,
       timestamp: new Date(),
@@ -372,8 +380,7 @@ export function useMessageStreamChat({
               });
 
             if (currentSegments.length > 0) {
-              const setChatLastSegments = useAgentStore.getState().setChatLastSegments;
-              setChatLastSegments(capturedAgentId, capturedChatId, currentSegments.map((s) => ({
+              useStreamStore.getState().setChatLastSegments(capturedChatId, currentSegments.map((s) => ({
                 id: s.id,
                 type: s.type,
                 content: s.content,
@@ -392,7 +399,7 @@ export function useMessageStreamChat({
               setPendingQuestion(null);
             }
 
-            addMessage(capturedAgentId, {
+            addMessage({
               role: "assistant",
               content: finalContent,
               timestamp: new Date(),
@@ -406,13 +413,13 @@ export function useMessageStreamChat({
 
             const modeChange = d?.modeChange as { from?: string; to?: string } | undefined;
             if (modeChange?.to && (modeChange.to === "agent" || modeChange.to === "plan")) {
-              setChatExecutionMode(capturedAgentId, capturedChatId, modeChange.to);
+              setChatExecutionMode(capturedChatId, modeChange.to);
             }
 
             cleanup();
 
             if (sid && capturedChatId !== sid) {
-              updateChatBackendId(capturedAgentId, capturedChatId, sid);
+              updateChatBackendId(capturedChatId, sid);
             }
 
             const usageData = summary?.usage;
@@ -421,7 +428,7 @@ export function useMessageStreamChat({
             const contextWindow = (d?.contextWindow as number) ?? summary?.context_window ?? undefined;
             if (usageData || elapsedMs || contextTokens) {
               const resolvedChatId = sid ?? capturedChatId;
-              updateChatUsage(capturedAgentId, resolvedChatId, {
+              updateChatUsage(resolvedChatId, {
                 promptTokens: usageData?.prompt_tokens ?? 0,
                 completionTokens: usageData?.completion_tokens ?? 0,
                 totalTokens: usageData?.total_tokens ?? 0,
@@ -436,11 +443,10 @@ export function useMessageStreamChat({
             }
 
             if (isActive()) {
-              const state = useAgentStore.getState();
-              const ac = state.agentChats[capturedAgentId];
-              const queue = ac?.messageQueue ?? [];
+              const queueState = useQueueStore.getState();
+              const queue = queueState.queues[capturedChatId] ?? [];
               if (queue.length > 0) {
-                const nextMsg = state.dequeueMessage(capturedAgentId, capturedChatId);
+                const nextMsg = queueState.dequeueMessage(capturedChatId);
                 if (nextMsg && nextMsg.status === "pending") {
                   setTimeout(() => {
                     sendRef.current(nextMsg.content, nextMsg.mentions.map((m: { type: "file" | "dir" | "skill"; id: string; label: string }) => ({
@@ -476,14 +482,14 @@ export function useMessageStreamChat({
               setStreaming(false);
               setPendingQuestion(null);
               if (content) {
-                addMessage(capturedAgentId, {
+                addMessage({
                   role: "assistant",
                   content,
                   timestamp: new Date(),
                   toolCalls: savedTC.length > 0 ? savedTC : undefined,
                 }, capturedChatId);
               }
-              addMessage(capturedAgentId, {
+              addMessage({
                 role: "system",
                 content: `回合已中止: ${reason}`,
                 timestamp: new Date(),
@@ -575,21 +581,21 @@ export function useMessageStreamChat({
             const d = event.data;
             const newMode = d?.to as string | undefined;
             if (newMode && (newMode === "agent" || newMode === "plan")) {
-              setChatExecutionMode(capturedAgentId, capturedChatId, newMode);
+              setChatExecutionMode(capturedChatId, newMode);
             }
             break;
           }
           case "plan_file_update": {
             const d = event.data;
             if (d?.path) {
-              setChatPlanFile(capturedAgentId, capturedChatId, d.path as string, (d.exists as boolean) ?? false);
+              setChatPlanFile(capturedChatId, d.path as string, (d.exists as boolean) ?? false);
             }
             break;
           }
           case "context_warning": {
             const d = event.data;
             if (d?.message && isActive()) {
-              addMessage(capturedAgentId, {
+              addMessage({
                 role: "system",
                 content: d.message as string,
                 timestamp: new Date(),
@@ -601,7 +607,7 @@ export function useMessageStreamChat({
             const d = event.data;
             if (d?.used_tokens != null && d?.limit_tokens != null && isActive()) {
               const resolvedChatId = capturedChatId;
-              updateChatUsage(capturedAgentId, resolvedChatId, {
+              updateChatUsage(resolvedChatId, {
                 promptTokens: 0,
                 completionTokens: 0,
                 totalTokens: 0,
@@ -610,7 +616,7 @@ export function useMessageStreamChat({
                 contextWindow: d.limit_tokens as number,
               });
               if (d.compressed && (d.tokens_saved as number) > 0) {
-                addMessage(capturedAgentId, {
+                addMessage({
                   role: "system",
                   content: `上下文已压缩，节省了约 ${Math.round((d.tokens_saved as number) / 1000 * 10) / 10}k tokens`,
                   timestamp: new Date(),
@@ -634,20 +640,20 @@ export function useMessageStreamChat({
               toolCallsMade: 0,
               iterations: 0,
             };
-            subAgentStart(capturedAgentId, capturedChatId, run);
+            subAgentStart(capturedChatId, run);
             break;
           }
           case "sub_agent_delta": {
             const d = event.data;
             if (d?.run_id && d?.content) {
-              subAgentDelta(capturedAgentId, capturedChatId, d.run_id as string, d.content as string);
+              subAgentDelta(capturedChatId, d.run_id as string, d.content as string);
             }
             break;
           }
           case "sub_agent_tool_executing": {
             const d = event.data;
             if (d?.run_id && d?.tool_name) {
-              subAgentToolStart(capturedAgentId, capturedChatId, d.run_id as string, {
+              subAgentToolStart(capturedChatId, d.run_id as string, {
                 id: (d.call_id ?? d.tool_name) as string,
                 name: d.tool_name as string,
                 status: "running",
@@ -660,7 +666,7 @@ export function useMessageStreamChat({
             const d = event.data;
             if (d?.run_id && d?.call_id) {
               subAgentToolDone(
-                capturedAgentId, capturedChatId,
+                capturedChatId,
                 d.run_id as string, d.call_id as string,
                 (d.output ?? "") as string, d.success as boolean,
               );
@@ -671,7 +677,7 @@ export function useMessageStreamChat({
             const d = event.data;
             if (d?.run_id) {
               subAgentComplete(
-                capturedAgentId, capturedChatId,
+                capturedChatId,
                 d.run_id as string, (d.status ?? "completed") as string,
                 d.result as string | undefined,
                 d.tool_calls_made as number | undefined,
@@ -693,7 +699,7 @@ export function useMessageStreamChat({
               setStreaming(false);
               setPendingQuestion(null);
             }
-            addMessage(capturedAgentId, { role: "system", content: `错误: ${e}`, timestamp: new Date() }, capturedChatId);
+            addMessage({ role: "system", content: `错误: ${e}`, timestamp: new Date() }, capturedChatId);
             const ds = detachedStreams.get(capturedChatId);
             if (ds) { ds.error = true; ds.done = true; detachedStreams.delete(capturedChatId); }
             cleanup();
@@ -704,13 +710,12 @@ export function useMessageStreamChat({
 
             // 标记队列第一条为失败，继续处理下一条
             if (isActive()) {
-              const state = useAgentStore.getState();
-              const ac = state.agentChats[capturedAgentId];
-              const queue = ac?.messageQueue ?? [];
+              const queueState = useQueueStore.getState();
+              const queue = queueState.queues[capturedChatId] ?? [];
               if (queue.length > 0) {
                 const firstItem = queue[0];
                 if (firstItem.status === "pending") {
-                  state.updateQueuedMessage(capturedAgentId, capturedChatId, firstItem.id, {
+                  queueState.updateQueuedMessage(capturedChatId, firstItem.id, {
                     status: "failed",
                     error: e,
                   });
@@ -738,7 +743,7 @@ export function useMessageStreamChat({
             const code = (d?.error_code as string) ?? "";
             const retry = (d?.retry_attempt as number) ?? 0;
             if (isActive()) {
-              addMessage(capturedAgentId, {
+              addMessage({
                 role: "system",
                 content: `流错误${code ? ` [${code}]` : ""}: ${msg}${retry > 0 ? ` (重试 #${retry})` : ""}`,
                 timestamp: new Date(),
@@ -750,7 +755,7 @@ export function useMessageStreamChat({
             const d = event.data;
             const msg = (d?.message as string) ?? "";
             if (msg && isActive()) {
-              addMessage(capturedAgentId, {
+              addMessage({
                 role: "system",
                 content: `⚠ ${msg}`,
                 timestamp: new Date(),
@@ -820,7 +825,7 @@ export function useMessageStreamChat({
           case "brief_message": {
             const d = event.data;
             if (d?.content && isActive()) {
-              addBriefMessage(capturedAgentId, capturedChatId, {
+              addBriefMessage(capturedChatId, {
                 id: `brief-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 content: d.content as string,
                 mode: (d.mode as "normal" | "proactive") ?? "normal",
@@ -844,7 +849,7 @@ export function useMessageStreamChat({
         setStreamSegments([]);
       }
       const errMsg = err instanceof Error ? err.message : "连接失败";
-      addMessage(capturedAgentId, { role: "system", content: `错误: ${errMsg}`, timestamp: new Date() }, capturedChatId);
+      addMessage({ role: "system", content: `错误: ${errMsg}`, timestamp: new Date() }, capturedChatId);
       cleanup();
     });
   };
@@ -859,10 +864,10 @@ export function useMessageStreamChat({
       const trimmed = command.trim();
       if (trimmed === "/init") {
         const wd = workDir ?? undefined;
-        addMessage(activeAgentId, { role: "user", content: "/init", timestamp: new Date() });
+        addMessage({ role: "user", content: "/init", timestamp: new Date() });
         try {
           const result = await transport.workspaceInit(wd);
-          addMessage(activeAgentId, {
+          addMessage({
             role: "assistant",
             content: result.alreadyExists
               ? `\u2705 ${result.message}`
@@ -870,7 +875,7 @@ export function useMessageStreamChat({
             timestamp: new Date(),
           });
         } catch (e) {
-          addMessage(activeAgentId, {
+          addMessage({
             role: "assistant",
             content: `\u274c init failed: ${e instanceof Error ? e.message : String(e)}`,
             timestamp: new Date(),
@@ -880,7 +885,7 @@ export function useMessageStreamChat({
       }
       return false;
     },
-    [activeAgentId, workDir, addMessage],
+    [workDir, addMessage],
   );
 
   const handleMentionSend = useCallback(
@@ -899,7 +904,7 @@ export function useMessageStreamChat({
         if (sessionId) {
           transport.chatSteer(sessionId, [{ role: "user", content: txt.trim() }]).catch(() => {});
         }
-        addMessage(activeAgentId, {
+        addMessage({
           role: "user",
           content: txt.trim(),
           timestamp: new Date(),
@@ -915,7 +920,7 @@ export function useMessageStreamChat({
       });
       sendRef.current(txt.trim(), _mentions);
     },
-    [activeAgentId, activeChat?.id, enqueueMessage, handleSlashCommand],
+    [activeChat?.id, addMessage, handleSlashCommand],
   );
 
   const stopStream = useCallback(() => {
@@ -942,7 +947,7 @@ export function useMessageStreamChat({
     segmentsRef.current = [];
     setStreamSegments([]);
     if (content) {
-      addMessage(activeAgentId, {
+      addMessage({
         role: "assistant",
         content,
         timestamp: new Date(),
@@ -957,12 +962,12 @@ export function useMessageStreamChat({
       }
       return null;
     });
-  }, [activeAgentId, addMessage]);
+  }, [addMessage]);
 
   const handleNewTopic = useCallback(() => {
     if (streaming) return;
-    newChat(activeAgentId, workDir ?? undefined);
-  }, [streaming, newChat, activeAgentId, workDir]);
+    newChat(workDir ?? undefined);
+  }, [streaming, newChat, workDir]);
 
   const streamingChatIds = useMemo(() => {
     const ids = new Set<string>();

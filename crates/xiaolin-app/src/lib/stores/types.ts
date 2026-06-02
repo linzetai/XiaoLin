@@ -103,6 +103,20 @@ export interface ChatUsage {
 
 export type ExecutionMode = "agent" | "plan";
 
+export interface ChatMeta {
+  id: string;
+  localKey: string;
+  title: string;
+  workDir: string | null;
+  source: string;
+  createdAt: Date;
+  messageCount: number;
+  open: boolean;
+  executionMode: ExecutionMode;
+  planFilePath?: string;
+  planFileExists?: boolean;
+}
+
 export interface Chat {
   id: string;
   localKey: string;

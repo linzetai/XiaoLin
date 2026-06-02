@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { Compass, Code2, ChevronDown, ChevronUp, FileText, RefreshCw } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useAgentStore } from "../../lib/agent-store";
+import { useChatMetaStore } from "../../lib/stores";
 import * as transport from "../../lib/transport";
 import { ICON } from "../../lib/ui-tokens";
 
@@ -58,10 +58,7 @@ export function PlanApprovalCard({
     if (planContent) return;
     setLoading(true);
     try {
-      const state = useAgentStore.getState();
-      const agentId = state.activeAgentId;
-      const ac = state.agentChats[agentId];
-      const chatId = ac?.activeChatId;
+      const chatId = useChatMetaStore.getState().activeChatId;
       const resp = await transport.getPlanFile(chatId ?? undefined);
       setPlanContent(resp.content ?? inlinePreview ?? "(计划文件为空)");
     } catch {
@@ -78,12 +75,9 @@ export function PlanApprovalCard({
       if (onApprove) {
         onApprove(mode);
       } else {
-        const state = useAgentStore.getState();
-        const agentId = state.activeAgentId;
-        const ac = state.agentChats[agentId];
-        const sessionId = ac?.activeChatId ?? "default";
+        const { activeChatId: sessionId, setChatExecutionMode } = useChatMetaStore.getState();
         await transport.approvePlan(sessionId, mode);
-        useAgentStore.getState().setChatExecutionMode(agentId, sessionId, mode);
+        setChatExecutionMode(sessionId, mode);
       }
     } finally {
       setApproving(false);

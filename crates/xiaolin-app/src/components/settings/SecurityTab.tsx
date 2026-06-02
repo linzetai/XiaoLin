@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { CheckCircle, XCircle, X, Plus } from "lucide-react";
 import * as api from "../../lib/api";
-import { useAgentStore } from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores";
 import { SectionTitle } from "./SettingsShared";
 import { ICON } from "../../lib/ui-tokens";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle } from "../common/FormElements";
@@ -56,7 +56,7 @@ function inferMode(behavior?: api.AgentBehaviorConfig): ExecutionMode {
 }
 
 export function SecurityTab() {
-  const activeAgentId = useAgentStore((s) => s.activeAgentId);
+  const activeAgentId = useChatMetaStore((s) => s.activeAgentId);
   const [allowedHosts, setAllowedHosts] = useState<string[]>([]);
   const [newHost, setNewHost] = useState("");
   const [opsPolicy, setOpsPolicy] = useState<DangerousOpsPolicy>("confirm");

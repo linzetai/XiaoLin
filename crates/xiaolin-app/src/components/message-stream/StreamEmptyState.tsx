@@ -4,7 +4,7 @@ import {
   Palette, Globe, Lightbulb, PenTool, BarChart3, Shield,
   RefreshCw, Zap, BookOpen,
 } from "lucide-react";
-import { useAgentStore } from "../../lib/agent-store";
+import { useChatMetaStore } from "../../lib/stores";
 
 import { ICON } from "../../lib/ui-tokens";
 
@@ -35,7 +35,7 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function StreamEmptyState({ onPick }: { onPick: (t: string) => void }) {
-  const agents = useAgentStore((s) => s.agents);
+  const agents = useChatMetaStore((s) => s.agents);
   const agent = agents.find((a) => a.id === "main") ?? agents[0];
 
   const [seed, setSeed] = useState(0);
