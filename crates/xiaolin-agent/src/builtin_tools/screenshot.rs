@@ -45,6 +45,7 @@ struct CaptureRequest {
     delay_secs: u32,
     #[allow(dead_code)]
     display: Option<u32>,
+    ocr: bool,
 }
 
 fn parse_request(args: &serde_json::Value) -> Result<CaptureRequest, String> {
@@ -91,10 +92,13 @@ fn parse_request(args: &serde_json::Value) -> Result<CaptureRequest, String> {
         .and_then(|v| v.as_u64())
         .map(|d| d as u32);
 
+    let ocr = args.get("ocr").and_then(|v| v.as_bool()).unwrap_or(false);
+
     Ok(CaptureRequest {
         mode,
         delay_secs,
         display,
+        ocr,
     })
 }
 
@@ -526,8 +530,10 @@ impl Tool for ScreenshotTool {
          | width | number | Width for region mode |\n\
          | height | number | Height for region mode |\n\
          | delay | number | Seconds to wait before capture (0 default) |\n\
-         | display | number | Monitor index for multi-display (0-based) |\n\n\
-         Does NOT require a browser. Works with any application or desktop."
+         | display | number | Monitor index for multi-display (0-based) |\n\
+         | ocr | boolean | If true, run OCR on the image and include text |\n\n\
+         Does NOT require a browser. Works with any application or desktop.\n\
+         OCR requires tesseract to be installed (optional)."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -582,6 +588,13 @@ impl Tool for ScreenshotTool {
                 "description": "Monitor index for multi-display setups (0-based). Omit for primary display."
             }),
         );
+        props.insert(
+            "ocr".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "If true, run OCR on the captured image and include extracted text. Requires tesseract installed."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -603,6 +616,7 @@ impl Tool for ScreenshotTool {
             Ok(r) => r,
             Err(e) => return ToolResult::err(e),
         };
+        let want_ocr = req.ocr;
 
         let out_path = tmp_path();
         let _ = std::fs::remove_file(&out_path);
@@ -643,11 +657,21 @@ impl Tool for ScreenshotTool {
         };
         let backends = detect_available_backends();
         let size_kb = png_data.len() / 1024;
-        let summary = format!(
+
+        let ocr_text = if want_ocr {
+            run_ocr(&out_path, &png_data)
+        } else {
+            None
+        };
+
+        let mut summary = format!(
             "Screenshot captured ({mode_label}, {size_kb} KB). \
              Available backends: [{}].",
             backends.join(", ")
         );
+        if let Some(ref text) = ocr_text {
+            summary.push_str(&format!("\n\nOCR extracted text:\n{text}"));
+        }
 
         ToolResult::ok_with_images(
             summary,
@@ -656,6 +680,52 @@ impl Tool for ScreenshotTool {
                 data: png_data,
             }],
         )
+    }
+}
+
+fn run_ocr(img_path: &std::path::Path, png_data: &[u8]) -> Option<String> {
+    let ocr_path = std::env::temp_dir().join(format!("xiaolin-ocr-{}.png", std::process::id()));
+    if std::fs::write(&ocr_path, png_data).is_err() {
+        if !img_path.exists() {
+            return None;
+        }
+    }
+    let target = if ocr_path.exists() {
+        &ocr_path
+    } else {
+        img_path
+    };
+
+    let output = std::process::Command::new("tesseract")
+        .arg(target)
+        .arg("stdout")
+        .arg("-l")
+        .arg("eng+chi_sim")
+        .output();
+
+    let _ = std::fs::remove_file(&ocr_path);
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        Ok(o) => {
+            tracing::debug!(
+                "tesseract exited with {}: {}",
+                o.status,
+                String::from_utf8_lossy(&o.stderr)
+            );
+            None
+        }
+        Err(_) => {
+            tracing::debug!("tesseract not found; OCR skipped");
+            None
+        }
     }
 }
 

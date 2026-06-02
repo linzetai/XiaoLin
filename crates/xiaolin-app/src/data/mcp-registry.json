@@ -1,0 +1,136 @@
+[
+  {
+    "id": "filesystem",
+    "name": "File System",
+    "description": "读写文件系统，支持目录浏览、文件搜索和内容操作",
+    "category": "development",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"]
+    }
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "description": "与 GitHub 仓库交互：查看 issues、PRs、代码搜索等",
+    "category": "development",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "" }
+    }
+  },
+  {
+    "id": "postgres",
+    "name": "PostgreSQL",
+    "description": "连接 PostgreSQL 数据库，执行查询和管理操作",
+    "category": "data",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+    }
+  },
+  {
+    "id": "sqlite",
+    "name": "SQLite",
+    "description": "读写 SQLite 数据库文件",
+    "category": "data",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sqlite", "database.db"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "database.db"]
+    }
+  },
+  {
+    "id": "brave-search",
+    "name": "Brave Search",
+    "description": "使用 Brave Search API 进行网页搜索",
+    "category": "productivity",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "" }
+    }
+  },
+  {
+    "id": "google-maps",
+    "name": "Google Maps",
+    "description": "地理信息查询：地点搜索、路线规划、距离计算",
+    "category": "productivity",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+      "env": { "GOOGLE_MAPS_API_KEY": "" }
+    }
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "description": "管理 Slack 消息、频道和工作区交互",
+    "category": "communication",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-slack"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": { "SLACK_BOT_TOKEN": "", "SLACK_TEAM_ID": "" }
+    }
+  },
+  {
+    "id": "memory",
+    "name": "Memory",
+    "description": "基于知识图谱的持久化记忆存储",
+    "category": "productivity",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-memory"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  },
+  {
+    "id": "puppeteer",
+    "name": "Puppeteer",
+    "description": "浏览器自动化：网页截图、页面交互、数据抓取",
+    "category": "development",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+    }
+  },
+  {
+    "id": "sequential-thinking",
+    "name": "Sequential Thinking",
+    "description": "引导 AI 进行结构化的分步推理",
+    "category": "productivity",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "configTemplate": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    }
+  }
+]

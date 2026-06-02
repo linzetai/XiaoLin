@@ -236,6 +236,8 @@ pub fn run() {
             commands::clipboard::clipboard_read_image,
             commands::clipboard::clipboard_write_image,
             commands::clipboard::read_image_file,
+            commands::voice::transcribe_audio,
+            commands::voice::stt_available,
         ])
         .build(tauri::generate_context!())
         .expect("error while building XiaoLin app")

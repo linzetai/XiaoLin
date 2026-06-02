@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Settings2, Box, Wrench, Server, Info, Search, Shield, X, RotateCcw, Bot } from "lucide-react";
+import { Settings2, Box, Wrench, Server, Info, Search, Shield, X, RotateCcw, Bot, Store } from "lucide-react";
 import { ICON, BTN_ICON } from "../../lib/ui-tokens";
 
 const GeneralTab = lazy(() => import("./GeneralTab").then((m) => ({ default: m.GeneralTab })));
@@ -11,13 +11,14 @@ const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m
 const GatewayTab = lazy(() => import("./GatewayTab").then((m) => ({ default: m.GatewayTab })));
 const AboutTab = lazy(() => import("./AboutTab").then((m) => ({ default: m.AboutTab })));
 const MigrationTab = lazy(() => import("./MigrationTab").then((m) => ({ default: m.MigrationTab })));
+const McpMarketplaceTab = lazy(() => import("./McpMarketplaceTab").then((m) => ({ default: m.McpMarketplaceTab })));
 
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
 }
 
-type SettingsTab = "general" | "models" | "web-search" | "skills" | "sub-agents" | "security" | "gateway" | "about" | "migration";
+type SettingsTab = "general" | "models" | "web-search" | "skills" | "sub-agents" | "security" | "gateway" | "mcp-marketplace" | "about" | "migration";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "通用", icon: <Settings2 {...ICON.md} /> },
@@ -27,6 +28,7 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "sub-agents", label: "Sub-Agents", icon: <Bot {...ICON.md} /> },
   { id: "security", label: "安全", icon: <Shield {...ICON.md} /> },
   { id: "gateway", label: "网关", icon: <Server {...ICON.md} /> },
+  { id: "mcp-marketplace", label: "MCP 市场", icon: <Store {...ICON.md} /> },
   { id: "migration", label: "迁移", icon: <RotateCcw {...ICON.md} /> },
   { id: "about", label: "关于", icon: <Info {...ICON.md} /> },
 ];
@@ -103,6 +105,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 {tab === "sub-agents" && <SubAgentsTab />}
                 {tab === "security" && <SecurityTab />}
                 {tab === "gateway" && <GatewayTab />}
+                {tab === "mcp-marketplace" && <McpMarketplaceTab />}
                 {tab === "migration" && <MigrationTab />}
                 {tab === "about" && <AboutTab />}
               </div>
