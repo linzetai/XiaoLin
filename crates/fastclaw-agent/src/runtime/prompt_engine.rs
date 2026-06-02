@@ -597,25 +597,18 @@ mod integration_tests {
         "memory_search",
     ];
 
-    // ── 1. Plan mode prompt contains readonly restriction ──
+    // ── 1. Plan mode instructions are NOT in system prompt (moved to attachments) ──
 
     #[test]
-    fn integration_plan_mode_assembled_prompt_contains_readonly() {
+    fn integration_plan_mode_not_in_system_prompt() {
         let engine = default_engine();
         let ctx = full_ctx(ExecutionMode::Plan, FULL_TOOLS, None);
         let prompt = engine.build_effective_prompt(&ctx, None, None, None, None);
         let joined = prompt.join("\n");
 
         assert!(
-            joined.contains("Plan Mode") || joined.contains("Read-Only"),
-            "Plan mode prompt must contain readonly restriction"
-        );
-        assert!(
-            joined.contains("CANNOT write files")
-                || joined.contains("read-only tools")
-                || joined.contains("MUST NOT make any edits")
-                || joined.contains("READ-ONLY"),
-            "Plan mode prompt must explicitly restrict writes"
+            !joined.contains("Plan Mode (Read-Only)"),
+            "Plan mode instructions should be delivered via per-turn attachments, not system prompt"
         );
     }
 

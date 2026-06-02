@@ -9,6 +9,7 @@ export interface ChatTabsBarProps {
   chats: Chat[];
   activeChatId: string;
   streamingChatIds: Set<string>;
+  attentionChatIds?: Set<string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
@@ -17,12 +18,12 @@ export interface ChatTabsBarProps {
 }
 
 function SwitcherItem({
-  chat, isActive, isStreaming,
+  chat, isActive, isStreaming, needsAttention,
   editingId, editValue, editRef,
   onSelect, onClose, onDoubleClick,
   onEditChange, onCommitRename, onCancelEdit,
 }: {
-  chat: Chat; isActive: boolean; isStreaming: boolean;
+  chat: Chat; isActive: boolean; isStreaming: boolean; needsAttention: boolean;
   editingId: string | null; editValue: string;
   editRef: React.RefObject<HTMLInputElement | null>;
   onSelect: (id: string) => void; onClose: (id: string) => void;
@@ -45,13 +46,20 @@ function SwitcherItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {isStreaming && (
+      {needsAttention && (
+        <span
+          className="inline-block h-[6px] w-[6px] shrink-0 rounded-full"
+          style={{ background: "var(--warning, #f59e0b)", animation: "pulse-subtle 1.5s ease-in-out infinite" }}
+          title="需要操作"
+        />
+      )}
+      {!needsAttention && isStreaming && (
         <span
           className="inline-block h-[6px] w-[6px] shrink-0 rounded-full"
           style={{ background: "var(--tint)", animation: "pulse-subtle 1.5s ease-in-out infinite" }}
         />
       )}
-      {!isStreaming && <MessageSquare {...ICON.sm} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />}
+      {!needsAttention && !isStreaming && <MessageSquare {...ICON.sm} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />}
 
       {isEditing ? (
         <input
@@ -93,7 +101,7 @@ function SwitcherItem({
   );
 }
 
-export function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, onClose, onNew, onRename, onReorder: _onReorder }: ChatTabsBarProps) {
+export function ChatTabsBar({ chats, activeChatId, streamingChatIds, attentionChatIds, onSelect, onClose, onNew, onRename, onReorder: _onReorder }: ChatTabsBarProps) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -108,6 +116,10 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, o
   const hasStreamingOther = useMemo(
     () => openChats.some((c) => c.id !== activeChatId && streamingChatIds.has(c.id)),
     [openChats, activeChatId, streamingChatIds],
+  );
+  const hasAttentionOther = useMemo(
+    () => attentionChatIds ? openChats.some((c) => c.id !== activeChatId && attentionChatIds.has(c.id)) : false,
+    [openChats, activeChatId, attentionChatIds],
   );
 
   useEffect(() => {
@@ -175,7 +187,14 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, o
         <span className="max-w-[180px] truncate font-semibold" style={{ color: "var(--fill-primary)" }}>
           {activeChat?.title ?? "新对话"}
         </span>
-        {hasStreamingOther && (
+        {hasAttentionOther && (
+          <span
+            className="inline-block h-[5px] w-[5px] rounded-full"
+            style={{ background: "var(--warning, #f59e0b)", animation: "pulse-subtle 1.5s ease-in-out infinite" }}
+            title="后台会话需要操作"
+          />
+        )}
+        {!hasAttentionOther && hasStreamingOther && (
           <span
             className="inline-block h-[5px] w-[5px] rounded-full"
             style={{ background: "var(--tint)", animation: "pulse-subtle 1.5s ease-in-out infinite" }}
@@ -224,6 +243,7 @@ export function ChatTabsBar({ chats, activeChatId, streamingChatIds, onSelect, o
                 chat={chat}
                 isActive={chat.id === activeChatId}
                 isStreaming={streamingChatIds.has(chat.id)}
+                needsAttention={attentionChatIds?.has(chat.id) ?? false}
                 editingId={editingId}
                 editValue={editValue}
                 editRef={editRef}

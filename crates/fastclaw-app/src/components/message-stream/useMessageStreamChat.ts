@@ -106,6 +106,7 @@ export function useMessageStreamChat({
         done: false,
         error: false,
         cleanup: () => {},
+        needsAttention: false,
       });
       currentStreamChatRef.current = null;
       setStreaming(false);
@@ -133,6 +134,43 @@ export function useMessageStreamChat({
         if (ds.scrollPosition != null) {
           const key = chatScrollKey(newId);
           if (key) scrollPositions.current[key] = ds.scrollPosition;
+        }
+        if (ds.pendingInteraction) {
+          const pi = ds.pendingInteraction;
+          if (pi.type === "approval_required") {
+            const d = pi.data;
+            const approvalId = d.approval_id as string;
+            const reason = d.reason as string;
+            const action = d.action as Record<string, unknown> | undefined;
+            const actionType = action?.action_type as string ?? "unknown";
+            const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
+            setPendingQuestion({
+              requestId: `approval:${approvalId}`,
+              question: `${reason}\n操作类型: ${actionType}`,
+              options: decisions.map((dec) => {
+                const label = dec.decision === "approved" ? "批准"
+                  : dec.decision === "approved_for_session" ? "本次全部批准"
+                  : dec.decision === "denied" ? "拒绝"
+                  : dec.decision === "abort" ? "中止"
+                  : dec.decision;
+                return { id: dec.decision, label };
+              }),
+              timeoutSecs: 0,
+              expiresAt: 0,
+              allowMultiple: false,
+            });
+          } else if (pi.type === "ask_question") {
+            const d = pi.data;
+            const timeoutSecs = (d.timeout_secs as number) ?? 0;
+            setPendingQuestion({
+              requestId: d.request_id as string,
+              question: d.question as string,
+              options: (d.options as Array<{ id: string; label: string }>) ?? [],
+              timeoutSecs,
+              expiresAt: timeoutSecs > 0 ? Date.now() + timeoutSecs * 1000 : 0,
+              allowMultiple: d.allow_multiple as boolean | undefined,
+            });
+          }
         }
         detachedStreams.delete(newId);
       }
@@ -327,6 +365,12 @@ export function useMessageStreamChat({
               ds.done = true;
               detachedStreams.delete(capturedChatId);
             }
+
+            const modeChange = d?.modeChange as { from?: string; to?: string } | undefined;
+            if (modeChange?.to && (modeChange.to === "agent" || modeChange.to === "plan")) {
+              setChatExecutionMode(capturedAgentId, capturedChatId, modeChange.to);
+            }
+
             cleanup();
 
             if (sid && capturedChatId !== sid) {
@@ -467,16 +511,24 @@ export function useMessageStreamChat({
           }
           case "ask_question": {
             const d = event.data;
-            if (d?.request_id && d?.question && isActive()) {
-              const timeoutSecs = (d.timeout_secs as number) ?? 0;
-              setPendingQuestion({
-                requestId: d.request_id as string,
-                question: d.question as string,
-                options: (d.options as Array<{ id: string; label: string }>) ?? [],
-                timeoutSecs,
-                expiresAt: timeoutSecs > 0 ? Date.now() + timeoutSecs * 1000 : 0,
-                allowMultiple: d.allow_multiple as boolean | undefined,
-              });
+            if (d?.request_id && d?.question) {
+              if (isActive()) {
+                const timeoutSecs = (d.timeout_secs as number) ?? 0;
+                setPendingQuestion({
+                  requestId: d.request_id as string,
+                  question: d.question as string,
+                  options: (d.options as Array<{ id: string; label: string }>) ?? [],
+                  timeoutSecs,
+                  expiresAt: timeoutSecs > 0 ? Date.now() + timeoutSecs * 1000 : 0,
+                  allowMultiple: d.allow_multiple as boolean | undefined,
+                });
+              } else {
+                const ds = detachedStreams.get(capturedChatId);
+                if (ds) {
+                  ds.pendingInteraction = { type: "ask_question", data: d as Record<string, unknown> };
+                  ds.needsAttention = true;
+                }
+              }
             }
             break;
           }
@@ -669,34 +721,48 @@ export function useMessageStreamChat({
           }
           case "approval_required": {
             const d = event.data;
-            if (d?.approval_id && d?.reason && isActive()) {
-              const approvalId = d.approval_id as string;
-              const reason = d.reason as string;
-              const action = d.action as Record<string, unknown> | undefined;
-              const actionType = action?.action_type as string ?? "unknown";
-              const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
+            if (d?.approval_id && d?.reason) {
+              if (isActive()) {
+                const approvalId = d.approval_id as string;
+                const reason = d.reason as string;
+                const action = d.action as Record<string, unknown> | undefined;
+                const actionType = action?.action_type as string ?? "unknown";
+                const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
 
-              setPendingQuestion({
-                requestId: `approval:${approvalId}`,
-                question: `${reason}\n操作类型: ${actionType}`,
-                options: decisions.map((dec) => {
-                  const label = dec.decision === "approved" ? "批准"
-                    : dec.decision === "approved_for_session" ? "本次全部批准"
-                    : dec.decision === "denied" ? "拒绝"
-                    : dec.decision === "abort" ? "中止"
-                    : dec.decision;
-                  return { id: dec.decision, label };
-                }),
-                timeoutSecs: 0,
-                expiresAt: 0,
-                allowMultiple: false,
-              });
+                setPendingQuestion({
+                  requestId: `approval:${approvalId}`,
+                  question: `${reason}\n操作类型: ${actionType}`,
+                  options: decisions.map((dec) => {
+                    const label = dec.decision === "approved" ? "批准"
+                      : dec.decision === "approved_for_session" ? "本次全部批准"
+                      : dec.decision === "denied" ? "拒绝"
+                      : dec.decision === "abort" ? "中止"
+                      : dec.decision;
+                    return { id: dec.decision, label };
+                  }),
+                  timeoutSecs: 0,
+                  expiresAt: 0,
+                  allowMultiple: false,
+                });
+              } else {
+                const ds = detachedStreams.get(capturedChatId);
+                if (ds) {
+                  ds.pendingInteraction = { type: "approval_required", data: d as Record<string, unknown> };
+                  ds.needsAttention = true;
+                }
+              }
             }
             break;
           }
           case "approval_resolved": {
             if (isActive()) {
               setPendingQuestion(null);
+            } else {
+              const ds = detachedStreams.get(capturedChatId);
+              if (ds) {
+                ds.pendingInteraction = undefined;
+                ds.needsAttention = false;
+              }
             }
             break;
           }
@@ -840,6 +906,14 @@ export function useMessageStreamChat({
     return ids;
   }, [streaming, detachedStreams]);
 
+  const attentionChatIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [chatId, ds] of detachedStreams) {
+      if (ds.needsAttention) ids.add(chatId);
+    }
+    return ids;
+  }, [streaming, detachedStreams]);
+
   return {
     streaming,
     streamSegments,
@@ -849,6 +923,7 @@ export function useMessageStreamChat({
     handleMentionSend,
     handleNewTopic,
     streamingChatIds,
+    attentionChatIds,
     atBottomRef,
     suppressScrollTrackingUntilRef,
     pendingBottomScrollBehaviorRef,

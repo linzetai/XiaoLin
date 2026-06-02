@@ -31,6 +31,52 @@ pub enum ToolGroup {
     Task,
 }
 
+/// Controls whether a tool is included in the model-visible tool list.
+///
+/// - `Direct`: always in the initial tool list sent to the LLM.
+/// - `Deferred`: omitted from the initial list; discoverable via `ToolSearchTool`.
+///
+/// Tools self-declare their exposure via `Tool::exposure()`. The `ToolRegistry`
+/// can further override exposure at runtime via `ToolProfile` promote/demote rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ToolExposure {
+    Direct,
+    Deferred,
+}
+
+/// A named set of exposure overrides applied to the tool pool based on context
+/// (execution mode, sub-agent type, etc.).
+///
+/// - `promote`: tools with `Deferred` exposure that should be treated as `Direct`.
+/// - `demote`: tools with `Direct` exposure that should be hidden from the model.
+#[derive(Debug, Clone, Default)]
+pub struct ToolProfile {
+    pub promote: Vec<String>,
+    pub demote: Vec<String>,
+}
+
+impl ToolProfile {
+    pub fn plan_mode() -> Self {
+        Self {
+            promote: vec!["exit_plan_mode".into()],
+            demote: vec!["enter_plan_mode".into()],
+        }
+    }
+
+    pub fn readonly() -> Self {
+        Self {
+            promote: vec![],
+            demote: vec![
+                "write_file".into(),
+                "edit_file".into(),
+                "multi_edit".into(),
+                "shell_exec".into(),
+                "shell".into(),
+            ],
+        }
+    }
+}
+
 /// Categorizes a tool by the nature of its operation.
 /// Used for concurrent scheduling (read-only tools run in parallel)
 /// and for permission decisions.
@@ -314,10 +360,16 @@ pub trait Tool: Send + Sync {
         false
     }
 
-    /// Deferred tools are not included in the initial prompt's tool list.
-    /// They become available only after activation via `ToolSearchTool`.
+    /// Whether this tool is included in the initial model-visible tool list.
+    /// Override to return `ToolExposure::Deferred` for tools that should only
+    /// become available after discovery via `ToolSearchTool`.
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Direct
+    }
+
+    /// Deprecated: use `exposure()` instead.
     fn is_deferred(&self) -> bool {
-        false
+        self.exposure() == ToolExposure::Deferred
     }
 
     /// Maximum characters of tool result output before persistence to disk.
@@ -396,12 +448,17 @@ impl ToolRegistry {
 
     pub fn register(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
+        let is_deferred = tool.exposure() == ToolExposure::Deferred;
         let mut guard = self.tools.write().expect("ToolRegistry poisoned");
         if guard.contains_key(&name) {
             tracing::warn!(tool = %name, "duplicate tool name – overwriting previous registration");
         }
-        guard.insert(name, tool);
+        guard.insert(name.clone(), tool);
         drop(guard);
+        if is_deferred {
+            let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+            def_guard.insert(name);
+        }
         self.bump_version();
     }
 
@@ -657,6 +714,35 @@ impl ToolRegistry {
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.into_iter().map(|(_, def)| def).collect()
+    }
+
+    /// Returns definitions filtered by a `ToolProfile`. Profile rules override
+    /// the tool's own `exposure()`:
+    ///
+    /// - Tools in `profile.promote` are included even if normally deferred.
+    /// - Tools in `profile.demote` are excluded even if normally direct.
+    /// - Channel-scoped tools are always excluded (injected separately).
+    pub fn definitions_with_profile(&self, profile: &ToolProfile) -> Vec<ToolDefinition> {
+        let deferred = self.deferred.read().expect("deferred set poisoned");
+        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
+        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        tools
+            .values()
+            .filter(|t| {
+                let n = t.name();
+                if ch_scoped.contains(n) {
+                    return false;
+                }
+                if profile.demote.iter().any(|d| d == n) {
+                    return false;
+                }
+                if profile.promote.iter().any(|p| p == n) {
+                    return true;
+                }
+                !deferred.contains(n)
+            })
+            .map(|t| t.to_definition())
+            .collect()
     }
 
     /// Move a deferred tool into the eager set so it appears in
@@ -916,8 +1002,12 @@ impl Tool for DynamicTool {
         }
     }
 
-    fn is_deferred(&self) -> bool {
-        self.spec.deferred
+    fn exposure(&self) -> ToolExposure {
+        if self.spec.deferred {
+            ToolExposure::Deferred
+        } else {
+            ToolExposure::Direct
+        }
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
@@ -1063,5 +1153,78 @@ mod tests {
         let results = reg.search_deferred("task list");
         assert!(!results.is_empty());
         assert_eq!(results[0].function.name, "task_list");
+    }
+
+    // ── ToolProfile tests ────────────────────────────────────────
+
+    struct FakeDeferredTool {
+        name: &'static str,
+    }
+
+    #[async_trait]
+    impl Tool for FakeDeferredTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            "deferred tool"
+        }
+        fn exposure(&self) -> ToolExposure {
+            ToolExposure::Deferred
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            ToolParameterSchema {
+                schema_type: "object".into(),
+                properties: HashMap::new(),
+                required: vec![],
+            }
+        }
+        async fn execute(&self, _arguments: &str) -> ToolResult {
+            ToolResult::ok("ok")
+        }
+    }
+
+    #[test]
+    fn tool_profile_plan_mode_promotes_exit() {
+        let p = ToolProfile::plan_mode();
+        assert!(p.promote.contains(&"exit_plan_mode".to_string()));
+        assert!(p.demote.contains(&"enter_plan_mode".to_string()));
+    }
+
+    #[test]
+    fn tool_profile_default_is_empty() {
+        let p = ToolProfile::default();
+        assert!(p.promote.is_empty());
+        assert!(p.demote.is_empty());
+    }
+
+    #[test]
+    fn definitions_with_profile_promotes_deferred_tool() {
+        let reg = ToolRegistry::new();
+        reg.register(make_tool("read_file", ""));
+        let deferred: Arc<dyn Tool> = Arc::new(FakeDeferredTool { name: "exit_plan_mode" });
+        reg.register(deferred);
+
+        let default_defs = reg.definitions_with_profile(&ToolProfile::default());
+        let names: Vec<_> = default_defs.iter().map(|d| d.function.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(!names.contains(&"exit_plan_mode"), "deferred should be hidden by default");
+
+        let plan_defs = reg.definitions_with_profile(&ToolProfile::plan_mode());
+        let names: Vec<_> = plan_defs.iter().map(|d| d.function.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"exit_plan_mode"), "promote should make deferred visible");
+    }
+
+    #[test]
+    fn definitions_with_profile_demotes_direct_tool() {
+        let reg = ToolRegistry::new();
+        reg.register(make_tool("enter_plan_mode", ""));
+        reg.register(make_tool("read_file", ""));
+
+        let plan_defs = reg.definitions_with_profile(&ToolProfile::plan_mode());
+        let names: Vec<_> = plan_defs.iter().map(|d| d.function.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(!names.contains(&"enter_plan_mode"), "demote should hide direct tool");
     }
 }

@@ -581,6 +581,10 @@ pub struct SubAgentToolFilter {
     /// Tool name patterns to deny (takes precedence over `allowed`).
     #[serde(default)]
     pub denied: Vec<String>,
+    /// Predefined profile name ("plan", "readonly"). When set, the profile's
+    /// `demote` list is merged into `denied` during tool filtering.
+    #[serde(default)]
+    pub profile: Option<String>,
 }
 
 /// Tracks where a SubAgentDef was loaded from (for diagnostics and reload).
@@ -594,9 +598,20 @@ pub enum SubAgentDefSource {
 
 impl SubAgentToolFilter {
     /// Check whether a tool name is permitted by this filter.
+    /// Profile demote list is merged with explicit denied patterns.
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
         if self.denied.iter().any(|p| tool_pattern_matches(p, tool_name)) {
             return false;
+        }
+        if let Some(ref profile_name) = self.profile {
+            let profile = match profile_name.as_str() {
+                "plan" => crate::tool::ToolProfile::plan_mode(),
+                "readonly" => crate::tool::ToolProfile::readonly(),
+                _ => crate::tool::ToolProfile::default(),
+            };
+            if profile.demote.iter().any(|d| d == tool_name) {
+                return false;
+            }
         }
         if self.allowed.is_empty() {
             return true;
@@ -722,6 +737,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     "exec_command".into(),
                     "spawn_subagent".into(),
                 ],
+                profile: None,
             },
             system_prompt: Some(
                 "You are a code exploration assistant. Analyze code structure, find patterns, \
@@ -741,6 +757,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             tools: SubAgentToolFilter {
                 allowed: vec![],
                 denied: vec!["spawn_subagent".into()],
+                profile: None,
             },
             system_prompt: Some(
                 "You are a code editing assistant. Implement the requested changes carefully, \
@@ -768,6 +785,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     "grep".into(),
                 ],
                 denied: vec!["spawn_subagent".into()],
+                profile: None,
             },
             system_prompt: Some(
                 "You are a shell execution assistant. Run commands, inspect output, \
@@ -801,6 +819,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     "exec_command".into(),
                     "spawn_subagent".into(),
                 ],
+                profile: None,
             },
             system_prompt: Some(
                 "You are a research assistant. Search the web, read documents, and synthesize \
@@ -1042,6 +1061,7 @@ mod tests {
         let f = SubAgentToolFilter {
             allowed: vec!["read_file".into(), "grep".into()],
             denied: vec![],
+            profile: None,
         };
         assert!(f.is_tool_allowed("read_file"));
         assert!(f.is_tool_allowed("grep"));
@@ -1053,6 +1073,7 @@ mod tests {
         let f = SubAgentToolFilter {
             allowed: vec!["mcp_*".into()],
             denied: vec!["mcp_dangerous_*".into()],
+            profile: None,
         };
         assert!(f.is_tool_allowed("mcp_chrome_screenshot"));
         assert!(!f.is_tool_allowed("mcp_dangerous_tool"));

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use fastclaw_core::agent_config::AgentConfig;
-use fastclaw_core::tool::ToolRegistry;
+use fastclaw_core::tool::{ToolProfile, ToolRegistry};
 use fastclaw_core::types::{ChatMessage, ChatRequest, ChatResponse, Role, ToolCall};
 use fastclaw_protocol::{
     AgentEvent, ContextWarningLevel, ErrorCode, ExecutionMode,
@@ -42,6 +42,7 @@ pub mod hook_executor;
 #[allow(dead_code)]
 pub mod lsp_actions;
 pub mod magic_docs;
+pub mod mode_attachments;
 #[allow(dead_code)]
 pub mod memory_selection;
 pub mod model_critic;
@@ -936,12 +937,14 @@ impl AgentRuntime {
 
         let mut trajectory_steps: Vec<TrajectoryStep> = Vec::new();
         let t0 = std::time::Instant::now();
-        if let Some(ref ms) = mode_state {
-            if ms.current_mode() == ExecutionMode::Plan {
-                tool_registry.activate_deferred("exit_plan_mode");
-            }
-        }
-        let mut all_tool_defs = tool_registry.eager_definitions();
+        let mode_profile = mode_state
+            .as_ref()
+            .map(|ms| match ms.current_mode() {
+                ExecutionMode::Plan => ToolProfile::plan_mode(),
+                _ => ToolProfile::default(),
+            })
+            .unwrap_or_default();
+        let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
         if let Some(extra) = &request.tools {
             all_tool_defs.extend(extra.iter().cloned());
         }
@@ -1331,6 +1334,50 @@ impl AgentRuntime {
                 &newly_replaced,
             )
             .await;
+
+            // ── Mode Attachment: inject plan mode instructions per-turn ──────
+            if let Some(ref ms) = mode_state {
+                if ms.current_mode() == ExecutionMode::Plan {
+                    let turn_count = ms.plan_turn_count();
+                    let plan_path_str = request.session_id.as_ref().map(|sid| {
+                        let ps = crate::builtin_tools::PlanFileStore::new(None);
+                        ps.plan_path(sid).display().to_string()
+                    });
+                    let plan_exists = request.session_id.as_ref().is_some_and(|sid| {
+                        let ps = crate::builtin_tools::PlanFileStore::new(None);
+                        ps.plan_exists(sid)
+                    });
+                    let lang: Option<&str> = None;
+                    let attachment = mode_attachments::plan_mode_attachment(
+                        plan_path_str.as_deref(),
+                        plan_exists,
+                        lang,
+                    );
+                    if let Some(text) = attachment.text_for_turn(turn_count) {
+                        let mut inject_text = String::new();
+                        if turn_count == 0 && ms.has_exited_plan() {
+                            inject_text.push_str(&mode_attachments::plan_reentry_notice(lang));
+                            inject_text.push('\n');
+                        }
+                        inject_text.push_str(text);
+                        messages.push(ChatMessage {
+                            role: Role::User,
+                            content: Some(serde_json::Value::String(inject_text)),
+                            reasoning_content: None,
+                            name: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                            compact_metadata: None,
+                        });
+                        tracing::debug!(
+                            turn_count,
+                            is_reentry = ms.has_exited_plan() && turn_count == 0,
+                            "mode_attachment: injected plan mode instructions"
+                        );
+                    }
+                    ms.increment_plan_turn();
+                }
+            }
 
             fastclaw_context::compressor::sanitize_tool_call_pairing(&mut messages);
             fastclaw_context::compressor::ensure_valid_assistant_messages(&mut messages);
@@ -1976,6 +2023,23 @@ impl AgentRuntime {
                             }
                         }
                     }
+                    // Auto-exit Plan mode when turn ends without a plan file
+                    if let Some(ref ms) = mode_state {
+                        if ms.current_mode() == ExecutionMode::Plan {
+                            let has_plan = request.session_id.as_ref().is_some_and(|sid| {
+                                let ps = crate::builtin_tools::PlanFileStore::new(None);
+                                ps.plan_exists(sid)
+                            });
+                            if !has_plan {
+                                ms.transition(ExecutionMode::Agent);
+                                tracing::info!(
+                                    agent_id = %config.agent_id,
+                                    "auto-exited Plan mode — no plan file produced, returning to Agent mode"
+                                );
+                            }
+                        }
+                    }
+
                     tracing::info!(
                         agent_id = %config.agent_id,
                         reason = %reason,

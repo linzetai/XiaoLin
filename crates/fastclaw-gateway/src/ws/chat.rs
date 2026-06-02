@@ -591,6 +591,12 @@ pub async fn spawn_chat(
         let mut stream_ended = false;
         let mut current_turn_id: Option<fastclaw_protocol::TurnId> = None;
 
+        let mode_at_start = state
+            .rt
+            .session_modes
+            .get_or_create(&session_id)
+            .current_mode();
+
         const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024; // 2MB safety cap
         let turn_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600); // 10min
 
@@ -750,12 +756,33 @@ pub async fn spawn_chat(
                     data.insert("inputTokensEstimate".into(), json!(input_estimate));
                     let output_estimate = assistant_content.len() / 4;
                     data.insert("outputTokensEstimate".into(), json!(output_estimate));
+
+                    let mode_now = state
+                        .rt
+                        .session_modes
+                        .get_or_create(&session_id)
+                        .current_mode();
+                    if mode_now != mode_at_start {
+                        tracing::info!(
+                            session_id = %session_id,
+                            from = ?mode_at_start,
+                            to = ?mode_now,
+                            "auto mode change detected — embedding in turn_end"
+                        );
+                        data.insert("modeChange".into(), json!({
+                            "from": format!("{mode_at_start}"),
+                            "to": format!("{mode_now}"),
+                        }));
+                    }
                 }
             }
             if bg_tx.send(resp).await.is_err() {
                 break;
             }
-            if is_done || matches!(&event, AgentEvent::TurnAborted { .. } | AgentEvent::Error { .. }) {
+            if is_done {
+                break;
+            }
+            if matches!(&event, AgentEvent::TurnAborted { .. } | AgentEvent::Error { .. }) {
                 break;
             }
         }

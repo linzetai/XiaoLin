@@ -119,6 +119,7 @@ export function MessageStream(_props: MessageStreamProps) {
     handleMentionSend,
     handleNewTopic,
     streamingChatIds: _streamingChatIds,
+    attentionChatIds: _attentionChatIds,
     atBottomRef,
     suppressScrollTrackingUntilRef,
     pendingBottomScrollBehaviorRef,

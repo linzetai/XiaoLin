@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use fastclaw_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use fastclaw_core::tool::{Tool, ToolExposure, ToolKind, ToolParameterSchema, ToolResult};
 use fastclaw_core::types::ExecutionMode;
 
 use super::plan_file::PlanFileStore;
@@ -73,9 +73,23 @@ fn mode_to_u8(m: ExecutionMode) -> u8 {
 /// The runtime and tools share this via `Arc`. The tool executor checks
 /// `current_mode()` before executing write/edit/execute tools; if the
 /// mode is `Plan`, those tools are blocked with a friendly message.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExecutionModeState {
     state: Arc<AtomicU8>,
+    /// Number of turns spent in Plan mode since last entry (for attachment throttling).
+    plan_turn_counter: Arc<AtomicU32>,
+    /// Whether the agent has previously exited Plan mode (for reentry detection).
+    has_exited_plan: Arc<AtomicBool>,
+}
+
+impl Clone for ExecutionModeState {
+    fn clone(&self) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+            plan_turn_counter: Arc::clone(&self.plan_turn_counter),
+            has_exited_plan: Arc::clone(&self.has_exited_plan),
+        }
+    }
 }
 
 impl Default for ExecutionModeState {
@@ -88,6 +102,8 @@ impl ExecutionModeState {
     pub fn new() -> Self {
         Self {
             state: Arc::new(AtomicU8::new(MODE_AGENT)),
+            plan_turn_counter: Arc::new(AtomicU32::new(0)),
+            has_exited_plan: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -95,12 +111,44 @@ impl ExecutionModeState {
         mode_from_u8(self.state.load(Ordering::Acquire))
     }
 
-    /// Try to transition to the given mode. Returns `(from, to)`.
-    /// If already in the target mode, `from == to`.
+    /// Centralized mode transition. Updates all tracking state atomically:
+    /// - On entry to Plan: resets `plan_turn_counter`
+    /// - On exit from Plan: sets `has_exited_plan` to true
+    ///
+    /// Returns `(from, to)`. If already in the target mode, `from == to`.
     pub fn transition(&self, target: ExecutionMode) -> (ExecutionMode, ExecutionMode) {
         let new_val = mode_to_u8(target);
         let old_val = self.state.swap(new_val, Ordering::AcqRel);
-        (mode_from_u8(old_val), target)
+        let from = mode_from_u8(old_val);
+
+        if from != target {
+            match target {
+                ExecutionMode::Plan => {
+                    self.plan_turn_counter.store(0, Ordering::Release);
+                }
+                ExecutionMode::Agent if from == ExecutionMode::Plan => {
+                    self.has_exited_plan.store(true, Ordering::Release);
+                }
+                _ => {}
+            }
+        }
+
+        (from, target)
+    }
+
+    /// Current plan turn counter value.
+    pub fn plan_turn_count(&self) -> u32 {
+        self.plan_turn_counter.load(Ordering::Acquire)
+    }
+
+    /// Increment the plan turn counter by 1. Returns the value *before* increment.
+    pub fn increment_plan_turn(&self) -> u32 {
+        self.plan_turn_counter.fetch_add(1, Ordering::AcqRel)
+    }
+
+    /// Whether the agent has previously exited plan mode (for reentry detection).
+    pub fn has_exited_plan(&self) -> bool {
+        self.has_exited_plan.load(Ordering::Acquire)
     }
 
     /// Whether the current mode blocks the given tool kind.
@@ -209,6 +257,10 @@ impl EnterPlanModeTool {
 impl Tool for EnterPlanModeTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Think
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn name(&self) -> &str {
@@ -327,6 +379,10 @@ impl ExitPlanModeTool {
 impl Tool for ExitPlanModeTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Think
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn name(&self) -> &str {
@@ -474,15 +530,21 @@ impl Tool for ExitPlanModeTool {
                 (String::new(), false, String::new())
             };
 
+        if !plan_exists {
+            ms.transition(ExecutionMode::Agent);
+            return ToolResult::ok(format!(
+                "Switched back to agent mode — full tool access restored.\
+                 {verify_msg}\n\n\
+                 No plan file was written during this session. \
+                 You now have full tool access to proceed."
+            ));
+        }
+
         let plan_ref = if !plan_path_str.is_empty() {
-            if plan_exists {
-                format!(
-                    "\n\n## Plan File\nSaved at: {plan_path_str}\n\n{plan_preview}\n\n\
-                     The user will review this plan and decide the next step."
-                )
-            } else {
-                format!("\n\nNo plan file was written. Plan file path: {plan_path_str}")
-            }
+            format!(
+                "\n\n## Plan File\nSaved at: {plan_path_str}\n\n{plan_preview}\n\n\
+                 The user will review this plan and decide the next step."
+            )
         } else {
             String::new()
         };
@@ -701,16 +763,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn exit_plan_mode_tool() {
+    async fn exit_plan_mode_tool_no_plan_file() {
         let state = ExecutionModeState::new();
         state.transition(ExecutionMode::Plan);
         let tool = ExitPlanModeTool::new(state.clone());
 
         let result = tool.execute("{}").await;
         assert!(result.success);
-        assert!(result.output.contains("agent mode"));
-        assert!(result.output.contains("All tools are now available"));
-        assert_eq!(state.current_mode(), ExecutionMode::Agent);
+        assert!(
+            result.output.contains("agent mode") && result.output.contains("No plan file"),
+            "without plan file, should directly switch to agent mode, got: {}",
+            result.output
+        );
+        assert_eq!(
+            state.current_mode(),
+            ExecutionMode::Agent,
+            "without plan file, should transition directly to Agent mode"
+        );
+        assert!(
+            result.metadata.is_none(),
+            "without plan file, should NOT set approval_pending metadata"
+        );
     }
 
     #[tokio::test]
@@ -724,7 +797,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn roundtrip_enter_exit() {
+    async fn roundtrip_enter_exit_no_plan() {
         let state = ExecutionModeState::new();
         let enter = EnterPlanModeTool::new(state.clone());
         let exit = ExitPlanModeTool::new(state.clone());
@@ -736,7 +809,12 @@ mod tests {
         assert!(state.is_blocked(ToolKind::Edit));
 
         exit.execute("{}").await;
-        assert_eq!(state.current_mode(), ExecutionMode::Agent);
+        // Without a plan file, exit_plan_mode transitions directly to Agent
+        assert_eq!(
+            state.current_mode(),
+            ExecutionMode::Agent,
+            "without plan file, exit should go directly to Agent mode"
+        );
         assert!(!state.is_blocked(ToolKind::Edit));
     }
 

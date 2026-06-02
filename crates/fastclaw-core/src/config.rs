@@ -702,8 +702,22 @@ pub struct AgentToolsConfig {
     pub allow: Vec<String>,
     #[serde(default)]
     pub deny: Vec<String>,
+    /// Predefined profile name: "plan", "readonly", or "full" (default).
+    /// Resolves to a `ToolProfile` that adjusts tool exposure.
     #[serde(default)]
     pub profile: Option<String>,
+}
+
+impl AgentToolsConfig {
+    /// Resolve the profile name to a `ToolProfile`. Unknown names return the
+    /// default (empty) profile.
+    pub fn resolve_profile(&self) -> crate::tool::ToolProfile {
+        match self.profile.as_deref() {
+            Some("plan") => crate::tool::ToolProfile::plan_mode(),
+            Some("readonly") => crate::tool::ToolProfile::readonly(),
+            _ => crate::tool::ToolProfile::default(),
+        }
+    }
 }
 
 /// Binding: routes inbound messages to an agent by match criteria.

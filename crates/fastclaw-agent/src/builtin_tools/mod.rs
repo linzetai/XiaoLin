@@ -228,9 +228,11 @@ pub fn register_task_tools(
 }
 
 /// Register plan mode tools (enter/exit) with shared execution mode state.
+/// Both tools self-declare `exposure() == Deferred`, so `register()` auto-adds
+/// them to the deferred set. Mode-aware promotion is handled by `ToolProfile`.
 pub fn register_plan_mode_tools(registry: &ToolRegistry, mode_state: ExecutionModeState) {
-    registry.register_deferred(Arc::new(EnterPlanModeTool::new(mode_state.clone())));
-    registry.register_deferred(Arc::new(ExitPlanModeTool::new(mode_state)));
+    registry.register(Arc::new(EnterPlanModeTool::new(mode_state.clone())));
+    registry.register(Arc::new(ExitPlanModeTool::new(mode_state)));
 }
 
 pub fn register_session_tools(
