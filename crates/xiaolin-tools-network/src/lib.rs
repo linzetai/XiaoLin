@@ -1511,7 +1511,7 @@ impl Tool for WebFetchTool {
     }
 }
 
-pub(crate) fn strip_html_tags(html: &str) -> String {
+pub fn strip_html_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len() / 2);
     let mut in_tag = false;
     let mut in_script = false;
@@ -1654,7 +1654,7 @@ fn html_to_markdown(html: &str) -> String {
     strip_html_tags(html)
 }
 
-pub(crate) fn truncate_text(text: &str, max_bytes: usize) -> String {
+pub fn truncate_text(text: &str, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text.to_string();
     }

@@ -35,7 +35,7 @@ pub(crate) mod context_budget;
 pub(crate) mod context_compressor;
 pub mod cost_tracker;
 pub mod file_persistence;
-pub mod file_state_cache;
+pub use xiaolin_tools_fs::file_state_cache;
 pub mod hook_config;
 pub mod hook_events;
 pub mod hook_executor;

@@ -1,0 +1,21 @@
+[package]
+name = "xiaolin-tools-code"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-tools-fs = { path = "../xiaolin-tools-fs" }
+xiaolin-treesitter = { path = "../xiaolin-treesitter" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+url = "2"
+dashmap.workspace = true
+dirs.workspace = true
+notify.workspace = true
+rusqlite = { version = "0.29", features = ["bundled"] }

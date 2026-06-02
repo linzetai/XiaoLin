@@ -1,4 +1,4 @@
-use super::shell_security::{SecurityVerdict, ShellSecurityChecker};
+use crate::shell_security::{SecurityVerdict, ShellSecurityChecker};
 
 /// Three-level classification of a shell command's side-effect risk.
 #[derive(Debug, Clone, PartialEq, Eq)]

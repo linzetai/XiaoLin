@@ -1,0 +1,29 @@
+[package]
+name = "xiaolin-tools-fs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-treesitter = { path = "../xiaolin-treesitter" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+dashmap.workspace = true
+dirs.workspace = true
+base64 = "0.22.1"
+encoding_rs = "0.8"
+glob = "0.3"
+similar = "2"
+shell-words = "1.1.1"
+uuid.workspace = true
+chardetng = "1.0"
+pdf-extract = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

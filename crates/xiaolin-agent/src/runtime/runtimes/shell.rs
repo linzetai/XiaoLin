@@ -9,7 +9,7 @@ use xiaolin_protocol::approval::PendingAction;
 use xiaolin_sandbox::SandboxManager;
 use xiaolin_security::dangerous_ops::{self, CheckResult};
 
-use crate::builtin_tools::shell::validate_readonly_command;
+use xiaolin_tools_fs::shell::validate_readonly_command;
 
 /// Unified shell execution runtime.
 ///

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -14,7 +14,17 @@ use regex::RegexBuilder;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
-use crate::runtime::file_state_cache::{FileStateCache, StaleCheckResult};
+use crate::file_state_cache::{FileStateCache, StaleCheckResult};
+
+type CodeGraphHookFn = Box<dyn Fn(PathBuf, String, String) + Send + Sync>;
+static CODE_GRAPH_HOOK: OnceLock<CodeGraphHookFn> = OnceLock::new();
+
+/// Register a callback invoked when a file read extracts code structure.
+/// Called by the agent runtime to wire in `CodeGraphCache` without creating
+/// a circular dependency.
+pub fn set_code_graph_hook(hook: impl Fn(PathBuf, String, String) + Send + Sync + 'static) {
+    CODE_GRAPH_HOOK.set(Box::new(hook)).ok();
+}
 
 tokio::task_local! {
     static FILE_ACCESS_MODE: FileAccessMode;
@@ -2335,17 +2345,14 @@ it provides structured output with line numbers, handles encoding detection, and
         }
 
         // Fire-and-forget: extract code context for the auto code graph.
-        if let Some(lang) = xiaolin_treesitter::CodeParser::detect_language(&validated) {
-            if xiaolin_treesitter::CodeParser::is_language_available(&lang) {
-                let content_for_graph = text.clone();
-                let path_for_graph = validated.clone();
-                tokio::spawn(async move {
-                    crate::code_graph::CodeGraphCache::global().extract_and_store(
-                        &path_for_graph,
-                        &content_for_graph,
-                        &lang,
-                    );
-                });
+        if let Some(hook) = CODE_GRAPH_HOOK.get() {
+            if let Some(lang) = xiaolin_treesitter::CodeParser::detect_language(&validated) {
+                if xiaolin_treesitter::CodeParser::is_language_available(&lang) {
+                    let content_for_graph = text.clone();
+                    let path_for_graph = validated.clone();
+                    let lang_for_graph = lang;
+                    (hook)(path_for_graph, content_for_graph, lang_for_graph);
+                }
             }
         }
 

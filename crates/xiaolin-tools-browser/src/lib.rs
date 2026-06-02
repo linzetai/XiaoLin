@@ -8,7 +8,7 @@ use std::os::windows::process::CommandExt;
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolImage, ToolParameterSchema, ToolRegistry, ToolResult};
 
-use super::network::{strip_html_tags, truncate_text};
+use xiaolin_tools_network::{strip_html_tags, truncate_text};
 
 const DEFAULT_ELEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 const BROWSER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);

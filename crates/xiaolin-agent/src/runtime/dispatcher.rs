@@ -22,9 +22,8 @@ use super::orchestrator::{OrchestratorContext, ToolOrchestrator};
 use super::permissions::DenialTracker;
 use super::runtimes::RuntimeRegistry;
 use super::tool_executor::truncate_tool_result_output_with_limit;
-use crate::builtin_tools::{
-    with_additional_allowed_paths, with_file_access_mode, with_work_dir, ExecutionModeState,
-};
+use crate::builtin_tools::ExecutionModeState;
+use xiaolin_tools_fs::filesystem::{with_additional_allowed_paths, with_file_access_mode, with_work_dir};
 
 /// Result tuple returned by dispatch: (tool_name, call_id, arguments, result).
 pub type DispatchResult = (String, String, String, ToolResult);

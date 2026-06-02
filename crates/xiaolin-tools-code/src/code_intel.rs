@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use serde::Deserialize;
 
-use super::filesystem::{ReadFileTool, SearchInFilesTool};
-use super::lsp_manager::LspSessionManager;
+use xiaolin_tools_fs::filesystem::{ReadFileTool, SearchInFilesTool};
+use crate::lsp_manager::LspSessionManager;
 
 #[derive(Debug, Deserialize)]
 struct WorkspaceSymbolsArgs {

@@ -13,7 +13,7 @@ pub mod session_bridge;
 pub mod spawn_controller;
 pub mod subagent;
 pub mod subagent_manager;
-pub mod symbol_index;
+pub use xiaolin_tools_code::symbol_index;
 
 pub use agent_discovery::{GetAgentInfoTool, ListAgentsTool};
 pub use guardian::{GuardianAssessment, GuardianReviewer};

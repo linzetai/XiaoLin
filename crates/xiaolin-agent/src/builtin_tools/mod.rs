@@ -1,40 +1,28 @@
 mod ask_question;
 mod brief;
-mod code_intel;
 mod confirm;
 pub mod coordinator;
-pub mod exec_command;
-mod filesystem;
 pub mod goal;
 mod identity;
-mod lsp_manager;
 mod media;
 mod memory;
-mod network;
-mod notebook;
 pub mod plan_file;
 pub mod plan_mode;
 mod request_permissions;
 mod screenshot;
 mod session;
-pub(crate) mod shell;
-pub mod shell_path_validation;
-pub mod shell_readonly;
-pub mod shell_security;
 mod skill;
 mod snip;
 mod task;
 pub mod team;
-mod terminal;
 mod todo;
 mod tool_search;
 mod utility;
 pub mod worker;
 pub mod workflow;
-pub mod worktree;
 
 #[cfg(feature = "browser")]
-pub mod browser;
+pub use xiaolin_tools_browser as browser;
 
 use std::sync::Arc;
 
@@ -46,16 +34,16 @@ use xiaolin_session::SessionStore;
 
 pub use ask_question::{with_interaction_handle, with_stream_context, AskQuestionTool};
 pub use brief::BriefTool;
-pub use code_intel::{
+pub use xiaolin_tools_code::code_intel::{
     CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
     WorkspaceSymbolsTool,
 };
 pub use confirm::ConfirmTool;
-pub use filesystem::{
-    get_effective_work_dir, with_additional_allowed_paths, with_file_access_mode,
-    with_file_state_cache, with_work_dir,
+pub use xiaolin_tools_fs::filesystem::{
+    get_effective_work_dir, set_code_graph_hook, with_additional_allowed_paths,
+    with_file_access_mode, with_file_state_cache, with_work_dir,
 };
-pub use filesystem::{
+pub use xiaolin_tools_fs::filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
     SearchInFilesTool, WriteFileTool,
 };
@@ -63,12 +51,12 @@ pub use goal::{CreateGoalTool, GetGoalTool, GoalStore, UpdateGoalTool};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
-pub use network::{
+pub use xiaolin_tools_network::{
     engine_by_id, BaiduEngine, BingEngine, BuiltinMetaEngine, GoogleEngine, HttpFetchTool,
     Search360Engine, SearchEngine, SearchResult, SearxngEngine, SogouEngine, TavilyEngine,
     WebFetchTool, WebSearchBackend, WebSearchTool, BUILTIN_ENGINE_IDS,
 };
-pub use notebook::NotebookEditTool;
+pub use xiaolin_tools_code::notebook::NotebookEditTool;
 pub use plan_file::PlanFileStore;
 pub use plan_mode::{
     with_session_mode, EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool, PlanContext,
@@ -77,7 +65,7 @@ pub use plan_mode::{
 pub use request_permissions::RequestPermissionsTool;
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
-pub use shell::{
+pub use xiaolin_tools_fs::shell::{
     has_binary_hijack_prefix, parse_sed_edit, sed_to_edit_suggestion, strip_safe_wrappers,
     validate_command_paths, validate_readonly_command, PermissionRule, SedEditInfo,
     ShellDefinitionStub,
@@ -88,12 +76,19 @@ pub use task::{
     NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
     TaskManagerError, TaskStatus, TaskStopTool, TaskUpdateTool, TaskWorkFactory,
 };
-pub use terminal::TerminalCaptureTool;
+pub use xiaolin_tools_fs::terminal::TerminalCaptureTool;
 pub use todo::{TodoItem, TodoReadTool, TodoStatus, TodoStore, TodoWriteTool};
 pub use tool_search::ToolSearchTool;
 pub use utility::{CurrentTimeTool, SleepTool};
 pub use workflow::{WorkflowDefinition, WorkflowRun, WorkflowStatus, WorkflowStore, WorkflowTool};
-pub use worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
+pub use xiaolin_tools_fs::worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
+
+pub use xiaolin_tools_fs::exec_command;
+pub use xiaolin_tools_fs::file_state_cache;
+pub use xiaolin_tools_fs::shell;
+pub use xiaolin_tools_fs::shell_path_validation;
+pub use xiaolin_tools_fs::shell_readonly;
+pub use xiaolin_tools_fs::shell_security;
 
 #[cfg(feature = "browser")]
 pub use browser::{register_browser_tool, BrowserTool};
@@ -123,7 +118,7 @@ pub fn register_builtin_tools_full(
     // Register a definition-only stub so the LLM sees the tool schema.
     let _ = sandboxed;
     let _ = network_proxy;
-    registry.register(Arc::new(shell::ShellDefinitionStub));
+    registry.register(Arc::new(xiaolin_tools_fs::shell::ShellDefinitionStub));
     registry.register(Arc::new(ReadFileTool));
     registry.register(Arc::new(WriteFileTool));
     registry.register(Arc::new(EditFileTool));
@@ -250,12 +245,14 @@ pub fn register_session_tools(
 /// Register PTY interactive terminal tools (exec_command + write_stdin).
 pub fn register_exec_command_tools(
     registry: &ToolRegistry,
-    session_manager: Arc<exec_command::PtySessionManager>,
+    session_manager: Arc<xiaolin_tools_fs::exec_command::PtySessionManager>,
 ) {
-    registry.register_deferred(Arc::new(exec_command::ExecCommandTool::new(
-        session_manager.clone(),
-    )));
-    registry.register_deferred(Arc::new(exec_command::WriteStdinTool::new(session_manager)));
+    registry.register_deferred(Arc::new(
+        xiaolin_tools_fs::exec_command::ExecCommandTool::new(session_manager.clone()),
+    ));
+    registry.register_deferred(Arc::new(
+        xiaolin_tools_fs::exec_command::WriteStdinTool::new(session_manager),
+    ));
 }
 
 /// Register goal management tools (get_goal, create_goal, update_goal).

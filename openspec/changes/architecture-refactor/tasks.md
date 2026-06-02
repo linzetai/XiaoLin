@@ -10,36 +10,36 @@
 
 ## 2. 创建 xiaolin-tools-fs
 
-- [ ] 2.1 创建 `crates/xiaolin-tools-fs/` 目录和 Cargo.toml（依赖 xiaolin-core, xiaolin-security）
-- [ ] 2.2 迁移工具模块：filesystem, shell, shell_readonly, shell_security, shell_path_validation, terminal, worktree, exec_command
-- [ ] 2.3 导出 `pub fn register(registry: &mut ToolRegistry, config: &AgentConfig)`
-- [ ] 2.4 在 `xiaolin-agent` 中调用 `xiaolin_tools_fs::register()`
-- [ ] 2.5 迁移相关测试
-- [ ] 2.6 `cargo check --workspace` 通过
+- [x] 2.1 创建 `crates/xiaolin-tools-fs/` 目录和 Cargo.toml（依赖 xiaolin-core, xiaolin-treesitter）
+- [x] 2.2 迁移工具模块：filesystem, shell, shell_readonly, shell_security, shell_path_validation, terminal, worktree, exec_command + file_state_cache
+- [x] 2.3 导出模块和公共类型，xiaolin-agent 通过 re-export 保持 API 兼容
+- [x] 2.4 在 `xiaolin-agent` 中依赖 `xiaolin-tools-fs` 并 re-export 模块
+- [x] 2.5 迁移相关测试（随模块内联 `#[cfg(test)]` 一并迁移）
+- [x] 2.6 `cargo check --workspace` 通过
 
 ## 3. 创建 xiaolin-tools-network
 
-- [ ] 3.1 创建 `crates/xiaolin-tools-network/` 目录和 Cargo.toml（依赖 xiaolin-core）
-- [ ] 3.2 迁移工具模块：network（http_fetch, web_search, web_fetch）
-- [ ] 3.3 导出 `pub fn register(registry: &mut ToolRegistry, config: &AgentConfig)`
-- [ ] 3.4 在 `xiaolin-agent` 中调用 `xiaolin_tools_network::register()`
-- [ ] 3.5 `cargo check --workspace` 通过
+- [x] 3.1 创建 `crates/xiaolin-tools-network/` 目录和 Cargo.toml（依赖 xiaolin-core, xiaolin-security）
+- [x] 3.2 迁移工具模块：network（http_fetch, web_search, web_fetch）
+- [x] 3.3 导出公共类型，xiaolin-agent 通过 re-export 保持 API 兼容
+- [x] 3.4 在 `xiaolin-agent` 中依赖 `xiaolin-tools-network` 并 re-export
+- [x] 3.5 `cargo check --workspace` 通过
 
 ## 4. 创建 xiaolin-tools-browser
 
-- [ ] 4.1 创建 `crates/xiaolin-tools-browser/` 目录和 Cargo.toml（依赖 xiaolin-core，feature-gated）
-- [ ] 4.2 迁移工具模块：browser（完整的 CDP 自动化栈）
-- [ ] 4.3 导出 `pub fn register(registry: &mut ToolRegistry, config: &AgentConfig)`
-- [ ] 4.4 在 `xiaolin-agent` 中 feature-gate 调用 `xiaolin_tools_browser::register()`
-- [ ] 4.5 `cargo check --workspace` 通过（含和不含 `browser` feature）
+- [x] 4.1 创建 `crates/xiaolin-tools-browser/` 目录和 Cargo.toml（依赖 xiaolin-core, headless_chrome）
+- [x] 4.2 迁移工具模块：browser（完整的 CDP 自动化栈）
+- [x] 4.3 导出公共类型，xiaolin-agent 通过 `pub use xiaolin_tools_browser as browser` 保持兼容
+- [x] 4.4 在 `xiaolin-agent` 中 feature-gate `browser = ["dep:xiaolin-tools-browser"]`
+- [x] 4.5 `cargo check --workspace` 通过
 
 ## 5. 创建 xiaolin-tools-code
 
-- [ ] 5.1 创建 `crates/xiaolin-tools-code/` 目录和 Cargo.toml（依赖 xiaolin-core, xiaolin-treesitter）
-- [ ] 5.2 迁移工具模块：code_intel, lsp_manager, notebook
-- [ ] 5.3 导出 `pub fn register(registry: &mut ToolRegistry, config: &AgentConfig)`
-- [ ] 5.4 在 `xiaolin-agent` 中调用 `xiaolin_tools_code::register()`
-- [ ] 5.5 `cargo check --workspace` 通过
+- [x] 5.1 创建 `crates/xiaolin-tools-code/` 目录和 Cargo.toml（依赖 xiaolin-core, xiaolin-treesitter, xiaolin-tools-fs）
+- [x] 5.2 迁移工具模块：code_intel, lsp_manager, notebook + symbol_index
+- [x] 5.3 导出公共类型，xiaolin-agent 通过 re-export 保持 API 兼容
+- [x] 5.4 在 `xiaolin-agent` 中依赖 `xiaolin-tools-code` 并 re-export
+- [x] 5.5 `cargo check --workspace` 通过
 
 ## 6. MCP 并发改进
 

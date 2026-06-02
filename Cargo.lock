@@ -9402,7 +9402,6 @@ dependencies = [
  "encoding_rs",
  "futures",
  "glob",
- "headless_chrome",
  "metrics",
  "notify",
  "pdf-extract",
@@ -9436,6 +9435,10 @@ dependencies = [
  "xiaolin-self-iter",
  "xiaolin-session",
  "xiaolin-session-actor",
+ "xiaolin-tools-browser",
+ "xiaolin-tools-code",
+ "xiaolin-tools-fs",
+ "xiaolin-tools-network",
  "xiaolin-treesitter",
 ]
 
@@ -9879,6 +9882,86 @@ dependencies = [
  "tracing",
  "uuid",
  "xiaolin-protocol",
+]
+
+[[package]]
+name = "xiaolin-tools-browser"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "dirs 5.0.1",
+ "headless_chrome",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "xiaolin-core",
+ "xiaolin-tools-network",
+]
+
+[[package]]
+name = "xiaolin-tools-code"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dashmap",
+ "dirs 5.0.1",
+ "notify",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
+ "xiaolin-core",
+ "xiaolin-tools-fs",
+ "xiaolin-treesitter",
+]
+
+[[package]]
+name = "xiaolin-tools-fs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chardetng",
+ "dashmap",
+ "dirs 5.0.1",
+ "encoding_rs",
+ "glob",
+ "pdf-extract",
+ "regex",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "similar",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+ "xiaolin-treesitter",
+]
+
+[[package]]
+name = "xiaolin-tools-network"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
+ "xiaolin-core",
+ "xiaolin-security",
 ]
 
 [[package]]
