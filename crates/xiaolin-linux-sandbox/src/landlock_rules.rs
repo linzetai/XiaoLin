@@ -119,6 +119,8 @@ mod tests {
             proxy_port: None,
             network_namespace: false,
             seccomp_mode: None,
+            cwd: None,
+            bwrap_network_mode: None,
         };
         // Landlock may or may not be available in CI; don't assert success
         let _ = apply_landlock_rules(&policy);

@@ -302,6 +302,7 @@ mod tests {
                     model: None,
                     work_dir: None,
                     extra: Default::default(),
+                    typed_data: None,
                 },
             )
             .await;

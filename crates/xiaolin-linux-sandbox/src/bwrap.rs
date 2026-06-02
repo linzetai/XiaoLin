@@ -1353,7 +1353,7 @@ mod tests {
 
     #[test]
     fn restricted_policy_has_ro_bind_or_tmpfs() {
-        let policy = FileSystemSandboxPolicy::read_only();
+        let policy = FileSystemSandboxPolicy::restricted(vec![]);
         let result = create_bwrap_command_args(
             vec!["ls".into()],
             &policy,

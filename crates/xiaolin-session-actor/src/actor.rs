@@ -586,6 +586,7 @@ mod tests {
                 model: None,
                 work_dir: None,
                 extra: Default::default(),
+                typed_data: None,
             })
             .await
             .unwrap();
@@ -609,6 +610,7 @@ mod tests {
                 model: None,
                 work_dir: None,
                 extra: Default::default(),
+                typed_data: None,
             })
             .await
             .unwrap();
@@ -638,6 +640,7 @@ mod tests {
                 model: None,
                 work_dir: None,
                 extra: Default::default(),
+                typed_data: None,
             })
             .await
             .unwrap();
@@ -652,6 +655,7 @@ mod tests {
                 model: None,
                 work_dir: None,
                 extra: Default::default(),
+                typed_data: None,
             })
             .await
             .unwrap();
@@ -675,6 +679,7 @@ mod tests {
                     model: None,
                     work_dir: None,
                     extra: Default::default(),
+                    typed_data: None,
                 },
                 64,
             )

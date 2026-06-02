@@ -307,7 +307,7 @@ pub mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::test_path_buf;
+    use super::test_support::test_path_buf;
     use std::fs;
     use tempfile::tempdir;
 

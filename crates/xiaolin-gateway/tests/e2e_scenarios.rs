@@ -102,7 +102,7 @@ impl LlmProvider for ScriptedProvider {
                     index: 0,
                     delta: DeltaContent {
                         role: Some(Role::Assistant),
-                        content: choice.message.text_content(),
+                        content: choice.message.text_content().map(|c| c.into_owned()),
                         reasoning_content: None,
                         tool_calls: None,
                     },
