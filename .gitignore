@@ -56,7 +56,6 @@ Thumbs.db
 *.sqlite-wal
 *.sqlite-shm
 data/
-!**/src/data/
 logs/
 evals/
 

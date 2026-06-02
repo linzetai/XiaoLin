@@ -1560,7 +1560,7 @@ impl AppState {
         );
     }
 
-    fn current_credentials_snapshot(&self) -> xiaolin_core::config::CredentialsConfig {
+    pub(crate) fn current_credentials_snapshot(&self) -> xiaolin_core::config::CredentialsConfig {
         let live = self.cfg.config_live.load();
         let credentials = live
             .get("credentials")

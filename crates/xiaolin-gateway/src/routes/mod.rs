@@ -11,6 +11,7 @@ mod health;
 mod llm_plugin;
 mod memory;
 mod session;
+mod stt;
 pub(crate) mod subagent;
 mod traces;
 mod wechat;
@@ -125,6 +126,14 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/routes/:id", put(dynamic_routes::update_route))
         .route("/webhook/:channel_id", post(channel::channel_webhook))
         .route("/api/v1/openapi.json", get(health::openapi_spec))
+        .route(
+            "/v1/audio/transcriptions",
+            post(stt::audio_transcriptions),
+        )
+        .route(
+            "/api/v1/audio/transcriptions",
+            post(stt::audio_transcriptions),
+        )
         .route("/api/v1/traces", get(traces::list_traces))
         .route("/api/v1/traces/:trace_id", get(traces::get_trace))
         .route("/api/v1/traces/:trace_id", delete(traces::delete_trace))

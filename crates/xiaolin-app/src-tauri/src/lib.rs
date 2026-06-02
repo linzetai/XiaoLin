@@ -110,6 +110,12 @@ pub fn run() {
                 startup_watch: watch_rx,
             });
 
+            app.manage(commands::clipboard::ClipboardState(
+                std::sync::Mutex::new(None),
+            ));
+
+            app.manage(commands::audio_capture::AudioCaptureState::new());
+
             setup_tray(app)?;
 
             #[cfg(target_os = "macos")]
@@ -238,6 +244,9 @@ pub fn run() {
             commands::clipboard::read_image_file,
             commands::voice::transcribe_audio,
             commands::voice::stt_available,
+            commands::audio_capture::native_audio_available,
+            commands::audio_capture::start_native_recording,
+            commands::audio_capture::stop_native_recording,
         ])
         .build(tauri::generate_context!())
         .expect("error while building XiaoLin app")

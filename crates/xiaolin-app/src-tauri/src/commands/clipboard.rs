@@ -1,42 +1,60 @@
 use arboard::Clipboard;
 use base64::Engine;
 use std::path::Path;
+use std::sync::Mutex;
 
-/// Read text from the system clipboard.
+pub struct ClipboardState(pub Mutex<Option<Clipboard>>);
+
+fn with_clipboard<F, R>(state: &tauri::State<'_, ClipboardState>, f: F) -> Result<R, String>
+where
+    F: FnOnce(&mut Clipboard) -> Result<R, String>,
+{
+    let mut guard = state
+        .0
+        .lock()
+        .map_err(|_| "clipboard lock poisoned".to_string())?;
+    let cb = guard.get_or_insert(
+        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?,
+    );
+    f(cb)
+}
+
 #[tauri::command]
-pub fn clipboard_read_text() -> Result<Option<String>, String> {
-    let mut cb = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-    match cb.get_text() {
+pub fn clipboard_read_text(
+    state: tauri::State<'_, ClipboardState>,
+) -> Result<Option<String>, String> {
+    with_clipboard(&state, |cb| match cb.get_text() {
         Ok(text) if !text.is_empty() => Ok(Some(text)),
         Ok(_) => Ok(None),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
         Err(e) => Err(format!("Failed to read clipboard text: {e}")),
-    }
+    })
 }
 
-/// Write text to the system clipboard.
 #[tauri::command]
-pub fn clipboard_write_text(text: String) -> Result<(), String> {
-    let mut cb = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-    cb.set_text(&text)
-        .map_err(|e| format!("Failed to write clipboard text: {e}"))
+pub fn clipboard_write_text(
+    text: String,
+    state: tauri::State<'_, ClipboardState>,
+) -> Result<(), String> {
+    with_clipboard(&state, |cb| {
+        cb.set_text(&text)
+            .map_err(|e| format!("Failed to write clipboard text: {e}"))
+    })
 }
 
-/// Read an image from the system clipboard.
-/// Returns base64-encoded PNG data, or null if no image found.
 #[tauri::command]
-pub fn clipboard_read_image() -> Result<Option<String>, String> {
-    let mut cb = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-    match cb.get_image() {
+pub fn clipboard_read_image(
+    state: tauri::State<'_, ClipboardState>,
+) -> Result<Option<String>, String> {
+    with_clipboard(&state, |cb| match cb.get_image() {
         Ok(img) => {
-            let png_data =
-                encode_rgba_to_png(&img.bytes, img.width as u32, img.height as u32)?;
+            let png_data = encode_rgba_to_png(&img.bytes, img.width as u32, img.height as u32)?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
             Ok(Some(b64))
         }
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
         Err(e) => Err(format!("Failed to read clipboard image: {e}")),
-    }
+    })
 }
 
 fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
@@ -55,9 +73,11 @@ fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, S
     Ok(buf)
 }
 
-/// Write a base64-encoded PNG image to the system clipboard.
 #[tauri::command]
-pub fn clipboard_write_image(base64_png: String) -> Result<(), String> {
+pub fn clipboard_write_image(
+    base64_png: String,
+    state: tauri::State<'_, ClipboardState>,
+) -> Result<(), String> {
     let png_data = base64::engine::general_purpose::STANDARD
         .decode(&base64_png)
         .map_err(|e| format!("Invalid base64: {e}"))?;
@@ -91,12 +111,12 @@ pub fn clipboard_write_image(base64_png: String) -> Result<(), String> {
         bytes: std::borrow::Cow::Owned(rgba_data),
     };
 
-    let mut cb = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-    cb.set_image(img)
-        .map_err(|e| format!("Failed to write clipboard image: {e}"))
+    with_clipboard(&state, |cb| {
+        cb.set_image(img)
+            .map_err(|e| format!("Failed to write clipboard image: {e}"))
+    })
 }
 
-/// Read an image file from a local path. Returns base64-encoded data with its MIME type.
 #[tauri::command]
 pub async fn read_image_file(path: String) -> Result<(String, String), String> {
     let p = Path::new(&path);

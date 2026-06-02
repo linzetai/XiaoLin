@@ -767,6 +767,18 @@ mod tests {
         assert!(matches!(req.mode, CaptureMode::FullScreen));
         assert_eq!(req.delay_secs, 0);
         assert!(req.display.is_none());
+        assert!(!req.ocr);
+    }
+
+    #[test]
+    fn parse_request_ocr_flag() {
+        let args = serde_json::json!({"ocr": true});
+        let req = parse_request(&args).unwrap();
+        assert!(req.ocr);
+
+        let args = serde_json::json!({"ocr": false});
+        let req = parse_request(&args).unwrap();
+        assert!(!req.ocr);
     }
 
     #[test]

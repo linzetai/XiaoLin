@@ -8,82 +8,164 @@ interface VoiceButtonProps {
 }
 
 type RecordingState = "idle" | "recording" | "transcribing";
+type CaptureBackend = "webrtc" | "native" | null;
 
 export function VoiceButton({ onTranscription, disabled, className }: VoiceButtonProps) {
   const [state, setState] = useState<RecordingState>("idle");
   const [sttAvailable, setSttAvailable] = useState(true);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [backend, setBackend] = useState<CaptureBackend>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     invoke<boolean>("stt_available").then(setSttAvailable).catch(() => setSttAvailable(false));
+
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+        setBackend("webrtc");
+      } catch {
+        const nativeOk = await invoke<boolean>("native_audio_available").catch(() => false);
+        if (nativeOk) {
+          setBackend("native");
+        } else {
+          setMicError("无可用的音频输入设备");
+        }
+      }
+    })();
   }, []);
+
+  const startWebRtcRecording = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+
+    const recorder = new MediaRecorder(stream, { mimeType });
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      if (blob.size < 1000) {
+        setState("idle");
+        return;
+      }
+      setState("transcribing");
+      try {
+        const buf = await blob.arrayBuffer();
+        const base64 = btoa(
+          new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""),
+        );
+        const result = await invoke<{ text: string }>("transcribe_audio", {
+          audioBase64: base64,
+          mimeType,
+        });
+        if (result.text.trim()) {
+          onTranscription(result.text.trim());
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("Transcription failed:", msg);
+        setMicError(msg);
+      } finally {
+        setState("idle");
+      }
+    };
+
+    mediaRecorderRef.current = recorder;
+    recorder.start(250);
+    setState("recording");
+  }, [onTranscription]);
+
+  const startNativeRecording = useCallback(async () => {
+    await invoke("start_native_recording");
+    setState("recording");
+  }, []);
+
+  const stopNativeRecording = useCallback(async () => {
+    setState("transcribing");
+    try {
+      const wavBase64 = await invoke<string>("stop_native_recording");
+      const result = await invoke<{ text: string }>("transcribe_audio", {
+        audioBase64: wavBase64,
+        mimeType: "audio/wav",
+      });
+      if (result.text.trim()) {
+        onTranscription(result.text.trim());
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Native transcription failed:", msg);
+      setMicError(msg);
+    } finally {
+      setState("idle");
+    }
+  }, [onTranscription]);
 
   const startRecording = useCallback(async () => {
-    if (state !== "idle" || disabled || !sttAvailable) return;
+    if (state !== "idle" || disabled || !sttAvailable || !backend) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        if (blob.size < 1000) {
-          setState("idle");
-          return;
-        }
-        setState("transcribing");
-        try {
-          const buf = await blob.arrayBuffer();
-          const base64 = btoa(
-            new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""),
-          );
-          const result = await invoke<{ text: string }>("transcribe_audio", {
-            audioBase64: base64,
-            mimeType,
-          });
-          if (result.text.trim()) {
-            onTranscription(result.text.trim());
-          }
-        } catch (err) {
-          console.error("Transcription failed:", err);
-        } finally {
-          setState("idle");
-        }
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start(250);
-      setState("recording");
+      if (backend === "webrtc") {
+        await startWebRtcRecording();
+      } else {
+        await startNativeRecording();
+      }
     } catch (err) {
-      console.error("Microphone access denied:", err);
-      setSttAvailable(false);
+      console.error("Recording failed:", err);
+      setMicError(err instanceof Error ? err.message : "录音失败");
     }
-  }, [state, disabled, sttAvailable, onTranscription]);
+  }, [state, disabled, sttAvailable, backend, startWebRtcRecording, startNativeRecording]);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
+    if (state !== "recording") return;
+    if (backend === "webrtc") {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    } else {
+      stopNativeRecording();
     }
-  }, []);
+  }, [state, backend, stopNativeRecording]);
 
   if (!sttAvailable) {
     return (
       <button
         className={`voice-btn voice-btn-disabled ${className ?? ""}`}
         disabled
-        title="语音输入不可用"
+        title="语音输入不可用（STT 服务未就绪）"
       >
         <MicOffIcon />
+      </button>
+    );
+  }
+
+  if (micError) {
+    return (
+      <button
+        className={`voice-btn voice-btn-disabled ${className ?? ""}`}
+        onClick={() => setMicError(null)}
+        title={`${micError}（点击重试）`}
+      >
+        <MicOffIcon />
+      </button>
+    );
+  }
+
+  if (!backend) {
+    return (
+      <button
+        className={`voice-btn voice-btn-disabled ${className ?? ""}`}
+        disabled
+        title="检测音频设备中…"
+      >
+        <SpinnerIcon />
       </button>
     );
   }
@@ -95,7 +177,13 @@ export function VoiceButton({ onTranscription, disabled, className }: VoiceButto
       onMouseUp={stopRecording}
       onMouseLeave={stopRecording}
       disabled={disabled || state === "transcribing"}
-      title={state === "recording" ? "松开停止" : state === "transcribing" ? "转录中…" : "按住说话"}
+      title={
+        state === "recording"
+          ? "松开停止"
+          : state === "transcribing"
+            ? "转录中…"
+            : `按住说话 (${backend === "native" ? "原生录音" : "WebRTC"})`
+      }
     >
       {state === "transcribing" ? <SpinnerIcon /> : state === "recording" ? <WaveIcon /> : <MicIcon />}
     </button>

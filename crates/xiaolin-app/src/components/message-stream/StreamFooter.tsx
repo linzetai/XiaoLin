@@ -10,6 +10,8 @@ import { ICON, BTN_ICON } from "../../lib/ui-tokens";
 import { QuestionPanel } from "./MessageRenderer";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
+// TODO: 语音输入功能待完善本地 STT（whisper.cpp 或 API）后重新启用
+// import { VoiceButton } from "../VoiceButton";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { useConfigStore } from "../../lib/stores/config-store";
