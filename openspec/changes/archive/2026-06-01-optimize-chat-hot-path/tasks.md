@@ -8,7 +8,7 @@
 
 ## 2. Token 估算优化
 
-- [x] 2.1 在 `fastclaw-context/src/compressor.rs` 中新增 `fn value_char_count(v: &serde_json::Value) -> usize`，递归遍历 Value 树累加字符数
+- [x] 2.1 在 `xiaolin-context/src/compressor.rs` 中新增 `fn value_char_count(v: &serde_json::Value) -> usize`，递归遍历 Value 树累加字符数
 - [x] 2.2 将 `estimate_single_message_tokens` 中的 `serde_json::to_string(c).map(|s| s.len())` 替换为 `value_char_count(c)`
 - [x] 2.3 验证 token 估算结果与原实现的偏差在可接受范围内（±5%）
 

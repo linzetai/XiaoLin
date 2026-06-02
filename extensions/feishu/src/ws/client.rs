@@ -120,7 +120,7 @@ impl FeishuWsClient {
         event_tx: EventSender,
     ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent("FastClaw/0.1.0")
+            .user_agent("XiaoLin/0.1.0")
             .build()
             .context("failed to build HTTP client")?;
         Ok(Self {

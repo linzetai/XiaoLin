@@ -1,0 +1,19 @@
+[package]
+name = "xiaolin-evolution"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

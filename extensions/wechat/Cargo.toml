@@ -1,10 +1,10 @@
 [package]
-name = "fastclaw-wechat"
+name = "xiaolin-wechat"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-fastclaw-core = { path = "../../crates/fastclaw-core" }
+xiaolin-core = { path = "../../crates/xiaolin-core" }
 
 tokio.workspace = true
 tokio-util.workspace = true

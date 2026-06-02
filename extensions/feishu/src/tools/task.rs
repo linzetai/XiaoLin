@@ -1,7 +1,7 @@
 use crate::client::FeishuClient;
 use crate::oauth::OAuthConfig;
 use async_trait::async_trait;
-use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use std::collections::HashMap;
 use std::sync::Arc;
 

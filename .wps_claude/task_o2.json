@@ -8,7 +8,7 @@
     "completion_note": "将 ReadFileTool::max_result_size_chars() 从 usize::MAX 改为 DEFAULT_READ_FILE_MAX_CHARS (32_768)，使 read_file 参与 budget enforcement 和 persistence。更新了 get_persistence_threshold/build_skip_tool_names/Tool trait 的注释。新增测试 enforce_budget_read_file_participates_in_budget 验证修复效果。全部 933+86 测试通过。",
     "dependencies": [],
     "attentions": [
-      "修改位置：crates/fastclaw-agent/src/builtin_tools/filesystem.rs line 1283",
+      "修改位置：crates/xiaolin-agent/src/builtin_tools/filesystem.rs line 1283",
       "之前设 usize::MAX 的理由是防止循环（持久化 read_file 结果后模型再 read_file 持久文件），但 process_result() 已有 starts_with(PERSISTED_OUTPUT_TAG) 检查，不会重复持久化",
       "修改后需验证：per-message budget 超限时，read_file 结果能正确持久化到磁盘，preview 可读",
       "search_in_files 已有 max_result_size_chars = 20_000 的正常设置可作为参照"
@@ -19,12 +19,12 @@
     "id": "CTX-002",
     "title": "权限白名单 + 错误消息优化",
     "phase": "权限管理",
-    "description": "扩展 ensure_within_workspace 函数，在 Workspace 模式下额外允许访问 skill 安装目录（~/.cursor/skills/、~/.agents/skills/、~/.codex/skills/）、FastClaw 数据目录（~/.fastclaw/）等合法外部路径。同时改进 PermissionDenied 错误消息，列出已允许的路径并给出具体解决建议（如切换 Full 模式或使用允许的路径），替换当前笼统的 'Change to YOLO mode' 提示。",
+    "description": "扩展 ensure_within_workspace 函数，在 Workspace 模式下额外允许访问 skill 安装目录（~/.cursor/skills/、~/.agents/skills/、~/.codex/skills/）、XiaoLin 数据目录（~/.xiaolin/）等合法外部路径。同时改进 PermissionDenied 错误消息，列出已允许的路径并给出具体解决建议（如切换 Full 模式或使用允许的路径），替换当前笼统的 'Change to YOLO mode' 提示。",
     "status": "done",
     "completion_note": "已完成：1) 新增 well_known_allowed_prefixes() 包含 ~/.cursor/{skills,rules,projects}、~/.agents/skills/、~/.codex/skills/ 五个白名单前缀；2) ensure_within_workspace 在 workspace_root 和 state_dir 检查之后新增白名单前缀匹配，支持 canonicalize + raw starts_with 双重检查（处理目录尚未创建的情况）；3) BehaviorConfig 新增 additional_allowed_paths 字段供用户自定义额外路径，通过 task_local ADDITIONAL_ALLOWED_PATHS 传递到文件操作层；4) PermissionDenied 错误消息重构为列出所有允许位置的详细列表。新增 8 个测试，全部 940+4 测试通过。",
     "dependencies": [],
     "attentions": [
-      "修改位置：crates/fastclaw-agent/src/builtin_tools/filesystem.rs ensure_within_workspace 函数（line 54-136）",
+      "修改位置：crates/xiaolin-agent/src/builtin_tools/filesystem.rs ensure_within_workspace 函数（line 54-136）",
       "白名单路径应在 workspace_root 和 state_dir_root 检查之后、返回 Err 之前插入",
       "对于尚未创建的目录（如 ~/.cursor/skills/ 首次使用），canonicalize 会失败，需用 starts_with 前缀匹配作为 fallback",
       "config/default.json 中可选增加 security.additional_allowed_paths 字段支持用户自定义"
@@ -40,7 +40,7 @@
     "completion_note": "已完成：在 doing_tasks_en() 追加规则 7-10（REPORT FAITHFULLY / BE A COLLABORATOR / STAY STEADY / SAVE CONTEXT），在 doing_tasks_zh() 追加对应中文版（忠实报告/做协作者而非执行器/保持稳定/保存关键上下文）。中文版适配了中文用户习惯表述，非简单翻译。更新 2 个单元测试增加 8 条断言验证新关键词。全部 940+4+86 测试通过，cargo check --workspace 编译通过。",
     "dependencies": ["CTX-001"],
     "attentions": [
-      "修改位置：crates/fastclaw-agent/src/runtime/prompt_sections/mod.rs doing_tasks_en() 和 doing_tasks_zh()",
+      "修改位置：crates/xiaolin-agent/src/runtime/prompt_sections/mod.rs doing_tasks_en() 和 doing_tasks_zh()",
       "追加到 </making_code_changes> 闭合标签之前（当前有 6 条规则，追加为 7-10）",
       "SAVE CONTEXT 指导必须在 microcompact 生效前加入，否则模型不知道工具结果会被清除",
       "中文版需保持同等信息密度，不是简单翻译而是适配中文用户习惯"
@@ -56,11 +56,11 @@
     "completion_note": "已完成：1) 将 microcompact_tool_results Tier 3 从 oneliner 改为 TOOL_RESULT_CLEARED_MESSAGE 完全清除，对齐 cc 策略（更激进但配合 SAVE CONTEXT 指导不影响模型行为）；2) time_based_microcompact 同样改为 TOOL_RESULT_CLEARED_MESSAGE；3) 保留 ONELINER_MARKER/TIME_COMPACTED_MARKER 的 skip 检查确保向后兼容已有会话；4) 移除 TOOL_RESULT_CLEARED_MESSAGE 的 #[allow(dead_code)]；5) 新增量化测试验证 20 条 1000 char 结果压缩率 ≥70%。全部 941+4+86 测试通过。",
     "dependencies": ["CTX-001"],
     "attentions": [
-      "现有实现位置：crates/fastclaw-agent/src/runtime/tool_executor.rs microcompact_tool_results() line 313",
+      "现有实现位置：crates/xiaolin-agent/src/runtime/tool_executor.rs microcompact_tool_results() line 313",
       "time_based_microcompact() line 392 用 TIME_COMPACTED_MARKER 而非 TOOL_RESULT_CLEARED_MESSAGE",
       "TOOL_RESULT_CLEARED_MESSAGE 定义在 tool_result_storage.rs line 18 但从未使用",
       "需要做 token 占用对比测试：10 轮对话后，一liner vs cleared 的 token 差异",
-      "cc 的 microcompact 完全清除内容（更激进），FastClaw 的 one-liner 保留摘要（更保守但占用稍多）",
+      "cc 的 microcompact 完全清除内容（更激进），XiaoLin 的 one-liner 保留摘要（更保守但占用稍多）",
       "非流式执行路径 execute_inner()（channel REST API）不调用 unified_pre_query_compact，仅流式路径有完整压缩管线。如 REST API 用于多轮会话需补齐"
     ],
     "gate": "1) 量化测试：20 个 tool_result 经 microcompact 后，总 token 降幅 ≥ 70%；2) 如需修改策略，one-liner 改为 TOOL_RESULT_CLEARED_MESSAGE 后不影响模型行为（因 SAVE CONTEXT 指导已引导模型提前保存关键信息）；3) 现有 microcompact_progressive_fading 测试通过"
@@ -90,7 +90,7 @@
     "completion_note": "已完成：1) COMPRESSION_SYSTEM_PROMPT 从 5 字段 ~160 words 升级为 9 段结构化模板（Primary Request/Key Technical Concepts/Files and Code/Errors/Problem Solving/All user messages/Pending Tasks/Current Work/Next Step）；2) 新增 <analysis> chain-of-thought：模型先在 <analysis> 标签中推理，然后输出摘要，strip_analysis_block() 自动移除推理部分；3) 移除 'no code blocks' 规则，改为要求保留代码片段；4) 历史文件保存提前到 LLM 调用前，路径通过 {{HISTORY_FILE_PATH}} 注入 prompt，包含 Transcript location 使用说明；5) tools=None 已确认，max_tokens 从 2048 提升到 4096。新增 7 个测试。全部 952+4 测试通过。",
     "dependencies": ["CTX-003"],
     "attentions": [
-      "修改位置：crates/fastclaw-agent/src/runtime/context_compressor.rs COMPRESSION_SYSTEM_PROMPT (line 18)",
+      "修改位置：crates/xiaolin-agent/src/runtime/context_compressor.rs COMPRESSION_SYSTEM_PROMPT (line 18)",
       "当前模板的 'no code blocks' 规则可能导致摘要丢失关键代码上下文",
       "cc 的 partial compact（from/up_to 变体）是未来优化方向，当前保持全量模式即可",
       "摘要模型调用应确保 tools 参数为空/None，防止浪费 turn 在工具调用上"

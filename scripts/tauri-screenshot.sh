@@ -1,15 +1,15 @@
 #!/bin/bash
 # Tauri window screenshot helper for Linux
-# Uses ImageMagick's import to capture the FastClaw Tauri window
+# Uses ImageMagick's import to capture the XiaoLin Tauri window
 # Bypasses the broken native Linux screenshot in tauri-plugin-mcp-bridge
 
 set -euo pipefail
 
-OUTPUT="${1:-/tmp/fastclaw-screenshot.png}"
+OUTPUT="${1:-/tmp/xiaolin-screenshot.png}"
 
-# Find the FastClaw window with the expected size (1100x720)
+# Find the XiaoLin window with the expected size (1100x720)
 WIN_ID=""
-for WID in $(xdotool search --name "FastClaw" 2>/dev/null); do
+for WID in $(xdotool search --name "XiaoLin" 2>/dev/null); do
     GEOM=$(xdotool getwindowgeometry "$WID" 2>/dev/null | grep "Geometry" | awk '{print $2}')
     if [ "$GEOM" = "1100x720" ]; then
         WIN_ID="$WID"
@@ -18,7 +18,7 @@ for WID in $(xdotool search --name "FastClaw" 2>/dev/null); do
 done
 
 if [ -z "$WIN_ID" ]; then
-    echo "ERROR: FastClaw window (1100x720) not found" >&2
+    echo "ERROR: XiaoLin window (1100x720) not found" >&2
     exit 1
 fi
 

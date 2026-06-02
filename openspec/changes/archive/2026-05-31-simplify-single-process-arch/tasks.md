@@ -2,22 +2,22 @@
 
 ## Phase 1: 移除 CLI/TUI crate
 
-- [x] 从 `Cargo.toml` workspace members 中移除 `fastclaw-cli`
-- [x] 删除 `crates/fastclaw-cli/` 目录
-- [x] 清理其他 crate 对 `fastclaw-cli` 的依赖引用（如果有）
+- [x] 从 `Cargo.toml` workspace members 中移除 `xiaolin-cli`
+- [x] 删除 `crates/xiaolin-cli/` 目录
+- [x] 清理其他 crate 对 `xiaolin-cli` 的依赖引用（如果有）
 - [x] 确认 workspace 编译通过
 
 ## Phase 2: 移除 daemon 模式和 EmbedMode
 
-- [x] `fastclaw-core/src/config.rs`: 移除 `EmbedMode` 枚举及其 `should_embed()` 方法
-- [x] `fastclaw-core/src/config.rs`: 从 `GatewayConfig` 中移除 `embed` 字段
-- [x] `fastclaw-core/src/config.rs`: 移除 `GatewayState` struct 及其 read/write/remove 方法
-- [x] `fastclaw-core/src/config.rs`: 移除 gateway.json 相关路径常量
+- [x] `xiaolin-core/src/config.rs`: 移除 `EmbedMode` 枚举及其 `should_embed()` 方法
+- [x] `xiaolin-core/src/config.rs`: 从 `GatewayConfig` 中移除 `embed` 字段
+- [x] `xiaolin-core/src/config.rs`: 移除 `GatewayState` struct 及其 read/write/remove 方法
+- [x] `xiaolin-core/src/config.rs`: 移除 gateway.json 相关路径常量
 - [x] 确认 workspace 编译通过（与 Phase 3 合并验证）
 
 ## Phase 3: 简化 App 的 embedded.rs
 
-- [x] 移除 `find_fastclaw_cli()` 函数
+- [x] 移除 `find_xiaolin_cli()` 函数
 - [x] 移除 `which_in_path()` 函数
 - [x] 移除 `start_daemon()` 方法
 - [x] 移除 `wait_for_gateway()` 函数（daemon 专用）
@@ -28,13 +28,13 @@
 
 ## Phase 4: 简化构建脚本
 
-- [x] `scripts/build-macos.sh`: 移除注入 `fastclaw` CLI 二进制的步骤
+- [x] `scripts/build-macos.sh`: 移除注入 `xiaolin` CLI 二进制的步骤
 - [x] `tauri.conf.json`: 移除 sidecar/externalBin 相关配置（如果有）
 - [x] 确认打包流程正常（脚本已简化，实际打包由用户验证）
 
 ## Phase 5: 清理 gateway crate 中的 daemon 启动逻辑
 
-- [x] 检查 `fastclaw-gateway/src/lib.rs` 中是否有 daemon-specific 的入口（如 daemonize、PID file 写入等），移除之
+- [x] 检查 `xiaolin-gateway/src/lib.rs` 中是否有 daemon-specific 的入口（如 daemonize、PID file 写入等），移除之
 - [x] 保留 `run_with_listener()` 作为 library 入口
 - [x] 确认 gateway 仍可作为 lib 被 app 调用
 

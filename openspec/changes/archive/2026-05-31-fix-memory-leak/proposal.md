@@ -2,7 +2,7 @@
 
 ## 问题
 
-FastClaw 运行时内存占用达到 40GB 并持续上涨，导致电脑卡死。不确定是 dev 模式还是安装包触发。
+XiaoLin 运行时内存占用达到 40GB 并持续上涨，导致电脑卡死。不确定是 dev 模式还是安装包触发。
 
 ## 根因分析
 
@@ -63,7 +63,7 @@ assistant_content.push_str(text);  // 无限积累直到 TurnEnd
 
 ## 影响范围
 
-- `crates/fastclaw-gateway/src/lib.rs` — 启动 GC 定时任务
-- `crates/fastclaw-session-actor/src/manager.rs` — GC 逻辑增强
-- `crates/fastclaw-gateway/src/ws/chat.rs` — streaming 限制
-- `crates/fastclaw-gateway/src/state/mod.rs` — DashMap 清理方法
+- `crates/xiaolin-gateway/src/lib.rs` — 启动 GC 定时任务
+- `crates/xiaolin-session-actor/src/manager.rs` — GC 逻辑增强
+- `crates/xiaolin-gateway/src/ws/chat.rs` — streaming 限制
+- `crates/xiaolin-gateway/src/state/mod.rs` — DashMap 清理方法

@@ -1,7 +1,7 @@
 ## 1. 后端: 协议与路由
 
-- [x] 1.1 在 `fastclaw-protocol/src/op.rs` 新增 `McpDetail` 和 `ChannelsDetail` ClientOp 变体
-- [x] 1.2 在 `fastclaw-gateway/src/ws/mod.rs` 添加消息路由和 capabilities 声明
+- [x] 1.1 在 `xiaolin-protocol/src/op.rs` 新增 `McpDetail` 和 `ChannelsDetail` ClientOp 变体
+- [x] 1.2 在 `xiaolin-gateway/src/ws/mod.rs` 添加消息路由和 capabilities 声明
 
 ## 2. 后端: MCP 详情接口
 

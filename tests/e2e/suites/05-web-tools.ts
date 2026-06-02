@@ -33,11 +33,11 @@ const suite: TestSuite = {
       name: "5.2 HTTP POST request",
       async fn(ctx: TestContext) {
         const reply = await ctx.chat.sendAndWait(
-          `用 http_fetch 工具发送 POST 请求到 https://httpbin.org/post，请求体为 JSON {"name":"fastclaw","version":"0.0.6"}，并告诉我响应中的 json 字段内容`,
+          `用 http_fetch 工具发送 POST 请求到 https://httpbin.org/post，请求体为 JSON {"name":"xiaolin","version":"0.0.6"}，并告诉我响应中的 json 字段内容`,
           30_000,
         );
         assertNonEmpty(reply);
-        assertContains(reply, "fastclaw", "Should echo back our payload");
+        assertContains(reply, "xiaolin", "Should echo back our payload");
         await assertNoError(ctx.chat);
       },
     },

@@ -1,8 +1,8 @@
-# FastClaw 前端优化方案
+# XiaoLin 前端优化方案
 
 ## Context
 
-FastClaw 是 Tauri v2 桌面应用，前端 React 19 + TypeScript + Vite 8 + Tailwind CSS v4。经过对全部 ~50 个组件源码的深入分析，发现性能、UI 和组件架构三方面的问题，分 8 个阶段共 22 项优化。
+XiaoLin 是 Tauri v2 桌面应用，前端 React 19 + TypeScript + Vite 8 + Tailwind CSS v4。经过对全部 ~50 个组件源码的深入分析，发现性能、UI 和组件架构三方面的问题，分 8 个阶段共 22 项优化。
 
 ---
 
@@ -10,7 +10,7 @@ FastClaw 是 Tauri v2 桌面应用，前端 React 19 + TypeScript + Vite 8 + Tai
 
 ### 1.1 Vite 手动分包
 
-**文件**: `crates/fastclaw-app/vite.config.ts`
+**文件**: `crates/xiaolin-app/vite.config.ts`
 
 **变更**: 添加 `manualChunks`，将 907KB 单 chunk 拆分：
 - `vendor-react` (~45KB): react, react-dom

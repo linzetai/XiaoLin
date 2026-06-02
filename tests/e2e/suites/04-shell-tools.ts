@@ -11,7 +11,7 @@ import {
 } from "../helpers/assertions.js";
 import { setupSuiteDir, fileExists, sleep, PROMPTS } from "../helpers/fixtures.js";
 
-const SUITE_DIR = "/tmp/fastclaw-e2e/04-shell-tools";
+const SUITE_DIR = "/tmp/xiaolin-e2e/04-shell-tools";
 
 const suite: TestSuite = {
   name: "04-shell-tools",
@@ -56,7 +56,7 @@ const suite: TestSuite = {
       name: "4.3 Command with working directory",
       async fn(ctx: TestContext) {
         const reply = await ctx.chat.sendAndWait(
-          `在 /home/linzetai/workspace/my_tools/FastClaw 目录下执行 cargo --version`,
+          `在 /home/linzetai/workspace/my_tools/XiaoLin 目录下执行 cargo --version`,
         );
         assertNonEmpty(reply);
         assertContains(reply, "cargo", "Should contain cargo version info");

@@ -1,0 +1,60 @@
+[package]
+name = "xiaolin-gateway"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-protocol = { path = "../xiaolin-protocol" }
+xiaolin-agent = { path = "../xiaolin-agent", features = ["browser"] }
+xiaolin-session-actor = { path = "../xiaolin-session-actor" }
+xiaolin-session = { path = "../xiaolin-session" }
+xiaolin-security = { path = "../xiaolin-security" }
+xiaolin-memory = { path = "../xiaolin-memory" }
+xiaolin-evolution = { path = "../xiaolin-evolution" }
+xiaolin-context = { path = "../xiaolin-context" }
+xiaolin-self-iter = { path = "../xiaolin-self-iter", optional = true }
+xiaolin-observe = { path = "../xiaolin-observe" }
+xiaolin-cron = { path = "../xiaolin-cron" }
+xiaolin-mcp = { path = "../xiaolin-mcp" }
+xiaolin-feishu = { path = "../../extensions/feishu" }
+xiaolin-wechat = { path = "../../extensions/wechat" }
+xiaolin-model-router = { path = "../xiaolin-model-router" }
+tokio.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+arc-swap.workspace = true
+dashmap.workspace = true
+uuid.workspace = true
+dirs.workspace = true
+json5.workspace = true
+futures.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+async-stream = "0.3"
+tokio-stream = "0.1"
+async-trait.workspace = true
+tokio-util = "0.7.18"
+notify.workspace = true
+reqwest.workspace = true
+url = "2"
+base64 = "0.22"
+cron = "0.12"
+utoipa.workspace = true
+
+[features]
+default = ["self-iter"]
+self-iter = ["dep:xiaolin-self-iter", "xiaolin-agent/self-iter"]
+test-helpers = []
+
+[dev-dependencies]
+xiaolin-gateway = { path = ".", features = ["test-helpers"] }
+http-body-util = "0.1"
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio-tungstenite = "0.24"
+reqwest = { workspace = true }
+tempfile = "3"

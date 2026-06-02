@@ -14,7 +14,7 @@
 
 ### 三个项目的工具暴露策略对比
 
-| 维度 | FastClaw（当前） | Claude Code | Codex CLI |
+| 维度 | XiaoLin（当前） | Claude Code | Codex CLI |
 |------|----------------|-------------|-----------|
 | 工具分层 | eager/deferred 二分 | 全量 → 管线过滤 | feature flag + exposure enum |
 | Plan 模式工具 | 从 schema 移除写工具 | **保留 schema，运行时拦截** | **保留 schema，sandbox + prompt 约束** |
@@ -26,7 +26,7 @@
 
 ### 核心共识
 
-**三个项目都在 Plan 模式下保留写工具的 schema**——只是通过运行时约束阻止执行。FastClaw 的 dispatcher 阻塞方式本身是对的，但没有同步提升 `exit_plan_mode` 到可见状态。
+**三个项目都在 Plan 模式下保留写工具的 schema**——只是通过运行时约束阻止执行。XiaoLin 的 dispatcher 阻塞方式本身是对的，但没有同步提升 `exit_plan_mode` 到可见状态。
 
 ---
 
@@ -136,7 +136,7 @@ reasoning_effort = "low"
 
 ---
 
-## FastClaw 改进方向
+## XiaoLin 改进方向
 
 ### 方向 A：最小修复（当前已应用）
 
@@ -200,7 +200,7 @@ enum PromptLayer {
 3. **Fragments**（决定提示词）→ 模板化 + 动态注入
 
 **优点**：关注点分离最清晰
-**缺点**：与 FastClaw 当前的 dispatcher 一体化设计差距大
+**缺点**：与 XiaoLin 当前的 dispatcher 一体化设计差距大
 
 ---
 
@@ -212,7 +212,7 @@ enum PromptLayer {
 
 #### 1. Per-Turn Mode Attachments（最高优先级）
 
-**问题**：FastClaw 当前将 Plan 模式指令写在 `session_guidance_section()` 中（系统提示词的一部分），这有两个缺点：
+**问题**：XiaoLin 当前将 Plan 模式指令写在 `session_guidance_section()` 中（系统提示词的一部分），这有两个缺点：
 - 系统提示词每轮都包含完整 Plan 指令（浪费 token）
 - 无法做频率控制（如每 5 轮完整提醒，中间简短提醒）
 
@@ -228,7 +228,7 @@ FULL_REMINDER_EVERY_N_ATTACHMENTS: 5,
 // 第 1、6、11 轮完整提醒；2-5、7-10 简短提醒
 ```
 
-**FastClaw 适配方案**：
+**XiaoLin 适配方案**：
 ```rust
 struct ModeAttachment {
     mode: ExecutionMode,
@@ -260,19 +260,19 @@ fn transition_mode(from, to) {
 }
 ```
 
-**FastClaw 适配方案**：在 `ExecutionModeState` 中增加转换历史跟踪。
+**XiaoLin 适配方案**：在 `ExecutionModeState` 中增加转换历史跟踪。
 
 #### 3. Tool-Aware Prompt Sections
 
 **Claude Code 做法**：`getUsingYourToolsSection(enabledTools)` 只提及当前可用的工具。如果 `Agent` 工具不在集合中，agent 相关的指引就不会出现在提示词里。
 
-**FastClaw 适配**：`session_guidance_section()` 应该接收当前工具列表，条件性地包含或排除指导。
+**XiaoLin 适配**：`session_guidance_section()` 应该接收当前工具列表，条件性地包含或排除指导。
 
 ### 从 Codex CLI 吸纳
 
 #### 4. ToolExposure 三级枚举（高优先级）
 
-**当前 FastClaw**：二分法（eager / deferred）
+**当前 XiaoLin**：二分法（eager / deferred）
 **Codex 做法**：三级枚举 + 每个工具自描述
 
 ```rust
@@ -291,7 +291,7 @@ trait ToolExecutor {
 fn override_tool_exposure(handler, exposure) -> WrappedHandler
 ```
 
-**FastClaw 适配方案**：
+**XiaoLin 适配方案**：
 1. 在 `Tool` trait 上增加 `fn exposure(&self) -> ToolExposure` 方法
 2. 在 `ToolRegistry` 中用 exposure 替代 deferred HashSet
 3. 支持运行时 override（如 Plan 模式下 exit_plan_mode → Direct）
@@ -316,7 +316,7 @@ trait ContextualUserFragment {
 - 增量更新：可以精确替换/更新特定 fragment
 - 压缩感知：compact 时知道哪些消息可以丢弃
 
-**FastClaw 适配**：现有的 `PromptSection` 已部分覆盖，但缺少 marker 系统和角色区分。
+**XiaoLin 适配**：现有的 `PromptSection` 已部分覆盖，但缺少 marker 系统和角色区分。
 
 #### 6. Reference Context + Diff Pipeline（中优先级）
 
@@ -332,7 +332,7 @@ trait ContextualUserFragment {
 
 对比的基准是 `reference_context_item`（上一轮的快照），确保 fork/resume 也能正确 diff。
 
-**FastClaw 适配**：将模式切换时的提示词变更从"重新生成整个 section"改为"注入 diff 消息"。
+**XiaoLin 适配**：将模式切换时的提示词变更从"重新生成整个 section"改为"注入 diff 消息"。
 
 ---
 
@@ -340,7 +340,7 @@ trait ContextualUserFragment {
 
 ### Phase 1：ToolExposure + Mode-Aware Promotion（紧急修复 + 短期）
 
-**改动范围**：`fastclaw-core/src/tool.rs`, `fastclaw-agent/src/runtime/mod.rs`
+**改动范围**：`xiaolin-core/src/tool.rs`, `xiaolin-agent/src/runtime/mod.rs`
 
 1. 为 `Tool` trait 增加 `fn exposure(&self) -> ToolExposure` 方法
 2. `ExitPlanModeTool` 自声明 `Deferred`，Plan 模式下自动提升为 `Direct`
@@ -349,7 +349,7 @@ trait ContextualUserFragment {
 
 ### Phase 2：Mode Attachments（中期）
 
-**改动范围**：`fastclaw-agent/src/runtime/mod.rs`, 新增 `mode_attachments.rs`
+**改动范围**：`xiaolin-agent/src/runtime/mod.rs`, 新增 `mode_attachments.rs`
 
 1. 定义 `ModeAttachment` struct（模板 + 节流参数）
 2. Plan 模式指令从 `session_guidance_section()` 移出
@@ -358,7 +358,7 @@ trait ContextualUserFragment {
 
 ### Phase 3：ContextualFragment + Diff Pipeline（长期）
 
-**改动范围**：新增 `fastclaw-agent/src/context/fragment.rs`
+**改动范围**：新增 `xiaolin-agent/src/context/fragment.rs`
 
 1. 定义 `ContextualFragment` trait（带 marker + role）
 2. 重构现有 `PromptSection` 为 fragment

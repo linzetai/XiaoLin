@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Memory usage test for FastClaw Gateway
+# Memory usage test for XiaoLin Gateway
 # Validates RSS memory usage under different load conditions.
 #
 # Requirements:
-#   - FastClaw gateway binary built (target/release/fastclaw-gateway or cargo build first)
+#   - XiaoLin gateway binary built (target/release/xiaolin-gateway or cargo build first)
 #   - curl, jq available
 #   - Linux or macOS (uses /proc or ps for RSS measurement)
 #
@@ -18,9 +18,9 @@ PORT=18799  # Use non-default port to avoid conflicts
 GATEWAY_PID=""
 ALL_PASS=true
 
-BINARY="$PROJECT_ROOT/target/release/fastclaw-gateway"
+BINARY="$PROJECT_ROOT/target/release/xiaolin-gateway"
 if [[ "${1:-}" == "--debug" ]]; then
-    BINARY="$PROJECT_ROOT/target/debug/fastclaw-gateway"
+    BINARY="$PROJECT_ROOT/target/debug/xiaolin-gateway"
 fi
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -91,19 +91,19 @@ send_message() {
 # ─── Build if needed ─────────────────────────────────────────────────────────
 
 if [[ ! -f "$BINARY" ]]; then
-    echo "Building fastclaw-gateway (release)..."
-    cargo build --release -p fastclaw-gateway
+    echo "Building xiaolin-gateway (release)..."
+    cargo build --release -p xiaolin-gateway
 fi
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  FastClaw Memory Usage Test"
+echo "  XiaoLin Memory Usage Test"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
 # ─── Start Gateway ───────────────────────────────────────────────────────────
 
-export FASTCLAW_GATEWAY_PORT="$PORT"
-export FASTCLAW_LOG_LEVEL="warn"
+export XIAOLIN_GATEWAY_PORT="$PORT"
+export XIAOLIN_LOG_LEVEL="warn"
 
 "$BINARY" &
 GATEWAY_PID=$!

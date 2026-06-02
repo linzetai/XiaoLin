@@ -1,11 +1,11 @@
-//! Bridges Feishu WebSocket events into the FastClaw channel pipeline.
+//! Bridges Feishu WebSocket events into the XiaoLin channel pipeline.
 //!
 //! Reads `WsEvent` from the WS client, parses `im.message.receive_v1` payloads
 //! into `InboundMessage`, and forwards them via a channel sender.
 //! Applies reply-mode filtering: in group chats with `mention_only` mode,
 //! messages without @mention are silently dropped.
 
-use fastclaw_core::channel::InboundMessage;
+use xiaolin_core::channel::InboundMessage;
 use tokio::sync::mpsc;
 
 use super::client::{EventReceiver, WsEvent};
@@ -297,7 +297,7 @@ mod tests {
                     "mentions": [{
                         "key": "@_user_1",
                         "id": { "open_id": "ou_bot", "id_type": "open_id" },
-                        "name": "FastClaw Bot"
+                        "name": "XiaoLin Bot"
                     }]
                 }
             }

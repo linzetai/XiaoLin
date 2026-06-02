@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FastClaw — 发布脚本
+# XiaoLin — 发布脚本
 #
 # 在任一台能访问 GitHub 的机器上运行。
 # 从已有的 GitHub Release 中读取签名文件，生成并上传 latest.json。
@@ -54,7 +54,7 @@ if [ -z "$ASSETS" ]; then
   err "未找到 Release $TAG，或 Release 中没有文件。"
   echo ""
   echo "  请先创建 Release 并上传构建产物:"
-  echo "    gh release create $TAG --title \"FastClaw $TAG\" --generate-notes"
+  echo "    gh release create $TAG --title \"XiaoLin $TAG\" --generate-notes"
   echo ""
   echo "  然后手动上传产物（通过 GitHub 网页拖拽，或 gh release upload）:"
   echo "    gh release upload $TAG ./dist-linux/* ./dist-windows/*"
@@ -119,7 +119,7 @@ for asset in all_assets:
 
 result = {
     'version': version,
-    'notes': f'FastClaw v{version}',
+    'notes': f'XiaoLin v{version}',
     'pub_date': pub_date,
     'platforms': platforms
 }

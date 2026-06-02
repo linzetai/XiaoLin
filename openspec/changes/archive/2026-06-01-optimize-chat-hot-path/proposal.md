@@ -1,6 +1,6 @@
 ## Why
 
-FastClaw 的聊天热路径存在多处冗余的序列化、深拷贝和同步 I/O，导致单次请求中消息数据被 JSON 序列化/反序列化/克隆 10+ 次。对于有上百条消息的长 session，每次请求浪费数 MB 的内存分配和可观的 CPU 时间。此外，WS 流式路径每个 delta 都写一次 SQLite，严重限制了吞吐量。这些问题在生产环境中随着会话增长和并发上升会显著影响用户体验（首 token 延迟、内存尖峰）。
+XiaoLin 的聊天热路径存在多处冗余的序列化、深拷贝和同步 I/O，导致单次请求中消息数据被 JSON 序列化/反序列化/克隆 10+ 次。对于有上百条消息的长 session，每次请求浪费数 MB 的内存分配和可观的 CPU 时间。此外，WS 流式路径每个 delta 都写一次 SQLite，严重限制了吞吐量。这些问题在生产环境中随着会话增长和并发上升会显著影响用户体验（首 token 延迟、内存尖峰）。
 
 ## What Changes
 
@@ -23,7 +23,7 @@ FastClaw 的聊天热路径存在多处冗余的序列化、深拷贝和同步 I
 
 ## Impact
 
-- **核心 crate**: `fastclaw-session`（store.rs 缓存模型）、`fastclaw-core`（types.rs text_content 签名）、`fastclaw-context`（compressor.rs token 估算）、`fastclaw-gateway`（chat_pipeline.rs / routes/chat.rs / state/mod.rs）
+- **核心 crate**: `xiaolin-session`（store.rs 缓存模型）、`xiaolin-core`（types.rs text_content 签名）、`xiaolin-context`（compressor.rs token 估算）、`xiaolin-gateway`（chat_pipeline.rs / routes/chat.rs / state/mod.rs）
 - **API 兼容性**: `text_content()` 返回类型变更为 `Cow<str>`，所有调用方需适配（约 15 处）
 - **行为变更**: event_log 写入从实时改为批量，极端情况下进程崩溃可能丢失最后一个 batch 窗口内的事件
 - **依赖**: 无新增外部依赖

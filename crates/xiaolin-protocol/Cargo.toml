@@ -1,0 +1,24 @@
+[package]
+name = "xiaolin-protocol"
+version.workspace = true
+edition.workspace = true
+description = "Zero-runtime-dep protocol types for XiaoLin agent system"
+
+[features]
+default = []
+ts = ["dep:ts-rs"]
+
+[dependencies]
+bytes = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+strum = { version = "0.26", features = ["derive"] }
+ts-rs = { version = "12", features = ["serde-compat", "uuid-impl", "serde-json-impl"], optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

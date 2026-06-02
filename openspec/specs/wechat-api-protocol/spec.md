@@ -32,7 +32,7 @@ iLink-App-ClientVersion: <major<<16 | minor<<8 | patch>
 ```json
 {
   "get_updates_buf": "<cursor from previous response, empty string for first>",
-  "base_info": { "channel_version": "2.0.x", "bot_agent": "FastClaw/0.0.6" }
+  "base_info": { "channel_version": "2.0.x", "bot_agent": "XiaoLin/0.0.6" }
 }
 ```
 

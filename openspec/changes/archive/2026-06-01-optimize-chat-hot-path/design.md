@@ -1,6 +1,6 @@
 ## Context
 
-FastClaw 的聊天请求热路径从 HTTP 入口到 LLM 响应涉及多个 crate 的协作：gateway（路由 + pipeline）→ session（消息持久化 + 缓存）→ context（上下文组装 + token 估算）→ agent（LLM 调用 + 工具执行）。当前实现存在以下开销模式：
+XiaoLin 的聊天请求热路径从 HTTP 入口到 LLM 响应涉及多个 crate 的协作：gateway（路由 + pipeline）→ session（消息持久化 + 缓存）→ context（上下文组装 + token 估算）→ agent（LLM 调用 + 工具执行）。当前实现存在以下开销模式：
 
 1. **消息历史在每次请求中被深拷贝 5+ 次**：`load_chat_messages` 缓存命中时 clone 整个 Vec、`user_messages.clone()` ×2、`build_messages` 中 extend、LLM 序列化前的 slice 构建
 2. **JSON 双重序列化桥接**：stream path 将 `ChatSetup` 序列化为 `serde_json::Value` 放入 `SessionOp::UserTurn` 的 extra map，session_bridge 再反序列化回来

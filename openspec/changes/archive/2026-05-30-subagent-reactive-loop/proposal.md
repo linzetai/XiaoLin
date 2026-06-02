@@ -29,9 +29,9 @@
 
 ## Impact
 
-- **fastclaw-agent runtime 执行循环** (`runtime/mod.rs`, `session_bridge.rs`): 核心改动，需要在 agentic loop 中加入 sub-agent completion 检测和 re-prompt 逻辑
-- **fastclaw-agent prompt** (`prompt_builder.rs`, `prompt_sections/dynamic.rs`): 增强 delegation guidance
-- **fastclaw-agent tools** (`subagent.rs`): 简化工具集，`wait_agent` 降级或移除
-- **fastclaw-protocol events** (`event.rs`): 可能新增 `SubAgentNotification` 事件类型
-- **fastclaw-app 前端**: 新增 `SubAgentMonitor` 组件，修改 `MessageStream` 布局
-- **fastclaw-app stores** (`types.ts`): 增强 `SubAgentRunUI` 类型，支持实时进度数据
+- **xiaolin-agent runtime 执行循环** (`runtime/mod.rs`, `session_bridge.rs`): 核心改动，需要在 agentic loop 中加入 sub-agent completion 检测和 re-prompt 逻辑
+- **xiaolin-agent prompt** (`prompt_builder.rs`, `prompt_sections/dynamic.rs`): 增强 delegation guidance
+- **xiaolin-agent tools** (`subagent.rs`): 简化工具集，`wait_agent` 降级或移除
+- **xiaolin-protocol events** (`event.rs`): 可能新增 `SubAgentNotification` 事件类型
+- **xiaolin-app 前端**: 新增 `SubAgentMonitor` 组件，修改 `MessageStream` 布局
+- **xiaolin-app stores** (`types.ts`): 增强 `SubAgentRunUI` 类型，支持实时进度数据

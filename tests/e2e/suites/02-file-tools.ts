@@ -19,7 +19,7 @@ import {
   PROMPTS,
 } from "../helpers/fixtures.js";
 
-const SUITE_DIR = "/tmp/fastclaw-e2e/02-file-tools";
+const SUITE_DIR = "/tmp/xiaolin-e2e/02-file-tools";
 
 const suite: TestSuite = {
   name: "02-file-tools",
@@ -51,7 +51,7 @@ const suite: TestSuite = {
       async fn(ctx: TestContext) {
         const targetPath = `${SUITE_DIR}/greeting.txt`;
         const reply = await ctx.chat.sendAndWait(
-          PROMPTS.WRITE_FILE(targetPath, "Hello World from FastClaw"),
+          PROMPTS.WRITE_FILE(targetPath, "Hello World from XiaoLin"),
         );
         assertNonEmpty(reply);
         // Verify the file was actually created

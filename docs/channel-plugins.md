@@ -1,19 +1,19 @@
-# FastClaw Channel Plugin System
+# XiaoLin Channel Plugin System
 
-FastClaw supports adding messaging channels (Feishu, Slack, Discord, etc.) via external process plugins. No recompilation is needed — just add a JSON config file.
+XiaoLin supports adding messaging channels (Feishu, Slack, Discord, etc.) via external process plugins. No recompilation is needed — just add a JSON config file.
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   FastClaw Gateway                           │
+│                   XiaoLin Gateway                           │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │               ChannelRegistry                          │  │  │
 │  │  ProcessChannelPlugin ── JSON-RPC ──► Plugin Process  │  │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 
-Config: ~/.fastclaw/plugins/channel/*.json
+Config: ~/.xiaolin/plugins/channel/*.json
 ```
 
 Plugins communicate via **JSON-RPC 2.0 over stdin/stdout**, allowing implementations in any language (Node.js, Python, Go, Rust, etc.).
@@ -27,10 +27,10 @@ Plugins communicate via **JSON-RPC 2.0 over stdin/stdout**, allowing implementat
 Create a JSON file in the plugins directory:
 
 ```bash
-mkdir -p ~/.fastclaw/plugins/channel
+mkdir -p ~/.xiaolin/plugins/channel
 ```
 
-**`~/.fastclaw/plugins/channel/feishu.json`:**
+**`~/.xiaolin/plugins/channel/feishu.json`:**
 ```json
 {
   "id": "feishu",
@@ -67,7 +67,7 @@ mkdir -p ~/.fastclaw/plugins/channel
 
 ### Step 2: Add Account Credentials
 
-Account credentials go in your main FastClaw config (`~/.fastclaw/default.json`):
+Account credentials go in your main XiaoLin config (`~/.xiaolin/default.json`):
 
 ```json
 {
@@ -87,14 +87,14 @@ Account credentials go in your main FastClaw config (`~/.fastclaw/default.json`)
 
 The `channels.feishu` object is passed to the plugin's `initialize` call.
 
-### Step 3: Start FastClaw
+### Step 3: Start XiaoLin
 
 ```bash
-fastclaw serve
+xiaolin serve
 ```
 
-FastClaw will:
-1. Scan `~/.fastclaw/plugins/channel/*.json`
+XiaoLin will:
+1. Scan `~/.xiaolin/plugins/channel/*.json`
 2. Load all enabled plugins
 3. Spawn each plugin process
 4. Call `initialize` with account config
@@ -181,7 +181,7 @@ Plugin → Host (Notification):
 
 #### `initialize`
 
-Called once when the plugin is loaded. The `config` parameter contains the account credentials from `channels.<id>` in FastClaw config.
+Called once when the plugin is loaded. The `config` parameter contains the account credentials from `channels.<id>` in XiaoLin config.
 
 **Request:**
 ```json
@@ -492,7 +492,7 @@ A single channel plugin can handle multiple accounts (e.g., two Feishu bots rout
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                    FastClaw Gateway                            │
+│                    XiaoLin Gateway                            │
 │                                                               │
 │  channels.feishu = {                                         │
 │    appId: "default_app",          ← top-level defaults       │
@@ -518,7 +518,7 @@ A single channel plugin can handle multiple accounts (e.g., two Feishu bots rout
 
 ### Channel Config with Accounts
 
-Account credentials go in your main FastClaw config (`~/.fastclaw/default.json`):
+Account credentials go in your main XiaoLin config (`~/.xiaolin/default.json`):
 
 ```json
 {
@@ -713,7 +713,7 @@ class MyPlugin {
 
 ### Plugins Directory
 
-Default: `~/.fastclaw/state/plugins/channel/`
+Default: `~/.xiaolin/state/plugins/channel/`
 
 Customize in `default.json`:
 
@@ -754,7 +754,7 @@ Set `enabled: false` in the plugin JSON:
 Use different config files:
 
 ```bash
-fastclaw serve --config production.json
+xiaolin serve --config production.json
 ```
 
 Each config can have different `channels` credentials.
@@ -765,10 +765,10 @@ Each config can have different `channels` credentials.
 
 ### Check Plugin Logs
 
-Plugins write logs to stderr, which FastClaw captures:
+Plugins write logs to stderr, which XiaoLin captures:
 
 ```bash
-fastclaw serve 2>&1 | grep my-plugin
+xiaolin serve 2>&1 | grep my-plugin
 ```
 
 ### Manual Plugin Test

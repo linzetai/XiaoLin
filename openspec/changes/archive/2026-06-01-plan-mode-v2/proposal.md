@@ -23,7 +23,7 @@ Plan Mode 目前存在严重的实现矛盾和功能缺失。核心问题是 pro
 
 ## Impact
 
-- **后端**：`crates/fastclaw-agent/src/runtime/dispatcher.rs`（白名单逻辑）、`crates/fastclaw-agent/src/builtin_tools/plan_mode.rs`（审批流程重构）、`crates/fastclaw-gateway/src/ws/execution.rs`（事件广播）、`crates/fastclaw-gateway/src/ws/chat.rs`
+- **后端**：`crates/xiaolin-agent/src/runtime/dispatcher.rs`（白名单逻辑）、`crates/xiaolin-agent/src/builtin_tools/plan_mode.rs`（审批流程重构）、`crates/xiaolin-gateway/src/ws/execution.rs`（事件广播）、`crates/xiaolin-gateway/src/ws/chat.rs`
 - **前端**：`PlanApprovalCard.tsx`（接线 + 执行模式选择 UI）、`StepIndicator.tsx`（传递 onImplement）、`StreamFooter.tsx`（计划面板入口）、新增 `PlanPanel.tsx`
-- **协议**：`crates/fastclaw-protocol/src/event.rs`（可能需要新的审批事件类型）
-- **Prompt**：`crates/fastclaw-agent/src/runtime/prompt_sections/dynamic.rs`（更新计划文件写入指导）
+- **协议**：`crates/xiaolin-protocol/src/event.rs`（可能需要新的审批事件类型）
+- **Prompt**：`crates/xiaolin-agent/src/runtime/prompt_sections/dynamic.rs`（更新计划文件写入指导）

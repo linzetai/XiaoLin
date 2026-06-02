@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use fastclaw_core::config::ChannelConfig;
+use xiaolin_core::config::ChannelConfig;
 
 const DEFAULT_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const DEFAULT_LONG_POLL_TIMEOUT_MS: u64 = 35_000;

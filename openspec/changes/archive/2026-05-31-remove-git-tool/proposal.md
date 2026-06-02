@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 `GitTool`（`crates/fastclaw-agent/src/builtin_tools/git.rs`）是一个独立的内置工具，封装了 status/diff/log/branch/show/stash_list 6 个子命令，返回结构化 JSON。
+当前 `GitTool`（`crates/xiaolin-agent/src/builtin_tools/git.rs`）是一个独立的内置工具，封装了 status/diff/log/branch/show/stash_list 6 个子命令，返回结构化 JSON。
 
 实际使用中，这层封装带来的问题大于收益：
 
@@ -31,7 +31,7 @@
 
 ## 影响范围
 
-- `crates/fastclaw-agent/src/builtin_tools/git.rs` — 删除
-- `crates/fastclaw-agent/src/builtin_tools/mod.rs` — 清理引用
+- `crates/xiaolin-agent/src/builtin_tools/git.rs` — 删除
+- `crates/xiaolin-agent/src/builtin_tools/mod.rs` — 清理引用
 - tool_count 减 1（85 → 84）
 - 无协议变更、无前端变更

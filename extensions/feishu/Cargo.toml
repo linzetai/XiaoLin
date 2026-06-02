@@ -1,13 +1,13 @@
 [package]
-name = "fastclaw-feishu"
+name = "xiaolin-feishu"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-fastclaw-core = { path = "../../crates/fastclaw-core" }
-fastclaw-agent = { path = "../../crates/fastclaw-agent" }
-fastclaw-protocol = { path = "../../crates/fastclaw-protocol" }
-fastclaw-session = { path = "../../crates/fastclaw-session" }
+xiaolin-core = { path = "../../crates/xiaolin-core" }
+xiaolin-agent = { path = "../../crates/xiaolin-agent" }
+xiaolin-protocol = { path = "../../crates/xiaolin-protocol" }
+xiaolin-session = { path = "../../crates/xiaolin-session" }
 tokio.workspace = true
 reqwest = { workspace = true, features = ["multipart"] }
 serde.workspace = true

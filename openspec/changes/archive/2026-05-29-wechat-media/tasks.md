@@ -3,8 +3,8 @@
 - [x] 1.1 在 `extensions/wechat/Cargo.toml` 中添加 `aes`、`cipher`、`md-5` crate 依赖
 - [x] 1.2 在 `extensions/wechat/src/api/types.rs` 中新增 `ImageItem`、`FileItem`、`VideoItem`、`CDNMedia`、`GetUploadUrlReq`、`GetUploadUrlResp` 类型定义
 - [x] 1.3 在 `extensions/wechat/src/api/types.rs` 中扩展 `MessageItem` 枚举支持 `image_item`、`file_item` 字段
-- [x] 1.4 在 `crates/fastclaw-core/src/channel.rs` 中为 `OutboundMessage` 新增 `attachments: Vec<Attachment>` 字段和 `Attachment` 结构体
-- [x] 1.5 在 `crates/fastclaw-core/src/channel.rs` 中为 `InboundMessage` 新增 `attachments: Vec<Attachment>` 字段
+- [x] 1.4 在 `crates/xiaolin-core/src/channel.rs` 中为 `OutboundMessage` 新增 `attachments: Vec<Attachment>` 字段和 `Attachment` 结构体
+- [x] 1.5 在 `crates/xiaolin-core/src/channel.rs` 中为 `InboundMessage` 新增 `attachments: Vec<Attachment>` 字段
 
 ## 2. CDN 上传管线
 
@@ -27,10 +27,10 @@
 
 - [x] 4.1 实现 `extensions/wechat/src/media/download.rs`：CDN 下载 + AES-128-ECB 解密 → 本地临时文件
 - [x] 4.2 新增 `enrich_inbound_media` 异步函数：解析 `item_list` 中的 `image_item` / `file_item`，下载并填充 `InboundMessage.attachments`
-- [x] 4.3 实现临时文件清理：在 `WechatPlugin::start` 中删除 `~/.fastclaw-dev/data/wechat-media/` 下超过 24 小时的文件
+- [x] 4.3 实现临时文件清理：在 `WechatPlugin::start` 中删除 `~/.xiaolin-dev/data/wechat-media/` 下超过 24 小时的文件
 
 ## 5. 集成与验证
 
-- [x] 5.1 `cargo clippy -p fastclaw-wechat -p fastclaw-core -- -D warnings` 零警告
+- [x] 5.1 `cargo clippy -p xiaolin-wechat -p xiaolin-core -- -D warnings` 零警告
 - [ ] 5.2 端到端测试：agent 生成图片 → 通过微信 channel 发送给用户
 - [ ] 5.3 端到端测试：用户发送图片到微信 bot → agent 能识别并描述图片内容

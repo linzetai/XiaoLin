@@ -23,7 +23,7 @@ export class TauriMcpClient {
 
   constructor() {
     this.client = new Client(
-      { name: "fastclaw-e2e", version: "0.0.1" },
+      { name: "xiaolin-e2e", version: "0.0.1" },
       { capabilities: {} },
     );
   }

@@ -1,12 +1,12 @@
 ## Context
 
-FastClaw 当前使用 `ToolRegistry` 管理工具，采用二分法（eager / deferred + channel_scoped）。Plan 模式通过 `ToolDispatcher` 在运行时阻塞 Edit/Execute 类工具，同时允许计划文件写入作为例外。提示词通过 `PromptEngine` 的 `PromptSection` 动态组装。
+XiaoLin 当前使用 `ToolRegistry` 管理工具，采用二分法（eager / deferred + channel_scoped）。Plan 模式通过 `ToolDispatcher` 在运行时阻塞 Edit/Execute 类工具，同时允许计划文件写入作为例外。提示词通过 `PromptEngine` 的 `PromptSection` 动态组装。
 
 竞品分析发现：
 - **Claude Code**：保持完整工具 schema，通过 per-turn attachment + 运行时权限 + prompt 引导实现模式约束。子 agent 使用声明式 allow/deny 列表
 - **Codex CLI**：`ToolExposure` 三级枚举（Direct/Deferred/DirectModelOnly），每个工具自描述暴露级别。三层分离：Registry（schema）/ Orchestrator（执行）/ Fragments（提示词）
 
-FastClaw 已有部分基础设施：`SubAgentToolFilter`（声明式 allow/deny）、`AgentToolsConfig.profile`（字段存在但未实现）、`PromptSection`（动态提示词 section）。
+XiaoLin 已有部分基础设施：`SubAgentToolFilter`（声明式 allow/deny）、`AgentToolsConfig.profile`（字段存在但未实现）、`PromptSection`（动态提示词 section）。
 
 ## Goals / Non-Goals
 
@@ -41,7 +41,7 @@ trait Tool {
 
 **替代方案**：保持 ToolRegistry 的 `deferred: HashSet<String>` 集中管理
 
-**理由**：自描述方式让工具的暴露意图在定义处可见，不依赖注册调用方的顺序。与 Codex 的设计一致。当前暂不引入 `DirectModelOnly`（FastClaw 无 Code Mode），保持二级枚举简洁性。
+**理由**：自描述方式让工具的暴露意图在定义处可见，不依赖注册调用方的顺序。与 Codex 的设计一致。当前暂不引入 `DirectModelOnly`（XiaoLin 无 Code Mode），保持二级枚举简洁性。
 
 ### Decision 2：Mode-Aware 工具提升通过 ToolProfile 实现
 

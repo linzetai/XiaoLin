@@ -21,6 +21,6 @@ impl OAuthConfig {
 
     /// Human-oriented guidance when user-scoped tools are invoked without a token.
     pub fn missing_user_token_message() -> &'static str {
-        "Feishu user OAuth is not configured. Add a non-empty `userAccessToken` to the `feishu` channel in your FastClaw config (token from the Lark/Feishu OAuth 2.0 user authorization flow with scopes for task, bitable, docx, calendar, and IM file access). Tenant (app) credentials alone are not sufficient for these user-scoped APIs."
+        "Feishu user OAuth is not configured. Add a non-empty `userAccessToken` to the `feishu` channel in your XiaoLin config (token from the Lark/Feishu OAuth 2.0 user authorization flow with scopes for task, bitable, docx, calendar, and IM file access). Tenant (app) credentials alone are not sufficient for these user-scoped APIs."
     }
 }

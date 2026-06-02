@@ -13,8 +13,8 @@
 **根因**: `transport.resolveApproval(approvalId, answer)` 调用时**未传递 `sessionId` 参数**，后端 `ResolveApproval` handler 中 `if let Some(sid) = &session_id` 条件不满足，导致审批结果从未传递给 session actor。
 
 **文件**:
-- `crates/fastclaw-app/src/lib/transport.ts:536-545`
-- `crates/fastclaw-app/src/components/message-stream/StreamFooter.tsx:537-539`
+- `crates/xiaolin-app/src/lib/transport.ts:536-545`
+- `crates/xiaolin-app/src/components/message-stream/StreamFooter.tsx:537-539`
 
 **修复**: 已修复 — 在 `resolveApproval` 函数签名添加 `sessionId` 参数，在 `StreamFooter` 调用时传入 `activeChat?.id`。
 
@@ -31,7 +31,7 @@
 
 **规律**: 重复次数随对话轮次递增（1x → 2x → 3x）。
 
-**根因**: `crates/fastclaw-gateway/src/ws/chat.rs` 中 gateway 的 event loop 在收到 `TurnEnd` 事件后 **没有 break**，导致该 subscriber 持续存活。session actor 的 relay task 通过 `subscriber_senders()` 获取所有存活 subscriber 的 sender 并向它们发送事件。因此旧 turn 的 event loop 会继续接收后续 turn 的事件并转发到同一个 `bg_tx`，导致客户端收到 N 份重复事件（第 N 轮重复 N 次）。
+**根因**: `crates/xiaolin-gateway/src/ws/chat.rs` 中 gateway 的 event loop 在收到 `TurnEnd` 事件后 **没有 break**，导致该 subscriber 持续存活。session actor 的 relay task 通过 `subscriber_senders()` 获取所有存活 subscriber 的 sender 并向它们发送事件。因此旧 turn 的 event loop 会继续接收后续 turn 的事件并转发到同一个 `bg_tx`，导致客户端收到 N 份重复事件（第 N 轮重复 N 次）。
 
 **调用链**:
 1. Turn 1 完成 → TurnEnd 发送 → gateway event loop 未退出，subscriber 1 仍在 fanout 中
@@ -39,7 +39,7 @@
 3. 每个事件被发送到 subscriber 1 和 subscriber 2 → 两者都通过 `bg_tx` 发送到 WS → 客户端收到 2 份
 4. Turn N 时有 N 个 subscriber 存活 → N 份重复
 
-**文件**: `crates/fastclaw-gateway/src/ws/chat.rs:742-745`
+**文件**: `crates/xiaolin-gateway/src/ws/chat.rs:742-745`
 
 **修复**: 已修复 — 在 event loop 中 `bg_tx.send(resp)` 之后添加 break 条件：当 `is_done`（TurnEnd）、`TurnAborted` 或 `Error` 时退出循环，确保 subscriber 在 turn 结束后被及时释放。
 
@@ -54,7 +54,7 @@ Encountered two children with the same key, 'call_405bb9aa8d14410ca87b1509'
 
 **根因**: `tool_executing` 事件对同一个 `call_id` 多次触发时，每次都 `push` 新的 segment 到 `segmentsRef.current`，导致 React 列表渲染时出现重复 key。
 
-**文件**: `crates/fastclaw-app/src/components/message-stream/useMessageStreamChat.ts:400-417`
+**文件**: `crates/xiaolin-app/src/components/message-stream/useMessageStreamChat.ts:400-417`
 
 **修复**: 已修复 — 在 push 前检查是否已存在相同 id 的 segment，存在则更新而非新增。
 
@@ -66,7 +66,7 @@ Encountered two children with the same key, 'call_405bb9aa8d14410ca87b1509'
 
 **现象**: 后端日志持续报警:
 ```
-WARN fastclaw_evolution::skill_extractor: LLM skill pattern extraction failed;
+WARN xiaolin_evolution::skill_extractor: LLM skill pattern extraction failed;
 error=请求参数错误：model `gpt-4o-mini` is not supported.
 ```
 
@@ -106,8 +106,8 @@ window.__MCP__.resolveAll is not a function
 4. ws-client 既 reject promise 又 `emit("error", msg)` → chatStream 的 error handler 误触发
 
 **文件**:
-- `crates/fastclaw-app/src/lib/ws-client.ts:122-138`
-- `crates/fastclaw-app/src/components/message-stream/useMessageStreamChat.ts:697-700`
+- `crates/xiaolin-app/src/lib/ws-client.ts:122-138`
+- `crates/xiaolin-app/src/components/message-stream/useMessageStreamChat.ts:697-700`
 
 **修复**: 已修复 — ws-client 中 RPC 错误响应 reject pending promise 后立即 `return`，不再广播到类型监听器。同时更新 `chatPromise.catch` 以正确显示真正的 chat 错误。
 
@@ -119,7 +119,7 @@ window.__MCP__.resolveAll is not a function
 
 **根因**: `useAgentStore` selector 中 `ac?.messageQueue ?? []` 每次返回新的空数组引用，导致 Zustand 认为值改变并触发重渲染。当 `agentChats[agentId]` 为 undefined 时（如 agents 未加载完成），形成无限重渲染循环。
 
-**文件**: `crates/fastclaw-app/src/components/message-stream/StreamFooter.tsx:386-390`
+**文件**: `crates/xiaolin-app/src/components/message-stream/StreamFooter.tsx:386-390`
 
 **修复**: 已修复 — 使用模块级常量 `STABLE_EMPTY_QUEUE` 替代内联 `[]`，保证引用稳定。
 
@@ -139,7 +139,7 @@ window.__MCP__.resolveAll is not a function
 
 同样，`clear()` 方法也未调用 `onContentChange?.(false)`。
 
-**文件**: `crates/fastclaw-app/src/components/message-stream/MentionInput.tsx:397-414`
+**文件**: `crates/xiaolin-app/src/components/message-stream/MentionInput.tsx:397-414`
 
 **修复**: 已修复 — 在 `setText()` 中添加 `onContentChange?.(!!value.trim())`，在 `clear()` 中添加 `onContentChange?.(false)`。
 
@@ -156,7 +156,7 @@ window.__MCP__.resolveAll is not a function
 | 02 文件工具 | 2.1 读文件 | ✓ PASS | 正确读取 "test content for reading" |
 | 02 文件工具 | 2.2 写文件 | ✓ PASS | 权限审批正常弹出并处理，文件写入成功 |
 | 03 代码工具 | 3.1 搜索代码 | ✓ PASS | 正确定位 ToolRegistry 在 tool.rs:356 |
-| 04 Shell | 4.1 简单命令 | ✓ PASS | 执行 echo，输出 "FASTCLAW_TEST_OK" |
+| 04 Shell | 4.1 简单命令 | ✓ PASS | 执行 echo，输出 "XIAOLIN_TEST_OK" |
 | 05 Web 工具 | 5.1 HTTP fetch | ✓ PASS | 正确获取 httpbin.org 响应 |
 | 06 错误恢复 | 6.1 不存在文件 | ✓ PASS | Agent 优雅处理"文件不存在" |
 | 06 错误恢复 | 6.2 错误后继续 | ✓ PASS | 错误后对话正常继续 |
@@ -182,14 +182,14 @@ window.__MCP__.resolveAll is not a function
 
 ### 测试场景
 
-指令：在 `/tmp/fastclaw-e2e/11-goal/` 目录下执行 4 步登录功能计划（schema.sql, register API, login API, JWT middleware）
+指令：在 `/tmp/xiaolin-e2e/11-goal/` 目录下执行 4 步登录功能计划（schema.sql, register API, login API, JWT middleware）
 
 ### 实际行为
 
 | 步骤 | 预期 | 实际 | 评价 |
 |------|------|------|------|
 | 1. schema.sql | 在目标目录创建 | ✓ 正确创建在目标目录 | 通过 |
-| 2. 注册接口 | 在目标目录创建 | ✗ 分析真实项目结构，试图修改 fastclaw-gateway/Cargo.toml | 偏离指令 |
+| 2. 注册接口 | 在目标目录创建 | ✗ 分析真实项目结构，试图修改 xiaolin-gateway/Cargo.toml | 偏离指令 |
 | 3. 登录接口 | 在目标目录创建 | ✗ 未执行到 | 被步骤 2 阻塞 |
 | 4. JWT 中间件 | 在目标目录创建 | ✗ 未执行到 | 被步骤 2 阻塞 |
 

@@ -1,0 +1,63 @@
+[package]
+name = "xiaolin-app"
+version = "0.1.0"
+edition = "2021"
+description = "XiaoLin Desktop App — AI Agent IM"
+default-run = "xiaolin-app"
+
+[lib]
+name = "xiaolin_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "xiaolin-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = "1"
+tracing = { workspace = true }
+
+reqwest = { workspace = true }
+
+uuid = { workspace = true }
+dirs = { workspace = true }
+json5 = { workspace = true }
+chrono = { workspace = true }
+
+cron = "0.12"
+
+xiaolin-core = { path = "../../xiaolin-core" }
+xiaolin-protocol = { path = "../../xiaolin-protocol" }
+xiaolin-gateway = { path = "../../xiaolin-gateway" }
+xiaolin-agent = { path = "../../xiaolin-agent" }
+xiaolin-cron = { path = "../../xiaolin-cron" }
+xiaolin-observe = { path = "../../xiaolin-observe" }
+xiaolin-security = { path = "../../xiaolin-security" }
+tauri-plugin-dialog = "2"
+tauri-plugin-mcp-bridge = "0.11"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
+zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+base64 = "0.22"
+
+[dev-dependencies]
+xiaolin-gateway = { path = "../../xiaolin-gateway", features = ["test-helpers"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util", "macros"] }
+async-trait = "0.1"
+futures = "0.3"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-autostart = "2.5.1"

@@ -2,7 +2,7 @@
 
 ## 概述
 
-将 FastClaw 从"Gateway + Desktop App + CLI + TUI"多进程分体架构，简化为**单进程桌面应用**。Gateway 完全内嵌在 App 中，移除 CLI/TUI 作为独立入口，用户无需理解"网关"概念。
+将 XiaoLin 从"Gateway + Desktop App + CLI + TUI"多进程分体架构，简化为**单进程桌面应用**。Gateway 完全内嵌在 App 中，移除 CLI/TUI 作为独立入口，用户无需理解"网关"概念。
 
 ## 动机
 
@@ -16,10 +16,10 @@
 
 ## 产品定位
 
-FastClaw 是**住在你电脑里的全能 AI 助手**：
+XiaoLin 是**住在你电脑里的全能 AI 助手**：
 - 用户通过 Desktop App（或系统托盘）与 AI 交互
 - 通过飞书/远程渠道可远程操控（App 在后台运行即可）
-- 用户视角只有一个概念："FastClaw 开着 = AI 在线"
+- 用户视角只有一个概念："XiaoLin 开着 = AI 在线"
 
 ## 方案
 
@@ -27,11 +27,11 @@ FastClaw 是**住在你电脑里的全能 AI 助手**：
 
 | 组件 | 当前状态 | 处理方式 |
 |------|---------|---------|
-| `fastclaw-cli` | 独立二进制，含 TUI/gateway 管理/config 等 | **删除整个 crate** |
+| `xiaolin-cli` | 独立二进制，含 TUI/gateway 管理/config 等 | **删除整个 crate** |
 | TUI (ratatui) | CLI 子命令 | **删除** |
 | `EmbedMode` 枚举 | Auto/Always/Never | **强制 Always，移除枚举** |
 | `GatewayState` (gateway.json) | daemon 发现机制 | **删除** |
-| `find_fastclaw_cli()` | 定位 CLI 二进制 | **删除** |
+| `find_xiaolin_cli()` | 定位 CLI 二进制 | **删除** |
 | `start_daemon()` | 启动外部 daemon | **删除** |
 | daemon 模式 | fork + PID file + log file | **删除** |
 
@@ -39,7 +39,7 @@ FastClaw 是**住在你电脑里的全能 AI 助手**：
 
 | 组件 | 改造方式 |
 |------|---------|
-| `fastclaw-gateway` (library) | 保留为 lib，被 app 直接内嵌调用 |
+| `xiaolin-gateway` (library) | 保留为 lib，被 app 直接内嵌调用 |
 | `embedded.rs` | 简化为直接启动内嵌 gateway（移除 daemon fallback） |
 | 飞书 channel | 保留，连接内嵌 gateway 的 WS 端口 |
 | MCP Server/Client | 保留，作为工具扩展机制 |
@@ -61,7 +61,7 @@ FastClaw 是**住在你电脑里的全能 AI 助手**：
 **After:**
 ```
 ┌───────────────────────────────────┐
-│         FastClaw App              │
+│         XiaoLin App              │
 │  ┌─────────────────────────────┐  │
 │  │     React Frontend          │  │
 │  └─────────────┬───────────────┘  │
@@ -90,10 +90,10 @@ FastClaw 是**住在你电脑里的全能 AI 助手**：
 
 ### Crates 变动
 
-- **删除**: `fastclaw-cli`
-- **修改**: `fastclaw-app` (简化 embedded.rs)
-- **修改**: `fastclaw-core` (移除 EmbedMode、GatewayState)
-- **修改**: `fastclaw-gateway` (移除 daemon 相关的 startup 逻辑，保留 lib)
+- **删除**: `xiaolin-cli`
+- **修改**: `xiaolin-app` (简化 embedded.rs)
+- **修改**: `xiaolin-core` (移除 EmbedMode、GatewayState)
+- **修改**: `xiaolin-gateway` (移除 daemon 相关的 startup 逻辑，保留 lib)
 - **修改**: `scripts/build-macos.sh` (不再注入 CLI)
 - **修改**: `Cargo.toml` workspace members
 
@@ -107,4 +107,4 @@ FastClaw 是**住在你电脑里的全能 AI 助手**：
 
 1. **飞书 channel 需要 App 在运行** — 可接受，系统托盘 + 开机自启已覆盖
 2. **无 headless 模式** — 暂不需要，未来如有 CI 场景可重新构建
-3. **开发调试** — 开发者可用 `cargo run -p fastclaw-gateway` 单独跑 gateway 调试
+3. **开发调试** — 开发者可用 `cargo run -p xiaolin-gateway` 单独跑 gateway 调试

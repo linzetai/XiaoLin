@@ -1,0 +1,17 @@
+[package]
+name = "xiaolin-cron"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+cron = "0.12"
+async-trait.workspace = true

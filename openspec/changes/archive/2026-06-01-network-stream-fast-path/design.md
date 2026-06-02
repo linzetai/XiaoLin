@@ -1,6 +1,6 @@
 ## Context
 
-FastClaw 的流式聊天热路径中，每个 token chunk 经历多次 JSON 序列化/反序列化。当前数据流：
+XiaoLin 的流式聊天热路径中，每个 token chunk 经历多次 JSON 序列化/反序列化。当前数据流：
 
 ```
 LLM SSE bytes → parse StreamDelta → to_value(delta) → AgentEvent::ContentDelta

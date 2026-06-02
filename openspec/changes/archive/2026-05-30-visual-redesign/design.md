@@ -236,7 +236,7 @@ background: var(--bg-surface);
 
 - 30px 圆形头像：`var(--bg-surface)` 背景 + `var(--separator)` 边框 + icon
 - 消息文本 document flow（无气泡框）
-- 显示名称 "FastClaw" + 时间 + 耗时 pill
+- 显示名称 "XiaoLin" + 时间 + 耗时 pill
 - hover 显示 action buttons（复制、点赞、踩、重新生成）
 
 ### 5.3 头像组件
@@ -338,7 +338,7 @@ hover 时在按钮右侧 12px 处显示暗色 tooltip：
 ## 8. 不变的部分
 
 - **Tailwind CSS 4** 继续使用，不引入新的 CSS 框架
-- **Geist 字体族** 保持不变（原型使用系统字体，但 Geist 是 FastClaw 的品牌字体）
+- **Geist 字体族** 保持不变（原型使用系统字体，但 Geist 是 XiaoLin 的品牌字体）
 - **Zustand 状态管理** 不涉及变化
 - **WebSocket 协议** 不涉及变化
 - **后端 Rust 代码** 不涉及变化

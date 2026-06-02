@@ -160,13 +160,13 @@ where
                         base_url: cred.base_url,
                         user_id: cred.user_id,
                     },
-                    message: "已将此 FastClaw 连接到微信。".into(),
+                    message: "已将此 XiaoLin 连接到微信。".into(),
                 };
             }
             LoginStatus::AlreadyConnected => {
                 return LoginResult {
                     status: LoginStatus::AlreadyConnected,
-                    message: "已连接过此 FastClaw，无需重复连接。".into(),
+                    message: "已连接过此 XiaoLin，无需重复连接。".into(),
                 };
             }
             LoginStatus::Expired | LoginStatus::VerifyCodeBlocked => {

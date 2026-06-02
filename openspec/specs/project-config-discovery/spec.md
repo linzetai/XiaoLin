@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Project-level skills discovery
-The system SHALL discover skills from `<workspace_root>/.fastclaw/skills/` and merge them with user-level skills.
+The system SHALL discover skills from `<workspace_root>/.xiaolin/skills/` and merge them with user-level skills.
 
 #### Scenario: Discover project skills
-- **WHEN** the workspace root contains `.fastclaw/skills/my-skill/SKILL.md`
+- **WHEN** the workspace root contains `.xiaolin/skills/my-skill/SKILL.md`
 - **THEN** the system loads it as a project-level skill with highest priority
 
 #### Scenario: Skills dynamic discovery convention
@@ -13,13 +13,13 @@ The system SHALL discover skills from `<workspace_root>/.fastclaw/skills/` and m
 
 #### Scenario: Backward-compatible skills path
 - **WHEN** `<workspace_root>/skills/` exists (legacy convention)
-- **THEN** those skills SHALL also be discovered but with lower priority than `.fastclaw/skills/`
+- **THEN** those skills SHALL also be discovered but with lower priority than `.xiaolin/skills/`
 
 ### Requirement: Project-level MCP configuration
-The system SHALL load MCP server configurations from `<workspace_root>/.fastclaw/mcp.json` if the file exists.
+The system SHALL load MCP server configurations from `<workspace_root>/.xiaolin/mcp.json` if the file exists.
 
 #### Scenario: Load project MCP
-- **WHEN** `.fastclaw/mcp.json` exists and contains a valid `mcpServers` object
+- **WHEN** `.xiaolin/mcp.json` exists and contains a valid `mcpServers` object
 - **THEN** those servers SHALL be merged with user-level MCP configs
 - **AND** project-level servers with the same ID SHALL take priority over user-level
 
@@ -28,14 +28,14 @@ The system SHALL load MCP server configurations from `<workspace_root>/.fastclaw
 - **THEN** that server SHALL not be started
 
 #### Scenario: MCP format alignment with Cursor
-- **WHEN** the system reads `.fastclaw/mcp.json`
+- **WHEN** the system reads `.xiaolin/mcp.json`
 - **THEN** the format SHALL be compatible with Cursor's `.cursor/mcp.json` schema: `{ "mcpServers": { "<id>": { "command", "args", "env" } } }`
 
 ### Requirement: Project-level rules
-The system SHALL discover and load rules from `<workspace_root>/.fastclaw/rules/*.md`.
+The system SHALL discover and load rules from `<workspace_root>/.xiaolin/rules/*.md`.
 
 #### Scenario: Load project rules
-- **WHEN** `.fastclaw/rules/` contains Markdown files
+- **WHEN** `.xiaolin/rules/` contains Markdown files
 - **THEN** rules with `alwaysApply: true` (or no frontmatter) SHALL be injected into the system prompt
 - **AND** rules with `globs` SHALL only be injected when the agent operates on matching files
 

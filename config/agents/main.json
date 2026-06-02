@@ -1,6 +1,6 @@
 {
   "agentId": "main",
-  "name": "FastClaw 助手",
+  "name": "小林助手",
   "description": "通用型 AI 助手，具备飞书 IM 工具调用能力",
   "model": {
     "provider": "plugin:wps-llm",

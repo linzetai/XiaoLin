@@ -1,33 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastclaw
+  name: xiaolin
   labels:
-    app: fastclaw
+    app: xiaolin
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fastclaw
+      app: xiaolin
   template:
     metadata:
       labels:
-        app: fastclaw
+        app: xiaolin
     spec:
       containers:
-        - name: fastclaw
-          image: fastclaw:latest
+        - name: xiaolin
+          image: xiaolin:latest
           ports:
             - containerPort: 18789
               name: http
           env:
-            - name: FASTCLAW_PORT
+            - name: XIAOLIN_PORT
               value: "18789"
           volumeMounts:
             - name: data
               mountPath: /data
             - name: config
-              mountPath: /etc/fastclaw
+              mountPath: /etc/xiaolin
           livenessProbe:
             httpGet:
               path: /health
@@ -50,17 +50,17 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: fastclaw-data
+            claimName: xiaolin-data
         - name: config
           configMap:
-            name: fastclaw-config
+            name: xiaolin-config
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: fastclaw
+  name: xiaolin
   labels:
-    app: fastclaw
+    app: xiaolin
 spec:
   type: ClusterIP
   ports:
@@ -69,12 +69,12 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: fastclaw
+    app: xiaolin
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: fastclaw-data
+  name: xiaolin-data
 spec:
   accessModes:
     - ReadWriteOnce

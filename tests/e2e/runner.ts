@@ -1,5 +1,5 @@
 /**
- * E2E test runner for FastClaw agent usability tests.
+ * E2E test runner for XiaoLin agent usability tests.
  *
  * Usage:
  *   tsx runner.ts                        # Run all suites
@@ -97,7 +97,7 @@ async function runSuite(suite: TestSuite, ctx: TestContext): Promise<TestResult[
       console.log(`    Error: ${e.message}`);
       // Take a screenshot on failure
       try {
-        const screenshotPath = `/tmp/fastclaw-e2e/screenshots/${suite.name}-${tc.name.replace(/\s/g, "_")}.png`;
+        const screenshotPath = `/tmp/xiaolin-e2e/screenshots/${suite.name}-${tc.name.replace(/\s/g, "_")}.png`;
         await ctx.mcp.screenshot(screenshotPath);
       } catch { /* ignore screenshot failures */ }
     }
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("FastClaw E2E Test Runner");
+  console.log("XiaoLin E2E Test Runner");
   console.log(`Suites to run: ${suiteKeys.join(", ")}`);
   console.log("");
 
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
     await mcp.connect();
   } catch (e: any) {
     console.error(`Failed to connect to tauri-mcp: ${e.message}`);
-    console.error("Make sure the FastClaw app is running with the MCP bridge plugin enabled.");
+    console.error("Make sure the XiaoLin app is running with the MCP bridge plugin enabled.");
     process.exit(1);
   }
 
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
 
   // Ensure screenshots directory exists
   const { mkdirSync } = await import("node:fs");
-  mkdirSync("/tmp/fastclaw-e2e/screenshots", { recursive: true });
+  mkdirSync("/tmp/xiaolin-e2e/screenshots", { recursive: true });
 
   // Run suites
   const allResults: TestResult[] = [];

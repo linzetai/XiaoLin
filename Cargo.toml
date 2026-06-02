@@ -1,31 +1,31 @@
 [workspace]
 members = [
-    "crates/fastclaw-core",
-    "crates/fastclaw-gateway",
-    "crates/fastclaw-agent",
-    "crates/fastclaw-session",
-    "crates/fastclaw-memory",
-    "crates/fastclaw-evolution",
-    "crates/fastclaw-observe",
-    "crates/fastclaw-security",
-    "crates/fastclaw-sandbox",
-    "crates/fastclaw-execpolicy",
-    "crates/fastclaw-guardian",
-    "crates/fastclaw-hardening",
-    "crates/fastclaw-mcp",
-    "crates/fastclaw-model-router",
-    "crates/fastclaw-context",
-    "crates/fastclaw-self-iter",
-    "crates/fastclaw-cron",
-    "crates/fastclaw-treesitter",
-    "crates/fastclaw-path",
-    "crates/fastclaw-network-proxy",
-    "crates/fastclaw-linux-sandbox",
+    "crates/xiaolin-core",
+    "crates/xiaolin-gateway",
+    "crates/xiaolin-agent",
+    "crates/xiaolin-session",
+    "crates/xiaolin-memory",
+    "crates/xiaolin-evolution",
+    "crates/xiaolin-observe",
+    "crates/xiaolin-security",
+    "crates/xiaolin-sandbox",
+    "crates/xiaolin-execpolicy",
+    "crates/xiaolin-guardian",
+    "crates/xiaolin-hardening",
+    "crates/xiaolin-mcp",
+    "crates/xiaolin-model-router",
+    "crates/xiaolin-context",
+    "crates/xiaolin-self-iter",
+    "crates/xiaolin-cron",
+    "crates/xiaolin-treesitter",
+    "crates/xiaolin-path",
+    "crates/xiaolin-network-proxy",
+    "crates/xiaolin-linux-sandbox",
     "extensions/feishu",
     "extensions/wechat",
-    "crates/fastclaw-protocol",
-    "crates/fastclaw-session-actor",
-    "crates/fastclaw-app/src-tauri",
+    "crates/xiaolin-protocol",
+    "crates/xiaolin-session-actor",
+    "crates/xiaolin-app/src-tauri",
 ]
 resolver = "2"
 
@@ -33,7 +33,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/example/fastclaw"
+repository = "https://github.com/example/xiaolin"
 
 [workspace.dependencies]
 # Async runtime
@@ -68,7 +68,7 @@ metrics-exporter-prometheus = "0.13"
 petgraph = "0.6"
 
 # Vector search — usearch requires C++17 & GCC 12+
-# On old compilers, build without the `usearch-backend` feature in fastclaw-memory
+# On old compilers, build without the `usearch-backend` feature in xiaolin-memory
 usearch = { version = "2", default-features = false }
 
 # WASM

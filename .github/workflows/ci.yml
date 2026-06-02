@@ -38,16 +38,16 @@ jobs:
     name: TS Bindings Sync
     runs-on: ubuntu-latest
     env:
-      TS_RS_EXPORT_DIR: crates/fastclaw-protocol/generated
+      TS_RS_EXPORT_DIR: crates/xiaolin-protocol/generated
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check TS bindings are up-to-date
         run: |
-          cargo test -p fastclaw-protocol --features ts export_all_bindings -- --nocapture
-          git diff --quiet crates/fastclaw-protocol/generated/ || {
-            echo "::error::Generated TypeScript bindings are out of date. Run 'cargo test -p fastclaw-protocol --features ts export_bindings' and commit the changes."
+          cargo test -p xiaolin-protocol --features ts export_all_bindings -- --nocapture
+          git diff --quiet crates/xiaolin-protocol/generated/ || {
+            echo "::error::Generated TypeScript bindings are out of date. Run 'cargo test -p xiaolin-protocol --features ts export_bindings' and commit the changes."
             exit 1
           }
 
@@ -99,7 +99,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
+          cache-dependency-path: crates/xiaolin-app/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -107,20 +107,20 @@ jobs:
         with:
           workspaces: |
             .
-            crates/fastclaw-app/src-tauri
+            crates/xiaolin-app/src-tauri
 
       - name: Install frontend deps
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm build
 
       - name: Test frontend
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm test
 
       - name: Cargo check (Tauri)
-        working-directory: crates/fastclaw-app/src-tauri
+        working-directory: crates/xiaolin-app/src-tauri
         run: cargo check

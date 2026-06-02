@@ -25,7 +25,7 @@
 
 ## 概述
 
-LLM 提供商插件系统允许你在不修改 FastClaw 源码的前提下接入任意 LLM 服务。适用场景包括：
+LLM 提供商插件系统允许你在不修改 XiaoLin 源码的前提下接入任意 LLM 服务。适用场景包括：
 
 - 企业内网网关（需要自定义请求头、OAuth2 鉴权）
 - 私有部署的模型服务（自定义 base URL）
@@ -47,7 +47,7 @@ LLM 提供商插件系统允许你在不修改 FastClaw 源码的前提下接入
 
 ### 1. 创建插件配置文件
 
-在插件目录（默认 `~/.fastclaw/plugins/llm/`）下创建一个 JSON 文件：
+在插件目录（默认 `~/.xiaolin/plugins/llm/`）下创建一个 JSON 文件：
 
 ```json
 {
@@ -59,7 +59,7 @@ LLM 提供商插件系统允许你在不修改 FastClaw 源码的前提下接入
     "baseUrl": "https://llm-gateway.mycompany.com/v1",
     "protocol": "openai",
     "headers": {
-      "x-gateway-app": "fastclaw"
+      "x-gateway-app": "xiaolin"
     },
     "auth": {
       "type": "bearer_token",
@@ -72,11 +72,11 @@ LLM 提供商插件系统允许你在不修改 FastClaw 源码的前提下接入
 }
 ```
 
-### 2. 重启 FastClaw 或通过 API 创建
+### 2. 重启 XiaoLin 或通过 API 创建
 
 ```bash
 # 方式一：直接放置文件后重启
-fastclaw serve
+xiaolin serve
 
 # 方式二：通过 REST API 动态创建（无需重启）
 curl -X POST http://localhost:3000/api/v1/llm-plugins \
@@ -106,7 +106,7 @@ curl -X POST http://localhost:3000/api/v1/llm-plugins/my-gateway/test
 
 ### 目录位置
 
-默认：`~/.fastclaw/plugins/llm/`
+默认：`~/.xiaolin/plugins/llm/`
 
 可通过配置文件覆盖：
 
@@ -259,7 +259,7 @@ llmPlugins:
   "type": "pre_request_hook",
   "url": "https://auth.internal/api/v1/token",
   "method": "POST",
-  "body": { "grant_type": "client_credentials", "app": "fastclaw" },
+  "body": { "grant_type": "client_credentials", "app": "xiaolin" },
   "headers": { "x-internal-key": "secret" },
   "extractPath": "data.accessToken",
   "tokenHeader": "Authorization",
@@ -331,17 +331,17 @@ Agent 配置 `model: "gpt-4o"` 时，实际发送给上游的 model 参数为 `c
 
 ### stdio 协议规范
 
-FastClaw 通过 stdin 发送 JSON 请求（每行一个），进程通过 stdout 返回 JSON 响应（每行一个）。
+XiaoLin 通过 stdin 发送 JSON 请求（每行一个），进程通过 stdout 返回 JSON 响应（每行一个）。
 
 #### 非流式请求
 
-**FastClaw → 进程 (stdin)**:
+**XiaoLin → 进程 (stdin)**:
 
 ```json
 {"method":"chat_completion","params":{"model":"custom-model-v1","messages":[{"role":"user","content":"Hello"}],"temperature":0.7,"max_tokens":1024}}
 ```
 
-**进程 → FastClaw (stdout)**:
+**进程 → XiaoLin (stdout)**:
 
 ```json
 {"result":{"id":"resp-001","object":"chat.completion","created":1715234567,"model":"custom-model-v1","choices":[{"index":0,"message":{"role":"assistant","content":"Hi there!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}}
@@ -369,7 +369,7 @@ FastClaw 通过 stdin 发送 JSON 请求（每行一个），进程通过 stdout
 
 ```python
 #!/usr/bin/env python3
-"""Minimal LLM plugin process for FastClaw."""
+"""Minimal LLM plugin process for XiaoLin."""
 
 import json
 import sys
@@ -440,7 +440,7 @@ rl.on('line', async (line) => {
 
 ## 前端管理
 
-在 FastClaw 设置面板中，「LLM 插件」标签页提供完整的可视化管理：
+在 XiaoLin 设置面板中，「LLM 插件」标签页提供完整的可视化管理：
 
 1. **查看已安装插件** — 显示名称、类型、状态、模型列表
 2. **添加新插件** — 引导式表单，支持选择认证方式、配置模型
@@ -571,7 +571,7 @@ POST /api/v1/llm-plugins/:id/test
 
 ### 插件未加载
 
-- 确认文件位于正确目录（默认 `~/.fastclaw/plugins/llm/`）
+- 确认文件位于正确目录（默认 `~/.xiaolin/plugins/llm/`）
 - 确认文件扩展名为 `.json`
 - 确认 JSON 格式正确（可使用 `jq . your-plugin.json` 验证）
 - 检查 `id` 字段不为空

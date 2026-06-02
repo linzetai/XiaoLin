@@ -70,7 +70,7 @@ fn extract_aes_key(cdn_media: &CDNMedia) -> anyhow::Result<[u8; 16]> {
 pub fn media_temp_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".fastclaw-dev")
+        .join(".xiaolin-dev")
         .join("data")
         .join("wechat-media")
 }

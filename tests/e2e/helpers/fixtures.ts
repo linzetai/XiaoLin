@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node
 import path from "node:path";
 
 /** Base directory for test artifacts. */
-export const E2E_WORK_DIR = "/tmp/fastclaw-e2e";
+export const E2E_WORK_DIR = "/tmp/xiaolin-e2e";
 
 /** Ensure a clean working directory for a suite. */
 export function setupSuiteDir(suiteName: string): string {

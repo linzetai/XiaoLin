@@ -13,7 +13,7 @@ import {
 } from "../helpers/assertions.js";
 import { setupSuiteDir, createTestFile, fileExists, sleep } from "../helpers/fixtures.js";
 
-const SUITE_DIR = "/tmp/fastclaw-e2e/10-plan-mode";
+const SUITE_DIR = "/tmp/xiaolin-e2e/10-plan-mode";
 
 const suite: TestSuite = {
   name: "10-plan-mode",

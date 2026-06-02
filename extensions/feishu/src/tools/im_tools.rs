@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
-use fastclaw_core::tool::{Tool, ToolParameterSchema, ToolResult};
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 use crate::client::FeishuClient;
 

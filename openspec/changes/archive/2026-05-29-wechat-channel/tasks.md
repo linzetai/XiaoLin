@@ -1,9 +1,9 @@
 ## 1. Crate 脚手架
 
-- [x] 1.1 创建 `extensions/wechat/Cargo.toml`，声明 dependencies（fastclaw-core, reqwest, serde, tokio, dashmap, aes, ecb, md-5, base64, qr2term, thiserror, tracing）
+- [x] 1.1 创建 `extensions/wechat/Cargo.toml`，声明 dependencies（xiaolin-core, reqwest, serde, tokio, dashmap, aes, ecb, md-5, base64, qr2term, thiserror, tracing）
 - [x] 1.2 创建 `extensions/wechat/src/lib.rs`，声明 pub mod 结构
 - [x] 1.3 在 workspace `Cargo.toml` 的 members 中添加 `extensions/wechat`
-- [x] 1.4 在 `crates/fastclaw-gateway/Cargo.toml` 中添加 `fastclaw-wechat` 依赖
+- [x] 1.4 在 `crates/xiaolin-gateway/Cargo.toml` 中添加 `xiaolin-wechat` 依赖
 - [x] 1.5 `cargo check` 通过
 
 ## 2. API 类型定义
@@ -17,7 +17,7 @@
 
 - [x] 3.1 创建 `api/client.rs`：定义 `WechatApiClient` struct（base_url, token, reqwest::Client）
 - [x] 3.2 实现 `build_headers()`：Content-Type, AuthorizationType, Authorization Bearer, X-WECHAT-UIN (base64 random u32), iLink-App-Id, iLink-App-ClientVersion
-- [x] 3.3 实现 `build_base_info()`：channel_version, bot_agent（从 config 读取，默认 "FastClaw"，sanitize UA 格式）
+- [x] 3.3 实现 `build_base_info()`：channel_version, bot_agent（从 config 读取，默认 "XiaoLin"，sanitize UA 格式）
 - [x] 3.4 实现 `get_updates(&self, cursor, timeout, cancel) -> Result<GetUpdatesResp>`：长轮询，支持 abort signal
 - [x] 3.5 实现 `send_message(&self, msg: SendMessageReq) -> Result<()>`
 - [x] 3.6 实现 `get_upload_url(&self, req: GetUploadUrlReq) -> Result<GetUploadUrlResp>`
@@ -38,7 +38,7 @@
 ## 5. Credential 持久化
 
 - [x] 5.1 创建 `auth/credential.rs`：定义 `WechatCredential { token, base_url, user_id, cdn_base_url?, created_at }`
-- [x] 5.2 实现 `save_credential(account_id, credential)`：写入 `~/.fastclaw-dev/credentials/wechat-{id}.json`
+- [x] 5.2 实现 `save_credential(account_id, credential)`：写入 `~/.xiaolin-dev/credentials/wechat-{id}.json`
 - [x] 5.3 实现 `load_credential(account_id) -> Option<WechatCredential>`
 - [x] 5.4 实现 `list_credentials() -> Vec<(String, WechatCredential)>`
 - [x] 5.5 实现 `delete_credential(account_id)`
@@ -57,7 +57,7 @@
 - [x] 7.1 创建 context_token cache：`DashMap<(String, String), ContextEntry>` (account_id, peer_id) → { token, updated_at }
 - [x] 7.2 实现 `update_token(account_id, peer_id, token)`
 - [x] 7.3 实现 `get_token(account_id, peer_id) -> Option<String>`
-- [ ] 7.4 实现持久化：save/load 到 `~/.fastclaw-dev/data/wechat-context-tokens.json`
+- [ ] 7.4 实现持久化：save/load 到 `~/.xiaolin-dev/data/wechat-context-tokens.json`
 - [ ] 7.5 实现 TTL 清理：定期清除 7 天未活跃的 token
 
 ## 8. CDN 媒体加密
@@ -90,7 +90,7 @@
 
 - [x] 12.1 创建 `monitor.rs`：`WechatMonitor` struct（api_client, account_id, inbound_tx, cancel_token）
 - [x] 12.2 实现 `run(&self) -> Result<()>` 主循环：getUpdates → convert → inbound_tx.send
-- [x] 12.3 cursor 持久化：`get_updates_buf` 写入 `~/.fastclaw-dev/data/wechat-sync-{account_id}.buf`
+- [x] 12.3 cursor 持久化：`get_updates_buf` 写入 `~/.xiaolin-dev/data/wechat-sync-{account_id}.buf`
 - [x] 12.4 错误处理：连续 3 次失败 → 30s 退避，errcode=-14 → session expired 暂停
 - [x] 12.5 graceful shutdown：cancel_token 触发时停止长轮询
 - [x] 12.6 notifyStart/notifyStop 生命周期通知
@@ -111,7 +111,7 @@
 ## 14. 配置与 Gateway 注册
 
 - [x] 14.1 创建 `config.rs`：定义 `WechatChannelConfig` (enabled, accounts, defaultAccount, botAgent, typingEnabled, longPollTimeoutMs)
-- [x] 14.2 在 `FastClawConfig` 的 channels 解析中支持 `"wechat"` key
+- [x] 14.2 在 `XiaoLinConfig` 的 channels 解析中支持 `"wechat"` key
 - [x] 14.3 在 `build_channels()` 中注册 WechatPlugin
 - [ ] 14.4 在 `reload_channel()` 中支持 `"wechat"` 热重载
 - [ ] 14.5 在 `SUPPORTED_CHANNELS`（如有）中添加 "wechat"
@@ -147,7 +147,7 @@
 - [ ] 18.2 Monitor → InboundMessage 流转测试（mock HTTP server）
 - [ ] 18.3 OutboundMessage → sendMessage API 调用测试
 - [x] 18.4 `cargo clippy -- -D warnings` 零警告
-- [x] 18.5 `cargo test -p fastclaw-wechat` 全部通过
+- [x] 18.5 `cargo test -p xiaolin-wechat` 全部通过
 
 ## 19. 验证
 

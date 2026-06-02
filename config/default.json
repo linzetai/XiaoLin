@@ -1,5 +1,5 @@
 {
-  "$schema": "./schema/fastclaw-config.schema.json",
+  "$schema": "./schema/xiaolin-config.schema.json",
   "meta": {
     "lastTouchedVersion": "0.1.0",
     "lastTouchedAt": ""
@@ -42,7 +42,7 @@
     "list": [
       {
         "id": "main",
-        "name": "FastClaw 助手",
+        "name": "小林助手",
         "default": true,
         "channels": {
           "feishu_main": {
@@ -93,7 +93,7 @@
       // "none" = 禁用向量检索，仅用关键词搜索
       "provider": "local",
 
-      // 本地模型：HuggingFace 模型 ID，首次使用自动下载到 ~/.fastclaw/models/
+      // 本地模型：HuggingFace 模型 ID，首次使用自动下载到 ~/.xiaolin/models/
       // 推荐：
       //   "sentence-transformers/all-MiniLM-L6-v2" — 384维，22MB，英文通用（默认）
       //   "sentence-transformers/all-MiniLM-L12-v2" — 384维，更高精度
@@ -198,11 +198,11 @@
 
   // 自定义路径覆盖（全部可选，留空使用默认值）
   "paths": {
-    // "stateDir": "~/.fastclaw",
-    // "configDir": "~/.fastclaw/config",
+    // "stateDir": "~/.xiaolin",
+    // "configDir": "~/.xiaolin/config",
     // "pluginsDir": "plugins",
     // "extensionsDir": "extensions",
     // "skillsDir": "skills",
-    "agentsDir": "/home/linzetai/.fastclaw-dev/config/agents"
+    "agentsDir": "/home/linzetai/.xiaolin-dev/config/agents"
   }
 }

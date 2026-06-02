@@ -1,6 +1,6 @@
 ## Why
 
-FastClaw 当前启动链路存在明显延迟：Gateway 的 5 个初始化阶段完全串行、前端通过两层轮询等待 Gateway 就绪、3 个独立 SQLite 数据库顺序打开。用户从点击应用到看到可交互界面需要较长等待。优化启动速度直接影响用户体验和产品感知质量。
+XiaoLin 当前启动链路存在明显延迟：Gateway 的 5 个初始化阶段完全串行、前端通过两层轮询等待 Gateway 就绪、3 个独立 SQLite 数据库顺序打开。用户从点击应用到看到可交互界面需要较长等待。优化启动速度直接影响用户体验和产品感知质量。
 
 ## What Changes
 
@@ -19,9 +19,9 @@ FastClaw 当前启动链路存在明显延迟：Gateway 的 5 个初始化阶段
 
 ## Impact
 
-- **后端**：`crates/fastclaw-app/src-tauri/src/embedded.rs` — 移除 probe_gateway 轮询，改用 watch channel
-- **后端**：`crates/fastclaw-app/src-tauri/src/commands/config.rs` — get_gateway_info 改为 watch 等待
-- **后端**：`crates/fastclaw-gateway/src/state/builder.rs` — 合并 SQLite 连接池
-- **后端**：`crates/fastclaw-session/` — SessionStore 支持复用连接池（如需调整）
-- **前端**：`crates/fastclaw-app/src/lib/store.ts` — 适配渐进加载模式
-- **前端**：`crates/fastclaw-app/src/components/layout/AppLayout.tsx` — 骨架屏加载状态
+- **后端**：`crates/xiaolin-app/src-tauri/src/embedded.rs` — 移除 probe_gateway 轮询，改用 watch channel
+- **后端**：`crates/xiaolin-app/src-tauri/src/commands/config.rs` — get_gateway_info 改为 watch 等待
+- **后端**：`crates/xiaolin-gateway/src/state/builder.rs` — 合并 SQLite 连接池
+- **后端**：`crates/xiaolin-session/` — SessionStore 支持复用连接池（如需调整）
+- **前端**：`crates/xiaolin-app/src/lib/store.ts` — 适配渐进加载模式
+- **前端**：`crates/xiaolin-app/src/components/layout/AppLayout.tsx` — 骨架屏加载状态

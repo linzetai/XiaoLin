@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Single SQLite database file
-The system SHALL use a single SQLite database file (`fastclaw.db`) for all persistent stores instead of separate files for sessions, evolution, and cron.
+The system SHALL use a single SQLite database file (`xiaolin.db`) for all persistent stores instead of separate files for sessions, evolution, and cron.
 
 #### Scenario: Fresh installation
-- **WHEN** FastClaw starts for the first time with no existing database
-- **THEN** a single `fastclaw.db` SHALL be created containing all tables (sessions, event_log, feedback, trajectory, skills, cron_jobs, notifications, prompt_distiller)
+- **WHEN** XiaoLin starts for the first time with no existing database
+- **THEN** a single `xiaolin.db` SHALL be created containing all tables (sessions, event_log, feedback, trajectory, skills, cron_jobs, notifications, prompt_distiller)
 
 #### Scenario: Shared connection pool
 - **WHEN** StateBuilder initializes Phase 1
@@ -15,8 +15,8 @@ The system SHALL use a single SQLite database file (`fastclaw.db`) for all persi
 The system SHALL detect and migrate data from legacy split databases on upgrade.
 
 #### Scenario: Legacy databases detected
-- **WHEN** FastClaw starts and finds existing `sessions.db`, `evolution.db`, or `cron.db` files
-- **THEN** the system SHALL migrate all tables and data into `fastclaw.db` within a transaction
+- **WHEN** XiaoLin starts and finds existing `sessions.db`, `evolution.db`, or `cron.db` files
+- **THEN** the system SHALL migrate all tables and data into `xiaolin.db` within a transaction
 
 #### Scenario: Migration success
 - **WHEN** migration completes successfully

@@ -1,0 +1,31 @@
+[package]
+name = "xiaolin-memory"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["local-embedding"]
+usearch-backend = ["dep:usearch"]
+local-embedding = ["dep:hypembed"]
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+usearch = { workspace = true, optional = true }
+hypembed = { version = "0.2", optional = true }
+reqwest = { workspace = true }
+dirs.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+dashmap.workspace = true
+regex.workspace = true
+petgraph.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

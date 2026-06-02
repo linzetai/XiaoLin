@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use fastclaw_core::channel::{Attachment, InboundMessage, OutboundMessage};
+use xiaolin_core::channel::{Attachment, InboundMessage, OutboundMessage};
 use serde_json::json;
 
 use crate::api::client::WechatApiClient;
@@ -8,7 +8,7 @@ use crate::api::types::*;
 use crate::media::download::{download_media, media_temp_dir};
 use crate::media::upload::{build_message_item, media_type_from_mime, mime_from_extension, upload_to_cdn};
 
-/// Convert a WeChat inbound message to FastClaw's InboundMessage.
+/// Convert a WeChat inbound message to XiaoLin's InboundMessage.
 pub fn weixin_to_inbound(
     msg: &WeixinMessage,
     channel_id: &str,
@@ -170,7 +170,7 @@ pub async fn enrich_inbound_media(
     }
 }
 
-/// Convert a FastClaw OutboundMessage to a WeChat WeixinMessage (text only).
+/// Convert a XiaoLin OutboundMessage to a WeChat WeixinMessage (text only).
 pub fn outbound_to_weixin(
     msg: &OutboundMessage,
     context_token: Option<&str>,
@@ -199,7 +199,7 @@ pub fn outbound_to_weixin(
     }
 }
 
-/// Convert a FastClaw OutboundMessage with attachments to WeChat WeixinMessages.
+/// Convert a XiaoLin OutboundMessage with attachments to WeChat WeixinMessages.
 /// Each item (text and each media) is sent as a **separate** message,
 /// matching the openclaw-weixin protocol requirement.
 pub async fn outbound_to_weixin_with_media(
@@ -271,7 +271,7 @@ fn generate_client_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("fastclaw-wechat-{ts}-{:04x}", rand::random::<u16>())
+    format!("xiaolin-wechat-{ts}-{:04x}", rand::random::<u16>())
 }
 
 #[cfg(test)]

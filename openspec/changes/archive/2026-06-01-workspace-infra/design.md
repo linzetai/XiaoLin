@@ -4,7 +4,7 @@
 
 1. **零 init 启动** — 不放任何文件也能工作，放了文件就增强体验
 2. **动态发现** — Skills/MCP/Rules 放对位置即被识别，无需 manifest 注册
-3. **只写自己的目录** — 读取 `.cursor/`、`.codex/` 但只写 `.fastclaw/`
+3. **只写自己的目录** — 读取 `.cursor/`、`.codex/` 但只写 `.xiaolin/`
 4. **渐进丰富** — 从零配置到全配置是连续光谱
 
 ## 三层配置模型
@@ -17,7 +17,7 @@
 └──────────────────┬──────────────────────────────┘
                    ▲
 ┌──────────────────┴──────────────────────────────┐
-│  User Layer (~/.fastclaw/)                       │
+│  User Layer (~/.xiaolin/)                       │
 │  config/default.json  skills/  plugins/          │
 │  workspace/  credentials/                        │
 │  ─────────────────────────────────               │
@@ -28,7 +28,7 @@
 └──────────────────┬──────────────────────────────┘
                    ▲
 ┌──────────────────┴──────────────────────────────┐
-│  Project Layer (<workspace-root>/.fastclaw/)     │
+│  Project Layer (<workspace-root>/.xiaolin/)     │
 │  config.json   skills/   mcp.json   rules/      │
 │  agents/       hooks.json  permissions.json      │
 │  ─────────────────────────────────               │
@@ -48,7 +48,7 @@ fn detect_workspace_root(start: &Path) -> PathBuf {
     let mut current = start.canonicalize().unwrap_or(start.to_path_buf());
     loop {
         // 优先级 1: 显式标记
-        if current.join(".fastclaw").is_dir() {
+        if current.join(".xiaolin").is_dir() {
             return current;
         }
         // 优先级 2: VCS 根
@@ -123,19 +123,19 @@ WS broadcast sessions.changed { sessionId }
   ~/.agents/skills/              ← 跨工具共享
   ~/.codex/skills/               ← Codex skills (只读)
   ~/.cursor/skills/              ← Cursor skills (只读)
-  ~/.fastclaw/skills/            ← FastClaw 用户 skills
+  ~/.xiaolin/skills/            ← XiaoLin 用户 skills
 
 项目级:
   <root>/skills/                 ← 通用约定（兼容现有）
   <root>/.cursor/skills/         ← Cursor 项目 skills (只读)
-  <root>/.fastclaw/skills/       ← FastClaw 项目 skills（最高优先级）
+  <root>/.xiaolin/skills/       ← XiaoLin 项目 skills（最高优先级）
 ```
 
 ### 合并策略
 
 - 同 ID skill：高优先级覆盖低优先级
 - 每个 skill 携带 `SkillSource` 元信息：`{ layer, origin, path }`
-  - `origin`: `fastclaw`, `cursor`, `codex`, `shared`
+  - `origin`: `xiaolin`, `cursor`, `codex`, `shared`
 - Agent 的 `list_skills` 工具显示来源信息
 
 ## 项目级 MCP 配置
@@ -143,7 +143,7 @@ WS broadcast sessions.changed { sessionId }
 ### 文件路径
 
 ```
-<workspace-root>/.fastclaw/mcp.json
+<workspace-root>/.xiaolin/mcp.json
 ```
 
 ### 格式（对齐 Cursor）
@@ -173,7 +173,7 @@ WS broadcast sessions.changed { sessionId }
 ### 文件路径
 
 ```
-<workspace-root>/.fastclaw/rules/*.md
+<workspace-root>/.xiaolin/rules/*.md
 ```
 
 ### 格式
@@ -196,7 +196,7 @@ globs: ["*.rs", "*.ts"]
 
 ### 加载
 
-- 扫描 `.fastclaw/rules/` 下所有 `.md` 文件
+- 扫描 `.xiaolin/rules/` 下所有 `.md` 文件
 - 注入到 system prompt（类似 Cursor 的 workspace rules）
 - `alwaysApply: true` → 始终注入
 - `globs` → 仅当操作匹配文件时注入
@@ -228,7 +228,7 @@ function normalizeWorkDir(dir: string | null): string | null {
 侧边栏:
 ├── 🔍 搜索
 ├── ➕ 新建对话
-├── 📁 ~/workspace/my_tools/FastClaw (3)
+├── 📁 ~/workspace/my_tools/XiaoLin (3)
 │   ├── feat(wechat): 实现微信 channel      12分钟前
 │   ├── 探索项目级配置基建方案               刚才
 │   └── 修复 CDN 上传问题                    昨天
@@ -241,12 +241,12 @@ function normalizeWorkDir(dir: string | null): string | null {
 
 ## Agent 元能力
 
-### 内置 Skill: fastclaw-config-manager
+### 内置 Skill: xiaolin-config-manager
 
-安装位置：`~/.fastclaw/skills/fastclaw-config-manager/SKILL.md`
+安装位置：`~/.xiaolin/skills/xiaolin-config-manager/SKILL.md`
 首次启动时自动创建。
 
-内容：描述 `.fastclaw/` 完整目录结构、文件格式、操作约定。
+内容：描述 `.xiaolin/` 完整目录结构、文件格式、操作约定。
 让 agent 在用户说"帮我加个 skill"时知道怎么做。
 
 ### 内置工具
@@ -254,18 +254,18 @@ function normalizeWorkDir(dir: string | null): string | null {
 | 工具 | 功能 |
 |------|------|
 | `list_project_config` | 列出当前项目的 skills, MCP, rules |
-| `add_project_skill` | 创建 `.fastclaw/skills/<name>/SKILL.md` |
-| `add_mcp_server` | 在 `.fastclaw/mcp.json` 添加条目 |
-| `remove_mcp_server` | 从 `.fastclaw/mcp.json` 移除条目 |
+| `add_project_skill` | 创建 `.xiaolin/skills/<name>/SKILL.md` |
+| `add_mcp_server` | 在 `.xiaolin/mcp.json` 添加条目 |
+| `remove_mcp_server` | 从 `.xiaolin/mcp.json` 移除条目 |
 
 ### 上下文注入
 
 Gateway 启动时自动扫描项目配置，将摘要注入 system prompt：
 
 ```
-当前项目: ~/workspace/my_tools/FastClaw
+当前项目: ~/workspace/my_tools/XiaoLin
 ├── Skills: 5 个 (3 项目级, 2 来自 Cursor)
 ├── MCP Servers: 1 个 (my-db)
 ├── Rules: 2 条
-└── 配置目录: .fastclaw/ (已创建)
+└── 配置目录: .xiaolin/ (已创建)
 ```

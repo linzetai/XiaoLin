@@ -9,11 +9,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use fastclaw_core::channel::{
+use xiaolin_core::channel::{
     ChannelCapabilities, ChannelMeta, ChannelPlugin, InboundMessage, OutboundMessage,
     WebhookResult,
 };
-use fastclaw_core::tool::Tool;
+use xiaolin_core::tool::Tool;
 
 use crate::api::client::WechatApiClient;
 use crate::auth::credential;
@@ -133,7 +133,7 @@ impl ContextTokenCache {
     fn file_path(account_id: &str) -> std::path::PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".fastclaw-dev")
+            .join(".xiaolin-dev")
             .join("data")
             .join(format!("wechat-ctx-tokens-{account_id}.json"))
     }

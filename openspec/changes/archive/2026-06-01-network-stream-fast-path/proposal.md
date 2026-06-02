@@ -20,9 +20,9 @@
 
 ## Impact
 
-- `crates/fastclaw-gateway/src/lib.rs` — 压缩中间件配置
-- `crates/fastclaw-gateway/src/routes/chat.rs` — SSE 事件格式化
-- `crates/fastclaw-gateway/src/ws/chat.rs` — WS UserTurn 提交
-- `crates/fastclaw-agent/src/runtime/mod.rs` — ContentDelta 事件构建
-- `crates/fastclaw-agent/src/llm.rs` — StreamDelta 解析优化
-- `crates/fastclaw-protocol/` — AgentEvent::ContentDelta 类型可能调整
+- `crates/xiaolin-gateway/src/lib.rs` — 压缩中间件配置
+- `crates/xiaolin-gateway/src/routes/chat.rs` — SSE 事件格式化
+- `crates/xiaolin-gateway/src/ws/chat.rs` — WS UserTurn 提交
+- `crates/xiaolin-agent/src/runtime/mod.rs` — ContentDelta 事件构建
+- `crates/xiaolin-agent/src/llm.rs` — StreamDelta 解析优化
+- `crates/xiaolin-protocol/` — AgentEvent::ContentDelta 类型可能调整

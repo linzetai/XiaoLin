@@ -9,14 +9,14 @@
 
 ## 2. 合并 SQLite 为单一连接池
 
-- [x] 2.1 在 `state/builder.rs` Phase 1 中创建单一 `fastclaw.db` 的 `SqlitePool`
+- [x] 2.1 在 `state/builder.rs` Phase 1 中创建单一 `xiaolin.db` 的 `SqlitePool`
 - [x] 2.2 修改 `SessionStore::open` 支持接受已有 pool（新增 `from_pool`）
 - [x] 2.3 修改 `EventLog::new` 支持复用已有 pool（EventLog::new 已接受 pool 参数）
 - [x] 2.4 修改 Phase 2 的 evolution 相关 store（FeedbackStore、TrajectoryStore、SkillStore、PromptDistiller）使用共享 pool
 - [x] 2.5 修改 Phase 5 的 CronJobStore 和 NotificationStore 使用共享 pool
 - [x] 2.6 移除 `helpers::open_memory_pool_named` 对独立 DB 的调用
-- [x] 2.7 实现旧数据库自动迁移逻辑：检测 sessions.db/evolution.db/cron.db → 迁移到 fastclaw.db → 重命名为 .bak
-- [x] 2.8 验证：新安装只创建一个 fastclaw.db；旧安装升级后数据完整
+- [x] 2.7 实现旧数据库自动迁移逻辑：检测 sessions.db/evolution.db/cron.db → 迁移到 xiaolin.db → 重命名为 .bak
+- [x] 2.8 验证：新安装只创建一个 xiaolin.db；旧安装升级后数据完整
 
 ## 3. 前端渐进式启动
 

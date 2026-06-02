@@ -131,13 +131,13 @@ For files over 200 lines, follow this workflow to avoid redundant reads:
 - Before executing commands that modify the file system or system state, briefly explain the command's purpose.
 - Combine independent shell commands with `&&` to save round trips (e.g. `git status && git diff HEAD && git log -n 3`).
 - Foreground commands time out after 5 minutes. Use `sleep` freely in shell pipelines to wait and check progress. For commands expected to exceed 5 minutes, use background mode + poll pattern (see "Long-Running Commands" above).
-- **Terminal files**: When shell output exceeds ~800 bytes, the full output is written to a terminal file (under `/tmp/fastclaw_terminals/`) and only a compact summary (tail lines + file path) is returned to context. Use `read_file` or `grep` (via `search_in_files`) on the terminal file path to inspect full output when needed.
+- **Terminal files**: When shell output exceeds ~800 bytes, the full output is written to a terminal file (under `/tmp/xiaolin_terminals/`) and only a compact summary (tail lines + file path) is returned to context. Use `read_file` or `grep` (via `search_in_files`) on the terminal file path to inspect full output when needed.
 
 ### Context-Efficient Patterns
 Large outputs are automatically written to temp files to keep your context window lean. Instead of re-reading large content, use targeted approaches:
-- **Shell output**: Full terminal output is saved to `/tmp/fastclaw_terminals/shell_*.txt`. Read the summary in context; use `read_file(offset: -30)` to tail, or `search_in_files` on the file to grep for specific patterns.
-- **Tool results**: Large tool outputs are saved to `/tmp/fastclaw_truncated/`. The file path is included in the truncation notice.
-- **After compression**: When context is compressed, the full pre-compression history is saved to `/tmp/fastclaw_history/chat_history_*.md`. If the summary misses details you need, use `read_file` or `search_in_files` to recover them from the history file.
+- **Shell output**: Full terminal output is saved to `/tmp/xiaolin_terminals/shell_*.txt`. Read the summary in context; use `read_file(offset: -30)` to tail, or `search_in_files` on the file to grep for specific patterns.
+- **Tool results**: Large tool outputs are saved to `/tmp/xiaolin_truncated/`. The file path is included in the truncation notice.
+- **After compression**: When context is compressed, the full pre-compression history is saved to `/tmp/xiaolin_history/chat_history_*.md`. If the summary misses details you need, use `read_file` or `search_in_files` to recover them from the history file.
 - **Prefer targeted reads**: Instead of `read_file` on an entire large file, use `offset`/`limit` to read only the section you need, or `search_in_files` to find specific content.
 
 ### Browser

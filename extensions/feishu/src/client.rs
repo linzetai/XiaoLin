@@ -77,7 +77,7 @@ impl FeishuClient {
             app_secret: app_secret.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
             http: reqwest::Client::builder()
-                .user_agent("FastClaw/0.1.0")
+                .user_agent("XiaoLin/0.1.0")
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),

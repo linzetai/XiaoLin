@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: "20"
           cache: "pnpm"
-          cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
+          cache-dependency-path: crates/xiaolin-app/pnpm-lock.yaml
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -50,7 +50,7 @@ jobs:
         with:
           workspaces: |
             .
-            crates/fastclaw-app/src-tauri
+            crates/xiaolin-app/src-tauri
 
       - name: Install dependencies (Linux)
         if: matrix.platform == 'ubuntu-latest'
@@ -71,21 +71,21 @@ jobs:
           rustup target add aarch64-apple-darwin
 
       - name: Install frontend deps
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm install --frozen-lockfile
 
       - name: Clippy (release)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build frontend
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm build
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --locked
 
       - name: Build Tauri App
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm exec -- tauri build ${{ matrix.args }}
 
       - name: Collect artifacts (Linux/macOS)
@@ -185,7 +185,7 @@ jobs:
           cat > dist/latest.json <<EOF
           {
             "version": "${VERSION}",
-            "notes": "FastClaw v${VERSION}",
+            "notes": "XiaoLin v${VERSION}",
             "pub_date": "${DATE}",
             "platforms": ${PLATFORMS}
           }

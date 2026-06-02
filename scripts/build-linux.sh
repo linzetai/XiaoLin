@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FastClaw — Linux 本地打包脚本
+# XiaoLin — Linux 本地打包脚本
 #
 # 用法:
 #   ./scripts/build-linux.sh              # 正常构建
@@ -12,10 +12,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="$PROJECT_ROOT/crates/fastclaw-app"
+APP_DIR="$PROJECT_ROOT/crates/xiaolin-app"
 TAURI_DIR="$APP_DIR/src-tauri"
 DIST_DIR="$PROJECT_ROOT/dist"
-KEY_PATH="$HOME/.tauri/fastclaw.key"
+KEY_PATH="$HOME/.tauri/xiaolin.key"
 
 SKIP_LINT=false
 RELEASE_MODE=false
@@ -161,7 +161,7 @@ if [ "$RELEASE_MODE" = true ]; then
   cat > "$DIST_DIR/latest.json" <<EOF
 {
   "version": "$VERSION",
-  "notes": "FastClaw v$VERSION",
+  "notes": "XiaoLin v$VERSION",
   "pub_date": "$PUB_DATE",
   "platforms": {
     "linux-x86_64": {

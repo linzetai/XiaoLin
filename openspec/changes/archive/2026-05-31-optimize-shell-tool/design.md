@@ -1,6 +1,6 @@
 ## Context
 
-FastClaw 的 `shell_exec` 工具是 agent 执行命令的唯一通道。当前实现在 macOS 上因 Seatbelt 沙箱策略错误导致几乎所有命令失败（SIGABRT），同时存在 cwd 不传递、网络被禁、schema 与实现不一致等多个问题。
+XiaoLin 的 `shell_exec` 工具是 agent 执行命令的唯一通道。当前实现在 macOS 上因 Seatbelt 沙箱策略错误导致几乎所有命令失败（SIGABRT），同时存在 cwd 不传递、网络被禁、schema 与实现不一致等多个问题。
 
 核心执行链路：`ShellRuntime.run()` → `SandboxManager.transform()` → `sandbox-exec -p "policy" -- sh -c "command"` → 结果捕获。
 

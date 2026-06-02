@@ -16,7 +16,7 @@ const QR_LOGIN_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const DEFAULT_BOT_TYPE: &str = "3";
 
 const CHANNEL_VERSION: &str = env!("CARGO_PKG_VERSION");
-const DEFAULT_BOT_AGENT: &str = "FastClaw";
+const DEFAULT_BOT_AGENT: &str = "XiaoLin";
 
 #[derive(Clone)]
 pub struct WechatApiClient {

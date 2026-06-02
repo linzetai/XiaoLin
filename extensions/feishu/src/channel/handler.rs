@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fastclaw_core::types::{ChatMessage, ChatRequest, Role};
+use xiaolin_core::types::{ChatMessage, ChatRequest, Role};
 
 use crate::client::FeishuClient;
 use crate::webhook::FeishuMessageHandler;
@@ -15,30 +15,30 @@ pub struct FeishuChannelConfig {
 }
 
 /// Feishu messaging channel: receives messages via webhook, processes through
-/// FastClaw agent pipeline, and replies via Feishu API.
+/// XiaoLin agent pipeline, and replies via Feishu API.
 pub struct FeishuChannel {
     pub client: Arc<FeishuClient>,
     pub config: FeishuChannelConfig,
-    runtime: Arc<fastclaw_agent::AgentRuntime>,
-    router: Arc<std::sync::RwLock<fastclaw_core::Router>>,
-    tool_registry: Arc<fastclaw_core::tool::ToolRegistry>,
-    session_store: Arc<fastclaw_session::SessionStore>,
-    event_log: Arc<fastclaw_session::EventLog>,
-    tool_orchestrator: Arc<fastclaw_agent::runtime::orchestrator::ToolOrchestrator>,
+    runtime: Arc<xiaolin_agent::AgentRuntime>,
+    router: Arc<std::sync::RwLock<xiaolin_core::Router>>,
+    tool_registry: Arc<xiaolin_core::tool::ToolRegistry>,
+    session_store: Arc<xiaolin_session::SessionStore>,
+    event_log: Arc<xiaolin_session::EventLog>,
+    tool_orchestrator: Arc<xiaolin_agent::runtime::orchestrator::ToolOrchestrator>,
 }
 
 impl FeishuChannel {
     pub fn new(
         config: FeishuChannelConfig,
-        runtime: Arc<fastclaw_agent::AgentRuntime>,
-        router: Arc<std::sync::RwLock<fastclaw_core::Router>>,
-        tool_registry: Arc<fastclaw_core::tool::ToolRegistry>,
-        session_store: Arc<fastclaw_session::SessionStore>,
+        runtime: Arc<xiaolin_agent::AgentRuntime>,
+        router: Arc<std::sync::RwLock<xiaolin_core::Router>>,
+        tool_registry: Arc<xiaolin_core::tool::ToolRegistry>,
+        session_store: Arc<xiaolin_session::SessionStore>,
     ) -> Self {
-        let event_log = Arc::new(fastclaw_session::EventLog::new(session_store.pool()));
+        let event_log = Arc::new(xiaolin_session::EventLog::new(session_store.pool()));
         let client = Arc::new(FeishuClient::new(&config.app_id, &config.app_secret));
         let tool_orchestrator = Arc::new(
-            fastclaw_agent::runtime::orchestrator::ToolOrchestrator::new(),
+            xiaolin_agent::runtime::orchestrator::ToolOrchestrator::new(),
         );
         Self {
             client,
@@ -103,9 +103,9 @@ impl FeishuMessageHandler for FeishuChannel {
             .append_message(&session.id, &user_msg)
             .await?;
         {
-            let turn_id = fastclaw_protocol::TurnId::generate();
+            let turn_id = xiaolin_protocol::TurnId::generate();
             let items =
-                fastclaw_core::history_compat::chat_message_to_history(&user_msg, turn_id);
+                xiaolin_core::history_compat::chat_message_to_history(&user_msg, turn_id);
             if let Err(e) = self
                 .session_store
                 .append_history_items(&session.id, &items)
@@ -116,11 +116,11 @@ impl FeishuMessageHandler for FeishuChannel {
         }
 
         let history_items = self.session_store.load_history(&session.id).await?;
-        let messages: Vec<fastclaw_core::types::ChatMessage> = if history_items.is_empty() {
+        let messages: Vec<xiaolin_core::types::ChatMessage> = if history_items.is_empty() {
             let arc = self.session_store.load_chat_messages(&session.id).await?;
             std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
         } else {
-            fastclaw_core::history_compat::history_items_to_chat_messages(&history_items)
+            xiaolin_core::history_compat::history_items_to_chat_messages(&history_items)
         };
 
         let request = ChatRequest {
@@ -144,7 +144,7 @@ impl FeishuMessageHandler for FeishuChannel {
             .cloned()
             .map_err(|e| anyhow::anyhow!("agent resolve failed: {e}"))?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<fastclaw_protocol::AgentEvent>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<xiaolin_protocol::AgentEvent>(64);
         let summary = self
             .runtime
             .execute_unified(
@@ -152,7 +152,7 @@ impl FeishuMessageHandler for FeishuChannel {
                 &request,
                 &self.tool_registry,
                 tx,
-                fastclaw_core::tool_runtime::ApprovalStrategy::PolicyBased,
+                xiaolin_core::tool_runtime::ApprovalStrategy::PolicyBased,
                 None,
                 self.tool_orchestrator.clone(),
                 None,
@@ -167,7 +167,7 @@ impl FeishuMessageHandler for FeishuChannel {
         let mut reply = String::new();
         rx.close();
         while let Some(event) = rx.recv().await {
-            if let fastclaw_protocol::AgentEvent::ContentDelta { delta, .. } = event {
+            if let xiaolin_protocol::AgentEvent::ContentDelta { delta, .. } = event {
                 if let Some(text) = delta.get("content").and_then(|v| v.as_str()) {
                     reply.push_str(text);
                 }
@@ -190,9 +190,9 @@ impl FeishuMessageHandler for FeishuChannel {
             .append_message(&session.id, &assistant_msg)
             .await?;
         {
-            let turn_id = fastclaw_protocol::TurnId::generate();
+            let turn_id = xiaolin_protocol::TurnId::generate();
             let items =
-                fastclaw_core::history_compat::chat_message_to_history(&assistant_msg, turn_id);
+                xiaolin_core::history_compat::chat_message_to_history(&assistant_msg, turn_id);
             if let Err(e) = self
                 .session_store
                 .append_history_items(&session.id, &items)
@@ -204,15 +204,15 @@ impl FeishuMessageHandler for FeishuChannel {
 
         // Synthesize events and write to event_log for audit trail
         {
-            use fastclaw_protocol::AgentEvent;
-            let turn_id = fastclaw_protocol::TurnId::generate();
+            use xiaolin_protocol::AgentEvent;
+            let turn_id = xiaolin_protocol::TurnId::generate();
             let turn_start = AgentEvent::TurnStart {
                 turn_id: turn_id.clone(),
                 session_id: Some(session.id.clone()),
             };
             let turn_end = AgentEvent::TurnEnd {
                 turn_id: turn_id.clone(),
-                summary: fastclaw_protocol::TurnSummary {
+                summary: xiaolin_protocol::TurnSummary {
                     turn_id,
                     tool_calls_made: summary.tool_calls_made,
                     iterations: summary.iterations,

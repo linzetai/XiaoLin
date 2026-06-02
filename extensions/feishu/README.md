@@ -1,4 +1,4 @@
-# fastclaw-feishu
+# xiaolin-feishu
 
 飞书 / Lark 渠道扩展（内置 Rust 实现）。
 
@@ -6,7 +6,7 @@
 
 ### 1. 配置凭证
 
-在 `~/.fastclaw/default.json` 中添加：
+在 `~/.xiaolin/default.json` 中添加：
 
 ```json
 {
@@ -23,10 +23,10 @@
 }
 ```
 
-### 2. 启动 FastClaw
+### 2. 启动 XiaoLin
 
 ```bash
-fastclaw serve
+xiaolin serve
 ```
 
 内置扩展会自动注册，无需额外配置文件。

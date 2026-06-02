@@ -3,7 +3,7 @@ name: Performance Gate
 on:
   pull_request:
     paths:
-      - "crates/fastclaw-app/**"
+      - "crates/xiaolin-app/**"
 
 env:
   CI: true
@@ -23,25 +23,25 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
+          cache-dependency-path: crates/xiaolin-app/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx playwright install chromium --with-deps
 
       - name: Run regression tests
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx playwright test --project=regression
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: regression-report
-          path: crates/fastclaw-app/playwright-report/
+          path: crates/xiaolin-app/playwright-report/
           retention-days: 14
 
   visual:
@@ -58,18 +58,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
+          cache-dependency-path: crates/xiaolin-app/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx playwright install chromium --with-deps
 
       - name: Run visual tests
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx playwright test --project=visual --update-snapshots
         continue-on-error: true
 
@@ -78,8 +78,8 @@ jobs:
         with:
           name: visual-snapshots
           path: |
-            crates/fastclaw-app/tests/visual/screenshot-matrix.spec.ts-snapshots/
-            crates/fastclaw-app/playwright-report/
+            crates/xiaolin-app/tests/visual/screenshot-matrix.spec.ts-snapshots/
+            crates/xiaolin-app/playwright-report/
           retention-days: 14
 
   perf-baseline:
@@ -96,26 +96,26 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: crates/fastclaw-app/pnpm-lock.yaml
+          cache-dependency-path: crates/xiaolin-app/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx playwright install chromium --with-deps
 
       - name: Build frontend
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: pnpm build
 
       - name: Collect perf baseline
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: npx tsx scripts/perf-baseline.ts --phase pr --tag after
 
       - name: Check hard gates
-        working-directory: crates/fastclaw-app
+        working-directory: crates/xiaolin-app
         run: |
           if [ -f perf/pr-after.json ]; then
             echo "=== Perf Report ==="
@@ -151,5 +151,5 @@ jobs:
         if: always()
         with:
           name: perf-report
-          path: crates/fastclaw-app/perf/
+          path: crates/xiaolin-app/perf/
           retention-days: 30

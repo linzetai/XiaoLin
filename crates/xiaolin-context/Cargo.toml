@@ -1,0 +1,28 @@
+[package]
+name = "xiaolin-context"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-memory = { path = "../xiaolin-memory" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "token_estimation"
+harness = false
+
+[[bench]]
+name = "compaction_layers"
+harness = false

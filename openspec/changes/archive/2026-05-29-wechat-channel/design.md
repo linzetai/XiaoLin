@@ -107,7 +107,7 @@ cursor（`get_updates_buf`）持久化到磁盘，重启后从上次位置恢复
 
 ### D3: 消息格式映射
 
-**Inbound（WeChat → FastClaw）**：
+**Inbound（WeChat → XiaoLin）**：
 
 | WeixinMessage.item_list.type | InboundMessage.msg_type | InboundMessage.text |
 |------------------------------|--------------------------|---------------------|
@@ -119,7 +119,7 @@ cursor（`get_updates_buf`）持久化到磁盘，重启后从上次位置恢复
 
 多 item 消息合并为一条 InboundMessage，extra 中携带原始 item_list 和 CDN 引用。
 
-**Outbound（FastClaw → WeChat）**：
+**Outbound（XiaoLin → WeChat）**：
 
 ```rust
 OutboundMessage { text, image_key, .. }
@@ -221,7 +221,7 @@ struct WechatPlugin {
         }
       },
       "defaultAccount": "default",
-      "botAgent": "FastClaw/0.0.6",
+      "botAgent": "XiaoLin/0.0.6",
       "typingEnabled": true,
       "longPollTimeoutMs": 35000
     }
@@ -229,7 +229,7 @@ struct WechatPlugin {
 }
 ```
 
-Credentials 独立存储在 `~/.fastclaw-dev/credentials/wechat-{account_id}.json`（不进 config 主文件）。
+Credentials 独立存储在 `~/.xiaolin-dev/credentials/wechat-{account_id}.json`（不进 config 主文件）。
 
 ### D10: Gateway 注册
 

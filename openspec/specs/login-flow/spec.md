@@ -9,7 +9,7 @@
 ### 命令
 
 ```bash
-fastclaw channels login --channel wechat [--account-id <id>]
+xiaolin channels login --channel wechat [--account-id <id>]
 ```
 
 ### 流程

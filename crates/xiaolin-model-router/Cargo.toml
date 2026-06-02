@@ -1,0 +1,18 @@
+[package]
+name = "xiaolin-model-router"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-core = { path = "../xiaolin-core" }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "route_matching"
+harness = false

@@ -7,7 +7,7 @@ import type { TestSuite, TestContext } from "../runner.js";
 import { assertContains, assertNonEmpty, assertNoError } from "../helpers/assertions.js";
 import { sleep } from "../helpers/fixtures.js";
 
-const PROJECT_ROOT = "/home/linzetai/workspace/my_tools/FastClaw";
+const PROJECT_ROOT = "/home/linzetai/workspace/my_tools/XiaoLin";
 
 const suite: TestSuite = {
   name: "03-code-tools",
@@ -26,7 +26,7 @@ const suite: TestSuite = {
       name: "3.1 Find definition (search_in_files)",
       async fn(ctx: TestContext) {
         const reply = await ctx.chat.sendAndWait(
-          `在 ${PROJECT_ROOT}/crates/fastclaw-core/src/ 中搜索 "pub struct ToolRegistry"，告诉我在哪个文件的哪一行`,
+          `在 ${PROJECT_ROOT}/crates/xiaolin-core/src/ 中搜索 "pub struct ToolRegistry"，告诉我在哪个文件的哪一行`,
         );
         assertNonEmpty(reply);
         assertContains(reply, "tool.rs", "Should find ToolRegistry in tool.rs");
@@ -38,7 +38,7 @@ const suite: TestSuite = {
       name: "3.2 File outline via search",
       async fn(ctx: TestContext) {
         const reply = await ctx.chat.sendAndWait(
-          `读取 ${PROJECT_ROOT}/crates/fastclaw-core/src/tool.rs 的前50行，列出定义的主要 pub 类型和 trait`,
+          `读取 ${PROJECT_ROOT}/crates/xiaolin-core/src/tool.rs 的前50行，列出定义的主要 pub 类型和 trait`,
         );
         assertNonEmpty(reply);
         // Should mention key types

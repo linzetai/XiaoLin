@@ -2,7 +2,7 @@
 
 ## 概述
 
-对 fastclaw-app 前端进行一轮 UX 打磨，修复影响日常使用的交互问题和视觉不一致。
+对 xiaolin-app 前端进行一轮 UX 打磨，修复影响日常使用的交互问题和视觉不一致。
 
 ## 动机
 
@@ -13,7 +13,7 @@
 
 ## 范围
 
-- `crates/fastclaw-app/src/` 前端代码
+- `crates/xiaolin-app/src/` 前端代码
 - 不涉及后端逻辑改动（问题 2 采用纯前端方案）
 - 不涉及新功能，纯 polish
 

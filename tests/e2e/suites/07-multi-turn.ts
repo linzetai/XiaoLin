@@ -12,7 +12,7 @@ import {
 } from "../helpers/assertions.js";
 import { setupSuiteDir, sleep } from "../helpers/fixtures.js";
 
-const SUITE_DIR = "/tmp/fastclaw-e2e/07-multi-turn";
+const SUITE_DIR = "/tmp/xiaolin-e2e/07-multi-turn";
 
 const suite: TestSuite = {
   name: "07-multi-turn",
@@ -93,7 +93,7 @@ const suite: TestSuite = {
 
         // Step 1: Define a task
         await ctx.chat.sendAndWait(
-          "我需要你帮我完成一个小任务：在 /tmp/fastclaw-e2e/07-multi-turn/final.txt 中写入三行，分别是 apple, banana, cherry。先写第一行 apple。",
+          "我需要你帮我完成一个小任务：在 /tmp/xiaolin-e2e/07-multi-turn/final.txt 中写入三行，分别是 apple, banana, cherry。先写第一行 apple。",
         );
 
         // Step 2: Continue

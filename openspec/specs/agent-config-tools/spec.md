@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Built-in configuration management skill
-The system SHALL include a built-in skill (`fastclaw-config-manager`) that teaches the agent about the `.fastclaw/` directory structure, file formats, and conventions.
+The system SHALL include a built-in skill (`xiaolin-config-manager`) that teaches the agent about the `.xiaolin/` directory structure, file formats, and conventions.
 
 #### Scenario: Agent helps create a skill
 - **WHEN** the user asks "帮我加个 skill" or "create a skill"
-- **THEN** the agent SHALL know to create `<root>/.fastclaw/skills/<name>/SKILL.md` with the correct format
+- **THEN** the agent SHALL know to create `<root>/.xiaolin/skills/<name>/SKILL.md` with the correct format
 
 #### Scenario: Agent helps add MCP server
 - **WHEN** the user asks "添加 MCP" or "add MCP server"
-- **THEN** the agent SHALL know to create/update `<root>/.fastclaw/mcp.json`
+- **THEN** the agent SHALL know to create/update `<root>/.xiaolin/mcp.json`
 
 ### Requirement: Project config listing tool
 The system SHALL provide a `list_project_config` tool that shows the current project's skills, MCP servers, and rules with their sources.

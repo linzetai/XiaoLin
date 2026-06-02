@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FastClaw — 合并多平台 latest.json
+# XiaoLin — 合并多平台 latest.json
 #
 # 在不同机器上分别构建 Linux 和 Windows 后，使用此脚本合并
 # 两个 latest.json 为最终可发布的版本。

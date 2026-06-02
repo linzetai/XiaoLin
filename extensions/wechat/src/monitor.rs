@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use fastclaw_core::channel::InboundMessage;
+use xiaolin_core::channel::InboundMessage;
 
 use crate::api::client::WechatApiClient;
 use crate::api::types::*;
@@ -52,7 +52,7 @@ impl WechatMonitor {
     ) -> Self {
         let sync_file = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".fastclaw-dev")
+            .join(".xiaolin-dev")
             .join("data")
             .join(format!("wechat-sync-{account_id}.buf"));
 
@@ -285,7 +285,7 @@ impl WechatMonitor {
     /// Send a hint message back to the user (fire-and-forget).
     async fn send_hint(&self, chat_id: &str, text: &str) {
         let ctx_token = self.context_tokens.get(&self.account_id, chat_id);
-        let msg = fastclaw_core::channel::OutboundMessage {
+        let msg = xiaolin_core::channel::OutboundMessage {
             target_id: chat_id.to_string(),
             target_type: "p2p".to_string(),
             text: text.to_string(),

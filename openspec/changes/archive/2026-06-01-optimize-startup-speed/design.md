@@ -1,6 +1,6 @@
 ## Context
 
-FastClaw 采用 Tauri 嵌入式架构：Tauri 主进程 spawn 一个 async task 启动 Gateway（axum HTTP/WS 服务），前端 WebView 通过 IPC 获取 Gateway 地址后建立 WebSocket 连接。
+XiaoLin 采用 Tauri 嵌入式架构：Tauri 主进程 spawn 一个 async task 启动 Gateway（axum HTTP/WS 服务），前端 WebView 通过 IPC 获取 Gateway 地址后建立 WebSocket 连接。
 
 当前启动链路存在三个独立但可叠加的延迟源：
 
@@ -48,7 +48,7 @@ config.rs:   loop { state.gateway.lock().await; sleep(500ms) }  // IPC poll
 
 ### D2: 合并 SQLite 为单一连接池
 
-**选择**：将 sessions.db、evolution.db、cron.db 合并到单一 SQLite 文件（`fastclaw.db`）中。
+**选择**：将 sessions.db、evolution.db、cron.db 合并到单一 SQLite 文件（`xiaolin.db`）中。
 
 **当前**：
 - Phase 1 打开 sessions.db（SessionStore + EventLog）
@@ -56,7 +56,7 @@ config.rs:   loop { state.gateway.lock().await; sleep(500ms) }  // IPC poll
 - Phase 5 打开 cron.db（CronJobStore + NotificationStore）
 
 **改为**：
-- Phase 1 打开 `fastclaw.db`，创建共享 `SqlitePool`
+- Phase 1 打开 `xiaolin.db`，创建共享 `SqlitePool`
 - Phase 2/5 复用同一个 pool，各自的 `ensure_table` / `open` 接受 pool 参数
 - 表名保持不变，无数据迁移问题（新安装直接建在同一 DB，已有安装需迁移脚本）
 
@@ -68,9 +68,9 @@ config.rs:   loop { state.gateway.lock().await; sleep(500ms) }  // IPC poll
 
 **迁移策略**：
 - 检测是否存在旧的独立 DB 文件（sessions.db, evolution.db, cron.db）
-- 若存在，在启动时自动将表和数据迁移到 fastclaw.db
+- 若存在，在启动时自动将表和数据迁移到 xiaolin.db
 - 迁移成功后重命名旧文件为 `.bak`
-- 新安装直接使用 fastclaw.db
+- 新安装直接使用 xiaolin.db
 
 ### D3: 前端渐进式启动
 

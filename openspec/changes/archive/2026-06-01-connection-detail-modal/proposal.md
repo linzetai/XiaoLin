@@ -20,6 +20,6 @@
 
 ## Impact
 
-- **后端**: `fastclaw-gateway/src/ws/mcp.rs` 新增 `handle_mcp_detail`；`fastclaw-gateway/src/ws/channels.rs` 新增 `handle_channels_detail`；`fastclaw-protocol/src/op.rs` 新增 `McpDetail` / `ChannelsDetail` 操作
+- **后端**: `xiaolin-gateway/src/ws/mcp.rs` 新增 `handle_mcp_detail`；`xiaolin-gateway/src/ws/channels.rs` 新增 `handle_channels_detail`；`xiaolin-protocol/src/op.rs` 新增 `McpDetail` / `ChannelsDetail` 操作
 - **前端**: `transport.ts` / `api.ts` 新增对应的 WS 函数；`ConnectionsPage.tsx` 新增两个详情 Modal 组件
 - **依赖**: 无新增依赖

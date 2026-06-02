@@ -3,7 +3,7 @@
   "name": "Feishu",
   "version": "0.1.0",
   "description": "Feishu/Lark channel plugin — bridges Feishu messaging, bitable, calendar, and document tools.",
-  "author": "FastClaw",
+  "author": "XiaoLin",
 
   "channels": ["feishu"],
 

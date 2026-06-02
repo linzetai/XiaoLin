@@ -1,6 +1,6 @@
 ## Context
 
-当前 FastClaw 微信 channel 仅支持纯文本消息。微信后端 API 通过 CDN + AES-128-ECB 加密传输所有媒体文件。openclaw-weixin（TypeScript）已有完整实现，我们需要在 Rust 端实现等效能力。
+当前 XiaoLin 微信 channel 仅支持纯文本消息。微信后端 API 通过 CDN + AES-128-ECB 加密传输所有媒体文件。openclaw-weixin（TypeScript）已有完整实现，我们需要在 Rust 端实现等效能力。
 
 核心挑战：
 - 所有媒体必须先加密上传到微信 CDN，才能在消息中引用
@@ -56,7 +56,7 @@
 
 **决定**: 接收到带 `image_item` / `file_item` 的消息时，使用 CDN URL + AES key 下载并解密到本地临时文件，将本地路径作为 `InboundMessage.attachments` 传递给 agent。
 
-**理由**: agent 工具链（如 `read_file`）操作本地文件，不能直接使用加密的 CDN URL。下载到临时目录 `~/.fastclaw-dev/data/wechat-media/` 并设置 TTL 清理。
+**理由**: agent 工具链（如 `read_file`）操作本地文件，不能直接使用加密的 CDN URL。下载到临时目录 `~/.xiaolin-dev/data/wechat-media/` 并设置 TTL 清理。
 
 ### 6. MIME 类型路由
 

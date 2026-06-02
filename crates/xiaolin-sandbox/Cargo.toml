@@ -1,0 +1,29 @@
+[package]
+name = "xiaolin-sandbox"
+version.workspace = true
+edition.workspace = true
+description = "OS-level process sandboxing for XiaoLin (Landlock, Seatbelt, RestrictedToken)"
+
+[lints]
+workspace = true
+
+[dependencies]
+xiaolin-security = { path = "../xiaolin-security" }
+xiaolin-path = { path = "../xiaolin-path" }
+xiaolin-network-proxy = { path = "../xiaolin-network-proxy" }
+tokio = { workspace = true, features = ["process"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util", "process"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+libc = "0.2"
+seccompiler = "0.4"
+which = "7"

@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 
-use fastclaw_core::channel::{
+use xiaolin_core::channel::{
     ChannelCapabilities, ChannelMeta, ChannelPlugin, InboundMessage, OutboundMessage, WebhookResult,
 };
-use fastclaw_core::tool::Tool;
+use xiaolin_core::tool::Tool;
 
 use crate::client::FeishuClient;
 use crate::tools::{FeishuGetChatMessagesTool, FeishuReplyMessageTool, FeishuSendMessageTool};
@@ -57,7 +57,7 @@ fn default_reply_mode() -> String {
 
 impl FeishuPluginConfig {
     /// Create from JSON channel config. All fields must be provided in the config file.
-    pub fn from_channel_config(cfg: &fastclaw_core::config::ChannelConfig) -> Option<Self> {
+    pub fn from_channel_config(cfg: &xiaolin_core::config::ChannelConfig) -> Option<Self> {
         let app_id = cfg.app_id.clone()?;
         let app_secret = cfg.app_secret.clone()?;
         Some(Self {
@@ -83,8 +83,8 @@ impl FeishuPluginConfig {
     }
 }
 
-/// FastClaw Feishu Channel Plugin — bridges Feishu/Lark messaging into the
-/// FastClaw agent ecosystem.
+/// XiaoLin Feishu Channel Plugin — bridges Feishu/Lark messaging into the
+/// XiaoLin agent ecosystem.
 ///
 /// Modeled after the official OpenClaw Lark plugin pattern:
 /// - Registers as a channel (handles inbound webhooks + outbound messaging)

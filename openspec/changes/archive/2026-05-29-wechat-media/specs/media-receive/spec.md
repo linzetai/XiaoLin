@@ -34,4 +34,4 @@ The system SHALL clean up downloaded media files older than 24 hours at startup.
 
 #### Scenario: Cleanup on startup
 - **WHEN** the WeChat plugin starts
-- **THEN** files in the media temp directory (`~/.fastclaw-dev/data/wechat-media/`) older than 24 hours MUST be deleted
+- **THEN** files in the media temp directory (`~/.xiaolin-dev/data/wechat-media/`) older than 24 hours MUST be deleted

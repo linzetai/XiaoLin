@@ -46,7 +46,7 @@ const suite: TestSuite = {
       name: "6.3 Store a project fact",
       async fn(ctx: TestContext) {
         const reply = await ctx.chat.sendAndWait(
-          PROMPTS.REMEMBER("我正在开发的项目叫 FastClaw，是一个 AI Agent 框架"),
+          PROMPTS.REMEMBER("我正在开发的项目叫 XiaoLin，是一个 AI Agent 框架"),
         );
         assertNonEmpty(reply);
         await assertNoError(ctx.chat);
@@ -63,7 +63,7 @@ const suite: TestSuite = {
           PROMPTS.RECALL("我正在做的项目叫什么名字？"),
         );
         assertNonEmpty(reply);
-        assertContains(reply, "FastClaw", "Should recall the project name");
+        assertContains(reply, "XiaoLin", "Should recall the project name");
         await assertNoError(ctx.chat);
       },
     },
@@ -80,7 +80,7 @@ const suite: TestSuite = {
         assertNonEmpty(reply);
         // Should recall both facts
         assertContains(reply, "Rust", "Should recall Rust preference");
-        assertContains(reply, "FastClaw", "Should recall FastClaw project");
+        assertContains(reply, "XiaoLin", "Should recall XiaoLin project");
         await assertNoError(ctx.chat);
       },
     },

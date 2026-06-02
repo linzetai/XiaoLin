@@ -12,11 +12,11 @@
 - Turn 在 sub-agent 仍活跃时意外结束
 
 相关核心文件：
-- `crates/fastclaw-agent/src/runtime/mod.rs` — agentic loop
-- `crates/fastclaw-agent/src/session_bridge.rs` — turn 执行入口
-- `crates/fastclaw-agent/src/subagent.rs` — spawn_subagent 等工具
-- `crates/fastclaw-agent/src/subagent_manager.rs` — 生命周期管理
-- `crates/fastclaw-agent/src/spawn_controller.rs` — 并发控制
+- `crates/xiaolin-agent/src/runtime/mod.rs` — agentic loop
+- `crates/xiaolin-agent/src/session_bridge.rs` — turn 执行入口
+- `crates/xiaolin-agent/src/subagent.rs` — spawn_subagent 等工具
+- `crates/xiaolin-agent/src/subagent_manager.rs` — 生命周期管理
+- `crates/xiaolin-agent/src/spawn_controller.rs` — 并发控制
 
 ## Goals / Non-Goals
 

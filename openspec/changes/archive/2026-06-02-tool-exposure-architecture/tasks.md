@@ -1,6 +1,6 @@
 ## 1. ToolExposure 枚举 + Tool trait 扩展
 
-- [x] 1.1 在 `fastclaw-core/src/tool.rs` 中定义 `ToolExposure` 枚举（Direct / Deferred）
+- [x] 1.1 在 `xiaolin-core/src/tool.rs` 中定义 `ToolExposure` 枚举（Direct / Deferred）
 - [x] 1.2 为 `Tool` trait 增加 `fn exposure(&self) -> ToolExposure` 默认方法（默认 Direct）
 - [x] 1.3 `ExitPlanModeTool` 和 `EnterPlanModeTool` override `exposure()` 返回 Deferred
 - [x] 1.4 `ToolSearchTool` 等现有 deferred 工具改用 `exposure()` 自声明
@@ -29,7 +29,7 @@
 
 ## 5. Mode Attachment 基础设施
 
-- [x] 5.1 创建 `fastclaw-agent/src/runtime/mode_attachments.rs` 模块
+- [x] 5.1 创建 `xiaolin-agent/src/runtime/mode_attachments.rs` 模块
 - [x] 5.2 定义 `ModeAttachment` struct（full_template, sparse_template, turns_between, full_every_n）
 - [x] 5.3 实现 Plan 模式的完整版和简短版 attachment 模板（中英双语）
 - [x] 5.4 实现节流逻辑（turn 计数 + full/sparse 交替）+ reentry 通知

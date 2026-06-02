@@ -23,7 +23,7 @@ pub fn feishu_config_json_schema() -> serde_json::Value {
             },
             "agent_id": {
                 "type": "string",
-                "description": "FastClaw agent ID to handle messages",
+                "description": "XiaoLin agent ID to handle messages",
                 "default": "main"
             },
             "brand": {

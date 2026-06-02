@@ -1901,562 +1901,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
-name = "fastclaw-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chardetng",
- "chrono",
- "dashmap",
- "dirs 5.0.1",
- "encoding_rs",
- "fastclaw-context",
- "fastclaw-core",
- "fastclaw-evolution",
- "fastclaw-execpolicy",
- "fastclaw-guardian",
- "fastclaw-memory",
- "fastclaw-network-proxy",
- "fastclaw-observe",
- "fastclaw-path",
- "fastclaw-protocol",
- "fastclaw-sandbox",
- "fastclaw-security",
- "fastclaw-self-iter",
- "fastclaw-session",
- "fastclaw-session-actor",
- "fastclaw-treesitter",
- "futures",
- "glob",
- "headless_chrome",
- "metrics",
- "notify",
- "pdf-extract",
- "rand 0.8.5",
- "regex",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "shell-words",
- "similar",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "cron",
- "dirs 5.0.1",
- "fastclaw-agent",
- "fastclaw-core",
- "fastclaw-cron",
- "fastclaw-gateway",
- "fastclaw-observe",
- "fastclaw-protocol",
- "fastclaw-security",
- "fix-path-env",
- "futures",
- "json5",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-mcp-bridge",
- "tauri-plugin-notification",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
- "zip 8.5.1",
-]
-
-[[package]]
-name = "fastclaw-context"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "criterion",
- "fastclaw-core",
- "fastclaw-memory",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "chrono",
- "constant_time_eq",
- "criterion",
- "dashmap",
- "dirs 5.0.1",
- "fastclaw-protocol",
- "glob",
- "hex",
- "hmac",
- "json5",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "sha2 0.10.9",
- "sqlx",
- "tar",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-cron"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "cron",
- "fastclaw-core",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-evolution"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "fastclaw-core",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-execpolicy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fs2",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "toml 0.8.23",
- "tracing",
-]
-
-[[package]]
-name = "fastclaw-feishu"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "dashmap",
- "fastclaw-agent",
- "fastclaw-core",
- "fastclaw-protocol",
- "fastclaw-session",
- "futures",
- "hmac",
- "prost",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-gateway"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "cron",
- "dashmap",
- "dirs 5.0.1",
- "fastclaw-agent",
- "fastclaw-context",
- "fastclaw-core",
- "fastclaw-cron",
- "fastclaw-evolution",
- "fastclaw-feishu",
- "fastclaw-gateway",
- "fastclaw-mcp",
- "fastclaw-memory",
- "fastclaw-model-router",
- "fastclaw-observe",
- "fastclaw-protocol",
- "fastclaw-security",
- "fastclaw-self-iter",
- "fastclaw-session",
- "fastclaw-session-actor",
- "fastclaw-wechat",
- "futures",
- "http-body-util",
- "json5",
- "notify",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite 0.24.0",
- "tokio-util",
- "tower-http 0.5.2",
- "tracing",
- "url",
- "utoipa",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-guardian"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "fastclaw-hardening"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "fastclaw-linux-sandbox"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ctrlc",
- "fastclaw-path",
- "fastclaw-security",
- "globset",
- "landlock",
- "libc",
- "nix 0.29.0",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
- "tracing-subscriber",
- "url",
- "which 7.0.3",
-]
-
-[[package]]
-name = "fastclaw-mcp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "fastclaw-core",
- "futures",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "fastclaw-memory"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dashmap",
- "dirs 5.0.1",
- "fastclaw-core",
- "hypembed",
- "petgraph",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "usearch",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-model-router"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "criterion",
- "fastclaw-core",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "fastclaw-network-proxy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "dirs 6.0.0",
- "globset",
- "http 1.4.0",
- "http-body-util",
- "hyper 1.9.0",
- "hyper-util",
- "rcgen",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-rustls",
- "tracing",
- "url",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "fastclaw-observe"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dashmap",
- "metrics",
- "metrics-exporter-prometheus",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "fastclaw-path"
-version = "0.1.0"
-dependencies = [
- "dirs 6.0.0",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "fastclaw-protocol"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "serde",
- "serde_json",
- "strum",
- "thiserror 1.0.69",
- "ts-rs",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-sandbox"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fastclaw-network-proxy",
- "fastclaw-path",
- "fastclaw-security",
- "landlock",
- "libc",
- "seccompiler",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "which 7.0.3",
-]
-
-[[package]]
-name = "fastclaw-security"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "constant_time_eq",
- "dashmap",
- "fastclaw-core",
- "fastclaw-path",
- "glob",
- "globset",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "fastclaw-self-iter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "fastclaw-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-session"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "fastclaw-core",
- "fastclaw-protocol",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-session-actor"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "async-trait",
- "fastclaw-protocol",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "fastclaw-treesitter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dashmap",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tree-sitter",
- "tree-sitter-language-pack",
-]
-
-[[package]]
-name = "fastclaw-wechat"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "dashmap",
- "dirs 5.0.1",
- "fastclaw-core",
- "hex",
- "md-5",
- "qr2term",
- "qrcode",
- "rand 0.8.5",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "tracing",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9940,6 +9384,562 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix 1.1.4",
+]
+
+[[package]]
+name = "xiaolin-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chardetng",
+ "chrono",
+ "dashmap",
+ "dirs 5.0.1",
+ "encoding_rs",
+ "futures",
+ "glob",
+ "headless_chrome",
+ "metrics",
+ "notify",
+ "pdf-extract",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "similar",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "url",
+ "uuid",
+ "xiaolin-context",
+ "xiaolin-core",
+ "xiaolin-evolution",
+ "xiaolin-execpolicy",
+ "xiaolin-guardian",
+ "xiaolin-memory",
+ "xiaolin-network-proxy",
+ "xiaolin-observe",
+ "xiaolin-path",
+ "xiaolin-protocol",
+ "xiaolin-sandbox",
+ "xiaolin-security",
+ "xiaolin-self-iter",
+ "xiaolin-session",
+ "xiaolin-session-actor",
+ "xiaolin-treesitter",
+]
+
+[[package]]
+name = "xiaolin-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "cron",
+ "dirs 5.0.1",
+ "fix-path-env",
+ "futures",
+ "json5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-mcp-bridge",
+ "tauri-plugin-notification",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-agent",
+ "xiaolin-core",
+ "xiaolin-cron",
+ "xiaolin-gateway",
+ "xiaolin-observe",
+ "xiaolin-protocol",
+ "xiaolin-security",
+ "zip 8.5.1",
+]
+
+[[package]]
+name = "xiaolin-context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "criterion",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+ "xiaolin-memory",
+]
+
+[[package]]
+name = "xiaolin-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "constant_time_eq",
+ "criterion",
+ "dashmap",
+ "dirs 5.0.1",
+ "glob",
+ "hex",
+ "hmac",
+ "json5",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2 0.10.9",
+ "sqlx",
+ "tar",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-protocol",
+]
+
+[[package]]
+name = "xiaolin-cron"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "cron",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-evolution"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-execpolicy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
+name = "xiaolin-feishu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "dashmap",
+ "futures",
+ "hmac",
+ "prost",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "tracing",
+ "uuid",
+ "xiaolin-agent",
+ "xiaolin-core",
+ "xiaolin-protocol",
+ "xiaolin-session",
+]
+
+[[package]]
+name = "xiaolin-gateway"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "cron",
+ "dashmap",
+ "dirs 5.0.1",
+ "futures",
+ "http-body-util",
+ "json5",
+ "notify",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite 0.24.0",
+ "tokio-util",
+ "tower-http 0.5.2",
+ "tracing",
+ "url",
+ "utoipa",
+ "uuid",
+ "xiaolin-agent",
+ "xiaolin-context",
+ "xiaolin-core",
+ "xiaolin-cron",
+ "xiaolin-evolution",
+ "xiaolin-feishu",
+ "xiaolin-gateway",
+ "xiaolin-mcp",
+ "xiaolin-memory",
+ "xiaolin-model-router",
+ "xiaolin-observe",
+ "xiaolin-protocol",
+ "xiaolin-security",
+ "xiaolin-self-iter",
+ "xiaolin-session",
+ "xiaolin-session-actor",
+ "xiaolin-wechat",
+]
+
+[[package]]
+name = "xiaolin-guardian"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "xiaolin-hardening"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "xiaolin-linux-sandbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ctrlc",
+ "globset",
+ "landlock",
+ "libc",
+ "nix 0.29.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "which 7.0.3",
+ "xiaolin-path",
+ "xiaolin-security",
+]
+
+[[package]]
+name = "xiaolin-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "futures",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "dirs 5.0.1",
+ "hypembed",
+ "petgraph",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "usearch",
+ "uuid",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-model-router"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "criterion",
+ "serde",
+ "serde_json",
+ "tracing",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-network-proxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "dirs 6.0.0",
+ "globset",
+ "http 1.4.0",
+ "http-body-util",
+ "hyper 1.9.0",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "xiaolin-observe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "xiaolin-path"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "xiaolin-protocol"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "serde",
+ "serde_json",
+ "strum",
+ "thiserror 1.0.69",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "xiaolin-sandbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "landlock",
+ "libc",
+ "seccompiler",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "which 7.0.3",
+ "xiaolin-network-proxy",
+ "xiaolin-path",
+ "xiaolin-security",
+]
+
+[[package]]
+name = "xiaolin-security"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "constant_time_eq",
+ "dashmap",
+ "glob",
+ "globset",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
+ "xiaolin-core",
+ "xiaolin-path",
+]
+
+[[package]]
+name = "xiaolin-self-iter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+]
+
+[[package]]
+name = "xiaolin-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xiaolin-core",
+ "xiaolin-protocol",
+]
+
+[[package]]
+name = "xiaolin-session-actor"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "xiaolin-protocol",
+]
+
+[[package]]
+name = "xiaolin-treesitter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-language-pack",
+]
+
+[[package]]
+name = "xiaolin-wechat"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dashmap",
+ "dirs 5.0.1",
+ "hex",
+ "md-5",
+ "qr2term",
+ "qrcode",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "xiaolin-core",
 ]
 
 [[package]]

@@ -22,10 +22,10 @@ $UseFrozenLockfile = $FrozenLockfile
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
-$AppDir = Join-Path $ProjectRoot "crates\fastclaw-app"
+$AppDir = Join-Path $ProjectRoot "crates\xiaolin-app"
 $TauriDir = Join-Path $AppDir "src-tauri"
 $DistDir = Join-Path $ProjectRoot "dist"
-$KeyPath = Join-Path $env:USERPROFILE ".tauri\fastclaw.key"
+$KeyPath = Join-Path $env:USERPROFILE ".tauri\xiaolin.key"
 
 function Log($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Err($msg) { Write-Host "[ERR ] $msg" -ForegroundColor Red }
@@ -165,7 +165,7 @@ if ($Release) {
     $PubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     $LatestJson = @{
         version = $Version
-        notes = "FastClaw v$Version"
+        notes = "XiaoLin v$Version"
         pub_date = $PubDate
         platforms = @{
             "windows-x86_64" = @{

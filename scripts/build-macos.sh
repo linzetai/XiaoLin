@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FastClaw — macOS 本地打包脚本
+# XiaoLin — macOS 本地打包脚本
 #
 # 用法:
 #   ./scripts/build-macos.sh              # 正常构建
@@ -13,10 +13,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="$PROJECT_ROOT/crates/fastclaw-app"
+APP_DIR="$PROJECT_ROOT/crates/xiaolin-app"
 TAURI_DIR="$APP_DIR/src-tauri"
 DIST_DIR="$PROJECT_ROOT/dist"
-KEY_PATH="$HOME/.tauri/fastclaw.key"
+KEY_PATH="$HOME/.tauri/xiaolin.key"
 
 SKIP_LINT=false
 RELEASE_MODE=false
@@ -116,7 +116,7 @@ if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
     find "$BUNDLE_DIR/dmg" -name "*.dmg" -type f -exec rm -f {} \; 2>/dev/null || true
   done
 
-  DMG_NAME="FastClaw_${VERSION}_$(uname -m).dmg"
+  DMG_NAME="XiaoLin_${VERSION}_$(uname -m).dmg"
   DMG_DIR="$PROJECT_ROOT/target/tauri/release/bundle/dmg"
   mkdir -p "$DMG_DIR"
 
@@ -126,7 +126,7 @@ if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
   cp -R "$APP_PATH" "$DMG_STAGING/"
   ln -s /Applications "$DMG_STAGING/Applications"
 
-  hdiutil create -volname "FastClaw" -srcfolder "$DMG_STAGING" -ov -format UDZO -imagekey zlib-level=9 "$DMG_DIR/$DMG_NAME"
+  hdiutil create -volname "XiaoLin" -srcfolder "$DMG_STAGING" -ov -format UDZO -imagekey zlib-level=9 "$DMG_DIR/$DMG_NAME"
   rm -rf "$DMG_STAGING"
   ok "DMG 已创建: $DMG_NAME"
 
@@ -208,7 +208,7 @@ if [ "$RELEASE_MODE" = true ]; then
   cat > "$DIST_DIR/latest.json" <<EOF
 {
   "version": "$VERSION",
-  "notes": "FastClaw v$VERSION",
+  "notes": "XiaoLin v$VERSION",
   "pub_date": "$PUB_DATE",
   "platforms": {
     "darwin-$ARCH": {
