@@ -17,6 +17,7 @@ import { ClawIcon } from "../layout/ClawIcon";
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
 );
+import { StreamingMarkdown } from "./StreamingMarkdown";
 
 class MessageErrorBoundary extends Component<
   { children: ReactNode },
@@ -542,7 +543,7 @@ export interface MessageRendererRowProps {
   lastSegments?: StreamSegment[];
 }
 
-export function MessageRendererRow({
+export const MessageRendererRow = memo(function MessageRendererRow({
   item,
   idx,
   paginationOffset,
@@ -641,9 +642,7 @@ export function MessageRendererRow({
             const isLastSegment = gi === grouped.length - 1 && lastIsText;
             return (
               <div key={group.segment.id} className="pb-1" style={{ maxWidth: "720px" }}>
-                <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
-                  <MarkdownContent content={group.segment.content} streaming />
-                </Suspense>
+                <StreamingMarkdown content={group.segment.content} />
                 {isLastSegment && (
                   <span
                     className="ml-0.5 inline-block h-[16px] w-[2px] translate-y-[3px] rounded-full"
@@ -714,4 +713,16 @@ export function MessageRendererRow({
     </div>
     </MessageErrorBoundary>
   );
-}
+}, (prev, next) => {
+  const prevMsg = prev.item.data as StreamableMsg;
+  const nextMsg = next.item.data as StreamableMsg;
+  if (prevMsg.role === "streaming" || nextMsg.role === "streaming") return false;
+  return (
+    prev.item === next.item &&
+    prev.searchQuery === next.searchQuery &&
+    prev.searchIdx === next.searchIdx &&
+    prev.lastSegments === next.lastSegments &&
+    prev.selectMode === next.selectMode &&
+    prev.isSelected === next.isSelected
+  );
+});

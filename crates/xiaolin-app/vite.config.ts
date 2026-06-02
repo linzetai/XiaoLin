@@ -22,12 +22,17 @@ export default defineConfig({
             if (id.includes("react-dom") || id.includes("/react/")) {
               return "vendor-react";
             }
+            if (id.includes("highlight.js/lib/languages")) {
+              return "highlight-langs";
+            }
             if (id.includes("highlight.js")) {
+              return "vendor-highlight";
+            }
+            if (id.includes("lowlight")) {
               return "vendor-highlight";
             }
             if (
               id.includes("react-markdown") ||
-              id.includes("rehype-highlight") ||
               id.includes("remark-gfm") ||
               id.includes("unified") ||
               id.includes("remark-") ||

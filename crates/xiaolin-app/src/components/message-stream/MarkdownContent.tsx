@@ -1,7 +1,7 @@
-import { memo, useState, useCallback, useMemo, type ComponentPropsWithoutRef } from "react";
+import { memo, useState, useCallback, useEffect, useMemo, type ComponentPropsWithoutRef } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
+import { rehypeHighlightLite } from "./rehype-highlight-lite";
 import { Check, Copy } from "lucide-react";
 import { ICON, ICON_ACTIVE_STROKE } from "../../lib/ui-tokens";
 import { openLightbox } from "../common/ImageLightbox";
@@ -12,7 +12,7 @@ interface MarkdownContentProps {
 }
 
 const remarkPlugins = [remarkGfm];
-const rehypePluginsFull = [rehypeHighlight];
+const rehypePluginsFull = [rehypeHighlightLite];
 const rehypePluginsNone: never[] = [];
 
 function hasUnclosedCodeBlock(text: string): boolean {
@@ -124,7 +124,7 @@ function extractCodeInfo(children: React.ReactNode): { lang: string; text: strin
   return { lang, text };
 }
 
-function PreBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
+const PreBlock = memo(function PreBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
   const { lang, text } = extractCodeInfo(children);
   return (
     <div className="md-code-block">
@@ -135,7 +135,7 @@ function PreBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
       <pre {...rest}>{children}</pre>
     </div>
   );
-}
+}, (prev, next) => extractTextFromNode(prev.children) === extractTextFromNode(next.children));
 
 function Link({
   href = "",
@@ -182,12 +182,19 @@ export const MarkdownContent = memo(function MarkdownContent({
   content,
   streaming = false,
 }: MarkdownContentProps) {
+  const [highlighted, setHighlighted] = useState(streaming);
+
+  useEffect(() => {
+    if (streaming || highlighted) return;
+    const id = requestIdleCallback(() => setHighlighted(true));
+    return () => cancelIdleCallback(id);
+  }, [streaming, highlighted]);
+
   const unclosed = streaming && hasUnclosedCodeBlock(content);
   const rehypePlugins = useMemo(() => {
-    if (!streaming) return rehypePluginsFull;
-    if (unclosed) return rehypePluginsNone;
-    return rehypePluginsFull;
-  }, [streaming, unclosed]);
+    if (streaming) return unclosed ? rehypePluginsNone : rehypePluginsFull;
+    return highlighted ? rehypePluginsFull : rehypePluginsNone;
+  }, [streaming, unclosed, highlighted]);
 
   return (
     <div className="markdown-body">
