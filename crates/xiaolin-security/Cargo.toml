@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 xiaolin-core = { path = "../xiaolin-core" }
-xiaolin-path = { path = "../xiaolin-path" }
 axum.workspace = true
 tokio.workspace = true
 dashmap.workspace = true

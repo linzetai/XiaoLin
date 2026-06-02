@@ -122,7 +122,7 @@ pub fn normalize_fs_entries(
         let path = match entry.path {
             FileSystemPath::Path { path } => {
                 let canonical = canonicalize_preserving_symlinks(path.as_path())
-                    .and_then(|p| xiaolin_path::AbsolutePathBuf::from_absolute_path(p).ok())
+                    .and_then(|p| xiaolin_core::path::AbsolutePathBuf::from_absolute_path(p).ok())
                     .unwrap_or(path);
                 FileSystemPath::Path { path: canonical }
             }
@@ -483,7 +483,7 @@ pub fn should_require_platform_sandbox(
 mod tests {
     use super::*;
     use crate::FileSystemSpecialPath;
-    use xiaolin_path::test_support::{test_path_buf, PathBufExt};
+    use xiaolin_core::path::test_support::{test_path_buf, PathBufExt};
 
     #[test]
     fn canonicalize_resolves_dotdot() {

@@ -722,7 +722,7 @@ fn build_network_policy(net_policy: NetworkSandboxPolicy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_path::AbsolutePathBuf;
+    use xiaolin_core::path::AbsolutePathBuf;
     use xiaolin_security::FileSystemSandboxEntry;
 
     fn test_cwd() -> PathBuf {

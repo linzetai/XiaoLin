@@ -9430,7 +9430,6 @@ dependencies = [
  "xiaolin-memory",
  "xiaolin-network-proxy",
  "xiaolin-observe",
- "xiaolin-path",
  "xiaolin-protocol",
  "xiaolin-sandbox",
  "xiaolin-security",
@@ -9515,6 +9514,7 @@ dependencies = [
  "hex",
  "hmac",
  "json5",
+ "libc",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -9671,13 +9671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xiaolin-hardening"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "xiaolin-linux-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -9694,7 +9687,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "which 7.0.3",
- "xiaolin-path",
+ "xiaolin-core",
  "xiaolin-security",
 ]
 
@@ -9789,16 +9782,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xiaolin-path"
-version = "0.1.0"
-dependencies = [
- "dirs 6.0.0",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "xiaolin-protocol"
 version = "0.1.0"
 dependencies = [
@@ -9826,8 +9809,8 @@ dependencies = [
  "tokio",
  "tracing",
  "which 7.0.3",
+ "xiaolin-core",
  "xiaolin-network-proxy",
- "xiaolin-path",
  "xiaolin-security",
 ]
 
@@ -9849,7 +9832,6 @@ dependencies = [
  "tracing",
  "url",
  "xiaolin-core",
- "xiaolin-path",
 ]
 
 [[package]]

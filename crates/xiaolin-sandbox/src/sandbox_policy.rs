@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use xiaolin_path::AbsolutePathBuf;
+use xiaolin_core::path::AbsolutePathBuf;
 use xiaolin_security::{FileSystemSandboxKind, FileSystemSandboxPolicy};
 
 /// High-level network access mode for sandbox policy decisions.

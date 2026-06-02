@@ -499,7 +499,7 @@ pub fn create_linux_sandbox_command_args(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_path::AbsolutePathBuf;
+    use xiaolin_core::path::AbsolutePathBuf;
     use xiaolin_security::{FileSystemSandboxEntry, FileSystemSpecialPath};
 
     fn test_cwd() -> PathBuf {

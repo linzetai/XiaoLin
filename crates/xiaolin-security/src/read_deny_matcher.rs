@@ -171,7 +171,7 @@ fn build_glob_matcher(pattern: &str) -> Result<GlobMatcher, String> {
 fn normalized_and_canonical_candidates(path: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    if let Ok(normalized) = xiaolin_path::AbsolutePathBuf::from_absolute_path(path) {
+    if let Ok(normalized) = xiaolin_core::path::AbsolutePathBuf::from_absolute_path(path) {
         push_unique(&mut candidates, normalized.to_path_buf());
     } else {
         push_unique(&mut candidates, path.to_path_buf());
@@ -179,7 +179,7 @@ fn normalized_and_canonical_candidates(path: &Path) -> Vec<PathBuf> {
 
     if let Ok(canonical) = path.canonicalize() {
         if let Ok(canonical_absolute) =
-            xiaolin_path::AbsolutePathBuf::from_absolute_path(&canonical)
+            xiaolin_core::path::AbsolutePathBuf::from_absolute_path(&canonical)
         {
             push_unique(&mut candidates, canonical_absolute.to_path_buf());
         }
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn deny_path_entry_matched() {
-        use xiaolin_path::test_support::{test_path_buf, PathBufExt};
+        use xiaolin_core::path::test_support::{test_path_buf, PathBufExt};
         let policy = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: test_path_buf("/secret").abs(),

@@ -20,7 +20,6 @@ xiaolin-self-iter = { path = "../xiaolin-self-iter", optional = true }
 xiaolin-memory = { path = "../xiaolin-memory", default-features = false }
 xiaolin-security = { path = "../xiaolin-security" }
 xiaolin-sandbox = { path = "../xiaolin-sandbox" }
-xiaolin-path = { path = "../xiaolin-path" }
 xiaolin-network-proxy = { path = "../xiaolin-network-proxy" }
 xiaolin-execpolicy = { path = "../xiaolin-execpolicy" }
 xiaolin-guardian = { path = "../xiaolin-guardian" }

@@ -577,13 +577,13 @@ mod tests {
         let mgr = SandboxManager::with_type(SandboxType::Noop);
         let base_fs = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: xiaolin_path::AbsolutePathBuf::from_absolute_path("/tmp").unwrap(),
+                path: xiaolin_core::path::AbsolutePathBuf::from_absolute_path("/tmp").unwrap(),
             },
             access: FileSystemAccessMode::Write,
         }]);
         let extra_fs = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
             path: FileSystemPath::Path {
-                path: xiaolin_path::AbsolutePathBuf::from_absolute_path("/home").unwrap(),
+                path: xiaolin_core::path::AbsolutePathBuf::from_absolute_path("/home").unwrap(),
             },
             access: FileSystemAccessMode::Write,
         }]);

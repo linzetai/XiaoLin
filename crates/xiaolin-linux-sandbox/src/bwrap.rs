@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Result, bail};
-use xiaolin_path::AbsolutePathBuf;
+use xiaolin_core::path::AbsolutePathBuf;
 use xiaolin_security::permission_profile::{
     FileSystemAccessMode, FileSystemPath, FileSystemSandboxPolicy, FileSystemSpecialPath,
     WritableRoot, is_protected_metadata_name,

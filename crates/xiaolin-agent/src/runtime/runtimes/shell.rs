@@ -259,13 +259,13 @@ fn build_fs_policy(cwd: &Path) -> xiaolin_security::FileSystemSandboxPolicy {
         },
     ];
 
-    if let Ok(p) = xiaolin_path::AbsolutePathBuf::try_from(abs_cwd) {
+    if let Ok(p) = xiaolin_core::path::AbsolutePathBuf::try_from(abs_cwd) {
         entries.push(FileSystemSandboxEntry {
             path: FileSystemPath::Path { path: p },
             access: FileSystemAccessMode::Write,
         });
     }
-    if let Ok(p) = xiaolin_path::AbsolutePathBuf::try_from(temp_dir) {
+    if let Ok(p) = xiaolin_core::path::AbsolutePathBuf::try_from(temp_dir) {
         entries.push(FileSystemSandboxEntry {
             path: FileSystemPath::Path { path: p },
             access: FileSystemAccessMode::Write,

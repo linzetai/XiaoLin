@@ -6,7 +6,9 @@ pub mod complexity;
 pub mod config;
 pub mod config_access;
 pub mod error;
+pub mod hardening;
 pub mod llm_plugin;
+pub mod path;
 
 pub use complexity::ComplexityTier;
 pub use error::{XiaoLinError, XiaoLinResult};

@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 xiaolin-security = { path = "../xiaolin-security" }
-xiaolin-path = { path = "../xiaolin-path" }
+xiaolin-core = { path = "../xiaolin-core" }
 xiaolin-network-proxy = { path = "../xiaolin-network-proxy" }
 tokio = { workspace = true, features = ["process"] }
 serde.workspace = true

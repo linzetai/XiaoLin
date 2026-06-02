@@ -90,10 +90,10 @@ pub fn run_main() -> Result<()> {
             .file_system
             .clone()
             .unwrap_or_else(|| {
-                let writable_abs: Vec<xiaolin_path::AbsolutePathBuf> = policy
+                let writable_abs: Vec<xiaolin_core::path::AbsolutePathBuf> = policy
                     .writable_roots
                     .iter()
-                    .filter_map(|p| xiaolin_path::AbsolutePathBuf::from_absolute_path(p).ok())
+                    .filter_map(|p| xiaolin_core::path::AbsolutePathBuf::from_absolute_path(p).ok())
                     .collect();
                 FileSystemSandboxPolicy::workspace_write(
                     &writable_abs,

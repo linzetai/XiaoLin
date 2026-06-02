@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use xiaolin_path::AbsolutePathBuf;
+use xiaolin_core::path::AbsolutePathBuf;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -1456,7 +1456,7 @@ fn append_default_read_only_path_if_no_explicit_rule(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_path::test_support::{test_path_buf, PathBufExt};
+    use xiaolin_core::path::test_support::{test_path_buf, PathBufExt};
 
     fn abs(p: &str) -> AbsolutePathBuf {
         test_path_buf(p).abs()
@@ -1550,7 +1550,7 @@ mod tests {
             },
         ]);
         let json = serde_json::to_string(&policy).unwrap();
-        let _guard = xiaolin_path::AbsolutePathBufGuard::new(Path::new("/"));
+        let _guard = xiaolin_core::path::AbsolutePathBufGuard::new(Path::new("/"));
         let deserialized: FileSystemSandboxPolicy = serde_json::from_str(&json).unwrap();
         assert_eq!(policy, deserialized);
     }
