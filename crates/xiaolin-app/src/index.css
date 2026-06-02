@@ -1250,3 +1250,69 @@ mark[data-search-highlight="current"] {
     --sidebar-w: 0px;
   }
 }
+
+/* ━━━ Quick Action Bar ━━━ */
+.quick-action-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+.quick-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 640px;
+  height: 52px;
+  padding: 0 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.15s ease;
+}
+.quick-action-bar:focus-within {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16), 0 0 0 2px var(--accent);
+}
+.quick-action-icon {
+  flex-shrink: 0;
+  color: var(--text-quaternary);
+}
+.quick-action-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--text-primary);
+  caret-color: var(--accent);
+}
+.quick-action-input::placeholder {
+  color: var(--text-quaternary);
+}
+.quick-action-send {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+.quick-action-send:hover {
+  opacity: 0.85;
+}
+.quick-action-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -122,9 +122,10 @@ pub fn run() {
                 let _ = window.set_effects(effects);
             }
 
+            let gs = app.global_shortcut();
+            let _ = gs.unregister_all();
+
             if let Ok(shortcut) = "ctrl+shift+space".parse::<Shortcut>() {
-                let gs = app.global_shortcut();
-                let _ = gs.unregister_all();
                 let handle_for_shortcut = app.handle().clone();
                 if let Err(e) = gs.on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
@@ -138,7 +139,25 @@ pub fn run() {
                         }
                     }
                 }) {
-                    tracing::debug!("Global shortcut registration skipped: {e}");
+                    tracing::debug!("Global shortcut Ctrl+Shift+Space skipped: {e}");
+                }
+            }
+
+            if let Ok(shortcut) = "ctrl+shift+l".parse::<Shortcut>() {
+                let handle_for_qa = app.handle().clone();
+                if let Err(e) = gs.on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) = handle_for_qa.get_webview_window("quick-action") {
+                            if w.is_visible().unwrap_or(false) {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    }
+                }) {
+                    tracing::debug!("Global shortcut Ctrl+Shift+L skipped: {e}");
                 }
             }
 
@@ -212,7 +231,10 @@ pub fn run() {
             commands::skill::upload_skill,
             commands::migration::import_data,
             commands::migration::export_data,
+            commands::clipboard::clipboard_read_text,
+            commands::clipboard::clipboard_write_text,
             commands::clipboard::clipboard_read_image,
+            commands::clipboard::clipboard_write_image,
             commands::clipboard::read_image_file,
         ])
         .build(tauri::generate_context!())

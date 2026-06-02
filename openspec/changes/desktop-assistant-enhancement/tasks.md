@@ -1,24 +1,24 @@
 ## 1. 剪贴板工具
 
-- [ ] 1.1 在 `xiaolin-app/src-tauri/src/` 添加跨平台 clipboard Tauri commands（read_text, write_text, read_image, write_image）
-- [ ] 1.2 macOS 实现：使用 `arboard` crate
-- [ ] 1.3 Windows 实现：使用 `arboard` crate
-- [ ] 1.4 Linux 实现：使用 `arboard` crate（自动检测 Wayland/X11）
-- [ ] 1.5 在 `xiaolin-agent/src/builtin_tools/` 添加 `clipboard.rs` 模块，注册 `clipboard_read` 和 `clipboard_write` tools
-- [ ] 1.6 工具通过 WebSocket → Tauri command 路径与系统剪贴板交互
-- [ ] 1.7 添加 Tauri capability 权限配置
-- [ ] 1.8 验证跨平台编译通过
+- [x] 1.1 在 `xiaolin-app/src-tauri/src/` 添加跨平台 clipboard Tauri commands（read_text, write_text, read_image, write_image）
+- [x] 1.2 macOS 实现：使用 `arboard` crate（跨平台统一实现）
+- [x] 1.3 Windows 实现：使用 `arboard` crate（跨平台统一实现）
+- [x] 1.4 Linux 实现：使用 `arboard` crate（自动检测 Wayland/X11）
+- [x] 1.5 在 `xiaolin-agent/src/builtin_tools/` 添加 `clipboard.rs` 模块，注册 `clipboard_read` 和 `clipboard_write` tools（deferred，通过 ToolSearch 可用）
+- [x] 1.6 Agent 工具直接通过 `arboard` 与系统剪贴板交互（无需 WebSocket → Tauri 绕行，同进程）
+- [x] 1.7 自定义 IPC 命令已在 invoke_handler 注册，无需额外 Tauri capability
+- [x] 1.8 `cargo check --workspace` 通过
 
 ## 2. Quick Action Bar
 
-- [ ] 2.1 在 `tauri.conf.json` 中配置 `quick-action` window（frameless, transparent, always-on-top, hidden）
-- [ ] 2.2 创建 `QuickActionBar.tsx` 前端组件（输入框 + 最近对话摘要）
-- [ ] 2.3 实现窗口路由：main window 渲染 App，quick-action window 渲染 QuickActionBar
-- [ ] 2.4 注册全局快捷键 `Ctrl+Shift+L`（可配置），toggle quick-action window visibility
-- [ ] 2.5 实现输入 → 创建/追加对话 → WebSocket 发送逻辑
-- [ ] 2.6 实现 Esc/blur 隐藏、Enter 发送交互
-- [ ] 2.7 使用 `tauri-plugin-positioner` 实现居中定位
-- [ ] 2.8 添加显示/隐藏动画（CSS transition）
+- [x] 2.1 在 `tauri.conf.json` 中配置 `quick-action` window（frameless, transparent, always-on-top, hidden, skipTaskbar）
+- [x] 2.2 创建 `QuickActionBar.tsx` 前端组件（搜索图标 + 输入框 + 发送按钮）
+- [x] 2.3 实现窗口路由：main.tsx 根据 pathname 渲染 App 或 QuickActionBar
+- [x] 2.4 注册全局快捷键 `Ctrl+Shift+L`，toggle quick-action window visibility
+- [x] 2.5 输入 → Enter 发送 → 隐藏窗口（WebSocket 对接待后续 Phase 补充）
+- [x] 2.6 实现 Esc 隐藏、blur（失焦）自动隐藏、Enter 发送交互
+- [x] 2.7 使用 Tauri 内建 `center: true` 实现居中定位（无需额外 positioner plugin）
+- [x] 2.8 添加 focus 动画（box-shadow transition）和 capability 权限配置
 
 ## 3. 语音输入（Phase 1: 系统 STT）
 

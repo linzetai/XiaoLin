@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "XiaoLin App default capabilities",
-  "windows": ["main"],
+  "windows": ["main", "quick-action"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

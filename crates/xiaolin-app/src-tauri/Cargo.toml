@@ -51,6 +51,8 @@ zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 base64 = "0.22"
+arboard = "3"
+png = "0.17"
 
 [dev-dependencies]
 xiaolin-gateway = { path = "../../xiaolin-gateway", features = ["test-helpers"] }

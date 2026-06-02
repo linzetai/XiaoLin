@@ -23,6 +23,21 @@
         "transparent": true,
         "shadow": false,
         "center": true
+      },
+      {
+        "label": "quick-action",
+        "title": "",
+        "url": "/quick-action",
+        "width": 680,
+        "height": 72,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "center": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true,
+        "resizable": false
       }
     ],
     "security": {

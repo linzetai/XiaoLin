@@ -1,5 +1,6 @@
 mod ask_question;
 mod brief;
+mod clipboard;
 mod confirm;
 pub mod coordinator;
 pub mod goal;
@@ -38,6 +39,7 @@ pub use xiaolin_tools_code::code_intel::{
     CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
     WorkspaceSymbolsTool,
 };
+pub use clipboard::{register_clipboard_tools, ClipboardReadTool, ClipboardWriteTool};
 pub use confirm::ConfirmTool;
 pub use xiaolin_tools_fs::filesystem::{
     get_effective_work_dir, set_code_graph_hook, with_additional_allowed_paths,
@@ -138,6 +140,7 @@ pub fn register_builtin_tools_full(
     registry.register_deferred(Arc::new(NotebookEditTool));
     registry.register_deferred(Arc::new(RequestPermissionsTool));
     registry.register_deferred(Arc::new(TerminalCaptureTool::new()));
+    register_clipboard_tools(registry);
 }
 
 /// Register web tools with a specific search backend configuration.
