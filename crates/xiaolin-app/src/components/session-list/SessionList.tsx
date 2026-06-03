@@ -11,12 +11,16 @@ import { useGatewayStore } from "../../lib/store";
 import { fuzzyMatch } from "../../lib/fuzzy";
 import type { ChatMeta, StreamItem } from "../../lib/stores/types";
 
-function chatPreview(stream: StreamItem[] | undefined): string {
-  if (!stream?.length) return "等待输入...";
-  const lastMsg = stream[stream.length - 1];
-  if (lastMsg?.type === "message" && lastMsg.data?.content) {
-    return lastMsg.data.content.slice(0, 50);
+function chatPreview(stream: StreamItem[] | undefined, meta: ChatMeta): string {
+  if (stream?.length) {
+    for (let i = stream.length - 1; i >= 0; i--) {
+      const item = stream[i];
+      if (item.type === "message" && item.data?.content) {
+        return item.data.content.slice(0, 60);
+      }
+    }
   }
+  if (meta.messageCount > 0) return meta.title || "";
   return "等待输入...";
 }
 
@@ -155,6 +159,8 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
   const renameChat = useChatMetaStore((s) => s.renameChat);
   const streams = useStreamStore((s) => s.streams);
   const gatewayReady = useGatewayStore((s) => s.connected);
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const layoutTier = useUIStore((s) => s.layoutTier);
 
   const chatList = useMemo(
     () => chatOrder.map((id) => chats[id]).filter((c): c is ChatMeta => c != null),
@@ -194,7 +200,8 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
 
   const handleSelectChat = useCallback((chatId: string) => {
     setActiveChat(chatId);
-  }, [setActiveChat]);
+    if (layoutTier === "compact" && onToggleCollapse) onToggleCollapse();
+  }, [setActiveChat, layoutTier, onToggleCollapse]);
 
   const handleDeleteChat = useCallback((chatId: string) => {
     closeChat(chatId);
@@ -232,22 +239,41 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
     return groups;
   }, [filteredChats, extractProjectName]);
 
-  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const isCompactOverlay = layoutTier === "compact" && !collapsed;
 
   return (
+    <>
+    {isCompactOverlay && (
+      <div
+        className="fixed inset-0 z-30"
+        style={{ background: "rgba(0,0,0,0.25)" }}
+        onClick={onToggleCollapse}
+      />
+    )}
     <aside
-      className="relative flex shrink-0 flex-col"
+      className={`flex shrink-0 flex-col${isCompactOverlay ? " fixed left-0 top-0 bottom-0 z-40" : " relative"}`}
       style={{
         width: collapsed ? 0 : sidebarWidth,
         background: "var(--bg-sidebar)",
         borderRight: collapsed ? "none" : "0.5px solid var(--separator)",
         transition: "width var(--duration-slow) var(--ease-in-out)",
-        overflow: "hidden",
+        overflow: collapsed ? "visible" : "hidden",
         pointerEvents: collapsed ? "none" : "auto",
+        ...(isCompactOverlay ? { boxShadow: "4px 0 16px rgba(0,0,0,0.15)" } : {}),
       }}
       tabIndex={collapsed ? -1 : 0}
     >
-      {!collapsed && <ResizeHandle />}
+      {collapsed && (
+        <button
+          onClick={onToggleCollapse}
+          className="absolute left-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+          style={{ color: "var(--fill-tertiary)", pointerEvents: "auto" }}
+          title="展开侧边栏"
+        >
+          <PanelLeftClose size={16} strokeWidth={1.2} style={{ transform: "scaleX(-1)" }} />
+        </button>
+      )}
+      {!collapsed && !isCompactOverlay && <ResizeHandle />}
       <div className="flex flex-col gap-2 px-3 pb-2 pt-2">
         <div className="flex items-center gap-1.5">
           <div
@@ -321,7 +347,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
               {chats.map((chat) => {
                 const active = activeChatId === chat.id;
                 const isRenaming = renamingChatId === chat.id;
-                const preview = chatPreview(streams[chat.id]);
+                const preview = chatPreview(streams[chat.id], chat);
                 return (
                   <div
                     key={chat.id}
@@ -420,5 +446,6 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
         />
       )}
     </aside>
+    </>
   );
 }

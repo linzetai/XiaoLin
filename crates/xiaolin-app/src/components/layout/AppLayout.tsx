@@ -141,18 +141,21 @@ export function AppLayout() {
   const outerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = outerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      let tier: LayoutTier = "standard";
-      if (w < 700) tier = "compact";
-      else if (w > 1100) tier = "wide";
-      setLayoutTier(tier);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    const computeTier = (w: number): LayoutTier =>
+      w < 700 ? "compact" : w > 1100 ? "wide" : "standard";
+    setLayoutTier(computeTier(window.innerWidth));
+    const onResize = () => setLayoutTier(computeTier(window.innerWidth));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, [setLayoutTier]);
+
+  const prevTierRef = useRef(layoutTier);
+  useEffect(() => {
+    if (layoutTier === "compact" && prevTierRef.current !== "compact" && !sidebarCollapsed) {
+      toggleSidebar();
+    }
+    prevTierRef.current = layoutTier;
+  }, [layoutTier, sidebarCollapsed, toggleSidebar]);
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
@@ -242,7 +245,7 @@ export function AppLayout() {
           {layoutTier !== "compact" && <NavRail />}
           {showAgentPane ? (
             <>
-              <SessionList collapsed={sidebarCollapsed || layoutTier === "compact"} onToggleCollapse={toggleSidebar} />
+              <SessionList collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
               <main className="relative flex min-w-0 flex-1 flex-col">
                 <MessageStream />
                 {!connected && mode !== "browser" && (

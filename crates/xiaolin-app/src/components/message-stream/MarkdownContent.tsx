@@ -89,6 +89,26 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function splitChildrenByLines(node: React.ReactNode): React.ReactNode[][] {
+  const lines: React.ReactNode[][] = [[]];
+  const flat: React.ReactNode[] = Array.isArray(node) ? node : [node];
+
+  for (const child of flat) {
+    if (typeof child === "string") {
+      const parts = child.split("\n");
+      for (let i = 0; i < parts.length; i++) {
+        if (i > 0) lines.push([]);
+        if (parts[i]) lines[lines.length - 1].push(parts[i]);
+      }
+    } else {
+      lines[lines.length - 1].push(child);
+    }
+  }
+
+  if (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
+  return lines;
+}
+
 function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"code">) {
   const isInline = !className && typeof children === "string" && !children.includes("\n");
   if (isInline) {
@@ -98,14 +118,13 @@ function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"c
   if (!showLineNumbers) {
     return <code className={className} {...rest}>{children}</code>;
   }
-  const text = extractTextFromNode(children);
-  const lines = text.replace(/\n$/, "").split("\n");
+  const lines = splitChildrenByLines(children);
   const totalLines = lines.length;
   const gutterWidth = totalLines >= 100 ? 48 : totalLines >= 10 ? 40 : 32;
   return (
     <code className={`${className ?? ""} has-line-numbers`} {...rest} style={{ counterReset: "line-number", "--gutter-w": `${gutterWidth}px` } as React.CSSProperties}>
-      {lines.map((line, i) => (
-        <span key={i} className="code-line">{line}{i < lines.length - 1 ? "\n" : ""}</span>
+      {lines.map((lineContent, i) => (
+        <span key={i} className="code-line">{lineContent}{i < lines.length - 1 ? "\n" : ""}</span>
       ))}
     </code>
   );
@@ -216,6 +235,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   return (
     <div className="markdown-body">
       <Markdown
+        key={highlighted ? "hl" : "raw"}
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={components}

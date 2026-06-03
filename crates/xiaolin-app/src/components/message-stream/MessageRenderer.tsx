@@ -224,11 +224,11 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         )}
       </div>
       {groupedSegments ? (
-        <div className="mb-2">
+        <div className="mb-2" style={{ maxWidth: "var(--content-max-w)" }}>
           {groupedSegments.map((group) => {
             if (group.type === "text" && group.segment.content) {
               return (
-                <div key={group.segment.id} className="pb-1" style={{ maxWidth: "var(--content-max-w)" }}>
+                <div key={group.segment.id} className="pb-1">
                   <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 16 }} />}>
                     <MarkdownContent content={group.segment.content} />
                   </Suspense>
@@ -250,7 +250,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
       ) : (
         <>
           {groupedToolCalls && groupedToolCalls.length > 0 && (
-            <div className="mb-2">
+            <div className="mb-2" style={{ maxWidth: "var(--content-max-w)" }}>
               {groupedToolCalls.map((item) => {
                 if (item.type === "single") {
                   return <StepIndicator key={item.tool.id} tool={item.tool} />;
@@ -611,7 +611,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
         pos = lower.indexOf(q, lastIdx);
       }
       if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-      if (parts.length <= 1) continue;
+      if (!parts.some((p) => typeof p !== "string")) continue;
 
       const frag = document.createDocumentFragment();
       for (const part of parts) {
@@ -636,12 +636,13 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     return (
       <MessageErrorBoundary>
       <div className="px-6 pb-2">
+        <div style={{ maxWidth: "var(--content-max-w)" }}>
         {!hasContent && activeSubRuns.length === 0 && <Typing />}
         {grouped.map((group, gi) => {
           if (group.type === "text" && group.segment.content) {
             const isLastSegment = gi === grouped.length - 1 && lastIsText;
             return (
-              <div key={group.segment.id} className="pb-1" style={{ maxWidth: "var(--content-max-w)" }}>
+              <div key={group.segment.id} className="pb-1">
                 <StreamingMarkdown content={group.segment.content} />
                 {isLastSegment && (
                   <span
@@ -680,6 +681,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
           <div className="mt-1"><Typing /></div>
         )}
         <div ref={bottomRef} />
+        </div>
       </div>
       </MessageErrorBoundary>
     );
