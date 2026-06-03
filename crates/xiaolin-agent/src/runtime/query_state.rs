@@ -821,20 +821,12 @@ mod tests {
                 content: Some(serde_json::Value::String(
                     "You are a helpful assistant.".into(),
                 )),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("hello".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         ];
 
@@ -999,11 +991,7 @@ mod tests {
         let mut messages = vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String("hello".into())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
 
         inject_tool_recovery_guidance(&mut messages, "Check permissions.");

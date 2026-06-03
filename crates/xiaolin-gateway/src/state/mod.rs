@@ -124,11 +124,7 @@ impl LlmExtractionCallback for LlmSkillExtraction {
         let messages = vec![xiaolin_core::types::ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(prompt)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
         let params = xiaolin_agent::CompletionParams {
             model: &self.model,
@@ -1860,11 +1856,7 @@ mod reload_tests {
                     message: ChatMessage {
                         role: Role::Assistant,
                         content: Some("ok".into()),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                     },
                     finish_reason: Some("stop".into()),
                 }],

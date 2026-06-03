@@ -133,11 +133,7 @@ impl QueryEngine {
         let user_msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!(user_text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
 
         let request = {
@@ -220,11 +216,7 @@ impl QueryEngine {
                                         s.messages.push(ChatMessage {
                                             role: Role::Assistant,
                                             content: Some(serde_json::json!(assistant_text)),
-                                            reasoning_content: None,
-                                            name: None,
-                                            tool_calls: None,
-                                            tool_call_id: None,
-                compact_metadata: None,
+                                        ..Default::default()
                                         });
                                     }
                                 }
@@ -595,11 +587,7 @@ mod tests {
         let msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!(text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
         assert_eq!(msg.role, Role::User);
         assert_eq!(msg.text_content().as_deref(), Some(text));

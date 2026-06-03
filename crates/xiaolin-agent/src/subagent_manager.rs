@@ -610,21 +610,13 @@ impl SubAgentManager {
                 content: Some(serde_json::Value::String(format!(
                     "Context from parent agent:\n{ctx}"
                 ))),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+            ..Default::default()
             });
         }
         messages.push(ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(task.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         });
 
         let request = ChatRequest {

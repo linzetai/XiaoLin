@@ -1035,15 +1035,12 @@ fn anthropic_value_to_chat_response(v: serde_json::Value) -> anyhow::Result<Chat
                 } else {
                     Some(serde_json::Value::String(content_parts.join("")))
                 },
-                reasoning_content: None,
-                name: None,
                 tool_calls: if tool_calls.is_empty() {
                     None
                 } else {
                     Some(tool_calls)
                 },
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             finish_reason: Some(finish_reason),
         }],
@@ -2016,11 +2013,7 @@ mod tests {
                 message: ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String("Hello!".to_string())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("stop".to_string()),
             }],
@@ -2059,8 +2052,6 @@ mod tests {
                 message: ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: None,
-                    reasoning_content: None,
-                    name: None,
                     tool_calls: Some(vec![xiaolin_core::types::ToolCall {
                         id: "call_123".to_string(),
                         call_type: "function".to_string(),
@@ -2072,8 +2063,7 @@ mod tests {
                         success: None,
                         duration_ms: None,
                     }]),
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("tool_calls".to_string()),
             }],

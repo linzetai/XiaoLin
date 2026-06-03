@@ -139,11 +139,7 @@ impl ContextHook for MemoryKeywordInterceptor {
             ChatMessage {
                 role: Role::System,
                 content: Some(hint.into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
         );
 

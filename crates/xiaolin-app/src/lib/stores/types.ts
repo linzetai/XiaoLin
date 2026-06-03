@@ -15,7 +15,9 @@ export interface ChatMessageToolCall {
   status: "running" | "success" | "error";
   args?: string;
   result?: string;
+  displayOutput?: string;
   duration?: number;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface ChatMessageImage {
@@ -155,7 +157,16 @@ export interface BackendMessage {
   content: unknown;
   name: string | null;
   toolCallId: string | null;
-  toolCallsJson?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null;
+  toolCallsJson?: Array<{
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+    output?: string;
+    display_output?: string;
+    success?: boolean;
+    duration_ms?: number;
+    metadata?: Record<string, unknown>;
+  }> | null;
   createdAt: string;
   promptTokens?: number;
   completionTokens?: number;

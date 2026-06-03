@@ -169,18 +169,41 @@ export const useStreamStore = create<StreamState>((set) => ({
   },
 
   loadChatStream: (chatId, messages) => {
+    // Collect tool-role messages for backward compat (old sessions without enriched tool_calls)
+    const toolResultMap = new Map<string, { content: string; success: boolean }>();
+    for (const m of messages) {
+      if (m.role === "tool" && m.toolCallId) {
+        const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+        toolResultMap.set(m.toolCallId, { content, success: true });
+      }
+    }
+
     const items: StreamItem[] = messages
       .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
       .map((m) => {
         let toolCalls: ChatMessageToolCall[] | undefined;
         if (m.toolCallsJson && Array.isArray(m.toolCallsJson) && m.toolCallsJson.length > 0) {
-          toolCalls = m.toolCallsJson.map((tc: Record<string, unknown>) => ({
-            id: tc.id as string,
-            name: (tc.function as Record<string, string>)?.name ?? "unknown",
-            status: (tc.success === false ? "error" : "success") as "success" | "error",
-            args: (tc.function as Record<string, string>)?.arguments,
-            result: tc.output as string | undefined,
-          }));
+          toolCalls = m.toolCallsJson.map((tc) => {
+            const callId = tc.id;
+            const hasEnriched = tc.output !== undefined || tc.display_output !== undefined;
+            const matched = toolResultMap.get(callId);
+            const result = hasEnriched
+              ? (tc.display_output ?? tc.output)
+              : (matched?.content ?? (tc.output as string | undefined));
+            const success = hasEnriched
+              ? (tc.success !== false)
+              : (matched ? matched.success : true);
+            return {
+              id: callId,
+              name: tc.function?.name ?? "unknown",
+              status: (success ? "success" : "error") as "success" | "error",
+              args: tc.function?.arguments,
+              result,
+              displayOutput: tc.display_output,
+              duration: tc.duration_ms,
+              metadata: tc.metadata,
+            };
+          });
         }
         let content: string;
         let images: ChatMessageImage[] | undefined;

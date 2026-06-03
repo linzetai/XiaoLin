@@ -12,11 +12,7 @@ fn make_messages(count: usize, content_len: usize) -> Vec<ChatMessage> {
                 Role::Assistant
             },
             content: Some(serde_json::Value::String(text.clone())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         })
         .collect()
 }

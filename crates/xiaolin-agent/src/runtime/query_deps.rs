@@ -245,11 +245,7 @@ mod tests {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::json!(content)),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -305,11 +301,7 @@ mod tests {
         let mut messages = vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!("test message")),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
 
         let result = deps

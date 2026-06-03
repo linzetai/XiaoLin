@@ -67,11 +67,7 @@ pub async fn generate_suggestions(
         messages: vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(user_msg)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }],
         max_tokens: Some(256),
         temperature: 0.7,
@@ -188,20 +184,12 @@ mod tests {
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("hi".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::Assistant,
                 content: Some(serde_json::Value::String("hello".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         ];
         let result = generate_suggestions(&provider, &messages, &config).await;

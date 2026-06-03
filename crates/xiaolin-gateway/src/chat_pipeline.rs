@@ -234,11 +234,7 @@ pub async fn setup_chat(
                  The compression pipeline will force-compress regardless of threshold."
                     .to_string(),
             )),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         });
     }
 
@@ -518,11 +514,7 @@ fn inject_slash_intent_context(
                     ChatMessage {
                         role: Role::System,
                         content: Some(serde_json::Value::String(injected)),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                     },
                 );
                 skill_loaded = true;
@@ -538,11 +530,7 @@ fn inject_slash_intent_context(
             ChatMessage {
                 role: Role::System,
                 content: Some(serde_json::Value::String(injected)),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
         );
     }
@@ -622,11 +610,7 @@ fn apply_prompt_router(
                 ChatMessage {
                     role: Role::System,
                     content: Some(serde_json::Value::String(dynamic)),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
                 },
             );
         } else {
@@ -653,11 +637,7 @@ fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<Cha
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(skills_prompt)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }
@@ -705,11 +685,7 @@ Guidance:\n\
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }
@@ -789,11 +765,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }
@@ -860,11 +832,7 @@ fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessag
     let user_msg = setup.user_messages.last().cloned().unwrap_or(ChatMessage {
         role: Role::User,
         content: None,
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-            compact_metadata: None,
+    ..Default::default()
     });
     let assistant_msg = assistant.clone();
 
@@ -958,22 +926,14 @@ pub async fn generate_smart_title(
                  Reply with ONLY the title, no quotes, no explanation."
                     .to_string(),
             )),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(format!(
                 "User: {user_preview}\nAssistant: {assistant_preview}"
             ))),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     ];
 

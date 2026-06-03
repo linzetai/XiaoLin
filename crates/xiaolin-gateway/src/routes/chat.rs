@@ -459,11 +459,8 @@ async fn handle_stream(
                             } else {
                                 Some(serde_json::Value::String(assistant_content.clone()))
                             },
-                            reasoning_content: None,
-                            name: None,
                             tool_calls: core_tool_calls,
-                            tool_call_id: None,
-                            compact_metadata: None,
+                        ..Default::default()
                         };
                         let _ = after_chat(
                             &state_for_persist,
@@ -519,11 +516,7 @@ async fn handle_stream(
                         let assistant_msg = xiaolin_core::types::ChatMessage {
                             role: xiaolin_core::types::Role::Assistant,
                             content: Some(serde_json::Value::String(assistant_content.clone())),
-                            reasoning_content: None,
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                            compact_metadata: None,
+                        ..Default::default()
                         };
                         let _ = after_chat(
                             &state_for_persist,

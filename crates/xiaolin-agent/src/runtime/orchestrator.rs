@@ -215,6 +215,46 @@ impl ToolOrchestrator {
         }
     }
 
+    /// Authorization-only pipeline: phases 1–3 (requirement, approval, sandbox
+    /// selection) without executing the tool. Returns `Ok(())` if the call is
+    /// permitted; callers can then execute the tool through any path they choose,
+    /// preserving rich `ToolResult` data that `runtime.run()` would discard.
+    pub async fn authorize(
+        &self,
+        runtime: &dyn ErasedToolRuntime,
+        args: &serde_json::Value,
+        ctx: &mut OrchestratorContext<'_>,
+    ) -> Result<(), ToolRuntimeError> {
+        let requirement = runtime.exec_requirement(args, ctx.cwd);
+
+        if ctx.denial_tracker.is_denied(runtime.name(), &format!("{args}")) {
+            return Err(ToolRuntimeError::Rejected {
+                reason: "previously denied in this session".to_string(),
+            });
+        }
+
+        match requirement {
+            ExecApprovalRequirement::Skip => Ok(()),
+            ExecApprovalRequirement::Forbidden { ref reason } => {
+                ctx.denial_tracker
+                    .record_denial(runtime.name(), &format!("{args}"));
+                Err(ToolRuntimeError::Rejected {
+                    reason: reason.clone(),
+                })
+            }
+            ExecApprovalRequirement::NeedsApproval { reason } => {
+                match self.resolve_approval(runtime, args, ctx, &reason).await {
+                    Ok(_source) => Ok(()),
+                    Err(e) => {
+                        ctx.denial_tracker
+                            .record_denial(runtime.name(), &format!("{args}"));
+                        Err(e)
+                    }
+                }
+            }
+        }
+    }
+
     /// Phase 2 implementation: resolve approval through the pipeline.
     async fn resolve_approval(
         &self,

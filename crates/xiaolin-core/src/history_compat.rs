@@ -107,10 +107,7 @@ pub fn history_to_chat_message(item: &HistoryItem) -> Option<ChatMessage> {
                 role: role.clone(),
                 content: msg_content,
                 reasoning_content: reasoning_content.clone(),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             })
         }
         HistoryItem::CompactBoundary {
@@ -226,24 +223,18 @@ pub fn history_items_to_chat_messages(items: &[HistoryItem]) -> Vec<ChatMessage>
                         role: role.clone(),
                         content: msg_content,
                         reasoning_content: reasoning_content.clone(),
-                        name: None,
                         tool_calls,
-                        tool_call_id: None,
-                        compact_metadata: None,
+                        ..Default::default()
                     });
                 }
                 HistoryItem::ToolUse {
                     call_id, output, ..
                 } => {
-                    // Generate a tool-role response message
                     result.push(ChatMessage {
                         role: Role::Tool,
                         content: Some(serde_json::Value::String(output.clone())),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
                         tool_call_id: Some(call_id.clone()),
-                        compact_metadata: None,
+                        ..Default::default()
                     });
                 }
                 HistoryItem::CompactBoundary {
@@ -281,11 +272,7 @@ mod tests {
         let msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String("hello".into())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id.clone());
@@ -302,10 +289,7 @@ mod tests {
             role: Role::Assistant,
             content: Some(serde_json::Value::String("answer".into())),
             reasoning_content: Some("thinking...".into()),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -324,11 +308,7 @@ mod tests {
                 {"type": "text", "text": "look at this"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
             ])),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -346,8 +326,6 @@ mod tests {
         let msg = ChatMessage {
             role: Role::Assistant,
             content: None,
-            reasoning_content: None,
-            name: None,
             tool_calls: Some(vec![ToolCall {
                 id: "tc-1".into(),
                 call_type: "function".into(),
@@ -359,8 +337,7 @@ mod tests {
                 success: Some(true),
                 duration_ms: Some(42),
             }]),
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -389,15 +366,12 @@ mod tests {
         let msg = ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String("summary text".into())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
             compact_metadata: Some(CompactMetadata {
                 trigger: CompactTrigger::Auto,
                 pre_compact_token_count: 100_000,
                 post_compact_token_count: 20_000,
             }),
+        ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);

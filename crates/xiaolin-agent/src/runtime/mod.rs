@@ -459,11 +459,7 @@ pub(crate) fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, gui
             content: Some(serde_json::Value::String(format!(
                 "[Tool execution recovery — review before your next tool_calls]\n{guidance}"
             ))),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }
@@ -481,11 +477,7 @@ fn inject_system_block(messages: &mut Vec<ChatMessage>, block: &str) {
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(block.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }
@@ -738,11 +730,7 @@ impl AgentRuntime {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::Value::String(text)),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
             }],
             usage,
@@ -1158,11 +1146,7 @@ impl AgentRuntime {
                     messages.push(ChatMessage {
                         role: Role::User,
                         content: Some(serde_json::Value::String(msg.content)),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-                        compact_metadata: None,
+                    ..Default::default()
                     });
                 }
             }
@@ -1385,11 +1369,7 @@ impl AgentRuntime {
                         messages.push(ChatMessage {
                             role: Role::User,
                             content: Some(serde_json::Value::String(inject_text)),
-                            reasoning_content: None,
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                            compact_metadata: None,
+                        ..Default::default()
                         });
                         tracing::debug!(
                             turn_count,
@@ -1547,10 +1527,7 @@ impl AgentRuntime {
                                         } else {
                                             Some(rc)
                                         },
-                                        name: None,
-                                        tool_calls: None,
-                                        tool_call_id: None,
-                                        compact_metadata: None,
+                                        ..Default::default()
                                     });
                                 }
                                 stream_resume_attempts += 1;
@@ -1844,10 +1821,7 @@ impl AgentRuntime {
                                 Some(serde_json::Value::String(partial))
                             },
                             reasoning_content: if rc.is_empty() { None } else { Some(rc) },
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                            compact_metadata: None,
+                        ..Default::default()
                         });
                     }
                     continue;
@@ -1897,10 +1871,7 @@ impl AgentRuntime {
                                                 } else {
                                                     Some(std::mem::take(&mut accumulated_reasoning))
                                                 },
-                                                name: None,
-                                                tool_calls: None,
-                                                tool_call_id: None,
-                                                compact_metadata: None,
+                                                ..Default::default()
                                             });
                                         }
                                         inject_tool_recovery_guidance(&mut messages, &feedback);
@@ -1939,21 +1910,14 @@ impl AgentRuntime {
                                     } else {
                                         Some(std::mem::take(&mut accumulated_reasoning))
                                     },
-                                    name: None,
-                                    tool_calls: None,
-                                    tool_call_id: None,
-                                    compact_metadata: None,
+                                    ..Default::default()
                                 });
                             }
                             if let Some(msg) = hook_result.continuation_message {
                                 messages.push(ChatMessage {
                                     role: Role::User,
                                     content: Some(serde_json::Value::String(msg)),
-                                    reasoning_content: None,
-                                    name: None,
-                                    tool_calls: None,
-                                    tool_call_id: None,
-                                    compact_metadata: None,
+                                    ..Default::default()
                                 });
                             }
                             continue;
@@ -1992,11 +1956,7 @@ impl AgentRuntime {
                                  Do NOT call any tools — just output text."
                                     .to_string(),
                             )),
-                            reasoning_content: None,
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                            compact_metadata: None,
+                        ..Default::default()
                         });
 
                         let summary_params = CompletionParams {
@@ -2152,10 +2112,8 @@ impl AgentRuntime {
                 } else {
                     Some(accumulated_reasoning.clone())
                 },
-                name: None,
                 tool_calls: Some(assembled_calls.clone()),
-                tool_call_id: None,
-                compact_metadata: None,
+            ..Default::default()
             });
 
             // Emit ToolExecuting events for all tool calls first.
@@ -2562,11 +2520,7 @@ impl AgentRuntime {
                              3. Ask the user if they want you to try a different approach.\n\n\
                              Do NOT retry the same failing tool calls.",
                         ))),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                     });
                     break;
                 }
@@ -2676,11 +2630,7 @@ impl AgentRuntime {
                                 break the work into smaller edit_file calls instead of one large write_file."
                                     .to_string(),
                             )),
-                            reasoning_content: None,
-                            name: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-            compact_metadata: None,
+                        ..Default::default()
                         });
                     }
                 }
@@ -2903,11 +2853,7 @@ impl AgentRuntime {
             ChatMessage {
                 role: Role::System,
                 content: Some(serde_json::Value::String(block.to_string())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         );
     }
@@ -2938,11 +2884,7 @@ impl AgentRuntime {
         messages.push(ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(system_text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         });
 
         messages.extend_from_slice(user_messages);
@@ -2978,11 +2920,7 @@ impl AgentRuntime {
                             ChatMessage {
                                 role: Role::System,
                                 content: Some(serde_json::Value::String(reminder)),
-                                reasoning_content: None,
-                                name: None,
-                                tool_calls: None,
-                                tool_call_id: None,
-                                compact_metadata: None,
+                            ..Default::default()
                             },
                         );
                     }
@@ -3293,11 +3231,7 @@ mod stream_resume_tests {
             messages: vec![ChatMessage {
                 role: Role::User,
                 content: Some("hi".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+            ..Default::default()
             }],
             agent_id: None,
             session_id: None,

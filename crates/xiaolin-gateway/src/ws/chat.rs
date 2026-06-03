@@ -594,6 +594,10 @@ pub async fn spawn_chat(
         let mut stream_ended = false;
         let mut current_turn_id: Option<xiaolin_protocol::TurnId> = None;
 
+        // Track tool calls during the stream so we can persist enriched data
+        // (including display_output, metadata) alongside the assistant message.
+        let mut tracked_tools: Vec<TrackedToolCallData> = Vec::new();
+
         let mode_at_start = state
             .rt
             .session_modes
@@ -642,17 +646,37 @@ pub async fn spawn_chat(
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                        enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                        ..Default::default()
                     };
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
                 }
                 break;
             }
             state.store.event_log.append(&session_id, &event);
+            // Capture tool events for enriched persistence
+            if let AgentEvent::ToolExecuting { ref call_id, ref tool_name, ref args, .. } = event {
+                tracked_tools.push(TrackedToolCallData {
+                    id: call_id.clone(),
+                    name: tool_name.clone(),
+                    args: args.clone(),
+                    output: None,
+                    display_output: None,
+                    success: None,
+                    metadata: None,
+                    start_ms: chat_start.elapsed().as_millis() as u64,
+                    duration_ms: None,
+                });
+            }
+            if let AgentEvent::ToolResult { ref call_id, ref output, ref display_output, success, ref metadata, .. } = event {
+                if let Some(tc) = tracked_tools.iter_mut().find(|t| t.id == *call_id) {
+                    tc.output = Some(output.clone());
+                    tc.display_output = display_output.clone();
+                    tc.success = Some(success);
+                    tc.metadata = metadata.clone();
+                    tc.duration_ms = Some(chat_start.elapsed().as_millis() as u64 - tc.start_ms);
+                }
+            }
             if matches!(&event, AgentEvent::Error { .. }) {
                 if reserved > 0.0 {
                     let _ = state.obs.budget_tracker.release_reservation(reserved);
@@ -662,11 +686,8 @@ pub async fn spawn_chat(
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                        enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                        ..Default::default()
                     };
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
                 }
@@ -707,11 +728,8 @@ pub async fn spawn_chat(
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                    ..Default::default()
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
@@ -814,11 +832,8 @@ pub async fn spawn_chat(
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                    ..Default::default()
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
             }
@@ -839,6 +854,62 @@ pub async fn spawn_chat(
             guard.remove(rid);
         }
     });
+}
+
+/// Build enriched `tool_calls_json` string from tracked tool events.
+/// Includes `display_output` and `metadata` which are UI-only fields
+/// not present on the `ToolCall` struct. The extra fields are silently
+/// ignored by `serde_json::from_str::<Vec<ToolCall>>` on the LLM load
+/// path, keeping the LLM context clean.
+fn build_enriched_tool_calls_json(
+    tracked: &[TrackedToolCallData],
+) -> Option<String> {
+    if tracked.is_empty() {
+        return None;
+    }
+    let arr: Vec<serde_json::Value> = tracked
+        .iter()
+        .map(|tc| {
+            let mut obj = json!({
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": tc.args.as_deref().unwrap_or("")
+                }
+            });
+            if let Some(ref output) = tc.output {
+                obj["output"] = json!(output);
+            }
+            if let Some(ref display_output) = tc.display_output {
+                obj["display_output"] = json!(display_output);
+            }
+            if let Some(success) = tc.success {
+                obj["success"] = json!(success);
+            }
+            if let Some(duration_ms) = tc.duration_ms {
+                obj["duration_ms"] = json!(duration_ms);
+            }
+            if let Some(ref metadata) = tc.metadata {
+                obj["metadata"] = metadata.clone();
+            }
+            obj
+        })
+        .collect();
+    Some(serde_json::to_string(&arr).unwrap_or_default())
+}
+
+/// Captured tool call data during a streaming turn.
+struct TrackedToolCallData {
+    id: String,
+    name: String,
+    args: Option<String>,
+    output: Option<String>,
+    display_output: Option<String>,
+    success: Option<bool>,
+    metadata: Option<serde_json::Value>,
+    start_ms: u64,
+    duration_ms: Option<u64>,
 }
 
 pub fn forward_event(event: &AgentEvent, req_id: &Option<String>) -> WsResponse {

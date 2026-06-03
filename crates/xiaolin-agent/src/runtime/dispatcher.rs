@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use xiaolin_core::agent_config::BehaviorConfig;
 use xiaolin_core::tool::{PostToolInfo, PreToolAction, ToolHook, ToolHookContext, ToolKind, ToolRegistry, ToolResult};
-use xiaolin_core::tool_runtime::ApprovalStrategy;
+use xiaolin_core::tool_runtime::{ApprovalStrategy, SandboxPreference};
 use xiaolin_core::types::ToolCall;
 use xiaolin_protocol::{AgentEvent, TurnId};
 use xiaolin_session_actor::InteractionHandle;
@@ -407,6 +407,42 @@ impl ToolDispatcher {
             return ToolResult::err(format!("runtime not found: {tool_name}"));
         };
 
+        let skip_sandbox = rt.sandbox_preference() == SandboxPreference::Skip;
+
+        if skip_sandbox {
+            // For tools that skip sandbox (edit_file, write_file, etc.), run
+            // approval through the orchestrator but execute via the actual Tool
+            // implementation so that rich fields (display_output, metadata) are
+            // preserved. The simplified ToolRuntime::run() only returns a plain
+            // String, losing those fields.
+            let mut orch_ctx = OrchestratorContext {
+                turn_id: ctx.turn_id,
+                cwd: &cwd,
+                approval_cache: ctx.approval_cache,
+                approval_strategy: ctx.approval_strategy,
+                interaction_handle: ctx.interaction_handle,
+                event_tx: ctx.event_tx,
+                denial_tracker: ctx.denial_tracker,
+            };
+
+            if let Err(e) = self.orchestrator.authorize(rt.as_ref(), &args, &mut orch_ctx).await {
+                return match e {
+                    xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason } => {
+                        ToolResult::err(format!("Denied: {reason}"))
+                    }
+                    xiaolin_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms } => {
+                        ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
+                    }
+                    other => ToolResult::err(other.to_string()),
+                };
+            }
+
+            return self.execute_unguarded(tc, ctx).await;
+        }
+
+        // Full orchestrator pipeline (approval + sandbox + execution) for tools
+        // that need sandbox (e.g. shell_exec). The runtime's run() handles
+        // sandbox-aware execution.
         let mut orch_ctx = OrchestratorContext {
             turn_id: ctx.turn_id,
             cwd: &cwd,

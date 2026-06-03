@@ -143,11 +143,7 @@ impl SideQueryHandle {
         let msgs = vec![ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(question.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
         match self.query(system, msgs).await {
             Ok(Some(r)) => Some(r.content),
@@ -281,11 +277,7 @@ mod tests {
                     message: ChatMessage {
                         role: Role::Assistant,
                         content: Some(serde_json::Value::String(content)),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-                        compact_metadata: None,
+                    ..Default::default()
                     },
                     finish_reason: Some("stop".into()),
                 }],
@@ -322,11 +314,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("test".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+            ..Default::default()
             }],
             ..Default::default()
         }

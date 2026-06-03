@@ -236,11 +236,7 @@ mod tests {
         ChatMessage {
             role: Role::System,
             content: Some(json!(text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -248,11 +244,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(json!(text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -260,11 +252,7 @@ mod tests {
         ChatMessage {
             role: Role::Assistant,
             content: Some(json!(text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 

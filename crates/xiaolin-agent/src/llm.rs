@@ -1041,15 +1041,12 @@ impl AnthropicProvider {
                     } else {
                         Some(serde_json::Value::String(content_parts.join("")))
                     },
-                    reasoning_content: None,
-                    name: None,
                     tool_calls: if tool_calls.is_empty() {
                         None
                     } else {
                         Some(tool_calls)
                     },
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
                 finish_reason: Some(finish_reason),
             }],

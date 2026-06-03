@@ -107,6 +107,13 @@ pub struct ChatMessage {
     /// contains metadata about the compaction event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_metadata: Option<CompactMetadata>,
+    /// Raw JSON override for `tool_calls_json` in the DB. When set,
+    /// `SessionStore::append_message` writes this string directly instead of
+    /// serializing `self.tool_calls`. This allows the gateway to embed extra
+    /// UI-only fields (`display_output`, `metadata`) that are not part of
+    /// the `ToolCall` struct and should not be sent to the LLM.
+    #[serde(skip)]
+    pub enriched_tool_calls_json: Option<String>,
 }
 
 impl ChatMessage {
@@ -154,15 +161,12 @@ impl ChatMessage {
             content: Some(serde_json::Value::String(
                 "[Context was compacted: earlier conversation summarized]".to_string(),
             )),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
             compact_metadata: Some(CompactMetadata {
                 trigger,
                 pre_compact_token_count: pre_tokens,
                 post_compact_token_count: post_tokens,
             }),
+            ..Default::default()
         }
     }
 
@@ -182,6 +186,7 @@ impl Default for ChatMessage {
             tool_calls: None,
             tool_call_id: None,
             compact_metadata: None,
+            enriched_tool_calls_json: None,
         }
     }
 }

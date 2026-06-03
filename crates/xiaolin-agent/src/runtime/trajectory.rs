@@ -5,11 +5,7 @@ pub(crate) fn append_text_to_chat_content(content: &mut Option<serde_json::Value
     let tmp = ChatMessage {
         role: Role::System,
         content: content.clone(),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-        compact_metadata: None,
+    ..Default::default()
     };
     let mut s = tmp.text_content().map(|c| c.into_owned()).unwrap_or_default();
     s.push_str(block);

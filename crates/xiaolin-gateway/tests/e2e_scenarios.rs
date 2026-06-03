@@ -73,11 +73,8 @@ impl LlmProvider for ScriptedProvider {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content,
-                    reasoning_content: None,
-                    name: None,
                     tool_calls,
-                    tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],

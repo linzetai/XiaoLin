@@ -29,11 +29,7 @@ impl LlmProvider for MockProvider {
                 message: xiaolin_core::types::ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some("Hello from mock".into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],

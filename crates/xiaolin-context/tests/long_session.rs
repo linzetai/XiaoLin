@@ -8,11 +8,7 @@ fn make_system_msg(text: &str) -> ChatMessage {
     ChatMessage {
         role: Role::System,
         content: Some(serde_json::Value::String(text.to_string())),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
     }
 }
 
@@ -20,11 +16,7 @@ fn make_user_msg(text: &str) -> ChatMessage {
     ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String(text.to_string())),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
     }
 }
 
@@ -32,11 +24,7 @@ fn make_assistant_msg(text: &str) -> ChatMessage {
     ChatMessage {
         role: Role::Assistant,
         content: Some(serde_json::Value::String(text.to_string())),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
     }
 }
 

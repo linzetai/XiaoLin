@@ -554,11 +554,14 @@ impl SessionStore {
         let role = serde_json::to_string(&msg.role)?;
         let role = role.trim_matches('"');
 
-        let tool_calls_json = msg
-            .tool_calls
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?;
+        let tool_calls_json = if let Some(ref raw) = msg.enriched_tool_calls_json {
+            Some(raw.clone())
+        } else {
+            msg.tool_calls
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?
+        };
 
         let content_json: Option<String> = match &msg.content {
             None => None,
@@ -777,6 +780,7 @@ impl SessionStore {
                 tool_calls,
                 tool_call_id: row.tool_call_id,
                 compact_metadata,
+                ..Default::default()
             });
         }
 
@@ -1356,20 +1360,12 @@ mod tests {
             ChatMessage {
                 role: Role::User,
                 content: Some("a".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::Assistant,
                 content: Some("b".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
         ];
         store.append_messages("s1", &msgs).await.unwrap();
@@ -1401,20 +1397,12 @@ mod tests {
             ChatMessage {
                 role: Role::User,
                 content: Some("first".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some("second".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
         ];
 
@@ -1436,11 +1424,7 @@ mod tests {
         let msgs = vec![ChatMessage {
             role: Role::User,
             content: Some("x".into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
         assert!(store.append_messages("missing", &msgs).await.is_err());
     }

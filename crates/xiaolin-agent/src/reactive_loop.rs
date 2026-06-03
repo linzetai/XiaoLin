@@ -68,11 +68,8 @@ pub fn notification_as_system_message(text: &str) -> ChatMessage {
     ChatMessage {
         role: Role::System,
         content: Some(serde_json::Value::String(text.to_string())),
-        reasoning_content: None,
         name: Some("subagent_harness".to_string()),
-        tool_calls: None,
-        tool_call_id: None,
-        compact_metadata: None,
+        ..Default::default()
     }
 }
 

@@ -280,11 +280,7 @@ mod tests {
         let msgs = vec![ChatMessage {
             role: Role::User,
             content: Some("a".repeat(400).into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
         let t0 = CostEstimator::estimate_chat_complexity_tokens(&msgs, 0);
         let t5 = CostEstimator::estimate_chat_complexity_tokens(&msgs, 5);

@@ -191,11 +191,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
         messages.push(ChatMessage {
             role: Role::System,
             content: Some(system_body.into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
     }
 
@@ -205,11 +201,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
         messages.push(ChatMessage {
             role: Role::System,
             content: Some(block.into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
     }
 
@@ -219,11 +211,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
         messages.push(ChatMessage {
             role: Role::System,
             content: Some(block.into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
     }
 
@@ -233,11 +221,7 @@ pub fn assemble_context(budget: &ContextBudget, layers: &ContextLayers) -> Assem
         messages.push(ChatMessage {
             role: Role::System,
             content: Some(block.into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
     }
 
@@ -517,11 +501,7 @@ impl ContextHook for SystemReminderHook {
                 ChatMessage {
                     role: Role::System,
                     content: Some(DEFAULT_SYSTEM_REMINDER_TEXT.into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                 },
             );
         }
@@ -701,11 +681,7 @@ impl ContextHook for PersonalityHook {
                          {soul}\n\
                          </user_provided_context>"
                     ).into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                 },
             );
             offset += 1;
@@ -720,11 +696,7 @@ impl ContextHook for PersonalityHook {
                          {user}\n\
                          </user_provided_context>"
                     ).into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                 },
             );
         }
@@ -832,11 +804,7 @@ impl ContextHook for MemoryIngestHook {
                 ChatMessage {
                     role: xiaolin_core::types::Role::System,
                     content: Some(memory_block.into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                 },
             );
         }
@@ -923,11 +891,7 @@ impl ContextHook for AgentPersonalityHook {
                         )
                         .into(),
                     ),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
             );
             offset += 1;
@@ -950,11 +914,7 @@ impl ContextHook for AgentPersonalityHook {
                         )
                         .into(),
                     ),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
             );
             offset += 1;
@@ -973,11 +933,7 @@ impl ContextHook for AgentPersonalityHook {
                         )
                         .into(),
                     ),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
             );
             offset += 1;
@@ -996,11 +952,7 @@ impl ContextHook for AgentPersonalityHook {
                         )
                         .into(),
                     ),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
             );
             offset += 1;
@@ -1019,11 +971,7 @@ impl ContextHook for AgentPersonalityHook {
                         )
                         .into(),
                     ),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                    ..Default::default()
                 },
             );
         }
@@ -1131,11 +1079,7 @@ impl ContextHook for AgentMemoryIngestHook {
                 ChatMessage {
                     role: xiaolin_core::types::Role::System,
                     content: Some(block.into()),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-            compact_metadata: None,
+                    ..Default::default()
                 },
             );
         }
@@ -1237,11 +1181,7 @@ impl ContextEngine {
                 content: Some(
                     "[Earlier conversation history was truncated to fit context window]".into(),
                 ),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             });
         }
         final_msgs.extend(kept);
@@ -1451,11 +1391,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1463,11 +1399,7 @@ mod tests {
         ChatMessage {
             role: Role::Assistant,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1502,11 +1434,7 @@ mod tests {
                     ChatMessage {
                         role: Role::System,
                         content: Some(text.clone().into()),
-                        reasoning_content: None,
-                        name: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-            compact_metadata: None,
+                        ..Default::default()
                     },
                 );
             }
@@ -1599,11 +1527,8 @@ mod tests {
         ChatMessage {
             role: Role::Tool,
             content: Some(content.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
             tool_call_id: Some("id-1".to_string()),
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1611,11 +1536,7 @@ mod tests {
         ChatMessage {
             role: Role::System,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1645,12 +1566,7 @@ mod tests {
         let hook = ContentFilterHook::default();
         let empty = ChatMessage {
             role: Role::Assistant,
-            content: None,
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         };
         let mut msgs = vec![user("hi"), empty, assistant("bye")];
         hook.on_assemble(&mut msgs).await.unwrap();
@@ -1680,9 +1596,6 @@ mod tests {
         let hook = ContentFilterHook::default();
         let asst_with_tool = ChatMessage {
             role: Role::Assistant,
-            content: None,
-            reasoning_content: None,
-            name: None,
             tool_calls: Some(vec![ToolCall {
                 id: "tc1".into(),
                 call_type: "function".into(),
@@ -1694,8 +1607,7 @@ mod tests {
                 success: None,
                 duration_ms: None,
             }]),
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         };
         let mut msgs = vec![user("run it"), asst_with_tool];
         hook.on_assemble(&mut msgs).await.unwrap();

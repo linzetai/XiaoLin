@@ -162,11 +162,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(content.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -202,8 +198,6 @@ mod tests {
             ChatMessage {
                 role: Role::Assistant,
                 content: None,
-                reasoning_content: None,
-                name: None,
                 tool_calls: Some(vec![xiaolin_core::types::ToolCall {
                     id: "1".into(),
                     call_type: "function".into(),
@@ -215,17 +209,13 @@ mod tests {
                     success: None,
                     duration_ms: None,
                 }]),
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::Tool,
                 content: Some("ok".into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
                 tool_call_id: Some("1".into()),
-                compact_metadata: None,
+                ..Default::default()
             },
             user_msg("fix the error"),
         ];

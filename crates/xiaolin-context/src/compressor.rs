@@ -534,11 +534,7 @@ impl ContextCompactor {
         result.push(ChatMessage {
             role: Role::System,
             content: Some(format!("[Conversation history summary]\n{summary}").into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
         result.extend(kept.iter().cloned().cloned());
 
@@ -586,11 +582,7 @@ impl ContextCompactor {
             result.push(ChatMessage {
                 role: Role::System,
                 content: Some(format!("[Conversation history summary]\n{s}").into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             });
         }
         result.extend(kept.into_iter().cloned());
@@ -619,11 +611,7 @@ impl ContextCompactor {
         result.push(ChatMessage {
             role: Role::System,
             content: Some(format!("[Full conversation summary]\n{summary}").into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         });
         result.append(&mut last_pair_ordered);
 
@@ -713,11 +701,7 @@ impl ContextCompactor {
                 content: Some(
                     format!("[Layered conversation summary — older & mid bands]\n{s}").into(),
                 ),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             });
         }
         result.extend(recent_msgs);
@@ -1056,11 +1040,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1068,11 +1048,7 @@ mod tests {
         ChatMessage {
             role: Role::Assistant,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1080,11 +1056,7 @@ mod tests {
         ChatMessage {
             role: Role::System,
             content: Some(text.to_string().into()),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1192,19 +1164,14 @@ mod tests {
             ChatMessage {
                 role: Role::Tool,
                 content: Some(out.to_string().into()),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
                 tool_call_id: Some(id.to_string()),
-                compact_metadata: None,
+                ..Default::default()
             }
         }
         fn asst_tools() -> ChatMessage {
             ChatMessage {
                 role: Role::Assistant,
                 content: None,
-                reasoning_content: None,
-                name: None,
                 tool_calls: Some(vec![xiaolin_core::types::ToolCall {
                     id: "1".into(),
                     call_type: "function".into(),
@@ -1216,8 +1183,7 @@ mod tests {
                     success: None,
                     duration_ms: None,
                 }]),
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             }
         }
         let compactor = ContextCompactor::new(CompactionStrategy::ImportanceBased {
@@ -1277,7 +1243,6 @@ mod tests {
             role: Role::Assistant,
             content: content.map(|s| serde_json::Value::String(s.to_string())),
             reasoning_content: reasoning.map(|s| s.to_string()),
-            name: None,
             tool_calls: if tc_ids.is_empty() {
                 None
             } else {
@@ -1298,8 +1263,7 @@ mod tests {
                         .collect(),
                 )
             },
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1307,11 +1271,9 @@ mod tests {
         ChatMessage {
             role: Role::Tool,
             content: Some(serde_json::Value::String(output.to_string())),
-            reasoning_content: None,
             name: Some("test_tool".to_string()),
-            tool_calls: None,
             tool_call_id: Some(call_id.to_string()),
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -1370,10 +1332,7 @@ mod tests {
                 role: Role::Assistant,
                 content: None,
                 reasoning_content: Some("deep thoughts".to_string()),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+                ..Default::default()
             },
             user("next"),
         ];

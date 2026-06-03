@@ -106,11 +106,7 @@ impl GuardianReviewer {
             ChatMessage {
                 role: Role::System,
                 content: Some(serde_json::Value::String(system_prompt.to_string())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
@@ -118,11 +114,7 @@ impl GuardianReviewer {
                     "Review this action:\n{}",
                     action_description
                 ))),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         ];
 
@@ -272,11 +264,7 @@ mod tests {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::Value::String(content.to_string())),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],

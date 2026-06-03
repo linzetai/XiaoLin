@@ -307,11 +307,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let user_msg = xiaolin_core::types::ChatMessage {
                 role: xiaolin_core::types::Role::User,
                 content: Some(serde_json::Value::String(message.to_string())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
             };
             let _ = self
                 .state
@@ -399,11 +395,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let assistant_msg = xiaolin_core::types::ChatMessage {
                 role: xiaolin_core::types::Role::Assistant,
                 content: Some(serde_json::Value::String(reply.clone())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
             };
             let _ = self
                 .state

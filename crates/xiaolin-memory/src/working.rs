@@ -137,11 +137,7 @@ mod tests {
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(text.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 
@@ -149,11 +145,7 @@ mod tests {
         ChatMessage {
             role: Role::Assistant,
             content: Some(serde_json::Value::String(text.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
         }
     }
 

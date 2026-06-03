@@ -470,11 +470,7 @@ pub(crate) async fn handle_channel_message(
     let user_msg = ChatMessage {
         role: Role::User,
         content: Some(user_content),
-        reasoning_content: None,
-        name: None,
-        tool_calls: None,
-        tool_call_id: None,
-        compact_metadata: None,
+    ..Default::default()
     };
     state
         .store
@@ -574,11 +570,7 @@ pub(crate) async fn handle_channel_message(
         let assistant_msg = ChatMessage {
             role: Role::Assistant,
             content: Some(serde_json::Value::String(reply_text.clone())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -618,11 +610,7 @@ pub(crate) async fn handle_channel_message(
             .unwrap_or(ChatMessage {
                 role: Role::Assistant,
                 content: Some(serde_json::Value::String(reply_text.clone())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            compact_metadata: None,
+            ..Default::default()
             });
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -679,11 +667,7 @@ fn inject_channel_context(
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     );
 }

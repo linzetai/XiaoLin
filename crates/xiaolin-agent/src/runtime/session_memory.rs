@@ -159,20 +159,12 @@ pub(crate) async fn extract_session_memory(
             content: Some(serde_json::Value::String(
                 EXTRACTION_SYSTEM_PROMPT.to_string(),
             )),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(conversation_text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     ];
 
@@ -332,20 +324,12 @@ pub(crate) async fn extract_incremental(
             content: Some(serde_json::Value::String(
                 EXTRACTION_SYSTEM_PROMPT.to_string(),
             )),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(conversation_text)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         },
     ];
 
@@ -541,11 +525,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(long_content)),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         }];
 
         let summary = build_conversation_summary(&messages);
@@ -559,20 +539,12 @@ mod tests {
             ChatMessage {
                 role: Role::System,
                 content: Some(serde_json::Value::String("You are helpful.".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("hello".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         ];
 

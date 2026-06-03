@@ -93,11 +93,7 @@ impl FeishuMessageHandler for FeishuChannel {
         let user_msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(text.to_string())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
         self.session_store
             .append_message(&session.id, &user_msg)
@@ -180,11 +176,7 @@ impl FeishuMessageHandler for FeishuChannel {
         let assistant_msg = ChatMessage {
             role: Role::Assistant,
             content: Some(serde_json::Value::String(reply.clone())),
-            reasoning_content: None,
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-            compact_metadata: None,
+        ..Default::default()
         };
         self.session_store
             .append_message(&session.id, &assistant_msg)

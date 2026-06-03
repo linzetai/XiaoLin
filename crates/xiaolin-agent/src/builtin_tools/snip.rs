@@ -172,11 +172,7 @@ Guidelines:\n\
                     content: Some(serde_json::Value::String(format!(
                         "[{snipped_count} message(s) snipped: {reason}]"
                     ))),
-                    reasoning_content: None,
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    compact_metadata: None,
+                ..Default::default()
                 },
             );
         }
@@ -204,58 +200,36 @@ mod tests {
             ChatMessage {
                 role: Role::System,
                 content: Some(serde_json::Value::String("You are helpful.".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("Hello".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::Assistant,
                 content: Some(serde_json::Value::String(
                     "Hi there! How can I help?".into(),
                 )),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("Search for X".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::Tool,
                 content: Some(serde_json::Value::String("result of search...".repeat(50))),
-                reasoning_content: None,
                 name: Some("web_search".into()),
-                tool_calls: None,
                 tool_call_id: Some("call_1".into()),
-                compact_metadata: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("Now do Y".into())),
-                reasoning_content: None,
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-                compact_metadata: None,
+                ..Default::default()
             },
         ]
     }
