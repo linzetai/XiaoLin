@@ -12,7 +12,9 @@ import {
 import { AlertTriangle } from "lucide-react";
 import { UserInput } from "./UserInput";
 import { BriefMessageCard } from "./BriefMessageCard";
-import { ClawIcon } from "../layout/ClawIcon";
+import { useFileChangeSummary } from "./useFileChangeSummary";
+import { FileChangesCard } from "./FileChangesCard";
+
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
@@ -65,26 +67,6 @@ import {
 import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
 
-function MessageAvatar({ role }: { role: "user" | "assistant" }) {
-  if (role === "user") {
-    return (
-      <div
-        className="w-[30px] h-[30px] rounded-full grid place-items-center text-[12px] font-bold text-white shrink-0"
-        style={{ background: "linear-gradient(135deg, var(--tint), color-mix(in srgb, var(--tint) 70%, #6366F1))" }}
-      >
-        U
-      </div>
-    );
-  }
-  return (
-    <div
-      className="w-[30px] h-[30px] rounded-full grid place-items-center shrink-0"
-      style={{ background: "var(--bg-surface)", border: "1.5px solid var(--separator)" }}
-    >
-      <ClawIcon size={14} />
-    </div>
-  );
-}
 
 function ts(d: Date) {
   const now = new Date();
@@ -176,6 +158,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
 const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect, savedSegments }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; savedSegments?: StreamSegment[] }) {
   const toolCalls = msg.toolCalls;
   const aiThreshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
+  const fileChangeSummary = useFileChangeSummary(toolCalls, savedSegments);
 
   const hasSegments = savedSegments && savedSegments.length > 0;
   const groupedSegments = useMemo(() => {
@@ -191,8 +174,8 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
   }, [hasSegments, toolCalls, aiThreshold]);
 
   return (
-    <div className="pb-3 group/message">
-      <div className="flex items-start gap-[14px]">
+    <div className="m-ai mb-4 group/message">
+      <div className="flex items-start gap-2">
         {onToggleSelect && (
           <button
             onClick={onToggleSelect}
@@ -205,10 +188,8 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
             {selected && <Check size={14} strokeWidth={2.5} style={{ color: "white" }} />}
           </button>
         )}
-        <MessageAvatar role="assistant" />
         <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>XiaoLin</span>
+      <div className="flex items-center gap-2 mb-1.5">
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
           {ts(msg.timestamp)}
         </span>
@@ -224,7 +205,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         )}
       </div>
       {groupedSegments ? (
-        <div className="mb-2" style={{ maxWidth: "var(--content-max-w)" }}>
+        <div className="ai-body mb-2" style={{ maxWidth: "var(--content-max-w)", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
           {groupedSegments.map((group) => {
             if (group.type === "text" && group.segment.content) {
               return (
@@ -264,15 +245,15 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               })}
             </div>
           )}
-          <div style={{ maxWidth: "var(--content-max-w)" }}>
+          <div className="ai-body" style={{ maxWidth: "var(--content-max-w)", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
             <Suspense fallback={<div className="animate-pulse rounded py-2" style={{ background: "var(--bg-tertiary)", height: 20 }} />}>
               <MarkdownContent content={msg.content} />
             </Suspense>
           </div>
         </>
       )}
-      {!groupedSegments && copyable && <AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} />}
-      {groupedSegments && copyable && <AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} />}
+      {fileChangeSummary && <FileChangesCard summary={fileChangeSummary} />}
+      {copyable && <AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} />}
         </div>
       </div>
     </div>

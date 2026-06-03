@@ -1,30 +1,11 @@
 /**
  * Specialized renderer for edit_file tool results.
- * Shows a compact diff summary with file path and line change stats.
+ * Compact file row with expandable inline diff.
  */
 
-import { FileCode, Plus, Minus } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
-
-interface EditResult {
-  edited: boolean;
-  path: string;
-  replacements: number;
-  bytes: number;
-  diffStat: string;
-  linesAdded: number;
-  linesRemoved: number;
-}
-
-function parseEditResult(result: string): EditResult | null {
-  try {
-    const parsed = JSON.parse(result);
-    if (parsed.edited && parsed.path && typeof parsed.linesAdded === "number") {
-      return parsed as EditResult;
-    }
-  } catch { /* not JSON edit result */ }
-  return null;
-}
+import { useState, useMemo } from "react";
+import { Plus, Minus, ChevronRight } from "lucide-react";
+import { parseEditResult } from "./edit-result-utils";
 
 function DiffStatBadge({ added, removed }: { added: number; removed: number }) {
   const total = added + removed;
@@ -50,25 +31,13 @@ function DiffStatBadge({ added, removed }: { added: number; removed: number }) {
       )}
       <div className="flex gap-[2px]">
         {Array.from({ length: addDots }).map((_, i) => (
-          <div
-            key={`a${i}`}
-            className="h-[6px] w-[6px] rounded-[1px]"
-            style={{ background: "var(--green, #48BB78)" }}
-          />
+          <div key={`a${i}`} className="h-[6px] w-[6px] rounded-[1px]" style={{ background: "var(--green, #48BB78)" }} />
         ))}
         {Array.from({ length: remDots }).map((_, i) => (
-          <div
-            key={`r${i}`}
-            className="h-[6px] w-[6px] rounded-[1px]"
-            style={{ background: "var(--red, #FC8181)" }}
-          />
+          <div key={`r${i}`} className="h-[6px] w-[6px] rounded-[1px]" style={{ background: "var(--red, #FC8181)" }} />
         ))}
         {Array.from({ length: Math.max(0, maxDots - addDots - remDots) }).map((_, i) => (
-          <div
-            key={`n${i}`}
-            className="h-[6px] w-[6px] rounded-[1px]"
-            style={{ background: "var(--fill-quaternary)" }}
-          />
+          <div key={`n${i}`} className="h-[6px] w-[6px] rounded-[1px]" style={{ background: "var(--fill-quaternary)" }} />
         ))}
       </div>
     </div>
@@ -85,35 +54,41 @@ function parseEditArgs(argsStr: string): { oldString?: string; newString?: strin
   } catch { return null; }
 }
 
+const INITIAL_MAX = 12;
+
 function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }) {
-  const oldLines = oldStr.split("\n");
-  const newLines = newStr.split("\n");
-  const maxLines = 12;
+  const [showAll, setShowAll] = useState(false);
 
-  const allLines: Array<{ type: "remove" | "add" | "context"; text: string }> = [];
+  const allLines = useMemo(() => {
+    const oldLines = oldStr.split("\n");
+    const newLines = newStr.split("\n");
+    const lines: Array<{ type: "remove" | "add" | "context"; text: string }> = [];
 
-  let oi = 0;
-  let ni = 0;
-  while (oi < oldLines.length || ni < newLines.length) {
-    if (oi < oldLines.length && ni < newLines.length && oldLines[oi] === newLines[ni]) {
-      allLines.push({ type: "context", text: oldLines[oi] });
-      oi++;
-      ni++;
-    } else if (oi < oldLines.length) {
-      allLines.push({ type: "remove", text: oldLines[oi] });
-      oi++;
-    } else if (ni < newLines.length) {
-      allLines.push({ type: "add", text: newLines[ni] });
-      ni++;
+    let oi = 0;
+    let ni = 0;
+    while (oi < oldLines.length || ni < newLines.length) {
+      if (oi < oldLines.length && ni < newLines.length && oldLines[oi] === newLines[ni]) {
+        lines.push({ type: "context", text: oldLines[oi] });
+        oi++;
+        ni++;
+      } else if (oi < oldLines.length) {
+        lines.push({ type: "remove", text: oldLines[oi] });
+        oi++;
+      } else if (ni < newLines.length) {
+        lines.push({ type: "add", text: newLines[ni] });
+        ni++;
+      }
     }
-  }
+    return lines;
+  }, [oldStr, newStr]);
 
-  const truncated = allLines.length > maxLines;
-  const display = truncated ? allLines.slice(0, maxLines) : allLines;
+  const truncated = !showAll && allLines.length > INITIAL_MAX;
+  const display = truncated ? allLines.slice(0, INITIAL_MAX) : allLines;
+  const remaining = allLines.length - INITIAL_MAX;
 
   return (
     <pre
-      className="mt-1.5 overflow-x-auto rounded-md text-[11px] leading-[1.6]"
+      className="overflow-x-auto rounded-md text-[11px] leading-[1.6]"
       style={{
         background: "var(--bg-primary)",
         border: "0.5px solid var(--separator)",
@@ -146,15 +121,31 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }) {
         </div>
       ))}
       {truncated && (
-        <div className="px-2 py-0.5" style={{ color: "var(--fill-quaternary)" }}>
-          ... {allLines.length - maxLines} more lines
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full cursor-pointer px-2 py-1 text-left text-[11px] transition-colors hover:underline"
+          style={{ color: "var(--tint)" }}
+        >
+          展开剩余 {remaining} 行
+        </button>
+      )}
+      {showAll && allLines.length > INITIAL_MAX && (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="w-full cursor-pointer px-2 py-1 text-left text-[11px] transition-colors hover:underline"
+          style={{ color: "var(--tint)" }}
+        >
+          收起
+        </button>
       )}
     </pre>
   );
 }
 
 export function DiffCard({ result, args }: { result: string; args?: string }) {
+  const [diffOpen, setDiffOpen] = useState(false);
   const editResult = parseEditResult(result);
   if (!editResult) return null;
 
@@ -164,45 +155,55 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
     : "";
 
   const editArgs = args ? parseEditArgs(args) : null;
-  const showDiff = editArgs?.oldString && editArgs?.newString && editArgs.oldString !== editArgs.newString;
+  const hasDiff = !!(editArgs?.oldString && editArgs?.newString && editArgs.oldString !== editArgs.newString);
 
   return (
-    <div
-      className="mt-1.5 overflow-hidden rounded-lg"
-      style={{
-        border: "0.5px solid var(--separator)",
-        background: "var(--bg-secondary)",
-      }}
-    >
-      <div className="flex items-center justify-between px-3 py-2">
+    <div>
+      {/* File info row — clickable to toggle diff */}
+      <button
+        type="button"
+        onClick={() => hasDiff && setDiffOpen(!diffOpen)}
+        className="flex w-full items-center justify-between py-1.5 text-left transition-colors"
+        style={{ cursor: hasDiff ? "pointer" : "default" }}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          <FileCode {...ICON.md} style={{ color: "var(--tint, #4299E1)" }} />
-          <div className="min-w-0">
-            <span className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>
-              {fileName}
+          <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: "var(--orange, #ED8936)" }} />
+          <span
+            className="text-[12px] font-medium truncate"
+            style={{ fontFamily: "var(--font-mono)", color: "var(--fill-primary)" }}
+          >
+            {fileName}
+          </span>
+          {dir && (
+            <span className="text-[10px] truncate" style={{ color: "var(--fill-quaternary)" }}>
+              {dir}
             </span>
-            {dir && (
-              <span className="ml-1.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-                {dir}
-              </span>
-            )}
-          </div>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {editResult.replacements > 1 && (
             <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-              {editResult.replacements} replacements
+              {editResult.replacements} 处替换
             </span>
           )}
           <DiffStatBadge added={editResult.linesAdded} removed={editResult.linesRemoved} />
+          {hasDiff && (
+            <ChevronRight
+              size={12}
+              strokeWidth={1.5}
+              className="shrink-0 transition-transform duration-150"
+              style={{
+                color: "var(--fill-quaternary)",
+                transform: diffOpen ? "rotate(90deg)" : "rotate(0)",
+              }}
+            />
+          )}
         </div>
-      </div>
+      </button>
 
-      {showDiff && (
-        <div
-          className="px-3 pb-2"
-          style={{ borderTop: "0.5px solid var(--separator)" }}
-        >
+      {/* Expandable inline diff */}
+      {diffOpen && hasDiff && (
+        <div className="pb-1">
           <InlineDiff oldStr={editArgs!.oldString!} newStr={editArgs!.newString!} />
         </div>
       )}
@@ -212,8 +213,5 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
 
 export function isEditResult(toolName: string, result: string): boolean {
   if (toolName !== "edit_file") return false;
-  try {
-    const parsed = JSON.parse(result);
-    return parsed.edited === true && typeof parsed.path === "string";
-  } catch { return false; }
+  return parseEditResult(result) !== null;
 }
