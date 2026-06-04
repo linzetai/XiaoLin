@@ -763,13 +763,6 @@ export function StreamFooter({
             </button>
             {/* [4] model selector */}
             <ModelSelector />
-            {/* [5] compute level placeholder */}
-            <button type="button" style={chipStyle} onMouseEnter={chipHover} onMouseLeave={chipLeave}
-              onClick={comingSoon} title="计算等级设置即将推出"
-            >
-              <span>Extra High</span>
-              <span style={{ fontSize: 8, opacity: 0.5, marginLeft: 1 }}>▾</span>
-            </button>
           </div>
 
           {/* ib-right */}
