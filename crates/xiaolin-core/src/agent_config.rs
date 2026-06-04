@@ -472,6 +472,165 @@ impl Default for BehaviorConfig {
     }
 }
 
+// ─── Permission Presets ──────────────────────────────────────────────
+
+/// A named permission preset that maps to a `BehaviorOverride`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionPreset {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub behavior_override: BehaviorOverride,
+}
+
+/// Partial override of `BehaviorConfig` fields — only the security-relevant ones.
+/// `None` means "inherit from global default".
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BehaviorOverride {
+    pub approval_strategy: Option<String>,
+    pub file_access: Option<FileAccessMode>,
+    pub tools_ask: Option<Vec<String>>,
+    pub tools_deny: Option<Vec<String>>,
+}
+
+impl PermissionPreset {
+    /// Merge this preset's overrides onto a base `BehaviorConfig`, returning a new config.
+    pub fn resolve_behavior(&self, base: &BehaviorConfig) -> BehaviorConfig {
+        let mut resolved = base.clone();
+        if let Some(ref strategy) = self.behavior_override.approval_strategy {
+            resolved.approval_strategy = Some(strategy.clone());
+        }
+        if let Some(mode) = self.behavior_override.file_access {
+            resolved.file_access = mode;
+        }
+        if let Some(ref ask) = self.behavior_override.tools_ask {
+            resolved.tools_ask = ask.clone();
+        }
+        if let Some(ref deny) = self.behavior_override.tools_deny {
+            resolved.tools_deny = deny.clone();
+        }
+        resolved
+    }
+}
+
+/// The four built-in permission presets.
+pub fn builtin_permission_presets() -> Vec<PermissionPreset> {
+    vec![
+        PermissionPreset {
+            id: "suggest".into(),
+            name: "Suggest edits".into(),
+            description: "All write operations require confirmation".into(),
+            behavior_override: BehaviorOverride {
+                approval_strategy: None,
+                file_access: Some(FileAccessMode::Workspace),
+                tools_ask: Some(vec![
+                    "write_file".into(),
+                    "edit_file".into(),
+                    "shell_exec".into(),
+                    "mcp_*".into(),
+                ]),
+                tools_deny: Some(vec![]),
+            },
+        },
+        PermissionPreset {
+            id: "auto-edit".into(),
+            name: "Auto edit".into(),
+            description: "File edits auto-approved, shell still requires confirmation".into(),
+            behavior_override: BehaviorOverride {
+                approval_strategy: None,
+                file_access: Some(FileAccessMode::Workspace),
+                tools_ask: Some(vec!["shell_exec".into(), "mcp_*".into()]),
+                tools_deny: Some(vec![]),
+            },
+        },
+        PermissionPreset {
+            id: "full-auto".into(),
+            name: "Full auto".into(),
+            description: "All operations auto-approved (YOLO mode)".into(),
+            behavior_override: BehaviorOverride {
+                approval_strategy: Some("auto_approve".into()),
+                file_access: Some(FileAccessMode::Full),
+                tools_ask: Some(vec![]),
+                tools_deny: Some(vec![]),
+            },
+        },
+        PermissionPreset {
+            id: "plan-only".into(),
+            name: "Plan only".into(),
+            description: "Read-only planning mode, all writes blocked".into(),
+            behavior_override: BehaviorOverride {
+                approval_strategy: None,
+                file_access: Some(FileAccessMode::Workspace),
+                tools_ask: Some(vec![]),
+                tools_deny: Some(vec![
+                    "write_file".into(),
+                    "edit_file".into(),
+                    "shell_exec".into(),
+                ]),
+            },
+        },
+    ]
+}
+
+/// Registry of available permission presets (builtins + user-defined).
+#[derive(Debug, Clone)]
+pub struct PermissionPresetRegistry {
+    presets: Vec<PermissionPreset>,
+}
+
+impl PermissionPresetRegistry {
+    pub fn new() -> Self {
+        Self {
+            presets: builtin_permission_presets(),
+        }
+    }
+
+    /// Load user-defined presets from a JSON file and merge with builtins.
+    pub fn load_custom(&mut self, path: &std::path::Path) {
+        if !path.exists() {
+            return;
+        }
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str::<Vec<PermissionPreset>>(&content) {
+                Ok(custom) => {
+                    for preset in custom {
+                        if let Some(existing) = self.presets.iter_mut().find(|p| p.id == preset.id)
+                        {
+                            *existing = preset;
+                        } else {
+                            self.presets.push(preset);
+                        }
+                    }
+                    tracing::info!(path = %path.display(), "loaded custom permission presets");
+                }
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), error = %e, "failed to parse permission presets");
+                }
+            },
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "failed to read permission presets file");
+            }
+        }
+    }
+
+    pub fn get(&self, id: &str) -> Option<&PermissionPreset> {
+        self.presets.iter().find(|p| p.id == id)
+    }
+
+    pub fn list(&self) -> &[PermissionPreset] {
+        &self.presets
+    }
+}
+
+impl Default for PermissionPresetRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Check if a tool name matches a pattern from `tools_allow`/`tools_deny`.
 /// Supports exact match, trailing `*` prefix glob (e.g. `mcp_*`, `mcp_chrome_*`),
 /// and `!` negation prefix (e.g. `!shell_exec`).
@@ -1146,6 +1305,48 @@ You are a code review specialist. Analyze the provided code carefully."#;
         assert!(explore.tools.is_tool_allowed("read_file"));
         assert!(!explore.tools.is_tool_allowed("write_file"));
         assert!(!explore.tools.is_tool_allowed("shell_exec"));
+    }
+
+    #[test]
+    fn permission_preset_resolve_behavior() {
+        let base = BehaviorConfig::default();
+        let preset = PermissionPreset {
+            id: "auto-edit".into(),
+            name: "Auto edit".into(),
+            description: "test".into(),
+            behavior_override: BehaviorOverride {
+                approval_strategy: None,
+                file_access: Some(FileAccessMode::Workspace),
+                tools_ask: Some(vec!["shell_exec".into()]),
+                tools_deny: Some(vec![]),
+            },
+        };
+        let resolved = preset.resolve_behavior(&base);
+        assert_eq!(resolved.tools_ask, vec!["shell_exec"]);
+        assert!(resolved.tools_deny.is_empty());
+        assert_eq!(resolved.file_access, FileAccessMode::Workspace);
+        assert!(resolved.approval_strategy.is_none());
+    }
+
+    #[test]
+    fn permission_preset_full_auto_sets_strategy() {
+        let base = BehaviorConfig::default();
+        let presets = builtin_permission_presets();
+        let full_auto = presets.iter().find(|p| p.id == "full-auto").unwrap();
+        let resolved = full_auto.resolve_behavior(&base);
+        assert_eq!(resolved.approval_strategy.as_deref(), Some("auto_approve"));
+        assert_eq!(resolved.file_access, FileAccessMode::Full);
+    }
+
+    #[test]
+    fn permission_preset_registry_builtins() {
+        let registry = PermissionPresetRegistry::new();
+        assert_eq!(registry.list().len(), 4);
+        assert!(registry.get("suggest").is_some());
+        assert!(registry.get("auto-edit").is_some());
+        assert!(registry.get("full-auto").is_some());
+        assert!(registry.get("plan-only").is_some());
+        assert!(registry.get("nonexistent").is_none());
     }
 
     #[test]

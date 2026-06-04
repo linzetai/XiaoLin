@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as transport from "./transport";
 import { useChatMetaStore } from "./stores/chat-meta-store";
+import { initPermissionListener } from "./stores/permission-store";
 
 export interface GatewayInfo {
   port: number;
@@ -116,6 +117,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
           }
         });
 
+        initPermissionListener();
         await syncBackendData();
       } else {
         // Browser mode: check for gateway health endpoint
@@ -151,6 +153,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
             }
           });
 
+          initPermissionListener();
           await syncBackendData();
         } catch (e) {
           console.warn("WS connect failed:", e);

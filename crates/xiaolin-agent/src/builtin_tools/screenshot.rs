@@ -685,10 +685,8 @@ impl Tool for ScreenshotTool {
 
 fn run_ocr(img_path: &std::path::Path, png_data: &[u8]) -> Option<String> {
     let ocr_path = std::env::temp_dir().join(format!("xiaolin-ocr-{}.png", std::process::id()));
-    if std::fs::write(&ocr_path, png_data).is_err() {
-        if !img_path.exists() {
-            return None;
-        }
+    if std::fs::write(&ocr_path, png_data).is_err() && !img_path.exists() {
+        return None;
     }
     let target = if ocr_path.exists() {
         &ocr_path

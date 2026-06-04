@@ -109,6 +109,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "agents.get", "agents.create", "agents.update", "agents.delete",
                             "tools.list", "tools.update", "tools.submit_answer",
                             "skills.list", "skills.refresh",
+                            "permissions.get_presets", "permissions.get_session", "permissions.set_session",
                             "execution.set_mode", "execution.get_plan", "execution.approve_plan",
                             "resolve_approval", "approval.resolve",
                             "chat.compact", "compact",
@@ -532,6 +533,98 @@ async fn dispatch(
         }
         ClientOp::ChannelsDisconnect { channel_id, account_id } => {
             channels::handle_channels_disconnect(sender, state, id, &channel_id, account_id.as_deref()).await;
+        }
+        ClientOp::PermissionsGetPresets => {
+            let presets = state.rt.permission_preset_registry.list();
+            let presets_json: Vec<serde_json::Value> = presets
+                .iter()
+                .map(|p| serde_json::to_value(p).unwrap_or_default())
+                .collect();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "permissions.presets".into(),
+                    data: Some(json!({ "presets": presets_json })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        ClientOp::PermissionsGetSession { session_id } => {
+            let preset_id = state
+                .ext
+                .session_preset_ids
+                .get(&session_id)
+                .map(|v| v.value().clone())
+                .unwrap_or_default();
+            let has_override = state.ext.session_behavior_overrides.contains_key(&session_id);
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "permissions.session".into(),
+                    data: Some(json!({
+                        "sessionId": session_id,
+                        "hasOverride": has_override,
+                        "presetId": preset_id,
+                    })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        ClientOp::PermissionsSetSession {
+            session_id,
+            preset_id,
+        } => {
+            let registry = &state.rt.permission_preset_registry;
+            if let Some(preset) = registry.get(&preset_id) {
+                let base_behavior = {
+                    let agents = state.cfg.last_good_agents.read().await;
+                    agents.first().map(|a| a.behavior.clone()).unwrap_or_default()
+                };
+                let resolved = preset.resolve_behavior(&base_behavior);
+                state
+                    .ext
+                    .session_behavior_overrides
+                    .insert(session_id.clone(), resolved);
+                state
+                    .ext
+                    .session_preset_ids
+                    .insert(session_id.clone(), preset_id.clone());
+                send_resp(
+                    sender,
+                    &WsResponse {
+                        id,
+                        msg_type: "permissions.session_updated".into(),
+                        data: Some(json!({
+                            "sessionId": session_id,
+                            "presetId": preset_id,
+                            "preset": serde_json::to_value(preset).unwrap_or_default(),
+                        })),
+                        error: None,
+                    },
+                )
+                .await;
+                let _ = state.strm.ws_broadcast.send(
+                    json!({"type":"event","event":"permissions.changed","data":{"sessionId": session_id,"presetId": preset_id}}).to_string(),
+                );
+            } else {
+                send_resp(
+                    sender,
+                    &WsResponse {
+                        id,
+                        msg_type: "error".into(),
+                        data: None,
+                        error: Some(json!({
+                            "code": 404,
+                            "message": format!("preset '{}' not found", preset_id),
+                        })),
+                    },
+                )
+                .await;
+            }
         }
         ClientOp::WorkspaceInit { work_dir } => {
             session::handle_workspace_init(sender, state, id, work_dir).await

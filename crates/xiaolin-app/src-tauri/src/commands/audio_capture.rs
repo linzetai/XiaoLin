@@ -11,14 +11,20 @@ pub struct AudioCaptureState {
     channels: Arc<Mutex<u16>>,
 }
 
-impl AudioCaptureState {
-    pub fn new() -> Self {
+impl Default for AudioCaptureState {
+    fn default() -> Self {
         Self {
             recording: Arc::new(AtomicBool::new(false)),
             samples: Arc::new(Mutex::new(Vec::new())),
             sample_rate: Arc::new(Mutex::new(44100)),
             channels: Arc::new(Mutex::new(1)),
         }
+    }
+}
+
+impl AudioCaptureState {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

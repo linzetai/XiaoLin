@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronUp } from "lucide-react";
+import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronUp, ShieldOff } from "lucide-react";
+import { usePermissionStore } from "../../lib/stores/permission-store";
 
 export interface ApprovalData {
   approvalId: string;
@@ -18,6 +19,7 @@ export interface ApprovalData {
 interface ApprovalCardProps {
   data: ApprovalData;
   onDecision: (decision: string) => void;
+  sessionId?: string;
 }
 
 const RISK_STYLES = {
@@ -44,10 +46,11 @@ const RISK_STYLES = {
   },
 };
 
-export function ApprovalCard({ data, onDecision }: ApprovalCardProps) {
+export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps) {
   const [submitted, setSubmitted] = useState(false);
   const isFileAction = data.action?.action_type === "write_file" || data.action?.action_type === "edit_file";
   const [expanded, setExpanded] = useState(isFileAction);
+  const setSessionPreset = usePermissionStore((s) => s.setSessionPreset);
 
   const style = RISK_STYLES[data.riskLevel];
   const Icon = style.icon;
@@ -57,6 +60,13 @@ export function ApprovalCard({ data, onDecision }: ApprovalCardProps) {
     setSubmitted(true);
     onDecision(decision);
   }, [submitted, onDecision]);
+
+  const handleApproveAllForSession = useCallback(async () => {
+    if (submitted || !sessionId) return;
+    setSubmitted(true);
+    await setSessionPreset(sessionId, "full-auto");
+    onDecision("approved");
+  }, [submitted, sessionId, setSessionPreset, onDecision]);
 
   const hasPreview = data.action?.command || data.action?.diff || data.action?.content;
   const isForbidden = data.riskLevel === "danger";
@@ -149,6 +159,22 @@ export function ApprovalCard({ data, onDecision }: ApprovalCardProps) {
               {d.label}
             </button>
           ))}
+        {!isForbidden && sessionId && (
+          <button
+            onClick={handleApproveAllForSession}
+            disabled={submitted}
+            className="ml-auto flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 hover:scale-[1.02] active:scale-95 disabled:opacity-40"
+            style={{
+              background: "var(--color-amber-50, rgba(254, 235, 200, 0.2))",
+              color: "var(--color-amber-600, #c05621)",
+              border: "1px solid var(--color-amber-200, rgba(237, 137, 54, 0.3))",
+            }}
+            title="切换到 Full Auto 模式，本次会话不再弹出确认"
+          >
+            <ShieldOff size={12} strokeWidth={1.6} />
+            本次全部批准
+          </button>
+        )}
       </div>
     </div>
   );

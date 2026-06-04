@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { CheckCircle, XCircle, X, Plus } from "lucide-react";
+import { CheckCircle, XCircle, X, Plus, Info } from "lucide-react";
 import * as api from "../../lib/api";
 import { useChatMetaStore } from "../../lib/stores";
+import { usePermissionStore } from "../../lib/stores/permission-store";
 import { SectionTitle } from "./SettingsShared";
 import { ICON } from "../../lib/ui-tokens";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle } from "../common/FormElements";
@@ -16,6 +17,13 @@ const POLICY_OPTIONS: { value: DangerousOpsPolicy; label: string; desc: string }
 ];
 
 const MANAGED_PATTERNS = ["write_file", "edit_file", "apply_patch", "multi_edit", "shell_exec"];
+
+const MODE_TO_PRESET: Record<ExecutionMode, string> = {
+  plan: "plan-only",
+  default: "suggest",
+  "auto-edit": "auto-edit",
+  yolo: "full-auto",
+};
 
 const EXECUTION_MODE_OPTIONS: { value: ExecutionMode; label: string; desc: string }[] = [
   { value: "plan", label: "Plan（只读）", desc: "禁止写文件与 shell，仅允许工作区内读取，适合分析与规划" },
@@ -65,6 +73,11 @@ export function SecurityTab() {
   const [saving, setSaving] = useState(false);
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const sessionOverrideCount = usePermissionStore(
+    (s) => Object.keys(s.sessionPresetIds).filter(
+      (sid) => s.sessionPresetIds[sid] !== MODE_TO_PRESET[executionMode]
+    ).length
+  );
 
   const showToast = useCallback((msg: string, type: "ok" | "err") => {
     setToast({ msg, type });
@@ -242,6 +255,20 @@ export function SecurityTab() {
             </button>
           ))}
         </div>
+        {sessionOverrideCount > 0 && (
+          <div
+            className="mt-2 flex items-start gap-2 rounded-[var(--radius-xs)] px-3 py-2 text-[11px]"
+            style={{
+              background: "color-mix(in srgb, var(--tint) 8%, transparent)",
+              color: "var(--tint)",
+            }}
+          >
+            <Info size={14} strokeWidth={1.6} className="mt-px shrink-0" />
+            <span>
+              {sessionOverrideCount} 个活跃会话正在使用非默认权限预设。输入栏中的权限选择器可覆盖单个会话的执行模式。
+            </span>
+          </div>
+        )}
       </div>
 
       <div>

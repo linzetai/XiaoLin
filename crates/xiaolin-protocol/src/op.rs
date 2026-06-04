@@ -369,6 +369,16 @@ pub enum ClientOp {
         account_id: Option<String>,
     },
 
+    // ── Permissions ──────────────────────────────────────────────────
+    PermissionsGetPresets,
+    PermissionsGetSession {
+        session_id: String,
+    },
+    PermissionsSetSession {
+        session_id: String,
+        preset_id: String,
+    },
+
     // ── Workspace ────────────────────────────────────────────────────
     WorkspaceInit {
         #[serde(alias = "workDir", skip_serializing_if = "Option::is_none")]
@@ -680,6 +690,17 @@ impl ClientOp {
                     .or_else(|| params.get("account_id"))
                     .and_then(|v| v.as_str())
                     .map(String::from),
+            }),
+            "permissions.get_presets" => Ok(Self::PermissionsGetPresets),
+            "permissions.get_session" => Ok(Self::PermissionsGetSession {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+            }),
+            "permissions.set_session" => Ok(Self::PermissionsSetSession {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+                preset_id: extract_string(&params, "presetId")
+                    .or_else(|_| extract_string(&params, "preset_id"))?,
             }),
             "workspace.init" => Ok(Self::WorkspaceInit {
                 work_dir: params

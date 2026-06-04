@@ -865,6 +865,11 @@ impl StateBuilder {
             reg
         };
 
+        let session_behavior_overrides: Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>> =
+            Arc::new(dashmap::DashMap::new());
+        let permission_preset_registry =
+            Arc::new(xiaolin_core::agent_config::PermissionPresetRegistry::default());
+
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(
             Arc::new(xiaolin_agent::RuntimeTurnExecutor {
                 runtime: runtime_for_session.clone(),
@@ -878,6 +883,7 @@ impl StateBuilder {
                 stream_event_tx: Some(stream_event_tx_for_executor),
                 subagent_manager: None,
                 tool_orchestrator: Some(tool_orchestrator_for_executor),
+                behavior_overrides: Some(session_behavior_overrides.clone()),
             }),
         ));
         let state = AppState {
@@ -900,6 +906,7 @@ impl StateBuilder {
                 session_modes: p5.phase2.phase4.session_modes,
                 todo_store: p5.phase2.phase4.phase3.todo_store,
                 plan_file_store,
+                permission_preset_registry: permission_preset_registry.clone(),
             },
             store: super::StorageState {
                 session_store: p5.phase2.phase4.phase3.phase1.session_store,
@@ -933,6 +940,8 @@ impl StateBuilder {
                 chat_cancels: Arc::new(dashmap::DashMap::new()),
                 chat_model_overrides: Arc::new(dashmap::DashMap::new()),
                 wechat_login_sessions: Arc::new(dashmap::DashMap::new()),
+                session_behavior_overrides: session_behavior_overrides.clone(),
+                session_preset_ids: Arc::new(dashmap::DashMap::new()),
             },
             obs: super::ObserveState {
                 metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),

@@ -53,9 +53,24 @@ pub struct RuntimeTurnExecutor {
         Option<Arc<DashMap<String, mpsc::Sender<AgentEvent>>>>,
     pub subagent_manager: Option<Arc<crate::SubAgentManager>>,
     pub tool_orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
+    /// Per-session BehaviorConfig overrides (set via permission presets).
+    /// Key is session_id, value is the resolved BehaviorConfig for that session.
+    pub behavior_overrides:
+        Option<Arc<DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>>,
 }
 
 impl RuntimeTurnExecutor {
+    /// Resolve the effective BehaviorConfig for a session.
+    /// Uses per-session override if set, otherwise falls back to the global config.
+    fn effective_behavior(&self, session_id: &str) -> xiaolin_core::agent_config::BehaviorConfig {
+        if let Some(ref overrides) = self.behavior_overrides {
+            if let Some(entry) = overrides.get(session_id) {
+                return entry.value().clone();
+            }
+        }
+        self.config.behavior.clone()
+    }
+
     /// Run explicit context compaction (manual `/compact` or `SessionOp::Compact`).
     async fn execute_compact(
         &self,
@@ -522,6 +537,22 @@ impl TurnExecutor for RuntimeTurnExecutor {
         } else {
             (Self::request_from_extra(&params), Self::config_from_extra(&params, &self.config), None)
         };
+
+        // Apply per-session permission preset overrides if any.
+        let mut config = config;
+        let sid = params.session_id.to_string();
+        let has_override = self.behavior_overrides.as_ref().map_or(false, |m| m.contains_key(&sid));
+        let effective_behavior = self.effective_behavior(&sid);
+        let strategy = derive_approval_strategy(&effective_behavior);
+        tracing::debug!(
+            session_id = %sid,
+            has_override,
+            tools_deny = ?effective_behavior.tools_deny,
+            approval_strategy = ?effective_behavior.approval_strategy,
+            derived_strategy = ?strategy,
+            "permission preset applied"
+        );
+        config.behavior = effective_behavior;
 
         let orchestrator = self.tool_orchestrator.clone().unwrap_or_else(|| {
             Arc::new(crate::runtime::orchestrator::ToolOrchestrator::new())

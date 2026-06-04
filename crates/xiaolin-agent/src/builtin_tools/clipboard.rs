@@ -79,7 +79,7 @@ fn read_clipboard(format: &str) -> Result<ToolResult, String> {
     match format {
         "text" => read_text(&mut cb),
         "image" => read_image(&mut cb),
-        "auto" | _ => {
+        _ => {
             if let Ok(result) = read_text(&mut cb) {
                 if result.success {
                     return Ok(result);

@@ -1,7 +1,7 @@
 import {
   Image as ImageIcon, FileText, Paperclip, ArrowUp,
   Square, X, Loader2, Compass, Code2, ChevronDown,
-  Plus, Lock, RefreshCw, GitBranch, Monitor,
+  Plus, RefreshCw, GitBranch, Monitor,
 } from "lucide-react";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +18,7 @@ import { QuestionPanel } from "./MessageRenderer";
 import { ApprovalCard, type ApprovalData } from "./ApprovalCard";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
+import { PermissionSelector } from "./PermissionSelector";
 // TODO: 语音输入功能待完善本地 STT（whisper.cpp 或 API）后重新启用
 // import { VoiceButton } from "../VoiceButton";
 import * as api from "../../lib/api";
@@ -628,6 +629,7 @@ export function StreamFooter({
         pendingQuestion.requestId.startsWith("approval:") ? (
           <ApprovalCard
             data={parseApprovalData(pendingQuestion)}
+            sessionId={activeChat?.id}
             onDecision={async (decision) => {
               const approvalId = pendingQuestion.requestId.slice("approval:".length);
               setPendingQuestion(null);
@@ -751,14 +753,8 @@ export function StreamFooter({
             >
               <Plus size={13} strokeWidth={1.6} />
             </button>
-            {/* [2] permissions placeholder */}
-            <button type="button" style={chipStyle} onMouseEnter={chipHover} onMouseLeave={chipLeave}
-              onClick={comingSoon} title="权限管理即将推出"
-            >
-              <Lock size={13} strokeWidth={1.6} />
-              <span>Default permissions</span>
-              <span style={{ fontSize: 8, opacity: 0.5, marginLeft: 1 }}>▾</span>
-            </button>
+            {/* [2] permissions selector */}
+            <PermissionSelector sessionId={activeChat?.id} disabled={streaming} />
             {/* [3] refresh placeholder */}
             <button type="button" style={chipStyle} onMouseEnter={chipHover} onMouseLeave={chipLeave}
               onClick={comingSoon} title="预留"

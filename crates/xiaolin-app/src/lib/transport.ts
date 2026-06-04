@@ -144,6 +144,7 @@ export function connectWs(url: string, token?: string): Promise<void> {
         "cron.job.failed",
         "notification.new",
         "notification.read",
+        "permissions.changed",
       ],
     }).catch(() => {});
   });
@@ -337,6 +338,49 @@ export async function setConfig(
   };
 }
 
+// ─── Permissions ───
+
+export interface PermissionPreset {
+  id: string;
+  name: string;
+  description: string;
+  behaviorOverride: {
+    approvalStrategy?: string | null;
+    fileAccess?: string | null;
+    toolsAsk?: string[] | null;
+    toolsDeny?: string[] | null;
+  };
+}
+
+export async function getPermissionPresets(): Promise<PermissionPreset[]> {
+  const resp = (await wsClient.send("permissions.get_presets")) as {
+    data?: { presets?: PermissionPreset[] };
+  };
+  return resp?.data?.presets ?? [];
+}
+
+export async function getSessionPermission(
+  sessionId: string,
+): Promise<{ sessionId: string; hasOverride: boolean; presetId: string }> {
+  const resp = (await wsClient.send("permissions.get_session", { sessionId })) as {
+    data?: { sessionId: string; hasOverride: boolean; presetId: string };
+  };
+  return resp?.data ?? { sessionId, hasOverride: false, presetId: "" };
+}
+
+export async function setSessionPermission(
+  sessionId: string,
+  presetId: string,
+): Promise<{ sessionId: string; presetId: string }> {
+  const resp = (await wsClient.send("permissions.set_session", {
+    sessionId,
+    presetId,
+  })) as {
+    data?: { sessionId: string; presetId: string };
+  };
+  return resp?.data ?? { sessionId, presetId };
+}
+
 // ─── Chat Streaming (WebSocket) ───
 // Protocol types are generated from Rust: see xiaolin-protocol/generated/protocol.ts
 export type { AgentEvent, TurnSummary, TokenUsage, ToolCallData, ClientOp, AbortReason, ErrorCode, WarningCategory, TurnContextItem } from "../../../xiaolin-protocol/generated/protocol";
@@ -446,6 +490,13 @@ export function onChannelsChanged(handler: (channelId: string, action: string) =
   return wsClient.on("channels.changed", (msg: unknown) => {
     const data = (msg as { data?: { channelId?: string; action?: string } })?.data;
     if (data?.channelId) handler(data.channelId, data.action ?? "updated");
+  });
+}
+
+export function onPermissionsChanged(handler: (sessionId: string, presetId: string) => void): UnsubscribeFn {
+  return wsClient.on("permissions.changed", (msg: unknown) => {
+    const data = (msg as { data?: { sessionId?: string; presetId?: string } })?.data;
+    if (data?.sessionId) handler(data.sessionId, data.presetId ?? "");
   });
 }
 

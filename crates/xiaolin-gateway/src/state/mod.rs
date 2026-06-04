@@ -83,6 +83,7 @@ pub struct RuntimeState {
     pub session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry,
     pub todo_store: xiaolin_agent::builtin_tools::TodoStore,
     pub plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore,
+    pub permission_preset_registry: Arc<xiaolin_core::agent_config::PermissionPresetRegistry>,
 }
 
 /// Persistent stores.
@@ -214,6 +215,12 @@ pub struct ExtensionState {
     /// Active WeChat QR login sessions (session_key → QrLoginSession).
     pub wechat_login_sessions:
         Arc<dashmap::DashMap<String, xiaolin_wechat::auth::qr_login::QrLoginSession>>,
+    /// Per-session permission overrides. Key is session_id, value is the
+    /// resolved BehaviorConfig. Not persisted — resets on session close.
+    pub session_behavior_overrides:
+        Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>,
+    /// Per-session active preset ID. Key is session_id, value is preset_id.
+    pub session_preset_ids: Arc<dashmap::DashMap<String, String>>,
 }
 
 /// Observability.
@@ -1249,6 +1256,16 @@ impl AppState {
         });
         let overrides_removed = overrides_before - self.ext.chat_model_overrides.len();
 
+        // Clean session_behavior_overrides and session_preset_ids (permission presets)
+        let behavior_before = self.ext.session_behavior_overrides.len();
+        self.ext.session_behavior_overrides.retain(|k, _| {
+            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
+        });
+        let behavior_removed = behavior_before - self.ext.session_behavior_overrides.len();
+        self.ext.session_preset_ids.retain(|k, _| {
+            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
+        });
+
         // Clean stream_event_tx (remove closed senders)
         let streams_before = self.strm.stream_event_tx.len();
         self.strm.stream_event_tx.retain(|_, tx| !tx.is_closed());
@@ -1266,7 +1283,7 @@ impl AppState {
         // prune completion channels for dead sessions.
         self.strm.subagent_manager.gc(std::time::Duration::from_secs(300));
 
-        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed;
+        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed;
         if gc_stats.removed > 0 || total_removed > 0 {
             tracing::info!(
                 sessions_removed = gc_stats.removed,
@@ -1749,6 +1766,7 @@ impl AppState {
                 stream_event_tx: None,
                 subagent_manager: None,
                 tool_orchestrator: None,
+                behavior_overrides: None,
             });
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(executor));
 
@@ -1772,6 +1790,9 @@ impl AppState {
                 session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry::new(),
                 todo_store,
                 plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore::default(),
+                permission_preset_registry: Arc::new(
+                    xiaolin_core::agent_config::PermissionPresetRegistry::default(),
+                ),
             },
             store: StorageState {
                 session_store: session_store.clone(),
@@ -1803,6 +1824,8 @@ impl AppState {
                 chat_cancels: Arc::new(dashmap::DashMap::new()),
                 chat_model_overrides: Arc::new(dashmap::DashMap::new()),
                 wechat_login_sessions: Arc::new(dashmap::DashMap::new()),
+                session_behavior_overrides: Arc::new(dashmap::DashMap::new()),
+                session_preset_ids: Arc::new(dashmap::DashMap::new()),
             },
             obs: ObserveState {
                 metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),

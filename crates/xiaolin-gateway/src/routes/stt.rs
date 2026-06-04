@@ -228,11 +228,7 @@ fn extract_boundary(content_type: &str) -> Option<String> {
         .split(';')
         .find_map(|part| {
             let part = part.trim();
-            if part.starts_with("boundary=") {
-                Some(part["boundary=".len()..].trim_matches('"').to_string())
-            } else {
-                None
-            }
+            part.strip_prefix("boundary=").map(|stripped| stripped.trim_matches('"').to_string())
         })
 }
 

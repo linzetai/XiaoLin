@@ -1442,17 +1442,7 @@ pub(crate) fn filter_tool_definitions(
             if !scoped_tool_visible_for_agent(name, &config.agent_id) {
                 return false;
             }
-            if !config.behavior.tools_deny.is_empty()
-                && config.behavior.tools_deny.iter().any(|d| d == name)
-            {
-                return false;
-            }
-            if !config.behavior.tools_allow.is_empty()
-                && !config.behavior.tools_allow.iter().any(|a| a == name)
-            {
-                return false;
-            }
-            true
+            config.behavior.is_tool_allowed(name)
         })
         .cloned()
         .collect()
