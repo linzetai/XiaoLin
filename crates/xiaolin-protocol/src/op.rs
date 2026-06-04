@@ -369,6 +369,37 @@ pub enum ClientOp {
         account_id: Option<String>,
     },
 
+    // ── Projects ──────────────────────────────────────────────────────
+    ProjectsList {
+        #[serde(default, alias = "includeArchived", skip_serializing_if = "Option::is_none")]
+        include_archived: Option<bool>,
+    },
+    ProjectsCreate {
+        #[serde(alias = "rootPath")]
+        root_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+    },
+    ProjectsUpdate {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pinned: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archived: Option<bool>,
+    },
+    ProjectsDelete {
+        id: String,
+    },
+    ProjectsDetect {
+        path: String,
+    },
+
     // ── Workspace ────────────────────────────────────────────────────
     WorkspaceInit {
         #[serde(alias = "workDir", skip_serializing_if = "Option::is_none")]
@@ -680,6 +711,31 @@ impl ClientOp {
                     .or_else(|| params.get("account_id"))
                     .and_then(|v| v.as_str())
                     .map(String::from),
+            }),
+            "projects.list" => Ok(Self::ProjectsList {
+                include_archived: params
+                    .get("includeArchived")
+                    .or_else(|| params.get("include_archived"))
+                    .and_then(|v| v.as_bool()),
+            }),
+            "projects.create" => Ok(Self::ProjectsCreate {
+                root_path: extract_string(&params, "rootPath")
+                    .or_else(|_| extract_string(&params, "root_path"))?,
+                name: params.get("name").and_then(|v| v.as_str()).map(String::from),
+                color: params.get("color").and_then(|v| v.as_str()).map(String::from),
+            }),
+            "projects.update" => Ok(Self::ProjectsUpdate {
+                id: extract_string(&params, "id")?,
+                name: params.get("name").and_then(|v| v.as_str()).map(String::from),
+                color: params.get("color").and_then(|v| v.as_str()).map(String::from),
+                pinned: params.get("pinned").and_then(|v| v.as_bool()),
+                archived: params.get("archived").and_then(|v| v.as_bool()),
+            }),
+            "projects.delete" => Ok(Self::ProjectsDelete {
+                id: extract_string(&params, "id")?,
+            }),
+            "projects.detect" => Ok(Self::ProjectsDetect {
+                path: extract_string(&params, "path")?,
             }),
             "workspace.init" => Ok(Self::WorkspaceInit {
                 work_dir: params

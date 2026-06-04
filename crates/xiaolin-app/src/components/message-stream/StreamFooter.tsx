@@ -1,7 +1,7 @@
 import {
   Image as ImageIcon, FileText, Paperclip, ArrowUp,
   Square, X, Loader2, Compass, Code2, ChevronDown,
-  Plus, Lock, RefreshCw, GitBranch, Monitor,
+  Plus, Lock, RefreshCw, GitBranch,
 } from "lucide-react";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +18,7 @@ import { QuestionPanel } from "./MessageRenderer";
 import { ApprovalCard, type ApprovalData } from "./ApprovalCard";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
+import { ProjectDropdown } from "./ProjectDropdown";
 // TODO: 语音输入功能待完善本地 STT（whisper.cpp 或 API）后重新启用
 // import { VoiceButton } from "../VoiceButton";
 import * as api from "../../lib/api";
@@ -383,7 +384,7 @@ export interface StreamFooterProps {
   processFiles: (files: FileList | File[]) => void;
   handleMentionSend: (txt: string, mentions: InlineMention[]) => void;
   handleNewTopic: () => void;
-  setWorkDir: (agentId: string, chatId: string, path: string) => void;
+  setWorkDir: (agentId: string, chatId: string, path: string | null) => void;
   pendingQuestion: PendingToolQuestion;
   setPendingQuestion: React.Dispatch<React.SetStateAction<PendingToolQuestion>>;
   stopStream: () => void;
@@ -822,18 +823,20 @@ export function StreamFooter({
 
       {/* ═══ below-input metadata row ═══ */}
       <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "4px 4px 0" }}>
-        {/* Work locally / workDir */}
-        <button type="button"
-          style={{ ...chipStyle, color: "var(--fill-quaternary)", fontSize: 11 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--fill-tertiary)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-quaternary)"; }}
-          onClick={handleOpenWorkDir}
-          title={workDir ? `工作目录: ${workDir}` : "设置工作目录"}
-        >
-          <Monitor size={12} strokeWidth={1.8} />
-          <span>{workDir ? workDir.replace(/^\/home\/[^/]+\//, "~/").replace(/^(.{24}).+/, "$1…") : "Work locally"}</span>
-          <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
-        </button>
+        {/* Project / workDir dropdown */}
+        <ProjectDropdown
+          currentProjectId={activeChat?.projectId ?? null}
+          currentWorkDir={workDir}
+          onSelectProject={(project) => {
+            const chatId = useChatMetaStore.getState().activeChatId;
+            if (chatId) setWorkDir("", chatId, project.rootPath);
+          }}
+          onBrowseFolder={handleOpenWorkDir}
+          onClearProject={() => {
+            const chatId = useChatMetaStore.getState().activeChatId;
+            if (chatId) setWorkDir("", chatId, null);
+          }}
+        />
         {/* Branch */}
         <button type="button"
           style={{ ...chipStyle, color: "var(--fill-quaternary)", fontSize: 11 }}

@@ -7,12 +7,43 @@ pub enum SessionCreateOutcome {
     AlreadyExisted,
 }
 
+/// A registered project in the global project registry.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub root_path: String,
+    #[serde(default = "default_color")]
+    pub color: String,
+    #[serde(default)]
+    pub pinned: i64,
+    #[serde(default)]
+    pub archived: i64,
+    pub created_at: String,
+    pub last_opened_at: String,
+}
+
+fn default_color() -> String {
+    "#0066cc".to_string()
+}
+
+/// Patch for updating project properties.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectPatch {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub pinned: Option<bool>,
+    pub archived: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Session {
     pub id: String,
     pub agent_id: String,
     pub title: Option<String>,
     pub work_dir: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default = "default_source")]
     pub source: String,
     pub created_at: String,
@@ -81,6 +112,8 @@ pub struct SessionSummary {
     pub agent_id: String,
     pub title: Option<String>,
     pub work_dir: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default = "default_source")]
     pub source: String,
     pub message_count: i64,

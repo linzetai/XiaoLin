@@ -24,7 +24,7 @@ pub async fn handle_sessions_list(
             let count = sessions.len();
             let data: Vec<_> = sessions.iter().map(|s| json!({
                 "id": s.id, "agentId": s.agent_id, "title": s.title,
-                "workDir": s.work_dir, "source": s.source,
+                "workDir": s.work_dir, "projectId": s.project_id, "source": s.source,
                 "messageCount": s.message_count, "createdAt": s.created_at, "updatedAt": s.updated_at,
                 "totalPromptTokens": s.total_prompt_tokens,
                 "totalCompletionTokens": s.total_completion_tokens,
@@ -81,7 +81,7 @@ pub async fn handle_sessions_get(
                 id: req_id, msg_type: "sessions.get".into(),
                 data: Some(json!({
                     "id": s.id, "agentId": s.agent_id, "title": s.title,
-                    "workDir": s.work_dir, "source": s.source,
+                    "workDir": s.work_dir, "projectId": s.project_id, "source": s.source,
                     "messageCount": s.message_count, "createdAt": s.created_at, "updatedAt": s.updated_at,
                     "totalPromptTokens": s.total_prompt_tokens,
                     "totalCompletionTokens": s.total_completion_tokens,
@@ -513,6 +513,29 @@ pub async fn handle_sessions_set_work_dir(
         .await
     {
         Ok(()) => {
+            let project_id = if let Some(wd) = work_dir {
+                state
+                    .store
+                    .session_store
+                    .find_or_create_project(wd)
+                    .await
+                    .ok()
+                    .map(|p| p.id)
+            } else {
+                None
+            };
+            let _ = state
+                .store
+                .session_store
+                .update_session_project_id(sid, project_id.as_deref())
+                .await;
+
+            if let Some(ref pid) = project_id {
+                let _ = state.strm.ws_broadcast.send(
+                    json!({"type":"event","event":"projects.changed","data":{"projectId": pid, "action": "session_bound"}})
+                        .to_string(),
+                );
+            }
             let _ = state.strm.ws_broadcast.send(
                 json!({"type":"event","event":"sessions.changed","data":{"sessionId": sid}})
                     .to_string(),

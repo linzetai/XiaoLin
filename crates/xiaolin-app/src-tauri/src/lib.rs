@@ -110,7 +110,15 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_mcp_bridge::init())
+        .plugin({
+            let mcp_port = std::env::var("MCP_BRIDGE_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(9223);
+            tauri_plugin_mcp_bridge::Builder::new()
+                .base_port(mcp_port)
+                .build()
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
@@ -183,10 +191,21 @@ pub fn run() {
             let handle = app.handle().clone();
 
             tauri::async_runtime::spawn(async move {
-                let config_mode = if cfg!(debug_assertions) {
-                    xiaolin_core::config::ConfigMode::Development
-                } else {
-                    xiaolin_core::config::ConfigMode::Production
+                let config_mode = match std::env::var("XIAOLIN_PROFILE").ok().filter(|s| !s.is_empty()) {
+                    None => {
+                        if cfg!(debug_assertions) {
+                            xiaolin_core::config::ConfigMode::Development
+                        } else {
+                            xiaolin_core::config::ConfigMode::Production
+                        }
+                    }
+                    Some(ref p) if p == "dev" || p == "development" => {
+                        xiaolin_core::config::ConfigMode::Development
+                    }
+                    Some(ref p) if p == "prod" || p == "production" => {
+                        xiaolin_core::config::ConfigMode::Production
+                    }
+                    Some(name) => xiaolin_core::config::ConfigMode::Profile(name),
                 };
 
                 match GatewayProcess::start(&config_mode).await {

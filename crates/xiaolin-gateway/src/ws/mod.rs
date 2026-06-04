@@ -6,6 +6,7 @@ mod cron;
 mod execution;
 mod mcp;
 mod notifications;
+mod project;
 mod session;
 mod skills;
 mod types;
@@ -113,6 +114,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "resolve_approval", "approval.resolve",
                             "chat.compact", "compact",
                             "chat.steer", "steer",
+                            "projects.list", "projects.create", "projects.update", "projects.delete", "projects.detect",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -415,6 +417,17 @@ async fn dispatch(
             )
             .await
         }
+        ClientOp::SessionsSetWorkDir { .. } => {
+            session::handle_session_scoped(
+                sender,
+                state,
+                owned_sessions,
+                id,
+                req.params,
+                "set_work_dir",
+            )
+            .await
+        }
         ClientOp::ModelsList => config::handle_models_list(sender, state, id).await,
         ClientOp::ConfigGet { .. } => {
             config::handle_config_get(sender, state, id, req.params).await
@@ -595,6 +608,40 @@ async fn dispatch(
         }
         ClientOp::NotificationsDelete { notification_id } => {
             notifications::handle_delete(sender, state, id, &notification_id).await;
+        }
+        ClientOp::ProjectsList { include_archived } => {
+            project::handle_projects_list(sender, state, id, include_archived).await;
+        }
+        ClientOp::ProjectsCreate {
+            root_path,
+            name,
+            color,
+        } => {
+            project::handle_projects_create(
+                sender,
+                state,
+                id,
+                &root_path,
+                name.as_deref(),
+                color.as_deref(),
+            )
+            .await;
+        }
+        ClientOp::ProjectsUpdate {
+            id: project_id,
+            name,
+            color,
+            pinned,
+            archived,
+        } => {
+            project::handle_projects_update(sender, state, id, &project_id, name, color, pinned, archived)
+                .await;
+        }
+        ClientOp::ProjectsDelete { id: project_id } => {
+            project::handle_projects_delete(sender, state, id, &project_id).await;
+        }
+        ClientOp::ProjectsDetect { path } => {
+            project::handle_projects_detect(sender, state, id, &path).await;
         }
         _ => {
             send_resp(

@@ -23,6 +23,7 @@ function createChatMeta(workDir?: string): ChatMeta {
     localKey: chatId,
     title: "新对话",
     workDir: workDir ?? null,
+    projectId: null,
     source: "client",
     createdAt: new Date(),
     messageCount: 0,
@@ -182,12 +183,14 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
   },
 
   setWorkDir: (chatId, workDir) => {
+    const chat = get().chats[chatId];
     set((state) => {
-      const chat = state.chats[chatId];
-      if (!chat) return state;
-      return { chats: { ...state.chats, [chatId]: { ...chat, workDir } } };
+      if (!state.chats[chatId]) return state;
+      return { chats: { ...state.chats, [chatId]: { ...state.chats[chatId], workDir } } };
     });
-    api.setSessionWorkDir(chatId, workDir).catch(() => {});
+    if (chat && chat.messageCount > 0) {
+      api.setSessionWorkDir(chatId, workDir).catch(() => {});
+    }
   },
 
   clearUnread: () => {
@@ -237,6 +240,7 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
           const updates: Partial<ChatMeta> = {};
           if (backend.messageCount > chat.messageCount) updates.messageCount = backend.messageCount;
           if (backend.workDir !== undefined && backend.workDir !== chat.workDir) updates.workDir = backend.workDir ?? null;
+          if (backend.projectId !== undefined && backend.projectId !== chat.projectId) updates.projectId = backend.projectId ?? null;
           if (backend.source && backend.source !== chat.source) updates.source = backend.source;
           if (Object.keys(updates).length > 0) {
             updatedChats[id] = { ...chat, ...updates };
@@ -252,6 +256,7 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
           localKey: s.id,
           title: s.title || "未命名会话",
           workDir: s.workDir ?? null,
+          projectId: s.projectId ?? null,
           source: s.source ?? "client",
           createdAt: parseUtcTimestamp(s.createdAt),
           messageCount: s.messageCount,

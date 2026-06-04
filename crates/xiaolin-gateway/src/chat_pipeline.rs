@@ -134,6 +134,19 @@ pub async fn setup_chat(
             .session_store
             .update_work_dir(&session_id, Some(wd))
             .await;
+        if let Ok(project) = state.store.session_store.find_or_create_project(wd).await {
+            let _ = state
+                .store
+                .session_store
+                .update_session_project_id(&session_id, Some(&project.id))
+                .await;
+            let _ = state.strm.ws_broadcast.send(
+                serde_json::json!({"type":"event","event":"projects.changed","data":{"projectId": &project.id, "action": "session_bound"}}).to_string(),
+            );
+            let _ = state.strm.ws_broadcast.send(
+                serde_json::json!({"type":"event","event":"sessions.changed","data":{"sessionId": &session_id}}).to_string(),
+            );
+        }
     } else {
         auto_detect_work_dir(state, &session_id, &user_messages).await;
     }

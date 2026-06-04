@@ -14,6 +14,7 @@ pub use complexity::ComplexityTier;
 pub use error::{XiaoLinError, XiaoLinResult};
 pub mod hub;
 pub mod paths;
+pub mod project;
 pub mod routing;
 
 pub use routing::Router;

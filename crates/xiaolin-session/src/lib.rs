@@ -4,7 +4,7 @@ mod store;
 
 pub use event_log::EventLog;
 pub use models::{
-    ContentReplacementRow, Session, SessionCreateOutcome, SessionMessage, SessionSummary,
-    SubAgentRunRow,
+    ContentReplacementRow, Project, ProjectPatch, Session, SessionCreateOutcome, SessionMessage,
+    SessionSummary, SubAgentRunRow,
 };
 pub use store::SessionStore;

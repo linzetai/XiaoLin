@@ -579,26 +579,31 @@ pub fn detect_workspace_root(start: &Path) -> PathBuf {
 
     let mut best: Option<(PathBuf, u8)> = None; // (path, priority) — lower is higher
 
+    let high_count = ROOT_MARKERS_HIGH.len() as u8;
     let mut dir = start.as_path();
     loop {
+        let mut found_high = false;
         for (prio, marker) in ROOT_MARKERS_HIGH.iter().enumerate() {
             if dir.join(marker).exists() {
                 let p = prio as u8;
                 if best.as_ref().is_none_or(|(_, bp)| p < *bp) {
                     best = Some((dir.to_path_buf(), p));
                 }
+                found_high = true;
                 if p == 0 {
                     return dir.to_path_buf();
                 }
             }
         }
         for marker in ROOT_MARKERS_LANG {
-            if dir.join(marker).exists() {
-                let p = ROOT_MARKERS_HIGH.len() as u8;
-                if best.is_none() {
-                    best = Some((dir.to_path_buf(), p));
-                }
+            if dir.join(marker).exists() && best.is_none() {
+                best = Some((dir.to_path_buf(), high_count));
             }
+        }
+        // Stop climbing once a HIGH marker (.xiaolin/.git) is found at this level.
+        // We still climb past LANG markers (Cargo.toml etc.) to find a .git above.
+        if found_high {
+            break;
         }
         match dir.parent() {
             Some(parent) if parent != dir => dir = parent,

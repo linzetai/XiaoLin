@@ -215,6 +215,35 @@ export type ClientOp =
   | { type: "unsubscribe"; topic: string }
   | { type: "ping" };
 
+// ── Project Types ───────────────────────────────────────────────────
+
+export interface BackendProject {
+  id: string;
+  name: string;
+  rootPath: string;
+  color: string;
+  pinned: boolean;
+  archived: boolean;
+  reachable: boolean;
+  lastOpenedAt: string;
+  sessionCount: number;
+}
+
+export interface BackendSession {
+  id: string;
+  agentId: string;
+  title?: string | null;
+  workDir?: string | null;
+  projectId?: string | null;
+  source: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalElapsedMs: number;
+}
+
 // ── HistoryItem (model-visible conversation history) ────────────────
 
 export type HistoryItem =

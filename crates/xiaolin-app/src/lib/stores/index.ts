@@ -7,6 +7,7 @@ export * from "./types";
 export { useChatMetaStore } from "./chat-meta-store";
 export { useStreamStore, EMPTY_STREAM } from "./stream-store";
 export { useQueueStore } from "./queue-store";
+export { useProjectStore } from "./project-store";
 export { useUIStore, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "./ui-store";
 export {
   useActiveChatId,

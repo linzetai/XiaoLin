@@ -57,11 +57,21 @@ export function MessageStream(_props: MessageStreamProps) {
   const workDir = activeChatMeta?.workDir ?? null;
 
   const setWorkDir = useCallback(
-    (_agentId: string, chatId: string, path: string) => {
+    (_agentId: string, chatId: string, path: string | null) => {
       setWorkDirRaw(chatId, path);
     },
     [setWorkDirRaw],
   );
+
+  useEffect(() => {
+    (window as any).__xiaolin_setWorkDir = (path: string | null) => {
+      const state = useChatMetaStore.getState();
+      const chatId = state.activeChatId;
+      if (chatId) state.setWorkDir(chatId, path);
+      return { chatId, messageCount: state.chats[chatId ?? ""]?.messageCount };
+    };
+    return () => { delete (window as any).__xiaolin_setWorkDir; };
+  }, []);
 
   const loadingChats = useRef(new Set<string>());
   const loadedChats = useRef(new Set<string>());

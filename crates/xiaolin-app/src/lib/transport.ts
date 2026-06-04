@@ -139,6 +139,7 @@ export function connectWs(url: string, token?: string): Promise<void> {
     wsClient.send("subscribe", {
       events: [
         "sessions.changed",
+        "projects.changed",
         "channels.changed",
         "cron.job.complete",
         "cron.job.failed",
@@ -178,6 +179,7 @@ export interface SessionSummary {
   agentId: string;
   title: string | null;
   workDir?: string | null;
+  projectId?: string | null;
   source?: string;
   messageCount: number;
   createdAt: string;
@@ -238,6 +240,52 @@ export async function cancelSubAgentRun(runId: string): Promise<void> {
 
 export async function setSessionWorkDir(sessionId: string, workDir: string | null): Promise<void> {
   await wsClient.send("sessions.set_work_dir", { sessionId, workDir });
+}
+
+// ─── Projects ───
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  rootPath: string;
+  color: string;
+  pinned: boolean;
+  archived: boolean;
+  reachable: boolean;
+  lastOpenedAt: string;
+  sessionCount: number;
+}
+
+export async function listProjects(includeArchived = false): Promise<ProjectSummary[]> {
+  const resp = (await wsClient.send("projects.list", { includeArchived })) as {
+    data?: { projects?: ProjectSummary[] };
+  };
+  return resp?.data?.projects ?? [];
+}
+
+export async function createProject(rootPath: string, name?: string, color?: string): Promise<ProjectSummary | null> {
+  const resp = (await wsClient.send("projects.create", { rootPath, name, color })) as {
+    data?: ProjectSummary;
+  };
+  return resp?.data ?? null;
+}
+
+export async function updateProject(
+  id: string,
+  patch: { name?: string; color?: string; pinned?: boolean; archived?: boolean }
+): Promise<void> {
+  await wsClient.send("projects.update", { id, ...patch });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await wsClient.send("projects.delete", { id });
+}
+
+export async function detectProject(path: string): Promise<ProjectSummary | null> {
+  const resp = (await wsClient.send("projects.detect", { path })) as {
+    data?: { project?: ProjectSummary };
+  };
+  return resp?.data?.project ?? null;
 }
 
 export async function workspaceInit(workDir?: string): Promise<{
@@ -439,6 +487,12 @@ export function onSessionChanged(handler: (sessionId: string) => void): Unsubscr
   return wsClient.on("sessions.changed", (msg: unknown) => {
     const sid = (msg as { data?: { sessionId?: string } })?.data?.sessionId;
     if (sid) handler(sid);
+  });
+}
+
+export function onProjectsChanged(handler: () => void): UnsubscribeFn {
+  return wsClient.on("projects.changed", () => {
+    handler();
   });
 }
 
