@@ -20,13 +20,13 @@
 - [x] 3.4 实现 `get_project(id) -> Option<Project>`
 - [x] 3.5 实现 `update_project(id, patch) -> Result<()>`（支持 name/color/pinned/archived 部分更新）
 - [x] 3.6 实现 `delete_project(id) -> Result<()>`（级联清除 sessions.project_id）
-- [ ] 3.7 实现 `update_project_last_opened(id)`
+- [x] 3.7 实现 `update_project_last_opened(id)`
 
 ## 4. Session-Project 绑定逻辑
 
 - [x] 4.1 修改 `create_session_with_work_dir` 和 `create_session_full`：当 work_dir 非空时调用 `find_or_create_project` 并设置 project_id
 - [x] 4.2 修改 `update_work_dir`：当 work_dir 变更时同步更新 project_id（或清空）— 通过 `handle_sessions_set_work_dir` 和 `setup_chat` 实现
-- [ ] 4.3 实现启动迁移逻辑：在 gateway builder 中扫描 `sessions WHERE work_dir IS NOT NULL AND project_id IS NULL`，按 unique work_dir 批量 find_or_create_project 并回填 project_id
+- [x] 4.3 实现启动迁移逻辑：在 gateway builder 中扫描 `sessions WHERE work_dir IS NOT NULL AND project_id IS NULL`，按 unique work_dir 批量 find_or_create_project 并回填 project_id
 
 ## 5. Protocol 定义
 
@@ -68,8 +68,8 @@
 
 ## 10. 集成与验证
 
-- [ ] 10.1 在 gateway 启动流程中调用项目迁移逻辑（task 4.3）
+- [x] 10.1 在 gateway 启动流程中调用项目迁移逻辑（task 4.3）
 - [x] 10.2 在 store 初始化中触发 projects.list 同步 + 订阅 projects.changed 事件
 - [x] 10.3 运行 `cargo check` 确认 Rust 编译通过
-- [ ] 10.4 运行 `cargo clippy -- -D warnings` 确认无警告
+- [x] 10.4 运行 `cargo clippy -- -D warnings` 确认无警告
 - [x] 10.5 验证端到端流程：创建 session 时自动创建 project、sidebar 正确分组、project CRUD 操作正常
