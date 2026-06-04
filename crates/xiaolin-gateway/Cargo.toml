@@ -18,6 +18,7 @@ xiaolin-self-iter = { path = "../xiaolin-self-iter", optional = true }
 xiaolin-observe = { path = "../xiaolin-observe" }
 xiaolin-cron = { path = "../xiaolin-cron" }
 xiaolin-mcp = { path = "../xiaolin-mcp" }
+xiaolin-tools-fs = { path = "../xiaolin-tools-fs" }
 xiaolin-feishu = { path = "../../extensions/feishu" }
 xiaolin-wechat = { path = "../../extensions/wechat" }
 xiaolin-model-router = { path = "../xiaolin-model-router" }

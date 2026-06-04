@@ -2,6 +2,7 @@ import { create } from "zustand";
 import * as transport from "./transport";
 import { useChatMetaStore } from "./stores/chat-meta-store";
 import { useProjectStore } from "./stores/project-store";
+import { initGitStore } from "./stores/git-store";
 
 export interface GatewayInfo {
   port: number;
@@ -61,6 +62,7 @@ async function syncBackendData() {
       }
     }
     useProjectStore.getState().syncProjects();
+    initGitStore();
   } catch {
     /* sync failure is non-fatal */
   }

@@ -406,8 +406,61 @@ pub enum ClientOp {
         work_dir: Option<String>,
     },
 
+    // ── Git ─────────────────────────────────────────────────────────
+    GitStatus {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+    GitDiff {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        path: String,
+        #[serde(default)]
+        staged: bool,
+    },
+    GitBranches {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+    GitLog {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default = "default_git_log_limit")]
+        limit: u32,
+    },
+    GitStage {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    GitUnstage {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    GitCommit {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        message: String,
+    },
+    GitRevert {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        files: Vec<String>,
+    },
+    GitInit {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+
     // ── Keepalive ───────────────────────────────────────────────────
     Ping,
+}
+
+fn default_git_log_limit() -> u32 {
+    20
 }
 
 impl ClientOp {
@@ -743,6 +796,55 @@ impl ClientOp {
                     .or_else(|| params.get("work_dir"))
                     .and_then(|v| v.as_str())
                     .map(String::from),
+            }),
+            "git.status" => Ok(Self::GitStatus {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+            }),
+            "git.diff" => Ok(Self::GitDiff {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                path: extract_string(&params, "path")?,
+                staged: params.get("staged").and_then(|v| v.as_bool()).unwrap_or(false),
+            }),
+            "git.branches" => Ok(Self::GitBranches {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+            }),
+            "git.log" => Ok(Self::GitLog {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                limit: params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32,
+            }),
+            "git.stage" => Ok(Self::GitStage {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.unstage" => Ok(Self::GitUnstage {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.commit" => Ok(Self::GitCommit {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                message: extract_string(&params, "message")?,
+            }),
+            "git.revert" => Ok(Self::GitRevert {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.init" => Ok(Self::GitInit {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
             }),
             other => Err(format!("unknown method: {other}")),
         }

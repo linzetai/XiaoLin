@@ -146,6 +146,7 @@ pub async fn setup_chat(
             let _ = state.strm.ws_broadcast.send(
                 serde_json::json!({"type":"event","event":"sessions.changed","data":{"sessionId": &session_id}}).to_string(),
             );
+            state.strm.git_watcher_manager.ensure_watcher(&project.id, &std::path::PathBuf::from(wd)).await;
         }
     } else {
         auto_detect_work_dir(state, &session_id, &user_messages).await;

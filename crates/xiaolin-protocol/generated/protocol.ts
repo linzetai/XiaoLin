@@ -277,3 +277,76 @@ export function isTurnEnd(event: AgentEvent): event is Extract<AgentEvent, { typ
 export function isError(event: AgentEvent): event is Extract<AgentEvent, { type: "error" }> {
   return event.type === "error";
 }
+
+// ── Git Types ──────────────────────────────────────────────────────────
+
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "typeChanged" | "unmerged";
+
+export interface FileChange {
+  path: string;
+  status: FileStatus;
+  oldPath?: string;
+}
+
+export interface GitStatus {
+  isGitRepo: boolean;
+  branch: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  staged: FileChange[];
+  unstaged: FileChange[];
+  untracked: string[];
+}
+
+export interface FileDiffStat {
+  path: string;
+  insertions: number;
+  deletions: number;
+}
+
+export interface DiffStat {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  files: FileDiffStat[];
+}
+
+export type DiffLineKind = "context" | "add" | "delete";
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface Branch {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+  upstream?: string;
+}
+
+export interface CommitSummary {
+  sha: string;
+  shortSha: string;
+  author: string;
+  date: string;
+  message: string;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+}
+
+export interface CommitResult {
+  sha: string;
+  message: string;
+}

@@ -9947,6 +9947,7 @@ dependencies = [
  "xiaolin-self-iter",
  "xiaolin-session",
  "xiaolin-session-actor",
+ "xiaolin-tools-fs",
  "xiaolin-wechat",
 ]
 

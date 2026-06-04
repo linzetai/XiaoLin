@@ -12,6 +12,7 @@ import {
   useActiveChatId,
   useChatQueue,
   useActiveStream,
+  useGitStore,
 } from "../../lib/stores";
 import { ICON } from "../../lib/ui-tokens";
 import { QuestionPanel } from "./MessageRenderer";
@@ -99,6 +100,25 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
   );
 }
 
+
+function BranchChip({ chipStyle }: { chipStyle: React.CSSProperties }) {
+  const status = useGitStore((s) => s.status);
+  const branch = useGitStore((s) => s.currentBranch);
+
+  if (!status?.isGitRepo) return null;
+
+  return (
+    <button type="button"
+      style={{ ...chipStyle, color: "var(--fill-quaternary)", fontSize: 11 }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--fill-tertiary)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-quaternary)"; }}
+      title={`Branch: ${branch}`}
+    >
+      <GitBranch size={12} strokeWidth={1.8} />
+      <span>{branch || "HEAD"}</span>
+    </button>
+  );
+}
 
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
@@ -837,17 +857,8 @@ export function StreamFooter({
             if (chatId) setWorkDir("", chatId, null);
           }}
         />
-        {/* Branch */}
-        <button type="button"
-          style={{ ...chipStyle, color: "var(--fill-quaternary)", fontSize: 11 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--fill-tertiary)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-quaternary)"; }}
-          onClick={comingSoon} title="Git 分支（即将推出）"
-        >
-          <GitBranch size={12} strokeWidth={1.8} />
-          <span>main</span>
-          <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
-        </button>
+        {/* Branch - from git-store */}
+        <BranchChip chipStyle={chipStyle} />
 
         <div style={{ flex: 1 }} />
 

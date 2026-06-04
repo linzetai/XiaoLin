@@ -535,6 +535,9 @@ pub async fn handle_sessions_set_work_dir(
                     json!({"type":"event","event":"projects.changed","data":{"projectId": pid, "action": "session_bound"}})
                         .to_string(),
                 );
+                if let Some(wd) = work_dir {
+                    state.strm.git_watcher_manager.ensure_watcher(pid, &std::path::PathBuf::from(wd)).await;
+                }
             }
             let _ = state.strm.ws_broadcast.send(
                 json!({"type":"event","event":"sessions.changed","data":{"sessionId": sid}})

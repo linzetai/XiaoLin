@@ -952,6 +952,7 @@ impl StateBuilder {
             strm: super::StreamState {
                 stream_event_tx: p5.phase2.phase4.stream_event_tx,
                 tool_orchestrator: p5.phase2.phase4.tool_orchestrator.clone(),
+                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(p5.ws_broadcast.clone())),
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: Arc::new(xiaolin_agent::SubAgentManager::new(
                     runtime_for_subagent,

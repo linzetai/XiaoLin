@@ -141,6 +141,7 @@ export function connectWs(url: string, token?: string): Promise<void> {
         "sessions.changed",
         "projects.changed",
         "channels.changed",
+        "git.status_changed",
         "cron.job.complete",
         "cron.job.failed",
         "notification.new",
@@ -493,6 +494,64 @@ export function onSessionChanged(handler: (sessionId: string) => void): Unsubscr
 export function onProjectsChanged(handler: () => void): UnsubscribeFn {
   return wsClient.on("projects.changed", () => {
     handler();
+  });
+}
+
+// ── Git API ──────────────────────────────────────────────────────────────
+
+export async function gitStatus(projectId: string) {
+  const resp = (await wsClient.send("git.status", { projectId })) as { data?: unknown };
+  return resp?.data ?? null;
+}
+
+export async function gitDiff(projectId: string, path: string, staged = false) {
+  const resp = (await wsClient.send("git.diff", { projectId, path, staged })) as {
+    data?: { hunks?: unknown[] };
+  };
+  return resp?.data?.hunks ?? [];
+}
+
+export async function gitBranches(projectId: string) {
+  const resp = (await wsClient.send("git.branches", { projectId })) as {
+    data?: { branches?: unknown[]; current?: string };
+  };
+  return resp?.data ?? { branches: [], current: "" };
+}
+
+export async function gitLog(projectId: string, limit = 20) {
+  const resp = (await wsClient.send("git.log", { projectId, limit })) as {
+    data?: { commits?: unknown[] };
+  };
+  return resp?.data?.commits ?? [];
+}
+
+export async function gitStage(projectId: string, files: string[] = []) {
+  await wsClient.send("git.stage", { projectId, files });
+}
+
+export async function gitUnstage(projectId: string, files: string[] = []) {
+  await wsClient.send("git.unstage", { projectId, files });
+}
+
+export async function gitCommit(projectId: string, message: string) {
+  const resp = (await wsClient.send("git.commit", { projectId, message })) as {
+    data?: { sha?: string; message?: string };
+  };
+  return resp?.data ?? null;
+}
+
+export async function gitRevert(projectId: string, files: string[]) {
+  await wsClient.send("git.revert", { projectId, files });
+}
+
+export async function gitInit(projectId: string) {
+  return await wsClient.send("git.init", { projectId });
+}
+
+export function onGitStatusChanged(handler: (projectId: string, status: unknown) => void): UnsubscribeFn {
+  return wsClient.on("git.status_changed", (msg: unknown) => {
+    const data = (msg as { data?: { projectId?: string; status?: unknown } })?.data;
+    if (data?.projectId) handler(data.projectId, data.status);
   });
 }
 

@@ -4,6 +4,7 @@ mod chat;
 mod config;
 mod cron;
 mod execution;
+mod git;
 mod mcp;
 mod notifications;
 mod project;
@@ -115,6 +116,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "chat.compact", "compact",
                             "chat.steer", "steer",
                             "projects.list", "projects.create", "projects.update", "projects.delete", "projects.detect",
+                            "git.status", "git.diff", "git.branches", "git.log", "git.stage", "git.unstage", "git.commit", "git.revert",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -642,6 +644,33 @@ async fn dispatch(
         }
         ClientOp::ProjectsDetect { path } => {
             project::handle_projects_detect(sender, state, id, &path).await;
+        }
+        ClientOp::GitStatus { project_id } => {
+            git::handle_git_status(sender, state, id, &project_id).await;
+        }
+        ClientOp::GitDiff { project_id, path, staged } => {
+            git::handle_git_diff(sender, state, id, &project_id, &path, staged).await;
+        }
+        ClientOp::GitBranches { project_id } => {
+            git::handle_git_branches(sender, state, id, &project_id).await;
+        }
+        ClientOp::GitLog { project_id, limit } => {
+            git::handle_git_log(sender, state, id, &project_id, limit).await;
+        }
+        ClientOp::GitStage { project_id, files } => {
+            git::handle_git_stage(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitUnstage { project_id, files } => {
+            git::handle_git_unstage(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitCommit { project_id, message } => {
+            git::handle_git_commit(sender, state, id, &project_id, &message).await;
+        }
+        ClientOp::GitRevert { project_id, files } => {
+            git::handle_git_revert(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitInit { project_id } => {
+            git::handle_git_init(sender, state, id, &project_id).await;
         }
         _ => {
             send_resp(
