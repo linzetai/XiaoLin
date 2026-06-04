@@ -18,7 +18,7 @@ vi.mock("../stores/persistence", () => ({
 
 function resetStores() {
   idCounter.nextId = 1;
-  const initChat = { id: `new-${Date.now()}-reset`, localKey: `new-${Date.now()}-reset`, title: "新对话", workDir: null, source: "client", createdAt: new Date(), messageCount: 0, open: true, executionMode: "agent" as const };
+  const initChat = { id: `new-${Date.now()}-reset`, localKey: `new-${Date.now()}-reset`, title: "新对话", workDir: null, projectId: null, source: "client", createdAt: new Date(), messageCount: 0, open: true, executionMode: "agent" as const };
   useChatMetaStore.setState({
     chats: { [initChat.id]: initChat },
     chatOrder: [initChat.id],

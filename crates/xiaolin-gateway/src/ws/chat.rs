@@ -676,6 +676,39 @@ pub async fn spawn_chat(
                     tc.success = Some(success);
                     tc.metadata = metadata.clone();
                     tc.duration_ms = Some(chat_start.elapsed().as_millis() as u64 - tc.start_ms);
+
+                    if success {
+                        let should_refresh = match tc.name.as_str() {
+                            "edit_file" | "write_file" | "create_file" | "apply_patch" | "str_replace_editor" => true,
+                            "shell_exec" | "execute_command" => {
+                                tc.args.as_deref()
+                                    .and_then(|a| serde_json::from_str::<serde_json::Value>(a).ok())
+                                    .map(|a| {
+                                        let cmd = a.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                        cmd.contains("git add") || cmd.contains("git commit")
+                                            || cmd.contains("git checkout") || cmd.contains("git reset")
+                                            || cmd.contains("git stash") || cmd.contains("git merge")
+                                            || cmd.contains("git rebase") || cmd.contains("git rm")
+                                    }).unwrap_or(false)
+                            }
+                            _ => false,
+                        };
+                        if should_refresh {
+                            if let Some(ref wd) = setup.enriched_request.work_dir {
+                                let mgr = state.strm.git_watcher_manager.clone();
+                                let wd = std::path::PathBuf::from(wd.as_str());
+                                let sid = setup.session_id.clone();
+                                let store = state.store.session_store.clone();
+                                tokio::spawn(async move {
+                                    if let Ok(Some(session)) = store.get_session(&sid).await {
+                                        if let Some(pid) = session.project_id {
+                                            mgr.trigger_refresh(&pid, &wd).await;
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
                 }
             }
             if matches!(&event, AgentEvent::Error { .. }) {

@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
-import { Plus, Search, Puzzle, RefreshCw, Settings, MessageCircle, Pencil, FolderOpen, Trash2, X } from "lucide-react";
+import { Plus, Search, Puzzle, RefreshCw, Settings, MessageCircle, Pencil, FolderOpen, Trash2, X, ChevronRight, ChevronDown, Pin, PinOff, Archive, Palette, FolderPlus } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../../lib/stores";
+import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, useProjectStore } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores";
 import { useGatewayStore } from "../../lib/store";
 import { fuzzyMatch } from "../../lib/fuzzy";
 import type { ChatMeta } from "../../lib/stores/types";
+import type { ProjectSummary } from "../../lib/transport";
 
 const actionBtn: CSSProperties = {
   width: "100%",
@@ -26,41 +26,25 @@ const actionBtn: CSSProperties = {
 
 const ICON_SIZE = 15;
 
-function SidebarAction({ icon, label, onClick, disabled, active }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; active?: boolean }) {
+function SidebarAction({ icon, label, onClick, disabled }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean }) {
   const handleClick = useCallback(() => {
     if (disabled) return;
     if (onClick) { onClick(); return; }
   }, [disabled, onClick]);
 
-  const baseStyle: CSSProperties = active
-    ? { ...actionBtn, background: "color-mix(in srgb, var(--tint) 10%, transparent)", color: "var(--tint)", fontWeight: 500 }
-    : actionBtn;
-
   return (
     <button
       type="button"
-      style={{ ...baseStyle, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
+      style={{ ...actionBtn, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
       onClick={handleClick}
-      onMouseDown={(e) => {
-        if (!disabled && !onClick) {
-          const el = e.currentTarget;
-          el.style.background = "var(--tint)";
-          el.style.color = "#fff";
-          setTimeout(() => { el.style.background = "transparent"; el.style.color = "var(--fill-tertiary)"; }, 180);
-        }
-      }}
-      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = active ? "color-mix(in srgb, var(--tint) 15%, transparent)" : "var(--bg-hover)"; e.currentTarget.style.color = active ? "var(--tint)" : "var(--fill-secondary)"; } }}
-      onMouseLeave={(e) => {
-        if (active) { e.currentTarget.style.background = "color-mix(in srgb, var(--tint) 10%, transparent)"; e.currentTarget.style.color = "var(--tint)"; }
-        else { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-tertiary)"; }
-      }}
+      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--fill-secondary)"; } }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-tertiary)"; }}
     >
       <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
       <span>{label}</span>
     </button>
   );
 }
-
 
 function ChatContextMenu({
   x, y, onClose, onRename, onSetWorkDir, onDelete,
@@ -71,7 +55,6 @@ function ChatContextMenu({
   onSetWorkDir: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation("sidebar");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,9 +71,9 @@ function ChatContextMenu({
   }, [onClose]);
 
   const items = [
-    { icon: Pencil, label: t("rename"), action: onRename },
-    { icon: FolderOpen, label: t("setWorkDir"), action: onSetWorkDir },
-    { icon: Trash2, label: t("delete"), action: onDelete, danger: true },
+    { icon: Pencil, label: "重命名", action: onRename },
+    { icon: FolderOpen, label: "设置工作目录", action: onSetWorkDir },
+    { icon: Trash2, label: "删除", action: onDelete, danger: true },
   ];
 
   return createPortal(
@@ -125,9 +108,94 @@ function ChatContextMenu({
   );
 }
 
-function extractProjectName(workDir: string): string {
-  const parts = workDir.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || workDir;
+const PROJECT_COLORS = ["#2563EB", "#7C3AED", "#EC4899", "#EF4444", "#F97316", "#EAB308", "#22C55E", "#06B6D4"];
+
+function ProjectContextMenu({
+  x, y, project, onClose, onRename, onTogglePin, onArchive, onDelete, onChangeColor,
+}: {
+  x: number; y: number;
+  project: ProjectSummary;
+  onClose: () => void;
+  onRename: () => void;
+  onTogglePin: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  onChangeColor: (color: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [showColors, setShowColors] = useState(false);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  const menuItems = [
+    { icon: Pencil, label: "重命名", action: onRename },
+    { icon: Palette, label: "更改颜色", action: () => setShowColors(!showColors) },
+    { icon: project.pinned ? PinOff : Pin, label: project.pinned ? "取消置顶" : "置顶", action: onTogglePin },
+    { icon: Archive, label: "归档", action: onArchive },
+    { icon: Trash2, label: "从列表移除", action: onDelete, danger: true },
+  ];
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[60] min-w-[160px] overflow-hidden rounded-lg py-1"
+      style={{
+        left: x, top: y,
+        background: "var(--bg-elevated)",
+        border: "0.5px solid var(--separator)",
+        boxShadow: "var(--shadow-lg)",
+        animation: "scale-in var(--duration-fast) var(--ease-out)",
+        transformOrigin: "top left",
+      }}
+    >
+      {menuItems.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.label}
+            onClick={() => { item.action(); if (item.label !== "更改颜色") onClose(); }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+            style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
+          >
+            <Icon size={14} strokeWidth={1.5} />
+            {item.label}
+          </button>
+        );
+      })}
+      {showColors && (
+        <div style={{ padding: "6px 10px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+          {PROJECT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => { onChangeColor(color); onClose(); }}
+              style={{
+                width: 24, height: 24, borderRadius: "50%", border: "none",
+                background: color, cursor: "pointer",
+                outline: project.color === color ? "2px solid var(--fill-primary)" : "none",
+                outlineOffset: 2,
+                transition: "transform 0.1s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.15)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+            />
+          ))}
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
 }
 
 function formatTimeAgo(date: Date | string | undefined | null): string {
@@ -149,13 +217,199 @@ function formatTimeAgo(date: Date | string | undefined | null): string {
   return `${months}mo`;
 }
 
+function SessionItem({
+  chat, active, isRenaming, renameValue, renameInputRef,
+  onSelect, onContextMenu, onRenameChange, onRenameSubmit, onRenameCancel,
+  indent,
+}: {
+  chat: ChatMeta;
+  active: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  renameInputRef: React.RefObject<HTMLInputElement | null>;
+  onSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onRenameChange: (v: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
+  indent?: boolean;
+}) {
+  const timeLabel = formatTimeAgo(chat.createdAt);
+  return (
+    <div
+      className="group/chat"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "5px 10px",
+        paddingLeft: indent ? 34 : 10,
+        borderRadius: 6,
+        cursor: "pointer",
+        transition: "background 0.1s",
+        background: active ? "var(--bg-active)" : "transparent",
+        margin: "1px 0",
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+      onClick={() => !isRenaming && onSelect()}
+      onContextMenu={onContextMenu}
+    >
+      <span style={{ width: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <MessageCircle size={14} strokeWidth={1.8} style={{ color: "currentColor" }} />
+      </span>
+      <span style={{
+        flex: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: 13,
+        fontWeight: active ? 500 : 400,
+        color: active ? "var(--fill-primary)" : "var(--fill-secondary)",
+      }}>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onBlur={onRenameSubmit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onRenameSubmit();
+              if (e.key === "Escape") onRenameCancel();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: 13,
+              color: "var(--fill-primary)",
+            }}
+          />
+        ) : (
+          chat.title || "新会话"
+        )}
+      </span>
+      {!isRenaming && timeLabel && (
+        <span style={{ fontSize: 11, color: "var(--fill-quaternary)", flexShrink: 0 }}>
+          {timeLabel}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ProjectGroup({
+  project, sessions, activeChatId, collapsed, onToggle,
+  onSelectChat, onNewChatInProject, onContextMenuChat, onContextMenuProject,
+  renamingChatId, renameValue, renameInputRef,
+  onRenameChange, onRenameSubmit, onRenameCancel,
+}: {
+  project: ProjectSummary;
+  sessions: ChatMeta[];
+  activeChatId: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  onSelectChat: (id: string) => void;
+  onNewChatInProject: () => void;
+  onContextMenuChat: (chatId: string, e: React.MouseEvent) => void;
+  onContextMenuProject: (e: React.MouseEvent) => void;
+  renamingChatId: string | null;
+  renameValue: string;
+  renameInputRef: React.RefObject<HTMLInputElement | null>;
+  onRenameChange: (v: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
+
+  return (
+    <div style={{ marginBottom: 2 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          padding: "6px 10px",
+          borderRadius: 6,
+          cursor: "pointer",
+          transition: "background 0.1s",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; setHovered(true); }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; setHovered(false); }}
+        onClick={onToggle}
+        onContextMenu={onContextMenuProject}
+      >
+        <span
+          style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: project.color || "#2563EB",
+            flexShrink: 0,
+            opacity: project.reachable ? 1 : 0.4,
+          }}
+        />
+        <span style={{
+          flex: 1, minWidth: 0,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          fontSize: 13, fontWeight: 500,
+          color: project.reachable ? "var(--fill-secondary)" : "var(--fill-quaternary)",
+          textDecoration: project.reachable ? "none" : "line-through",
+        }}
+          title={!project.reachable ? `项目目录不可达：${project.rootPath}` : project.rootPath}
+        >
+          {project.name}
+        </span>
+        {hovered && (
+          <button
+            type="button"
+            style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              color: "var(--fill-quaternary)", display: "flex", alignItems: "center",
+            }}
+            title="在此项目下新建会话"
+            onClick={(e) => { e.stopPropagation(); onNewChatInProject(); }}
+          >
+            <Plus size={13} strokeWidth={2} />
+          </button>
+        )}
+        {!hovered && sessions.length > 0 && (
+          <span style={{ fontSize: 11, color: "var(--fill-quaternary)", flexShrink: 0 }}>
+            {sessions.length}
+          </span>
+        )}
+        <Chevron size={12} strokeWidth={1.8} style={{
+          color: "var(--fill-quaternary)", flexShrink: 0,
+          transition: "transform var(--duration-fast) var(--ease-out)",
+        }} />
+      </div>
+      {!collapsed && sessions.map((chat) => (
+        <SessionItem
+          key={chat.id}
+          chat={chat}
+          active={activeChatId === chat.id}
+          isRenaming={renamingChatId === chat.id}
+          renameValue={renameValue}
+          renameInputRef={renameInputRef}
+          onSelect={() => onSelectChat(chat.id)}
+          onContextMenu={(e) => onContextMenuChat(chat.id, e)}
+          onRenameChange={onRenameChange}
+          onRenameSubmit={onRenameSubmit}
+          onRenameCancel={onRenameCancel}
+          indent
+        />
+      ))}
+    </div>
+  );
+}
+
 export function AppSidebar() {
-  const { t } = useTranslation("sidebar");
-  const { t: tCommon } = useTranslation("common");
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const layoutTier = useUIStore((s) => s.layoutTier);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const mainView = useUIStore((s) => s.mainView);
 
   const chats = useChatMetaStore((s) => s.chats);
   const chatOrder = useChatMetaStore((s) => s.chatOrder);
@@ -166,6 +420,8 @@ export function AppSidebar() {
   const renameChat = useChatMetaStore((s) => s.renameChat);
   const gatewayReady = useGatewayStore((s) => s.connected);
 
+  const projects = useProjectStore((s) => s.projects);
+
   const chatList = useMemo(
     () => chatOrder.map((id) => chats[id]).filter((c): c is ChatMeta => c != null),
     [chats, chatOrder],
@@ -174,10 +430,12 @@ export function AppSidebar() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<{ chatId: string; x: number; y: number } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ projectId: string; x: number; y: number } | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (renamingChatId) {
@@ -194,23 +452,59 @@ export function AppSidebar() {
     if (!query.trim()) return chatList;
     return chatList
       .map((chat) => {
-        const result = fuzzyMatch(query, chat.title || t("newChat"));
+        const result = fuzzyMatch(query, chat.title || "新会话");
         return result ? { chat, score: result.score } : null;
       })
       .filter((r): r is { chat: ChatMeta; score: number } => r !== null)
       .sort((a, b) => b.score - a.score)
       .map((r) => r.chat);
-  }, [chatList, query, t]);
+  }, [chatList, query]);
+
+  const { projectGroups, looseChats } = useMemo(() => {
+    const groups: Array<{ project: ProjectSummary; sessions: ChatMeta[] }> = [];
+    const loose: ChatMeta[] = [];
+
+    for (const chat of filteredChats) {
+      if (chat.projectId && projects[chat.projectId]) {
+        let group = groups.find((g) => g.project.id === chat.projectId);
+        if (!group) {
+          group = { project: projects[chat.projectId], sessions: [] };
+          groups.push(group);
+        }
+        group.sessions.push(chat);
+      } else {
+        loose.push(chat);
+      }
+    }
+
+    groups.sort((a, b) => {
+      if (a.project.pinned !== b.project.pinned) return (b.project.pinned ? 1 : 0) - (a.project.pinned ? 1 : 0);
+      return new Date(b.project.lastOpenedAt).getTime() - new Date(a.project.lastOpenedAt).getTime();
+    });
+
+    for (const g of groups) {
+      g.sessions.sort((a, b) => {
+        const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+        const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
+        return tb - ta;
+      });
+    }
+
+    loose.sort((a, b) => {
+      const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+      const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
+      return tb - ta;
+    });
+
+    return { projectGroups: groups, looseChats: loose };
+  }, [filteredChats, projects]);
 
   const handleNewChat = useCallback(() => {
-    const activeChat = chatList.find((c) => c.id === activeChatId);
-    newChat(activeChat?.workDir ?? undefined);
-    useUIStore.getState().setMainView("chat");
-  }, [newChat, chatList, activeChatId]);
+    newChat();
+  }, [newChat]);
 
   const handleSelectChat = useCallback((chatId: string) => {
     setActiveChat(chatId);
-    useUIStore.getState().setMainView("chat");
     if (layoutTier === "compact") toggleSidebar();
   }, [setActiveChat, layoutTier, toggleSidebar]);
 
@@ -222,22 +516,36 @@ export function AppSidebar() {
     setRenameValue("");
   }, [renamingChatId, renameValue, renameChat]);
 
-  const groupedChats = useMemo(() => {
-    const groups: Record<string, { workDir: string | null; chats: ChatMeta[] }> = {};
-    for (const chat of filteredChats) {
-      const label = chat.workDir ? extractProjectName(chat.workDir) : t("chats");
-      if (!groups[label]) groups[label] = { workDir: chat.workDir ?? null, chats: [] };
-      groups[label].chats.push(chat);
+  const handleRenameCancel = useCallback(() => {
+    setRenamingChatId(null);
+    setRenameValue("");
+  }, []);
+
+  const toggleProjectCollapsed = useCallback((projectId: string) => {
+    setCollapsedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
+  }, []);
+
+  const handleNewChatInProject = useCallback((rootPath: string) => {
+    newChat(rootPath);
+  }, [newChat]);
+
+  const createProject = useProjectStore((s) => s.createProject);
+
+  const handleAddProject = useCallback(async () => {
+    let selected: string | null = null;
+    try {
+      const { open: tauriOpenDialog } = await import("@tauri-apps/plugin-dialog");
+      selected = await tauriOpenDialog({ directory: true, multiple: false }) as string | null;
+    } catch {
+      selected = prompt("输入项目路径:");
     }
-    for (const group of Object.values(groups)) {
-      group.chats.sort((a, b) => {
-        const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
-        const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
-        return tb - ta;
-      });
+    if (typeof selected === "string" && selected.trim()) {
+      await createProject(selected.trim());
     }
-    return groups;
-  }, [filteredChats]);
+  }, [createProject]);
+
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const deleteProjectAction = useProjectStore((s) => s.deleteProject);
 
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
@@ -294,17 +602,17 @@ export function AppSidebar() {
         <div style={{ padding: "10px 8px 6px", display: "flex", flexDirection: "column", gap: 1 }}>
           <SidebarAction
             icon={<Plus size={ICON_SIZE} strokeWidth={1.7} />}
-            label={t("newChat")}
+            label="New chat"
             onClick={handleNewChat}
             disabled={!gatewayReady}
           />
           <SidebarAction
             icon={<Search size={ICON_SIZE} strokeWidth={1.7} />}
-            label={t("search")}
+            label="Search"
             onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) { setQuery(""); } }}
           />
-          <SidebarAction icon={<Puzzle size={ICON_SIZE} strokeWidth={1.7} />} label={t("plugins")} onClick={() => useUIStore.getState().setMainView("plugins")} active={mainView === "plugins"} />
-          <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label={t("automations")} onClick={() => useUIStore.getState().setMainView("automations")} active={mainView === "automations"} />
+          <SidebarAction icon={<Puzzle size={ICON_SIZE} strokeWidth={1.7} />} label="Plugins" />
+          <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label="Automations" />
         </div>
 
         {/* Search bar */}
@@ -327,7 +635,7 @@ export function AppSidebar() {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={t("searchSessions")}
+                placeholder="搜索会话..."
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -351,116 +659,123 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Session list */}
+        {/* Session list — dual section */}
         <div className="sidebar-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 8px" }}>
-          {Object.entries(groupedChats).map(([label, { chats: groupChats }]) => (
-            <div key={label} style={{ marginBottom: 4 }}>
-              <div
+
+          {/* ═══ Projects section ═══ */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{
+              padding: "12px 10px 4px",
+              fontSize: 11, fontWeight: 500, color: "var(--fill-quaternary)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <span>Projects</span>
+              <button
+                type="button"
+                title="添加项目"
+                onClick={handleAddProject}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "12px 10px 4px",
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: "var(--fill-quaternary)",
+                  background: "none", border: "none", padding: "2px",
+                  cursor: "pointer", color: "var(--fill-quaternary)",
+                  borderRadius: 4, display: "flex", alignItems: "center",
+                  transition: "color 0.1s, background 0.1s",
                 }}
-                onMouseEnter={(e) => { const a = e.currentTarget.querySelector(".group-actions") as HTMLElement; if (a) a.style.opacity = "1"; }}
-                onMouseLeave={(e) => { const a = e.currentTarget.querySelector(".group-actions") as HTMLElement; if (a) a.style.opacity = "0"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--fill-secondary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "none"; }}
               >
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {label}
-                </span>
-                <span style={{ display: "flex", gap: 2, opacity: 0, transition: "opacity 0.15s" }} className="group-actions">
-                  <button type="button" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", fontSize: 11, lineHeight: 1 }} title={tCommon("collapse")}>⊟</button>
-                  <button type="button" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", fontSize: 11, lineHeight: 1 }} title={tCommon("sort")}>≡</button>
-                </span>
-              </div>
-              {groupChats.map((chat) => {
-                const active = activeChatId === chat.id;
-                const isRenaming = renamingChatId === chat.id;
-                const timeLabel = formatTimeAgo(chat.createdAt);
-                return (
-                  <div
-                    key={chat.id}
-                    className="group/chat"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                      padding: "5px 10px",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      transition: "background 0.1s",
-                      background: active ? "var(--bg-active)" : "transparent",
-                      margin: "1px 0",
-                    }}
-                    onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = active ? "var(--bg-active)" : "transparent"; }}
-                    onClick={() => !isRenaming && handleSelectChat(chat.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ chatId: chat.id, x: e.clientX, y: e.clientY });
-                    }}
-                  >
-                    <span style={{ width: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <MessageCircle size={14} strokeWidth={1.8} style={{ color: "currentColor" }} />
-                    </span>
-                    <span style={{
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontSize: 13,
-                      fontWeight: active ? 500 : 400,
-                      color: active ? "var(--fill-primary)" : "var(--fill-secondary)",
-                    }}>
-                      {isRenaming ? (
-                        <input
-                          ref={renameInputRef}
-                          type="text"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={handleRenameSubmit}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRenameSubmit();
-                            if (e.key === "Escape") { setRenamingChatId(null); setRenameValue(""); }
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            width: "100%",
-                            background: "transparent",
-                            border: "none",
-                            outline: "none",
-                            fontSize: 13,
-                            color: "var(--fill-primary)",
-                          }}
-                        />
-                      ) : (
-                        chat.title || t("newChat")
-                      )}
-                    </span>
-                    {!isRenaming && timeLabel && (
-                      <span style={{ fontSize: 11, color: "var(--fill-quaternary)", flexShrink: 0 }}>
-                        {timeLabel}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
+                <FolderPlus size={13} strokeWidth={1.8} />
+              </button>
             </div>
-          ))}
+            {projectGroups.length === 0 && !query && (
+              <button
+                type="button"
+                onClick={handleAddProject}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 10px", margin: "2px 0",
+                  width: "100%", border: "1px dashed var(--separator)",
+                  borderRadius: 6, background: "transparent",
+                  cursor: "pointer", fontSize: 12, color: "var(--fill-quaternary)",
+                  transition: "border-color 0.15s, color 0.15s, background 0.15s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--tint)"; e.currentTarget.style.color = "var(--fill-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--separator)"; e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "transparent"; }}
+              >
+                <FolderOpen size={13} strokeWidth={1.8} />
+                <span>打开文件夹作为项目...</span>
+              </button>
+            )}
+            {projectGroups.map(({ project, sessions }) => (
+              <ProjectGroup
+                key={project.id}
+                project={project}
+                sessions={sessions}
+                activeChatId={activeChatId}
+                collapsed={!!collapsedProjects[project.id]}
+                onToggle={() => toggleProjectCollapsed(project.id)}
+                onSelectChat={handleSelectChat}
+                onNewChatInProject={() => handleNewChatInProject(project.rootPath)}
+                onContextMenuChat={(chatId, e) => {
+                  e.preventDefault();
+                  setContextMenu({ chatId, x: e.clientX, y: e.clientY });
+                }}
+                onContextMenuProject={(e) => {
+                  e.preventDefault();
+                  setProjectContextMenu({ projectId: project.id, x: e.clientX, y: e.clientY });
+                }}
+                renamingChatId={renamingChatId}
+                renameValue={renameValue}
+                renameInputRef={renameInputRef}
+                onRenameChange={setRenameValue}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={handleRenameCancel}
+              />
+            ))}
+          </div>
+
+          {/* ═══ Chats section ═══ */}
+          <div>
+            <div style={{
+              padding: "12px 10px 4px",
+              fontSize: 11, fontWeight: 500, color: "var(--fill-quaternary)",
+            }}>
+              Chats
+            </div>
+            {looseChats.length === 0 && !query && (
+              <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--fill-quaternary)" }}>
+                还没有独立会话
+              </div>
+            )}
+            {looseChats.map((chat) => (
+              <SessionItem
+                key={chat.id}
+                chat={chat}
+                active={activeChatId === chat.id}
+                isRenaming={renamingChatId === chat.id}
+                renameValue={renameValue}
+                renameInputRef={renameInputRef}
+                onSelect={() => handleSelectChat(chat.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ chatId: chat.id, x: e.clientX, y: e.clientY });
+                }}
+                onRenameChange={setRenameValue}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={handleRenameCancel}
+              />
+            ))}
+          </div>
+
           {filteredChats.length === 0 && query && (
             <div style={{ padding: "16px 8px", textAlign: "center", fontSize: 12, color: "var(--fill-quaternary)" }}>
-              {t("noMatchingSessions")}
+              未找到匹配的会话
             </div>
           )}
         </div>
 
         {/* Bottom: Settings */}
         <div style={{ padding: 8, borderTop: "1px solid var(--border-shell-subtle)" }}>
-          <SidebarAction icon={<Settings size={ICON_SIZE} strokeWidth={1.7} />} label={t("settings")} onClick={() => useUIStore.getState().openSettings()} />
+          <SidebarAction icon={<Settings size={ICON_SIZE} strokeWidth={1.7} />} label="Settings" />
         </div>
 
         {/* Resize handle */}
@@ -506,8 +821,28 @@ export function AppSidebar() {
             setRenamingChatId(contextMenu.chatId);
             setRenameValue(chat?.title || "");
           }}
-          onSetWorkDir={() => {/* placeholder */}}
+          onSetWorkDir={() => {/* handled by ProjectDropdown in StreamFooter */}}
           onDelete={() => closeChat(contextMenu.chatId)}
+        />
+      )}
+
+      {projectContextMenu && projects[projectContextMenu.projectId] && (
+        <ProjectContextMenu
+          x={projectContextMenu.x}
+          y={projectContextMenu.y}
+          project={projects[projectContextMenu.projectId]}
+          onClose={() => setProjectContextMenu(null)}
+          onRename={() => {
+            const name = prompt("项目名称:", projects[projectContextMenu.projectId]?.name);
+            if (name?.trim()) updateProject(projectContextMenu.projectId, { name: name.trim() });
+          }}
+          onTogglePin={() => {
+            const p = projects[projectContextMenu.projectId];
+            if (p) updateProject(p.id, { pinned: !p.pinned });
+          }}
+          onArchive={() => updateProject(projectContextMenu.projectId, { archived: true })}
+          onDelete={() => deleteProjectAction(projectContextMenu.projectId)}
+          onChangeColor={(color) => updateProject(projectContextMenu.projectId, { color })}
         />
       )}
     </>

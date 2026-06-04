@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import i18n from "../../i18n";
 import * as api from "../api";
+import { createProject } from "../transport";
 import { DEFAULT_AGENT_ID, INITIAL_AGENTS, formatTime } from "./chat-helpers";
 import { _persisted } from "./persistence";
+import { useProjectStore } from "./project-store";
 import { useStreamStore } from "./stream-store";
 import type {
   Agent,
@@ -24,6 +26,7 @@ function createChatMeta(workDir?: string): ChatMeta {
     localKey: chatId,
     title: i18n.t("common:newConversation"),
     workDir: workDir ?? null,
+    projectId: null,
     source: "client",
     createdAt: new Date(),
     messageCount: 0,
@@ -85,6 +88,7 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
       chatOrder: [...state.chatOrder, chat.id],
       activeChatId: chat.id,
     }));
+    useProjectStore.getState().setActiveProjectId(chat.projectId ?? null);
   },
 
   setActiveChat: (chatId) => {
@@ -97,6 +101,10 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
       }
       return updates;
     });
+    const chat = get().chats[chatId];
+    if (chat) {
+      useProjectStore.getState().setActiveProjectId(chat.projectId ?? null);
+    }
   },
 
   closeChat: (chatId) => {
@@ -183,12 +191,36 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
   },
 
   setWorkDir: (chatId, workDir) => {
+    const chat = get().chats[chatId];
     set((state) => {
-      const chat = state.chats[chatId];
-      if (!chat) return state;
-      return { chats: { ...state.chats, [chatId]: { ...chat, workDir } } };
+      if (!state.chats[chatId]) return state;
+      return { chats: { ...state.chats, [chatId]: { ...state.chats[chatId], workDir } } };
     });
-    api.setSessionWorkDir(chatId, workDir).catch(() => {});
+    if (chat && chat.messageCount > 0) {
+      api.setSessionWorkDir(chatId, workDir).catch(() => {});
+    }
+    if (workDir) {
+      const projects = useProjectStore.getState().projects;
+      const match = Object.values(projects).find((p) => p.rootPath === workDir);
+      if (match) {
+        useProjectStore.getState().setActiveProjectId(match.id);
+      } else {
+        useProjectStore.getState().setActiveProjectId(null);
+        const dirName = workDir.split("/").pop() || "project";
+        createProject(workDir, dirName).then((project) => {
+          if (project?.id) {
+            useProjectStore.getState().setActiveProjectId(project.id);
+            set((state) => {
+              if (!state.chats[chatId]) return state;
+              return { chats: { ...state.chats, [chatId]: { ...state.chats[chatId], projectId: project.id } } };
+            });
+            useProjectStore.getState().syncProjects();
+          }
+        }).catch(() => {});
+      }
+    } else {
+      useProjectStore.getState().setActiveProjectId(null);
+    }
   },
 
   clearUnread: () => {
@@ -238,6 +270,7 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
           const updates: Partial<ChatMeta> = {};
           if (backend.messageCount > chat.messageCount) updates.messageCount = backend.messageCount;
           if (backend.workDir !== undefined && backend.workDir !== chat.workDir) updates.workDir = backend.workDir ?? null;
+          if (backend.projectId !== undefined && backend.projectId !== chat.projectId) updates.projectId = backend.projectId ?? null;
           if (backend.source && backend.source !== chat.source) updates.source = backend.source;
           if (Object.keys(updates).length > 0) {
             updatedChats[id] = { ...chat, ...updates };
@@ -253,6 +286,7 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
           localKey: s.id,
           title: s.title || i18n.t("common:unnamedSession"),
           workDir: s.workDir ?? null,
+          projectId: s.projectId ?? null,
           source: s.source ?? "client",
           createdAt: parseUtcTimestamp(s.createdAt),
           messageCount: s.messageCount,

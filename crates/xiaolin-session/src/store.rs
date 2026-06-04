@@ -392,6 +392,37 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
+        // projects table: global project registry
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                root_path TEXT NOT NULL UNIQUE,
+                color TEXT NOT NULL DEFAULT '#0066cc',
+                pinned INTEGER NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_opened_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Migration: add project_id column to sessions if missing
+        let has_project_id: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'project_id'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_project_id {
+            sqlx::query("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+                .execute(&self.pool)
+                .await?;
+            tracing::info!("migrated sessions table: added project_id column");
+        }
+
         Ok(())
     }
 
@@ -438,6 +469,18 @@ impl SessionStore {
             agent_id
         };
 
+        let project_id = if let Some(wd) = work_dir {
+            match self.find_or_create_project(wd).await {
+                Ok(p) => Some(p.id),
+                Err(e) => {
+                    tracing::warn!(work_dir = %wd, error = %e, "failed to create project for session");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let mut tx = self.pool.begin().await?;
 
         let existed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
@@ -446,13 +489,14 @@ impl SessionStore {
             .await?;
 
         sqlx::query(
-            "INSERT INTO sessions (id, agent_id, title, work_dir, source) VALUES (?, ?, ?, ?, ?)
+            "INSERT INTO sessions (id, agent_id, title, work_dir, project_id, source) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')",
         )
         .bind(session_id)
         .bind(effective_agent_id)
         .bind(title)
         .bind(work_dir)
+        .bind(project_id.as_deref())
         .bind(source.unwrap_or("client"))
         .execute(&mut *tx)
         .await?;
@@ -479,10 +523,231 @@ impl SessionStore {
         Ok(())
     }
 
+    pub async fn update_session_project_id(
+        &self,
+        session_id: &str,
+        project_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE sessions SET project_id = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(project_id)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // ── Project CRUD ─────────────────────────────────────────────────────
+
+    pub async fn create_project(
+        &self,
+        root_path: &str,
+        name: Option<&str>,
+        color: Option<&str>,
+    ) -> anyhow::Result<crate::models::Project> {
+        use xiaolin_core::project::generate_project_id;
+        use std::path::Path;
+
+        let canonical = Path::new(root_path)
+            .canonicalize()
+            .unwrap_or_else(|_| Path::new(root_path).to_path_buf());
+        let canonical_str = canonical.to_string_lossy().to_string();
+        let id = generate_project_id(&canonical);
+
+        let effective_name = name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                canonical
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unnamed".to_string())
+            });
+
+        let effective_color = color.unwrap_or("#0066cc");
+
+        sqlx::query(
+            "INSERT INTO projects (id, name, root_path, color) VALUES (?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET last_opened_at = datetime('now')",
+        )
+        .bind(&id)
+        .bind(&effective_name)
+        .bind(&canonical_str)
+        .bind(effective_color)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_project(&id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("project not found after insert"))
+    }
+
+    pub async fn find_or_create_project(
+        &self,
+        work_dir: &str,
+    ) -> anyhow::Result<crate::models::Project> {
+        if let Some(existing) = self.get_project_by_root_path(work_dir).await? {
+            sqlx::query("UPDATE projects SET last_opened_at = datetime('now') WHERE id = ?")
+                .bind(&existing.id)
+                .execute(&self.pool)
+                .await?;
+            return Ok(existing);
+        }
+
+        self.create_project(work_dir, None, None).await
+    }
+
+    pub async fn list_projects(
+        &self,
+        include_archived: bool,
+    ) -> anyhow::Result<Vec<crate::models::Project>> {
+        let query = if include_archived {
+            "SELECT id, name, root_path, color, pinned, archived, created_at, last_opened_at
+             FROM projects ORDER BY pinned DESC, last_opened_at DESC"
+        } else {
+            "SELECT id, name, root_path, color, pinned, archived, created_at, last_opened_at
+             FROM projects WHERE archived = 0 ORDER BY pinned DESC, last_opened_at DESC"
+        };
+        let projects = sqlx::query_as::<_, crate::models::Project>(query)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(projects)
+    }
+
+    pub async fn get_project(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Option<crate::models::Project>> {
+        let project = sqlx::query_as::<_, crate::models::Project>(
+            "SELECT id, name, root_path, color, pinned, archived, created_at, last_opened_at
+             FROM projects WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(project)
+    }
+
+    pub async fn get_project_by_root_path(
+        &self,
+        root_path: &str,
+    ) -> anyhow::Result<Option<crate::models::Project>> {
+        let project = sqlx::query_as::<_, crate::models::Project>(
+            "SELECT id, name, root_path, color, pinned, archived, created_at, last_opened_at
+             FROM projects WHERE root_path = ?",
+        )
+        .bind(root_path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(project)
+    }
+
+    pub async fn update_project(
+        &self,
+        id: &str,
+        patch: &crate::models::ProjectPatch,
+    ) -> anyhow::Result<()> {
+        let mut sets = Vec::new();
+        let mut binds: Vec<String> = Vec::new();
+
+        if let Some(ref name) = patch.name {
+            sets.push("name = ?");
+            binds.push(name.clone());
+        }
+        if let Some(ref color) = patch.color {
+            sets.push("color = ?");
+            binds.push(color.clone());
+        }
+        if let Some(pinned) = patch.pinned {
+            sets.push("pinned = ?");
+            binds.push(if pinned { "1" } else { "0" }.to_string());
+        }
+        if let Some(archived) = patch.archived {
+            sets.push("archived = ?");
+            binds.push(if archived { "1" } else { "0" }.to_string());
+        }
+
+        if sets.is_empty() {
+            return Ok(());
+        }
+
+        let sql = format!("UPDATE projects SET {} WHERE id = ?", sets.join(", "));
+        let mut query = sqlx::query(&sql);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        query = query.bind(id);
+        query.execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn delete_project(&self, id: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET project_id = NULL WHERE project_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM projects WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_project_last_opened(&self, id: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE projects SET last_opened_at = datetime('now') WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Count sessions per project (for listing).
+    pub async fn count_sessions_for_project(&self, project_id: &str) -> anyhow::Result<i64> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE project_id = ?")
+                .bind(project_id)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(count)
+    }
+
+    /// Migrate existing sessions without project_id: find or create projects and backfill.
+    pub async fn migrate_sessions_to_projects(&self) -> anyhow::Result<u32> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT DISTINCT id, work_dir FROM sessions WHERE work_dir IS NOT NULL AND project_id IS NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut migrated = 0u32;
+        for (session_id, work_dir) in rows {
+            match self.find_or_create_project(&work_dir).await {
+                Ok(project) => {
+                    self.update_session_project_id(&session_id, Some(&project.id))
+                        .await?;
+                    migrated += 1;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        work_dir = %work_dir,
+                        error = %e,
+                        "failed to migrate session to project"
+                    );
+                }
+            }
+        }
+
+        if migrated > 0 {
+            tracing::info!(count = migrated, "migrated sessions to projects");
+        }
+        Ok(migrated)
+    }
+
     /// Get a session by ID, or None if it doesn't exist.
     pub async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<Session>> {
         let session = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, source, created_at, updated_at, message_count,
+            "SELECT id, agent_id, title, work_dir, project_id, source, created_at, updated_at, message_count,
                     total_prompt_tokens, total_completion_tokens, total_elapsed_ms
              FROM sessions WHERE id = ?",
         )
@@ -500,7 +765,7 @@ impl SessionStore {
         offset: i64,
     ) -> anyhow::Result<Vec<SessionSummary>> {
         let rows = sqlx::query_as::<_, Session>(
-            "SELECT id, agent_id, title, work_dir, source, created_at, updated_at, message_count,
+            "SELECT id, agent_id, title, work_dir, project_id, source, created_at, updated_at, message_count,
                     total_prompt_tokens, total_completion_tokens, total_elapsed_ms
              FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         )
@@ -516,6 +781,7 @@ impl SessionStore {
                 agent_id: s.agent_id,
                 title: s.title,
                 work_dir: s.work_dir,
+                project_id: s.project_id,
                 source: s.source,
                 message_count: s.message_count,
                 created_at: s.created_at,

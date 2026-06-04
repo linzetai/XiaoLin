@@ -6,6 +6,7 @@ pub mod consolidation;
 pub mod cron_tool;
 pub mod error;
 pub mod extract;
+pub mod git_watcher;
 pub mod mcp_tool;
 pub mod memory_monitor;
 mod memory_scope;

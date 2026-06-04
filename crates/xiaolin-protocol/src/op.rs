@@ -391,6 +391,37 @@ pub enum ClientOp {
         account_id: Option<String>,
     },
 
+    // ── Projects ──────────────────────────────────────────────────────
+    ProjectsList {
+        #[serde(default, alias = "includeArchived", skip_serializing_if = "Option::is_none")]
+        include_archived: Option<bool>,
+    },
+    ProjectsCreate {
+        #[serde(alias = "rootPath")]
+        root_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+    },
+    ProjectsUpdate {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pinned: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archived: Option<bool>,
+    },
+    ProjectsDelete {
+        id: String,
+    },
+    ProjectsDetect {
+        path: String,
+    },
+
     // ── Permissions ──────────────────────────────────────────────────
     PermissionsGetPresets,
     PermissionsGetSession {
@@ -422,8 +453,61 @@ pub enum ClientOp {
         work_dir: Option<String>,
     },
 
+    // ── Git ─────────────────────────────────────────────────────────
+    GitStatus {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+    GitDiff {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        path: String,
+        #[serde(default)]
+        staged: bool,
+    },
+    GitBranches {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+    GitLog {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default = "default_git_log_limit")]
+        limit: u32,
+    },
+    GitStage {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    GitUnstage {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    GitCommit {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        message: String,
+    },
+    GitRevert {
+        #[serde(alias = "projectId")]
+        project_id: String,
+        files: Vec<String>,
+    },
+    GitInit {
+        #[serde(alias = "projectId")]
+        project_id: String,
+    },
+
     // ── Keepalive ───────────────────────────────────────────────────
     Ping,
+}
+
+fn default_git_log_limit() -> u32 {
+    20
 }
 
 impl ClientOp {
@@ -751,6 +835,31 @@ impl ClientOp {
                     .and_then(|v| v.as_str())
                     .map(String::from),
             }),
+            "projects.list" => Ok(Self::ProjectsList {
+                include_archived: params
+                    .get("includeArchived")
+                    .or_else(|| params.get("include_archived"))
+                    .and_then(|v| v.as_bool()),
+            }),
+            "projects.create" => Ok(Self::ProjectsCreate {
+                root_path: extract_string(&params, "rootPath")
+                    .or_else(|_| extract_string(&params, "root_path"))?,
+                name: params.get("name").and_then(|v| v.as_str()).map(String::from),
+                color: params.get("color").and_then(|v| v.as_str()).map(String::from),
+            }),
+            "projects.update" => Ok(Self::ProjectsUpdate {
+                id: extract_string(&params, "id")?,
+                name: params.get("name").and_then(|v| v.as_str()).map(String::from),
+                color: params.get("color").and_then(|v| v.as_str()).map(String::from),
+                pinned: params.get("pinned").and_then(|v| v.as_bool()),
+                archived: params.get("archived").and_then(|v| v.as_bool()),
+            }),
+            "projects.delete" => Ok(Self::ProjectsDelete {
+                id: extract_string(&params, "id")?,
+            }),
+            "projects.detect" => Ok(Self::ProjectsDetect {
+                path: extract_string(&params, "path")?,
+            }),
             "permissions.get_presets" => Ok(Self::PermissionsGetPresets),
             "permissions.get_session" => Ok(Self::PermissionsGetSession {
                 session_id: extract_string(&params, "sessionId")
@@ -781,6 +890,55 @@ impl ClientOp {
                     .or_else(|| params.get("work_dir"))
                     .and_then(|v| v.as_str())
                     .map(String::from),
+            }),
+            "git.status" => Ok(Self::GitStatus {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+            }),
+            "git.diff" => Ok(Self::GitDiff {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                path: extract_string(&params, "path")?,
+                staged: params.get("staged").and_then(|v| v.as_bool()).unwrap_or(false),
+            }),
+            "git.branches" => Ok(Self::GitBranches {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+            }),
+            "git.log" => Ok(Self::GitLog {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                limit: params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32,
+            }),
+            "git.stage" => Ok(Self::GitStage {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.unstage" => Ok(Self::GitUnstage {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.commit" => Ok(Self::GitCommit {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                message: extract_string(&params, "message")?,
+            }),
+            "git.revert" => Ok(Self::GitRevert {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
+                files: params.get("files")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            }),
+            "git.init" => Ok(Self::GitInit {
+                project_id: extract_string(&params, "projectId")
+                    .or_else(|_| extract_string(&params, "project_id"))?,
             }),
             other => Err(format!("unknown method: {other}")),
         }

@@ -10,7 +10,7 @@ import {
   Maximize2,
   X,
 } from "lucide-react";
-import { useUIStore } from "../../lib/stores";
+import { useUIStore, useGitStore } from "../../lib/stores";
 import { useThemeStore } from "../../lib/theme";
 import { useWorkspaceTabs } from "./workspace-tabs";
 
@@ -144,6 +144,37 @@ function WindowControls() {
   );
 }
 
+function PanelLayoutToggle({ panelOpen, togglePanel }: { panelOpen: boolean; togglePanel: () => void }) {
+  const gitStatus = useGitStore((s) => s.status);
+  const changeCount = (gitStatus?.staged?.length ?? 0) + (gitStatus?.unstaged?.length ?? 0) + (gitStatus?.untracked?.length ?? 0);
+  const showDot = !panelOpen && gitStatus?.isGitRepo && changeCount > 0;
+
+  return (
+    <div style={{ display: "flex", gap: 1, position: "relative" }}>
+      <IconButton title="单栏" onClick={() => { if (panelOpen) togglePanel(); }} active={!panelOpen}>
+        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.7}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+        </svg>
+      </IconButton>
+      <IconButton title="分栏" onClick={() => { if (!panelOpen) togglePanel(); }} active={panelOpen}>
+        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.7}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <line x1="12" y1="3" x2="12" y2="21" />
+        </svg>
+      </IconButton>
+      {showDot && (
+        <span style={{
+          position: "absolute", top: 2, right: 2,
+          width: 7, height: 7, borderRadius: "50%",
+          background: "var(--tint)",
+          border: "1.5px solid var(--bg-shell)",
+          pointerEvents: "none",
+        }} />
+      )}
+    </div>
+  );
+}
+
 export function AppHeader() {
   const { t } = useTranslation("header");
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -196,19 +227,10 @@ export function AppHeader() {
         <IconButton title={resolved === "light" ? t("darkMode") : t("lightMode")} onClick={handleThemeToggle}>
           {resolved === "light" ? <Sun size={ICON_SIZE} strokeWidth={1.7} /> : <Moon size={ICON_SIZE} strokeWidth={1.7} />}
         </IconButton>
-        <div style={{ display: "flex", gap: 1 }}>
-          <IconButton title={t("singleColumn")} onClick={() => { if (panelOpen) togglePanel(); }} active={!panelOpen}>
-            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.7}>
-              <rect x="3" y="3" width="18" height="18" rx="3" />
-            </svg>
-          </IconButton>
-          <IconButton title={t("splitColumn")} onClick={() => { if (!panelOpen) togglePanel(); }} active={panelOpen}>
-            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.7}>
-              <rect x="3" y="3" width="18" height="18" rx="3" />
-              <line x1="12" y1="3" x2="12" y2="21" />
-            </svg>
-          </IconButton>
-        </div>
+        <IconButton title="选项" onClick={comingSoon}>
+          <ChevronDown size={ICON_SIZE} strokeWidth={1.7} />
+        </IconButton>
+        <PanelLayoutToggle panelOpen={panelOpen} togglePanel={togglePanel} />
         <WindowControls />
       </div>
     </header>

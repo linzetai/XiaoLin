@@ -330,14 +330,12 @@ describe("transport layer (browser mode)", () => {
   // ═══════════════════════════════════════════════════════════════════
 
   describe("onSessionChanged (browser mode)", () => {
-    it("subscribes via WS and returns unsub function", async () => {
+    it("registers WS event listener and returns unsub function", () => {
       const unsubFn = vi.fn();
       mockOn.mockReturnValueOnce(unsubFn);
-      mockSend.mockResolvedValueOnce({});
 
       const handler = vi.fn();
-      const unsub = await transport.onSessionChanged(handler);
-      expect(mockSend).toHaveBeenCalledWith("subscribe", { events: ["sessions.changed"] });
+      const unsub = transport.onSessionChanged(handler);
       expect(mockOn).toHaveBeenCalledWith("sessions.changed", expect.any(Function));
 
       unsub();

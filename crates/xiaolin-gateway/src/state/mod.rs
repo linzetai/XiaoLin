@@ -250,6 +250,7 @@ pub struct StreamState {
     pub ws_broadcast: tokio::sync::broadcast::Sender<String>,
     pub subagent_manager: Arc<xiaolin_agent::SubAgentManager>,
     pub session_manager: Arc<xiaolin_session_actor::SessionManager>,
+    pub git_watcher_manager: crate::git_watcher::SharedGitWatcherManager,
 }
 
 /// Services shared across session actors and the gateway.
@@ -1835,6 +1836,7 @@ impl AppState {
             strm: StreamState {
                 stream_event_tx: Arc::new(DashMap::new()),
                 tool_orchestrator,
+                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(ws_broadcast.clone())),
                 ws_broadcast,
                 subagent_manager,
                 session_manager: session_manager.clone(),

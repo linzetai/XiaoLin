@@ -139,7 +139,9 @@ export function connectWs(url: string, token?: string): Promise<void> {
     wsClient.send("subscribe", {
       events: [
         "sessions.changed",
+        "projects.changed",
         "channels.changed",
+        "git.status_changed",
         "cron.job.complete",
         "cron.job.failed",
         "notification.new",
@@ -180,6 +182,7 @@ export interface SessionSummary {
   agentId: string;
   title: string | null;
   workDir?: string | null;
+  projectId?: string | null;
   source?: string;
   messageCount: number;
   createdAt: string;
@@ -240,6 +243,52 @@ export async function cancelSubAgentRun(runId: string): Promise<void> {
 
 export async function setSessionWorkDir(sessionId: string, workDir: string | null): Promise<void> {
   await wsClient.send("sessions.set_work_dir", { sessionId, workDir });
+}
+
+// ─── Projects ───
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  rootPath: string;
+  color: string;
+  pinned: boolean;
+  archived: boolean;
+  reachable: boolean;
+  lastOpenedAt: string;
+  sessionCount: number;
+}
+
+export async function listProjects(includeArchived = false): Promise<ProjectSummary[]> {
+  const resp = (await wsClient.send("projects.list", { includeArchived })) as {
+    data?: { projects?: ProjectSummary[] };
+  };
+  return resp?.data?.projects ?? [];
+}
+
+export async function createProject(rootPath: string, name?: string, color?: string): Promise<ProjectSummary | null> {
+  const resp = (await wsClient.send("projects.create", { rootPath, name, color })) as {
+    data?: ProjectSummary;
+  };
+  return resp?.data ?? null;
+}
+
+export async function updateProject(
+  id: string,
+  patch: { name?: string; color?: string; pinned?: boolean; archived?: boolean }
+): Promise<void> {
+  await wsClient.send("projects.update", { id, ...patch });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await wsClient.send("projects.delete", { id });
+}
+
+export async function detectProject(path: string): Promise<ProjectSummary | null> {
+  const resp = (await wsClient.send("projects.detect", { path })) as {
+    data?: { project?: ProjectSummary };
+  };
+  return resp?.data?.project ?? null;
 }
 
 export async function workspaceInit(workDir?: string): Promise<{
@@ -486,6 +535,70 @@ export function onSessionChanged(handler: (sessionId: string) => void): Unsubscr
   return wsClient.on("sessions.changed", (msg: unknown) => {
     const sid = (msg as { data?: { sessionId?: string } })?.data?.sessionId;
     if (sid) handler(sid);
+  });
+}
+
+export function onProjectsChanged(handler: () => void): UnsubscribeFn {
+  return wsClient.on("projects.changed", () => {
+    handler();
+  });
+}
+
+// ── Git API ──────────────────────────────────────────────────────────────
+
+export async function gitStatus(projectId: string) {
+  const resp = (await wsClient.send("git.status", { projectId })) as { data?: unknown };
+  return resp?.data ?? null;
+}
+
+export async function gitDiff(projectId: string, path: string, staged = false) {
+  const resp = (await wsClient.send("git.diff", { projectId, path, staged })) as {
+    data?: { hunks?: unknown[] };
+  };
+  return resp?.data?.hunks ?? [];
+}
+
+export async function gitBranches(projectId: string) {
+  const resp = (await wsClient.send("git.branches", { projectId })) as {
+    data?: { branches?: unknown[]; current?: string };
+  };
+  return resp?.data ?? { branches: [], current: "" };
+}
+
+export async function gitLog(projectId: string, limit = 20) {
+  const resp = (await wsClient.send("git.log", { projectId, limit })) as {
+    data?: { commits?: unknown[] };
+  };
+  return resp?.data?.commits ?? [];
+}
+
+export async function gitStage(projectId: string, files: string[] = []) {
+  await wsClient.send("git.stage", { projectId, files });
+}
+
+export async function gitUnstage(projectId: string, files: string[] = []) {
+  await wsClient.send("git.unstage", { projectId, files });
+}
+
+export async function gitCommit(projectId: string, message: string) {
+  const resp = (await wsClient.send("git.commit", { projectId, message })) as {
+    data?: { sha?: string; message?: string };
+  };
+  return resp?.data ?? null;
+}
+
+export async function gitRevert(projectId: string, files: string[]) {
+  await wsClient.send("git.revert", { projectId, files });
+}
+
+export async function gitInit(projectId: string) {
+  return await wsClient.send("git.init", { projectId });
+}
+
+export function onGitStatusChanged(handler: (projectId: string, status: unknown) => void): UnsubscribeFn {
+  return wsClient.on("git.status_changed", (msg: unknown) => {
+    const data = (msg as { data?: { projectId?: string; status?: unknown } })?.data;
+    if (data?.projectId) handler(data.projectId, data.status);
   });
 }
 

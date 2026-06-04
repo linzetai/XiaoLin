@@ -5,9 +5,11 @@ mod chat;
 mod config;
 mod cron;
 mod execution;
+mod git;
 mod mcp;
 mod notifications;
 mod plugins;
+mod project;
 mod session;
 mod skills;
 mod types;
@@ -118,6 +120,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "resolve_approval", "approval.resolve",
                             "chat.compact", "compact",
                             "chat.steer", "steer",
+                            "projects.list", "projects.create", "projects.update", "projects.delete", "projects.detect",
+                            "git.status", "git.diff", "git.branches", "git.log", "git.stage", "git.unstage", "git.commit", "git.revert",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -417,6 +421,17 @@ async fn dispatch(
                 id,
                 req.params,
                 "update_title",
+            )
+            .await
+        }
+        ClientOp::SessionsSetWorkDir { .. } => {
+            session::handle_session_scoped(
+                sender,
+                state,
+                owned_sessions,
+                id,
+                req.params,
+                "set_work_dir",
             )
             .await
         }
@@ -725,6 +740,67 @@ async fn dispatch(
         }
         ClientOp::NotificationsDelete { notification_id } => {
             notifications::handle_delete(sender, state, id, &notification_id).await;
+        }
+        ClientOp::ProjectsList { include_archived } => {
+            project::handle_projects_list(sender, state, id, include_archived).await;
+        }
+        ClientOp::ProjectsCreate {
+            root_path,
+            name,
+            color,
+        } => {
+            project::handle_projects_create(
+                sender,
+                state,
+                id,
+                &root_path,
+                name.as_deref(),
+                color.as_deref(),
+            )
+            .await;
+        }
+        ClientOp::ProjectsUpdate {
+            id: project_id,
+            name,
+            color,
+            pinned,
+            archived,
+        } => {
+            project::handle_projects_update(sender, state, id, &project_id, name, color, pinned, archived)
+                .await;
+        }
+        ClientOp::ProjectsDelete { id: project_id } => {
+            project::handle_projects_delete(sender, state, id, &project_id).await;
+        }
+        ClientOp::ProjectsDetect { path } => {
+            project::handle_projects_detect(sender, state, id, &path).await;
+        }
+        ClientOp::GitStatus { project_id } => {
+            git::handle_git_status(sender, state, id, &project_id).await;
+        }
+        ClientOp::GitDiff { project_id, path, staged } => {
+            git::handle_git_diff(sender, state, id, &project_id, &path, staged).await;
+        }
+        ClientOp::GitBranches { project_id } => {
+            git::handle_git_branches(sender, state, id, &project_id).await;
+        }
+        ClientOp::GitLog { project_id, limit } => {
+            git::handle_git_log(sender, state, id, &project_id, limit).await;
+        }
+        ClientOp::GitStage { project_id, files } => {
+            git::handle_git_stage(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitUnstage { project_id, files } => {
+            git::handle_git_unstage(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitCommit { project_id, message } => {
+            git::handle_git_commit(sender, state, id, &project_id, &message).await;
+        }
+        ClientOp::GitRevert { project_id, files } => {
+            git::handle_git_revert(sender, state, id, &project_id, &files).await;
+        }
+        ClientOp::GitInit { project_id } => {
+            git::handle_git_init(sender, state, id, &project_id).await;
         }
         _ => {
             send_resp(

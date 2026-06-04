@@ -228,7 +228,8 @@ fn extract_boundary(content_type: &str) -> Option<String> {
         .split(';')
         .find_map(|part| {
             let part = part.trim();
-            part.strip_prefix("boundary=").map(|stripped| stripped.trim_matches('"').to_string())
+            part.strip_prefix("boundary=")
+                .map(|s| s.trim_matches('"').to_string())
         })
 }
 

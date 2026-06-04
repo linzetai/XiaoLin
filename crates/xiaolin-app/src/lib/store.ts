@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import * as transport from "./transport";
 import { useChatMetaStore } from "./stores/chat-meta-store";
+import { useProjectStore } from "./stores/project-store";
+import { initGitStore } from "./stores/git-store";
 import { initPermissionListener } from "./stores/permission-store";
 import { initAutomationListener } from "./stores/automation-store";
 
@@ -25,6 +27,7 @@ interface GatewayState {
 let disconnectUnsub: (() => void) | null = null;
 let reconnectedUnsub: (() => void) | null = null;
 let sessionChangedUnsub: (() => void) | null = null;
+let projectsChangedUnsub: (() => void) | null = null;
 
 const SESSION_CACHE_KEY = "xiaolin:session-cache";
 
@@ -60,6 +63,8 @@ async function syncBackendData() {
         /* storage full or unavailable */
       }
     }
+    useProjectStore.getState().syncProjects();
+    initGitStore();
   } catch {
     /* sync failure is non-fatal */
   }
@@ -76,6 +81,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
       disconnectUnsub?.();
       reconnectedUnsub?.();
       sessionChangedUnsub?.();
+      projectsChangedUnsub?.();
 
       restoreCachedSessions();
       set({ mode: "connecting", error: null });
@@ -111,11 +117,24 @@ export const useGatewayStore = create<GatewayState>((set) => ({
             if (session) {
               const metaStore = useChatMetaStore.getState();
               if (session.title) metaStore.renameChat(sid, session.title);
-              if (session.workDir !== undefined) metaStore.setWorkDir(sid, session.workDir ?? null);
+              if (session.workDir !== undefined || session.projectId !== undefined) {
+                useChatMetaStore.setState((s) => {
+                  const chat = s.chats[sid];
+                  if (!chat) return s;
+                  const updates: Partial<typeof chat> = {};
+                  if (session.workDir !== undefined) updates.workDir = session.workDir ?? null;
+                  if (session.projectId !== undefined) updates.projectId = session.projectId ?? null;
+                  return { chats: { ...s.chats, [sid]: { ...chat, ...updates } } };
+                });
+              }
             }
           } catch {
             /* ignore */
           }
+        });
+
+        projectsChangedUnsub = transport.onProjectsChanged(() => {
+          useProjectStore.getState().syncProjects();
         });
 
         initPermissionListener();
@@ -148,11 +167,24 @@ export const useGatewayStore = create<GatewayState>((set) => ({
               if (session) {
                 const metaStore = useChatMetaStore.getState();
                 if (session.title) metaStore.renameChat(sid, session.title);
-                if (session.workDir !== undefined) metaStore.setWorkDir(sid, session.workDir ?? null);
+                if (session.workDir !== undefined || session.projectId !== undefined) {
+                  useChatMetaStore.setState((s) => {
+                    const chat = s.chats[sid];
+                    if (!chat) return s;
+                    const updates: Partial<typeof chat> = {};
+                    if (session.workDir !== undefined) updates.workDir = session.workDir ?? null;
+                    if (session.projectId !== undefined) updates.projectId = session.projectId ?? null;
+                    return { chats: { ...s.chats, [sid]: { ...chat, ...updates } } };
+                  });
+                }
               }
             } catch {
               /* ignore */
             }
+          });
+
+          projectsChangedUnsub = transport.onProjectsChanged(() => {
+            useProjectStore.getState().syncProjects();
           });
 
           initPermissionListener();

@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
-import { Plus, Maximize2, PanelRightClose, FileText } from "lucide-react";
+import { PanelRightClose } from "lucide-react";
 import { useWorkspaceTabs } from "./workspace-tabs";
 
 const tabBtnStyle: CSSProperties = {
@@ -29,7 +28,6 @@ const iconBtnStyle: CSSProperties = {
 };
 
 export function WorkspacePanel() {
-  const { t } = useTranslation("common");
   const tabs = useWorkspaceTabs((s) => s.tabs);
   const activeTabId = useWorkspaceTabs((s) => s.activeTabId);
   const setActiveTab = useWorkspaceTabs((s) => s.setActiveTab);
@@ -65,15 +63,6 @@ export function WorkspacePanel() {
           borderBottom: "1px solid var(--border-shell-subtle)",
         }}
       >
-        <button
-          type="button"
-          style={iconBtnStyle}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-        >
-          <FileText size={14} strokeWidth={1.7} />
-        </button>
-
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = tab.id === (activeTabId ?? tabs[0]?.id);
@@ -114,38 +103,18 @@ export function WorkspacePanel() {
           );
         })}
 
+        <div style={{ flex: 1 }} />
+
         <button
           type="button"
-          style={{ ...iconBtnStyle, fontSize: 13, width: "auto", padding: "4px 7px" }}
+          style={iconBtnStyle}
+          title="关闭面板"
+          onClick={togglePanel}
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
-          <Plus size={14} strokeWidth={1.7} />
+          <PanelRightClose size={13} strokeWidth={1.7} />
         </button>
-
-        <div style={{ flex: 1 }} />
-
-        <div style={{ display: "flex", gap: 1 }}>
-          <button
-            type="button"
-            style={iconBtnStyle}
-            title={t("maximizePanel")}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-          >
-            <Maximize2 size={13} strokeWidth={1.7} />
-          </button>
-          <button
-            type="button"
-            style={iconBtnStyle}
-            title={t("closePanel")}
-            onClick={togglePanel}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-          >
-            <PanelRightClose size={13} strokeWidth={1.7} />
-          </button>
-        </div>
       </div>
 
       {/* Body */}

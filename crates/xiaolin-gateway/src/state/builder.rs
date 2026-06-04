@@ -804,6 +804,16 @@ impl StateBuilder {
             .await?;
         }
 
+        // Backfill project_id for sessions that have work_dir but no project yet.
+        let _ = p5
+            .phase2
+            .phase4
+            .phase3
+            .phase1
+            .session_store
+            .migrate_sessions_to_projects()
+            .await;
+
         let agent_count = p5.phase2.phase4.phase3.phase1.agent_count;
         let tool_count = p5.phase2.tool_count;
         let channel_count = p5.phase2.phase4.channel_registry.channel_count();
@@ -951,6 +961,7 @@ impl StateBuilder {
             strm: super::StreamState {
                 stream_event_tx: p5.phase2.phase4.stream_event_tx,
                 tool_orchestrator: p5.phase2.phase4.tool_orchestrator.clone(),
+                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(p5.ws_broadcast.clone())),
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: Arc::new(xiaolin_agent::SubAgentManager::new(
                     runtime_for_subagent,
