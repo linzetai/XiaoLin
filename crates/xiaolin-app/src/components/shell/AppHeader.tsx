@@ -227,9 +227,6 @@ export function AppHeader() {
         <IconButton title={resolved === "light" ? t("darkMode") : t("lightMode")} onClick={handleThemeToggle}>
           {resolved === "light" ? <Sun size={ICON_SIZE} strokeWidth={1.7} /> : <Moon size={ICON_SIZE} strokeWidth={1.7} />}
         </IconButton>
-        <IconButton title="选项" onClick={comingSoon}>
-          <ChevronDown size={ICON_SIZE} strokeWidth={1.7} />
-        </IconButton>
         <PanelLayoutToggle panelOpen={panelOpen} togglePanel={togglePanel} />
         <WindowControls />
       </div>
