@@ -1,4 +1,5 @@
 mod agents;
+mod automations;
 mod channels;
 mod chat;
 mod config;
@@ -110,6 +111,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "tools.list", "tools.update", "tools.submit_answer",
                             "skills.list", "skills.refresh",
                             "permissions.get_presets", "permissions.get_session", "permissions.set_session",
+                            "automations.list", "automations.create", "automations.update", "automations.delete", "automations.runs", "automations.run_now",
                             "execution.set_mode", "execution.get_plan", "execution.approve_plan",
                             "resolve_approval", "approval.resolve",
                             "chat.compact", "compact",
@@ -673,6 +675,24 @@ async fn dispatch(
         }
         ClientOp::CronListRuns { job_id, limit } => {
             cron::handle_cron_list_runs(sender, state, id, &job_id, limit).await;
+        }
+        ClientOp::AutomationsList => {
+            automations::handle_automations_list(sender, state, id).await;
+        }
+        ClientOp::AutomationsCreate { params } => {
+            automations::handle_automations_create(sender, state, id, params).await;
+        }
+        ClientOp::AutomationsUpdate { job_id, params } => {
+            automations::handle_automations_update(sender, state, id, &job_id, params).await;
+        }
+        ClientOp::AutomationsDelete { job_id } => {
+            automations::handle_automations_delete(sender, state, id, &job_id).await;
+        }
+        ClientOp::AutomationsRuns { job_id, limit } => {
+            automations::handle_automations_runs(sender, state, id, &job_id, limit).await;
+        }
+        ClientOp::AutomationsRunNow { job_id } => {
+            automations::handle_automations_run_now(sender, state, id, &job_id).await;
         }
         ClientOp::NotificationsUnreadCount => {
             notifications::handle_unread_count(sender, state, id).await;

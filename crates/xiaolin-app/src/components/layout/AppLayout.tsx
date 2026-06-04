@@ -3,6 +3,7 @@ import { useGatewayStore } from "../../lib/store";
 import { useUIStore } from "../../lib/stores";
 import type { LayoutTier } from "../../lib/stores/ui-store";
 import { MessageStream } from "../message-stream/MessageStream";
+import { AutomationView } from "../automation/AutomationView";
 import { TitleBar } from "./TitleBar";
 import { ClawIcon } from "./ClawIcon";
 import { UpdateBanner } from "./UpdateBanner";
@@ -114,6 +115,31 @@ function Loading({ error }: { error: string | null }) {
   );
 }
 
+function MainContent({ connected, mode }: { connected: boolean; mode: string }) {
+  const mainView = useUIStore((s) => s.mainView);
+  return (
+    <>
+      <UpdateBanner />
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {mainView === "automations" ? <AutomationView /> : <MessageStream />}
+        {!connected && mode !== "browser" && (
+          <div
+            className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5"
+            style={{
+              background: "rgba(var(--bg-primary-rgb, 0, 0, 0), 0.85)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+              连接已断开，正在重连...
+            </span>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
+
 export function AppLayout() {
   const mode = useGatewayStore((s) => s.mode);
   const error = useGatewayStore((s) => s.error);
@@ -218,23 +244,7 @@ export function AppLayout() {
   } else {
     content = (
       <AppShell>
-        <UpdateBanner />
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageStream />
-          {!connected && mode !== "browser" && (
-            <div
-              className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5"
-              style={{
-                background: "rgba(var(--bg-primary-rgb, 0, 0, 0), 0.85)",
-                backdropFilter: "blur(8px)",
-              }}
-            >
-              <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
-                连接已断开，正在重连...
-              </span>
-            </div>
-          )}
-        </main>
+        <MainContent connected={connected} mode={mode} />
       </AppShell>
     );
   }

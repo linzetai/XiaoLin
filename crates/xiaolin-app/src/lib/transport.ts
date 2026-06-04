@@ -145,6 +145,7 @@ export function connectWs(url: string, token?: string): Promise<void> {
         "notification.new",
         "notification.read",
         "permissions.changed",
+        "automations.changed",
       ],
     }).catch(() => {});
   });
@@ -855,6 +856,7 @@ export interface CronJob {
   run_count?: number;
   error_count?: number;
   notify_channels?: NotifyChannel[];
+  work_dir?: string | null;
   last_run?: string | null;
   next_run?: string | null;
   last_error?: string | null;
@@ -906,6 +908,73 @@ export async function cronListRuns(jobId: string, limit?: number): Promise<{ run
     data?: { runs?: CronJobRun[] };
   };
   return { runs: resp?.data?.runs ?? [] };
+}
+
+// ─── Automations (user-facing wrapper over cron) ───
+
+export async function automationsList(): Promise<CronJob[]> {
+  const resp = (await wsClient.send("automations.list")) as {
+    data?: { jobs?: CronJob[] };
+  };
+  return resp?.data?.jobs ?? [];
+}
+
+export async function automationsCreate(
+  job: Partial<CronJob> & { name: string; schedule: string; action: CronJobAction },
+): Promise<CronJob | null> {
+  const resp = (await wsClient.send("automations.create", job as Record<string, unknown>)) as {
+    data?: { job?: CronJob };
+  };
+  return resp?.data?.job ?? null;
+}
+
+export async function automationsUpdate(
+  jobId: string,
+  patch: Partial<CronJob>,
+): Promise<CronJob | null> {
+  const resp = (await wsClient.send("automations.update", { jobId, ...patch })) as {
+    data?: { job?: CronJob };
+  };
+  return resp?.data?.job ?? null;
+}
+
+export async function automationsDelete(jobId: string): Promise<boolean> {
+  const resp = (await wsClient.send("automations.delete", { jobId })) as {
+    data?: { ok?: boolean };
+  };
+  return resp?.data?.ok ?? false;
+}
+
+export async function automationsRunNow(jobId: string): Promise<boolean> {
+  const resp = (await wsClient.send("automations.run_now", { jobId })) as {
+    data?: { ok?: boolean };
+  };
+  return resp?.data?.ok ?? false;
+}
+
+export async function automationsRuns(
+  jobId: string,
+  limit?: number,
+): Promise<CronJobRun[]> {
+  const resp = (await wsClient.send("automations.runs", { jobId, limit: limit ?? 20 })) as {
+    data?: { runs?: CronJobRun[] };
+  };
+  return resp?.data?.runs ?? [];
+}
+
+export type AutomationChangedEvent = {
+  event: "created" | "updated" | "deleted" | "run_completed";
+  jobId: string;
+  job: CronJob | null;
+};
+
+export function onAutomationsChanged(
+  handler: (data: AutomationChangedEvent) => void,
+): () => void {
+  return wsClient.on("automations.changed", (raw) => {
+    const msg = raw as { data?: AutomationChangedEvent };
+    if (msg?.data) handler(msg.data);
+  });
 }
 
 // ─── Notifications ───

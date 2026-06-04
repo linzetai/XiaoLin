@@ -1,13 +1,8 @@
 use serde_json::json;
 use std::path::PathBuf;
 
-/// Get the config mode based on compile flags.
 fn config_mode() -> xiaolin_core::config::ConfigMode {
-    if cfg!(debug_assertions) {
-        xiaolin_core::config::ConfigMode::Development
-    } else {
-        xiaolin_core::config::ConfigMode::Production
-    }
+    crate::resolve_config_mode()
 }
 
 /// Get the state directory for the current config mode.

@@ -5,7 +5,6 @@ import { AppSidebar } from "./AppSidebar";
 import { ContentBlock } from "./ContentBlock";
 import { useWorkspaceTabs } from "./workspace-tabs";
 import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
-
 export function AppShell({ children }: { children: ReactNode }) {
   const registerTab = useWorkspaceTabs((s) => s.registerTab);
 

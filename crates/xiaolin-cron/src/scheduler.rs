@@ -22,6 +22,7 @@ pub trait JobTrigger: Send + Sync + 'static {
         message: &str,
         session_id: Option<&str>,
         notify_channels: &[NotifyChannel],
+        work_dir: Option<&str>,
     ) -> anyhow::Result<(String, bool)>;
 
     async fn trigger_webhook(
@@ -168,6 +169,7 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
                 message,
                 session_id.as_deref(),
                 &job.notify_channels,
+                job.work_dir.as_deref(),
             )
             .await
             .map(|(reply, sent)| (Some(reply), sent)),

@@ -25,17 +25,20 @@ const actionBtn: CSSProperties = {
 
 const ICON_SIZE = 15;
 
-function SidebarAction({ icon, label, onClick, disabled }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean }) {
+function SidebarAction({ icon, label, onClick, disabled, active }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; active?: boolean }) {
   const handleClick = useCallback(() => {
     if (disabled) return;
     if (onClick) { onClick(); return; }
-    // placeholder flash for unimplemented actions
   }, [disabled, onClick]);
+
+  const baseStyle: CSSProperties = active
+    ? { ...actionBtn, background: "color-mix(in srgb, var(--tint) 10%, transparent)", color: "var(--tint)", fontWeight: 500 }
+    : actionBtn;
 
   return (
     <button
       type="button"
-      style={{ ...actionBtn, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
+      style={{ ...baseStyle, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
       onClick={handleClick}
       onMouseDown={(e) => {
         if (!disabled && !onClick) {
@@ -45,8 +48,11 @@ function SidebarAction({ icon, label, onClick, disabled }: { icon: ReactNode; la
           setTimeout(() => { el.style.background = "transparent"; el.style.color = "var(--fill-tertiary)"; }, 180);
         }
       }}
-      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--fill-secondary)"; } }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-tertiary)"; }}
+      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = active ? "color-mix(in srgb, var(--tint) 15%, transparent)" : "var(--bg-hover)"; e.currentTarget.style.color = active ? "var(--tint)" : "var(--fill-secondary)"; } }}
+      onMouseLeave={(e) => {
+        if (active) { e.currentTarget.style.background = "color-mix(in srgb, var(--tint) 10%, transparent)"; e.currentTarget.style.color = "var(--tint)"; }
+        else { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-tertiary)"; }
+      }}
     >
       <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
       <span>{label}</span>
@@ -145,6 +151,7 @@ export function AppSidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const layoutTier = useUIStore((s) => s.layoutTier);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const mainView = useUIStore((s) => s.mainView);
 
   const chats = useChatMetaStore((s) => s.chats);
   const chatOrder = useChatMetaStore((s) => s.chatOrder);
@@ -194,10 +201,12 @@ export function AppSidebar() {
   const handleNewChat = useCallback(() => {
     const activeChat = chatList.find((c) => c.id === activeChatId);
     newChat(activeChat?.workDir ?? undefined);
+    useUIStore.getState().setMainView("chat");
   }, [newChat, chatList, activeChatId]);
 
   const handleSelectChat = useCallback((chatId: string) => {
     setActiveChat(chatId);
+    useUIStore.getState().setMainView("chat");
     if (layoutTier === "compact") toggleSidebar();
   }, [setActiveChat, layoutTier, toggleSidebar]);
 
@@ -291,7 +300,7 @@ export function AppSidebar() {
             onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) { setQuery(""); } }}
           />
           <SidebarAction icon={<Puzzle size={ICON_SIZE} strokeWidth={1.7} />} label="Plugins" />
-          <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label="Automations" />
+          <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label="Automations" onClick={() => useUIStore.getState().setMainView("automations")} active={mainView === "automations"} />
         </div>
 
         {/* Search bar */}

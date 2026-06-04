@@ -21,6 +21,9 @@ pub struct CronJob {
     #[serde(default)]
     pub error_count: i64,
     pub last_error: Option<String>,
+    /// Working directory for agent chat actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_dir: Option<String>,
     /// Channels to notify when the job completes or fails.
     /// Each entry specifies a channel id and a target (chat/group) id.
     #[serde(default)]
@@ -161,6 +164,11 @@ impl CronJobStore {
         .execute(&pool)
         .await;
 
+        // Migration: add work_dir column
+        let _ = sqlx::query("ALTER TABLE cron_jobs ADD COLUMN work_dir TEXT")
+            .execute(&pool)
+            .await;
+
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS cron_job_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,8 +196,8 @@ impl CronJobStore {
         let action_json = serde_json::to_string(&job.action)?;
         let notify_json = serde_json::to_string(&job.notify_channels)?;
         sqlx::query(
-            "INSERT INTO cron_jobs (id, name, schedule, action, enabled, last_run, next_run, status, created_at, run_count, error_count, last_error, notify_channels)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO cron_jobs (id, name, schedule, action, enabled, last_run, next_run, status, created_at, run_count, error_count, last_error, notify_channels, work_dir)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 schedule = excluded.schedule,
@@ -201,7 +209,8 @@ impl CronJobStore {
                 run_count = excluded.run_count,
                 error_count = excluded.error_count,
                 last_error = excluded.last_error,
-                notify_channels = excluded.notify_channels",
+                notify_channels = excluded.notify_channels,
+                work_dir = excluded.work_dir",
         )
         .bind(&job.id)
         .bind(&job.name)
@@ -216,6 +225,7 @@ impl CronJobStore {
         .bind(job.error_count)
         .bind(&job.last_error)
         .bind(&notify_json)
+        .bind(&job.work_dir)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -425,6 +435,8 @@ struct CronJobRow {
     last_error: Option<String>,
     #[sqlx(default)]
     notify_channels: String,
+    #[sqlx(default)]
+    work_dir: Option<String>,
 }
 
 impl CronJobRow {
@@ -448,6 +460,7 @@ impl CronJobRow {
             run_count: self.run_count,
             error_count: self.error_count,
             last_error: self.last_error,
+            work_dir: self.work_dir,
             notify_channels,
         })
     }
@@ -491,6 +504,7 @@ mod tests {
             run_count: 0,
             error_count: 0,
             last_error: None,
+            work_dir: None,
             notify_channels: vec![],
         };
 
@@ -541,6 +555,7 @@ mod tests {
             run_count: 0,
             error_count: 0,
             last_error: None,
+            work_dir: None,
             notify_channels: vec![],
         };
         store.upsert(&job).await.unwrap();
@@ -571,6 +586,7 @@ mod tests {
             run_count: 0,
             error_count: 0,
             last_error: None,
+            work_dir: None,
             notify_channels: vec![],
         }
     }
@@ -610,6 +626,7 @@ mod tests {
             run_count: 0,
             error_count: 0,
             last_error: None,
+            work_dir: None,
             notify_channels: vec![],
         };
         store.upsert(&webhook_job).await.unwrap();
@@ -692,6 +709,7 @@ mod tests {
             run_count: 0,
             error_count: 0,
             last_error: None,
+            work_dir: None,
             notify_channels: vec![
                 NotifyChannel {
                     channel_id: "feishu".into(),

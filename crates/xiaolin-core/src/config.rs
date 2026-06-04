@@ -1134,7 +1134,18 @@ pub fn load_config(mode: &ConfigMode) -> XiaoLinResult<XiaoLinConfig> {
     }
 
     tracing::info!("no config file found, using built-in defaults");
-    Ok(XiaoLinConfig::default())
+    let mut config = XiaoLinConfig::default();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let default_dir = match mode {
+        ConfigMode::Development => home.join(".xiaolin-dev"),
+        ConfigMode::Profile(name) => home.join(format!(".xiaolin-{name}")),
+        ConfigMode::Production => home.join(".xiaolin"),
+    };
+    config.paths.state_dir = Some(default_dir.to_string_lossy().into_owned());
+    if matches!(mode, ConfigMode::Development) && config.gateway.port == default_port() {
+        config.gateway.port = default_port_for_mode(mode);
+    }
+    Ok(config)
 }
 
 /// Attempt to repair a config file with common issues.

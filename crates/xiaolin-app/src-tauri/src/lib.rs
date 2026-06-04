@@ -30,6 +30,63 @@ pub struct AppData {
     pub startup_watch: tokio::sync::watch::Receiver<GatewayStartupState>,
 }
 
+/// Determine the ConfigMode from `XIAOLIN_PROFILE` env var.
+/// - unset / empty / "dev" → Development
+/// - "prod" / "production" → Production
+/// - anything else → Profile(name)
+fn resolve_config_mode() -> xiaolin_core::config::ConfigMode {
+    match std::env::var("XIAOLIN_PROFILE").ok().filter(|s| !s.is_empty()) {
+        None => {
+            if cfg!(debug_assertions) {
+                xiaolin_core::config::ConfigMode::Development
+            } else {
+                xiaolin_core::config::ConfigMode::Production
+            }
+        }
+        Some(ref p) if p == "dev" || p == "development" => {
+            xiaolin_core::config::ConfigMode::Development
+        }
+        Some(ref p) if p == "prod" || p == "production" => {
+            xiaolin_core::config::ConfigMode::Production
+        }
+        Some(name) => xiaolin_core::config::ConfigMode::Profile(name),
+    }
+}
+
+fn local_storage_isolation_plugin() -> impl tauri::plugin::Plugin<tauri::Wry> {
+    struct StorageIsolation {
+        script: Option<String>,
+    }
+    impl tauri::plugin::Plugin<tauri::Wry> for StorageIsolation {
+        fn name(&self) -> &'static str {
+            "storage-isolation"
+        }
+        fn initialization_script(&self) -> Option<String> {
+            self.script.clone()
+        }
+    }
+
+    let script = std::env::var("XIAOLIN_PROFILE")
+        .ok()
+        .filter(|s| !s.is_empty() && s != "dev" && s != "development")
+        .map(|profile| {
+            format!(
+                r#"const __P="xiaolin:{profile}:";const __S=window.localStorage;
+Object.defineProperty(window,'localStorage',{{value:new Proxy(__S,{{get(t,p){{
+if(p==='getItem')return k=>__S.getItem(__P+k);
+if(p==='setItem')return(k,v)=>__S.setItem(__P+k,v);
+if(p==='removeItem')return k=>__S.removeItem(__P+k);
+if(p==='clear')return()=>{{for(let i=__S.length-1;i>=0;i--){{const k=__S.key(i);if(k&&k.startsWith(__P))__S.removeItem(k);}}}};
+if(p==='length'){{let c=0;for(let i=0;i<__S.length;i++)if(__S.key(i)&&__S.key(i).startsWith(__P))c++;return c;}}
+if(p==='key')return i=>{{let c=0;for(let j=0;j<__S.length;j++){{const k=__S.key(j);if(k&&k.startsWith(__P)){{if(c===i)return k.slice(__P.length);c++;}}}};return null;}};
+return Reflect.get(t,p);}}}}),configurable:true}});"#,
+                profile = profile
+            )
+        });
+
+    StorageIsolation { script }
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
@@ -110,11 +167,20 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_mcp_bridge::init())
+        .plugin({
+            let mcp_port = std::env::var("MCP_BRIDGE_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(9223);
+            tauri_plugin_mcp_bridge::Builder::new()
+                .base_port(mcp_port)
+                .build()
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
     builder
+        .plugin(local_storage_isolation_plugin())
         .setup(|app| {
             let (watch_tx, watch_rx) = tokio::sync::watch::channel(GatewayStartupState::Starting);
 
@@ -183,11 +249,7 @@ pub fn run() {
             let handle = app.handle().clone();
 
             tauri::async_runtime::spawn(async move {
-                let config_mode = if cfg!(debug_assertions) {
-                    xiaolin_core::config::ConfigMode::Development
-                } else {
-                    xiaolin_core::config::ConfigMode::Production
-                };
+                let config_mode = resolve_config_mode();
 
                 match GatewayProcess::start(&config_mode).await {
                     Ok(gw) => {

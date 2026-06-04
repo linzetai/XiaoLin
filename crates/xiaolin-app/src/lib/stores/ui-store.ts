@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export type LayoutTier = "compact" | "standard" | "wide";
+export type MainView = "chat" | "automations";
 
 const SIDEBAR_WIDTH_KEY = "xiaolin:sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 210;
@@ -22,6 +23,7 @@ export interface UIState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   layoutTier: LayoutTier;
+  mainView: MainView;
 
   toggleDetail: () => void;
   closeDetail: () => void;
@@ -29,6 +31,7 @@ export interface UIState {
   setSidebarWidth: (w: number) => void;
   resetSidebarWidth: () => void;
   setLayoutTier: (tier: LayoutTier) => void;
+  setMainView: (view: MainView) => void;
 }
 
 export { DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH };
@@ -38,6 +41,7 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: false,
   sidebarWidth: loadSidebarWidth(),
   layoutTier: "standard" as LayoutTier,
+  mainView: "chat" as MainView,
 
   toggleDetail: () => set((s) => ({ detailOpen: !s.detailOpen })),
   closeDetail: () => set({ detailOpen: false }),
@@ -52,4 +56,5 @@ export const useUIStore = create<UIState>((set) => ({
     set({ sidebarWidth: DEFAULT_SIDEBAR_WIDTH });
   },
   setLayoutTier: (tier) => set({ layoutTier: tier }),
+  setMainView: (view) => set({ mainView: view }),
 }));

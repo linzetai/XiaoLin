@@ -326,6 +326,26 @@ pub enum ClientOp {
         limit: Option<i64>,
     },
 
+    // ── Automations (user-facing wrapper over cron) ──────────────────
+    AutomationsList,
+    AutomationsCreate {
+        params: serde_json::Value,
+    },
+    AutomationsUpdate {
+        job_id: String,
+        params: serde_json::Value,
+    },
+    AutomationsDelete {
+        job_id: String,
+    },
+    AutomationsRuns {
+        job_id: String,
+        limit: Option<i64>,
+    },
+    AutomationsRunNow {
+        job_id: String,
+    },
+
     // ── Notifications ────────────────────────────────────────────────
     NotificationsUnreadCount,
     NotificationsList {
@@ -641,6 +661,29 @@ impl ClientOp {
                 limit: params
                     .get("limit")
                     .and_then(|v| v.as_i64()),
+            }),
+            "automations.list" => Ok(Self::AutomationsList),
+            "automations.create" => Ok(Self::AutomationsCreate { params }),
+            "automations.update" => Ok(Self::AutomationsUpdate {
+                job_id: extract_string(&params, "jobId")
+                    .or_else(|_| extract_string(&params, "job_id")
+                    .or_else(|_| extract_string(&params, "id")))?,
+                params,
+            }),
+            "automations.delete" => Ok(Self::AutomationsDelete {
+                job_id: extract_string(&params, "jobId")
+                    .or_else(|_| extract_string(&params, "job_id")
+                    .or_else(|_| extract_string(&params, "id")))?,
+            }),
+            "automations.runs" => Ok(Self::AutomationsRuns {
+                job_id: extract_string(&params, "jobId")
+                    .or_else(|_| extract_string(&params, "job_id"))?,
+                limit: params.get("limit").and_then(|v| v.as_i64()),
+            }),
+            "automations.run_now" => Ok(Self::AutomationsRunNow {
+                job_id: extract_string(&params, "jobId")
+                    .or_else(|_| extract_string(&params, "job_id")
+                    .or_else(|_| extract_string(&params, "id")))?,
             }),
             "notifications.unread_count" => Ok(Self::NotificationsUnreadCount),
             "notifications.list" => Ok(Self::NotificationsList {

@@ -265,6 +265,7 @@ fn spawn_cron_scheduler(state: AppState) {
             message: &str,
             session_id: Option<&str>,
             notify_channels: &[xiaolin_cron::NotifyChannel],
+            work_dir: Option<&str>,
         ) -> anyhow::Result<(String, bool)> {
             // When notify_channels is configured, run the agent in the channel's
             // conversation session so the user sees continuity when replying.
@@ -346,7 +347,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 temperature: None,
                 tools: None,
                 slash_intent: None,
-                work_dir: None,
+                work_dir: work_dir.map(|s| s.to_string()),
             };
             let agent_config = {
                 let router = self.state.rt.router.read().await;

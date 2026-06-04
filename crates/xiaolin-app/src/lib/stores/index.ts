@@ -3,6 +3,7 @@ import { useChatMetaStore as _chatMetaStore } from "./chat-meta-store";
 
 export { useConfigStore } from "./config-store";
 export { usePermissionStore } from "./permission-store";
+export { useAutomationStore } from "./automation-store";
 export * from "./types";
 
 export { useChatMetaStore } from "./chat-meta-store";
