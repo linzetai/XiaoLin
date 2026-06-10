@@ -105,6 +105,27 @@ export interface ChatUsage {
 
 export type ExecutionMode = "agent" | "plan";
 
+export type GoalStatus =
+  | "active"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "paused"
+  | "budget_limited";
+
+export interface GoalData {
+  id: string;
+  description: string;
+  status: GoalStatus | string;
+  token_budget?: number;
+  tokens_used: number;
+  time_used_seconds: number;
+  pause_reason?: string;
+  continuation_rounds: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface ChatMeta {
   id: string;
   localKey: string;

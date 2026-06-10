@@ -148,8 +148,6 @@ pub async fn setup_chat(
             );
             state.strm.git_watcher_manager.ensure_watcher(&project.id, &std::path::PathBuf::from(wd)).await;
         }
-    } else {
-        auto_detect_work_dir(state, &session_id, &user_messages).await;
     }
 
     for msg in &user_messages {
@@ -429,78 +427,6 @@ struct SlashIntentMeta {
     value: String,
     exact_match: bool,
     skill_loaded: bool,
-}
-
-async fn auto_detect_work_dir(
-    state: &AppState,
-    session_id: &str,
-    user_messages: &[ChatMessage],
-) {
-    use std::path::Path;
-
-    if let Ok(Some(session)) = state.store.session_store.get_session(session_id).await {
-        if session.work_dir.is_some() {
-            return;
-        }
-    }
-
-    for msg in user_messages {
-        if msg.role != Role::User {
-            continue;
-        }
-        let Some(text) = msg.text_content() else {
-            continue;
-        };
-        for path_str in extract_absolute_paths(&text) {
-            let path = Path::new(path_str);
-            if !path.exists() {
-                let parent = path.parent();
-                if parent.is_none_or(|p| !p.exists()) {
-                    continue;
-                }
-            }
-            let target = if path.is_dir() { path.to_path_buf() } else {
-                path.parent().unwrap_or(path).to_path_buf()
-            };
-            let ws_root = xiaolin_core::workspace::detect_workspace_root(&target);
-            let ws_str = ws_root.display().to_string();
-            if state
-                .store
-                .session_store
-                .update_work_dir(session_id, Some(&ws_str))
-                .await
-                .is_ok()
-            {
-                let _ = state.strm.ws_broadcast.send(
-                    serde_json::json!({
-                        "type": "event",
-                        "event": "sessions.changed",
-                        "data": { "sessionId": session_id }
-                    })
-                    .to_string(),
-                );
-                tracing::info!(
-                    session_id = session_id,
-                    detected_path = path_str,
-                    workspace_root = %ws_str,
-                    "auto-detected workspace from user message"
-                );
-            }
-            return;
-        }
-    }
-}
-
-fn extract_absolute_paths(text: &str) -> Vec<&str> {
-    let mut paths = Vec::new();
-    let delimiters: &[char] = &[' ', '\t', '\n', '`', '"', '\'', '(', ')', '[', ']', '{', '}', '<', '>'];
-    for token in text.split(delimiters) {
-        let token = token.trim();
-        if token.starts_with('/') && token.len() >= 4 && token.chars().nth(1).is_some_and(|c| c.is_ascii_alphabetic()) {
-            paths.push(token);
-        }
-    }
-    paths
 }
 
 fn inject_slash_intent_context(

@@ -10,6 +10,7 @@ import {
   useActiveSubAgentRuns,
   useChatLastSegments,
   useChatUsage,
+  useActiveGoal,
 } from "../../lib/stores";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
@@ -26,6 +27,7 @@ import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { StreamEmptyState } from "./StreamEmptyState";
 import { StickyContextBar } from "./StickyContextBar";
+import { GoalStatusCard } from "../chat/GoalStatusCard";
 import { parseTodoResult, type TodoSummary } from "./TodoCard";
 import { ICON } from "../../lib/ui-tokens";
 
@@ -44,6 +46,7 @@ export function MessageStream(_props: MessageStreamProps) {
   const subAgentRuns = useActiveSubAgentRuns();
   const lastSegments = useChatLastSegments(activeChatId);
   const usage = useChatUsage(activeChatId);
+  const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
   const loadChatStream = useStreamStore((s) => s.loadChatStream);
 
@@ -644,7 +647,11 @@ export function MessageStream(_props: MessageStreamProps) {
       )}
 
       {isEmpty ? (
-        <div className="flex-1 overflow-y-auto" style={{ padding: "24px clamp(24px, 5%, 80px)" }}>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {activeGoal && chatSessionId && (
+            <GoalStatusCard sessionId={chatSessionId} goal={activeGoal} />
+          )}
+          <div className="flex-1 overflow-y-auto" style={{ padding: "24px clamp(24px, 5%, 80px)" }}>
           <StreamEmptyState
             workDir={workDir}
             composerSlot={
@@ -672,9 +679,13 @@ export function MessageStream(_props: MessageStreamProps) {
               }
             }}
           />
+          </div>
         </div>
       ) : (
         <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {activeGoal && chatSessionId && (
+            <GoalStatusCard sessionId={chatSessionId} goal={activeGoal} />
+          )}
           {showContextBar && lastUserMessage && (
             <StickyContextBar
               userMessage={lastUserMessage.content}

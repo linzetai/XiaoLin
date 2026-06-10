@@ -210,10 +210,10 @@ pub struct FallbackModelConfig {
 }
 
 fn default_provider() -> String {
-    "bailian".to_string()
+    String::new()
 }
 fn default_model() -> String {
-    "qwen3.5-plus".to_string()
+    String::new()
 }
 fn default_temperature() -> f32 {
     0.7

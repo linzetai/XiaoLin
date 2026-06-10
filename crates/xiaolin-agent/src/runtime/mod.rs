@@ -64,6 +64,7 @@ pub(crate) mod runtime_services;
 mod session_memory;
 #[allow(dead_code)] // TODO(integrate): side-query tool handle for auxiliary LLM calls
 pub mod side_query;
+pub(crate) mod goal_prompts;
 mod stop_hooks;
 mod stream_engine;
 pub mod streaming_tool_executor;
@@ -309,6 +310,8 @@ pub struct ExecutionParams<'a> {
     pub session_store: Option<Arc<xiaolin_session::SessionStore>>,
     /// Shared todo store so stop-hooks can check for incomplete todos.
     pub todo_store: Option<crate::builtin_tools::TodoStore>,
+    /// Shared goal store so stop-hooks can check for active goals and trigger continuation.
+    pub goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
 }
 
 /// Additional parameters specific to the streaming execution path.
@@ -362,6 +365,7 @@ fn make_turn_end_event(
                 prompt_tokens: u.prompt_tokens,
                 completion_tokens: u.completion_tokens,
                 total_tokens: u.total_tokens,
+                cached_input_tokens: 0,
             }),
             elapsed_ms: stream_start.elapsed().as_millis() as u64,
             context_tokens: Some(state.last_estimated_tokens as u32),
@@ -386,6 +390,7 @@ fn make_turn_summary(
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            cached_input_tokens: 0,
         }),
         elapsed_ms: stream_start.elapsed().as_millis() as u64,
         context_tokens: Some(state.last_estimated_tokens as u32),
@@ -686,6 +691,7 @@ impl AgentRuntime {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
 
@@ -768,6 +774,7 @@ impl AgentRuntime {
             mode_state: None,
             session_store: None,
             todo_store: None,
+            goal_store: None,
         };
         let stream = StreamParams {
             tx,
@@ -801,6 +808,7 @@ impl AgentRuntime {
         mode_state: Option<crate::builtin_tools::ExecutionModeState>,
         session_store: Option<Arc<xiaolin_session::SessionStore>>,
         todo_store: Option<crate::builtin_tools::TodoStore>,
+        goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
     ) -> anyhow::Result<TurnSummary> {
         let exec = ExecutionParams {
             config,
@@ -811,6 +819,7 @@ impl AgentRuntime {
             mode_state,
             session_store,
             todo_store,
+            goal_store,
         };
         let runtime_registry = self.cached_runtime_registry.clone();
         let stream = StreamParams {
@@ -837,6 +846,7 @@ impl AgentRuntime {
             ref mode_state,
             ref session_store,
             ref todo_store,
+            ref goal_store,
         } = *params;
         let StreamParams {
             ref tx,
@@ -975,6 +985,11 @@ impl AgentRuntime {
         let skip_tool_names = build_skip_tool_names(tool_registry);
         let stream_start = std::time::Instant::now();
 
+        // Set session_id on goal store for this query
+        if let (Some(gs), Some(sid)) = (goal_store, request.session_id.as_deref()) {
+            gs.set_session_id(sid.to_string()).await;
+        }
+
         // Load session memory from store if resuming a session
         if let (Some(store), Some(sid)) = (session_store, request.session_id.as_deref()) {
             if let Some(mem) = session_memory::load_session_memory(store.as_ref(), sid).await {
@@ -1094,6 +1109,15 @@ impl AgentRuntime {
         )
         .await;
 
+        // Track the last known goal ID so we can detect external deletion
+        // (user cancellation) even before goal_before/goal_after are captured.
+        let mut last_seen_goal_id: Option<String> = if let Some(ref gs) = goal_store {
+            gs.get_current().await.map(|g| g.id)
+        } else {
+            None
+        };
+
+        let mut had_tool_calls_this_round = false;
         loop {
             if let Some(query_state::LoopTransition::Terminal(_)) = state.check_pre_iteration() {
                 tracing::warn!(
@@ -1422,6 +1446,7 @@ impl AgentRuntime {
             let mut last_submitted_tool_idx: Option<usize> = None;
 
             let stream_consume_t0 = std::time::Instant::now();
+            let acc_tokens_before_stream = state.acc_prompt_tokens + state.acc_completion_tokens;
             'stream_try: loop {
                 let params = CompletionParams {
                     model: &model,
@@ -1738,6 +1763,25 @@ impl AgentRuntime {
                 "perf: stream_consumed"
             );
 
+            // ── Fallback token estimation when provider omits usage ──────
+            // Some providers (e.g. deepseek) don't include `usage` in streaming
+            // responses even with `stream_options.include_usage = true`.
+            // Without this fallback, goal token accounting stays at 0.
+            let acc_tokens_after_stream = state.acc_prompt_tokens + state.acc_completion_tokens;
+            if acc_tokens_after_stream == acc_tokens_before_stream && !stream_errored {
+                let est_prompt = state.last_estimated_tokens as u32;
+                let output_bytes = accumulated_content.len() + accumulated_reasoning.len();
+                let est_completion = (output_bytes / 4).max(1) as u32;
+                state.acc_prompt_tokens += est_prompt;
+                state.acc_completion_tokens += est_completion;
+                tracing::info!(
+                    est_prompt,
+                    est_completion,
+                    output_bytes,
+                    "token_fallback: provider omitted usage, using estimation"
+                );
+            }
+
             // Withheld prompt_too_long recovery: attempt reactive compact
             // before surfacing the error to the client.
             if let Some(ref withheld_err) = withheld_prompt_too_long {
@@ -1830,15 +1874,32 @@ impl AgentRuntime {
 
             let transition = state.determine_post_llm_transition(has_valid_tool_calls);
 
+            let transition = if state.force_stop_after_next
+                && matches!(transition, query_state::LoopTransition::Continue(_))
+            {
+                tracing::info!(
+                    agent_id = %config.agent_id,
+                    "force_stop_after_next — overriding Continue to EndTurn"
+                );
+                query_state::LoopTransition::Terminal(query_state::TerminalReason::EndTurn)
+            } else {
+                transition
+            };
+
             match transition {
                 query_state::LoopTransition::Terminal(ref reason) => {
                     if matches!(reason, query_state::TerminalReason::EndTurn) {
                         // ── Model Critic: review final output before accepting ──
+                        // Skipped when force-stopping (goal cancelled) to avoid
+                        // an extra loop iteration that delays the termination.
                         let critic_config = model_critic::CriticConfig {
                             model: config.model.model.clone(),
                             ..Default::default()
                         };
-                        if critic_config.enabled && !accumulated_content.is_empty() {
+                        if !state.force_stop_after_next
+                            && critic_config.enabled
+                            && !accumulated_content.is_empty()
+                        {
                             let critic_provider = self.provider();
                             let task_type =
                                 task_decomposer::TaskType::from_str_loose_pub(&last_user_msg);
@@ -1881,46 +1942,102 @@ impl AgentRuntime {
                             }
                         }
 
-                        let hook_result = stop_hooks::evaluate_stop_hooks(
-                            &accumulated_content,
-                            last_finish_reason.as_deref(),
-                            todo_store.as_ref(),
-                            &[],
-                        )
-                        .await;
+                        // Goal token/time incremental accounting before stop hook evaluation.
+                        // Uses account_tokens/account_time to avoid double-counting across
+                        // continuation rounds within the same query loop.
+                        if let Some(ref gs) = goal_store {
+                            if let Some(current_goal) = gs.get_current().await {
+                                let goal_id = current_goal.id.clone();
+                                if current_goal.status == crate::builtin_tools::GoalStatus::Active {
+                                    let usage = state.build_usage();
+                                    if let Some(ref u) = usage {
+                                        let cumulative = TokenUsage {
+                                            prompt_tokens: u.prompt_tokens,
+                                            completion_tokens: u.completion_tokens,
+                                            total_tokens: u.total_tokens,
+                                            cached_input_tokens: 0,
+                                        }.goal_token_delta();
+                                        if let Some((_delta, over_budget)) = gs.account_tokens(&goal_id, cumulative).await {
+                                            if over_budget {
+                                                tracing::info!(
+                                                    goal_id = %goal_id,
+                                                    "goal budget exceeded, setting budget_limited"
+                                                );
+                                                let _ = gs.update_status(
+                                                    &goal_id,
+                                                    crate::builtin_tools::GoalStatus::BudgetLimited,
+                                                    Some("budget_exhausted"),
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                    let elapsed_secs = stream_start.elapsed().as_secs();
+                                    gs.account_time(&goal_id, elapsed_secs).await;
+                                }
+                                if let Some(updated) = gs.get_current().await {
+                                    let _ = send_stream_event(
+                                        tx,
+                                        AgentEvent::GoalUpdated {
+                                            turn_id: turn_id.clone(),
+                                            goal: updated.to_goal_data(),
+                                        },
+                                        false,
+                                    ).await;
+                                }
+                            }
+                        }
 
-                        if hook_result.should_continue {
+                        if !state.force_stop_after_next {
+                            let hook_result = stop_hooks::evaluate_stop_hooks(
+                                &accumulated_content,
+                                last_finish_reason.as_deref(),
+                                todo_store.as_ref(),
+                                &[],
+                                goal_store.as_ref().map(|g| g.as_ref()),
+                                mode_state.as_ref().map(|ms| ms.current_mode()),
+                                had_tool_calls_this_round,
+                            )
+                            .await;
+
+                            if hook_result.should_continue {
+                                tracing::info!(
+                                    agent_id = %config.agent_id,
+                                    reason = hook_result.reason,
+                                    "stop hook triggered continuation"
+                                );
+                                if !accumulated_content.is_empty() || !accumulated_reasoning.is_empty() {
+                                    messages.push(ChatMessage {
+                                        role: Role::Assistant,
+                                        content: if accumulated_content.is_empty() {
+                                            None
+                                        } else {
+                                            Some(serde_json::Value::String(
+                                                std::mem::take(&mut accumulated_content),
+                                            ))
+                                        },
+                                        reasoning_content: if accumulated_reasoning.is_empty() {
+                                            None
+                                        } else {
+                                            Some(std::mem::take(&mut accumulated_reasoning))
+                                        },
+                                        ..Default::default()
+                                    });
+                                }
+                                if let Some(msg) = hook_result.continuation_message {
+                                    messages.push(ChatMessage {
+                                        role: Role::User,
+                                        content: Some(serde_json::Value::String(msg)),
+                                        ..Default::default()
+                                    });
+                                }
+                                had_tool_calls_this_round = false;
+                                continue;
+                            }
+                        } else {
                             tracing::info!(
                                 agent_id = %config.agent_id,
-                                reason = hook_result.reason,
-                                "stop hook triggered continuation"
+                                "force_stop_after_next — skipping stop hooks, ending turn"
                             );
-                            if !accumulated_content.is_empty() || !accumulated_reasoning.is_empty() {
-                                messages.push(ChatMessage {
-                                    role: Role::Assistant,
-                                    content: if accumulated_content.is_empty() {
-                                        None
-                                    } else {
-                                        Some(serde_json::Value::String(
-                                            std::mem::take(&mut accumulated_content),
-                                        ))
-                                    },
-                                    reasoning_content: if accumulated_reasoning.is_empty() {
-                                        None
-                                    } else {
-                                        Some(std::mem::take(&mut accumulated_reasoning))
-                                    },
-                                    ..Default::default()
-                                });
-                            }
-                            if let Some(msg) = hook_result.continuation_message {
-                                messages.push(ChatMessage {
-                                    role: Role::User,
-                                    content: Some(serde_json::Value::String(msg)),
-                                    ..Default::default()
-                                });
-                            }
-                            continue;
                         }
                     }
 
@@ -2063,7 +2180,35 @@ impl AgentRuntime {
                         context_window,
                     ));
                 }
-                query_state::LoopTransition::Continue(_) => {}
+                query_state::LoopTransition::Continue(_) => {
+                    // Before dispatching tools, check if goal was externally deleted
+                    // (user clicked "取消目標"). row_exists distinguishes real deletion
+                    // from a status change to completed/failed.
+                    if let (Some(ref gs), Some(ref gid)) = (&goal_store, &last_seen_goal_id) {
+                        if gs.get_current().await.is_none() && !gs.row_exists(gid).await {
+                            tracing::info!(
+                                agent_id = %config.agent_id,
+                                goal_id = %gid,
+                                "goal externally deleted — injecting cancellation notice"
+                            );
+                            messages.push(ChatMessage {
+                                role: Role::User,
+                                content: Some(serde_json::Value::String(
+                                    "<goal_context>\n\
+                                     [GOAL CANCELLED]\n\n\
+                                     The user has cancelled the current goal. Stop working \
+                                     immediately and provide a brief summary of progress so far.\n\
+                                     </goal_context>"
+                                        .to_string(),
+                                )),
+                                ..Default::default()
+                            });
+                            state.force_stop_after_next = true;
+                            last_seen_goal_id = None;
+                            continue;
+                        }
+                    }
+                }
             }
 
             let assembled_calls: Vec<ToolCall> = tool_call_accum
@@ -2116,6 +2261,8 @@ impl AgentRuntime {
             ..Default::default()
             });
 
+            had_tool_calls_this_round = true;
+
             // Emit ToolExecuting events for all tool calls first.
             for tc in &assembled_calls {
                 let args_str = if tc.function.arguments.is_empty() {
@@ -2137,6 +2284,11 @@ impl AgentRuntime {
             }
 
             let mode_before = mode_state.as_ref().map(|ms| ms.current_mode());
+            let goal_before = if let Some(ref gs) = goal_store {
+                gs.get_current().await.map(|g| (g.id.clone(), g.status))
+            } else {
+                None
+            };
 
             // Execute tool calls through the ToolDispatcher (unified pipeline).
             //
@@ -2606,6 +2758,121 @@ impl AgentRuntime {
                             false,
                         )
                         .await;
+                    }
+                }
+            }
+
+            // Emit GoalUpdated/GoalCleared if the goal state changed after tool execution
+            if let Some(ref gs) = goal_store {
+                let goal_after = gs.get_current().await;
+                match (&goal_before, &goal_after) {
+                    (None, Some(g)) => {
+                        last_seen_goal_id = Some(g.id.clone());
+                        let _ = send_stream_event(
+                            tx,
+                            AgentEvent::GoalUpdated {
+                                turn_id: turn_id.clone(),
+                                goal: g.to_goal_data(),
+                            },
+                            false,
+                        ).await;
+                    }
+                    (Some((_, prev_status)), Some(g)) if *prev_status != g.status => {
+                        let _ = send_stream_event(
+                            tx,
+                            AgentEvent::GoalUpdated {
+                                turn_id: turn_id.clone(),
+                                goal: g.to_goal_data(),
+                            },
+                            false,
+                        ).await;
+                        if g.status == crate::builtin_tools::GoalStatus::BudgetLimited
+                            && *prev_status == crate::builtin_tools::GoalStatus::Active
+                        {
+                            tracing::info!(
+                                goal_id = %g.id,
+                                "budget limit reached mid-turn, injecting wrap-up steering"
+                            );
+                            let hint = crate::runtime::goal_prompts::render_budget_limit_prompt(g);
+                            messages.push(ChatMessage {
+                                role: Role::User,
+                                content: Some(serde_json::Value::String(hint)),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                    (Some((prev_id, prev_status)), None) => {
+                        // Distinguish external deletion (user cancel) from model
+                        // updating status to completed/failed. update_goal keeps
+                        // the row; only goal.clear deletes it.
+                        let row_deleted = !gs.row_exists(prev_id).await;
+                        if row_deleted {
+                            let _ = send_stream_event(
+                                tx,
+                                AgentEvent::GoalCleared {
+                                    turn_id: turn_id.clone(),
+                                    goal_id: prev_id.clone(),
+                                },
+                                false,
+                            ).await;
+                            if !prev_status.is_terminal() {
+                                tracing::info!(
+                                    agent_id = %config.agent_id,
+                                    prev_goal_id = %prev_id,
+                                    "goal externally deleted — stopping autonomous loop"
+                                );
+                                messages.push(ChatMessage {
+                                    role: Role::User,
+                                    content: Some(serde_json::Value::String(
+                                        "<goal_context>\n\
+                                         [GOAL CANCELLED]\n\n\
+                                         The user has cancelled the current goal. Stop working \
+                                         immediately and provide a brief summary of progress so far.\n\
+                                         </goal_context>"
+                                            .to_string(),
+                                    )),
+                                    ..Default::default()
+                                });
+                                state.force_stop_after_next = true;
+                                last_seen_goal_id = None;
+                                continue;
+                            }
+                        } else {
+                            // Row still exists with terminal status — model completed/failed
+                            // the goal via update_goal. Emit GoalUpdated so the frontend
+                            // shows the correct final state.
+                            if let Ok(Some(row)) = gs.session_store().get_goal(prev_id).await {
+                                let g = crate::builtin_tools::Goal::from_row(row);
+                                let _ = send_stream_event(
+                                    tx,
+                                    AgentEvent::GoalUpdated {
+                                        turn_id: turn_id.clone(),
+                                        goal: g.to_goal_data(),
+                                    },
+                                    false,
+                                ).await;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                if let Some(ref g) = goal_after {
+                    if g.status == crate::builtin_tools::GoalStatus::Active
+                        && gs.check_budget_warning(g)
+                    {
+                        tracing::info!(
+                            goal_id = %g.id,
+                            tokens_used = g.tokens_used,
+                            "goal budget 80% warning triggered"
+                        );
+                        let warning =
+                            crate::runtime::goal_prompts::render_budget_warning_prompt(g);
+                        messages.push(ChatMessage {
+                            role: Role::User,
+                            content: Some(serde_json::Value::String(warning)),
+                            ..Default::default()
+                        });
                     }
                 }
             }

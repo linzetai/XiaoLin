@@ -802,6 +802,38 @@ async fn dispatch(
         ClientOp::GitInit { project_id } => {
             git::handle_git_init(sender, state, id, &project_id).await;
         }
+        ClientOp::GoalPause { session_id } => {
+            chat::handle_goal_action(sender, state, id, &session_id, "pause", None).await;
+        }
+        ClientOp::GoalResume { session_id } => {
+            chat::handle_goal_action(sender, state, id, &session_id, "resume", None).await;
+        }
+        ClientOp::GoalClear { session_id } => {
+            chat::handle_goal_action(sender, state, id, &session_id, "clear", None).await;
+        }
+        ClientOp::GoalEdit {
+            session_id,
+            description,
+        } => {
+            let params = serde_json::json!({"description": description});
+            chat::handle_goal_action(sender, state, id, &session_id, "edit", Some(&params))
+                .await;
+        }
+        ClientOp::GoalAddBudget {
+            session_id,
+            amount,
+        } => {
+            let params = serde_json::json!({"amount": amount});
+            chat::handle_goal_action(
+                sender,
+                state,
+                id,
+                &session_id,
+                "add_budget",
+                Some(&params),
+            )
+            .await;
+        }
         _ => {
             send_resp(
                 sender,

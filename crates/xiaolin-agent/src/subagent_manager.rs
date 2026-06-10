@@ -357,6 +357,7 @@ impl SubAgentManager {
                                 prompt_tokens: u.prompt_tokens,
                                 completion_tokens: u.completion_tokens,
                                 total_tokens: u.total_tokens,
+                                cached_input_tokens: 0,
                             }),
                             elapsed_ms,
                         })
@@ -724,6 +725,7 @@ impl SubAgentManager {
                 xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove,
                 llm_override,
                 orchestrator,
+                None,
                 None,
                 None,
                 None,

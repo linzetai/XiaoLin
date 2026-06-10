@@ -7,4 +7,4 @@ pub use models::{
     ContentReplacementRow, Project, ProjectPatch, Session, SessionCreateOutcome, SessionMessage,
     SessionSummary, SubAgentRunRow,
 };
-pub use store::SessionStore;
+pub use store::{GoalRow, SessionStore};

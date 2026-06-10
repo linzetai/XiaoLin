@@ -5,6 +5,7 @@ import { createProject } from "../transport";
 import { DEFAULT_AGENT_ID, INITIAL_AGENTS, formatTime } from "./chat-helpers";
 import { _persisted } from "./persistence";
 import { useProjectStore } from "./project-store";
+import { useGoalStore } from "./goal-store";
 import { useStreamStore } from "./stream-store";
 import type {
   Agent,
@@ -343,6 +344,16 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
       return { chats: updatedChats, chatOrder: updatedOrder, activeChatId: updatedActive };
     });
     useStreamStore.getState().updateStreamKey(localChatId, backendSessionId);
+    const goalState = useGoalStore.getState();
+    const existingGoal = goalState.goals[localChatId];
+    if (existingGoal) {
+      goalState.setActiveGoal(backendSessionId, existingGoal);
+      goalState.clearGoal(localChatId);
+    }
+    if (goalState.goalMode[localChatId]) {
+      goalState.setGoalMode(backendSessionId, true);
+      goalState.setGoalMode(localChatId, false);
+    }
   },
 
   setChatExecutionMode: (chatId, mode) => {

@@ -152,6 +152,25 @@ pub struct TurnContextItem {
 /// Runtime events emitted by the agent.
 ///
 /// Each variant carries a `turn_id` where applicable so consumers can
+/// Goal state snapshot sent to the frontend via `GoalUpdated` events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct GoalData {
+    pub id: String,
+    pub description: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<u64>,
+    pub tokens_used: u64,
+    pub time_used_seconds: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_reason: Option<String>,
+    pub continuation_rounds: u32,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
 /// correlate events to their originating turn without out-of-band state.
 ///
 /// Serialized with `#[serde(tag = "type")]` for discriminated-union
@@ -399,6 +418,16 @@ pub enum AgentEvent {
         turn_id: TurnId,
         fragment_ids: Vec<String>,
     },
+
+    // ── Goal lifecycle ──────────────────────────────────────────────
+    GoalUpdated {
+        turn_id: TurnId,
+        goal: GoalData,
+    },
+    GoalCleared {
+        turn_id: TurnId,
+        goal_id: String,
+    },
 }
 
 impl AgentEvent {
@@ -434,7 +463,9 @@ impl AgentEvent {
             | Self::Warning { turn_id, .. }
             | Self::Error { turn_id, .. }
             | Self::MemoryStored { turn_id, .. }
-            | Self::MemoryRecalled { turn_id, .. } => turn_id,
+            | Self::MemoryRecalled { turn_id, .. }
+            | Self::GoalUpdated { turn_id, .. }
+            | Self::GoalCleared { turn_id, .. } => turn_id,
         }
     }
 }
@@ -577,6 +608,7 @@ mod tests {
                 prompt_tokens: 100,
                 completion_tokens: 50,
                 total_tokens: 150,
+                cached_input_tokens: 0,
             }),
             elapsed_ms: 2000,
         };

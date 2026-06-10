@@ -48,6 +48,7 @@ pub struct RuntimeTurnExecutor {
     pub session_store: Option<Arc<xiaolin_session::SessionStore>>,
     pub mode_registry: Option<crate::builtin_tools::SessionModeRegistry>,
     pub todo_store: Option<crate::builtin_tools::TodoStore>,
+    pub goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
     pub plan_file_store: Option<crate::builtin_tools::PlanFileStore>,
     pub stream_event_tx:
         Option<Arc<DashMap<String, mpsc::Sender<AgentEvent>>>>,
@@ -422,6 +423,7 @@ impl RuntimeTurnExecutor {
                 mode_state.clone(),
                 session_store.clone(),
                 todo_store.clone(),
+                None,
             ));
 
             let reprompt_result = {
@@ -643,6 +645,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
             let llm = per_request_llm.or_else(|| self.llm_override.clone());
             let session_store = self.session_store.clone();
             let todo_store = self.todo_store.clone();
+            let goal_store = self.goal_store.clone();
             let stream_ctx_key_inner = stream_context_key.clone();
             let ih_for_tools = interaction.clone();
 
@@ -663,6 +666,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 mode_state.clone(),
                 session_store.clone(),
                 todo_store.clone(),
+                goal_store,
             ));
 
             let steer_inbox_inner = steer_inbox.clone();
@@ -744,6 +748,24 @@ impl TurnExecutor for RuntimeTurnExecutor {
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("cancelled by session actor") {
+                    if let Some(ref gs) = self.goal_store {
+                        if let Some(goal) = gs.get_active().await {
+                            tracing::info!(goal_id = %goal.id, "pausing active goal due to user interrupt");
+                            if let Some(updated) = gs
+                                .update_status(
+                                    &goal.id,
+                                    crate::builtin_tools::GoalStatus::Paused,
+                                    Some("user_interrupt"),
+                                )
+                                .await
+                            {
+                                let _ = inner_tx.send(AgentEvent::GoalUpdated {
+                                    turn_id: Default::default(),
+                                    goal: updated.to_goal_data(),
+                                }).await;
+                            }
+                        }
+                    }
                     Err(TurnError::Cancelled)
                 } else {
                     let code = xiaolin_protocol::event::ErrorCode::classify(&msg);

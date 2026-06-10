@@ -1,7 +1,7 @@
 import {
   Image as ImageIcon, FileText, Paperclip, ArrowUp,
   Square, X, Loader2, Compass, Code2, ChevronDown,
-  Plus, GitBranch, Monitor,
+  Plus, GitBranch, Monitor, Target,
 } from "lucide-react";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import {
   useQueueStore,
   useActiveChatId,
   useChatQueue,
+  useGoalStore,
 } from "../../lib/stores";
 import { ICON } from "../../lib/ui-tokens";
 import { QueueIndicator } from "./QueueIndicator";
@@ -308,20 +309,27 @@ function ModelSelector() {
   );
 }
 
+type ComposerMode = "agent" | "plan" | "goal";
+
 function ModeSelector({
   mode,
-  onToggle,
+  onSelectMode,
   disabled,
 }: {
-  mode: "agent" | "plan";
-  onToggle: () => void;
+  mode: ComposerMode;
+  onSelectMode: (m: ComposerMode) => void;
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const isPlan = mode === "plan";
-  const Icon = isPlan ? Compass : Code2;
-  const label = isPlan ? "Plan" : "Agent";
+  const Icon = mode === "plan" ? Compass : mode === "goal" ? Target : Code2;
+  const label = mode === "plan" ? "Plan" : mode === "goal" ? "Goal" : "Agent";
+
+  const options: Array<{ id: ComposerMode; icon: typeof Code2; label: string; color: string }> = [
+    { id: "agent", icon: Code2, label: "Agent", color: "var(--tint)" },
+    { id: "plan", icon: Compass, label: "Plan", color: "oklch(56% 0.18 310)" },
+    { id: "goal", icon: Target, label: "Goal", color: "var(--orange, #ED8936)" },
+  ];
 
   return (
     <div className="relative">
@@ -352,22 +360,23 @@ function ModeSelector({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => { if (isPlan) onToggle(); setOpen(false); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-              style={{ color: !isPlan ? "var(--tint)" : "var(--fill-secondary)", fontWeight: !isPlan ? 600 : 400 }}
-            >
-              <Code2 size={13} strokeWidth={1.5} />
-              Agent
-            </button>
-            <button
-              onClick={() => { if (!isPlan) onToggle(); setOpen(false); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-              style={{ color: isPlan ? "oklch(56% 0.18 310)" : "var(--fill-secondary)", fontWeight: isPlan ? 600 : 400 }}
-            >
-              <Compass size={13} strokeWidth={1.5} />
-              Plan
-            </button>
+            {options.map((opt) => {
+              const isActive = opt.id === mode;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => { onSelectMode(opt.id); setOpen(false); }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+                  style={{
+                    color: isActive ? opt.color : "var(--fill-secondary)",
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                >
+                  <opt.icon size={13} strokeWidth={1.5} />
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>,
         document.body,
@@ -386,7 +395,7 @@ export interface ComposerCoreProps {
   attachedFiles: AttachedFile[];
   removeFile: (index: number) => void;
   processFiles: (files: FileList | File[]) => void;
-  handleMentionSend: (txt: string, mentions: InlineMention[]) => void;
+  handleMentionSend: (txt: string, mentions: InlineMention[], options?: { goalMode?: boolean }) => void;
   handleNewTopic: () => void;
   setWorkDir: (agentId: string, chatId: string, path: string) => void;
   stopStream: () => void;
@@ -429,27 +438,59 @@ export function ComposerCore({
   const executionMode = activeChat?.executionMode ?? "agent";
   const planFilePath = activeChat?.planFilePath;
   const planFileExists = activeChat?.planFileExists ?? false;
+  const isGoalMode = useGoalStore((s) => activeChatId ? !!s.goalMode[activeChatId] : false);
+  const hasActiveGoal = useGoalStore((s) => {
+    if (!activeChatId) return false;
+    const goal = s.goals[activeChatId];
+    if (!goal) return false;
+    return !["completed", "failed", "cancelled"].includes(goal.status);
+  });
+
+  const composerMode: ComposerMode = isGoalMode
+    ? "goal"
+    : executionMode === "plan"
+      ? "plan"
+      : "agent";
 
   const handleCompact = useCallback(() => {
     if (streaming) return;
     handleMentionSend("/compact", []);
   }, [streaming, handleMentionSend]);
 
-  const handleToggleMode = useCallback(async () => {
+  const handleSelectMode = useCallback(async (newMode: ComposerMode) => {
     if (streaming) return;
-    const newMode = executionMode === "plan" ? "agent" : "plan";
-    const sessionId = activeChat?.id;
-    const resp = await transport.setExecutionModeIpc(newMode, sessionId ?? undefined);
-    if (resp.ok) {
-      const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
-      setChatExecutionMode(chatId, newMode);
+    if (newMode === "goal") {
+      if (activeChatId) {
+        useGoalStore.getState().setGoalMode(activeChatId, true);
+      }
+      if (executionMode === "plan") {
+        const sessionId = activeChat?.id;
+        const resp = await transport.setExecutionModeIpc("agent", sessionId ?? undefined);
+        if (resp.ok) {
+          const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
+          setChatExecutionMode(chatId, "agent");
+        }
+      }
+    } else {
+      if (activeChatId) {
+        useGoalStore.getState().setGoalMode(activeChatId, false);
+      }
+      const backendMode = newMode === "plan" ? "plan" : "agent";
+      if (backendMode !== executionMode) {
+        const sessionId = activeChat?.id;
+        const resp = await transport.setExecutionModeIpc(backendMode, sessionId ?? undefined);
+        if (resp.ok) {
+          const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
+          setChatExecutionMode(chatId, backendMode);
+        }
+      }
     }
-  }, [streaming, executionMode, activeChat?.id]);
+  }, [streaming, executionMode, activeChat?.id, activeChatId]);
 
   const handlePlanSlash = useCallback(() => {
     if (streaming) return;
-    handleToggleMode();
-  }, [streaming, handleToggleMode]);
+    handleSelectMode(executionMode === "plan" ? "agent" : "plan");
+  }, [streaming, handleSelectMode, executionMode]);
 
   const handleExportMd = useCallback(async () => {
     const chatId = activeChat?.id;
@@ -477,8 +518,9 @@ export function ComposerCore({
   const wrappedSend = useCallback((txt: string, mentions: InlineMention[]) => {
     setSendPending(true);
     setInputHasContent(false);
-    handleMentionSend(txt, mentions);
-  }, [handleMentionSend]);
+    const shouldCreateGoal = isGoalMode && !hasActiveGoal && txt.trim() && !txt.startsWith("/");
+    handleMentionSend(txt, mentions, shouldCreateGoal ? { goalMode: true } : undefined);
+  }, [handleMentionSend, isGoalMode, hasActiveGoal]);
 
   const defaultRecall = useCallback((): string | null => null, []);
   const handleRecallLastMessage = onRecallLastMessage ?? defaultRecall;
@@ -594,6 +636,15 @@ export function ComposerCore({
             <FileText {...ICON.sm} className="ml-auto shrink-0" style={{ opacity: 0.6 }} />
           </button>
         )}
+        {isGoalMode && !hasActiveGoal && (
+          <div
+            className="flex w-full items-center gap-2 px-4 py-2 text-[11px]"
+            style={{ background: "color-mix(in srgb, var(--orange, #ED8936) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 15%, transparent)", color: "var(--orange, #ED8936)" }}
+          >
+            <Target size={14} strokeWidth={1.5} className="shrink-0" />
+            <span>Goal 模式 — 描述目标后将自主工作直到完成</span>
+          </div>
+        )}
         {executionMode === "agent" && planFileExists && planFilePath && (
           <button
             type="button" onClick={onTogglePlanPanel}
@@ -608,7 +659,7 @@ export function ComposerCore({
         <div style={{ padding: "11px 14px 6px" }}>
           <MentionInput
             ref={mentionInputRef}
-            placeholder={streaming ? t("placeholderStreaming") : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
+            placeholder={streaming ? t("placeholderStreaming") : isGoalMode && !hasActiveGoal ? "描述你的目标，按 Enter 开始自主工作..." : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
             options={mentionOptions}
             slashCommands={slashCommands}
             onSend={wrappedSend}
@@ -693,7 +744,7 @@ export function ComposerCore({
 
         <div style={{ flex: 1 }} />
 
-        <ModeSelector mode={executionMode} onToggle={handleToggleMode} disabled={streaming} />
+        <ModeSelector mode={composerMode} onSelectMode={handleSelectMode} disabled={streaming} />
         {activeChat?.usage?.contextTokens != null && activeChat?.usage?.contextWindow != null && activeChat.usage.contextWindow > 0 && (
           <ContextRing used={activeChat.usage.contextTokens} limit={activeChat.usage.contextWindow} />
         )}

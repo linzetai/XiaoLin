@@ -10,6 +10,7 @@ export { usePluginStore } from "./plugin-store";
 export * from "./types";
 
 export { useChatMetaStore } from "./chat-meta-store";
+export { useGoalStore, initGoalListener, teardownGoalListener } from "./goal-store";
 export { useStreamStore, EMPTY_STREAM } from "./stream-store";
 export { useQueueStore } from "./queue-store";
 export { useProjectStore } from "./project-store";
@@ -25,6 +26,8 @@ export {
   useChatSubAgentRuns,
   useChatLastSegments,
   useChatQueue,
+  useActiveGoal,
+  useChatGoal,
 } from "./selectors";
 
 _chatMetaStore.subscribe((state, prev) => {

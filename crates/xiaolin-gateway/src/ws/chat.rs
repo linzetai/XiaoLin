@@ -23,30 +23,54 @@ pub async fn handle_chat_cancel(
     params: serde_json::Value,
     active_chat_sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
 ) {
-    let Some(target_req_id) = params.get("requestId").and_then(|v| v.as_str()) else {
+    let target_req_id = params
+        .get("requestId")
+        .or_else(|| params.get("request_id"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let direct_session_id = params
+        .get("sessionId")
+        .or_else(|| params.get("session_id"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    if target_req_id.is_none() && direct_session_id.is_none() {
         send_resp(
             sender,
             &WsResponse {
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": -32602, "message": "requestId required"})),
+                error: Some(json!({"code": -32602, "message": "requestId or sessionId required"})),
             },
         )
         .await;
         return;
-    };
+    }
 
-    let session_id_for_cancel = {
+    let session_id_for_cancel = if let Some(ref rid) = target_req_id {
         let mut guard = active_chat_sessions.lock().await;
-        guard.remove(target_req_id)
+        guard.remove(rid.as_str())
+    } else if let Some(ref sid) = direct_session_id {
+        let mut guard = active_chat_sessions.lock().await;
+        let maybe_rid = guard
+            .iter()
+            .find(|(_, v)| v.as_str() == sid.as_str())
+            .map(|(k, _)| k.clone());
+        if let Some(rid) = maybe_rid {
+            guard.remove(&rid);
+        }
+        Some(sid.clone())
+    } else {
+        None
     };
 
     let mut cancelled = false;
-    if let Some(sid) = session_id_for_cancel {
-        if let Some(handle) = state.svc.session_manager.get(&xiaolin_protocol::SessionId::new(&sid)).await {
+    if let Some(sid) = &session_id_for_cancel {
+        if let Some(handle) = state.svc.session_manager.get(&xiaolin_protocol::SessionId::new(sid)).await {
             let _ = handle.submit(SessionOp::Interrupt).await;
             cancelled = true;
+            tracing::info!(session_id = %sid, "chat_cancel: interrupted session");
         }
     }
 
@@ -55,7 +79,10 @@ pub async fn handle_chat_cancel(
         &WsResponse {
             id: req_id,
             msg_type: "cancel".into(),
-            data: Some(json!({"requestId": target_req_id, "cancelled": cancelled})),
+            data: Some(json!({
+                "cancelled": cancelled,
+                "sessionId": session_id_for_cancel,
+            })),
             error: None,
         },
     )
@@ -369,7 +396,7 @@ pub async fn spawn_chat(
     tokio::spawn(async move {
         let rid_for_cleanup = rid.clone();
 
-        let messages: Vec<ChatMessage> = match serde_json::from_value::<Vec<ChatMessage>>(
+        let mut messages: Vec<ChatMessage> = match serde_json::from_value::<Vec<ChatMessage>>(
             if params.messages.is_null() {
                 serde_json::Value::Array(vec![])
             } else {
@@ -403,6 +430,31 @@ pub async fn spawn_chat(
                 return;
             }
         };
+
+        let goal_mode = params
+            .extra
+            .get("goalMode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if goal_mode {
+            let goal_instruction = ChatMessage {
+                role: xiaolin_core::types::Role::User,
+                content: Some(serde_json::Value::String(
+                    "<goal_context>\n\
+                     [GOAL MODE]\n\n\
+                     The user has entered Goal Mode. You MUST use the `create_goal` tool to \
+                     formally register the user's message as your objective BEFORE taking any \
+                     other action. Do not infer goals from ordinary tasks — only create a goal \
+                     when explicitly requested (as is the case here).\n\n\
+                     After creating the goal, begin working autonomously toward it. \
+                     Do NOT ask for clarification — start immediately.\n\
+                     </goal_context>"
+                        .to_string(),
+                )),
+                ..Default::default()
+            };
+            messages.insert(0, goal_instruction);
+        }
 
         let request = ChatRequest {
             messages,
@@ -944,6 +996,229 @@ struct TrackedToolCallData {
     metadata: Option<serde_json::Value>,
     start_ms: u64,
     duration_ms: Option<u64>,
+}
+
+pub async fn handle_goal_action(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    session_id: &str,
+    action: &str,
+    params: Option<&serde_json::Value>,
+) {
+    use xiaolin_agent::builtin_tools::GoalStatus;
+
+    tracing::info!(session_id, action, "goal action received");
+
+    let goal_store = &state.rt.goal_store;
+    goal_store.set_session_id(session_id.to_string()).await;
+
+    let (result, broadcast_event) = match action {
+        "pause" => {
+            if let Some(goal) = goal_store.get_current().await {
+                if goal.status == GoalStatus::Active {
+                    let updated = goal_store
+                        .update_status(&goal.id, GoalStatus::Paused, Some("user_pause"))
+                        .await;
+                    tracing::info!(
+                        session_id, goal_id = %goal.id,
+                        ok = updated.is_some(),
+                        "goal paused by user"
+                    );
+                    let event = updated
+                        .as_ref()
+                        .map(|g| AgentEvent::GoalUpdated {
+                            turn_id: Default::default(),
+                            goal: g.to_goal_data(),
+                        });
+                    (updated.map(|g| json!(g)), event)
+                } else {
+                    tracing::warn!(
+                        session_id, goal_id = %goal.id,
+                        status = ?goal.status,
+                        "cannot pause: goal is not active"
+                    );
+                    (Some(json!({"error": "goal is not active"})), None)
+                }
+            } else {
+                tracing::warn!(session_id, "cannot pause: no goal found");
+                (Some(json!({"error": "no goal found"})), None)
+            }
+        }
+        "resume" => {
+            if let Some(goal) = goal_store.get_current().await {
+                if goal.status == GoalStatus::Paused
+                    || goal.status == GoalStatus::BudgetLimited
+                {
+                    goal_store.reset_rounds(&goal.id).await;
+                    let updated = goal_store
+                        .update_status(&goal.id, GoalStatus::Active, None)
+                        .await;
+                    tracing::info!(
+                        session_id, goal_id = %goal.id,
+                        prev_status = ?goal.status,
+                        ok = updated.is_some(),
+                        "goal resumed by user"
+                    );
+                    let event = updated
+                        .as_ref()
+                        .map(|g| AgentEvent::GoalUpdated {
+                            turn_id: Default::default(),
+                            goal: g.to_goal_data(),
+                        });
+                    (updated.map(|g| json!(g)), event)
+                } else {
+                    tracing::warn!(
+                        session_id, goal_id = %goal.id,
+                        status = ?goal.status,
+                        "cannot resume: goal is not paused or budget_limited"
+                    );
+                    (
+                        Some(json!({"error": "goal is not paused or budget_limited"})),
+                        None,
+                    )
+                }
+            } else {
+                tracing::warn!(session_id, "cannot resume: no goal found");
+                (Some(json!({"error": "no goal found"})), None)
+            }
+        }
+        "clear" => {
+            if let Some(goal) = goal_store.get_current().await {
+                let goal_id = goal.id.clone();
+                let deleted = goal_store.delete(&goal_id).await;
+                tracing::info!(
+                    session_id, %goal_id, deleted,
+                    "goal cleared by user"
+                );
+                let event = if deleted {
+                    Some(AgentEvent::GoalCleared {
+                        turn_id: Default::default(),
+                        goal_id: goal_id.clone(),
+                    })
+                } else {
+                    None
+                };
+                (Some(json!({"deleted": deleted, "goal_id": goal_id})), event)
+            } else {
+                tracing::warn!(session_id, "cannot clear: no goal found");
+                (Some(json!({"error": "no goal found"})), None)
+            }
+        }
+        "edit" => {
+            let description = params
+                .and_then(|p| p.get("description"))
+                .and_then(|v| v.as_str());
+            if let Some(desc) = description {
+                if let Some(goal) = goal_store.get_current().await {
+                    if goal.status.is_terminal() {
+                        tracing::warn!(
+                            session_id, goal_id = %goal.id,
+                            status = ?goal.status,
+                            "cannot edit: goal is terminal"
+                        );
+                        (
+                            Some(json!({"error": "cannot edit a completed/failed/cancelled goal"})),
+                            None,
+                        )
+                    } else {
+                        match goal_store.update_description(&goal.id, desc).await {
+                            Ok(g) => {
+                                tracing::info!(
+                                    session_id, goal_id = %goal.id,
+                                    "goal description updated"
+                                );
+                                let event = Some(AgentEvent::GoalUpdated {
+                                    turn_id: Default::default(),
+                                    goal: g.to_goal_data(),
+                                });
+                                (Some(json!(g)), event)
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    session_id, goal_id = %goal.id,
+                                    error = %e,
+                                    "failed to update goal description"
+                                );
+                                (Some(json!({"error": e})), None)
+                            }
+                        }
+                    }
+                } else {
+                    (Some(json!({"error": "no goal found"})), None)
+                }
+            } else {
+                (
+                    Some(json!({"error": "missing 'description' parameter"})),
+                    None,
+                )
+            }
+        }
+        "add_budget" => {
+            let amount = params
+                .and_then(|p| p.get("amount"))
+                .and_then(|v| v.as_u64())
+                .filter(|a| *a > 0);
+            if let Some(amount) = amount {
+                if let Some(goal) = goal_store.get_current().await {
+                    if goal.token_budget.is_none() {
+                        (
+                            Some(json!({"error": "goal has no budget limit, cannot add budget"})),
+                            None,
+                        )
+                    } else {
+                        let updated = goal_store.add_budget(&goal.id, amount).await;
+                        tracing::info!(
+                            session_id, goal_id = %goal.id,
+                            amount,
+                            ok = updated.is_some(),
+                            "goal budget added"
+                        );
+                        let event = updated
+                            .as_ref()
+                            .map(|g| AgentEvent::GoalUpdated {
+                                turn_id: Default::default(),
+                                goal: g.to_goal_data(),
+                            });
+                        (updated.map(|g| json!(g)), event)
+                    }
+                } else {
+                    tracing::warn!(session_id, "cannot add budget: no goal found");
+                    (Some(json!({"error": "no goal found"})), None)
+                }
+            } else {
+                tracing::warn!(session_id, "cannot add budget: missing or invalid amount");
+                (
+                    Some(json!({"error": "missing or invalid 'amount' parameter"})),
+                    None,
+                )
+            }
+        }
+        _ => {
+            tracing::warn!(session_id, action, "unknown goal action");
+            (
+                Some(json!({"error": format!("unknown goal action: {action}")})),
+                None,
+            )
+        }
+    };
+
+    // Broadcast goal event to frontend
+    if let Some(event) = broadcast_event {
+        let ws_resp = forward_event(&event, &None);
+        let _ = super::send_resp(sender, &ws_resp).await;
+    }
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: format!("goal.{action}"),
+            data: result,
+            error: None,
+        },
+    )
+    .await;
 }
 
 pub fn forward_event(event: &AgentEvent, req_id: &Option<String>) -> WsResponse {

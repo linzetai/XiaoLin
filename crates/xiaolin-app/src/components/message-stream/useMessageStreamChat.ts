@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type RefObject, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatMetaStore, useStreamStore, useQueueStore, useLocaleStore } from "../../lib/stores";
+import { handleGoalClearedForChat, handleGoalUpdatedForChat } from "../../lib/stores/goal-store";
 import type { ChatMessage, SubAgentRunUI } from "../../lib/stores/types";
 import { type ToolCall } from "./ToolCallCard";
 import type { MentionInputHandle, InlineMention } from "./MentionInput";
@@ -241,7 +242,7 @@ export function useMessageStreamChat({
     };
   }, [activeAgentId]);
 
-  const sendWithContent = async (txt: string, mentions: InlineMention[]) => {
+  const sendWithContent = async (txt: string, mentions: InlineMention[], options?: { goalMode?: boolean }) => {
     const mentionDesc = mentions.length > 0
       ? t("mentionDesc", { items: mentions.map((m) => `@${m.label} (${m.type})`).join(", ") })
       : "";
@@ -341,6 +342,7 @@ export function useMessageStreamChat({
         model: currentAgent?.model || undefined,
         workDir: currentActiveChat?.workDir ?? undefined,
         responseLanguage: resolvedLang,
+        goalMode: options?.goalMode,
       },
       (event) => {
         switch (event.type) {
@@ -349,6 +351,10 @@ export function useMessageStreamChat({
             segmentsRef.current = [];
             const ds = detachedStreams.get(capturedChatId);
             if (ds) ds.acc = "";
+            const startSid = event.data?.session_id as string | undefined;
+            if (startSid && capturedChatId !== startSid) {
+              updateChatBackendId(capturedChatId, startSid);
+            }
             break;
           }
           case "content_delta": {
@@ -598,6 +604,14 @@ export function useMessageStreamChat({
             if (d?.path) {
               setChatPlanFile(capturedChatId, d.path as string, (d.exists as boolean) ?? false);
             }
+            break;
+          }
+          case "goal_updated": {
+            handleGoalUpdatedForChat(event, capturedChatId);
+            break;
+          }
+          case "goal_cleared": {
+            handleGoalClearedForChat(event, capturedChatId);
             break;
           }
           case "context_warning": {
@@ -899,7 +913,7 @@ export function useMessageStreamChat({
   );
 
   const handleMentionSend = useCallback(
-    (txt: string, _mentions: InlineMention[]) => {
+    (txt: string, _mentions: InlineMention[], options?: { goalMode?: boolean }) => {
       if (!txt.trim()) return;
       const SLASH_COMMANDS = ["/init"];
       if (SLASH_COMMANDS.some(cmd => txt.trim() === cmd || txt.trim().startsWith(cmd + " "))) {
@@ -928,13 +942,15 @@ export function useMessageStreamChat({
         prev.forEach((f) => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
         return [];
       });
-      sendRef.current(txt.trim(), _mentions);
+      sendRef.current(txt.trim(), _mentions, options);
     },
     [activeChat?.id, addMessage, handleSlashCommand],
   );
 
   const stopStream = useCallback(() => {
-    const sessionId = currentStreamChatRef.current ?? undefined;
+    const sessionId = currentStreamChatRef.current
+      ?? useChatMetaStore.getState().activeChatId
+      ?? undefined;
 
     if (sessionId) {
       transport.chatCancel(sessionId).catch(() => {});

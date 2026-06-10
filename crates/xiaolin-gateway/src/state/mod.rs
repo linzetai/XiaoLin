@@ -82,6 +82,7 @@ pub struct RuntimeState {
     pub prompt_guard: Arc<xiaolin_security::PromptGuard>,
     pub session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry,
     pub todo_store: xiaolin_agent::builtin_tools::TodoStore,
+    pub goal_store: Arc<xiaolin_agent::builtin_tools::GoalStore>,
     pub plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore,
     pub permission_preset_registry: Arc<xiaolin_core::agent_config::PermissionPresetRegistry>,
 }
@@ -1763,6 +1764,7 @@ impl AppState {
                 session_store: Some(session_store.clone()),
                 mode_registry: None,
                 todo_store: None,
+                goal_store: None,
                 plan_file_store: None,
                 stream_event_tx: None,
                 subagent_manager: None,
@@ -1790,6 +1792,9 @@ impl AppState {
                 prompt_guard: prompt_guard.clone(),
                 session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry::new(),
                 todo_store,
+                goal_store: Arc::new(xiaolin_agent::builtin_tools::GoalStore::new(
+                    session_store.clone(),
+                )),
                 plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore::default(),
                 permission_preset_registry: Arc::new(
                     xiaolin_core::agent_config::PermissionPresetRegistry::default(),

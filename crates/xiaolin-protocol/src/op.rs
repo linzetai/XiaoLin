@@ -150,7 +150,8 @@ pub enum ClientOp {
         params: ChatParams,
     },
     ChatCancel {
-        request_id: String,
+        request_id: Option<String>,
+        session_id: Option<String>,
     },
     ChatAnswer {
         request_id: String,
@@ -502,6 +503,25 @@ pub enum ClientOp {
         project_id: String,
     },
 
+    // ── Goal management ──────────────────────────────────────────────
+    GoalPause {
+        session_id: String,
+    },
+    GoalResume {
+        session_id: String,
+    },
+    GoalClear {
+        session_id: String,
+    },
+    GoalEdit {
+        session_id: String,
+        description: String,
+    },
+    GoalAddBudget {
+        session_id: String,
+        amount: u64,
+    },
+
     // ── Keepalive ───────────────────────────────────────────────────
     Ping,
 }
@@ -525,7 +545,11 @@ impl ClientOp {
             "submit" => Err("the 'submit' method has been removed; use 'chat' instead".into()),
             "cancel" => Ok(Self::ChatCancel {
                 request_id: extract_string(&params, "requestId")
-                    .or_else(|_| extract_string(&params, "request_id"))?,
+                    .or_else(|_| extract_string(&params, "request_id"))
+                    .ok(),
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))
+                    .ok(),
             }),
             "answer" => Ok(Self::ChatAnswer {
                 request_id: extract_string(&params, "requestId")
@@ -939,6 +963,31 @@ impl ClientOp {
             "git.init" => Ok(Self::GitInit {
                 project_id: extract_string(&params, "projectId")
                     .or_else(|_| extract_string(&params, "project_id"))?,
+            }),
+            "goal.pause" => Ok(Self::GoalPause {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+            }),
+            "goal.resume" => Ok(Self::GoalResume {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+            }),
+            "goal.clear" => Ok(Self::GoalClear {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+            }),
+            "goal.edit" => Ok(Self::GoalEdit {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+                description: extract_string(&params, "description")?,
+            }),
+            "goal.add_budget" => Ok(Self::GoalAddBudget {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+                amount: params
+                    .get("amount")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| "missing or invalid 'amount'".to_string())?,
             }),
             other => Err(format!("unknown method: {other}")),
         }

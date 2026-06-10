@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as transport from "./transport";
 import { useChatMetaStore } from "./stores/chat-meta-store";
+import { initGoalListener } from "./stores/goal-store";
 import { useProjectStore } from "./stores/project-store";
 import { initGitStore } from "./stores/git-store";
 import { initPermissionListener } from "./stores/permission-store";
@@ -139,6 +140,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
 
         initPermissionListener();
         initAutomationListener();
+        initGoalListener(() => useChatMetaStore.getState().activeChatId);
         await syncBackendData();
       } else {
         // Browser mode: check for gateway health endpoint

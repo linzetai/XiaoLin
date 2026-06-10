@@ -423,6 +423,41 @@ impl SessionStore {
             tracing::info!("migrated sessions table: added project_id column");
         }
 
+        // goals table: persistent goal tracking with token/time accounting
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS goals (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                description TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                token_budget INTEGER,
+                tokens_used INTEGER NOT NULL DEFAULT 0,
+                time_used_seconds INTEGER NOT NULL DEFAULT 0,
+                pause_reason TEXT,
+                continuation_rounds INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Migration: add pause_reason and continuation_rounds columns if missing
+        let _ = sqlx::query("ALTER TABLE goals ADD COLUMN pause_reason TEXT")
+            .execute(&self.pool)
+            .await;
+        let _ = sqlx::query(
+            "ALTER TABLE goals ADD COLUMN continuation_rounds INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(&self.pool)
+        .await;
+
         Ok(())
     }
 
@@ -1602,6 +1637,275 @@ fn row_to_trace(
         turns: serde_json::from_str(&r.7)?,
         metadata: serde_json::from_str(&r.8)?,
     })
+}
+
+// ─── Goal persistence ────────────────────────────────────────────────
+
+/// Persistent goal record stored in SQLite.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GoalRow {
+    pub id: String,
+    pub session_id: String,
+    pub description: String,
+    pub status: String,
+    pub token_budget: Option<i64>,
+    pub tokens_used: i64,
+    pub time_used_seconds: i64,
+    pub pause_reason: Option<String>,
+    pub continuation_rounds: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl SessionStore {
+    /// Insert a new goal.
+    pub async fn insert_goal(&self, goal: &GoalRow) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO goals (id, session_id, description, status, token_budget, tokens_used, time_used_seconds, pause_reason, continuation_rounds, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&goal.id)
+        .bind(&goal.session_id)
+        .bind(&goal.description)
+        .bind(&goal.status)
+        .bind(goal.token_budget)
+        .bind(goal.tokens_used)
+        .bind(goal.time_used_seconds)
+        .bind(&goal.pause_reason)
+        .bind(goal.continuation_rounds)
+        .bind(goal.created_at)
+        .bind(goal.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get the active goal for a session (status = 'active' only, for runtime accounting).
+    pub async fn get_active_goal(&self, session_id: &str) -> anyhow::Result<Option<GoalRow>> {
+        let row: Option<GoalTuple> = sqlx::query_as(
+            "SELECT id, session_id, description, status, token_budget, tokens_used, time_used_seconds, pause_reason, continuation_rounds, created_at, updated_at
+             FROM goals WHERE session_id = ? AND status = 'active' LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(goal_row_from_tuple))
+    }
+
+    /// Get the current non-terminal goal (active, paused, or budget_limited).
+    pub async fn get_actionable_goal(&self, session_id: &str) -> anyhow::Result<Option<GoalRow>> {
+        let row: Option<GoalTuple> = sqlx::query_as(
+            "SELECT id, session_id, description, status, token_budget, tokens_used, time_used_seconds, pause_reason, continuation_rounds, created_at, updated_at
+             FROM goals WHERE session_id = ? AND status IN ('active', 'paused', 'budget_limited') LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(goal_row_from_tuple))
+    }
+
+    /// Get a goal by ID.
+    pub async fn get_goal(&self, goal_id: &str) -> anyhow::Result<Option<GoalRow>> {
+        let row: Option<GoalTuple> = sqlx::query_as(
+            "SELECT id, session_id, description, status, token_budget, tokens_used, time_used_seconds, pause_reason, continuation_rounds, created_at, updated_at
+             FROM goals WHERE id = ?",
+        )
+        .bind(goal_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(goal_row_from_tuple))
+    }
+
+    /// Update goal status with an optional pause reason.
+    pub async fn update_goal_status(
+        &self,
+        goal_id: &str,
+        status: &str,
+        reason: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let result = sqlx::query(
+            "UPDATE goals SET status = ?, pause_reason = ?, updated_at = ? \
+             WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')",
+        )
+        .bind(status)
+        .bind(reason)
+        .bind(now)
+        .bind(goal_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update goal description.
+    pub async fn update_goal_description(
+        &self,
+        goal_id: &str,
+        description: &str,
+    ) -> anyhow::Result<bool> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let result = sqlx::query(
+            "UPDATE goals SET description = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(description)
+        .bind(now)
+        .bind(goal_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Add token budget to a goal (for budget追加).
+    pub async fn add_goal_budget(
+        &self,
+        goal_id: &str,
+        amount: i64,
+    ) -> anyhow::Result<bool> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let result = sqlx::query(
+            "UPDATE goals SET token_budget = COALESCE(token_budget, 0) + ?, status = 'active', pause_reason = NULL, updated_at = ? WHERE id = ?",
+        )
+        .bind(amount)
+        .bind(now)
+        .bind(goal_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update continuation rounds counter.
+    pub async fn update_continuation_rounds(
+        &self,
+        goal_id: &str,
+        rounds: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE goals SET continuation_rounds = ? WHERE id = ?")
+            .bind(rounds)
+            .bind(goal_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Add token usage to a goal. Returns (new_tokens_used, over_budget).
+    pub async fn add_goal_tokens(
+        &self,
+        goal_id: &str,
+        delta: i64,
+    ) -> anyhow::Result<Option<(i64, bool)>> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let goal = self.get_goal(goal_id).await?;
+        let Some(goal) = goal else { return Ok(None) };
+        let new_used = goal.tokens_used + delta;
+        let over_budget = goal.token_budget.map(|b| new_used >= b).unwrap_or(false);
+        sqlx::query("UPDATE goals SET tokens_used = ?, updated_at = ? WHERE id = ?")
+            .bind(new_used)
+            .bind(now)
+            .bind(goal_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(Some((new_used, over_budget)))
+    }
+
+    /// Add wall-clock time to a goal.
+    pub async fn add_goal_time(
+        &self,
+        goal_id: &str,
+        seconds: i64,
+    ) -> anyhow::Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        sqlx::query(
+            "UPDATE goals SET time_used_seconds = time_used_seconds + ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(seconds)
+        .bind(now)
+        .bind(goal_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Cancel all non-terminal goals for a session (used before creating a new goal).
+    pub async fn cancel_active_goals(&self, session_id: &str) -> anyhow::Result<u64> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let result = sqlx::query(
+            "UPDATE goals SET status = 'cancelled', pause_reason = NULL, updated_at = ? WHERE session_id = ? AND status IN ('active', 'paused', 'budget_limited')",
+        )
+        .bind(now)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Delete a goal by ID.
+    pub async fn delete_goal(&self, goal_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("DELETE FROM goals WHERE id = ?")
+            .bind(goal_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// List all goals for a session.
+    pub async fn list_goals(&self, session_id: &str) -> anyhow::Result<Vec<GoalRow>> {
+        let rows: Vec<GoalTuple> = sqlx::query_as(
+            "SELECT id, session_id, description, status, token_budget, tokens_used, time_used_seconds, pause_reason, continuation_rounds, created_at, updated_at
+             FROM goals WHERE session_id = ? ORDER BY created_at DESC",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(goal_row_from_tuple).collect())
+    }
+}
+
+type GoalTuple = (
+    String,
+    String,
+    String,
+    String,
+    Option<i64>,
+    i64,
+    i64,
+    Option<String>,
+    i64,
+    i64,
+    i64,
+);
+
+fn goal_row_from_tuple(r: GoalTuple) -> GoalRow {
+    GoalRow {
+        id: r.0,
+        session_id: r.1,
+        description: r.2,
+        status: r.3,
+        token_budget: r.4,
+        tokens_used: r.5,
+        time_used_seconds: r.6,
+        pause_reason: r.7,
+        continuation_rounds: r.8,
+        created_at: r.9,
+        updated_at: r.10,
+    }
 }
 
 #[cfg(test)]

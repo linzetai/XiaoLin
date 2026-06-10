@@ -63,6 +63,8 @@ fn resolve_pinned_model_provider(
     agent_config: &AgentConfig,
     pinned_model: &str,
 ) -> Option<Arc<dyn xiaolin_agent::LlmProvider>> {
+    let live_credentials = state.current_credentials_snapshot();
+
     // 1. Search live config models (same source as models.list API).
     let live = state.cfg.config_live.load();
     if let Some(models_obj) = live.get("models").and_then(|v| v.as_object()) {
@@ -87,11 +89,11 @@ fn resolve_pinned_model_provider(
                 return None;
             }
             let api_key = cfg.get("apiKey").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
-                .or_else(|| state.cfg.config.credentials.get_api_key(key))
-                .or_else(|| state.cfg.config.credentials.get_api_key(cfg_provider_type));
+                .or_else(|| live_credentials.get_api_key(key))
+                .or_else(|| live_credentials.get_api_key(cfg_provider_type));
             let base_url = cfg.get("baseUrl").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
-                .or_else(|| state.cfg.config.credentials.get_base_url(key))
-                .or_else(|| state.cfg.config.credentials.get_base_url(cfg_provider_type));
+                .or_else(|| live_credentials.get_base_url(key))
+                .or_else(|| live_credentials.get_base_url(cfg_provider_type));
 
             if let Some(plugin_id) = cfg_provider_type.strip_prefix("plugin:") {
                 if let Ok(registry) = state.ext.llm_plugin_registry.try_read() {
@@ -108,7 +110,7 @@ fn resolve_pinned_model_provider(
                 cfg_provider_type,
                 base_url,
                 api_key,
-                Some(&state.cfg.config.credentials),
+                Some(&live_credentials),
                 None,
             ) {
                 Ok(p) => return Some(Arc::from(p)),

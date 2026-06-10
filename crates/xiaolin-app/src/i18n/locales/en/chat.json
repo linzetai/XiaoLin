@@ -218,5 +218,15 @@
   "streamErrorDetail": "Stream error{{codePart}}: {{msg}}{{retryPart}}",
   "streamErrorRetryPart": " (retry #{{retry}})",
   "notif_needApproval": "Approval required",
-  "connectionFailed": "Connection failed"
+  "connectionFailed": "Connection failed",
+  "goal_label": "Goal",
+  "goal_status_active": "Active",
+  "goal_status_paused": "Paused",
+  "goal_status_completed": "Completed",
+  "goal_status_failed": "Failed",
+  "goal_status_budget_limited": "Budget limited",
+  "goal_status_cancelled": "Cancelled",
+  "goal_pause": "Pause",
+  "goal_resume": "Resume",
+  "goal_clear": "Clear"
 }

@@ -104,6 +104,11 @@ pub(crate) struct QueryLoopState {
     // ── Session memory (incremental) ──────────────────────────────────
     /// Accumulated session memory, updated incrementally on each compact.
     pub session_memory: Option<super::session_memory::SessionMemory>,
+
+    // ── External goal cancellation ──────────────────────────────────
+    /// When true, the loop should stop after the next LLM call completes
+    /// (regardless of whether stop hooks say to continue).
+    pub force_stop_after_next: bool,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -184,6 +189,8 @@ impl QueryLoopState {
             restoration_state: RestorationState::new(),
 
             session_memory: None,
+
+            force_stop_after_next: false,
         }
     }
 

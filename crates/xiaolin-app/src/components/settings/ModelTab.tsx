@@ -438,6 +438,22 @@ export function ModelTab() {
       const newModels = { ...modelsConfig };
       delete newModels[key];
       await api.setConfig("models", newModels);
+
+      const defaultModelCfg = await api.getConfig("agents") as { value?: { defaults?: { model?: string } } } | null;
+      const currentDefault = defaultModelCfg?.value?.defaults?.model ?? "";
+      if (currentDefault && currentDefault.startsWith(`${key}/`)) {
+        await api.setConfig("agents.defaults.model", "");
+      }
+
+      const remainingProviders = new Set(
+        Object.values(newModels).map((v) => (v as Record<string, unknown>).provider ?? (v as Record<string, unknown>).key).filter(Boolean)
+      );
+      if (!remainingProviders.has(key) && credentials[key]) {
+        const newCreds = { ...credentials } as Record<string, unknown>;
+        delete newCreds[key];
+        await api.setConfig("credentials", newCreds);
+      }
+
       setEditing(null);
       loadData();
       window.dispatchEvent(new CustomEvent("xiaolin:models-updated"));

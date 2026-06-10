@@ -452,6 +452,7 @@ export interface ChatStreamParams {
   maxTokens?: number;
   workDir?: string;
   responseLanguage?: string | null;
+  goalMode?: boolean;
 }
 
 const CHAT_EVENT_TYPES = [
@@ -484,6 +485,8 @@ const CHAT_EVENT_TYPES = [
   "warning",
   "memory_stored",
   "memory_recalled",
+  "goal_updated",
+  "goal_cleared",
 ] as const;
 
 export function chatStream(
@@ -518,6 +521,7 @@ export function chatStream(
       ...(params.maxTokens != null ? { maxTokens: params.maxTokens } : {}),
       ...(params.workDir ? { workDir: params.workDir } : {}),
       ...(params.responseLanguage ? { responseLanguage: params.responseLanguage } : {}),
+      ...(params.goalMode ? { goalMode: true } : {}),
     })
     .then(() => {})
     .catch(() => {
@@ -867,10 +871,36 @@ export async function getPlanFile(sessionId?: string): Promise<{ path: string; c
 }
 
 export async function chatCancel(sessionId: string): Promise<{ ok: boolean }> {
-  const resp = (await wsClient.send("chat.cancel", { sessionId })) as {
+  const resp = (await wsClient.send("cancel", { sessionId })) as {
     data?: { cancelled?: boolean };
   };
   return { ok: resp?.data?.cancelled ?? false };
+}
+
+export async function pauseGoal(sessionId: string): Promise<void> {
+  await wsClient.send("goal.pause", { sessionId });
+}
+
+export async function resumeGoal(sessionId: string): Promise<void> {
+  await wsClient.send("goal.resume", { sessionId });
+}
+
+export async function clearGoal(sessionId: string): Promise<void> {
+  await wsClient.send("goal.clear", { sessionId });
+}
+
+export async function editGoal(
+  sessionId: string,
+  description: string,
+): Promise<void> {
+  await wsClient.send("goal.edit", { sessionId, description });
+}
+
+export async function addGoalBudget(
+  sessionId: string,
+  amount: number,
+): Promise<void> {
+  await wsClient.send("goal.add_budget", { sessionId, amount });
 }
 
 export async function chatSteer(

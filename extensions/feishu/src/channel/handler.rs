@@ -157,6 +157,7 @@ impl FeishuMessageHandler for FeishuChannel {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
 

@@ -322,6 +322,33 @@ pub async fn handle_sessions_claim(
     match state.store.session_store.get_session(sid).await {
         Ok(Some(_)) => {
             owned_sessions.insert(sid.to_string());
+            // On session resume, pause any active goal (it was running in a previous session)
+            let goal_store = &state.rt.goal_store;
+            goal_store.set_session_id(sid.to_string()).await;
+            if let Some(goal) = goal_store.get_active().await {
+                if goal.status == xiaolin_agent::builtin_tools::GoalStatus::Active {
+                    if let Some(updated) = goal_store
+                        .update_status(
+                            &goal.id,
+                            xiaolin_agent::builtin_tools::GoalStatus::Paused,
+                            Some("session_reconnect"),
+                        )
+                        .await
+                    {
+                        let event = xiaolin_protocol::AgentEvent::GoalUpdated {
+                            turn_id: Default::default(),
+                            goal: updated.to_goal_data(),
+                        };
+                        let resp = super::chat::forward_event(&event, &None);
+                        let _ = super::send_resp(sender, &resp).await;
+                    }
+                    tracing::info!(
+                        session_id = %sid,
+                        goal_id = %goal.id,
+                        "paused active goal on session claim/resume"
+                    );
+                }
+            }
             send_resp(
                 sender,
                 &WsResponse {

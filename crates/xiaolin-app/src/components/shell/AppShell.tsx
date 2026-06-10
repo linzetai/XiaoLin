@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect } from "react";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Target } from "lucide-react";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
 import { ContentBlock } from "./ContentBlock";
 import { useWorkspaceTabs } from "./workspace-tabs";
 import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
+import { GoalTabContent } from "./GoalPanel";
 import { useGitStore } from "../../lib/stores";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -20,6 +21,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       component: ReviewTabContent,
       footerComponent: ReviewTabFooter,
       order: 1,
+    });
+    registerTab({
+      id: "goal",
+      label: "Goal",
+      icon: Target,
+      component: GoalTabContent,
+      order: 2,
     });
   }, [registerTab]);
 

@@ -1,15 +1,15 @@
 //! Goal management tools: `get_goal`, `create_goal`, `update_goal`.
 //!
 //! Allows the agent to set objectives with token budgets, track progress,
-//! and mark completion. Integrates with context compaction by triggering
-//! summarization when a goal exceeds its budget.
+//! and mark completion. Goals are persisted to SQLite via `SessionStore`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolResult};
-use tokio::sync::Mutex;
+use xiaolin_protocol::event::GoalData;
+use xiaolin_session::{GoalRow, SessionStore};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Goal {
@@ -18,6 +18,9 @@ pub struct Goal {
     pub status: GoalStatus,
     pub token_budget: Option<u64>,
     pub tokens_used: u64,
+    pub time_used_seconds: u64,
+    pub pause_reason: Option<String>,
+    pub continuation_rounds: u32,
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -29,82 +32,384 @@ pub enum GoalStatus {
     Completed,
     Failed,
     Cancelled,
+    Paused,
+    BudgetLimited,
 }
 
+impl GoalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Paused => "paused",
+            Self::BudgetLimited => "budget_limited",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(Self::Active),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "cancelled" => Some(Self::Cancelled),
+            "paused" => Some(Self::Paused),
+            "budget_limited" => Some(Self::BudgetLimited),
+            _ => None,
+        }
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
+}
+
+impl Goal {
+    pub(crate) fn from_row(row: GoalRow) -> Self {
+        Self {
+            id: row.id,
+            description: row.description,
+            status: GoalStatus::parse(&row.status).unwrap_or(GoalStatus::Active),
+            token_budget: row.token_budget.map(|v| v as u64),
+            tokens_used: row.tokens_used as u64,
+            time_used_seconds: row.time_used_seconds as u64,
+            pause_reason: row.pause_reason,
+            continuation_rounds: row.continuation_rounds as u32,
+            created_at: row.created_at as u64,
+            updated_at: row.updated_at as u64,
+        }
+    }
+
+    pub fn to_goal_data(&self) -> GoalData {
+        GoalData {
+            id: self.id.clone(),
+            description: self.description.clone(),
+            status: self.status.as_str().to_string(),
+            token_budget: self.token_budget,
+            tokens_used: self.tokens_used,
+            time_used_seconds: self.time_used_seconds,
+            pause_reason: self.pause_reason.clone(),
+            continuation_rounds: self.continuation_rounds,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+const MAX_GOAL_CONTINUATION_ROUNDS: u32 = 50;
+const MAX_GOAL_DESCRIPTION_CHARS: usize = 4000;
+
+fn validate_goal_description(desc: &str) -> Result<String, String> {
+    let trimmed = desc.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("goal description must not be empty".into());
+    }
+    if trimmed.len() > MAX_GOAL_DESCRIPTION_CHARS {
+        return Err(format!(
+            "goal description exceeds maximum length ({} > {MAX_GOAL_DESCRIPTION_CHARS} chars)",
+            trimmed.len()
+        ));
+    }
+    Ok(trimmed)
+}
+
+const MAX_IDLE_CONTINUATION_ROUNDS: u32 = 3;
+
 pub struct GoalStore {
-    goals: Mutex<Vec<Goal>>,
+    session_store: Arc<SessionStore>,
+    session_id: tokio::sync::Mutex<Option<String>>,
+    continuation_rounds: std::sync::atomic::AtomicU32,
+    idle_rounds: std::sync::atomic::AtomicU32,
+    objective_updated: std::sync::atomic::AtomicBool,
+    last_accounted_tokens: std::sync::atomic::AtomicU64,
+    last_accounted_time_secs: std::sync::atomic::AtomicU64,
+    budget_warning_sent: std::sync::atomic::AtomicBool,
 }
 
 impl GoalStore {
-    pub fn new() -> Self {
+    pub fn session_store(&self) -> &SessionStore {
+        &self.session_store
+    }
+
+    pub fn new(session_store: Arc<SessionStore>) -> Self {
         Self {
-            goals: Mutex::new(Vec::new()),
+            session_store,
+            session_id: tokio::sync::Mutex::new(None),
+            continuation_rounds: std::sync::atomic::AtomicU32::new(0),
+            idle_rounds: std::sync::atomic::AtomicU32::new(0),
+            objective_updated: std::sync::atomic::AtomicBool::new(false),
+            last_accounted_tokens: std::sync::atomic::AtomicU64::new(0),
+            last_accounted_time_secs: std::sync::atomic::AtomicU64::new(0),
+            budget_warning_sent: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    pub async fn get_active(&self) -> Option<Goal> {
-        let goals = self.goals.lock().await;
-        goals.iter().find(|g| g.status == GoalStatus::Active).cloned()
+    /// Mark that the objective was updated; next continuation will inject updated prompt.
+    pub fn mark_objective_updated(&self) {
+        self.objective_updated
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub async fn create(&self, description: String, token_budget: Option<u64>) -> Goal {
-        let mut goals = self.goals.lock().await;
-        // Deactivate any current active goal
-        for g in goals.iter_mut() {
-            if g.status == GoalStatus::Active {
-                g.status = GoalStatus::Cancelled;
+    /// Check and clear the objective-updated flag.
+    pub fn take_objective_updated(&self) -> bool {
+        self.objective_updated
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub async fn set_session_id(&self, session_id: String) {
+        *self.session_id.lock().await = Some(session_id.clone());
+        self.reset_accounting();
+        if let Ok(Some(goal)) = self.session_store.get_actionable_goal(&session_id).await {
+            self.continuation_rounds
+                .store(goal.continuation_rounds as u32, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    async fn sid(&self) -> Option<String> {
+        self.session_id.lock().await.clone()
+    }
+
+    /// Get the active goal (status = 'active' only). Used for runtime accounting.
+    pub async fn get_active(&self) -> Option<Goal> {
+        let sid = self.sid().await?;
+        self.session_store
+            .get_active_goal(&sid)
+            .await
+            .ok()
+            .flatten()
+            .map(Goal::from_row)
+    }
+
+    /// Get the current non-terminal goal (active, paused, or budget_limited).
+    /// Used for user actions (pause/resume/clear/edit) and stop hooks.
+    pub async fn get_current(&self) -> Option<Goal> {
+        let sid = self.sid().await?;
+        self.session_store
+            .get_actionable_goal(&sid)
+            .await
+            .ok()
+            .flatten()
+            .map(Goal::from_row)
+    }
+
+    /// Check if a goal row still exists (regardless of status).
+    /// Returns true if the row is in the DB, false if deleted.
+    pub async fn row_exists(&self, goal_id: &str) -> bool {
+        self.session_store
+            .get_goal(goal_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    pub async fn create(&self, description: String, token_budget: Option<u64>) -> Result<Goal, String> {
+        let description = validate_goal_description(&description)?;
+        let sid = self.sid().await.ok_or("no active session")?;
+        if let Some(budget) = token_budget {
+            if budget == 0 {
+                return Err("goal budgets must be positive when provided".into());
             }
         }
+        if let Ok(Some(existing)) = self.session_store.get_actionable_goal(&sid).await {
+            return Err(format!(
+                "cannot create a new goal because this session already has a goal (id: {}, status: {}). \
+                 Use `update_goal` to mark it complete or failed first.",
+                existing.id, existing.status
+            ));
+        }
+        self.continuation_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.reset_idle_rounds();
+        self.reset_accounting();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let goal = Goal {
-            id: format!("goal_{}", goals.len() + 1),
+        let goal_id = format!("goal_{}", uuid::Uuid::new_v4().as_simple());
+        let row = GoalRow {
+            id: goal_id,
+            session_id: sid,
             description,
-            status: GoalStatus::Active,
-            token_budget,
+            status: "active".to_string(),
+            token_budget: token_budget.map(|v| v as i64),
             tokens_used: 0,
-            created_at: now,
-            updated_at: now,
+            time_used_seconds: 0,
+            pause_reason: None,
+            continuation_rounds: 0,
+            created_at: now as i64,
+            updated_at: now as i64,
         };
-        goals.push(goal.clone());
-        goal
+        self.session_store.insert_goal(&row).await.map_err(|e| format!("failed to insert goal: {e}"))?;
+        Ok(Goal::from_row(row))
     }
 
-    pub async fn update_status(&self, goal_id: &str, status: GoalStatus) -> Option<Goal> {
-        let mut goals = self.goals.lock().await;
-        if let Some(g) = goals.iter_mut().find(|g| g.id == goal_id) {
-            g.status = status;
-            g.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            Some(g.clone())
-        } else {
-            None
-        }
+    /// Update goal status with an optional reason (for pause/budget_limited).
+    pub async fn update_status(
+        &self,
+        goal_id: &str,
+        status: GoalStatus,
+        reason: Option<&str>,
+    ) -> Option<Goal> {
+        self.session_store
+            .update_goal_status(goal_id, status.as_str(), reason)
+            .await
+            .ok()?;
+        self.session_store
+            .get_goal(goal_id)
+            .await
+            .ok()
+            .flatten()
+            .map(Goal::from_row)
+    }
+
+    /// Update goal description (for goal editing).
+    pub async fn update_description(&self, goal_id: &str, description: &str) -> Result<Goal, String> {
+        let description = validate_goal_description(description)?;
+        self.session_store
+            .update_goal_description(goal_id, &description)
+            .await
+            .map_err(|e| format!("failed to update description: {e}"))?;
+        self.mark_objective_updated();
+        self.session_store
+            .get_goal(goal_id)
+            .await
+            .ok()
+            .flatten()
+            .map(Goal::from_row)
+            .ok_or_else(|| format!("goal '{goal_id}' not found after update"))
+    }
+
+    /// Add token budget to a goal (budget追加).
+    pub async fn add_budget(&self, goal_id: &str, amount: u64) -> Option<Goal> {
+        self.session_store
+            .add_goal_budget(goal_id, amount as i64)
+            .await
+            .ok()?;
+        self.session_store
+            .get_goal(goal_id)
+            .await
+            .ok()
+            .flatten()
+            .map(Goal::from_row)
     }
 
     pub async fn add_tokens(&self, goal_id: &str, tokens: u64) -> Option<bool> {
-        let mut goals = self.goals.lock().await;
-        if let Some(g) = goals.iter_mut().find(|g| g.id == goal_id) {
-            g.tokens_used += tokens;
-            let over_budget = g.token_budget.map(|b| g.tokens_used > b).unwrap_or(false);
-            Some(over_budget)
-        } else {
-            None
+        self.session_store
+            .add_goal_tokens(goal_id, tokens as i64)
+            .await
+            .ok()
+            .flatten()
+            .map(|(_, over)| over)
+    }
+
+    pub async fn add_time(&self, goal_id: &str, seconds: u64) {
+        let _ = self
+            .session_store
+            .add_goal_time(goal_id, seconds as i64)
+            .await;
+    }
+
+    /// Incremental token accounting: only adds the delta since the last call.
+    /// Returns (delta_added, over_budget) where over_budget is true if budget exceeded.
+    pub async fn account_tokens(&self, goal_id: &str, cumulative_tokens: u64) -> Option<(u64, bool)> {
+        let prev = self.last_accounted_tokens.swap(cumulative_tokens, std::sync::atomic::Ordering::Relaxed);
+        let delta = cumulative_tokens.saturating_sub(prev);
+        if delta == 0 {
+            return Some((0, false));
+        }
+        self.add_tokens(goal_id, delta).await.map(|over| (delta, over))
+    }
+
+    /// Incremental time accounting: only adds the delta since the last call.
+    pub async fn account_time(&self, goal_id: &str, cumulative_secs: u64) {
+        let prev = self.last_accounted_time_secs.swap(cumulative_secs, std::sync::atomic::Ordering::Relaxed);
+        let delta = cumulative_secs.saturating_sub(prev);
+        if delta > 0 {
+            self.add_time(goal_id, delta).await;
         }
     }
 
-    pub async fn all_goals(&self) -> Vec<Goal> {
-        self.goals.lock().await.clone()
+    /// Reset accounting baselines (called on new goal creation or session switch).
+    pub fn reset_accounting(&self) {
+        self.last_accounted_tokens.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.last_accounted_time_secs.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.budget_warning_sent.store(false, std::sync::atomic::Ordering::Relaxed);
     }
-}
 
-impl Default for GoalStore {
-    fn default() -> Self {
-        Self::new()
+    /// Check if the goal's budget usage has crossed the 80% threshold.
+    /// Returns `true` exactly once per goal (the first time usage exceeds 80%).
+    pub fn check_budget_warning(&self, goal: &Goal) -> bool {
+        let budget = match goal.token_budget {
+            Some(b) if b > 0 => b,
+            _ => return false,
+        };
+        let threshold = budget * 80 / 100;
+        if goal.tokens_used >= threshold
+            && !self.budget_warning_sent.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return true;
+        }
+        false
+    }
+
+    pub async fn delete(&self, goal_id: &str) -> bool {
+        self.session_store
+            .delete_goal(goal_id)
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Increment the continuation round counter and return whether the max has been reached.
+    /// Also persists the count to DB.
+    pub async fn increment_rounds(&self, goal_id: &str) -> bool {
+        let prev = self
+            .continuation_rounds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let new_val = prev + 1;
+        let _ = self
+            .session_store
+            .update_continuation_rounds(goal_id, new_val as i64)
+            .await;
+        new_val >= MAX_GOAL_CONTINUATION_ROUNDS
+    }
+
+    /// Reset the continuation round counter (called when a new goal is created or resumed).
+    pub async fn reset_rounds(&self, goal_id: &str) {
+        self.continuation_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.reset_idle_rounds();
+        let _ = self
+            .session_store
+            .update_continuation_rounds(goal_id, 0)
+            .await;
+    }
+
+    pub fn current_rounds(&self) -> u32 {
+        self.continuation_rounds
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Track whether a continuation round was idle (no tool calls).
+    /// Returns true if the idle limit has been reached.
+    pub fn record_continuation_activity(&self, had_tool_calls: bool) -> bool {
+        if had_tool_calls {
+            self.idle_rounds
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            false
+        } else {
+            let prev = self
+                .idle_rounds
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            prev + 1 >= MAX_IDLE_CONTINUATION_ROUNDS
+        }
+    }
+
+    /// Reset the idle counter (called on new goal or resume).
+    pub fn reset_idle_rounds(&self) {
+        self.idle_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -138,12 +443,6 @@ impl Tool for GetGoalTool {
     fn group(&self) -> ToolGroup {
         ToolGroup::Task
     }
-    fn is_deferred(&self) -> bool {
-        true
-    }
-    fn search_hint(&self) -> &str {
-        "goal objective budget token progress"
-    }
     fn parameters_schema(&self) -> ToolParameterSchema {
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -152,9 +451,16 @@ impl Tool for GetGoalTool {
         }
     }
     async fn execute(&self, _arguments: &str) -> ToolResult {
-        match self.store.get_active().await {
-            Some(goal) => ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default()),
-            None => ToolResult::ok(r#"{"active_goal": null}"#),
+        match self.store.get_current().await {
+            Some(goal) => {
+                let remaining = goal.token_budget.map(|b| b.saturating_sub(goal.tokens_used));
+                let resp = serde_json::json!({
+                    "goal": goal,
+                    "remaining_tokens": remaining,
+                });
+                ToolResult::ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
+            }
+            None => ToolResult::ok(r#"{"goal": null}"#),
         }
     }
 }
@@ -180,17 +486,13 @@ impl Tool for CreateGoalTool {
         "create_goal"
     }
     fn description(&self) -> &str {
-        "Set a new active goal with an optional token budget. \
-         Replaces any existing active goal (marking it cancelled)."
+        "Create a goal only when explicitly requested by the user or system instructions; \
+         do not infer goals from ordinary tasks. \
+         Set token_budget only when an explicit token budget is requested. \
+         Fails if a non-terminal goal already exists; use `update_goal` to mark it complete first."
     }
     fn group(&self) -> ToolGroup {
         ToolGroup::Task
-    }
-    fn is_deferred(&self) -> bool {
-        true
-    }
-    fn search_hint(&self) -> &str {
-        "goal objective budget create set plan"
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
@@ -205,7 +507,7 @@ impl Tool for CreateGoalTool {
             "token_budget".to_string(),
             serde_json::json!({
                 "type": "integer",
-                "description": "Optional token budget for this goal. Triggers summarization when exceeded."
+                "description": "Optional token budget for this goal. Must be positive."
             }),
         );
         ToolParameterSchema {
@@ -223,9 +525,21 @@ impl Tool for CreateGoalTool {
             Some(d) => d.to_string(),
             None => return ToolResult::err("Missing required parameter: description"),
         };
-        let token_budget = args.get("token_budget").and_then(|v| v.as_u64());
-        let goal = self.store.create(description, token_budget).await;
-        ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default())
+        let token_budget = args.get("token_budget").and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        });
+        if let Some(budget) = token_budget {
+            if budget == 0 {
+                return ToolResult::err("goal budgets must be positive when provided");
+            }
+        }
+        match self.store.create(description, token_budget).await {
+            Ok(goal) => {
+                ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default())
+            }
+            Err(e) => ToolResult::err(e),
+        }
     }
 }
 
@@ -250,16 +564,12 @@ impl Tool for UpdateGoalTool {
         "update_goal"
     }
     fn description(&self) -> &str {
-        "Update the status of a goal. Mark as completed, failed, or cancelled."
+        "Update the status of a goal. You may only mark a goal as completed or failed. \
+         Do not mark a goal complete merely because its budget is nearly exhausted — \
+         verify that the objective has actually been achieved."
     }
     fn group(&self) -> ToolGroup {
         ToolGroup::Task
-    }
-    fn is_deferred(&self) -> bool {
-        true
-    }
-    fn search_hint(&self) -> &str {
-        "goal complete finish fail cancel update status"
     }
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
@@ -274,8 +584,8 @@ impl Tool for UpdateGoalTool {
             "status".to_string(),
             serde_json::json!({
                 "type": "string",
-                "enum": ["completed", "failed", "cancelled"],
-                "description": "New status for the goal."
+                "enum": ["completed", "failed"],
+                "description": "New status for the goal. Only 'completed' or 'failed' are allowed."
             }),
         );
         ToolParameterSchema {
@@ -300,12 +610,21 @@ impl Tool for UpdateGoalTool {
         let status = match status_str {
             "completed" => GoalStatus::Completed,
             "failed" => GoalStatus::Failed,
-            "cancelled" => GoalStatus::Cancelled,
-            other => return ToolResult::err(format!("Invalid status: {other}. Use completed/failed/cancelled.")),
+            other => {
+                return ToolResult::err(format!(
+                    "Invalid status: {other}. Only 'completed' or 'failed' are allowed."
+                ))
+            }
         };
-        match self.store.update_status(&goal_id, status).await {
+        if !self.store.row_exists(&goal_id).await {
+            return ToolResult::err(format!("Goal '{goal_id}' not found"));
+        }
+        match self.store.update_status(&goal_id, status, None).await {
             Some(goal) => ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default()),
-            None => ToolResult::err(format!("Goal '{goal_id}' not found")),
+            None => ToolResult::err(format!(
+                "Goal '{goal_id}' is already in a terminal state (completed/failed/cancelled) \
+                 and cannot be updated."
+            )),
         }
     }
 }

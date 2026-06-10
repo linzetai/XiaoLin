@@ -49,7 +49,7 @@ pub use xiaolin_tools_fs::filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
     SearchInFilesTool, WriteFileTool,
 };
-pub use goal::{CreateGoalTool, GetGoalTool, GoalStore, UpdateGoalTool};
+pub use goal::{CreateGoalTool, GetGoalTool, Goal, GoalStatus, GoalStore, UpdateGoalTool};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
@@ -259,8 +259,10 @@ pub fn register_exec_command_tools(
 }
 
 /// Register goal management tools (get_goal, create_goal, update_goal).
+/// Registered as direct (non-deferred) so the model can always call them
+/// — the goal-mode prompt in chat.rs tells the model *when* to use them.
 pub fn register_goal_tools(registry: &ToolRegistry, store: Arc<GoalStore>) {
-    registry.register_deferred(Arc::new(GetGoalTool::new(store.clone())));
-    registry.register_deferred(Arc::new(CreateGoalTool::new(store.clone())));
-    registry.register_deferred(Arc::new(UpdateGoalTool::new(store)));
+    registry.register(Arc::new(GetGoalTool::new(store.clone())));
+    registry.register(Arc::new(CreateGoalTool::new(store.clone())));
+    registry.register(Arc::new(UpdateGoalTool::new(store)));
 }

@@ -59,6 +59,7 @@ struct BuildPhase4 {
     mcp_status_init: std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>,
     session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry,
+    goal_store: Arc<xiaolin_agent::builtin_tools::GoalStore>,
 }
 
 struct BuildPhase2Memory {
@@ -528,9 +529,11 @@ impl StateBuilder {
             pty_manager,
         );
 
-        // Goal management tools
-        let goal_store = Arc::new(xiaolin_agent::builtin_tools::GoalStore::new());
-        xiaolin_agent::builtin_tools::register_goal_tools(&p3.tool_registry, goal_store);
+        // Goal management tools (backed by session SQLite)
+        let goal_store = Arc::new(xiaolin_agent::builtin_tools::GoalStore::new(
+            p3.phase1.session_store.clone(),
+        ));
+        xiaolin_agent::builtin_tools::register_goal_tools(&p3.tool_registry, goal_store.clone());
 
         // ContributorRegistry: extension point for external tool contributors.
         // External plugins can register ToolContributor implementations here.
@@ -556,6 +559,7 @@ impl StateBuilder {
             mcp_status_init,
             mcp_handles_init,
             session_modes,
+            goal_store,
         })
     }
 
@@ -861,6 +865,7 @@ impl StateBuilder {
         let stream_event_tx_for_executor = p5.phase2.phase4.stream_event_tx.clone();
         let mode_registry_for_executor = p5.phase2.phase4.session_modes.clone();
         let todo_store_for_executor = p5.phase2.phase4.phase3.todo_store.clone();
+        let goal_store_for_executor = p5.phase2.phase4.goal_store.clone();
         let plan_file_store =
             xiaolin_agent::builtin_tools::PlanFileStore::default();
         let tool_orchestrator_for_executor = p5.phase2.phase4.tool_orchestrator.clone();
@@ -889,6 +894,7 @@ impl StateBuilder {
                 session_store: Some(session_store_for_session.clone()),
                 mode_registry: Some(mode_registry_for_executor),
                 todo_store: Some(todo_store_for_executor),
+                goal_store: Some(goal_store_for_executor),
                 plan_file_store: Some(plan_file_store.clone()),
                 stream_event_tx: Some(stream_event_tx_for_executor),
                 subagent_manager: None,
@@ -915,6 +921,7 @@ impl StateBuilder {
                 prompt_guard: prompt_guard.clone(),
                 session_modes: p5.phase2.phase4.session_modes,
                 todo_store: p5.phase2.phase4.phase3.todo_store,
+                goal_store: p5.phase2.phase4.goal_store,
                 plan_file_store,
                 permission_preset_registry: permission_preset_registry.clone(),
             },

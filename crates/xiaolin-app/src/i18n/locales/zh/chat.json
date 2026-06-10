@@ -218,5 +218,15 @@
   "streamErrorDetail": "流错误{{codePart}}: {{msg}}{{retryPart}}",
   "streamErrorRetryPart": " (重试 #{{retry}})",
   "notif_needApproval": "需要审批",
-  "connectionFailed": "连接失败"
+  "connectionFailed": "连接失败",
+  "goal_label": "目标",
+  "goal_status_active": "进行中",
+  "goal_status_paused": "已暂停",
+  "goal_status_completed": "已完成",
+  "goal_status_failed": "失败",
+  "goal_status_budget_limited": "预算受限",
+  "goal_status_cancelled": "已取消",
+  "goal_pause": "暂停",
+  "goal_resume": "恢复",
+  "goal_clear": "清除"
 }

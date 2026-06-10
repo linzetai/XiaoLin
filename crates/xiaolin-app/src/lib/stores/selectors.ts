@@ -1,7 +1,8 @@
 import { useChatMetaStore } from "./chat-meta-store";
 import { useStreamStore, EMPTY_STREAM } from "./stream-store";
 import { useQueueStore } from "./queue-store";
-import type { ChatMeta, ChatUsage, StreamItem, SubAgentRunUI, QueuedMessage, ChatStreamSegment } from "./types";
+import { useGoalStore } from "./goal-store";
+import type { ChatMeta, ChatUsage, GoalData, StreamItem, SubAgentRunUI, QueuedMessage, ChatStreamSegment } from "./types";
 
 const EMPTY_SUB_AGENT_RUNS: Record<string, SubAgentRunUI> = {};
 const EMPTY_QUEUE: QueuedMessage[] = [];
@@ -43,4 +44,13 @@ export function useChatLastSegments(chatId: string): ChatStreamSegment[] {
 
 export function useChatQueue(chatId: string): QueuedMessage[] {
   return useQueueStore((s) => s.queues[chatId] ?? EMPTY_QUEUE);
+}
+
+export function useActiveGoal(): GoalData | null {
+  const activeChatId = useChatMetaStore((s) => s.activeChatId);
+  return useGoalStore((s) => (activeChatId ? s.goals[activeChatId] ?? null : null));
+}
+
+export function useChatGoal(chatId: string): GoalData | null {
+  return useGoalStore((s) => s.goals[chatId] ?? null);
 }
