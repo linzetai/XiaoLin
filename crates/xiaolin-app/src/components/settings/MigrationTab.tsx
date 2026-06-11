@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Download, Upload, RotateCcw, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { DownloadSimple, UploadSimple, ArrowCounterClockwise, Warning, CheckCircle, XCircle } from "@phosphor-icons/react";
 import * as transport from "../../lib/transport";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export function MigrationTab() {
   const { t } = useTranslation("settings");
@@ -120,8 +120,8 @@ export function MigrationTab() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "success": return <CheckCircle {...ICON.md} style={{ color: "var(--green)" }} />;
-      case "error": return <XCircle {...ICON.md} style={{ color: "var(--red)" }} />;
+      case "success": return <CheckCircle size={ICON_SIZE.md} style={{ color: "var(--green)" }} />;
+      case "error": return <XCircle size={ICON_SIZE.md} style={{ color: "var(--red)" }} />;
       case "loading": return <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--fill-primary)]" />;
       default: return null;
     }
@@ -144,7 +144,7 @@ export function MigrationTab() {
         style={{ background: "var(--bg-base)", border: "1px solid var(--separator)" }}
       >
         <div className="flex items-center gap-2 mb-3">
-          <Download {...ICON.md} style={{ color: "var(--blue)" }} />
+          <DownloadSimple size={ICON_SIZE.md} style={{ color: "var(--blue)" }} />
           <h4 className="font-medium" style={{ color: "var(--fill-primary)" }}>
             {t("exportData")}
           </h4>
@@ -219,7 +219,7 @@ export function MigrationTab() {
         style={{ background: "var(--bg-base)", border: "1px solid var(--separator)" }}
       >
         <div className="flex items-center gap-2 mb-3">
-          <Upload {...ICON.md} style={{ color: "var(--green)" }} />
+          <UploadSimple size={ICON_SIZE.md} style={{ color: "var(--green)" }} />
           <h4 className="font-medium" style={{ color: "var(--fill-primary)" }}>
             {t("importData")}
           </h4>
@@ -246,7 +246,7 @@ export function MigrationTab() {
           </div>
 
           <div className="flex items-start gap-2 pt-2">
-            <AlertTriangle {...ICON.sm} className="mt-0.5 flex-shrink-0" style={{ color: "var(--yellow)" }} />
+            <Warning  className="mt-0.5 flex-shrink-0" style={{ color: "var(--yellow)" }} />
             <p className="text-[12px] leading-relaxed" style={{ color: "var(--fill-secondary)" }}>
               {t("importWarning")}
             </p>
@@ -260,7 +260,7 @@ export function MigrationTab() {
         style={{ background: "var(--bg-base)", border: "1px solid var(--separator)" }}
       >
         <summary className="cursor-pointer font-medium flex items-center gap-2" style={{ color: "var(--fill-primary)" }}>
-          <RotateCcw {...ICON.md} />
+          <ArrowCounterClockwise size={ICON_SIZE.md} />
           <span>{t("advancedOptions")}</span>
         </summary>
         <div className="pt-4 space-y-3">

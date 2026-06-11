@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  Puzzle, ToggleLeft, ToggleRight, RefreshCw,
-  ChevronDown, ChevronRight, AlertCircle, Loader2,
-  Wrench, Settings,
-} from "lucide-react";
+  PuzzlePiece, ToggleLeft, ToggleRight, ArrowsClockwise,
+  CaretDown, CaretRight, WarningCircle, SpinnerGap,
+  Wrench, Gear,
+} from "@phosphor-icons/react";
 import { usePluginStore, subscribePluginEvents } from "../../lib/stores/plugin-store";
 import type { PluginSummary, PluginTool } from "../../lib/transport";
 
@@ -62,7 +62,7 @@ export function PluginsView() {
             className="flex h-9 w-9 items-center justify-center rounded-[10px]"
             style={{ background: "color-mix(in srgb, var(--tint) 8%, transparent)" }}
           >
-            <Puzzle size={18} strokeWidth={1.5} style={{ color: "var(--tint)" }} />
+            <PuzzlePiece size={18} style={{ color: "var(--tint)" }} />
           </div>
           <div>
             <h1 className="text-[17px] font-bold tracking-[-0.01em]" style={{ color: "var(--fill-primary)" }}>
@@ -91,7 +91,7 @@ export function PluginsView() {
         <div className="mx-auto w-full max-w-[640px] px-6 py-5">
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
-              <Loader2 size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+              <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
               <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading plugins…</p>
             </div>
           ) : plugins.length === 0 ? (
@@ -172,9 +172,9 @@ function PluginRow({
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onExpand(); } }}
       >
         {expanded ? (
-          <ChevronDown size={14} strokeWidth={2} style={{ color: "var(--fill-quaternary)" }} />
+          <CaretDown size={14} style={{ color: "var(--fill-quaternary)" }} />
         ) : (
-          <ChevronRight size={14} strokeWidth={2} style={{ color: "var(--fill-quaternary)" }} />
+          <CaretRight size={14} style={{ color: "var(--fill-quaternary)" }} />
         )}
 
         <StatusDot status={p.status} />
@@ -186,7 +186,7 @@ function PluginRow({
           </div>
           {p.lastError && (
             <div className="mt-0.5 flex items-center gap-1 text-[11px]" style={{ color: "var(--red, #E53E3E)" }}>
-              <AlertCircle size={10} strokeWidth={1.5} />
+              <WarningCircle size={10} />
               <span className="truncate">{p.lastError}</span>
             </div>
           )}
@@ -207,7 +207,7 @@ function PluginRow({
             title="Restart"
             aria-label={`Restart ${p.name}`}
           >
-            <RefreshCw size={13} strokeWidth={1.8} className={restarting ? "animate-spin" : ""} />
+            <ArrowsClockwise size={13} className={restarting ? "animate-spin" : ""} />
           </button>
 
           <button
@@ -218,9 +218,9 @@ function PluginRow({
             aria-label={`${p.enabled ? "Disable" : "Enable"} ${p.name}`}
           >
             {p.enabled ? (
-              <ToggleRight size={20} strokeWidth={1.5} style={{ color: "var(--green, #38A169)" }} />
+              <ToggleRight size={20} style={{ color: "var(--green, #38A169)" }} />
             ) : (
-              <ToggleLeft size={20} strokeWidth={1.5} style={{ color: "var(--fill-quaternary)" }} />
+              <ToggleLeft size={20} style={{ color: "var(--fill-quaternary)" }} />
             )}
           </button>
         </div>
@@ -270,7 +270,7 @@ function EmptyState() {
         className="pv-float flex h-16 w-16 items-center justify-center rounded-[16px]"
         style={{ background: "color-mix(in srgb, var(--tint) 6%, transparent)" }}
       >
-        <Puzzle size={32} strokeWidth={1.2} style={{ color: "var(--tint)", opacity: 0.8 }} />
+        <PuzzlePiece size={32} style={{ color: "var(--tint)", opacity: 0.8 }} />
       </div>
       <div className="text-center">
         <p className="text-[17px] font-bold" style={{ color: "var(--fill-primary)" }}>No plugins installed</p>
@@ -282,7 +282,7 @@ function EmptyState() {
         className="mt-2 flex items-center gap-2 rounded-[var(--radius-xs)] px-5 py-2.5 text-[13px] font-medium transition-colors duration-150 hover:bg-[var(--bg-hover)]"
         style={{ cursor: "pointer", background: "none", border: "1px solid var(--separator)", color: "var(--fill-secondary)" }}
       >
-        <Settings size={14} strokeWidth={1.5} /> Manage in Settings
+        <Gear size={14} /> Manage in Settings
       </button>
     </div>
   );

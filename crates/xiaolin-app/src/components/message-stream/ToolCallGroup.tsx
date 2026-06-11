@@ -5,14 +5,14 @@
 import { useState, useMemo, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ChevronRight, AlertTriangle, Clock, Layers,
+  CaretRight, Warning, Clock, Stack,
   Check, X as XIcon,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { ToolCallCard, type ToolCall } from "./ToolCallCard";
 import type { StreamSegment } from "./types";
 import { isTodoResult } from "./TodoCard";
 import { isEditResult } from "./DiffCard";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 const DEFAULT_THRESHOLD = 3;
 
@@ -184,7 +184,7 @@ export const ToolCallGroupCard = memo(function ToolCallGroupCard({
         aria-label={`${t("toolCallsCount", { count: tools.length })}${expanded ? t("aria_expanded") : t("aria_collapsed")}`}
       >
         <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          <Layers {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
+          <Stack size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
         </span>
 
         <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[12px]">
@@ -204,13 +204,13 @@ export const ToolCallGroupCard = memo(function ToolCallGroupCard({
         <span className="flex shrink-0 items-center gap-2">
           {hasErrors && (
             <span className="flex items-center gap-0.5 text-[10px]" style={{ color: "var(--red)" }}>
-              <AlertTriangle {...ICON.sm} />
+              <Warning />
               {summary.errorCount}
             </span>
           )}
           {!hasErrors && allDone && (
             <span className="flex items-center gap-0.5 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-              <Check {...ICON.sm} />
+              <Check  />
               {summary.successCount}
             </span>
           )}
@@ -225,12 +225,11 @@ export const ToolCallGroupCard = memo(function ToolCallGroupCard({
           )}
           {summary.totalDuration > 0 && (
             <span className="flex items-center gap-0.5 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-              <Clock {...ICON.sm} />
+              <Clock  />
               {formatDuration(summary.totalDuration)}
             </span>
           )}
-          <ChevronRight
-            {...ICON.sm}
+          <CaretRight
             className="shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",
@@ -308,18 +307,17 @@ export const ToolCallGroupTimeline = memo(function ToolCallGroupTimeline({
           style={{ cursor: "pointer", borderBottom: "0.5px solid var(--separator)" }}
           aria-expanded={expanded}
         >
-          <Layers {...ICON.sm} style={{ color: "var(--fill-quaternary)" }} />
+          <Stack style={{ color: "var(--fill-quaternary)" }} />
           <span className="text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
             {expanded ? t("collapse", { ns: "common" }) : t("moreCompleted", { count: hiddenCount })}
           </span>
           {summary.errorCount > 0 && (
             <span className="flex items-center gap-0.5 text-[10px]" style={{ color: "var(--red)" }}>
-              <XIcon {...ICON.sm} />
+              <XIcon  />
               {summary.errorCount}
             </span>
           )}
-          <ChevronRight
-            {...ICON.sm}
+          <CaretRight
             className="ml-auto shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",
@@ -400,8 +398,7 @@ const TimelineRow = memo(function TimelineRow({ tool }: { tool: ToolCall }) {
           {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
         </span>
         {hasDetails && (
-          <ChevronRight
-            {...ICON.sm}
+          <CaretRight
             className="shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",

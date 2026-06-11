@@ -4,19 +4,19 @@ import type { TFunction } from "i18next";
 import {
   Clock,
   Plus,
-  Trash2,
-  Pencil,
+  Trash,
+  PencilSimple,
   X,
-  ChevronDown,
-  ChevronRight,
-  RefreshCw,
+  CaretDown,
+  CaretRight,
+  ArrowsClockwise,
   Play,
   Pause,
-  CheckCircle2,
+  CheckCircle,
   XCircle,
   Timer,
-} from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+} from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import * as api from "../../lib/api";
 import type { CronJob, CronJobAction, CronJobRun } from "../../lib/transport";
 
@@ -78,7 +78,7 @@ function JobStatusBadge({ status }: { status: string }) {
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
       style={{ color: c.color, background: c.bg }}
     >
-      {status === "running" && <RefreshCw size={10} className="animate-spin" />}
+      {status === "running" && <ArrowsClockwise size={10} className="animate-spin" />}
       {t(c.labelKey)}
     </span>
   );
@@ -99,7 +99,7 @@ function RunHistory({ jobId }: { jobId: string }) {
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-3" style={{ color: "var(--fill-quaternary)" }}>
-        <RefreshCw size={12} className="animate-spin" />
+        <ArrowsClockwise size={12} className="animate-spin" />
         <span className="text-[11px]">{t("tasks_loadingRuns")}</span>
       </div>
     );
@@ -128,9 +128,9 @@ function RunHistory({ jobId }: { jobId: string }) {
             style={{ background: "var(--bg-primary)" }}
           >
             {ok ? (
-              <CheckCircle2 size={12} style={{ color: "var(--green)" }} />
+              <CheckCircle size={12} style={{ color: "var(--green)" }} />
             ) : run.status === "running" ? (
-              <RefreshCw size={12} className="animate-spin" style={{ color: "var(--blue)" }} />
+              <ArrowsClockwise size={12} className="animate-spin" style={{ color: "var(--blue)" }} />
             ) : (
               <XCircle size={12} style={{ color: "var(--red)" }} />
             )}
@@ -182,7 +182,7 @@ function JobCard({
         onClick={() => setExpanded(!expanded)}
       >
         <span style={{ color: "var(--fill-quaternary)" }}>
-          {expanded ? <ChevronDown {...ICON.sm} /> : <ChevronRight {...ICON.sm} />}
+          {expanded ? <CaretDown /> : <CaretRight />}
         </span>
 
         <div className="min-w-0 flex-1">
@@ -228,7 +228,7 @@ function JobCard({
             style={{ color: job.enabled ? "var(--green)" : "var(--fill-quaternary)" }}
             title={job.enabled ? t("tasks_disable") : t("tasks_enable")}
           >
-            {job.enabled ? <Play {...ICON.sm} /> : <Pause {...ICON.sm} />}
+            {job.enabled ? <Play /> : <Pause />}
           </button>
           <button
             onClick={() => onEdit(job)}
@@ -236,7 +236,7 @@ function JobCard({
             style={{ color: "var(--fill-tertiary)" }}
             title={t("tasks_edit")}
           >
-            <Pencil {...ICON.sm} />
+            <PencilSimple />
           </button>
           {confirming ? (
             <div className="flex items-center gap-1">
@@ -265,7 +265,7 @@ function JobCard({
               style={{ color: "var(--fill-tertiary)" }}
               title={t("delete")}
             >
-              <Trash2 {...ICON.sm} />
+              <Trash />
             </button>
           )}
         </div>
@@ -389,7 +389,7 @@ function CronJobModal({
             {editingJob ? t("tasks_edit") : t("tasks_create")}
           </h3>
           <button onClick={onClose} style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 
@@ -637,7 +637,7 @@ export function TasksPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center" style={{ color: "var(--fill-quaternary)" }}>
-        <RefreshCw size={20} className="animate-spin" />
+        <ArrowsClockwise size={20} className="animate-spin" />
       </div>
     );
   }
@@ -647,7 +647,7 @@ export function TasksPage() {
       <div className="mx-auto w-full max-w-[640px] px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Clock {...ICON.md} style={{ color: "var(--fill-secondary)" }} />
+            <Clock size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />
             <h2 className="text-[14px] font-semibold tracking-[-0.01em]" style={{ color: "var(--fill-primary)" }}>
               {t("tasks_title")}
             </h2>
@@ -663,21 +663,21 @@ export function TasksPage() {
             className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-[11px] font-medium transition-colors"
             style={{ background: "var(--tint)", color: "#fff" }}
           >
-            <Plus size={12} strokeWidth={2} />
+            <Plus size={12} />
             {t("tasks_new")}
           </button>
         </div>
 
         {jobs.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16" style={{ color: "var(--fill-quaternary)" }}>
-            <Clock size={32} strokeWidth={1.2} />
+            <Clock size={32} />
             <p className="text-[13px]">{t("tasks_empty")}</p>
             <button
               onClick={handleCreate}
               className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors"
               style={{ background: "var(--tint)", color: "#fff" }}
             >
-              <Plus size={12} strokeWidth={2} />
+              <Plus size={12} />
               {t("tasks_createFirst")}
             </button>
           </div>

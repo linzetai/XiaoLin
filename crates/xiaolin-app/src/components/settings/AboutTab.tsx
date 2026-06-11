@@ -1,10 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { RefreshCw, Download, RotateCcw, CheckCircle, AlertCircle } from "lucide-react";
+import { ArrowsClockwise, DownloadSimple, ArrowCounterClockwise, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import { ClawIcon } from "../layout/ClawIcon";
 import { useGatewayStore } from "../../lib/store";
 import { SectionTitle } from "./SettingsShared";
 import { useAppUpdater } from "../../lib/use-app-updater";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export function AboutTab() {
   const { t } = useTranslation("settings");
@@ -56,7 +56,7 @@ export function AboutTab() {
                   className="ml-3 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity duration-150 hover:opacity-80"
                   style={{ background: "var(--tint)" }}
                 >
-                  <Download {...ICON.md} />
+                  <DownloadSimple size={ICON_SIZE.md} />
                   {t("downloadUpdate")}
                 </button>
               </div>
@@ -79,7 +79,7 @@ export function AboutTab() {
           ) : status === "ready" ? (
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-2">
-                <CheckCircle {...ICON.md} style={{ color: "var(--green)" }} />
+                <CheckCircle size={ICON_SIZE.md} style={{ color: "var(--green)" }} />
                 <span className="text-[13px]" style={{ color: "var(--fill-primary)" }}>{t("updateReady")}</span>
               </div>
               <button
@@ -87,14 +87,14 @@ export function AboutTab() {
                 className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity duration-150 hover:opacity-80"
                 style={{ background: "var(--green, #34C759)" }}
               >
-                <RotateCcw {...ICON.md} />
+                <ArrowCounterClockwise size={ICON_SIZE.md} />
                 {t("restartNow")}
               </button>
             </div>
           ) : status === "error" ? (
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <AlertCircle {...ICON.md} className="shrink-0" style={{ color: "var(--red)" }} />
+                <WarningCircle size={ICON_SIZE.md} className="shrink-0" style={{ color: "var(--red)" }} />
                 <span className="truncate text-[13px]" style={{ color: "var(--fill-secondary)" }}>
                   {error ?? t("checkUpdateFailed")}
                 </span>
@@ -110,7 +110,7 @@ export function AboutTab() {
           ) : status === "up-to-date" ? (
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-2">
-                <CheckCircle {...ICON.md} style={{ color: "var(--green)" }} />
+                <CheckCircle size={ICON_SIZE.md} style={{ color: "var(--green)" }} />
                 <span className="text-[13px]" style={{ color: "var(--fill-primary)" }}>{t("upToDate")}</span>
               </div>
               <button
@@ -118,7 +118,7 @@ export function AboutTab() {
                 className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium transition-colors duration-150 hover:opacity-80"
                 style={{ background: "var(--fill-quaternary)", color: "var(--fill-primary)" }}
               >
-                <RefreshCw {...ICON.md} />
+                <ArrowsClockwise size={ICON_SIZE.md} />
                 {t("checkAgain")}
               </button>
             </div>
@@ -133,7 +133,7 @@ export function AboutTab() {
                 className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium transition-colors duration-150 hover:opacity-80 disabled:cursor-default disabled:opacity-50"
                 style={{ background: "var(--fill-quaternary)", color: "var(--fill-primary)" }}
               >
-                <RefreshCw {...ICON.md} className={status === "checking" ? "animate-spin" : ""} />
+                <ArrowsClockwise size={ICON_SIZE.md} className={status === "checking" ? "animate-spin" : ""} />
                 {t("checkUpdate")}
               </button>
             </div>

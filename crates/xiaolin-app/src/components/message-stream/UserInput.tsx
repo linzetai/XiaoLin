@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, memo } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, Check, Pencil } from "lucide-react";
+import { Copy, Check, PencilSimple } from "@phosphor-icons/react";
 import type { ChatMessage } from "../../lib/agent-store";
 import { openLightbox } from "../common/ImageLightbox";
 
@@ -58,7 +58,7 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
             background: selected ? "var(--tint)" : "transparent",
           }}
         >
-          {selected && <Check size={14} strokeWidth={2.5} style={{ color: "white" }} />}
+          {selected && <Check size={14} weight="bold" style={{ color: "white" }} />}
         </button>
       )}
       <div
@@ -125,13 +125,13 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
               className="flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-150 hover:bg-[var(--bg-hover)] active:scale-90"
               style={{ color: copied ? "var(--green)" : "var(--fill-quaternary)" }} title={t("copy", { ns: "common" })}
             >
-              {copied ? <Check size={11} strokeWidth={1.5} /> : <Copy size={11} strokeWidth={1.2} />}
+              {copied ? <Check size={11} weight="fill" /> : <Copy size={11} weight="light" />}
             </button>
             <button onClick={handleEdit}
               className="flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-150 hover:bg-[var(--bg-hover)] active:scale-90"
               style={{ color: "var(--fill-quaternary)" }} title={t("edit")}
             >
-              <Pencil size={11} strokeWidth={1.2} />
+              <PencilSimple size={11} weight="light" />
             </button>
           </div>
         )}

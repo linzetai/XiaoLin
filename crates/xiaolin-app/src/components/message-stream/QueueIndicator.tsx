@@ -1,6 +1,5 @@
-import { ChevronDown, ChevronUp, Clock } from "lucide-react";
+import { CaretDown, CaretUp, Clock } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
-import { ICON } from "../../lib/ui-tokens";
 
 interface QueueIndicatorProps {
   count: number;
@@ -23,11 +22,11 @@ export function QueueIndicator({ count, expanded, onToggle }: QueueIndicatorProp
         cursor: "pointer",
       }}
     >
-      <Clock {...ICON.sm} />
+      <Clock />
       <span className="flex-1 text-left font-medium">
         {t("queue_pendingCount", { count })}
       </span>
-      {expanded ? <ChevronUp {...ICON.sm} /> : <ChevronDown {...ICON.sm} />}
+      {expanded ? <CaretUp /> : <CaretDown />}
     </button>
   );
 }

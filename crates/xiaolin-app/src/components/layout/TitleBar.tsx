@@ -4,7 +4,7 @@ import { useGatewayStore } from "../../lib/store";
 // Agent store import removed — single-agent mode
 import { NotificationCenter } from "../notification/NotificationCenter";
 import { NotificationDetailPanel } from "../notification/NotificationDetailPanel";
-import { Minus, Square, Maximize2, X } from "lucide-react";
+import { Minus, Square, ArrowsOut, X } from "@phosphor-icons/react";
 import type { AppNotification } from "../../lib/transport";
 
 const isTauri =
@@ -62,7 +62,7 @@ function WindowControls() {
   if (!isTauri) return null;
 
   const btn = "flex items-center justify-center transition-all duration-150";
-  const iconProps = { size: 14, strokeWidth: 1.2 } as const;
+  const iconProps = { weight: "light" as const };
 
   return (
     <div className="ml-1 flex h-full items-stretch">
@@ -81,7 +81,7 @@ function WindowControls() {
         style={{ color: "var(--fill-quaternary)" }}
         title={isMaximized ? i18n.t("common:restore") : i18n.t("common:maximize")}
       >
-        {isMaximized ? <Maximize2 {...iconProps} /> : <Square {...iconProps} />}
+        {isMaximized ? <ArrowsOut {...iconProps} /> : <Square {...iconProps} />}
       </button>
       <button
         onClick={close}

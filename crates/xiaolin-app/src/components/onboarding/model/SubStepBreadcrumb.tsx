@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle } from "@phosphor-icons/react";
 
 export function SubStepBreadcrumb({ current, isCustom }: { current: 1 | 2 | 3; isCustom: boolean }) {
   const { t } = useTranslation("onboarding");
@@ -24,7 +24,7 @@ export function SubStepBreadcrumb({ current, isCustom }: { current: 1 | 2 | 3; i
                 color: isDone || isActive ? (isDone ? "#fff" : "var(--fill-inverse)") : "var(--fill-inverse)",
               }}
             >
-              {isDone ? <CheckCircle size={12} strokeWidth={3} /> : displayNum}
+              {isDone ? <CheckCircle size={12} weight="bold" /> : displayNum}
             </div>
             <span
               className={`text-[11px] ${isDone || isActive ? "" : "opacity-30"}`}

@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Settings, ArrowRight } from "lucide-react";
+import { Gear, ArrowRight } from "@phosphor-icons/react";
 import { ClawIcon } from "../layout/ClawIcon";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export function WelcomeStep({ onNext, onImport }: { onNext: () => void; onImport: () => void }) {
   const { t } = useTranslation("onboarding");
@@ -32,7 +32,7 @@ export function WelcomeStep({ onNext, onImport }: { onNext: () => void; onImport
           style={{ background: "var(--fill-primary)", color: "var(--fill-inverse)" }}
         >
           {t("newUserSetup")}
-          <Settings {...ICON.md} />
+          <Gear size={ICON_SIZE.md} />
         </button>
         <button
           onClick={onImport}
@@ -44,7 +44,7 @@ export function WelcomeStep({ onNext, onImport }: { onNext: () => void; onImport
           }}
         >
           {t("importConfig")}
-          <ArrowRight {...ICON.md} />
+          <ArrowRight size={ICON_SIZE.md} />
         </button>
       </div>
     </div>

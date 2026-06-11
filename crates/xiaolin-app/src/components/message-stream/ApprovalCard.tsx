@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronUp, ShieldOff } from "lucide-react";
+import { ShieldWarning, ShieldCheck, ShieldSlash, CaretDown, CaretUp } from "@phosphor-icons/react";
 import { usePermissionStore } from "../../lib/stores/permission-store";
 
 export interface ApprovalData {
@@ -30,14 +30,14 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
       border: "var(--color-red-400, #fc8181)",
       bg: "var(--color-red-50, rgba(254, 215, 215, 0.15))",
       label: t("approval_riskForbidden"),
-      icon: ShieldX,
+      icon: ShieldSlash,
       iconColor: "var(--color-red-500, #f56565)",
     },
     caution: {
       border: "var(--color-amber-400, #f6ad55)",
       bg: "var(--color-amber-50, rgba(254, 235, 200, 0.15))",
       label: t("approval_riskCaution"),
-      icon: ShieldAlert,
+      icon: ShieldWarning,
       iconColor: "var(--color-amber-500, #ed8936)",
     },
     safe: {
@@ -114,7 +114,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
             style={{ color: "var(--fill-tertiary)" }}
             onClick={() => setExpanded(!expanded)}
           >
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {expanded ? <CaretUp size={14} /> : <CaretDown size={14} />}
             {data.action?.command ? t("approval_commandPreview") : isFileAction ? t("approval_fileChangePreview") : t("approval_contentPreview")}
           </button>
           {expanded && (
@@ -172,7 +172,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
             }}
             title={t("approval_approveAllSessionTitle")}
           >
-            <ShieldOff size={12} strokeWidth={1.6} />
+            <ShieldSlash size={12} />
             {t("approval_approveAllSession")}
           </button>
         )}

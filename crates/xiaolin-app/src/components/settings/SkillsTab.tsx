@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useGatewayStore } from "../../lib/store";
-import { RefreshCw, Upload, FolderOpen, FileText, Globe, User } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { ArrowsClockwise, UploadSimple, FolderOpen, FileText, Globe, User } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import { SectionTitle } from "./SettingsShared";
 
@@ -132,7 +131,7 @@ export function SkillsTab() {
                 className="cursor-pointer rounded-[var(--radius-xs)] p-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-40"
                 title={t("refreshSkills")}
               >
-                <RefreshCw {...ICON.sm} className={refreshing ? "animate-spin" : ""} style={{ color: "var(--fill-tertiary)" }} />
+                <ArrowsClockwise  className={refreshing ? "animate-spin" : ""} style={{ color: "var(--fill-tertiary)" }} />
               </button>
               <div className="relative">
                 <button
@@ -141,7 +140,7 @@ export function SkillsTab() {
                   className="cursor-pointer rounded-[var(--radius-xs)] p-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-40"
                   title={t("uploadSkill")}
                 >
-                  <Upload {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
+                  <UploadSimple  style={{ color: "var(--fill-tertiary)" }} />
                 </button>
                 {skillMenuOpen && (
                   <div
@@ -154,14 +153,14 @@ export function SkillsTab() {
                       className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: "var(--fill-primary)" }}
                     >
-                      <FolderOpen {...ICON.sm} className="mr-2 inline" />{t("selectFolder")}
+                      <FolderOpen  className="mr-2 inline" />{t("selectFolder")}
                     </button>
                     <button
                       onClick={() => { setSkillMenuOpen(false); handleUploadZip(); }}
                       className="w-full cursor-pointer px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: "var(--fill-primary)" }}
                     >
-                      <FileText {...ICON.sm} className="mr-2 inline" />{t("selectZip")}
+                      <FileText  className="mr-2 inline" />{t("selectZip")}
                     </button>
                   </div>
                 )}
@@ -193,7 +192,7 @@ export function SkillsTab() {
             {/* Public / Global skills */}
             <div>
               <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-                <Globe {...ICON.sm} />
+                <Globe  />
                 {t("publicSkills", { count: publicSkills.length })}
               </div>
               {publicSkills.length === 0 ? (
@@ -211,7 +210,7 @@ export function SkillsTab() {
               skills.length > 0 && (
                 <div key={agentId}>
                   <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-                    <User {...ICON.sm} />
+                    <User  />
                     Agent: {agentId} ({skills.length})
                   </div>
                   <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>

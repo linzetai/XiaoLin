@@ -18,8 +18,7 @@ import {
   autoUpdate,
   size as floatingSize,
 } from "@floating-ui/react";
-import { File, Folder, Sparkles, Search, Terminal } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { File, Folder, Sparkle, MagnifyingGlass, Terminal } from "@phosphor-icons/react";
 import { fuzzyFilter, type FuzzyResult } from "../../lib/fuzzy";
 
 /* ─── Types ─── */
@@ -75,9 +74,9 @@ function useMentionTypeMeta() {
   const { t } = useTranslation("chat");
   return useMemo(
     (): Record<MentionType, { text: string; icon: React.ReactNode; color: string }> => ({
-      file: { text: t("mention_file"), icon: <File {...ICON.sm} />, color: "var(--tint)" },
-      dir: { text: t("mention_dir"), icon: <Folder {...ICON.sm} />, color: "var(--orange)" },
-      skill: { text: "Skill", icon: <Sparkles {...ICON.sm} />, color: "var(--green)" },
+      file: { text: t("mention_file"), icon: <File />, color: "var(--tint)" },
+      dir: { text: t("mention_dir"), icon: <Folder />, color: "var(--orange)" },
+      skill: { text: "Skill", icon: <Sparkle />, color: "var(--green)" },
     }),
     [t],
   );
@@ -171,7 +170,7 @@ function MentionPopup({
         }}
       >
         <div className="flex items-center gap-2 px-3 py-3">
-          <Search {...ICON.sm} style={{ color: "var(--fill-quaternary)" }} />
+          <MagnifyingGlass style={{ color: "var(--fill-quaternary)" }} />
           <span className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
             {query
               ? t("mention_noResults", {
@@ -280,7 +279,7 @@ function getItemMeta(
   mentionTypeMeta: Record<MentionType, { icon: React.ReactNode; color: string }>,
 ): { icon: React.ReactNode; color: string } {
   if (item.kind === "mention") return mentionTypeMeta[item.option.type];
-  return { icon: <Terminal {...ICON.sm} />, color: "var(--purple)" };
+  return { icon: <Terminal />, color: "var(--purple)" };
 }
 
 function getItemKey(item: PopupItem): string {

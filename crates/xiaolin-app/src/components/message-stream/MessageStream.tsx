@@ -23,14 +23,14 @@ import { SubAgentMonitor } from "./SubAgentMonitor";
 import { PlanPanel } from "./PlanPanel";
 import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
-import { X, ChevronUp, ChevronDown, Upload, Search, ArrowDown } from "lucide-react";
+import { X, CaretUp, CaretDown, UploadSimple, MagnifyingGlass, ArrowDown } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { StreamEmptyState } from "./StreamEmptyState";
 import { StickyContextBar } from "./StickyContextBar";
 import { GoalStatusCard } from "../chat/GoalStatusCard";
 import { parseTodoResult, type TodoSummary } from "./TodoCard";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 interface MessageStreamProps {
   onToggleDetail?: () => void;
@@ -648,7 +648,7 @@ export function MessageStream(_props: MessageStreamProps) {
               animation: "drop-zone-pulse 1.5s ease-in-out infinite",
             }}
           >
-            <Upload size={32} strokeWidth={1.5} style={{ color: "var(--fill-secondary)" }} />
+            <UploadSimple size={ICON_SIZE["2xl"]} style={{ color: "var(--fill-secondary)" }} />
             <span className="text-[15px] font-medium" style={{ color: "var(--fill-primary)" }}>
               {t("dropFilesHere")}
             </span>
@@ -664,7 +664,7 @@ export function MessageStream(_props: MessageStreamProps) {
           className="flex shrink-0 items-center gap-2 py-2"
           style={{ background: "var(--bg-secondary)", borderBottom: `0.5px solid var(--separator)`, animation: "slide-down var(--duration-fast) var(--ease-out)", padding: "8px clamp(24px, 5%, 80px)" }}
         >
-          <Search {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
+          <MagnifyingGlass size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
           <input
             ref={searchInputRef}
             value={searchQuery}
@@ -692,7 +692,7 @@ export function MessageStream(_props: MessageStreamProps) {
               className="flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-30"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              <ChevronUp {...ICON.sm} />
+              <CaretUp />
             </button>
             <button
               onClick={() => setSearchIdx((i) => (i + 1) % Math.max(searchResults.length, 1))}
@@ -700,7 +700,7 @@ export function MessageStream(_props: MessageStreamProps) {
               className="flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:opacity-30"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              <ChevronDown {...ICON.sm} />
+              <CaretDown />
             </button>
           </div>
           <button
@@ -708,7 +708,7 @@ export function MessageStream(_props: MessageStreamProps) {
             className="flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-100 hover:bg-[var(--bg-hover)]"
             style={{ color: "var(--fill-tertiary)" }}
           >
-            <X {...ICON.sm} />
+            <X />
           </button>
         </div>
       )}
@@ -826,7 +826,7 @@ export function MessageStream(_props: MessageStreamProps) {
               boxShadow: "var(--shadow-lg)",
             }}
           >
-            <ArrowDown {...ICON.sm} />
+            <ArrowDown />
             {streamDoneLabel ? (
               <span className="text-[11px] font-medium" style={{ color: "var(--tint)" }}>
                 {tCommon("outputComplete")}

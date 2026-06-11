@@ -1,4 +1,5 @@
-import { Paperclip } from "lucide-react";
+import { Paperclip } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { MentionInputHandle, InlineMention, MentionOption } from "./MentionInput";
@@ -142,7 +143,7 @@ export function StreamFooter({
             className="flex h-48 w-72 flex-col items-center justify-center gap-3 rounded-2xl"
             style={{ background: "var(--bg-elevated)", border: "2px dashed var(--tint)", boxShadow: "var(--glow-tint)", animation: "drop-zone-pulse 2s ease-in-out infinite" }}
           >
-            <Paperclip size={32} strokeWidth={1.5} style={{ color: "var(--tint)", animation: "icon-float 1.5s ease-in-out infinite" }} />
+            <Paperclip size={ICON_SIZE["2xl"]} style={{ color: "var(--tint)", animation: "icon-float 1.5s ease-in-out infinite" }} />
             <span className="text-[14px] font-medium" style={{ color: "var(--fill-primary)" }}>{t("dropFileToAttach")}</span>
           </div>
         </div>

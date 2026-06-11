@@ -1,12 +1,12 @@
 import { useState, useCallback } from "react";
-import { Clock, Timer, CalendarDays, CalendarClock, Settings2 } from "lucide-react";
+import { Clock, Timer, Calendar, CalendarBlank, GearSix } from "@phosphor-icons/react";
 
 const PRESETS = [
   { id: "daily_9", label: "Daily 9:00", cron: "0 9 * * *", icon: Clock },
   { id: "hourly", label: "Every hour", cron: "0 * * * *", icon: Timer },
-  { id: "every_4h", label: "Every 4 hours", cron: "0 */4 * * *", icon: CalendarClock },
-  { id: "weekly_mon", label: "Weekly Mon", cron: "0 9 * * 1", icon: CalendarDays },
-  { id: "custom", label: "Custom", cron: "", icon: Settings2 },
+  { id: "every_4h", label: "Every 4 hours", cron: "0 */4 * * *", icon: CalendarBlank },
+  { id: "weekly_mon", label: "Weekly Mon", cron: "0 9 * * 1", icon: Calendar },
+  { id: "custom", label: "Custom", cron: "", icon: GearSix },
 ] as const;
 
 export function cronToHuman(cron: string): string {
@@ -81,7 +81,7 @@ export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps)
               }}
               aria-pressed={active}
             >
-              <Icon size={11} strokeWidth={1.6} />
+              <Icon size={11} weight="regular" />
               {p.label}
             </button>
           );
@@ -103,7 +103,7 @@ export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps)
         />
       )}
       <div className="flex items-center gap-2 text-[10px]">
-        <Clock size={10} strokeWidth={1.5} style={{ color: "var(--fill-quaternary)" }} />
+        <Clock size={10} style={{ color: "var(--fill-quaternary)" }} />
         <span style={{ color: isCustomInvalid ? "var(--red, #E53E3E)" : "var(--fill-quaternary)" }}>
           {isCustomInvalid ? "Invalid cron expression" : cronToHuman(value)}
         </span>

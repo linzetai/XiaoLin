@@ -1,4 +1,4 @@
-import { Info, Sparkles } from "lucide-react";
+import { Info, Sparkle } from "@phosphor-icons/react";
 import type { BriefMessageData } from "../../lib/stores/types";
 
 interface BriefMessageCardProps {
@@ -21,9 +21,9 @@ export function BriefMessageCard({ data }: BriefMessageCardProps) {
     >
       <div className="flex items-start gap-2">
         {isProactive ? (
-          <Sparkles size={14} className="mt-0.5 shrink-0" style={{ color: "var(--tint, #4299e1)" }} />
+          <Sparkle className="mt-0.5 shrink-0" style={{ color: "var(--tint, #4299e1)" }} />
         ) : (
-          <Info size={14} className="mt-0.5 shrink-0" style={{ color: "var(--fill-tertiary)" }} />
+          <Info className="mt-0.5 shrink-0" style={{ color: "var(--fill-tertiary)" }} />
         )}
         <span className="min-w-0 whitespace-pre-wrap break-words">{data.content}</span>
       </div>

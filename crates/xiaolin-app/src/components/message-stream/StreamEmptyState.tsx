@@ -1,10 +1,9 @@
 import { type ReactNode, useState, useMemo, useCallback, useRef } from "react";
 import {
-  FileText, Sparkles, Search, Code2,
-  Lightbulb, PenTool, Zap, BookOpen, RefreshCw,
-} from "lucide-react";
+  FileText, Sparkle, MagnifyingGlass, Code,
+  Lightbulb, PenNib, Lightning, BookOpen, ArrowsClockwise,
+} from "@phosphor-icons/react";
 import { useTranslation, Trans } from "react-i18next";
-import { ICON } from "../../lib/ui-tokens";
 
 interface Suggestion {
   key: string;
@@ -12,11 +11,11 @@ interface Suggestion {
 }
 
 const SUGGESTION_POOL: Suggestion[] = [
-  { key: "suggestion_analyzeCode", icon: Search },
-  { key: "suggestion_designApi", icon: Sparkles },
-  { key: "suggestion_fixBug", icon: Zap },
-  { key: "suggestion_writeTests", icon: Code2 },
-  { key: "suggestion_refactor", icon: PenTool },
+  { key: "suggestion_analyzeCode", icon: MagnifyingGlass },
+  { key: "suggestion_designApi", icon: Sparkle },
+  { key: "suggestion_fixBug", icon: Lightning },
+  { key: "suggestion_writeTests", icon: Code },
+  { key: "suggestion_refactor", icon: PenNib },
   { key: "suggestion_genDocs", icon: BookOpen },
   { key: "suggestion_bestPractice", icon: Lightbulb },
   { key: "suggestion_reviewCode", icon: FileText },
@@ -115,7 +114,7 @@ export function StreamEmptyState({ workDir, composerSlot, onPick }: StreamEmptyS
                   animation: `fade-slide-up var(--duration-slow) var(--ease-out) ${0.15 + i * 0.06}s backwards`,
                 }}
               >
-                <Icon {...ICON.sm} className="shrink-0" style={{ opacity: 0.6 }} />
+                <Icon className="shrink-0" style={{ opacity: 0.6 }} />
                 <span>{text}</span>
               </button>
             );
@@ -126,7 +125,7 @@ export function StreamEmptyState({ workDir, composerSlot, onPick }: StreamEmptyS
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
               style={{ color: "var(--fill-quaternary)" }}
             >
-              <RefreshCw ref={refreshRef} size={11} strokeWidth={1.8} />
+              <ArrowsClockwise ref={refreshRef} size={11} />
               {t("refreshSuggestions")}
             </button>
           </div>

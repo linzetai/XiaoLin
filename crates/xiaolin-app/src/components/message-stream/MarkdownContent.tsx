@@ -3,8 +3,7 @@ import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { rehypeHighlightLite } from "./rehype-highlight-lite";
-import { Check, Copy } from "lucide-react";
-import { ICON, ICON_ACTIVE_STROKE } from "../../lib/ui-tokens";
+import { Check, Copy } from "@phosphor-icons/react";
 import { useConfigStore } from "../../lib/stores";
 import { openLightbox } from "../common/ImageLightbox";
 
@@ -85,7 +84,7 @@ function CopyButton({ text }: { text: string }) {
       title={copied ? t("copied") : t("copyCode")}
       aria-label={copied ? t("copied") : t("copyCode")}
     >
-      {copied ? <Check {...ICON.sm} strokeWidth={ICON_ACTIVE_STROKE} /> : <Copy {...ICON.sm} />}
+      {copied ? <Check weight="fill" /> : <Copy />}
       <span>{copied ? t("copied") : t("copy", { ns: "common" })}</span>
     </button>
   );

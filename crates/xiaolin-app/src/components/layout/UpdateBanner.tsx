@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { memo, useCallback } from "react";
-import { Download, X, RotateCcw } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { DownloadSimple, X, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import { useAppUpdater } from "../../lib/use-app-updater";
 
 export const UpdateBanner = memo(function UpdateBanner() {
@@ -25,7 +25,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
         ? t("updateDownloading", { progress })
         : t("updateReadyRestart");
 
-  const ActionIcon = status === "ready" ? RotateCcw : Download;
+  const ActionIcon = status === "ready" ? ArrowCounterClockwise : DownloadSimple;
   const actionLabel = status === "ready" ? t("restartNow") : t("downloadUpdate");
   const actionDisabled = status === "downloading";
 
@@ -60,7 +60,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
             className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-opacity duration-150 hover:opacity-80 disabled:cursor-default disabled:opacity-50"
             style={{ background: "rgba(255,255,255,0.2)" }}
           >
-            <ActionIcon {...ICON.sm} />
+            <ActionIcon />
             {actionLabel}
           </button>
         )}
@@ -71,7 +71,7 @@ export const UpdateBanner = memo(function UpdateBanner() {
             style={{ background: "transparent" }}
             aria-label={t("close")}
           >
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         )}
       </div>

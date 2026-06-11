@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Plus, Search, Puzzle, RefreshCw, Settings, MessageCircle, Pencil, FolderOpen, Trash2, ChevronRight, ChevronDown, Pin, PinOff, Archive, Palette, FolderPlus } from "lucide-react";
+import { Plus, MagnifyingGlass, PuzzlePiece, ArrowsClockwise, Gear, ChatCircle, PencilSimple, FolderOpen, Trash, CaretRight, CaretDown, PushPin, PushPinSlash, Archive, Palette, FolderPlus } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, useProjectStore, useSearchStore } from "../../lib/stores";
@@ -73,9 +73,9 @@ function ChatContextMenu({
   }, [onClose]);
 
   const items = [
-    { icon: Pencil, label: t("rename"), action: onRename },
+    { icon: PencilSimple, label: t("rename"), action: onRename },
     { icon: FolderOpen, label: t("setWorkDir"), action: onSetWorkDir },
-    { icon: Trash2, label: t("delete"), action: onDelete, danger: true },
+    { icon: Trash, label: t("delete"), action: onDelete, danger: true },
   ];
 
   return createPortal(
@@ -100,7 +100,7 @@ function ChatContextMenu({
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
             style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
           >
-            <Icon size={14} strokeWidth={1.5} />
+            <Icon />
             {item.label}
           </button>
         );
@@ -142,11 +142,11 @@ function ProjectContextMenu({
   }, [onClose]);
 
   const menuItems = [
-    { icon: Pencil, label: t("rename"), action: onRename },
+    { icon: PencilSimple, label: t("rename"), action: onRename },
     { icon: Palette, label: t("changeColor"), action: () => setShowColors(!showColors) },
-    { icon: project.pinned ? PinOff : Pin, label: project.pinned ? t("pinned") : t("unpinned"), action: onTogglePin },
+    { icon: project.pinned ? PushPinSlash : PushPin, label: project.pinned ? t("pinned") : t("unpinned"), action: onTogglePin },
     { icon: Archive, label: t("archive"), action: onArchive },
-    { icon: Trash2, label: t("removeFromList"), action: onDelete, danger: true },
+    { icon: Trash, label: t("removeFromList"), action: onDelete, danger: true },
   ];
 
   return createPortal(
@@ -171,7 +171,7 @@ function ProjectContextMenu({
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
             style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
           >
-            <Icon size={14} strokeWidth={1.5} />
+            <Icon />
             {item.label}
           </button>
         );
@@ -260,7 +260,7 @@ function SessionItem({
       onContextMenu={onContextMenu}
     >
       <span style={{ width: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <MessageCircle size={14} strokeWidth={1.8} style={{ color: "currentColor" }} />
+        <ChatCircle style={{ color: "currentColor" }} />
       </span>
       <span style={{
         flex: 1,
@@ -330,7 +330,7 @@ function ProjectGroup({
 }) {
   const { t } = useTranslation("sidebar");
   const [hovered, setHovered] = useState(false);
-  const Chevron = collapsed ? ChevronRight : ChevronDown;
+  const Chevron = collapsed ? CaretRight : CaretDown;
 
   return (
     <div style={{ marginBottom: 2 }}>
@@ -378,7 +378,7 @@ function ProjectGroup({
             title={t("newChatInProject")}
             onClick={(e) => { e.stopPropagation(); onNewChatInProject(); }}
           >
-            <Plus size={13} strokeWidth={2} />
+            <Plus size={13} weight="bold" />
           </button>
         )}
         {!hovered && sessions.length > 0 && (
@@ -386,7 +386,7 @@ function ProjectGroup({
             {sessions.length}
           </span>
         )}
-        <Chevron size={12} strokeWidth={1.8} style={{
+        <Chevron size={12} style={{
           color: "var(--fill-quaternary)", flexShrink: 0,
           transition: "transform var(--duration-fast) var(--ease-out)",
         }} />
@@ -607,18 +607,18 @@ export function AppSidebar() {
         {/* Top actions */}
         <div style={{ padding: "10px 8px 6px", display: "flex", flexDirection: "column", gap: 1 }}>
           <SidebarAction
-            icon={<Plus size={ICON_SIZE} strokeWidth={1.7} />}
+            icon={<Plus size={ICON_SIZE} />}
             label={t("newChat")}
             onClick={handleNewChat}
             disabled={!gatewayReady}
           />
           <SidebarAction
-            icon={<Search size={ICON_SIZE} strokeWidth={1.7} />}
+            icon={<MagnifyingGlass size={ICON_SIZE} />}
             label={t("search")}
             onClick={openSearchPanel}
           />
-          <SidebarAction icon={<Puzzle size={ICON_SIZE} strokeWidth={1.7} />} label={t("plugins")} onClick={() => setMainView("plugins")} />
-          <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label={t("automations")} onClick={() => setMainView("automations")} />
+          <SidebarAction icon={<PuzzlePiece size={ICON_SIZE} />} label={t("plugins")} onClick={() => setMainView("plugins")} />
+          <SidebarAction icon={<ArrowsClockwise size={ICON_SIZE} />} label={t("automations")} onClick={() => setMainView("automations")} />
         </div>
 
         {/* Global search panel or session list */}
@@ -648,7 +648,7 @@ export function AppSidebar() {
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--fill-secondary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "none"; }}
               >
-                <FolderPlus size={13} strokeWidth={1.8} />
+                <FolderPlus size={13} />
               </button>
             </div>
             {projectGroups.length === 0 && (
@@ -666,7 +666,7 @@ export function AppSidebar() {
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--tint)"; e.currentTarget.style.color = "var(--fill-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--separator)"; e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "transparent"; }}
               >
-                <FolderOpen size={13} strokeWidth={1.8} />
+                <FolderOpen size={13} />
                 <span>{t("openFolderAsProject")}</span>
               </button>
             )}
@@ -736,7 +736,7 @@ export function AppSidebar() {
 
         {/* Bottom: Settings */}
         <div style={{ padding: 8, borderTop: "1px solid var(--border-shell-subtle)" }}>
-          <SidebarAction icon={<Settings size={ICON_SIZE} strokeWidth={1.7} />} label={t("settings")} onClick={openSettings} />
+          <SidebarAction icon={<Gear size={ICON_SIZE} />} label={t("settings")} onClick={openSettings} />
         </div>
 
         {/* Resize handle */}

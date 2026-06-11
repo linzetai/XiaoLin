@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useCallback } from "react";
-import { ChevronLeft } from "lucide-react";
-import { ICON } from "../../../lib/ui-tokens";
+import { CaretLeft } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../../lib/ui-tokens";
 import { useModelTest, saveModelConfig } from "../../../lib/model-utils";
 import type { ModelState, ModelAction } from "./model-state";
 import { SubStepBreadcrumb } from "./SubStepBreadcrumb";
@@ -54,7 +54,7 @@ export function ModelStep({
           className="flex cursor-pointer items-center gap-1 text-[13px] font-medium transition-colors hover:opacity-80"
           style={{ color: "var(--fill-tertiary)" }}
         >
-          <ChevronLeft {...ICON.md} />
+          <CaretLeft size={ICON_SIZE.md} />
           {state.subStep > 1 ? t("prev") : t("back")}
         </button>
       </div>

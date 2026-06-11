@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
-import { Sparkles, ArrowRight } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { Sparkle, ArrowRight } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export function DoneStep({ onComplete }: { onComplete: () => void }) {
   const { t } = useTranslation("onboarding");
@@ -21,7 +21,7 @@ export function DoneStep({ onComplete }: { onComplete: () => void }) {
           animation: "scale-in var(--duration-slow) var(--ease-out)",
         }}
       >
-        <Sparkles size={32} strokeWidth={1.5} style={{ color: "var(--green)" }} />
+        <Sparkle size={32} style={{ color: "var(--green)" }} />
       </div>
       <h2 className="mt-5 text-[22px] font-bold" style={{ color: "var(--fill-primary)" }}>
         {t("allSet")}
@@ -38,7 +38,7 @@ export function DoneStep({ onComplete }: { onComplete: () => void }) {
             style={{ background: "var(--fill-primary)", color: "var(--fill-inverse)" }}
           >
             {t("startUsing")}
-            <ArrowRight {...ICON.md} />
+            <ArrowRight size={ICON_SIZE.md} />
           </button>
         )}
       </div>

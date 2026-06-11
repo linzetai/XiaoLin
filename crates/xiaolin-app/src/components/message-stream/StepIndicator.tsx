@@ -2,16 +2,16 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, type ReactNode
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
-  FileText, PenLine, Search, Terminal, Globe, Download, Monitor,
-  Brain, Database, Image, Volume2, PackageSearch, PackagePlus,
-  TableProperties, Play, Wrench, Check, X as XIcon, ChevronRight, Plug,
-  Copy, Maximize2, ListTodo, Code2, Compass, ExternalLink,
-} from "lucide-react";
+  FileText, PenNib, MagnifyingGlass, Terminal, Globe, DownloadSimple, Monitor,
+  Brain, Database, Image, SpeakerHigh, Package,
+  Table, Play, Wrench, Check, X as XIcon, CaretRight, Plug,
+  Copy, ArrowsOut, ListChecks, Code, Compass, ArrowSquareOut,
+} from "@phosphor-icons/react";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export interface ToolCall {
   id: string;
@@ -44,39 +44,39 @@ export function getToolCategory(name: string): ToolCategory {
 
 export function buildToolMeta(t: TFunction<"chat">): Record<string, { icon: ReactNode; label?: string }> {
   return {
-    file_read: { icon: <FileText {...ICON.sm} />, label: t("tool_file_read") },
-    file_write: { icon: <PenLine {...ICON.sm} />, label: t("tool_file_write") },
-    file_search: { icon: <Search {...ICON.sm} />, label: t("tool_file_search") },
-    shell: { icon: <Terminal {...ICON.sm} />, label: t("tool_shell") },
-    shell_exec: { icon: <Terminal {...ICON.sm} />, label: t("tool_shell_exec") },
-    web_search: { icon: <Globe {...ICON.sm} />, label: t("tool_web_search") },
-    web_fetch: { icon: <Download {...ICON.sm} />, label: t("tool_web_fetch") },
-    browser: { icon: <Monitor {...ICON.sm} />, label: t("tool_browser") },
-    memory_search: { icon: <Brain {...ICON.sm} />, label: t("tool_memory_search") },
-    memory_store: { icon: <Database {...ICON.sm} />, label: t("tool_memory_store") },
-    image_generate: { icon: <Image {...ICON.sm} />, label: t("tool_image_generate") },
-    text_to_speech: { icon: <Volume2 {...ICON.sm} />, label: t("tool_text_to_speech") },
-    hub_search: { icon: <PackageSearch {...ICON.sm} />, label: t("tool_hub_search") },
-    hub_install: { icon: <PackagePlus {...ICON.sm} />, label: t("tool_hub_install") },
-    sql_query: { icon: <TableProperties {...ICON.sm} />, label: t("tool_sql_query") },
-    code_execute: { icon: <Play {...ICON.sm} />, label: t("tool_code_execute") },
-    read_file: { icon: <FileText {...ICON.sm} />, label: t("tool_read_file") },
-    write_file: { icon: <PenLine {...ICON.sm} />, label: t("tool_write_file") },
-    list_directory: { icon: <Search {...ICON.sm} />, label: t("tool_list_directory") },
-    read_skill: { icon: <FileText {...ICON.sm} />, label: t("tool_read_skill") },
-    list_skills: { icon: <Search {...ICON.sm} />, label: t("tool_list_skills") },
-    write_skill: { icon: <PenLine {...ICON.sm} />, label: t("tool_write_skill") },
-    http_fetch: { icon: <Globe {...ICON.sm} />, label: t("tool_http_fetch") },
-    calculator: { icon: <TableProperties {...ICON.sm} />, label: t("tool_calculator") },
-    todo_write: { icon: <ListTodo {...ICON.sm} />, label: t("tool_todo_write") },
-    edit_file: { icon: <Code2 {...ICON.sm} />, label: t("tool_edit_file") },
-    lsp: { icon: <Code2 {...ICON.sm} />, label: t("tool_lsp") },
-    enter_plan_mode: { icon: <Compass {...ICON.sm} />, label: t("tool_enter_plan_mode") },
-    exit_plan_mode: { icon: <Code2 {...ICON.sm} />, label: t("tool_exit_plan_mode") },
+    file_read: { icon: <FileText  />, label: t("tool_file_read") },
+    file_write: { icon: <PenNib />, label: t("tool_file_write") },
+    file_search: { icon: <MagnifyingGlass />, label: t("tool_file_search") },
+    shell: { icon: <Terminal  />, label: t("tool_shell") },
+    shell_exec: { icon: <Terminal  />, label: t("tool_shell_exec") },
+    web_search: { icon: <Globe  />, label: t("tool_web_search") },
+    web_fetch: { icon: <DownloadSimple />, label: t("tool_web_fetch") },
+    browser: { icon: <Monitor  />, label: t("tool_browser") },
+    memory_search: { icon: <Brain  />, label: t("tool_memory_search") },
+    memory_store: { icon: <Database  />, label: t("tool_memory_store") },
+    image_generate: { icon: <Image  />, label: t("tool_image_generate") },
+    text_to_speech: { icon: <SpeakerHigh />, label: t("tool_text_to_speech") },
+    hub_search: { icon: <Package />, label: t("tool_hub_search") },
+    hub_install: { icon: <Package />, label: t("tool_hub_install") },
+    sql_query: { icon: <Table />, label: t("tool_sql_query") },
+    code_execute: { icon: <Play  />, label: t("tool_code_execute") },
+    read_file: { icon: <FileText  />, label: t("tool_read_file") },
+    write_file: { icon: <PenNib />, label: t("tool_write_file") },
+    list_directory: { icon: <MagnifyingGlass />, label: t("tool_list_directory") },
+    read_skill: { icon: <FileText  />, label: t("tool_read_skill") },
+    list_skills: { icon: <MagnifyingGlass />, label: t("tool_list_skills") },
+    write_skill: { icon: <PenNib />, label: t("tool_write_skill") },
+    http_fetch: { icon: <Globe  />, label: t("tool_http_fetch") },
+    calculator: { icon: <Table />, label: t("tool_calculator") },
+    todo_write: { icon: <ListChecks />, label: t("tool_todo_write") },
+    edit_file: { icon: <Code />, label: t("tool_edit_file") },
+    lsp: { icon: <Code />, label: t("tool_lsp") },
+    enter_plan_mode: { icon: <Compass  />, label: t("tool_enter_plan_mode") },
+    exit_plan_mode: { icon: <Code />, label: t("tool_exit_plan_mode") },
   };
 }
 
-const DEFAULT_META = { icon: <Wrench {...ICON.sm} /> };
+const DEFAULT_META = { icon: <Wrench  /> };
 
 function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
   if (!name.startsWith("mcp_")) return null;
@@ -84,7 +84,7 @@ function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
   const idx = rest.indexOf("_");
   const serverId = idx >= 0 ? rest.slice(0, idx) : rest;
   const toolName = idx >= 0 ? rest.slice(idx + 1) : "";
-  return { icon: <Plug {...ICON.sm} />, label: `${serverId}/${toolName}` };
+  return { icon: <Plug  />, label: `${serverId}/${toolName}` };
 }
 
 function ElapsedTimer({ startTime }: { startTime: number }) {
@@ -179,7 +179,7 @@ export function ImageViewer({ src }: { src: string }) {
             title={copied ? t("copied") : t("copyImage")}
             aria-label={copied ? t("copied") : t("copyImage")}
           >
-            {copied ? <Check {...ICON.sm} /> : <Copy {...ICON.sm} />}
+            {copied ? <Check  /> : <Copy  />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
@@ -188,7 +188,7 @@ export function ImageViewer({ src }: { src: string }) {
             title={t("viewFullImage")}
             aria-label={t("viewFullImage")}
           >
-            <Maximize2 {...ICON.sm} />
+            <ArrowsOut />
           </button>
         </div>
       </div>
@@ -212,7 +212,7 @@ export function ImageViewer({ src }: { src: string }) {
               style={{ background: "rgba(255,255,255,0.15)", color: copied ? "var(--green)" : "#fff" }}
               aria-label={copied ? t("copied") : t("copyImage")}
             >
-              {copied ? <Check {...ICON.sm} /> : <Copy {...ICON.sm} />}
+              {copied ? <Check  /> : <Copy  />}
               {copied ? t("copied") : t("copy", { ns: "common" })}
             </button>
             <button
@@ -221,7 +221,7 @@ export function ImageViewer({ src }: { src: string }) {
               style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}
               aria-label={t("closePreview")}
             >
-              <XIcon {...ICON.md} />
+              <XIcon size={ICON_SIZE.md} />
             </button>
           </div>
           <img
@@ -418,7 +418,7 @@ function ShellResultSummary({ result }: { result: string }) {
         className="ml-auto flex items-center gap-0.5 text-[10px] font-medium"
         style={{ color: "var(--tint)", cursor: "pointer" }}
       >
-        <ExternalLink size={10} strokeWidth={1.5} />
+        <ArrowSquareOut size={10} />
         {t("viewTerminal", { ns: "chat", defaultValue: "Terminal" })}
       </button>
     </div>
@@ -533,9 +533,8 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
 
         {/* Expand chevron */}
         {canExpand && (
-          <ChevronRight
+          <CaretRight
             size={12}
-            strokeWidth={1.5}
             className="tv shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",

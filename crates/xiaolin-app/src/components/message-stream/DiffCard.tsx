@@ -5,7 +5,7 @@
 
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Minus, ChevronRight } from "lucide-react";
+import { Plus, Minus, CaretRight } from "@phosphor-icons/react";
 import { parseEditResult } from "./edit-result-utils";
 
 function DiffStatBadge({ added, removed }: { added: number; removed: number }) {
@@ -21,13 +21,13 @@ function DiffStatBadge({ added, removed }: { added: number; removed: number }) {
     <div className="flex items-center gap-1.5">
       {added > 0 && (
         <span className="flex items-center gap-0.5 text-[10px] font-medium tabular-nums" style={{ color: "var(--green, #48BB78)" }}>
-          <Plus size={14} strokeWidth={2.5} />
+          <Plus size={14} weight="bold" />
           {added}
         </span>
       )}
       {removed > 0 && (
         <span className="flex items-center gap-0.5 text-[10px] font-medium tabular-nums" style={{ color: "var(--red, #FC8181)" }}>
-          <Minus size={14} strokeWidth={2.5} />
+          <Minus size={14} weight="bold" />
           {removed}
         </span>
       )}
@@ -192,9 +192,8 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
           )}
           <DiffStatBadge added={editResult.linesAdded} removed={editResult.linesRemoved} />
           {hasDiff && (
-            <ChevronRight
+            <CaretRight
               size={12}
-              strokeWidth={1.5}
               className="shrink-0 transition-transform duration-150"
               style={{
                 color: "var(--fill-quaternary)",

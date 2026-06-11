@@ -1,5 +1,5 @@
 import { useRef, useCallback, type CSSProperties } from "react";
-import { PanelRightClose } from "lucide-react";
+import { SidebarSimple } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { useWorkspaceTabs } from "./workspace-tabs";
 
@@ -138,7 +138,7 @@ export function WorkspacePanel() {
               onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "var(--fill-quaternary)"; }}
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Icon size={14} strokeWidth={1.7} />
+                <Icon />
                 {tab.label}
                 {tab.badge != null && tab.badge !== false && (
                   <span
@@ -171,7 +171,7 @@ export function WorkspacePanel() {
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
-          <PanelRightClose size={13} strokeWidth={1.7} />
+          <SidebarSimple size={13} />
         </button>
       </div>
 

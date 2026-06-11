@@ -1,23 +1,22 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Bot, ChevronRight, Check, X as XIcon, Search, Terminal,
+  Robot, CaretRight, Check, X as XIcon, MagnifyingGlass, Terminal,
   Globe, Wrench, Square,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/agent-store";
 import { StepIndicator, type ToolCall } from "./StepIndicator";
-import { ICON } from "../../lib/ui-tokens";
 
 function useSubAgentCardTypeMeta() {
   const { t } = useTranslation("chat");
   return useMemo(() => {
     const map: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-      general: { icon: <Bot {...ICON.sm} />, label: t("subAgentCard_general"), color: "var(--tint)" },
-      explore: { icon: <Search {...ICON.sm} />, label: t("subAgentCard_explore"), color: "#34c759" },
-      shell: { icon: <Terminal {...ICON.sm} />, label: t("subAgentCard_shell"), color: "#ff9500" },
-      browser: { icon: <Globe {...ICON.sm} />, label: t("subAgent_browser"), color: "#af52de" },
+      general: { icon: <Robot />, label: t("subAgentCard_general"), color: "var(--tint)" },
+      explore: { icon: <MagnifyingGlass />, label: t("subAgentCard_explore"), color: "#34c759" },
+      shell: { icon: <Terminal />, label: t("subAgentCard_shell"), color: "#ff9500" },
+      browser: { icon: <Globe />, label: t("subAgent_browser"), color: "#af52de" },
     };
-    return (type: string) => map[type] ?? { icon: <Wrench {...ICON.sm} />, label: type, color: "var(--fill-tertiary)" };
+    return (type: string) => map[type] ?? { icon: <Wrench />, label: type, color: "var(--fill-tertiary)" };
   }, [t]);
 }
 
@@ -75,9 +74,9 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
               }}
             />
           ) : isFailed ? (
-            <XIcon size={14} strokeWidth={1.5} style={{ color: "var(--red)" }} />
+            <XIcon style={{ color: "var(--red)" }} />
           ) : (
-            <Check size={14} strokeWidth={1.5} style={{ color: "var(--green)" }} />
+            <Check style={{ color: "var(--green)" }} />
           )}
         </span>
 
@@ -110,13 +109,12 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             title={t("cancel", { ns: "common" })}
             aria-label={t("subAgentCard_cancelAria")}
           >
-            <Square {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
+            <Square style={{ color: "var(--fill-tertiary)" }} />
           </button>
         )}
 
-        <ChevronRight
+        <CaretRight
           size={12}
-          strokeWidth={1.5}
           className="shrink-0 transition-transform duration-150"
           style={{
             color: "var(--fill-quaternary)",

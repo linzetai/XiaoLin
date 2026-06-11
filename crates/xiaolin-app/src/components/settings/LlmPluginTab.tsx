@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Pencil,
-  Zap, Terminal, ChevronDown, ChevronUp, Play,
-} from "lucide-react";
+  Plus, Trash, ArrowsClockwise, CheckCircle, XCircle, PencilSimple,
+  Lightning, Terminal, CaretDown, CaretUp, Play,
+} from "@phosphor-icons/react";
 import { SectionTitle } from "./SettingsShared";
 import {
   listLlmPlugins, createLlmPlugin, updateLlmPlugin, deleteLlmPlugin,
   testLlmPlugin, type LlmPluginSummary,
 } from "../../lib/api";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 type AuthType = "none" | "bearer_token" | "custom_header" | "oauth2_client_credentials" | "pre_request_hook";
 
@@ -244,8 +244,8 @@ export function LlmPluginTab() {
       <div className="flex items-center justify-between">
         <SectionTitle>{t("llmPlugins")}</SectionTitle>
         <div className="flex gap-2">
-          <Btn onClick={refresh}><RefreshCw {...ICON.sm} /> {t("refresh")}</Btn>
-          <Btn variant="primary" onClick={openNew}><Plus {...ICON.sm} /> {t("addPlugin")}</Btn>
+          <Btn onClick={refresh}><ArrowsClockwise  /> {t("refresh")}</Btn>
+          <Btn variant="primary" onClick={openNew}><Plus  /> {t("addPlugin")}</Btn>
         </div>
       </div>
 
@@ -273,7 +273,7 @@ export function LlmPluginTab() {
               <div key={p.id} className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-secondary)", border: "0.5px solid var(--separator)" }}>
                 <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={() => toggleExpand(p.id)}>
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)]" style={{ background: "var(--bg-hover)" }}>
-                    {p.type === "middleware" ? <Zap {...ICON.md} style={{ color: "var(--tint)" }} /> : <Terminal {...ICON.md} style={{ color: "var(--tint)" }} />}
+                    {p.type === "middleware" ? <Lightning size={ICON_SIZE.md} style={{ color: "var(--tint)" }} /> : <Terminal size={ICON_SIZE.md} style={{ color: "var(--tint)" }} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -294,7 +294,7 @@ export function LlmPluginTab() {
                         : t("noModelsDefined")}
                     </div>
                   </div>
-                  {isExpanded ? <ChevronUp {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} /> : <ChevronDown {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />}
+                  {isExpanded ? <CaretUp  style={{ color: "var(--fill-tertiary)" }} /> : <CaretDown  style={{ color: "var(--fill-tertiary)" }} />}
                 </div>
                 {isExpanded && (
                   <div className="px-4 pb-3 pt-0">
@@ -304,13 +304,13 @@ export function LlmPluginTab() {
                     </div>
                     {p.description && <div className="mb-3 text-[12px]" style={{ color: "var(--fill-secondary)" }}>{p.description}</div>}
                     <div className="flex gap-2">
-                      <Btn onClick={() => handleTest(p.id)}><Play {...ICON.sm} /> {t("testConnectionBtn")}</Btn>
-                      <Btn onClick={() => openEdit(p)}><Pencil {...ICON.sm} /> {t("edit")}</Btn>
-                      <Btn variant="danger" onClick={() => handleDelete(p.id)}><Trash2 {...ICON.sm} /> {t("delete")}</Btn>
+                      <Btn onClick={() => handleTest(p.id)}><Play  /> {t("testConnectionBtn")}</Btn>
+                      <Btn onClick={() => openEdit(p)}><PencilSimple  /> {t("edit")}</Btn>
+                      <Btn variant="danger" onClick={() => handleDelete(p.id)}><Trash  /> {t("delete")}</Btn>
                     </div>
                     {tr && (
                       <div className="mt-2 flex items-center gap-2 text-[12px]" style={{ color: tr.ok ? "var(--system-green)" : "var(--system-red)" }}>
-                        {tr.ok ? <CheckCircle2 {...ICON.sm} /> : <XCircle {...ICON.sm} />}
+                        {tr.ok ? <CheckCircle  /> : <XCircle  />}
                         {tr.message}
                       </div>
                     )}
@@ -526,7 +526,7 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
       <div className="space-y-3 rounded-[var(--radius-sm)] p-4" style={{ background: "var(--bg-secondary)", border: "0.5px solid var(--separator)" }}>
         <div className="flex items-center justify-between">
           <SectionTitle>{t("modelList")}</SectionTitle>
-          <Btn onClick={addModel}><Plus {...ICON.sm} /> {t("addModel")}</Btn>
+          <Btn onClick={addModel}><Plus  /> {t("addModel")}</Btn>
         </div>
         {form.models.length === 0 ? (
           <div className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>{t("noModelsInPlugin")}</div>
@@ -554,7 +554,7 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
                   className="w-28"
                 />
                 <button onClick={() => removeModel(idx)} className="cursor-pointer p-1" style={{ color: "var(--system-red)" }}>
-                  <Trash2 {...ICON.sm} />
+                  <Trash  />
                 </button>
               </div>
             ))}

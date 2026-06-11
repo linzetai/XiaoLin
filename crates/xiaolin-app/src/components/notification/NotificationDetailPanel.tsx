@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { X, Clock, AlertTriangle, Info, Zap } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { X, Clock, Warning, Info, Lightning } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import type { AppNotification } from "../../lib/transport";
 import { lazy, Suspense, type ReactNode } from "react";
 
@@ -17,13 +17,13 @@ function parseUtc(ts: string): Date {
 function categoryLabel(category: string | undefined, tr: (key: string) => string): { icon: ReactNode; label: string } {
   switch (category) {
     case "cron":
-      return { icon: <Clock {...ICON.md} />, label: tr("type_cron") };
+      return { icon: <Clock size={ICON_SIZE.md} />, label: tr("type_cron") };
     case "agent":
-      return { icon: <Zap {...ICON.md} />, label: "Agent" };
+      return { icon: <Lightning size={ICON_SIZE.md} />, label: "Agent" };
     case "error":
-      return { icon: <AlertTriangle {...ICON.md} />, label: tr("type_error") };
+      return { icon: <Warning size={ICON_SIZE.md} />, label: tr("type_error") };
     default:
-      return { icon: <Info {...ICON.md} />, label: tr("type_system") };
+      return { icon: <Info size={ICON_SIZE.md} />, label: tr("type_system") };
   }
 }
 
@@ -90,7 +90,7 @@ export function NotificationDetailPanel({ notification, onClose }: Props) {
             className="flex items-center justify-center rounded-md p-1.5 hover:bg-[var(--bg-hover)] transition-colors"
             style={{ color: "var(--fill-tertiary)" }}
           >
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 

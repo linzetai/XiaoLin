@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Sparkles } from "lucide-react";
-import { ICON } from "../../../lib/ui-tokens";
+import { CaretRight, Sparkle } from "@phosphor-icons/react";
 import type { ProviderPreset } from "../../../lib/model-registry";
 import type { ModelAction } from "./model-state";
 
@@ -46,7 +45,7 @@ export function ModelSelectStep({
                   {t(m.description, { ns: "common" })}
                 </div>
               </div>
-              <ChevronRight {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
+              <CaretRight style={{ color: "var(--fill-tertiary)" }} />
             </div>
           ))}
         </div>
@@ -56,7 +55,7 @@ export function ModelSelectStep({
           className="flex items-center gap-2 px-4 py-2.5"
           style={{ borderTop: "0.5px solid var(--separator)" }}
         >
-              <Sparkles {...ICON.sm} style={{ color: "var(--tint)" }} />
+              <Sparkle style={{ color: "var(--tint)" }} />
           <span className="text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
             {t("noApiKey")}
           </span>

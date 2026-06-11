@@ -1,5 +1,5 @@
 import { useState, useCallback, type CSSProperties } from "react";
-import { ChevronRight } from "lucide-react";
+import { CaretRight } from "@phosphor-icons/react";
 import type { FileChangeSummary } from "./edit-result-utils";
 
 const VISIBLE_LIMIT = 5;
@@ -103,7 +103,7 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
               {" "}
               <span style={{ color: "var(--red-text, var(--red))" }}>-{file.linesRemoved}</span>
             </span>
-            <ChevronRight size={14} strokeWidth={1.5} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
+            <CaretRight style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
           </div>
         );
       })}

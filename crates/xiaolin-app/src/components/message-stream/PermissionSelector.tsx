@@ -1,4 +1,4 @@
-import { Lock, Shield, ShieldCheck, ShieldOff, ChevronDown } from "lucide-react";
+import { Lock, Shield, ShieldCheck, ShieldSlash, CaretDown } from "@phosphor-icons/react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
@@ -7,7 +7,7 @@ import { usePermissionStore } from "../../lib/stores/permission-store";
 const PRESET_ICONS: Record<string, typeof Shield> = {
   suggest: Shield,
   "auto-edit": ShieldCheck,
-  "full-auto": ShieldOff,
+  "full-auto": ShieldSlash,
   "plan-only": Lock,
 };
 
@@ -80,9 +80,9 @@ export function PermissionSelector({ sessionId, disabled }: PermissionSelectorPr
         className="flex items-center gap-1 rounded-[5px] border-none bg-transparent px-[7px] py-[3px] text-[11px] font-medium whitespace-nowrap transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         style={{ color: iconColor, cursor: disabled ? "not-allowed" : "pointer" }}
       >
-        <IconComponent size={13} strokeWidth={1.6} />
+        <IconComponent size={13} />
         <span>{displayName}</span>
-        <ChevronDown size={10} strokeWidth={1.5} style={{ opacity: 0.5, marginLeft: 1 }} />
+        <CaretDown size={10} style={{ opacity: 0.5, marginLeft: 1 }} />
       </button>
       {open &&
         createPortal(
@@ -127,7 +127,6 @@ export function PermissionSelector({ sessionId, disabled }: PermissionSelectorPr
                   >
                     <Icon
                       size={14}
-                      strokeWidth={1.6}
                       className="mt-0.5 shrink-0"
                       style={{ color }}
                     />

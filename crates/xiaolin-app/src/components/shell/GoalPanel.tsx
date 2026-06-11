@@ -1,15 +1,15 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Target,
+  Crosshair,
   Pause,
   Play,
   X,
   Plus,
-  Pencil,
+  PencilSimple,
   Check,
-  AlertCircle,
-} from "lucide-react";
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { useGoalStore } from "../../lib/stores/goal-store";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import type { GoalData } from "../../lib/stores/types";
@@ -44,7 +44,7 @@ function useStatusConfig(status: string) {
   return useMemo(() => {
     const configs: Record<
       string,
-      { color: string; bg: string; label: string; icon: typeof Target }
+      { color: string; bg: string; label: string; icon: typeof Crosshair }
     > = {
       active: {
         color: "var(--green, #48BB78)",
@@ -68,13 +68,13 @@ function useStatusConfig(status: string) {
         color: "var(--red, #F56565)",
         bg: "color-mix(in srgb, var(--red, #F56565) 12%, transparent)",
         label: t("goal_status_failed"),
-        icon: AlertCircle,
+        icon: WarningCircle,
       },
       budget_limited: {
         color: "var(--orange, #ED8936)",
         bg: "color-mix(in srgb, var(--orange, #ED8936) 12%, transparent)",
         label: t("goal_status_budget_limited"),
-        icon: AlertCircle,
+        icon: WarningCircle,
       },
       cancelled: {
         color: "var(--fill-tertiary)",
@@ -146,7 +146,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
     <div className="flex flex-col gap-4 p-4">
       {/* Status header */}
       <div className="flex items-center gap-2">
-        <StatusIcon size={16} strokeWidth={2} style={{ color: statusCfg.color }} />
+        <StatusIcon size={16} weight="bold" style={{ color: statusCfg.color }} />
         <span
           className="rounded px-2 py-0.5 text-[11px] font-semibold"
           style={{ color: statusCfg.color, background: statusCfg.bg }}
@@ -180,7 +180,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             color: "var(--fill-secondary)",
           }}
         >
-          <AlertCircle size={12} strokeWidth={1.5} style={{ color: "var(--yellow, #ECC94B)" }} />
+          <WarningCircle size={12} style={{ color: "var(--yellow, #ECC94B)" }} />
           {PAUSE_REASON_LABELS[goal.pause_reason] ?? goal.pause_reason}
         </div>
       )}
@@ -204,7 +204,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
               className="rounded p-0.5 transition-colors hover:bg-[var(--bg-hover)]"
               style={{ color: "var(--fill-quaternary)" }}
             >
-              <Pencil size={10} strokeWidth={1.5} />
+              <PencilSimple size={10} />
             </button>
           )}
         </div>
@@ -392,7 +392,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
               style={{ color: "var(--fill-secondary)" }}
             >
-              <Pause size={12} strokeWidth={1.5} />
+              <Pause size={12} />
               暂停
             </button>
           )}
@@ -406,7 +406,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                 color: "white",
               }}
             >
-              <Play size={12} strokeWidth={1.5} />
+              <Play size={12} />
               恢复
             </button>
           )}
@@ -417,7 +417,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
             style={{ color: "var(--red, #F56565)" }}
           >
-            <X size={12} strokeWidth={1.5} />
+            <X size={12} />
             取消目标
           </button>
         </div>
@@ -436,7 +436,7 @@ export function GoalTabContent() {
         className="flex flex-1 flex-col items-center justify-center gap-2 p-6"
         style={{ color: "var(--fill-quaternary)" }}
       >
-        <Target size={32} strokeWidth={1} />
+        <Crosshair size={32} weight="light" />
         <span className="text-[12px]">暂无活跃目标</span>
         <span className="text-[11px] opacity-60">
           在输入框选择 Goal 模式即可创建

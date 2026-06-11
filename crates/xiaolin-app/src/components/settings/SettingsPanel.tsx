@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy, Suspense, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings2, Box, Wrench, Server, Info, Search, Shield, X, RotateCcw, Bot, DollarSign } from "lucide-react";
-import { ICON, BTN_ICON } from "../../lib/ui-tokens";
+import { GearSix, Cube, Wrench, HardDrives, Info, MagnifyingGlass, Shield, X, ArrowCounterClockwise, Robot, CurrencyDollar } from "@phosphor-icons/react";
+import { ICON_SIZE, BTN_ICON } from "../../lib/ui-tokens";
 
 const GeneralTab = lazy(() => import("./GeneralTab").then((m) => ({ default: m.GeneralTab })));
 const ModelTab = lazy(() => import("./ModelTab").then((m) => ({ default: m.ModelTab })));
@@ -26,16 +26,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [tab, setTab] = useState<SettingsTab>("general");
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = useMemo(() => [
-    { id: "general", label: t("general"), icon: <Settings2 {...ICON.md} /> },
-    { id: "models", label: t("model"), icon: <Box {...ICON.md} /> },
-    { id: "web-search", label: t("webSearchTab"), icon: <Search {...ICON.md} /> },
-    { id: "skills", label: t("skills"), icon: <Wrench {...ICON.md} /> },
-    { id: "sub-agents", label: t("subAgents"), icon: <Bot {...ICON.md} /> },
-    { id: "security", label: t("security"), icon: <Shield {...ICON.md} /> },
-    { id: "gateway", label: t("gateway"), icon: <Server {...ICON.md} /> },
-    { id: "cost", label: t("cost"), icon: <DollarSign {...ICON.md} /> },
-    { id: "migration", label: t("migration"), icon: <RotateCcw {...ICON.md} /> },
-    { id: "about", label: t("about"), icon: <Info {...ICON.md} /> },
+    { id: "general", label: t("general"), icon: <GearSix size={ICON_SIZE.md} /> },
+    { id: "models", label: t("model"), icon: <Cube size={ICON_SIZE.md} /> },
+    { id: "web-search", label: t("webSearchTab"), icon: <MagnifyingGlass size={ICON_SIZE.md} /> },
+    { id: "skills", label: t("skills"), icon: <Wrench size={ICON_SIZE.md} /> },
+    { id: "sub-agents", label: t("subAgents"), icon: <Robot size={ICON_SIZE.md} /> },
+    { id: "security", label: t("security"), icon: <Shield size={ICON_SIZE.md} /> },
+    { id: "gateway", label: t("gateway"), icon: <HardDrives size={ICON_SIZE.md} /> },
+    { id: "cost", label: t("cost"), icon: <CurrencyDollar size={ICON_SIZE.md} /> },
+    { id: "migration", label: t("migration"), icon: <ArrowCounterClockwise size={ICON_SIZE.md} /> },
+    { id: "about", label: t("about"), icon: <Info size={ICON_SIZE.md} /> },
   ], [t]);
 
   useEffect(() => {
@@ -94,7 +94,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               {tabs.find((tabItem) => tabItem.id === tab)?.label}
             </h2>
             <button onClick={onClose} className={`${BTN_ICON.sm} cursor-pointer rounded-full`} style={{ color: "var(--fill-tertiary)" }}>
-              <X {...ICON.md} />
+              <X size={ICON_SIZE.md} />
             </button>
           </div>
           <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">

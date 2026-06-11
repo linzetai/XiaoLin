@@ -1,7 +1,6 @@
 import { memo, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Square, Pencil, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { Square, PencilSimple, ArrowClockwise, CaretDown, CaretUp } from "@phosphor-icons/react";
 import type { TodoSummary } from "./TodoCard";
 
 export interface StickyContextBarProps {
@@ -74,7 +73,7 @@ export const StickyContextBar = memo(function StickyContextBar({
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors duration-100 hover:bg-[var(--bg-hover)]"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              {expanded ? <ChevronUp size={12} strokeWidth={1.5} /> : <ChevronDown size={12} strokeWidth={1.5} />}
+              {expanded ? <CaretUp size={12} /> : <CaretDown size={12} />}
             </button>
           )}
         </div>
@@ -108,7 +107,7 @@ export const StickyContextBar = memo(function StickyContextBar({
             style={{ color: "var(--red)" }}
             title={t("sticky_stop")}
           >
-            <Square size={10} strokeWidth={2} fill="currentColor" />
+            <Square size={10} weight="fill" />
             <span className="text-[11px] font-medium">{t("sticky_stop")}</span>
           </button>
         )}
@@ -118,7 +117,7 @@ export const StickyContextBar = memo(function StickyContextBar({
           style={{ color: "var(--fill-tertiary)" }}
           title={t("edit")}
         >
-          <Pencil {...ICON.sm} />
+          <PencilSimple />
         </button>
         {!streaming && (
           <button
@@ -127,7 +126,7 @@ export const StickyContextBar = memo(function StickyContextBar({
             style={{ color: "var(--fill-tertiary)" }}
             title={t("sticky_resend")}
           >
-            <RotateCw {...ICON.sm} />
+            <ArrowClockwise />
           </button>
         )}
       </div>

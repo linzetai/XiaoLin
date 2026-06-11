@@ -2,7 +2,7 @@ import { Component, memo, useMemo, useState, useRef, useCallback, useEffect, laz
 import { useTranslation } from "react-i18next";
 import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
 import type { BriefMessageData } from "../../lib/stores/types";
-import { ICON, ICON_ACTIVE_STROKE, BTN_ICON } from "../../lib/ui-tokens";
+import { BTN_ICON } from "../../lib/ui-tokens";
 import { StepIndicator } from "./StepIndicator";
 import { SubAgentCard } from "./SubAgentCard";
 import {
@@ -10,7 +10,7 @@ import {
   groupConsecutiveToolCalls,
   StepGroup,
 } from "./StepGroup";
-import { AlertTriangle } from "lucide-react";
+import { Warning } from "@phosphor-icons/react";
 import { UserInput } from "./UserInput";
 import { BriefMessageCard } from "./BriefMessageCard";
 import { useFileChangeSummary } from "./useFileChangeSummary";
@@ -55,7 +55,7 @@ function MessageErrorFallback({ error, onRetry }: { error: Error; onRetry: () =>
         color: "var(--red)",
       }}
     >
-      <AlertTriangle {...ICON.sm} />
+      <Warning />
       <span>{t("renderError", { message: error.message })}</span>
       <button
         onClick={onRetry}
@@ -68,8 +68,8 @@ function MessageErrorFallback({ error, onRetry }: { error: Error; onRetry: () =>
   );
 }
 import {
-  Clock, Copy, Check, ThumbsUp, ThumbsDown, RotateCw,
-} from "lucide-react";
+  Clock, Copy, Check, ThumbsUp, ThumbsDown, ArrowClockwise,
+} from "@phosphor-icons/react";
 import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
 
@@ -120,7 +120,6 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
   }, [liked, disliked, sessionId, turnId]);
 
   const btnCls = `${BTN_ICON.sm} transition-all duration-150 active:scale-90`;
-  const iconProps = { ...ICON.sm, strokeWidth: 1.5 } as const;
   const defaultColor = "var(--fill-tertiary)";
 
   return (
@@ -129,7 +128,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
       style={{ willChange: "opacity", backfaceVisibility: "hidden" }}
     >
       <button onClick={handleCopy} className={btnCls} style={{ color: copied ? "var(--green)" : defaultColor }} title={t("copy", { ns: "common" })}>
-        {copied ? <Check {...iconProps} strokeWidth={ICON_ACTIVE_STROKE} style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy {...iconProps} />}
+        {copied ? <Check weight="fill" style={{ animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} /> : <Copy />}
       </button>
       <button
         onClick={handleLike}
@@ -137,7 +136,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
         style={{ color: liked ? "var(--tint)" : defaultColor }}
         title={t("message_like")}
       >
-        <ThumbsUp {...iconProps} strokeWidth={liked ? ICON_ACTIVE_STROKE : iconProps.strokeWidth} />
+        <ThumbsUp weight={liked ? "fill" : "regular"} />
       </button>
       <button
         onClick={handleDislike}
@@ -145,7 +144,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
         style={{ color: disliked ? "var(--red)" : defaultColor }}
         title={t("message_dislike")}
       >
-        <ThumbsDown {...iconProps} strokeWidth={disliked ? ICON_ACTIVE_STROKE : iconProps.strokeWidth} />
+        <ThumbsDown weight={disliked ? "fill" : "regular"} />
       </button>
       <button
         onClick={() => {
@@ -157,7 +156,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
         style={{ color: defaultColor }}
         title={t("retry", { ns: "common" })}
       >
-        <RotateCw {...iconProps} />
+        <ArrowClockwise />
       </button>
     </div>
   );
@@ -194,7 +193,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               background: selected ? "var(--tint)" : "transparent",
             }}
           >
-            {selected && <Check size={14} strokeWidth={2.5} style={{ color: "white" }} />}
+            {selected && <Check size={14} weight="bold" style={{ color: "white" }} />}
           </button>
         )}
         <div className="flex-1 min-w-0">
@@ -211,7 +210,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               completion: formatTokens(usage.completionTokens),
             })}
           >
-            <Clock size={10} strokeWidth={1.2} />
+            <Clock size={10} weight="light" />
             {formatElapsed(usage.elapsedMs)}
           </span>
         )}

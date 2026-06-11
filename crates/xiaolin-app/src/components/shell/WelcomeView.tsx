@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Zap, FileSearch, PlugZap } from "lucide-react";
+import { Lightning, FileMagnifyingGlass, PlugsConnected } from "@phosphor-icons/react";
 
 function SuggestionCard({
   icon,
@@ -107,15 +107,15 @@ export function WelcomeView() {
         }}
       >
         <SuggestionCard
-          icon={<Zap size={16} strokeWidth={1.75} />}
+          icon={<Lightning size={16} />}
           text={t("welcomeBuild")}
         />
         <SuggestionCard
-          icon={<FileSearch size={16} strokeWidth={1.75} />}
+          icon={<FileMagnifyingGlass size={16} />}
           text={t("welcomeReview")}
         />
         <SuggestionCard
-          icon={<PlugZap size={16} strokeWidth={1.75} />}
+          icon={<PlugsConnected size={16} />}
           text={t("welcomePlugins")}
         />
       </div>

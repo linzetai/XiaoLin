@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from "react";
-import { GitBranch, Target, Terminal } from "lucide-react";
+import { GitBranch, Crosshair, Terminal } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     registerTab({
       id: "goal",
       label: "Goal",
-      icon: Target,
+      icon: Crosshair,
       component: GoalTabContent,
       order: 2,
     });

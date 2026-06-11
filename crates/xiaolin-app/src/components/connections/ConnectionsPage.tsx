@@ -1,30 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Server,
-  RefreshCw,
+  HardDrives,
+  ArrowsClockwise,
   Plus,
-  Trash2,
+  Trash,
   X,
-  Wifi,
-  WifiOff,
+  WifiHigh,
+  WifiSlash,
   Wrench,
   Link,
-  Unlink,
+  LinkBreak,
   QrCode,
-  Loader2,
-  CheckCircle2,
-  Smartphone,
-  KeyRound,
+  SpinnerGap,
+  CheckCircle,
+  DeviceMobile,
+  Key,
   Terminal,
-  Pencil,
-  RotateCcw,
-  Save,
-  Search,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+  PencilSimple,
+  ArrowCounterClockwise,
+  FloppyDisk,
+  MagnifyingGlass,
+  CaretDown,
+  CaretUp,
+} from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import * as api from "../../lib/api";
 import type { McpServerStatus, McpDetailResult, ChannelDetailResult } from "../../lib/transport";
 import type { ChannelStatus } from "../../lib/transport";
@@ -86,7 +86,7 @@ function McpCard({
               className="flex items-center gap-1 text-[11px]"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              <Wrench size={11} strokeWidth={1.5} />
+              <Wrench size={11} />
               {t("conn_tools", { count: server.toolCount })}
             </span>
           )}
@@ -129,7 +129,7 @@ function McpCard({
           style={{ color: "var(--fill-tertiary)" }}
           title={t("delete")}
         >
-          <Trash2 {...ICON.sm} />
+          <Trash />
         </button>
       )}
     </div>
@@ -230,7 +230,7 @@ function ChannelCard({
           style={{ color: "var(--red)" }}
           title={t("conn_disconnectConn")}
         >
-          <Unlink size={12} strokeWidth={1.5} />
+          <LinkBreak size={12} />
           {t("conn_disconnect")}
         </button>
       ) : (
@@ -239,7 +239,7 @@ function ChannelCard({
           className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-[11px] font-medium transition-colors"
           style={{ background: "var(--tint)", color: "#fff" }}
         >
-          <Link size={12} strokeWidth={2} />
+          <Link size={12} />
           {t("conn_connect")}
         </button>
       )}
@@ -399,7 +399,7 @@ function WechatQrModal({
             {t("conn_wechatTitle")}
           </h3>
           <button onClick={onClose} style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 
@@ -426,7 +426,7 @@ function WechatQrModal({
 
         {step === "loading" && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <Loader2 size={24} className="animate-spin" style={{ color: "var(--tint)" }} />
+            <SpinnerGap size={24} className="animate-spin" style={{ color: "var(--tint)" }} />
             <p className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
               {t("conn_fetchingQr")}
             </p>
@@ -450,7 +450,7 @@ function WechatQrModal({
             <div className="flex items-center gap-2">
               {step === "scanned" ? (
                 <>
-                  <Smartphone size={14} style={{ color: "var(--green)" }} />
+                  <DeviceMobile size={14} style={{ color: "var(--green)" }} />
                   <p className="text-[13px] font-medium" style={{ color: "var(--green)" }}>
                     {t("conn_scannedConfirm")}
                   </p>
@@ -473,7 +473,7 @@ function WechatQrModal({
               className="flex h-12 w-12 items-center justify-center rounded-full"
               style={{ background: "rgba(237,137,54,0.1)" }}
             >
-              <KeyRound size={22} style={{ color: "var(--yellow)" }} />
+              <Key size={22} style={{ color: "var(--yellow)" }} />
             </div>
             <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>
               {message}
@@ -500,7 +500,7 @@ function WechatQrModal({
 
         {step === "confirmed" && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 size={32} style={{ color: "var(--green)" }} />
+            <CheckCircle size={32} style={{ color: "var(--green)" }} />
             <p className="text-[14px] font-medium" style={{ color: "var(--green)" }}>
               {message}
             </p>
@@ -591,7 +591,7 @@ function McpDetailModal({
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-2">
-            <Server size={16} style={{ color: "var(--fill-secondary)" }} />
+            <HardDrives size={16} style={{ color: "var(--fill-secondary)" }} />
             <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
               {serverId}
             </h3>
@@ -620,14 +620,14 @@ function McpDetailModal({
             )}
           </div>
           <button onClick={onClose} style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-5">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 size={20} className="animate-spin" style={{ color: "var(--tint)" }} />
+              <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--tint)" }} />
             </div>
           ) : data ? (
             <div className="flex flex-col gap-4">
@@ -691,9 +691,9 @@ function McpDetailModal({
                       {t("conn_tools", { count: data.tools.length })}
                     </span>
                     {toolsExpanded ? (
-                      <ChevronUp size={12} strokeWidth={1.5} />
+                      <CaretUp size={12} />
                     ) : (
-                      <ChevronDown size={12} strokeWidth={1.5} />
+                      <CaretDown size={12} />
                     )}
                   </button>
                   {toolsExpanded && data.tools.length > 5 && (
@@ -701,7 +701,7 @@ function McpDetailModal({
                       className="flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1"
                       style={{ background: "var(--bg-primary)", border: "0.5px solid var(--border-subtle)" }}
                     >
-                      <Search size={10} style={{ color: "var(--fill-quaternary)" }} />
+                      <MagnifyingGlass size={10} style={{ color: "var(--fill-quaternary)" }} />
                       <input
                         value={toolSearch}
                         onChange={(e) => setToolSearch(e.target.value)}
@@ -763,7 +763,7 @@ function McpDetailModal({
                   className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
                   style={{ color: "var(--fill-tertiary)" }}
                 >
-                  <RefreshCw size={12} strokeWidth={1.5} />
+                  <ArrowsClockwise size={12} />
                   {t("conn_reload")}
                 </button>
                 {data?.config.source !== "project" && (
@@ -772,7 +772,7 @@ function McpDetailModal({
                     className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ color: "var(--red)" }}
                   >
-                    <Trash2 size={12} strokeWidth={1.5} />
+                    <Trash size={12} />
                     {t("delete")}
                   </button>
                 )}
@@ -910,7 +910,7 @@ function ChannelDetailModal({
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-2">
-            <Wifi size={16} style={{ color: "var(--fill-secondary)" }} />
+            <WifiHigh size={16} style={{ color: "var(--fill-secondary)" }} />
             <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
               {data?.name ?? channelId}
             </h3>
@@ -929,14 +929,14 @@ function ChannelDetailModal({
             )}
           </div>
           <button onClick={onClose} style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-5">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 size={20} className="animate-spin" style={{ color: "var(--tint)" }} />
+              <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--tint)" }} />
             </div>
           ) : data ? (
             <div className="flex flex-col gap-4">
@@ -976,7 +976,7 @@ function ChannelDetailModal({
                       className="flex items-center gap-1 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: "var(--fill-tertiary)" }}
                     >
-                      <Pencil size={10} strokeWidth={1.5} />
+                      <PencilSimple size={10} />
                       {t("conn_edit")}
                     </button>
                   )}
@@ -1008,7 +1008,7 @@ function ChannelDetailModal({
                         className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40"
                         style={{ background: "var(--tint)", color: "#fff" }}
                       >
-                        <Save size={11} strokeWidth={2} />
+                        <FloppyDisk size={11} />
                         {saving ? t("conn_saving") : t("conn_saveReload")}
                       </button>
                       {data.hasBackup && (
@@ -1019,7 +1019,7 @@ function ChannelDetailModal({
                           style={{ color: "var(--fill-tertiary)" }}
                           title={t("conn_restoreBackupTitle")}
                         >
-                          <RotateCcw size={11} strokeWidth={1.5} />
+                          <ArrowCounterClockwise size={11} />
                           {t("conn_restoreBackup")}
                         </button>
                       )}
@@ -1085,9 +1085,9 @@ function ChannelDetailModal({
                           {t("conn_tools", { count: data.tools.length })}
                         </span>
                         {toolsExpanded ? (
-                          <ChevronUp size={12} strokeWidth={1.5} />
+                          <CaretUp size={12} />
                         ) : (
-                          <ChevronDown size={12} strokeWidth={1.5} />
+                          <CaretDown size={12} />
                         )}
                       </button>
                       {toolsExpanded && data.tools.length > 5 && (
@@ -1095,7 +1095,7 @@ function ChannelDetailModal({
                           className="flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1"
                           style={{ background: "var(--bg-primary)", border: "0.5px solid var(--border-subtle)" }}
                         >
-                          <Search size={10} style={{ color: "var(--fill-quaternary)" }} />
+                          <MagnifyingGlass size={10} style={{ color: "var(--fill-quaternary)" }} />
                           <input
                             value={toolSearch}
                             onChange={(e) => setToolSearch(e.target.value)}
@@ -1154,7 +1154,7 @@ function ChannelDetailModal({
                     className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ color: "var(--red)" }}
                   >
-                    <Unlink size={12} strokeWidth={1.5} />
+                    <LinkBreak size={12} />
                     {t("conn_disconnectConn")}
                   </button>
                 ) : configEntries.length > 0 ? (
@@ -1163,7 +1163,7 @@ function ChannelDetailModal({
                     className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors"
                     style={{ background: "var(--tint)", color: "#fff" }}
                   >
-                    <Link size={12} strokeWidth={2} />
+                    <Link size={12} />
                     {t("conn_connect")}
                   </button>
                 ) : (
@@ -1172,7 +1172,7 @@ function ChannelDetailModal({
                     className="flex items-center gap-1 rounded-[var(--radius-sm)] px-3 py-1.5 text-[12px] font-medium transition-colors"
                     style={{ background: "var(--tint)", color: "#fff" }}
                   >
-                    <Pencil size={12} strokeWidth={2} />
+                    <PencilSimple size={12} />
                     {t("conn_configAndConnect")}
                   </button>
                 )}
@@ -1193,12 +1193,12 @@ function EmptyState({
   icon: Icon,
   text,
 }: {
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  icon: React.ComponentType<{ size?: number; weight?: import("@phosphor-icons/react").IconWeight }>;
   text: string;
 }) {
   return (
     <div className="flex flex-col items-center gap-2 py-8" style={{ color: "var(--fill-quaternary)" }}>
-      <Icon size={24} strokeWidth={1.2} />
+      <Icon size={24} />
       <p className="text-[12px]">{text}</p>
     </div>
   );
@@ -1258,7 +1258,7 @@ function AddMcpModal({
             {t("conn_addMcp")}
           </h3>
           <button onClick={onClose} style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
 
@@ -1416,7 +1416,7 @@ export function ConnectionsPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center" style={{ color: "var(--fill-quaternary)" }}>
-        <RefreshCw size={20} className="animate-spin" />
+        <ArrowsClockwise size={20} className="animate-spin" />
       </div>
     );
   }
@@ -1431,7 +1431,7 @@ export function ConnectionsPage() {
         <section className="mb-8">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Server {...ICON.md} style={{ color: "var(--fill-secondary)" }} />
+              <HardDrives size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />
               <h2
                 className="text-[14px] font-semibold tracking-[-0.01em]"
                 style={{ color: "var(--fill-primary)" }}
@@ -1453,9 +1453,9 @@ export function ConnectionsPage() {
                 style={{ color: "var(--fill-tertiary)" }}
                 title={t("conn_reloadAllTitle")}
               >
-                <RefreshCw
+                <ArrowsClockwise
                   size={12}
-                  strokeWidth={1.5}
+                 
                   className={reloading ? "animate-spin" : ""}
                 />
                 {t("conn_reloadAll")}
@@ -1465,14 +1465,14 @@ export function ConnectionsPage() {
                 className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-[11px] font-medium transition-colors"
                 style={{ background: "var(--tint)", color: "#fff" }}
               >
-                <Plus size={12} strokeWidth={2} />
+                <Plus size={12} />
                 {t("conn_add")}
               </button>
             </div>
           </div>
 
           {mcpServers.length === 0 ? (
-            <EmptyState icon={WifiOff} text={t("conn_noMcp")} />
+            <EmptyState icon={WifiSlash} text={t("conn_noMcp")} />
           ) : (
             <div className="flex flex-col gap-2">
               {mcpServers.map((s) => (
@@ -1487,7 +1487,7 @@ export function ConnectionsPage() {
         {/* Channels */}
         <section>
           <div className="mb-3 flex items-center gap-2">
-            <Wifi {...ICON.md} style={{ color: "var(--fill-secondary)" }} />
+            <WifiHigh size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />
             <h2
               className="text-[14px] font-semibold tracking-[-0.01em]"
               style={{ color: "var(--fill-primary)" }}
@@ -1503,7 +1503,7 @@ export function ConnectionsPage() {
           </div>
 
           {channels.length === 0 ? (
-            <EmptyState icon={WifiOff} text={t("conn_noChannels")} />
+            <EmptyState icon={WifiSlash} text={t("conn_noChannels")} />
           ) : (
             <div className="flex flex-col gap-2">
               {channels.map((ch) => (

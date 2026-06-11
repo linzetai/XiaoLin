@@ -5,8 +5,7 @@
 
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { CircleDot, CheckCircle2, Circle, XCircle } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { CircleDashed, CheckCircle, Circle, XCircle } from "@phosphor-icons/react";
 
 interface TodoItem {
   marker: string;
@@ -60,13 +59,13 @@ function useStatusConfig() {
   const { t } = useTranslation("chat");
   return useMemo(() => ({
     completed: {
-      icon: CheckCircle2,
+      icon: CheckCircle,
       color: "var(--green, #48BB78)",
       bg: "color-mix(in srgb, var(--green, #48BB78) 8%, transparent)",
       label: t("todo_status_completed"),
     },
     in_progress: {
-      icon: CircleDot,
+      icon: CircleDashed,
       color: "var(--tint, #4299E1)",
       bg: "color-mix(in srgb, var(--tint, #4299E1) 8%, transparent)",
       label: t("todo_status_in_progress"),
@@ -163,7 +162,6 @@ export function TodoCard({ result }: { result: string }) {
                 style={{ background: cfg.bg }}
               >
                 <Icon
-                  {...ICON.sm}
                   className="mt-[1px] shrink-0"
                   style={{ color: cfg.color, animation: item.status === "completed" ? "scale-spring var(--duration-normal) var(--ease-spring)" : "none" }}
                 />

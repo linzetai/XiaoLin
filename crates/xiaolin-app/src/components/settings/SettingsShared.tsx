@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check } from "lucide-react";
+import { Check } from "@phosphor-icons/react";
 import { ACCENT_PRESETS } from "../../lib/theme";
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -106,7 +106,7 @@ export function ThemeCard({ preset, label, selected, resolved, onClick }: {
               animation: "pop var(--duration-normal) var(--ease-spring)",
             }}
           >
-            <Check size={12} strokeWidth={3} color="#fff" />
+            <Check size={12} weight="bold" color="#fff" />
           </div>
         )}
       </div>

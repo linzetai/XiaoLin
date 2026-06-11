@@ -1,7 +1,7 @@
 import { useState, useMemo, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ChevronRight } from "lucide-react";
+import { CaretRight } from "@phosphor-icons/react";
 import { StepIndicator, type ToolCall } from "./StepIndicator";
 import type { StreamSegment } from "./types";
 import { isTodoResult } from "./TodoCard";
@@ -234,9 +234,8 @@ export const StepGroup = memo(function StepGroup({
           </span>
         )}
 
-        <ChevronRight
+        <CaretRight
           size={12}
-          strokeWidth={1.5}
           className="shrink-0 transition-transform duration-150"
           style={{
             color: "var(--fill-quaternary)",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Zap, Clock, DollarSign, MessageSquare } from "lucide-react";
+import { ArrowsClockwise, CheckCircle, XCircle, Lightning, Clock, CurrencyDollar, ChatText } from "@phosphor-icons/react";
 import { useCostStore, type TokenUsageDaily, type ToolCallDaily, type SessionCostSummary } from "../../lib/stores/cost-store";
 
 function formatUsd(v: number): string {
@@ -216,7 +216,7 @@ function ToolTable({ data }: { data: ToolCallDaily[] }) {
               {row.name}
             </span>
             <span className="flex items-center gap-0.5 text-[11px] tabular-nums" style={{ color: "var(--green)" }}>
-              <CheckCircle2 size={10} /> {row.success}
+              <CheckCircle size={10} /> {row.success}
             </span>
             {row.failure > 0 && (
               <span className="flex items-center gap-0.5 text-[11px] tabular-nums" style={{ color: "var(--red)" }}>
@@ -316,16 +316,16 @@ export function CostDashboard() {
           className="flex cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1 text-[11px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
           style={{ color: "var(--fill-tertiary)" }}
         >
-          <RefreshCw size={12} strokeWidth={1.5} className={loading ? "animate-spin" : ""} />
+          <ArrowsClockwise size={12} className={loading ? "animate-spin" : ""} />
           刷新数据
         </button>
       </div>
 
       {/* Stats Cards Row */}
       <div className="grid grid-cols-4 gap-2.5">
-        <StatCard icon={<Zap size={13} />} label="Token 用量" value={formatTokens(totalTokens)} />
-        <StatCard icon={<DollarSign size={13} />} label="费用消耗" value={formatUsd(summary?.total_cost_usd ?? 0)} sub={`今日 ${formatUsd(summary?.today_cost_usd ?? 0)}`} />
-        <StatCard icon={<MessageSquare size={13} />} label="会话数" value={String(sessionCount)} />
+        <StatCard icon={<Lightning size={13} />} label="Token 用量" value={formatTokens(totalTokens)} />
+        <StatCard icon={<CurrencyDollar size={13} />} label="费用消耗" value={formatUsd(summary?.total_cost_usd ?? 0)} sub={`今日 ${formatUsd(summary?.today_cost_usd ?? 0)}`} />
+        <StatCard icon={<ChatText size={13} />} label="会话数" value={String(sessionCount)} />
         <StatCard icon={<Clock size={13} />} label="LLM 调用" value={formatTokens(dailyTokens.reduce((a, r) => a + r.call_count, 0))} sub="次" />
       </div>
 

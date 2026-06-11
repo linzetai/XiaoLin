@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle, XCircle, X, Plus, Info } from "lucide-react";
+import { CheckCircle, XCircle, X, Plus, Info } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import { useChatMetaStore } from "../../lib/stores";
 import { usePermissionStore } from "../../lib/stores/permission-store";
 import { SectionTitle } from "./SettingsShared";
-import { ICON } from "../../lib/ui-tokens";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle } from "../common/FormElements";
 
 type DangerousOpsPolicy = "deny" | "allow" | "confirm";
@@ -220,7 +219,7 @@ export function SecurityTab() {
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
           }}
         >
-          {toast.type === "ok" ? <CheckCircle {...ICON.sm} /> : <XCircle {...ICON.sm} />}
+          {toast.type === "ok" ? <CheckCircle  /> : <XCircle  />}
           {toast.msg}
         </div>
       )}
@@ -247,7 +246,7 @@ export function SecurityTab() {
                 }}
               >
                 {executionMode === opt.value && (
-                  <CheckCircle size={16} strokeWidth={2.5} style={{ color: "#fff" }} />
+                  <CheckCircle size={16} weight="bold" style={{ color: "#fff" }} />
                 )}
               </span>
               <div>
@@ -265,7 +264,7 @@ export function SecurityTab() {
               color: "var(--tint)",
             }}
           >
-            <Info size={14} strokeWidth={1.6} className="mt-px shrink-0" />
+            <Info className="mt-px shrink-0" />
             <span>
               {t("sessionOverrideHint", { count: sessionOverrideCount })}
             </span>
@@ -295,7 +294,7 @@ export function SecurityTab() {
                 }}
               >
                 {opsPolicy === opt.value && (
-                  <CheckCircle size={16} strokeWidth={2.5} style={{ color: "#fff" }} />
+                  <CheckCircle size={16} weight="bold" style={{ color: "#fff" }} />
                 )}
               </span>
               <div>
@@ -332,7 +331,7 @@ export function SecurityTab() {
                   className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-0 transition-all duration-100 hover:bg-[var(--bg-hover)] group-hover:opacity-100"
                   title={t("remove")}
                 >
-                  <X {...ICON.sm} style={{ color: "var(--red)" }} />
+                  <X  style={{ color: "var(--red)" }} />
                 </button>
               </div>
             ))
@@ -355,7 +354,7 @@ export function SecurityTab() {
             className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ background: "var(--tint)" }}
           >
-            <Plus {...ICON.sm} />
+            <Plus  />
             {t("add")}
           </button>
         </div>

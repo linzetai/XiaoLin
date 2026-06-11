@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Search } from "lucide-react";
+import { Eye, EyeSlash, Lightning, CheckCircle, XCircle, SpinnerGap, MagnifyingGlass } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import { SectionTitle } from "./SettingsShared";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle, labelCls as sharedLabelCls, labelStyle as sharedLabelStyle } from "../common/FormElements";
 
 
@@ -168,7 +168,7 @@ export function WebSearchTab() {
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
           }}
         >
-          {toast.type === "ok" ? <CheckCircle {...ICON.md} /> : <XCircle {...ICON.md} />}
+          {toast.type === "ok" ? <CheckCircle size={ICON_SIZE.md} /> : <XCircle size={ICON_SIZE.md} />}
           {toast.msg}
         </div>
       )}
@@ -282,8 +282,8 @@ export function WebSearchTab() {
                     className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[var(--radius-xs)] transition-colors hover:bg-[var(--bg-hover)]"
                   >
                     {showKey
-                      ? <EyeOff {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
-                      : <Eye {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
+                      ? <EyeSlash size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
+                      : <Eye size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
                     }
                   </button>
                   <button
@@ -293,10 +293,10 @@ export function WebSearchTab() {
                     className="flex h-7 cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
                     style={{ color: testStatus === "success" ? "var(--green)" : testStatus === "error" ? "var(--red)" : "var(--tint)" }}
                   >
-                    {testStatus === "testing" ? <Loader2 {...ICON.md} className="animate-spin" />
-                      : testStatus === "success" ? <CheckCircle {...ICON.md} />
-                      : testStatus === "error" ? <XCircle {...ICON.md} />
-                      : <Zap {...ICON.md} />
+                    {testStatus === "testing" ? <SpinnerGap size={ICON_SIZE.md} className="animate-spin" />
+                      : testStatus === "success" ? <CheckCircle size={ICON_SIZE.md} />
+                      : testStatus === "error" ? <XCircle size={ICON_SIZE.md} />
+                      : <Lightning size={ICON_SIZE.md} />
                     }
                     {testStatus === "idle" && t("test")}
                   </button>
@@ -336,10 +336,10 @@ export function WebSearchTab() {
                   className="absolute top-1/2 right-2 flex h-7 -translate-y-1/2 cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
                   style={{ color: testStatus === "success" ? "var(--green)" : testStatus === "error" ? "var(--red)" : "var(--tint)" }}
                 >
-                  {testStatus === "testing" ? <Loader2 {...ICON.md} className="animate-spin" />
-                    : testStatus === "success" ? <CheckCircle {...ICON.md} />
-                    : testStatus === "error" ? <XCircle {...ICON.md} />
-                    : <Zap {...ICON.md} />
+                  {testStatus === "testing" ? <SpinnerGap size={ICON_SIZE.md} className="animate-spin" />
+                    : testStatus === "success" ? <CheckCircle size={ICON_SIZE.md} />
+                    : testStatus === "error" ? <XCircle size={ICON_SIZE.md} />
+                    : <Lightning size={ICON_SIZE.md} />
                   }
                   {testStatus === "idle" && t("test")}
                 </button>
@@ -359,7 +359,7 @@ export function WebSearchTab() {
 
       {!backend && (
         <div className="rounded-[var(--radius-sm)] px-4 py-6 text-center" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
-          <Search size={24} strokeWidth={1.5} className="mx-auto mb-2" style={{ color: "var(--fill-quaternary)" }} />
+          <MagnifyingGlass size={24} className="mx-auto mb-2" style={{ color: "var(--fill-quaternary)" }} />
           <p className="text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
             {t("searchSelectBackend")}
           </p>

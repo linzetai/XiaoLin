@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Target, ChevronRight } from "lucide-react";
+import { Crosshair, CaretRight } from "@phosphor-icons/react";
 import type { GoalData } from "../../lib/stores/types";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 
@@ -72,9 +72,8 @@ export function GoalStatusCard({ goal }: GoalStatusCardProps) {
         cursor: "pointer",
       }}
     >
-      <Target
+      <Crosshair
         size={14}
-        strokeWidth={2}
         style={{ color: statusCfg.color, flexShrink: 0 }}
       />
 
@@ -101,9 +100,8 @@ export function GoalStatusCard({ goal }: GoalStatusCardProps) {
         </span>
       )}
 
-      <ChevronRight
+      <CaretRight
         size={12}
-        strokeWidth={1.5}
         className="shrink-0 opacity-30 transition-opacity group-hover:opacity-60"
       />
     </button>

@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 import {
-  ChevronDown, ChevronRight, RotateCcw,
+  CaretDown, CaretRight, ArrowCounterClockwise,
   Plus as PlusIcon, Minus, GitBranch as GitBranchIcon,
   Check, ArrowUp, ArrowDown,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { useGitStore } from "../../lib/stores";
 import type { FileChange, DiffHunk, DiffLine, FileStatus } from "../../../../xiaolin-protocol/generated/protocol";
 import * as transport from "../../lib/transport";
@@ -113,8 +113,8 @@ function SectionHeader({
       onClick={onToggle}
     >
       {expanded
-        ? <ChevronDown size={12} strokeWidth={2} />
-        : <ChevronRight size={12} strokeWidth={2} />
+        ? <CaretDown size={12} weight="bold" />
+        : <CaretRight size={12} weight="bold" />
       }
       <span>{title}</span>
       <span style={{
@@ -265,7 +265,7 @@ function CommitBox() {
             transition: "background 0.12s",
           }}
         >
-          <Check size={12} strokeWidth={2.5} />
+          <Check size={12} weight="bold" />
           {committing ? "Committing..." : `Commit (${stagedCount})`}
         </button>
       </div>
@@ -289,7 +289,7 @@ function BranchBar() {
       fontSize: 12,
     }}>
       <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--fill-secondary)" }}>
-        <GitBranchIcon size={13} strokeWidth={1.8} />
+        <GitBranchIcon size={13} />
         <span style={{ fontWeight: 500 }}>{branch || "HEAD"}</span>
       </span>
       {status.ahead > 0 && (
@@ -331,7 +331,7 @@ function GitInitView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, padding: 24 }}>
-      <GitBranchIcon size={28} strokeWidth={1.2} style={{ color: "var(--fill-tertiary)" }} />
+      <GitBranchIcon size={28} weight="light" style={{ color: "var(--fill-tertiary)" }} />
       <span style={{ fontSize: 12, color: "var(--fill-secondary)", textAlign: "center" }}>
         Not a Git repository
       </span>
@@ -347,7 +347,7 @@ function GitInitView() {
           fontSize: 11, fontWeight: 500, cursor: "pointer",
         }}
       >
-        <GitBranchIcon size={12} strokeWidth={1.75} />
+        <GitBranchIcon size={12} />
         {initing ? "Initializing..." : "Initialize Git"}
       </button>
     </div>
@@ -448,7 +448,7 @@ export function ReviewTabContent() {
                     title="Revert all changes"
                     variant="danger"
                   >
-                    <RotateCcw size={10} /> {confirmRevert ? "Confirm?" : "Revert"}
+                    <ArrowCounterClockwise size={10} /> {confirmRevert ? "Confirm?" : "Revert"}
                   </SmallBtn>
                 </>
               }

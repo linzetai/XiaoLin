@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback, type CSSProperties, type ReactNode, type MouseEvent as RME } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  PanelLeft,
-  PanelBottom,
+  SidebarSimple,
   Sun,
   Moon,
   Square,
   Minus,
-  Maximize2,
+  ArrowsOut,
   X,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { useUIStore, useGitStore } from "../../lib/stores";
 import { useThemeStore } from "../../lib/theme";
 import { useWorkspaceTabs } from "./workspace-tabs";
@@ -127,18 +126,18 @@ function WindowControls() {
       <button type="button" style={wc} onClick={minimize} title={t("minimize")}
         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-        <Minus size={14} strokeWidth={1.2} />
+        <Minus weight="light" />
       </button>
       <button type="button" style={wc} onClick={toggleMaximize}
         title={isMaximized ? t("restore") : t("maximize")}
         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-        {isMaximized ? <Maximize2 size={14} strokeWidth={1.2} /> : <Square size={14} strokeWidth={1.2} />}
+        {isMaximized ? <ArrowsOut weight="light" /> : <Square weight="light" />}
       </button>
       <button type="button" style={{ ...wc, borderRadius: "0 0 0 0" }} onClick={close} title={t("close")}
         onMouseEnter={(e) => { e.currentTarget.style.background = "#E81123"; e.currentTarget.style.color = "#fff"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-quaternary)"; }}>
-        <X size={14} strokeWidth={1.2} />
+        <X weight="light" />
       </button>
     </div>
   );
@@ -208,10 +207,10 @@ export function AppHeader() {
       {/* Left: nav tools */}
       <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <IconButton title={t("toggleSidebar")} onClick={toggleSidebar} active={!sidebarCollapsed}>
-          <PanelLeft size={16} strokeWidth={1.7} />
+          <SidebarSimple size={16} />
         </IconButton>
         <IconButton title={t("togglePanel")} onClick={togglePanel} active={panelOpen}>
-          <PanelBottom size={16} strokeWidth={1.7} />
+          <SidebarSimple size={16} />
         </IconButton>
       </div>
 
@@ -226,7 +225,7 @@ export function AppHeader() {
       {/* Right: actions + window controls */}
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <IconButton title={resolved === "light" ? t("darkMode") : t("lightMode")} onClick={handleThemeToggle}>
-          {resolved === "light" ? <Sun size={ICON_SIZE} strokeWidth={1.7} /> : <Moon size={ICON_SIZE} strokeWidth={1.7} />}
+          {resolved === "light" ? <Sun size={ICON_SIZE} /> : <Moon size={ICON_SIZE} />}
         </IconButton>
         <PanelLayoutToggle panelOpen={panelOpen} togglePanel={togglePanel} />
         <WindowControls />

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useMemo, type CSSProperties } from "react";
-import { Terminal, Trash2 } from "lucide-react";
+import { Terminal, Trash } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { useTerminalStore, useChatMetaStore, type TerminalSession } from "../../lib/stores";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 const containerStyle: CSSProperties = {
   display: "flex",
@@ -118,7 +118,7 @@ export function TerminalPanel() {
   if (sessionList.length === 0) {
     return (
       <div style={emptyStyle}>
-        <Terminal size={24} strokeWidth={1.2} />
+        <Terminal size={ICON_SIZE.xl} weight="light" />
         <span>{t("noOutputYet")}</span>
         <span style={{ fontSize: 11, opacity: 0.6 }}>
           {t("outputHint")}
@@ -185,7 +185,7 @@ export function TerminalPanel() {
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--fill-secondary)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; }}
           >
-            <Trash2 {...ICON.sm} />
+            <Trash />
             {t("clear")}
           </button>
         </div>

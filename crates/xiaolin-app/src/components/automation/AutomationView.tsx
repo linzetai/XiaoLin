@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  Plus, Clock, Play, Trash2, History,
-  ToggleLeft, ToggleRight, Bot, Globe, AlertCircle,
-  ChevronLeft, Loader2, Zap, Calendar, FolderOpen,
-} from "lucide-react";
+  Plus, Clock, Play, Trash, ClockCounterClockwise,
+  ToggleLeft, ToggleRight, Robot, Globe, WarningCircle,
+  CaretLeft, SpinnerGap, Lightning, Calendar, FolderOpen,
+} from "@phosphor-icons/react";
 import { useAutomationStore } from "../../lib/stores/automation-store";
 import type { CronJob, CronJobAction, CronJobRun } from "../../lib/transport";
 import { cronToHuman } from "./CronScheduleHelper";
@@ -88,12 +88,12 @@ export function AutomationView() {
                     style={{ color: "var(--fill-tertiary)", cursor: "pointer", background: "none", border: "none" }}
                     aria-label="Back to list"
                   >
-                    <ChevronLeft size={16} strokeWidth={1.8} />
+                    <CaretLeft size={16} />
                     <span className="text-[12px]">Back</span>
                   </button>
                 ) : (
                   <div className="flex items-center gap-2.5">
-                    <Zap size={18} strokeWidth={1.6} style={{ color: "var(--tint)" }} />
+                    <Lightning size={18} style={{ color: "var(--tint)" }} />
                     <h1 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--fill-primary)" }}>Automations</h1>
                     {jobs.length > 0 && (
                       <span
@@ -120,7 +120,7 @@ export function AutomationView() {
                   className="flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
                   style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
                 >
-                  <Plus size={14} strokeWidth={2} /> New
+                  <Plus size={14} /> New
                 </button>
               )}
             </div>
@@ -169,7 +169,7 @@ export function AutomationView() {
           >
             <div className="mb-3 flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ background: "color-mix(in srgb, var(--red, #E53E3E) 8%, transparent)" }}>
-                <AlertCircle size={15} strokeWidth={1.7} style={{ color: "var(--red, #E53E3E)" }} />
+                <WarningCircle size={15} style={{ color: "var(--red, #E53E3E)" }} />
               </div>
               <span className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>Delete Automation</span>
             </div>
@@ -227,7 +227,7 @@ function JobList({
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 av-fade-in">
-        <Loader2 size={22} strokeWidth={1.5} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+        <SpinnerGap size={22} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
         <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>Loading automations…</p>
       </div>
     );
@@ -240,7 +240,7 @@ function JobList({
           className="av-float flex h-14 w-14 items-center justify-center rounded-[14px]"
           style={{ background: "color-mix(in srgb, var(--tint) 6%, transparent)" }}
         >
-          <Calendar size={28} strokeWidth={1.2} style={{ color: "var(--tint)", opacity: 0.8 }} />
+          <Calendar size={28} style={{ color: "var(--tint)", opacity: 0.8 }} />
         </div>
         <div className="text-center">
           <p className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>No automations yet</p>
@@ -253,7 +253,7 @@ function JobList({
           className="mt-2 flex items-center gap-1.5 rounded-[var(--radius-sm)] px-5 py-2.5 text-[13px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
           style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
         >
-          <Plus size={14} strokeWidth={2} /> Create automation
+          <Plus size={14} /> Create automation
         </button>
       </div>
     );
@@ -282,9 +282,9 @@ function JobList({
             style={{ background: job.action.type === "agent_chat" ? "color-mix(in srgb, var(--tint) 8%, transparent)" : "color-mix(in srgb, var(--orange, #ED8936) 8%, transparent)" }}
           >
             {job.action.type === "agent_chat" ? (
-              <Bot size={18} strokeWidth={1.4} style={{ color: "var(--tint)" }} />
+              <Robot size={18} style={{ color: "var(--tint)" }} />
             ) : (
-              <Globe size={18} strokeWidth={1.4} style={{ color: "var(--orange, #ED8936)" }} />
+              <Globe size={18} style={{ color: "var(--orange, #ED8936)" }} />
             )}
           </div>
 
@@ -295,7 +295,7 @@ function JobList({
             </div>
             <div className="mt-1 flex items-center gap-3 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
               <span className="flex items-center gap-1">
-                <Clock size={10} strokeWidth={1.5} />
+                <Clock size={10} />
                 {cronToHuman(job.schedule)}
               </span>
               {job.last_run && (
@@ -306,25 +306,25 @@ function JobList({
 
           <div className="flex shrink-0 items-center gap-1">
             <IconBtn
-              icon={<Play size={13} strokeWidth={1.8} style={{ color: "var(--tint)" }} />}
+              icon={<Play size={13} style={{ color: "var(--tint)" }} />}
               title="Run now"
               onClick={(e) => { e.stopPropagation(); onRunNow(job); }}
               className="opacity-60 group-hover:opacity-100"
             />
             <IconBtn
-              icon={job.enabled ? <ToggleRight size={15} strokeWidth={1.5} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={15} strokeWidth={1.5} style={{ color: "var(--fill-quaternary)" }} />}
+              icon={job.enabled ? <ToggleRight size={15} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={15} style={{ color: "var(--fill-quaternary)" }} />}
               title={job.enabled ? "Pause" : "Enable"}
               onClick={(e) => { e.stopPropagation(); onToggle(job); }}
               className="opacity-60 group-hover:opacity-100"
             />
             <IconBtn
-              icon={<History size={13} strokeWidth={1.5} style={{ color: "var(--fill-tertiary)" }} />}
+              icon={<ClockCounterClockwise size={13} style={{ color: "var(--fill-tertiary)" }} />}
               title="Run history"
               onClick={(e) => { e.stopPropagation(); onHistory(job); }}
               className="opacity-0 group-hover:opacity-100"
             />
             <IconBtn
-              icon={<Trash2 size={13} strokeWidth={1.5} style={{ color: "var(--red, #E53E3E)" }} />}
+              icon={<Trash size={13} style={{ color: "var(--red, #E53E3E)" }} />}
               title="Delete"
               onClick={(e) => { e.stopPropagation(); onDelete(job); }}
               className="opacity-0 group-hover:opacity-100"
@@ -427,7 +427,7 @@ function JobForm({
                   className="flex items-center gap-1.5 rounded-[var(--radius-xs)] px-3.5 py-2 text-[12px] font-medium transition-all duration-150 active:scale-[0.97]"
                   style={{ background: active ? `color-mix(in srgb, ${tint} 10%, transparent)` : "var(--bg-card)", color: active ? tint : "var(--fill-secondary)", border: `1px solid ${active ? tint : "var(--separator)"}`, cursor: "pointer" }}
                 >
-                  {t === "agent_chat" ? <Bot size={13} /> : <Globe size={13} />}
+                  {t === "agent_chat" ? <Robot size={13} /> : <Globe size={13} />}
                   {t === "agent_chat" ? "Agent Chat" : "Webhook"}
                 </button>
               );
@@ -474,7 +474,7 @@ function JobForm({
                 style={{ background: "var(--bg-card)", border: "1px solid var(--separator)", cursor: "pointer", color: "var(--fill-tertiary)" }}
                 title="Browse directory"
               >
-                <FolderOpen size={14} strokeWidth={1.5} />
+                <FolderOpen size={14} />
               </button>
             </div>
             <p className="text-[11px] leading-relaxed" style={{ color: "var(--fill-quaternary)" }}>
@@ -493,7 +493,7 @@ function JobForm({
           className="flex items-center gap-1.5 rounded-[var(--radius-xs)] px-5 py-2 text-[13px] font-semibold text-white transition-all duration-150 disabled:opacity-50 hover:brightness-110 active:scale-[0.97]"
           style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
         >
-          {submitting && <Loader2 size={13} className="animate-spin" />}
+          {submitting && <SpinnerGap size={13} className="animate-spin" />}
           {initial ? "Save changes" : "Create"}
         </button>
       </div>
@@ -530,7 +530,7 @@ function JobHistory({ jobId, jobName, runs }: { jobId: string | null; jobName: s
       {runs.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16 av-fade-in">
           <div className="av-float flex h-12 w-12 items-center justify-center rounded-[12px]" style={{ background: "var(--bg-primary)" }}>
-            <Play size={20} strokeWidth={1.3} style={{ color: "var(--fill-quaternary)" }} />
+            <Play size={20} style={{ color: "var(--fill-quaternary)" }} />
           </div>
           <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>No runs yet</p>
           <p className="text-[11px] text-center leading-relaxed" style={{ color: "var(--fill-quaternary)", maxWidth: 260 }}>

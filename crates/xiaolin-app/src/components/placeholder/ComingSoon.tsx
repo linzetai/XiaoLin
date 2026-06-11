@@ -1,8 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Layout, FolderOpen, Sparkles } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { Layout, FolderOpen, Sparkle } from "@phosphor-icons/react";
 
-const CONFIG: Record<string, { icon: typeof Sparkles; descKey: string; labelKey: string }> = {
+const CONFIG: Record<string, { icon: typeof Sparkle; descKey: string; labelKey: string }> = {
   studio: { icon: Layout, descKey: "workspaceStudioDesc", labelKey: "workspaceStudio" },
   files: { icon: FolderOpen, descKey: "workspaceFilesDesc", labelKey: "workspaceFiles" },
 };
@@ -10,7 +9,7 @@ const CONFIG: Record<string, { icon: typeof Sparkles; descKey: string; labelKey:
 export function ComingSoon({ title }: { title?: string }) {
   const { t } = useTranslation("common");
   const meta = title ? CONFIG[title] : undefined;
-  const Icon = meta?.icon ?? Sparkles;
+  const Icon = meta?.icon ?? Sparkle;
 
   return (
     <div
@@ -26,7 +25,7 @@ export function ComingSoon({ title }: { title?: string }) {
           animation: "icon-float 3s ease-in-out infinite",
         }}
       >
-        <Icon size={24} strokeWidth={1.5} />
+        <Icon size={24} />
       </div>
       {title && (
         <h3
@@ -47,7 +46,7 @@ export function ComingSoon({ title }: { title?: string }) {
           border: "0.5px solid var(--border-subtle)",
         }}
       >
-        <Sparkles {...ICON.sm} />
+        <Sparkle />
         {t("comingSoon")}
       </span>
     </div>

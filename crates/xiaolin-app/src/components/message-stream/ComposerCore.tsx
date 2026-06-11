@@ -1,8 +1,8 @@
 import {
   Image as ImageIcon, FileText, Paperclip, ArrowUp,
-  Square, X, Loader2, Compass, Code2, ChevronDown,
-  Plus, GitBranch, Monitor, Target,
-} from "lucide-react";
+  Square, X, SpinnerGap, Compass, Code, CaretDown,
+  Plus, GitBranch, Monitor, Crosshair,
+} from "@phosphor-icons/react";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
@@ -14,7 +14,7 @@ import {
   useChatQueue,
   useGoalStore,
 } from "../../lib/stores";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
 import { PermissionSelector } from "./PermissionSelector";
@@ -44,10 +44,10 @@ function formatSize(bytes: number) {
 function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void }) {
   const isImage = file.type.startsWith("image/");
   const icon = isImage
-    ? <ImageIcon {...ICON.sm} />
+    ? <ImageIcon />
     : file.type.includes("pdf")
-      ? <FileText {...ICON.sm} />
-      : <Paperclip {...ICON.sm} />;
+      ? <FileText />
+      : <Paperclip />;
 
   if (isImage && file.previewUrl) {
     return (
@@ -67,7 +67,7 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
           className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full transition-colors duration-100 hover:bg-[rgba(0,0,0,0.7)]"
           style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
         >
-          <X size={10} strokeWidth={2} />
+          <X size={10} weight="bold" />
         </button>
       </div>
     );
@@ -90,7 +90,7 @@ function FilePill({ file, onRemove }: { file: AttachedFile; onRemove: () => void
         className="ml-0.5 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full transition-colors duration-100 hover:bg-[var(--bg-hover)]"
         style={{ color: "var(--fill-tertiary)" }}
       >
-        <X size={10} strokeWidth={2} />
+        <X size={10} weight="bold" />
       </button>
     </div>
   );
@@ -259,7 +259,7 @@ function ModelSelector() {
       >
         <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
         <span className="max-w-[100px] truncate">{displayName}</span>
-        <ChevronDown {...ICON.sm} />
+        <CaretDown />
       </button>
       {open && createPortal(
         <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)}>
@@ -322,13 +322,13 @@ function ModeSelector({
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const Icon = mode === "plan" ? Compass : mode === "goal" ? Target : Code2;
+  const Icon = mode === "plan" ? Compass : mode === "goal" ? Crosshair : Code;
   const label = mode === "plan" ? "Plan" : mode === "goal" ? "Goal" : "Agent";
 
-  const options: Array<{ id: ComposerMode; icon: typeof Code2; label: string; color: string }> = [
-    { id: "agent", icon: Code2, label: "Agent", color: "var(--tint)" },
+  const options: Array<{ id: ComposerMode; icon: typeof Code; label: string; color: string }> = [
+    { id: "agent", icon: Code, label: "Agent", color: "var(--tint)" },
     { id: "plan", icon: Compass, label: "Plan", color: "oklch(56% 0.18 310)" },
-    { id: "goal", icon: Target, label: "Goal", color: "var(--orange, #ED8936)" },
+    { id: "goal", icon: Crosshair, label: "Goal", color: "var(--orange, #ED8936)" },
   ];
 
   return (
@@ -340,7 +340,7 @@ function ModeSelector({
         className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         style={{ color: "var(--fill-quaternary)" }}
       >
-        <Icon size={12} strokeWidth={1.8} />
+        <Icon size={12} />
         <span>{label}</span>
         <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
       </button>
@@ -372,7 +372,7 @@ function ModeSelector({
                     fontWeight: isActive ? 600 : 400,
                   }}
                 >
-                  <opt.icon size={13} strokeWidth={1.5} />
+                  <opt.icon size={13} />
                   {opt.label}
                 </button>
               );
@@ -628,12 +628,12 @@ export function ComposerCore({
             className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:brightness-110"
             style={{ background: "color-mix(in srgb, var(--tint, #4299E1) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--tint, #4299E1) 15%, transparent)", color: "var(--tint, #4299E1)" }}
           >
-            <Compass {...ICON.md} className="shrink-0" />
+            <Compass size={ICON_SIZE.md} className="shrink-0" />
             <span className="min-w-0 truncate">
               {t("planMode")}
               {planFilePath && <span style={{ opacity: 0.7 }}>{" · "}{planFileExists ? "" : t("notCreated")}{planFilePath.replace(/^\/home\/[^/]+\//, "~/")}</span>}
             </span>
-            <FileText {...ICON.sm} className="ml-auto shrink-0" style={{ opacity: 0.6 }} />
+            <FileText className="ml-auto shrink-0" style={{ opacity: 0.6 }} />
           </button>
         )}
         {isGoalMode && !hasActiveGoal && (
@@ -641,7 +641,7 @@ export function ComposerCore({
             className="flex w-full items-center gap-2 px-4 py-2 text-[11px]"
             style={{ background: "color-mix(in srgb, var(--orange, #ED8936) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 15%, transparent)", color: "var(--orange, #ED8936)" }}
           >
-            <Target size={14} strokeWidth={1.5} className="shrink-0" />
+            <Crosshair className="shrink-0" />
             <span>Goal 模式 — 描述目标后将自主工作直到完成</span>
           </div>
         )}
@@ -651,7 +651,7 @@ export function ComposerCore({
             className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-[10px] transition-colors hover:brightness-110"
             style={{ background: "color-mix(in srgb, var(--tint, #4299E1) 3%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--tint, #4299E1) 10%, transparent)", color: "var(--fill-tertiary)" }}
           >
-            <FileText {...ICON.sm} className="shrink-0" style={{ color: "var(--tint, #4299E1)", opacity: 0.7 }} />
+            <FileText className="shrink-0" style={{ color: "var(--tint, #4299E1)", opacity: 0.7 }} />
             <span className="min-w-0 truncate">{t("planFile", { path: planFilePath.replace(/^\/home\/[^/]+\//, "~/") })}</span>
           </button>
         )}
@@ -676,7 +676,7 @@ export function ComposerCore({
             <button type="button" style={chipStyle} onMouseEnter={chipHover} onMouseLeave={chipLeave}
               onClick={() => fileInputRef.current?.click()} title={t("attachFile", { shortcut: `${MOD_KEY}${isMacPlatform ? "⇧" : "Shift+"}A` })}
             >
-              <Plus size={13} strokeWidth={1.6} />
+              <Plus size={13} />
             </button>
             <PermissionSelector sessionId={activeChat?.id} disabled={streaming} />
           </div>
@@ -690,13 +690,13 @@ export function ComposerCore({
                 style={{ width: 28, height: 28, background: "var(--red, #FF3B30)", color: "#fff", boxShadow: "0 0 0 3px color-mix(in srgb, var(--red, #FF3B30) 20%, transparent)", animation: "glow-pulse 1.5s ease-in-out infinite" }}
                 title={t("stopGenerate")}
               >
-                <Square size={12} strokeWidth={2.5} fill="currentColor" />
+                <Square size={12} weight="fill" />
               </button>
             ) : sendPending ? (
               <button key="loading" disabled className="flex shrink-0 items-center justify-center rounded-full"
                 style={{ width: 28, height: 28, background: "var(--tint)", color: "#fff", opacity: 0.7 }} title={t("sending")}
               >
-                <Loader2 size={14} strokeWidth={2} className="animate-spin" />
+                <SpinnerGap size={14} weight="bold" className="animate-spin" />
               </button>
             ) : (
               <button
@@ -711,7 +711,7 @@ export function ComposerCore({
                 }}
                 title={messageQueue.length >= 10 ? t("queueFull") : streaming ? t("appendInstruction") : t("sendHint")}
               >
-                <ArrowUp size={14} strokeWidth={2.5} />
+                <ArrowUp size={14} weight="bold" />
               </button>
             )}
           </div>
@@ -727,7 +727,7 @@ export function ComposerCore({
           onClick={handleOpenWorkDir}
           title={workDir ? t("workDirTitle", { dir: workDir }) : t("setWorkDir")}
         >
-          <Monitor size={12} strokeWidth={1.8} />
+          <Monitor size={12} />
           <span>{workDir ? workDir.replace(/^\/home\/[^/]+\//, "~/").replace(/^(.{24}).+/, "$1…") : t("workLocally", { ns: "common" })}</span>
           <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
         </button>
@@ -737,7 +737,7 @@ export function ComposerCore({
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--fill-quaternary)"; }}
           onClick={comingSoon} title={t("gitBranch")}
         >
-          <GitBranch size={12} strokeWidth={1.8} />
+          <GitBranch size={12} />
           <span>main</span>
           <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
         </button>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Minus, RotateCcw } from "lucide-react";
+import { Plus, Minus, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useGitStore } from "../../lib/stores";
 import type { FileChange, DiffHunk, DiffLine } from "../../../../xiaolin-protocol/generated/protocol";
 
@@ -139,7 +139,7 @@ export function ReviewTabFooter() {
               style={{ color: "var(--fill-danger)" }}
               onClick={() => setShowConfirm(true)}
             >
-              <RotateCcw size={10} className="mr-0.5 inline" /> Revert All
+              <ArrowCounterClockwise size={10} className="mr-0.5 inline" /> Revert All
             </button>
           )}
         </>

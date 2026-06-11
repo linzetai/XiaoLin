@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Plus, Pencil, X, Eye, EyeOff, Zap, CheckCircle, XCircle, Loader2, Trash2 } from "lucide-react";
+import { CaretDown, Plus, PencilSimple, X, Eye, EyeSlash, Lightning, CheckCircle, XCircle, SpinnerGap, Trash } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import { SectionTitle } from "./SettingsShared";
 import { inferContextWindow, takeModelSnapshot, popModelSnapshot, hasModelSnapshots } from "../../lib/model-registry";
 import { useModelTest } from "../../lib/model-utils";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle, labelCls as sharedLabelCls, labelStyle as sharedLabelStyle, FormButton } from "../common/FormElements";
 
 
@@ -94,7 +94,7 @@ function ModelFormModal({
             {isNew ? t("modelAdd") : t("modelEdit", { key: entry.key })}
           </h3>
           <button onClick={onCancel} className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-[var(--bg-hover)]" style={{ color: "var(--fill-tertiary)" }}>
-            <X {...ICON.md} />
+            <X size={ICON_SIZE.md} />
           </button>
         </div>
         <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
@@ -111,7 +111,7 @@ function ModelFormModal({
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                 </select>
-                <ChevronDown {...ICON.sm} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" style={{ color: "var(--fill-tertiary)" }} />
+                <CaretDown  className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" style={{ color: "var(--fill-tertiary)" }} />
               </div>
             </div>
           </div>
@@ -173,8 +173,8 @@ function ModelFormModal({
                   title={showApiKey ? t("hideApiKey") : t("showApiKey")}
                 >
                   {showApiKey
-                    ? <EyeOff {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
-                    : <Eye {...ICON.md} style={{ color: "var(--fill-tertiary)" }} />
+                    ? <EyeSlash size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
+                    : <Eye size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
                   }
                 </button>
                 <button
@@ -185,10 +185,10 @@ function ModelFormModal({
                   style={{ color: testStatus === "success" ? "var(--green)" : testStatus === "error" ? "var(--red)" : "var(--tint)" }}
                   title={t("testConnection")}
                 >
-                  {testStatus === "testing" ? <Loader2 {...ICON.md} className="animate-spin" />
-                    : testStatus === "success" ? <CheckCircle {...ICON.md} />
-                    : testStatus === "error" ? <XCircle {...ICON.md} />
-                    : <Zap {...ICON.md} />
+                  {testStatus === "testing" ? <SpinnerGap size={ICON_SIZE.md} className="animate-spin" />
+                    : testStatus === "success" ? <CheckCircle size={ICON_SIZE.md} />
+                    : testStatus === "error" ? <XCircle size={ICON_SIZE.md} />
+                    : <Lightning size={ICON_SIZE.md} />
                   }
                   {testStatus === "idle" && t("test")}
                 </button>
@@ -208,7 +208,7 @@ function ModelFormModal({
               className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium transition-colors hover:opacity-80"
               style={{ color: "var(--fill-tertiary)" }}
             >
-              <ChevronDown {...ICON.sm} style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0)", transition: "transform var(--duration-fast)" }} />
+              <CaretDown  style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0)", transition: "transform var(--duration-fast)" }} />
               {t("advancedSettings")}
             </button>
             {showAdvanced && (
@@ -300,7 +300,7 @@ function ModelFormModal({
                 className="flex cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-medium transition-colors hover:opacity-80"
                 style={{ color: "var(--red)" }}
               >
-                <Trash2 {...ICON.md} />
+                <Trash size={ICON_SIZE.md} />
                 {t("delete")}
               </button>
             )}
@@ -500,7 +500,7 @@ export function ModelTab() {
             color: toast.type === "ok" ? "var(--green)" : "var(--red)",
           }}
         >
-          {toast.type === "ok" ? <CheckCircle {...ICON.md} /> : <XCircle {...ICON.md} />}
+          {toast.type === "ok" ? <CheckCircle size={ICON_SIZE.md} /> : <XCircle size={ICON_SIZE.md} />}
           {toast.msg}
         </div>
       )}
@@ -522,7 +522,7 @@ export function ModelTab() {
             className="flex cursor-pointer items-center gap-1 rounded-[var(--radius-xs)] px-2.5 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
             style={{ color: "var(--tint)" }}
           >
-            <Plus {...ICON.md} />
+            <Plus size={ICON_SIZE.md} />
             {t("modelAdd")}
           </button>
         </div>
@@ -557,7 +557,7 @@ export function ModelTab() {
                   </div>
                 )}
               </div>
-              <Pencil {...ICON.md} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: "var(--fill-quaternary)" }} />
+              <PencilSimple size={ICON_SIZE.md} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: "var(--fill-quaternary)" }} />
             </div>
           </div>
         ))}

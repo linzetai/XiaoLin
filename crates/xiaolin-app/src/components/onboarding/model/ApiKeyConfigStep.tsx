@@ -1,9 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import {
-  ChevronRight, Eye, EyeOff, Zap, CheckCircle, XCircle,
-} from "lucide-react";
-import { ICON } from "../../../lib/ui-tokens";
+  CaretRight, Eye, EyeSlash, Lightning, CheckCircle, XCircle,
+} from "@phosphor-icons/react";
 import { inferContextWindow } from "../../../lib/model-registry";
 import type { TestStatus } from "../../../lib/model-utils";
 import { inputCls, inputStyle, labelCls, labelStyle } from "../shared";
@@ -130,7 +129,7 @@ export function ApiKeyConfigStep({
                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
                 style={{ color: "var(--fill-tertiary)" }}
               >
-                {showApiKey ? <EyeOff {...ICON.sm} /> : <Eye {...ICON.sm} />}
+                {showApiKey ? <EyeSlash /> : <Eye />}
               </button>
               <button
                 onClick={onTest}
@@ -146,13 +145,13 @@ export function ApiKeyConfigStep({
                 }}
               >
                 {testStatus === "testing" ? (
-                  <Zap {...ICON.sm} className="animate-pulse" />
+                  <Lightning className="animate-pulse" />
                 ) : testStatus === "success" ? (
-                  <CheckCircle {...ICON.sm} />
+                  <CheckCircle />
                 ) : testStatus === "error" ? (
-                  <XCircle {...ICON.sm} />
+                  <XCircle />
                 ) : (
-                  <Zap {...ICON.sm} />
+                  <Lightning />
                 )}
                 {t("test")}
               </button>
@@ -214,8 +213,7 @@ export function ApiKeyConfigStep({
           className="flex cursor-pointer items-center gap-1 text-[12px] transition-colors hover:opacity-80"
           style={{ color: "var(--fill-tertiary)" }}
         >
-          <ChevronRight
-            {...ICON.sm}
+          <CaretRight
             className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`}
           />
           {t("advancedOptions")}

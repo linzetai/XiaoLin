@@ -1,11 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Bot, Search, Terminal, Globe, Wrench, X, ChevronDown, ChevronRight, ChevronUp,
-  Clock, Zap, Copy, Square,
-} from "lucide-react";
+  Robot, MagnifyingGlass, Terminal, Globe, Wrench, X, CaretDown, CaretRight, CaretUp,
+  Clock, Lightning, Copy, Square,
+} from "@phosphor-icons/react";
 import { useActiveSubAgentRuns } from "../../lib/stores";
-import { ICON } from "../../lib/ui-tokens";
 import type { SubAgentRunUI } from "../../lib/stores/types";
 import * as api from "../../lib/api";
 
@@ -13,12 +12,12 @@ function useTypeMeta() {
   const { t } = useTranslation("chat");
   return useMemo(() => {
     const map: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-      general: { icon: <Bot {...ICON.sm} />, label: t("subAgent_general"), color: "var(--tint)" },
-      explore: { icon: <Search {...ICON.sm} />, label: t("subAgent_explore"), color: "#34c759" },
-      shell: { icon: <Terminal {...ICON.sm} />, label: t("subAgent_shell"), color: "#ff9500" },
-      browser: { icon: <Globe {...ICON.sm} />, label: t("subAgent_browser"), color: "#af52de" },
+      general: { icon: <Robot />, label: t("subAgent_general"), color: "var(--tint)" },
+      explore: { icon: <MagnifyingGlass />, label: t("subAgent_explore"), color: "#34c759" },
+      shell: { icon: <Terminal />, label: t("subAgent_shell"), color: "#ff9500" },
+      browser: { icon: <Globe />, label: t("subAgent_browser"), color: "#af52de" },
     };
-    return (type: string) => map[type] ?? { icon: <Wrench {...ICON.sm} />, label: type, color: "var(--fill-tertiary)" };
+    return (type: string) => map[type] ?? { icon: <Wrench />, label: type, color: "var(--fill-tertiary)" };
   }, [t]);
 }
 
@@ -87,7 +86,7 @@ function RunItem({ run, onCancel }: { run: SubAgentRunUI; onCancel: (id: string)
         className="flex w-full items-center gap-2 p-2 text-left"
         onClick={() => setExpanded(!expanded)}
       >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {expanded ? <CaretDown size={12} /> : <CaretRight size={12} />}
         <span style={{ color: meta.color }}>{meta.icon}</span>
         <span className="flex-1 truncate text-[11px] font-medium" style={{ color: "var(--fill-primary)" }}>
           {run.task.length > 50 ? run.task.slice(0, 50) + "…" : run.task}
@@ -100,7 +99,7 @@ function RunItem({ run, onCancel }: { run: SubAgentRunUI; onCancel: (id: string)
           <Clock size={10} /> {formatElapsed(isActive ? elapsed : run.elapsedMs)}
         </span>
         <span className="inline-flex items-center gap-0.5">
-          <Zap size={10} /> {t("subAgent_toolsCount", { count: run.toolCallsMade })}
+          <Lightning size={10} /> {t("subAgent_toolsCount", { count: run.toolCallsMade })}
         </span>
         {currentTool && (
           <span className="truncate" style={{ color: meta.color }}>
@@ -256,7 +255,7 @@ export function SubAgentMonitor() {
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-1.5">
-          <Bot size={14} style={{ color: "var(--tint)" }} />
+          <Robot size={14} style={{ color: "var(--tint)" }} />
           <span className="text-[12px] font-semibold" style={{ color: "var(--fill-primary)" }}>
             {t("subAgent_title")}
           </span>
@@ -272,7 +271,7 @@ export function SubAgentMonitor() {
         </div>
         <div className="flex items-center gap-1">
           <button className="rounded p-0.5" style={{ color: "var(--fill-quaternary)" }}>
-            {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {collapsed ? <CaretUp size={14} /> : <CaretDown size={14} />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setVisible(false); }}

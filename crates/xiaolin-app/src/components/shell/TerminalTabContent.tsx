@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type CSSProperties } from "react";
-import { Plus, X, TerminalSquare, Bot } from "lucide-react";
+import { Plus, X, TerminalWindow, Robot } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { TerminalPanel } from "./TerminalPanel";
 import { InteractiveTerminal } from "./InteractiveTerminal";
@@ -151,9 +151,9 @@ export function TerminalTabContent() {
                 }}
               >
                 {sess.source === "agent" ? (
-                  <Bot size={10} strokeWidth={1.5} style={{ color: "var(--fill-accent)" }} />
+                  <Robot size={10} style={{ color: "var(--fill-accent)" }} />
                 ) : (
-                  <TerminalSquare size={10} strokeWidth={1.5} />
+                  <TerminalWindow size={10} />
                 )}
                 {editingId === sess.id ? (
                   <input
@@ -197,7 +197,7 @@ export function TerminalTabContent() {
                     removeSession(sess.id);
                   }}
                 >
-                  <X size={9} strokeWidth={2} />
+                  <X size={9} weight="bold" />
                 </span>
               </button>
             ))}
@@ -211,7 +211,7 @@ export function TerminalTabContent() {
               onClick={createNewSession}
               title={t("newTerminal")}
             >
-              <Plus size={10} strokeWidth={2} />
+              <Plus size={10} weight="bold" />
             </button>
           </>
         )}

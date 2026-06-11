@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
-  Search, Plus, X, PanelLeftClose, MessageCircle,
-  MoreHorizontal, Trash2, Pencil, FolderOpen,
-} from "lucide-react";
+  MagnifyingGlass, Plus, X, SidebarSimple, ChatCircle,
+  DotsThree, Trash, PencilSimple, FolderOpen,
+} from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { ICON, BTN_ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE, BTN_ICON } from "../../lib/ui-tokens";
 import { useChatMetaStore, useStreamStore } from "../../lib/stores";
 import { useUIStore } from "../../lib/stores";
 import { useGatewayStore } from "../../lib/store";
@@ -53,9 +53,9 @@ function ChatContextMenu({
   }, [onClose]);
 
   const items = [
-    { icon: Pencil, label: t("rename"), action: onRename },
+    { icon: PencilSimple, label: t("rename"), action: onRename },
     { icon: FolderOpen, label: t("setWorkDir"), action: onSetWorkDir },
-    { icon: Trash2, label: t("delete"), action: onDelete, danger: true },
+    { icon: Trash, label: t("delete"), action: onDelete, danger: true },
   ];
 
   return createPortal(
@@ -81,7 +81,7 @@ function ChatContextMenu({
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
             style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
           >
-            <Icon {...ICON.md} />
+            <Icon size={ICON_SIZE.md} />
             {item.label}
           </button>
         );
@@ -273,7 +273,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
           style={{ color: "var(--fill-tertiary)", pointerEvents: "auto" }}
           title={t("expandSidebar")}
         >
-          <PanelLeftClose size={16} strokeWidth={1.2} style={{ transform: "scaleX(-1)" }} />
+          <SidebarSimple size={16} weight="light" style={{ transform: "scaleX(-1)" }} />
         </button>
       )}
       {!collapsed && !isCompactOverlay && <ResizeHandle />}
@@ -286,7 +286,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
               border: "0.5px solid transparent",
             }}
           >
-            <Search {...ICON.sm} style={{ color: "var(--fill-tertiary)", flexShrink: 0 }} />
+            <MagnifyingGlass style={{ color: "var(--fill-tertiary)", flexShrink: 0 }} />
             <input
               ref={searchInputRef}
               type="text"
@@ -302,7 +302,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                 className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[var(--bg-active)]"
                 style={{ color: "var(--fill-tertiary)" }}
               >
-                <X {...ICON.sm} />
+                <X />
               </button>
             )}
           </div>
@@ -312,7 +312,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
             style={{ color: "var(--fill-tertiary)" }}
             title={t("collapseSidebar")}
           >
-            <PanelLeftClose size={20} strokeWidth={1.2} />
+            <SidebarSimple size={20} weight="light" />
           </button>
         </div>
         <button
@@ -324,7 +324,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
             border: "0.5px dashed var(--separator-opaque)",
           }}
         >
-          <Plus {...ICON.sm} />
+          <Plus />
           {t("newChatAction")}
         </button>
       </div>
@@ -344,7 +344,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                   style={{ color: "var(--fill-tertiary)" }}
                   title={groupWorkDir ? t("newChatIn", { name: label }) : t("newChatAction")}
                 >
-                  <Plus size={12} strokeWidth={2} />
+                  <Plus size={12} />
                 </button>
               </div>
               {chats.map((chat) => {
@@ -367,9 +367,8 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                         border: active ? "none" : "0.5px solid var(--separator)",
                       }}
                     >
-                      <MessageCircle
+                      <ChatCircle
                         size={14}
-                        strokeWidth={1.5}
                         style={{ color: active ? "#fff" : "var(--fill-quaternary)" }}
                       />
                     </div>
@@ -417,7 +416,7 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                         className={`${BTN_ICON.sm} shrink-0 opacity-0 transition-opacity duration-100 group-hover/chat:opacity-100`}
                         style={{ color: "var(--fill-tertiary)" }}
                       >
-                        <MoreHorizontal {...ICON.sm} />
+                        <DotsThree />
                       </button>
                     )}
                   </div>

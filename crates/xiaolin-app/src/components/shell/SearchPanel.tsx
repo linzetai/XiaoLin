@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo, type CSSProperties } from "react";
-import { Search, X, Loader2, User, Bot, ChevronDown } from "lucide-react";
+import { MagnifyingGlass, X, SpinnerGap, User, Robot, CaretDown } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { useSearchStore, type SearchResult } from "../../lib/stores/search-store";
 import { useChatMetaStore } from "../../lib/stores";
@@ -120,9 +120,9 @@ function SearchResultItem({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
         {isUser ? (
-          <User size={11} strokeWidth={1.8} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
+          <User size={11} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
         ) : (
-          <Bot size={11} strokeWidth={1.8} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
+          <Robot size={11} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
         )}
         <span style={{ fontSize: 11, color: "var(--fill-quaternary)" }}>
           {isUser ? "User" : "Assistant"}
@@ -240,7 +240,7 @@ export function SearchPanel() {
             background: "var(--bg-hover)",
           }}
         >
-          <Search size={14} strokeWidth={1.75} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
+          <MagnifyingGlass style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
           <input
             ref={inputRef}
             type="text"
@@ -257,7 +257,7 @@ export function SearchPanel() {
               color: "var(--fill-primary)",
             }}
           />
-          {loading && <Loader2 size={14} strokeWidth={1.75} style={{ color: "var(--fill-quaternary)", animation: "spin 1s linear infinite", flexShrink: 0 }} />}
+          {loading && <SpinnerGap className="animate-spin" style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />}
           <button
             type="button"
             onClick={closePanel}
@@ -273,7 +273,7 @@ export function SearchPanel() {
               borderRadius: 4,
             }}
           >
-            <X size={14} strokeWidth={2} />
+            <X weight="bold" />
           </button>
         </div>
       </div>
@@ -327,7 +327,7 @@ export function SearchPanel() {
                 <option key={dir} value={dir}>{workDirLabel(dir)}</option>
               ))}
             </select>
-            <ChevronDown size={10} style={{ position: "absolute", right: 6, pointerEvents: "none", color: filters.work_dir ? "#fff" : "var(--fill-quaternary)" }} />
+            <CaretDown size={10} style={{ position: "absolute", right: 6, pointerEvents: "none", color: filters.work_dir ? "#fff" : "var(--fill-quaternary)" }} />
           </div>
         )}
         {(filters.work_dir || filters.date_from) && (

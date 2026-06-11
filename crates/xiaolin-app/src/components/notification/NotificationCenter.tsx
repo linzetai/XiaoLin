@@ -6,8 +6,8 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { Bell, Check, CheckCheck, Trash2, Clock, AlertTriangle, Info, Zap } from "lucide-react";
-import { ICON } from "../../lib/ui-tokens";
+import { Bell, Check, Checks, Trash, Clock, Warning, Info, Lightning } from "@phosphor-icons/react";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 import * as transport from "../../lib/transport";
 
 const isTauri =
@@ -35,13 +35,13 @@ function relativeTime(iso: string, tr: (key: string, opts?: Record<string, unkno
 function categoryIcon(category?: string): ReactNode {
   switch (category) {
     case "cron":
-      return <Clock {...ICON.md} />;
+      return <Clock size={ICON_SIZE.md} />;
     case "agent":
-      return <Zap {...ICON.md} />;
+      return <Lightning size={ICON_SIZE.md} />;
     case "error":
-      return <AlertTriangle {...ICON.md} />;
+      return <Warning size={ICON_SIZE.md} />;
     default:
-      return <Info {...ICON.md} />;
+      return <Info size={ICON_SIZE.md} />;
   }
 }
 
@@ -200,7 +200,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
         style={{ color: "var(--fill-quaternary)" }}
         title={t("centerTitle")}
       >
-        <Bell size={14} strokeWidth={1.5} />
+        <Bell />
         {unreadCount > 0 && (
           <span
             key={unreadCount}
@@ -255,7 +255,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
                 style={{ color: "var(--blue)" }}
                 title={t("markAllReadTitle")}
               >
-                <CheckCheck {...ICON.sm} />
+                <Checks />
                 {t("markAllRead")}
               </button>
             )}
@@ -275,7 +275,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
                 className="flex flex-col items-center justify-center py-10 gap-2"
                 style={{ color: "var(--fill-quaternary)" }}
               >
-                <Bell size={28} strokeWidth={1} />
+                <Bell size={28} weight="light" />
                 <span className="text-[12px]">{t("empty")}</span>
               </div>
             ) : (
@@ -363,7 +363,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
                         style={{ color: "var(--fill-tertiary)" }}
                         title={t("markRead")}
                       >
-                        <Check {...ICON.sm} />
+                        <Check />
                       </button>
                     )}
                     <button
@@ -372,7 +372,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
                       style={{ color: "var(--fill-tertiary)" }}
                       title={t("delete")}
                     >
-                      <Trash2 {...ICON.sm} />
+                      <Trash />
                     </button>
                   </div>
                 </div>

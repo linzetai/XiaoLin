@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import i18n from "../../i18n";
-import { Copy, ClipboardPaste, Scissors, TextSelect } from "lucide-react";
+import { Copy, ClipboardText, Scissors, TextAa } from "@phosphor-icons/react";
 
 interface MenuItem {
   label: string;
@@ -17,7 +17,7 @@ interface MenuSeparator {
 
 type MenuEntry = MenuItem | MenuSeparator;
 
-const ICON_PROPS = { size: 14, strokeWidth: 1.2 } as const;
+const ICON_PROPS = { weight: "light" as const };
 
 function isSeparator(entry: MenuEntry): entry is MenuSeparator {
   return "separator" in entry && entry.separator === true;
@@ -53,7 +53,7 @@ function buildMenuItems(target: HTMLElement): MenuEntry[] {
   if (isEditable) {
     items.push({
       label: i18n.t("common:paste"),
-      icon: <ClipboardPaste {...ICON_PROPS} />,
+      icon: <ClipboardText {...ICON_PROPS} />,
       shortcut: "Ctrl+V",
       action: async () => {
         try {
@@ -86,7 +86,7 @@ function buildMenuItems(target: HTMLElement): MenuEntry[] {
 
   items.push({
     label: i18n.t("common:selectAll"),
-    icon: <TextSelect {...ICON_PROPS} />,
+    icon: <TextAa {...ICON_PROPS} />,
     shortcut: "Ctrl+A",
     action: () => {
       if (isEditable && target instanceof HTMLInputElement) {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, RefreshCw } from "lucide-react";
-import { ICON, BTN_ICON } from "../../lib/ui-tokens";
+import { Robot, ArrowsClockwise } from "@phosphor-icons/react";
+import { ICON_SIZE, BTN_ICON } from "../../lib/ui-tokens";
 import * as wsClient from "../../lib/ws-client";
 
 interface SubAgentDef {
@@ -60,7 +60,7 @@ export function SubAgentsTab() {
           style={{ color: "var(--fill-tertiary)" }}
           title={t("refresh")}
         >
-          <RefreshCw {...ICON.sm} className={loading ? "animate-spin" : ""} />
+          <ArrowsClockwise className={loading ? "animate-spin" : ""} />
         </button>
       </div>
 
@@ -84,7 +84,7 @@ export function SubAgentsTab() {
             }}
           >
             <div className="flex items-center gap-2">
-              <Bot {...ICON.md} style={{ color: "var(--tint)", flexShrink: 0 }} />
+              <Robot size={ICON_SIZE.md} style={{ color: "var(--tint)", flexShrink: 0 }} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>

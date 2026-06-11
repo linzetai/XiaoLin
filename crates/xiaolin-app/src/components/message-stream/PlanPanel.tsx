@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { X, FileText, RefreshCw } from "lucide-react";
+import { X, FileText, ArrowsClockwise } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as transport from "../../lib/transport";
 import { onWsEvent } from "../../lib/transport";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 const remarkPlugins = [remarkGfm];
 
@@ -66,7 +66,7 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
           background: "color-mix(in srgb, var(--tint, #4299E1) 4%, transparent)",
         }}
       >
-        <FileText {...ICON.md} style={{ color: "var(--tint, #4299E1)" }} />
+        <FileText size={ICON_SIZE.md} style={{ color: "var(--tint, #4299E1)" }} />
         <span className="flex-1 text-[12px] font-semibold" style={{ color: "var(--tint, #4299E1)" }}>
           {t("plan_file")}
         </span>
@@ -75,14 +75,14 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
           className="rounded p-1 transition-colors hover:bg-[color-mix(in_srgb,var(--fill-tertiary)_10%,transparent)]"
           title={t("plan_refresh")}
         >
-          <RefreshCw {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
+          <ArrowsClockwise style={{ color: "var(--fill-tertiary)" }} />
         </button>
         <button
           onClick={onClose}
           className="rounded p-1 transition-colors hover:bg-[color-mix(in_srgb,var(--fill-tertiary)_10%,transparent)]"
           title={t("close", { ns: "common" })}
         >
-          <X {...ICON.sm} style={{ color: "var(--fill-tertiary)" }} />
+          <X style={{ color: "var(--fill-tertiary)" }} />
         </button>
       </div>
 

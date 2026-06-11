@@ -5,14 +5,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Wrench, Check, X as XIcon, ChevronRight, Plug,
-  Copy, Maximize2,
-} from "lucide-react";
+  Wrench, Check, X as XIcon, CaretRight, Plug,
+  Copy, ArrowsOut,
+} from "@phosphor-icons/react";
 import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
 import { buildToolMeta } from "./StepIndicator";
-import { ICON } from "../../lib/ui-tokens";
+import { ICON_SIZE } from "../../lib/ui-tokens";
 
 export interface ToolCall {
   id: string;
@@ -25,7 +25,7 @@ export interface ToolCall {
   metadata?: Record<string, unknown> | null;
 }
 
-const DEFAULT_META = { icon: <Wrench {...ICON.sm} /> };
+const DEFAULT_META = { icon: <Wrench  /> };
 
 function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
   if (!name.startsWith("mcp_")) return null;
@@ -33,7 +33,7 @@ function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
   const idx = rest.indexOf("_");
   const serverId = idx >= 0 ? rest.slice(0, idx) : rest;
   const toolName = idx >= 0 ? rest.slice(idx + 1) : "";
-  return { icon: <Plug {...ICON.sm} />, label: `${serverId}/${toolName}` };
+  return { icon: <Plug  />, label: `${serverId}/${toolName}` };
 }
 
 
@@ -120,7 +120,7 @@ function ImageViewer({ src }: { src: string }) {
             title={copied ? t("copied") : t("copyImage")}
             aria-label={copied ? t("copied") : t("copyImage")}
           >
-            {copied ? <Check {...ICON.sm} /> : <Copy {...ICON.sm} />}
+            {copied ? <Check  /> : <Copy  />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
@@ -129,7 +129,7 @@ function ImageViewer({ src }: { src: string }) {
             title={t("viewFullImage")}
             aria-label={t("viewFullImage")}
           >
-            <Maximize2 {...ICON.sm} />
+            <ArrowsOut />
           </button>
         </div>
       </div>
@@ -153,7 +153,7 @@ function ImageViewer({ src }: { src: string }) {
               style={{ background: "rgba(255,255,255,0.15)", color: copied ? "var(--green)" : "#fff" }}
               aria-label={copied ? t("copied") : t("copyImage")}
             >
-              {copied ? <Check {...ICON.sm} /> : <Copy {...ICON.sm} />}
+              {copied ? <Check  /> : <Copy  />}
               {copied ? t("copied") : t("copy", { ns: "common" })}
             </button>
             <button
@@ -162,7 +162,7 @@ function ImageViewer({ src }: { src: string }) {
               style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}
               aria-label={t("closePreview")}
             >
-              <XIcon {...ICON.md} />
+              <XIcon size={ICON_SIZE.md} />
             </button>
           </div>
           <img
@@ -379,9 +379,9 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
               }}
             />
           ) : isError ? (
-            <XIcon {...ICON.sm} style={{ color: "var(--red)", animation: "shake 0.3s ease-in-out" }} />
+            <XIcon  style={{ color: "var(--red)", animation: "shake 0.3s ease-in-out" }} />
           ) : (
-            <Check {...ICON.sm} style={{ color: "var(--green)", animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} />
+            <Check  style={{ color: "var(--green)", animation: "scale-spring var(--duration-normal) var(--ease-spring)" }} />
           )}
         </span>
 
@@ -410,8 +410,7 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
 
         {/* Expand chevron */}
         {hasDetails && (
-          <ChevronRight
-            {...ICON.sm}
+          <CaretRight
             className="shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-tertiary)",

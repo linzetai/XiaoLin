@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, X, Check } from "lucide-react";
+import { FolderOpen, X, Check } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
 import { useProjectStore } from "../../lib/stores";
 import { fuzzyMatch } from "../../lib/fuzzy";
@@ -125,7 +125,7 @@ export function ProjectDropdown({
         {currentProject ? (
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: currentProject.color || "#2563EB", flexShrink: 0 }} />
         ) : (
-          <FolderOpen size={12} strokeWidth={1.8} />
+          <FolderOpen size={12} />
         )}
         <span>{displayLabel}</span>
         <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
@@ -203,7 +203,7 @@ export function ProjectDropdown({
                       {project.rootPath.replace(/^\/home\/[^/]+\//, "~/")}
                     </div>
                   </div>
-                  {isActive && <Check size={13} strokeWidth={2} style={{ color: "var(--tint)", flexShrink: 0 }} />}
+                  {isActive && <Check size={13} weight="bold" style={{ color: "var(--tint)", flexShrink: 0 }} />}
                 </button>
               );
             })}
@@ -224,7 +224,7 @@ export function ProjectDropdown({
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
-              <FolderOpen size={13} strokeWidth={1.8} />
+              <FolderOpen size={13} />
               <span>{t("browseFolder")}</span>
             </button>
             {(currentProjectId || currentWorkDir) && (
@@ -241,7 +241,7 @@ export function ProjectDropdown({
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <X size={13} strokeWidth={1.8} />
+                <X size={13} />
                 <span>{t("noProject")}</span>
               </button>
             )}
