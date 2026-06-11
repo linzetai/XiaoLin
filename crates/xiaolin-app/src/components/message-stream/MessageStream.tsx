@@ -11,6 +11,7 @@ import {
   useChatLastSegments,
   useChatUsage,
   useActiveGoal,
+  useSearchStore,
 } from "../../lib/stores";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
@@ -49,6 +50,12 @@ export function MessageStream(_props: MessageStreamProps) {
   const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
   const loadChatStream = useStreamStore((s) => s.loadChatStream);
+  const pendingScrollTurnId = useSearchStore((s) => s.pendingScrollTurnId);
+  const pendingScrollSessionId = useSearchStore((s) => s.pendingScrollSessionId);
+  const highlightTurnId = useSearchStore((s) => s.highlightTurnId);
+  const navError = useSearchStore((s) => s.navError);
+  const clearPendingScroll = useSearchStore((s) => s.clearPendingScroll);
+  const clearHighlight = useSearchStore((s) => s.clearHighlight);
 
   const activeChat = useMemo((): Chat | undefined => {
     if (!activeChatMeta) return undefined;
@@ -391,6 +398,45 @@ export function MessageStream(_props: MessageStreamProps) {
     virtualizer.scrollToEnd();
   }, [chatKey]);
 
+  useEffect(() => {
+    if (!pendingScrollTurnId || !pendingScrollSessionId) return;
+    if (activeChatId !== pendingScrollSessionId) return;
+
+    const fullIdx = stream.findIndex(
+      (item) => item.type === "message" && String(item.data.id) === pendingScrollTurnId,
+    );
+    if (fullIdx < 0) return;
+
+    const neededVisible = stream.length - fullIdx;
+    if (neededVisible > visibleCount) {
+      setVisibleCount(neededVisible);
+      return;
+    }
+
+    const visibleIdx = fullIdx - paginationOffsetRef.current;
+    if (visibleIdx < 0 || visibleIdx >= displayData.length) return;
+
+    runProgrammaticScroll(() => {
+      virtualizer.scrollToIndex(visibleIdx, { align: "center", behavior: "smooth" });
+    });
+
+    clearPendingScroll();
+    setTimeout(() => clearHighlight(), 2800);
+  }, [
+    pendingScrollTurnId,
+    pendingScrollSessionId,
+    activeChatId,
+    stream,
+    visibleCount,
+    displayData.length,
+    virtualizer,
+    runProgrammaticScroll,
+    clearPendingScroll,
+    clearHighlight,
+  ]);
+
+  const { t: tSidebar } = useTranslation("sidebar");
+
   const { handleScroll, handleStartReached: _handleStartReached } = useStreamScroll({
     virtualizer,
     scrollContainerRef,
@@ -557,6 +603,27 @@ export function MessageStream(_props: MessageStreamProps) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    {navError && (
+      <div
+        style={{
+          position: "absolute",
+          top: 12,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 40,
+          padding: "8px 14px",
+          borderRadius: 8,
+          fontSize: 12,
+          background: "var(--bg-elevated)",
+          border: "0.5px solid var(--separator)",
+          boxShadow: "var(--shadow-lg)",
+          color: "var(--fill-secondary)",
+          animation: "fade-slide-up var(--duration-fast) var(--ease-out)",
+        }}
+      >
+        {tSidebar(navError)}
+      </div>
+    )}
     <div className="flex min-h-0 min-w-0 flex-1">
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col"
@@ -737,6 +804,7 @@ export function MessageStream(_props: MessageStreamProps) {
                     subAgentRuns={subAgentRuns}
                     bottomRef={bottomRef}
                     lastSegments={virtualItem.index === lastAssistantDisplayIdx ? lastSegments as import("./types").StreamSegment[] | undefined : undefined}
+                    highlightTurnId={highlightTurnId}
                   />
                 </div>
               ))}

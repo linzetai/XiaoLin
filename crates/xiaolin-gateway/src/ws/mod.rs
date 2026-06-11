@@ -11,6 +11,7 @@ mod mcp;
 mod notifications;
 mod plugins;
 mod project;
+mod search;
 mod session;
 mod skills;
 mod types;
@@ -123,6 +124,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "chat.steer", "steer",
                             "projects.list", "projects.create", "projects.update", "projects.delete", "projects.detect",
                             "git.status", "git.diff", "git.branches", "git.log", "git.stage", "git.unstage", "git.commit", "git.revert",
+                            "search.query", "search.index_status",
                             "subscribe", "unsubscribe"],
                 "authRequired": auth_required && !authenticated,
             })),
@@ -720,6 +722,12 @@ async fn dispatch(
         }
         ClientOp::CostSessions { limit } => {
             cost_ws::handle_cost_sessions(sender, state, id, limit).await;
+        }
+        ClientOp::SearchQuery { params } => {
+            search::handle_search_query(sender, state, id, params).await;
+        }
+        ClientOp::SearchIndexStatus => {
+            search::handle_search_index_status(sender, state, id).await;
         }
         ClientOp::AutomationsList => {
             automations::handle_automations_list(sender, state, id).await;

@@ -12,6 +12,7 @@ use xiaolin_core::types::ChatMessage;
 use crate::models::{
     Session, SessionCreateOutcome, SessionMessage, SessionSummary, SubAgentRunRow,
 };
+use crate::search_index::{extract_message_content, SearchIndex};
 
 const MSG_CACHE_MAX_SESSIONS: usize = 32;
 /// Per-session message count cap for the in-memory cache.
@@ -24,6 +25,7 @@ pub struct SessionStore {
     /// Uses `Arc` so readers get a cheap reference-counted clone instead of
     /// deep-copying the entire message list on every cache hit.
     msg_cache: Arc<RwLock<HashMap<String, Arc<Vec<ChatMessage>>>>>,
+    search_index: Option<Arc<SearchIndex>>,
 }
 
 impl SessionStore {
@@ -44,21 +46,24 @@ impl SessionStore {
             .connect_with(options)
             .await?;
 
-        let store = Self {
-            pool,
-            msg_cache: Arc::new(RwLock::new(HashMap::new())),
-        };
-        store.run_migrations().await?;
-
+        let store = Self::from_pool_with_search_index(pool, None).await?;
         tracing::info!(path = %db_path.display(), "session store opened");
         Ok(store)
     }
 
     /// Create a SessionStore backed by an existing pool (tables are created if missing).
     pub async fn from_pool(pool: Pool<Sqlite>) -> anyhow::Result<Self> {
+        Self::from_pool_with_search_index(pool, None).await
+    }
+
+    pub async fn from_pool_with_search_index(
+        pool: Pool<Sqlite>,
+        search_index: Option<Arc<SearchIndex>>,
+    ) -> anyhow::Result<Self> {
         let store = Self {
             pool,
             msg_cache: Arc::new(RwLock::new(HashMap::new())),
+            search_index,
         };
         store.run_migrations().await?;
         tracing::info!("session store opened (shared pool)");
@@ -81,12 +86,7 @@ impl SessionStore {
             .connect_with(options)
             .await?;
 
-        let store = Self {
-            pool,
-            msg_cache: Arc::new(RwLock::new(HashMap::new())),
-        };
-        store.run_migrations().await?;
-        Ok(store)
+        Self::from_pool_with_search_index(pool, None).await
     }
 
     async fn run_migrations(&self) -> anyhow::Result<()> {
@@ -831,8 +831,10 @@ impl SessionStore {
     /// Append a chat message to a session.
     pub async fn append_message(&self, session_id: &str, msg: &ChatMessage) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
-        Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+        let row_id = Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
         tx.commit().await?;
+
+        self.index_appended_message(session_id, msg, row_id).await;
 
         let mut cache = self.msg_cache.write().await;
         if let Some(cached) = cache.get_mut(session_id) {
@@ -847,11 +849,45 @@ impl SessionStore {
         Ok(())
     }
 
+    async fn index_appended_message(&self, session_id: &str, msg: &ChatMessage, row_id: i64) {
+        let Some(index) = self.search_index.as_ref() else {
+            return;
+        };
+
+        let role = match msg.role {
+            xiaolin_core::types::Role::User => "user",
+            xiaolin_core::types::Role::Assistant => "assistant",
+            _ => return,
+        };
+
+        let content_json = msg
+            .content
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok());
+        let Some(text) = extract_message_content(content_json.as_deref()) else {
+            return;
+        };
+
+        let turn_id = row_id.to_string();
+        let message_id = row_id.to_string();
+        if let Err(e) = index
+            .index_row(session_id, &turn_id, role, &text, Some(&message_id))
+            .await
+        {
+            tracing::warn!(
+                session_id,
+                row_id,
+                error = %e,
+                "search_index: append_messages hook failed"
+            );
+        }
+    }
+
     async fn append_message_in_transaction(
         tx: &mut Transaction<'_, Sqlite>,
         session_id: &str,
         msg: &ChatMessage,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<i64> {
         let role = serde_json::to_string(&msg.role)?;
         let role = role.trim_matches('"');
 
@@ -875,7 +911,7 @@ impl SessionStore {
             .map(serde_json::to_string)
             .transpose()?;
 
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO messages (session_id, role, content, name, tool_calls_json, tool_call_id, reasoning_content, compact_metadata_json)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
@@ -897,7 +933,7 @@ impl SessionStore {
         .execute(&mut **tx)
         .await?;
 
-        Ok(())
+        Ok(result.last_insert_rowid())
     }
 
     /// Append multiple messages in a single transaction.
@@ -911,10 +947,16 @@ impl SessionStore {
         }
 
         let mut tx = self.pool.begin().await?;
+        let mut row_ids = Vec::with_capacity(messages.len());
         for msg in messages {
-            Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+            let row_id = Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+            row_ids.push(row_id);
         }
         tx.commit().await?;
+
+        for (msg, row_id) in messages.iter().zip(row_ids.iter().copied()) {
+            self.index_appended_message(session_id, msg, row_id).await;
+        }
 
         let mut cache = self.msg_cache.write().await;
         if let Some(cached) = cache.get_mut(session_id) {
@@ -1117,11 +1159,17 @@ impl SessionStore {
         .execute(&mut *tx)
         .await?;
 
+        let mut row_ids = Vec::with_capacity(messages.len());
         for msg in messages {
-            Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+            let row_id = Self::append_message_in_transaction(&mut tx, session_id, msg).await?;
+            row_ids.push(row_id);
         }
 
         tx.commit().await?;
+
+        for (msg, row_id) in messages.iter().zip(row_ids.iter().copied()) {
+            self.index_appended_message(session_id, msg, row_id).await;
+        }
 
         let mut cache = self.msg_cache.write().await;
         cache.insert(session_id.to_string(), Arc::new(messages.to_vec()));
@@ -1155,6 +1203,15 @@ impl SessionStore {
 
         if result.rows_affected() > 0 {
             self.invalidate_msg_cache(session_id).await;
+            if let Some(index) = self.search_index.as_ref() {
+                if let Err(e) = index.delete_session(session_id).await {
+                    tracing::warn!(
+                        session_id,
+                        error = %e,
+                        "search_index: delete_session hook failed"
+                    );
+                }
+            }
         }
 
         Ok(result.rows_affected() > 0)

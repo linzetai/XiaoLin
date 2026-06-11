@@ -1212,6 +1212,11 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+@keyframes search-highlight-fade {
+  0% { background: color-mix(in srgb, var(--tint) 18%, transparent); }
+  70% { background: color-mix(in srgb, var(--tint) 12%, transparent); }
+  100% { background: transparent; box-shadow: none; }
+}
 @keyframes slide-in-right {
   from { opacity: 0; transform: translateX(var(--move-md)); }
   to { opacity: 1; transform: translateX(0); }

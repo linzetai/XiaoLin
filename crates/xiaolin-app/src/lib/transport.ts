@@ -1184,6 +1184,51 @@ export function onPluginsStatusChanged(
   });
 }
 
+// ─── Global Search ───
+
+export interface SearchResult {
+  session_id: string;
+  turn_id: string;
+  role: string;
+  message_id: string | null;
+  session_title: string;
+  work_dir: string | null;
+  snippet: string;
+  timestamp: string;
+  rank: number;
+}
+
+export interface SearchIndexStatus {
+  indexed_count: number;
+  total_count: number;
+  is_indexing: boolean;
+}
+
+export async function searchQuery(params: {
+  q: string;
+  filters?: { work_dir?: string; date_from?: string; date_to?: string };
+  page?: number;
+  limit?: number;
+}): Promise<{ results: SearchResult[]; total_estimate: number; page: number }> {
+  const resp = (await wsClient.send("search.query", params)) as {
+    data?: { results?: SearchResult[]; total_estimate?: number; page?: number };
+  };
+  return {
+    results: resp?.data?.results ?? [],
+    total_estimate: resp?.data?.total_estimate ?? 0,
+    page: resp?.data?.page ?? 0,
+  };
+}
+
+export async function searchIndexStatus(): Promise<SearchIndexStatus> {
+  const resp = (await wsClient.send("search.index_status")) as {
+    data?: SearchIndexStatus;
+  };
+  return (
+    resp?.data ?? { indexed_count: 0, total_count: 0, is_indexing: false }
+  );
+}
+
 // ─── Notifications ───
 
 export interface AppNotification {

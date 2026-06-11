@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Plus, Search, Puzzle, RefreshCw, Settings, MessageCircle, Pencil, FolderOpen, Trash2, X, ChevronRight, ChevronDown, Pin, PinOff, Archive, Palette, FolderPlus } from "lucide-react";
+import { Plus, Search, Puzzle, RefreshCw, Settings, MessageCircle, Pencil, FolderOpen, Trash2, ChevronRight, ChevronDown, Pin, PinOff, Archive, Palette, FolderPlus } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, useProjectStore } from "../../lib/stores";
+import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, useProjectStore, useSearchStore } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores";
+import { SearchPanel } from "./SearchPanel";
 import { useGatewayStore } from "../../lib/store";
-import { fuzzyMatch } from "../../lib/fuzzy";
 import type { ChatMeta } from "../../lib/stores/types";
 import type { ProjectSummary } from "../../lib/transport";
 
@@ -435,14 +435,13 @@ export function AppSidebar() {
     [chats, chatOrder],
   );
 
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const panelOpen = useSearchStore((s) => s.panelOpen);
+  const openSearchPanel = useSearchStore((s) => s.openPanel);
   const [contextMenu, setContextMenu] = useState<{ chatId: string; x: number; y: number } | null>(null);
   const [projectContextMenu, setProjectContextMenu] = useState<{ projectId: string; x: number; y: number } | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -453,20 +452,17 @@ export function AppSidebar() {
   }, [renamingChatId]);
 
   useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
+    const handleGlobalShortcut = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        useSearchStore.getState().openPanel();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcut);
+    return () => window.removeEventListener("keydown", handleGlobalShortcut);
+  }, []);
 
-  const filteredChats = useMemo(() => {
-    if (!query.trim()) return chatList;
-    return chatList
-      .map((chat) => {
-        const result = fuzzyMatch(query, chat.title || t("newChat"));
-        return result ? { chat, score: result.score } : null;
-      })
-      .filter((r): r is { chat: ChatMeta; score: number } => r !== null)
-      .sort((a, b) => b.score - a.score)
-      .map((r) => r.chat);
-  }, [chatList, query]);
+  const filteredChats = chatList;
 
   const { projectGroups, looseChats } = useMemo(() => {
     const groups: Array<{ project: ProjectSummary; sessions: ChatMeta[] }> = [];
@@ -620,57 +616,16 @@ export function AppSidebar() {
           <SidebarAction
             icon={<Search size={ICON_SIZE} strokeWidth={1.7} />}
             label={t("search")}
-            onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) { setQuery(""); } }}
+            onClick={openSearchPanel}
           />
           <SidebarAction icon={<Puzzle size={ICON_SIZE} strokeWidth={1.7} />} label={t("plugins")} onClick={() => setMainView("plugins")} />
           <SidebarAction icon={<RefreshCw size={ICON_SIZE} strokeWidth={1.7} />} label={t("automations")} onClick={() => setMainView("automations")} />
         </div>
 
-        {/* Search bar */}
-        {searchOpen && (
-          <div style={{ padding: "4px 8px 4px" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                height: 32,
-                borderRadius: 8,
-                padding: "0 8px",
-                background: "var(--bg-hover)",
-              }}
-            >
-              <Search size={14} strokeWidth={1.75} style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t("searchSessions")}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontSize: 13,
-                  color: "var(--fill-primary)",
-                }}
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  style={{ ...actionBtn, width: 18, height: 18, padding: 0, borderRadius: "50%" }}
-                >
-                  <X size={12} strokeWidth={2} />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Session list — dual section */}
+        {/* Global search panel or session list */}
+        {panelOpen ? (
+          <SearchPanel />
+        ) : (
         <div className="sidebar-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingLeft: 8, paddingBottom: 8, paddingRight: 2 }}>
 
           {/* ═══ Projects section ═══ */}
@@ -697,7 +652,7 @@ export function AppSidebar() {
                 <FolderPlus size={13} strokeWidth={1.8} />
               </button>
             </div>
-            {projectGroups.length === 0 && !query && (
+            {projectGroups.length === 0 && (
               <button
                 type="button"
                 onClick={handleAddProject}
@@ -752,7 +707,7 @@ export function AppSidebar() {
             }}>
               {t("chats")}
             </div>
-            {looseChats.length === 0 && !query && (
+            {looseChats.length === 0 && (
               <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--fill-quaternary)" }}>
                 {t("noLooseChats")}
               </div>
@@ -777,12 +732,8 @@ export function AppSidebar() {
             ))}
           </div>
 
-          {filteredChats.length === 0 && query && (
-            <div style={{ padding: "16px 8px", textAlign: "center", fontSize: 12, color: "var(--fill-quaternary)" }}>
-              {t("noMatchingSessions")}
-            </div>
-          )}
         </div>
+        )}
 
         {/* Bottom: Settings */}
         <div style={{ padding: 8, borderTop: "1px solid var(--border-shell-subtle)" }}>

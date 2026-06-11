@@ -16,7 +16,7 @@ use xiaolin_cron::CronJobStore;
 use xiaolin_evolution::{FeedbackStore, PromptDistiller, SkillStore, TrajectoryStore};
 use xiaolin_memory::{DreamingPipeline, EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use xiaolin_model_router::BudgetTracker;
-use xiaolin_session::{EventLog, SessionStore};
+use xiaolin_session::{EventLog, SearchIndex, SessionStore};
 
 use crate::memory_scope::memory_tool_agent_suffix;
 use crate::scoped_tool::RenamedTool;
@@ -33,6 +33,7 @@ struct BuildPhase1 {
     pool: sqlx::SqlitePool,
     session_store: Arc<SessionStore>,
     event_log: Arc<EventLog>,
+    search_index: Arc<SearchIndex>,
 }
 
 struct BuildPhase3 {
@@ -178,8 +179,16 @@ impl StateBuilder {
         let agent_count = agents.len();
         let db_path = helpers::resolve_db_path(&config.paths)?;
         let pool = helpers::open_unified_pool(&db_path).await?;
-        let session_store = Arc::new(SessionStore::from_pool(pool.clone()).await?);
-        let event_log = Arc::new(EventLog::new(pool.clone()));
+        let search_index = Arc::new(SearchIndex::new(pool.clone()));
+        search_index.ensure_schema().await?;
+        let session_store = Arc::new(
+            SessionStore::from_pool_with_search_index(pool.clone(), Some(search_index.clone()))
+                .await?,
+        );
+        let event_log = Arc::new(EventLog::with_search_index(
+            pool.clone(),
+            Some(search_index.clone()),
+        ));
         event_log.ensure_table().await?;
         Ok(BuildPhase1 {
             agents,
@@ -188,6 +197,7 @@ impl StateBuilder {
             pool,
             session_store,
             event_log,
+            search_index,
         })
     }
 
@@ -947,6 +957,7 @@ impl StateBuilder {
                 skill_store,
                 context_engine: Arc::new(p5.phase2.context_engine),
                 cost_store: cost_store.clone(),
+                search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
             },
             mem: super::MemoryState {
                 agent_episodic: Arc::new(p5.phase2.agent_episodic_map),
@@ -1137,6 +1148,25 @@ impl StateBuilder {
         state.spawn_skill_evolution_tasks();
 
         state.spawn_inbound_dispatcher(inbound_rx);
+
+        {
+            let search_index = state.store.search_index.clone();
+            tokio::spawn(async move {
+                match search_index.needs_backfill().await {
+                    Ok(true) => {
+                        tracing::info!("search index backfill started");
+                        if let Err(e) = search_index.bulk_index_history(None).await {
+                            tracing::warn!(error = %e, "search index backfill failed");
+                        } else {
+                            tracing::info!("search index backfill completed");
+                        }
+                    }
+                    Ok(false) => tracing::debug!("search index backfill not needed"),
+                    Err(e) => tracing::warn!(error = %e, "search index backfill check failed"),
+                }
+            });
+            tracing::info!("search index background task started");
+        }
 
         // Spawn periodic resource GC loop (60s interval)
         {

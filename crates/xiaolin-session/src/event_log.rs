@@ -1,6 +1,11 @@
-use xiaolin_protocol::AgentEvent;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use sqlx::sqlite::SqlitePool;
 use tokio::sync::mpsc;
+use xiaolin_protocol::AgentEvent;
+
+use crate::search_index::{SearchIndex, try_index_event};
 
 const BATCH_CAPACITY: usize = 1024;
 const BATCH_SIZE: usize = 64;
@@ -26,9 +31,13 @@ pub struct EventLog {
 
 impl EventLog {
     pub fn new(pool: SqlitePool) -> Self {
+        Self::with_search_index(pool, None)
+    }
+
+    pub fn with_search_index(pool: SqlitePool, search_index: Option<Arc<SearchIndex>>) -> Self {
         let (tx, rx) = mpsc::channel(BATCH_CAPACITY);
         let writer_pool = pool.clone();
-        let writer_handle = tokio::spawn(batch_writer(writer_pool, rx));
+        let writer_handle = tokio::spawn(batch_writer(writer_pool, rx, search_index));
         Self {
             pool,
             tx,
@@ -167,8 +176,13 @@ impl EventLog {
     }
 }
 
-async fn batch_writer(pool: SqlitePool, mut rx: mpsc::Receiver<EventEntry>) {
+async fn batch_writer(
+    pool: SqlitePool,
+    mut rx: mpsc::Receiver<EventEntry>,
+    search_index: Option<Arc<SearchIndex>>,
+) {
     let mut buffer: Vec<EventEntry> = Vec::with_capacity(BATCH_SIZE);
+    let mut delta_accum: HashMap<(String, String), String> = HashMap::new();
     let flush_interval = tokio::time::Duration::from_millis(FLUSH_INTERVAL_MS);
 
     loop {
@@ -180,7 +194,8 @@ async fn batch_writer(pool: SqlitePool, mut rx: mpsc::Receiver<EventEntry>) {
                     None => {
                         // Channel closed — flush remaining and exit
                         if !buffer.is_empty() {
-                            flush_batch(&pool, &mut buffer).await;
+                            flush_batch(&pool, &mut buffer, search_index.as_ref(), &mut delta_accum)
+                                .await;
                         }
                         return;
                     }
@@ -196,7 +211,8 @@ async fn batch_writer(pool: SqlitePool, mut rx: mpsc::Receiver<EventEntry>) {
                     match entry {
                         Some(e) => buffer.push(e),
                         None => {
-                            flush_batch(&pool, &mut buffer).await;
+                            flush_batch(&pool, &mut buffer, search_index.as_ref(), &mut delta_accum)
+                                .await;
                             return;
                         }
                     }
@@ -205,11 +221,16 @@ async fn batch_writer(pool: SqlitePool, mut rx: mpsc::Receiver<EventEntry>) {
             }
         }
 
-        flush_batch(&pool, &mut buffer).await;
+        flush_batch(&pool, &mut buffer, search_index.as_ref(), &mut delta_accum).await;
     }
 }
 
-async fn flush_batch(pool: &SqlitePool, buffer: &mut Vec<EventEntry>) {
+async fn flush_batch(
+    pool: &SqlitePool,
+    buffer: &mut Vec<EventEntry>,
+    search_index: Option<&Arc<SearchIndex>>,
+    delta_accum: &mut HashMap<(String, String), String>,
+) {
     if buffer.is_empty() {
         return;
     }
@@ -232,8 +253,41 @@ async fn flush_batch(pool: &SqlitePool, buffer: &mut Vec<EventEntry>) {
     }
     .await;
 
-    if let Err(e) = result {
-        tracing::warn!(count = buffer.len(), error = %e, "event_log: batch flush failed");
+    match result {
+        Ok(()) => {
+            if let Some(index) = search_index {
+                for entry in buffer.iter() {
+                    if let Some((role, content)) = try_index_event(
+                        &entry.event_type,
+                        &entry.event_json,
+                        delta_accum,
+                        &entry.session_id,
+                        &entry.turn_id,
+                    ) {
+                        if let Err(e) = index
+                            .index_row(
+                                &entry.session_id,
+                                &entry.turn_id,
+                                &role,
+                                &content,
+                                None,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                session_id = %entry.session_id,
+                                turn_id = %entry.turn_id,
+                                error = %e,
+                                "search_index: event_log hook failed"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(count = buffer.len(), error = %e, "event_log: batch flush failed");
+        }
     }
 
     buffer.clear();

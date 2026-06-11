@@ -35,5 +35,18 @@
   "waitingForInput": "等待输入...",
   "searchProjectOrPath": "搜索项目或输入路径...",
   "browseFolder": "浏览文件夹...",
-  "noProject": "不使用项目"
+  "noProject": "不使用项目",
+  "globalSearchPlaceholder": "搜索消息...",
+  "globalSearchHint": "搜索所有对话中的消息",
+  "globalSearchShortcut": "⌘K / Ctrl+K",
+  "globalSearchNoResults": "未找到与「{{query}}」匹配的结果",
+  "indexingProgress": "正在索引历史消息 ({{indexed}}/{{total}})",
+  "filterToday": "今天",
+  "filterThisWeek": "本周",
+  "filterThisMonth": "本月",
+  "filterAllProjects": "全部项目",
+  "filterClear": "清除",
+  "loadMore": "加载更多",
+  "loadingMore": "加载中...",
+  "navFailed": "无法定位到该消息"
 }

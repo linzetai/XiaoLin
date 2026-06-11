@@ -5,6 +5,7 @@ pub mod history;
 pub mod id;
 pub mod message;
 pub mod op;
+pub mod search;
 pub mod tool_spec;
 pub mod usage;
 
@@ -19,6 +20,10 @@ pub use id::{AgentId, MessageId, SessionId, SubmissionId, ToolCallId, TurnId};
 pub use message::{
     AskQuestionOption, CompactTrigger, ContentPart, ExecutionMode, MessagePhase, MessageTarget,
     Role,
+};
+pub use search::{
+    SearchFilters, SearchIndexStatusResponse, SearchQueryRequest, SearchQueryResponse,
+    SearchResult,
 };
 #[allow(deprecated)]
 pub use op::{

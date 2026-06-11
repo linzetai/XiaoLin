@@ -24,7 +24,7 @@ use xiaolin_evolution::{
 };
 use xiaolin_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use xiaolin_model_router::BudgetTracker;
-use xiaolin_session::{EventLog, SessionStore};
+use xiaolin_session::{EventLog, SearchIndex, SessionStore};
 #[cfg(any(test, feature = "test-helpers"))]
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
@@ -104,6 +104,7 @@ pub struct StorageState {
     pub skill_store: Arc<SkillStore>,
     pub context_engine: Arc<xiaolin_context::ContextEngine>,
     pub cost_store: Arc<xiaolin_session::CostStore>,
+    pub search_index: Arc<SearchIndex>,
 }
 
 pub(crate) struct LlmSkillExtraction {
@@ -1681,8 +1682,27 @@ impl AppState {
         )));
 
         let db_path = tmp.join("sessions.db");
-        let session_store = Arc::new(SessionStore::open(&db_path).await?);
-        let event_log = Arc::new(EventLog::new(session_store.pool()));
+        let pool = {
+            let opts = SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true)
+                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                .foreign_keys(true);
+            SqlitePoolOptions::new()
+                .max_connections(2)
+                .connect_with(opts)
+                .await?
+        };
+        let search_index = Arc::new(SearchIndex::new(pool.clone()));
+        search_index.ensure_schema().await?;
+        let session_store = Arc::new(
+            SessionStore::from_pool_with_search_index(pool.clone(), Some(search_index.clone()))
+                .await?,
+        );
+        let event_log = Arc::new(EventLog::with_search_index(
+            pool,
+            Some(search_index.clone()),
+        ));
         event_log.ensure_table().await?;
         let message_bus = Arc::new(MessageBus::new(128));
         for aid in ["main"] {
@@ -1822,6 +1842,7 @@ impl AppState {
                 cost_store: Arc::new(
                     xiaolin_session::CostStore::open(session_store.pool()).await?,
                 ),
+                search_index,
             },
             mem: MemoryState {
                 agent_episodic: Arc::new(test_ep_map),

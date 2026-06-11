@@ -343,6 +343,12 @@ pub enum ClientOp {
         limit: Option<i64>,
     },
 
+    // ── Search ───────────────────────────────────────────────────────
+    SearchQuery {
+        params: crate::search::SearchQueryRequest,
+    },
+    SearchIndexStatus,
+
     // ── Automations (user-facing wrapper over cron) ──────────────────
     AutomationsList,
     AutomationsCreate {
@@ -813,6 +819,15 @@ impl ClientOp {
             "cost.sessions" => Ok(Self::CostSessions {
                 limit: params.get("limit").and_then(|v| v.as_i64()),
             }),
+            "search.query" => {
+                let search_params: crate::search::SearchQueryRequest =
+                    serde_json::from_value(params)
+                        .map_err(|e| format!("invalid search.query params: {e}"))?;
+                Ok(Self::SearchQuery {
+                    params: search_params,
+                })
+            }
+            "search.index_status" => Ok(Self::SearchIndexStatus),
             "automations.list" => Ok(Self::AutomationsList),
             "automations.create" => Ok(Self::AutomationsCreate { params }),
             "automations.update" => Ok(Self::AutomationsUpdate {

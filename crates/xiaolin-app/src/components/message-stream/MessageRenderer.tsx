@@ -536,6 +536,7 @@ export interface MessageRendererRowProps {
   isSelected?: boolean;
   onToggleSelect?: (fullIdx: number) => void;
   lastSegments?: StreamSegment[];
+  highlightTurnId?: string | null;
 }
 
 export const MessageRendererRow = memo(function MessageRendererRow({
@@ -552,6 +553,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   isSelected,
   onToggleSelect,
   lastSegments,
+  highlightTurnId,
 }: MessageRendererRowProps) {
   if (item.type === "brief") {
     return <BriefMessageCard data={item.data as BriefMessageData} />;
@@ -566,6 +568,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   const fullIdx = idx + paginationOffset;
   const isMatch = !isStreaming && searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
   const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
+  const isHighlighted = !isStreaming && highlightTurnId != null && String(cm.id) === highlightTurnId;
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -687,7 +690,15 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     <div
       ref={rowRef}
       className="msg-row"
-      style={{ padding: "0 clamp(24px, 5%, 80px)" }}
+      data-turn-id={String(cm.id)}
+      style={{
+        padding: "0 clamp(24px, 5%, 80px)",
+        borderRadius: isHighlighted ? 8 : undefined,
+        background: isHighlighted ? "color-mix(in srgb, var(--tint) 12%, transparent)" : undefined,
+        boxShadow: isHighlighted ? "inset 0 0 0 1px color-mix(in srgb, var(--tint) 30%, transparent)" : undefined,
+        animation: isHighlighted ? "search-highlight-fade 2.5s ease-out forwards" : undefined,
+        transition: "background 0.3s, box-shadow 0.3s",
+      }}
     >
       {cm.role === "user" ? (
         <UserInput
@@ -721,6 +732,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     prev.searchIdx === next.searchIdx &&
     prev.lastSegments === next.lastSegments &&
     prev.selectMode === next.selectMode &&
-    prev.isSelected === next.isSelected
+    prev.isSelected === next.isSelected &&
+    prev.highlightTurnId === next.highlightTurnId
   );
 });

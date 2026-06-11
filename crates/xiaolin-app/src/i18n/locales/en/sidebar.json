@@ -35,5 +35,18 @@
   "waitingForInput": "Waiting for input...",
   "searchProjectOrPath": "Search projects or enter path...",
   "browseFolder": "Browse folder...",
-  "noProject": "No project"
+  "noProject": "No project",
+  "globalSearchPlaceholder": "Search messages...",
+  "globalSearchHint": "Search across all conversations",
+  "globalSearchShortcut": "⌘K / Ctrl+K",
+  "globalSearchNoResults": "No results found for \"{{query}}\"",
+  "indexingProgress": "Indexing messages ({{indexed}}/{{total}})",
+  "filterToday": "Today",
+  "filterThisWeek": "This week",
+  "filterThisMonth": "This month",
+  "filterAllProjects": "All projects",
+  "filterClear": "Clear",
+  "loadMore": "Load more",
+  "loadingMore": "Loading...",
+  "navFailed": "Could not locate the message"
 }
