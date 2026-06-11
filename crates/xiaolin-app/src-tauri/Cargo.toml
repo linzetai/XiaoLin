@@ -45,7 +45,7 @@ xiaolin-cron = { path = "../../xiaolin-cron" }
 xiaolin-observe = { path = "../../xiaolin-observe" }
 xiaolin-security = { path = "../../xiaolin-security" }
 tauri-plugin-dialog = "2"
-tauri-plugin-mcp-bridge = "0.11"
+tauri-plugin-connector = "0.12"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = "2"

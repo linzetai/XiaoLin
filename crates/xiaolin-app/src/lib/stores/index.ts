@@ -18,6 +18,10 @@ export { useGitStore, initGitStore, destroyGitStore } from "./git-store";
 export { useUIStore, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "./ui-store";
 export { useSearchStore } from "./search-store";
 export type { SearchResult, SearchFilters, SearchIndexStatus } from "./search-store";
+export { useTerminalStore } from "./terminal-store";
+export type { TerminalSession, TerminalLine } from "./terminal-store";
+export { usePtyStore } from "./pty-store";
+export type { PtySession } from "./pty-store";
 export {
   useActiveChatId,
   useActiveChatMeta,

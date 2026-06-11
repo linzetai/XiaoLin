@@ -60,6 +60,17 @@ impl std::fmt::Display for SandboxBackend {
     }
 }
 
+/// Progress update sent by a tool during streaming execution.
+#[derive(Debug, Clone)]
+pub struct ToolProgressEvent {
+    pub message: String,
+    pub partial_output: Option<String>,
+    pub progress: Option<f64>,
+}
+
+/// Sender for tool progress events (optional, used by streaming tools).
+pub type ToolProgressTx = tokio::sync::mpsc::Sender<ToolProgressEvent>;
+
 /// Context provided to a `ToolRuntime` during execution.
 #[derive(Debug, Clone)]
 pub struct ToolExecContext {
@@ -67,6 +78,9 @@ pub struct ToolExecContext {
     pub session_id: SessionId,
     pub call_id: String,
     pub cwd: std::path::PathBuf,
+    /// Optional channel for emitting progress updates during execution.
+    /// If `None`, the tool executes in batch mode (no streaming).
+    pub progress_tx: Option<ToolProgressTx>,
 }
 
 /// Errors that can occur during orchestrated tool execution.

@@ -11,6 +11,7 @@ mod evolution;
 mod health;
 mod llm_plugin;
 mod memory;
+mod pty;
 mod session;
 mod stt;
 pub(crate) mod subagent;
@@ -187,6 +188,9 @@ pub fn api_routes() -> Router<AppState> {
             "/api/v1/channels/wechat/reload",
             post(wechat::reload_channel),
         )
+        // PTY interactive terminal
+        .route("/api/v1/pty", get(pty::pty_ws_handler))
+        .route("/api/v1/pty/sessions", get(pty::pty_list_handler))
         // Cost tracking
         .route("/api/v1/cost/summary", get(cost::get_cost_summary))
         .route("/api/v1/cost/daily", get(cost::get_daily_tokens))

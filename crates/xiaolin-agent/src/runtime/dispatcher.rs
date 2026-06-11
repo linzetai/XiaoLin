@@ -419,6 +419,7 @@ impl ToolDispatcher {
             let mut orch_ctx = OrchestratorContext {
                 turn_id: ctx.turn_id,
                 cwd: &cwd,
+                call_id: &tc.id,
                 approval_cache: ctx.approval_cache,
                 approval_strategy: ctx.approval_strategy,
                 interaction_handle: ctx.interaction_handle,
@@ -447,6 +448,7 @@ impl ToolDispatcher {
         let mut orch_ctx = OrchestratorContext {
             turn_id: ctx.turn_id,
             cwd: &cwd,
+            call_id: &tc.id,
             approval_cache: ctx.approval_cache,
             approval_strategy: ctx.approval_strategy,
             interaction_handle: ctx.interaction_handle,

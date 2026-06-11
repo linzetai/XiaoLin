@@ -1003,6 +1003,7 @@ impl StateBuilder {
                     )),
                 )),
                 session_manager: session_manager.clone(),
+                pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
             },
             svc: super::SharedServices {
                 runtime: runtime_for_session,

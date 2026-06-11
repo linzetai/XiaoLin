@@ -35,7 +35,7 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "mcp-bridge:default",
+    "connector:default",
     "updater:default",
     "process:allow-restart",
     "process:allow-exit"

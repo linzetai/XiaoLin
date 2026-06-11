@@ -27,6 +27,7 @@ members = [
     "extensions/wechat",
     "crates/xiaolin-protocol",
     "crates/xiaolin-session-actor",
+    "crates/xiaolin-pty",
     "crates/xiaolin-app/src-tauri",
 ]
 resolver = "2"

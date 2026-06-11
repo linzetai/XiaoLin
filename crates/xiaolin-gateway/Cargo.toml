@@ -22,6 +22,7 @@ xiaolin-tools-fs = { path = "../xiaolin-tools-fs" }
 xiaolin-feishu = { path = "../../extensions/feishu" }
 xiaolin-wechat = { path = "../../extensions/wechat" }
 xiaolin-model-router = { path = "../xiaolin-model-router" }
+xiaolin-pty = { path = "../xiaolin-pty" }
 tokio.workspace = true
 axum.workspace = true
 tower-http.workspace = true

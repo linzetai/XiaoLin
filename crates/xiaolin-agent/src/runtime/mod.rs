@@ -1383,6 +1383,7 @@ impl AgentRuntime {
             );
 
             const MAX_STREAM_RESUME_ATTEMPTS: u32 = 5;
+            const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
             let mut stream_resume_attempts: u32 = 0;
 
             let newly_replaced = apply_message_budget(
@@ -1539,7 +1540,33 @@ impl AgentRuntime {
                 let mut first_chunk = true;
                 let mut should_resume = false;
                 let mut delta_count: u64 = 0;
-                while let Some(result) = stream.next().await {
+                loop {
+                    let maybe_result = tokio::time::timeout(
+                        if first_chunk {
+                            std::time::Duration::from_secs(180)
+                        } else {
+                            STREAM_IDLE_TIMEOUT
+                        },
+                        stream.next(),
+                    )
+                    .await;
+
+                    let result = match maybe_result {
+                        Ok(Some(r)) => r,
+                        Ok(None) => break,
+                        Err(_elapsed) => {
+                            tracing::error!(
+                                delta_count,
+                                idle_secs = if first_chunk { 180 } else { 90 },
+                                "stream idle timeout — no chunk received, treating as stall"
+                            );
+                            Err(anyhow::anyhow!(
+                                "stream idle timeout: no data for {}s after {} chunks",
+                                if first_chunk { 180 } else { 90 },
+                                delta_count
+                            ))
+                        }
+                    };
                     delta_count += 1;
                     if first_chunk {
                         tracing::info!(
@@ -1560,16 +1587,58 @@ impl AgentRuntime {
                                 break;
                             }
 
-                            if tool_call_accum.is_empty()
-                                && !accumulated_content.is_empty()
-                                && stream_resume_attempts < MAX_STREAM_RESUME_ATTEMPTS
-                            {
+                            if stream_resume_attempts < MAX_STREAM_RESUME_ATTEMPTS {
+                                if accumulated_content.is_empty()
+                                    && accumulated_reasoning.is_empty()
+                                    && tool_call_accum.is_empty()
+                                {
+                                    tracing::warn!(
+                                        error = %e,
+                                        attempt = stream_resume_attempts + 1,
+                                        "stream interrupted before any content; direct retry"
+                                    );
+                                    stream_resume_attempts += 1;
+                                    should_resume = true;
+                                    break;
+                                }
+
+                                if tool_call_accum.is_empty() {
+                                    tracing::warn!(
+                                        error = %e,
+                                        attempt = stream_resume_attempts + 1,
+                                        partial_len = accumulated_content.len(),
+                                        "streaming LLM interrupted; best-effort resume with partial assistant context"
+                                    );
+                                    let rc = std::mem::take(&mut accumulated_reasoning);
+                                    let partial = std::mem::take(&mut accumulated_content);
+                                    if !partial.is_empty() || !rc.is_empty() {
+                                        messages.push(ChatMessage {
+                                            role: Role::Assistant,
+                                            content: if partial.is_empty() {
+                                                None
+                                            } else {
+                                                Some(serde_json::Value::String(partial))
+                                            },
+                                            reasoning_content: if rc.is_empty() {
+                                                None
+                                            } else {
+                                                Some(rc)
+                                            },
+                                            ..Default::default()
+                                        });
+                                    }
+                                    stream_resume_attempts += 1;
+                                    should_resume = true;
+                                    break;
+                                }
+
                                 tracing::warn!(
                                     error = %e,
                                     attempt = stream_resume_attempts + 1,
-                                    partial_len = accumulated_content.len(),
-                                    "streaming LLM interrupted; best-effort resume with partial assistant context"
+                                    tool_calls_partial = tool_call_accum.len(),
+                                    "stream interrupted during tool call accumulation; discarding partial tool calls and retrying"
                                 );
+                                tool_call_accum.clear();
                                 let rc = std::mem::take(&mut accumulated_reasoning);
                                 let partial = std::mem::take(&mut accumulated_content);
                                 if !partial.is_empty() || !rc.is_empty() {
@@ -1592,12 +1661,21 @@ impl AgentRuntime {
                                 should_resume = true;
                                 break;
                             }
+
                             let err_msg = e.to_string();
+                            tracing::error!(
+                                error = %err_msg,
+                                attempts = stream_resume_attempts,
+                                "stream recovery exhausted — giving up"
+                            );
                             let _ = send_stream_event(
                                 tx,
                                 AgentEvent::StreamError {
                                     turn_id: turn_id.clone(),
-                                    message: err_msg.clone(),
+                                    message: format!(
+                                        "流式响应超时（已重试{}次）: {}",
+                                        stream_resume_attempts, err_msg
+                                    ),
                                     error_code: classify_stream_error_code(&err_msg),
                                     retry_attempt: stream_resume_attempts,
                                 },

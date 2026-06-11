@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use xiaolin_core::tool_runtime::{
     ApprovalStrategy, DecisionSource, ExecApprovalRequirement, OrchestratorResult, SandboxAttempt,
-    SandboxBackend, ToolExecContext, ToolRuntimeError,
+    SandboxBackend, ToolExecContext, ToolProgressEvent, ToolRuntimeError,
 };
 
 use super::runtimes::ErasedToolRuntime;
@@ -92,6 +92,7 @@ fn action_to_command_tokens(action: &PendingAction) -> Vec<String> {
 pub struct OrchestratorContext<'a> {
     pub turn_id: &'a TurnId,
     pub cwd: &'a Path,
+    pub call_id: &'a str,
     pub approval_cache: &'a mut ApprovalCache,
     pub approval_strategy: &'a ApprovalStrategy,
     pub interaction_handle: Option<&'a InteractionHandle>,
@@ -180,15 +181,45 @@ impl ToolOrchestrator {
         // Phase 3: Select sandbox
         let sandbox = self.select_sandbox(runtime, ctx.cwd);
 
-        // Phase 4: Execute
+        // Phase 4: Execute with progress forwarding
+        let tool_name = runtime.name().to_string();
+        let call_id = ctx.call_id.to_string();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<ToolProgressEvent>(64);
+
         let exec_ctx = ToolExecContext {
             turn_id: ctx.turn_id.clone(),
             session_id: xiaolin_protocol::SessionId::new(""),
-            call_id: uuid::Uuid::new_v4().to_string(),
+            call_id: call_id.clone(),
             cwd: ctx.cwd.to_path_buf(),
+            progress_tx: Some(progress_tx),
         };
 
-        match runtime.run(args, &sandbox, &exec_ctx).await {
+        // Forward progress events to the agent event stream
+        let progress_fwd = {
+            let event_tx = ctx.event_tx.clone();
+            let turn_id = ctx.turn_id.clone();
+            let tool_name_fwd = tool_name.clone();
+            let call_id_fwd = call_id.clone();
+            tokio::spawn(async move {
+                while let Some(evt) = progress_rx.recv().await {
+                    let _ = event_tx.send(AgentEvent::ToolProgress {
+                        turn_id: turn_id.clone(),
+                        tool_name: tool_name_fwd.clone(),
+                        call_id: call_id_fwd.clone(),
+                        message: evt.message,
+                        progress: evt.progress,
+                        partial_output: evt.partial_output,
+                    }).await;
+                }
+            })
+        };
+
+        let run_result = runtime.run(args, &sandbox, &exec_ctx).await;
+        // Drop the context to close progress_tx, allowing the forwarding task to finish
+        drop(exec_ctx);
+        let _ = progress_fwd.await;
+
+        match run_result {
             Ok(output) => Ok(OrchestratorResult {
                 output,
                 decision_source,
@@ -201,7 +232,14 @@ impl ToolOrchestrator {
                         sandbox_type: SandboxBackend::None,
                         cwd: ctx.cwd.to_path_buf(),
                     };
-                    let output = runtime.run(args, &no_sandbox, &exec_ctx).await?;
+                    let escalation_ctx = ToolExecContext {
+                        turn_id: ctx.turn_id.clone(),
+                        session_id: xiaolin_protocol::SessionId::new(""),
+                        call_id: call_id.clone(),
+                        cwd: ctx.cwd.to_path_buf(),
+                        progress_tx: None,
+                    };
+                    let output = runtime.run(args, &no_sandbox, &escalation_ctx).await?;
                     Ok(OrchestratorResult {
                         output,
                         decision_source,
@@ -560,6 +598,7 @@ decision = "allow"
         let mut ctx = OrchestratorContext {
             turn_id: &turn_id,
             cwd: Path::new("/tmp"),
+            call_id: "test-call-1",
             approval_cache: &mut cache,
             approval_strategy: &ApprovalStrategy::DenyAll,
             interaction_handle: None,
@@ -593,6 +632,7 @@ decision = "allow"
         let mut ctx = OrchestratorContext {
             turn_id: &turn_id,
             cwd: Path::new("/tmp"),
+            call_id: "test-call-2",
             approval_cache: &mut cache,
             approval_strategy: &ApprovalStrategy::AutoApprove,
             interaction_handle: None,
@@ -627,6 +667,7 @@ decision = "allow"
         let mut ctx = OrchestratorContext {
             turn_id: &turn_id,
             cwd: Path::new("/tmp"),
+            call_id: "test-call-3",
             approval_cache: &mut cache,
             approval_strategy: &ApprovalStrategy::AutoApprove,
             interaction_handle: None,
@@ -658,6 +699,7 @@ decision = "allow"
         let mut ctx = OrchestratorContext {
             turn_id: &turn_id,
             cwd: Path::new("/tmp"),
+            call_id: "test-call-4",
             approval_cache: &mut cache,
             approval_strategy: &ApprovalStrategy::DenyAll,
             interaction_handle: None,
@@ -694,6 +736,7 @@ decision = "allow"
         let mut ctx = OrchestratorContext {
             turn_id: &turn_id,
             cwd: Path::new("/tmp"),
+            call_id: "test-call-5",
             approval_cache: &mut cache,
             approval_strategy: &ApprovalStrategy::DenyAll,
             interaction_handle: None,

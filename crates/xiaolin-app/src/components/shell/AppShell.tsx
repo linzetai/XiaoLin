@@ -1,17 +1,19 @@
 import { type ReactNode, useEffect } from "react";
-import { GitBranch, Target } from "lucide-react";
+import { GitBranch, Target, Terminal } from "lucide-react";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
 import { ContentBlock } from "./ContentBlock";
 import { useWorkspaceTabs } from "./workspace-tabs";
 import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
 import { GoalTabContent } from "./GoalPanel";
-import { useGitStore } from "../../lib/stores";
+import { TerminalTabContent } from "./TerminalTabContent";
+import { useGitStore, useTerminalStore } from "../../lib/stores";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const registerTab = useWorkspaceTabs((s) => s.registerTab);
   const activeTabId = useWorkspaceTabs((s) => s.activeTabId);
   const gitStatus = useGitStore((s) => s.status);
+  const terminalSessions = useTerminalStore((s) => s.sessions);
 
   useEffect(() => {
     registerTab({
@@ -29,6 +31,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       component: GoalTabContent,
       order: 2,
     });
+    registerTab({
+      id: "terminal",
+      label: "Terminal",
+      icon: Terminal,
+      component: TerminalTabContent,
+      order: 3,
+    });
   }, [registerTab]);
 
   useEffect(() => {
@@ -44,6 +53,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       }));
     }
   }, [gitStatus, activeTabId]);
+
+  useEffect(() => {
+    const runningCount = Object.values(terminalSessions).filter((s) => s.status === "running").length;
+    const shouldBadge = activeTabId !== "terminal" && runningCount > 0;
+    useWorkspaceTabs.setState((s) => ({
+      tabs: s.tabs.map((t) => t.id === "terminal" ? { ...t, badge: shouldBadge ? true : undefined } : t),
+    }));
+  }, [terminalSessions, activeTabId]);
 
   return (
     <div

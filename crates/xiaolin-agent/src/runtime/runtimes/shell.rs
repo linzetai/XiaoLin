@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use async_trait::async_trait;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt, SandboxBackend, SandboxPreference,
-    Sandboxable, ToolExecContext, ToolRuntime, ToolRuntimeError,
+    Sandboxable, ToolExecContext, ToolProgressEvent, ToolRuntime, ToolRuntimeError,
 };
 use xiaolin_protocol::approval::PendingAction;
 use xiaolin_sandbox::SandboxManager;
@@ -150,37 +151,96 @@ impl ToolRuntime for ShellRuntime {
 
         let start = std::time::Instant::now();
 
-        let child = cmd.spawn().map_err(|e| ToolRuntimeError::Internal {
+        let mut child = cmd.spawn().map_err(|e| ToolRuntimeError::Internal {
             message: format!("failed to spawn shell: {e}"),
         })?;
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            child.wait_with_output(),
-        )
-        .await
-        .map_err(|_| ToolRuntimeError::Timeout {
-            elapsed_ms: timeout_ms,
-        })?
-        .map_err(|e| ToolRuntimeError::Internal {
-            message: format!("process error: {e}"),
-        })?;
+        let (stdout_str, stderr_str, status) = if let Some(ref progress_tx) = ctx.progress_tx {
+            // Streaming mode: read stdout/stderr line by line and emit progress
+            let stdout_pipe = child.stdout.take();
+            let stderr_pipe = child.stderr.take();
+
+            let stdout_task = tokio::spawn({
+                let tx = progress_tx.clone();
+                async move {
+                    let mut lines = Vec::new();
+                    if let Some(pipe) = stdout_pipe {
+                        let mut reader = BufReader::new(pipe).lines();
+                        while let Ok(Some(line)) = reader.next_line().await {
+                            let _ = tx.send(ToolProgressEvent {
+                                message: String::new(),
+                                partial_output: Some(format!("{line}\n")),
+                                progress: None,
+                            }).await;
+                            lines.push(line);
+                        }
+                    }
+                    lines
+                }
+            });
+
+            let stderr_task = tokio::spawn({
+                let tx = progress_tx.clone();
+                async move {
+                    let mut lines = Vec::new();
+                    if let Some(pipe) = stderr_pipe {
+                        let mut reader = BufReader::new(pipe).lines();
+                        while let Ok(Some(line)) = reader.next_line().await {
+                            let _ = tx.send(ToolProgressEvent {
+                                message: String::new(),
+                                partial_output: Some(format!("{line}\n")),
+                                progress: None,
+                            }).await;
+                            lines.push(line);
+                        }
+                    }
+                    lines
+                }
+            });
+
+            let exit_status = tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                child.wait(),
+            )
+            .await
+            .map_err(|_| ToolRuntimeError::Timeout { elapsed_ms: timeout_ms })?
+            .map_err(|e| ToolRuntimeError::Internal {
+                message: format!("process error: {e}"),
+            })?;
+
+            let stdout_lines = stdout_task.await.unwrap_or_default();
+            let stderr_lines = stderr_task.await.unwrap_or_default();
+
+            (stdout_lines.join("\n"), stderr_lines.join("\n"), exit_status)
+        } else {
+            // Batch mode: original wait_with_output behavior
+            let output = tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                child.wait_with_output(),
+            )
+            .await
+            .map_err(|_| ToolRuntimeError::Timeout { elapsed_ms: timeout_ms })?
+            .map_err(|e| ToolRuntimeError::Internal {
+                message: format!("process error: {e}"),
+            })?;
+            (
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+                output.status,
+            )
+        };
 
         let duration_ms = start.elapsed().as_millis();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
 
         #[cfg(unix)]
-        let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
+        let signal = std::os::unix::process::ExitStatusExt::signal(&status);
         #[cfg(not(unix))]
         let signal: Option<i32> = None;
 
-        // Signal-death escalation: if killed by SIGABRT/SIGKILL/SIGSYS with
-        // empty stdout while inside a sandbox, treat as sandbox policy failure.
         if let Some(sig) = signal {
             let sandbox_active = effective_sandbox != SandboxBackend::None;
-            let is_sandbox_signal = matches!(sig, 6 | 9 | 31); // SIGABRT, SIGKILL, SIGSYS
-            if sandbox_active && is_sandbox_signal && stdout.is_empty() {
+            let is_sandbox_signal = matches!(sig, 6 | 9 | 31);
+            if sandbox_active && is_sandbox_signal && stdout_str.is_empty() {
                 return Err(ToolRuntimeError::SandboxDenied {
                     reason: format!(
                         "process killed by signal {sig} (sandbox policy violation suspected)"
@@ -189,7 +249,7 @@ impl ToolRuntime for ShellRuntime {
             }
         }
 
-        let exit_code_str = match (output.status.code(), signal) {
+        let exit_code_str = match (status.code(), signal) {
             (Some(code), _) => format!("{code}"),
             (None, Some(sig)) => format!("SIGNAL({sig})"),
             (None, None) => "-1".to_string(),
@@ -200,13 +260,13 @@ impl ToolRuntime for ShellRuntime {
             "exit_code={exit_code_str}\nduration_ms={duration_ms}\ncwd={cwd_display}\n---\n"
         );
 
-        if stderr.is_empty() {
-            result.push_str(&stdout);
+        if stderr_str.is_empty() {
+            result.push_str(&stdout_str);
         } else {
             result.push_str("stdout:\n");
-            result.push_str(&stdout);
+            result.push_str(&stdout_str);
             result.push_str("\nstderr:\n");
-            result.push_str(&stderr);
+            result.push_str(&stderr_str);
         }
 
         Ok(result)
@@ -327,6 +387,7 @@ mod tests {
             session_id: xiaolin_protocol::SessionId::new("s1"),
             call_id: "c1".into(),
             cwd: std::path::PathBuf::from("/tmp"),
+            progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
         assert!(result.contains("hello"));
@@ -349,6 +410,7 @@ mod tests {
             session_id: xiaolin_protocol::SessionId::new("s1"),
             call_id: "c1".into(),
             cwd: std::path::PathBuf::from("/tmp"),
+            progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
         assert!(result.contains("bypass_test"));
@@ -368,6 +430,7 @@ mod tests {
             session_id: xiaolin_protocol::SessionId::new("s1"),
             call_id: "c1".into(),
             cwd: std::path::PathBuf::from("/tmp"),
+            progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
         let lines: Vec<&str> = result.lines().collect();
@@ -390,6 +453,7 @@ mod tests {
             session_id: xiaolin_protocol::SessionId::new("s1"),
             call_id: "c1".into(),
             cwd: std::path::PathBuf::from("/tmp"),
+            progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await;
         assert!(matches!(result, Err(ToolRuntimeError::Timeout { .. })));

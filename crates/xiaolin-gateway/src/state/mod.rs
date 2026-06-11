@@ -257,6 +257,7 @@ pub struct StreamState {
     pub subagent_manager: Arc<xiaolin_agent::SubAgentManager>,
     pub session_manager: Arc<xiaolin_session_actor::SessionManager>,
     pub git_watcher_manager: crate::git_watcher::SharedGitWatcherManager,
+    pub pty_manager: Arc<xiaolin_pty::PtySessionManager>,
 }
 
 /// Services shared across session actors and the gateway.
@@ -1877,6 +1878,7 @@ impl AppState {
                 ws_broadcast,
                 subagent_manager,
                 session_manager: session_manager.clone(),
+                pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
             },
             svc: SharedServices {
                 runtime,

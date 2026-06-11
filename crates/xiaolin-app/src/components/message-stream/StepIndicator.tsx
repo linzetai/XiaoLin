@@ -5,8 +5,9 @@ import {
   FileText, PenLine, Search, Terminal, Globe, Download, Monitor,
   Brain, Database, Image, Volume2, PackageSearch, PackagePlus,
   TableProperties, Play, Wrench, Check, X as XIcon, ChevronRight, Plug,
-  Copy, Maximize2, ListTodo, Code2, Compass,
+  Copy, Maximize2, ListTodo, Code2, Compass, ExternalLink,
 } from "lucide-react";
+import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
@@ -381,6 +382,49 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   );
 }
 
+function ShellResultSummary({ result }: { result: string }) {
+  const { t } = useTranslation("chat");
+  const setActiveTab = useWorkspaceTabs((s) => s.setActiveTab);
+
+  const parsed = useMemo(() => {
+    const exitMatch = result.match(/exit_code=(\d+)/);
+    const durationMatch = result.match(/duration_ms=(\d+)/);
+    const cwdMatch = result.match(/cwd=(.+)/);
+    return {
+      exitCode: exitMatch ? Number(exitMatch[1]) : null,
+      durationMs: durationMatch ? Number(durationMatch[1]) : null,
+      cwd: cwdMatch ? cwdMatch[1].trim() : null,
+    };
+  }, [result]);
+
+  return (
+    <div
+      className="ml-6 flex items-center gap-3 px-2.5 pb-1.5 text-[10px]"
+      style={{ color: "var(--fill-quaternary)" }}
+    >
+      {parsed.exitCode !== null && (
+        <span style={{ color: parsed.exitCode === 0 ? "var(--green)" : "var(--red)" }}>
+          exit_code={parsed.exitCode}
+        </span>
+      )}
+      {parsed.durationMs !== null && (
+        <span>{t("duration", { ns: "common", defaultValue: "duration" })}={formatDuration(parsed.durationMs)}</span>
+      )}
+      {parsed.cwd && parsed.cwd !== "." && (
+        <span className="truncate max-w-[120px]" title={parsed.cwd}>cwd={parsed.cwd}</span>
+      )}
+      <button
+        onClick={() => setActiveTab("terminal")}
+        className="ml-auto flex items-center gap-0.5 text-[10px] font-medium"
+        style={{ color: "var(--tint)", cursor: "pointer" }}
+      >
+        <ExternalLink size={10} strokeWidth={1.5} />
+        {t("viewTerminal", { ns: "chat", defaultValue: "Terminal" })}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Card-style step indicator with category-colored icon badge.
  * 36px row height, 1px border, 8px radius.
@@ -395,6 +439,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
   const keyInfo = useMemo(() => extractKeyInfo(tool), [tool.args]);
   const hasDetails = !!(tool.args || tool.result);
   const category = getToolCategory(tool.name);
+  const isShell = category === "shell";
 
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
@@ -405,6 +450,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
     isEditResult(tool.name, tool.result) ||
     isPlanExitResult(tool.name, tool.result, tool.metadata as PlanApprovalMetadata | undefined)
   );
+  const canExpand = hasDetails && !hasSpecialResult && !isShell;
 
   return (
     <div
@@ -418,16 +464,16 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
     >
       {/* Header row */}
       <button
-        onClick={() => hasDetails && !hasSpecialResult && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!expanded)}
         className="tc-h flex w-full items-center gap-2 px-2.5 text-left transition-colors duration-100"
         style={{
-          cursor: hasDetails && !hasSpecialResult ? "pointer" : "default",
+          cursor: canExpand ? "pointer" : "default",
           minHeight: "var(--step-height)",
           background: isRunning ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
         }}
         onMouseEnter={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
         onMouseLeave={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = ""; }}
-        aria-expanded={hasDetails && !hasSpecialResult ? expanded : undefined}
+        aria-expanded={canExpand ? expanded : undefined}
       >
         {/* Category-colored icon badge */}
         <span
@@ -486,7 +532,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
         </span>
 
         {/* Expand chevron */}
-        {hasDetails && !hasSpecialResult && (
+        {canExpand && (
           <ChevronRight
             size={12}
             strokeWidth={1.5}
@@ -530,44 +576,51 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
         </div>
       )}
 
-      {/* Expandable body — grid-template-rows animation */}
-      <div
-        className="tc-bd"
-        style={{
-          display: "grid",
-          gridTemplateRows: expanded && hasDetails && !hasSpecialResult ? "1fr" : "0fr",
-          transition: "grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1)",
-        }}
-      >
-        <div className="tc-bd-in overflow-hidden">
-          {hasDetails && !hasSpecialResult && (
-            <div
-              className="px-2.5 pb-2 pt-1.5"
-              style={{ borderTop: "1px solid var(--separator)" }}
-            >
-              {tool.args && (
-                <div className="mb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>{t("params")}</span>
-                  <pre
-                    className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
-                    style={{
-                      background: "var(--bg-primary)",
-                      color: "var(--fill-secondary)",
-                      border: "0.5px solid var(--separator)",
-                      fontFamily: "var(--font-mono)",
-                      maxHeight: "200px",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {tryPrettyJson(tool.args)}
-                  </pre>
-                </div>
-              )}
-              {tool.result && <OutputBlock content={tool.result} error={isError} />}
-            </div>
-          )}
+      {/* Shell tools: simplified inline status + "View in Terminal" */}
+      {isShell && !isRunning && tool.result && (
+        <ShellResultSummary result={tool.result} />
+      )}
+
+      {/* Expandable body — grid-template-rows animation (hidden for shell tools) */}
+      {category !== "shell" && (
+        <div
+          className="tc-bd"
+          style={{
+            display: "grid",
+            gridTemplateRows: expanded && hasDetails && !hasSpecialResult ? "1fr" : "0fr",
+            transition: "grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1)",
+          }}
+        >
+          <div className="tc-bd-in overflow-hidden">
+            {hasDetails && !hasSpecialResult && (
+              <div
+                className="px-2.5 pb-2 pt-1.5"
+                style={{ borderTop: "1px solid var(--separator)" }}
+              >
+                {tool.args && (
+                  <div className="mb-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>{t("params")}</span>
+                    <pre
+                      className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md p-2 text-[11px] leading-[1.5]"
+                      style={{
+                        background: "var(--bg-primary)",
+                        color: "var(--fill-secondary)",
+                        border: "0.5px solid var(--separator)",
+                        fontFamily: "var(--font-mono)",
+                        maxHeight: "200px",
+                        overflowY: "auto",
+                      }}
+                    >
+                      {tryPrettyJson(tool.args)}
+                    </pre>
+                  </div>
+                )}
+                {tool.result && <OutputBlock content={tool.result} error={isError} />}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 });

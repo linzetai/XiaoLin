@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type RefObject, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatMetaStore, useStreamStore, useQueueStore, useLocaleStore } from "../../lib/stores";
+import { useChatMetaStore, useStreamStore, useQueueStore, useLocaleStore, useTerminalStore } from "../../lib/stores";
 import { handleGoalClearedForChat, handleGoalUpdatedForChat } from "../../lib/stores/goal-store";
 import type { ChatMessage, SubAgentRunUI } from "../../lib/stores/types";
 import { type ToolCall } from "./ToolCallCard";
@@ -524,6 +524,11 @@ export function useMessageStreamChat({
               args: d.args as string | undefined,
               startTime: Date.now(),
             };
+            if (tc.name === "shell_exec") {
+              let cmd: string | undefined;
+              try { cmd = d.args ? JSON.parse(d.args as string)?.command : undefined; } catch { /* ignore */ }
+              useTerminalStore.getState().startSession(tc.id, tc.name, cmd);
+            }
             if (isActive()) {
               const existing = segmentsRef.current.find((s) => s.type === "tool" && s.toolCall?.id === tc.id);
               if (existing?.toolCall) {
@@ -540,12 +545,25 @@ export function useMessageStreamChat({
             }
             break;
           }
+          case "tool_progress": {
+            const d = event.data;
+            if (!d?.call_id) break;
+            const callId = d.call_id as string;
+            const partial = d.partial_output as string | undefined;
+            if (partial) {
+              useTerminalStore.getState().appendOutput(callId, partial);
+            }
+            break;
+          }
           case "tool_result": {
             const d = event.data;
             if (!d?.tool_name) return;
             const callId = (d.call_id ?? d.tool_name) as string;
             const output = (d.display_output ?? d.output) as string | undefined;
             const meta = (d.metadata ?? null) as Record<string, unknown> | null;
+            if (d.tool_name === "shell_exec") {
+              useTerminalStore.getState().endSession(callId);
+            }
             if (isActive()) {
               const seg = segmentsRef.current.find((s) => s.type === "tool" && s.toolCall?.id === callId);
               if (seg?.toolCall) {

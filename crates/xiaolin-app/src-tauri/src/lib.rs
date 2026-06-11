@@ -168,12 +168,8 @@ pub fn run() {
             None,
         ))
         .plugin({
-            let mcp_port = std::env::var("MCP_BRIDGE_PORT")
-                .ok()
-                .and_then(|s| s.parse::<u16>().ok())
-                .unwrap_or(9223);
-            tauri_plugin_mcp_bridge::Builder::new()
-                .base_port(mcp_port)
+            tauri_plugin_connector::ConnectorBuilder::new()
+                .bind_address("127.0.0.1")
                 .build()
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
