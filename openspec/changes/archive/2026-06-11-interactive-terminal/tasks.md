@@ -38,5 +38,5 @@
 ## 6. 验证与测试
 
 - [x] 6.1 后端单元测试：PtySession 创建/读写/resize/关闭
-- [ ] 6.2 E2E 测试：通过 MCP 工具验证终端输入/输出/resize
-- [ ] 6.3 跨平台验证：Linux 基本功能 + macOS 兼容性检查
+- [x] 6.2 E2E 测试：通过 MCP 工具验证终端输入/输出/resize
+- [x] 6.3 跨平台验证：Linux 基本功能 + macOS 兼容性检查
