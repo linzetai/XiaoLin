@@ -65,6 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           flex: 1,
           minHeight: 0,
           background: "var(--bg-shell)",
+          paddingRight: 3,
         }}
       >
         <AppSidebar />

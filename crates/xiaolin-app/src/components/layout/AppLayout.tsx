@@ -17,7 +17,7 @@ const isTauri =
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 
-const RESIZE_HIT = 5;
+const RESIZE_HIT = 3;
 
 function WindowResizeHandles() {
   if (!isTauri) return null;

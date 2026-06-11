@@ -8,9 +8,38 @@ pub(crate) struct ToolCallAccumulator {
 }
 
 impl ToolCallAccumulator {
-    pub(crate) fn to_tool_call(&self) -> ToolCall {
-        let arguments = ensure_json_arguments(&self.arguments);
-        ToolCall {
+    pub(crate) fn to_tool_calls(&self) -> Vec<ToolCall> {
+        let trimmed = self.arguments.trim();
+
+        if let Some(split) = try_split_concatenated_json(trimmed) {
+            tracing::info!(
+                tool = %self.name,
+                count = split.len(),
+                "split concatenated tool call arguments into separate calls"
+            );
+            return split
+                .into_iter()
+                .enumerate()
+                .map(|(i, args)| ToolCall {
+                    id: if i == 0 {
+                        self.id.clone()
+                    } else {
+                        format!("{}_split_{}", self.id, i)
+                    },
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: self.name.clone(),
+                        arguments: args,
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                })
+                .collect();
+        }
+
+        let arguments = ensure_json_arguments(trimmed);
+        vec![ToolCall {
             id: self.id.clone(),
             call_type: "function".to_string(),
             function: FunctionCall {
@@ -20,7 +49,76 @@ impl ToolCallAccumulator {
             output: None,
             success: None,
             duration_ms: None,
+        }]
+    }
+}
+
+/// Detect and split concatenated JSON objects like `{"cmd":"a"}{"cmd":"b"}`.
+/// Returns None if the input is a single valid JSON or not splittable.
+fn try_split_concatenated_json(s: &str) -> Option<Vec<String>> {
+    if s.is_empty() || !s.starts_with('{') {
+        return None;
+    }
+    if serde_json::from_str::<serde_json::Value>(s).is_ok() {
+        return None;
+    }
+
+    let mut objects = Vec::new();
+    let mut chars = s.chars().peekable();
+
+    while chars.peek().is_some() {
+        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
         }
+        if chars.peek() != Some(&'{') {
+            break;
+        }
+
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut escape = false;
+        let mut obj = String::new();
+
+        for ch in chars.by_ref() {
+            obj.push(ch);
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' && in_str {
+                escape = true;
+                continue;
+            }
+            if ch == '"' {
+                in_str = !in_str;
+                continue;
+            }
+            if in_str {
+                continue;
+            }
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if depth == 0 && serde_json::from_str::<serde_json::Value>(&obj).is_ok() {
+            objects.push(obj);
+        } else {
+            return None;
+        }
+    }
+
+    if objects.len() >= 2 {
+        Some(objects)
+    } else {
+        None
     }
 }
 
@@ -170,5 +268,67 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
             "fallback JSON should be valid: {repaired}"
         );
+    }
+
+    #[test]
+    fn split_concatenated_json_objects() {
+        let input = r#"{"command": "ls", "description": "list"}{"command": "pwd", "description": "show cwd"}"#;
+        let result = try_split_concatenated_json(input);
+        assert!(result.is_some());
+        let parts = result.unwrap();
+        assert_eq!(parts.len(), 2);
+        assert!(parts[0].contains("\"ls\""));
+        assert!(parts[1].contains("\"pwd\""));
+    }
+
+    #[test]
+    fn split_three_concatenated_objects() {
+        let input = r#"{"command": "a"}{"command": "b"}{"command": "c"}"#;
+        let result = try_split_concatenated_json(input);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn single_valid_json_not_split() {
+        let input = r#"{"command": "ls -la", "description": "list all"}"#;
+        let result = try_split_concatenated_json(input);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn to_tool_calls_splits_concatenated() {
+        let acc = ToolCallAccumulator {
+            id: "call_123".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: r#"{"command": "ls"}{"command": "pwd"}"#.to_string(),
+        };
+        let calls = acc.to_tool_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "call_123");
+        assert_eq!(calls[1].id, "call_123_split_1");
+        assert!(calls[0].function.arguments.contains("\"ls\""));
+        assert!(calls[1].function.arguments.contains("\"pwd\""));
+    }
+
+    #[test]
+    fn to_tool_calls_single_normal_call() {
+        let acc = ToolCallAccumulator {
+            id: "call_456".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: r#"{"command": "echo hello"}"#.to_string(),
+        };
+        let calls = acc.to_tool_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_456");
+    }
+
+    #[test]
+    fn split_handles_nested_braces_in_strings() {
+        let input = r#"{"command": "echo '{hello}'"} {"command": "cat /tmp/x"}"#;
+        let result = try_split_concatenated_json(input);
+        assert!(result.is_some());
+        let parts = result.unwrap();
+        assert_eq!(parts.len(), 2);
     }
 }

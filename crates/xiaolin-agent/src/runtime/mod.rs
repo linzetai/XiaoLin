@@ -1662,7 +1662,9 @@ impl AgentRuntime {
                                             if let Some(acc) = tool_call_accum.get(si) {
                                                 if !acc.name.is_empty() {
                                                     if !runtime_registry.as_ref().is_some_and(|r| r.has(&acc.name)) {
-                                                        executor.add_tool(acc.to_tool_call());
+                                                        for tc in acc.to_tool_calls() {
+                                                            executor.add_tool(tc);
+                                                        }
                                                     }
                                                     last_submitted_tool_idx = Some(si);
                                                 }
@@ -2079,7 +2081,7 @@ impl AgentRuntime {
                             let tc: Vec<ToolCall> = tool_call_accum
                                 .iter()
                                 .filter(|a| !a.name.is_empty())
-                                .map(|a| a.to_tool_call())
+                                .flat_map(|a| a.to_tool_calls())
                                 .collect();
                             if tc.is_empty() {
                                 None
@@ -2247,7 +2249,7 @@ impl AgentRuntime {
             let assembled_calls: Vec<ToolCall> = tool_call_accum
                 .iter()
                 .filter(|a| !a.name.is_empty())
-                .map(|a| a.to_tool_call())
+                .flat_map(|a| a.to_tool_calls())
                 .collect();
 
             if assembled_calls.is_empty() {

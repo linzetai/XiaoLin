@@ -23,6 +23,7 @@ use super::permissions::DenialTracker;
 use super::runtimes::RuntimeRegistry;
 use super::tool_executor::truncate_tool_result_output_with_limit;
 use crate::builtin_tools::ExecutionModeState;
+use xiaolin_core::agent_config::FileAccessMode;
 use xiaolin_tools_fs::filesystem::{with_additional_allowed_paths, with_file_access_mode, with_work_dir};
 
 /// Result tuple returned by dispatch: (tool_name, call_id, arguments, result).
@@ -437,7 +438,7 @@ impl ToolDispatcher {
                 };
             }
 
-            return self.execute_unguarded(tc, ctx).await;
+            return self.execute_with_full_access(tc, ctx).await;
         }
 
         // Full orchestrator pipeline (approval + sandbox + execution) for tools
@@ -478,6 +479,33 @@ impl ToolDispatcher {
             Some(tool) => {
                 with_file_access_mode(
                     ctx.behavior.file_access,
+                    with_additional_allowed_paths(
+                        extra_paths,
+                        with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),
+                    ),
+                )
+                .await
+            }
+            None => ToolResult::err(format!("tool not found: {}", tc.function.name)),
+        }
+    }
+
+    /// Execute a tool with Full file access after explicit user approval.
+    /// User approval means the user has reviewed and accepted the specific action,
+    /// so path restrictions should not block execution.
+    async fn execute_with_full_access(
+        &self,
+        tc: &ToolCall,
+        ctx: &DispatchContext<'_>,
+    ) -> ToolResult {
+        let extra_paths =
+            resolve_additional_allowed_paths(&ctx.behavior.additional_allowed_paths);
+        let work_dir_path = ctx.work_dir.as_ref().map(PathBuf::from);
+
+        match self.tool_registry.get(&tc.function.name) {
+            Some(tool) => {
+                with_file_access_mode(
+                    FileAccessMode::Full,
                     with_additional_allowed_paths(
                         extra_paths,
                         with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),

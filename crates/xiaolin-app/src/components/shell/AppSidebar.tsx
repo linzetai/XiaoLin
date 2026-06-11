@@ -602,7 +602,8 @@ export function AppSidebar() {
           flexDirection: "column",
           background: "var(--bg-shell)",
           minHeight: 0,
-          overflow: "hidden",
+          overflowX: "visible",
+          overflowY: "hidden",
           transition: dragging ? "none" : "width 0.2s ease",
           position: "relative",
           pointerEvents: collapsed ? "none" : "auto",
@@ -670,7 +671,7 @@ export function AppSidebar() {
         )}
 
         {/* Session list — dual section */}
-        <div className="sidebar-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 8px" }}>
+        <div className="sidebar-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingLeft: 8, paddingBottom: 8, paddingRight: 2 }}>
 
           {/* ═══ Projects section ═══ */}
           <div style={{ marginBottom: 8 }}>
@@ -788,15 +789,15 @@ export function AppSidebar() {
           <SidebarAction icon={<Settings size={ICON_SIZE} strokeWidth={1.7} />} label={t("settings")} onClick={openSettings} />
         </div>
 
-        {/* Resize handle */}
+        {/* Resize handle — mostly in content area to avoid blocking sidebar scrollbar */}
         {!collapsed && (
           <div
             style={{
               position: "absolute",
-              right: 0,
+              right: -14,
               top: 0,
               bottom: 0,
-              width: 6,
+              width: 16,
               cursor: "col-resize",
               zIndex: 10,
             }}
@@ -808,13 +809,14 @@ export function AppSidebar() {
             <div
               style={{
                 position: "absolute",
-                right: 0,
+                left: 2,
                 top: 0,
                 bottom: 0,
                 width: 2,
+                borderRadius: 1,
                 background: dragging ? "var(--tint)" : "var(--fill-quaternary)",
-                opacity: (resizeHovered || dragging) ? (dragging ? 1 : 0.4) : 0,
-                transition: "opacity 0.15s",
+                opacity: (resizeHovered || dragging) ? (dragging ? 1 : 0.6) : 0,
+                transition: "opacity 0.15s, background 0.15s",
               }}
             />
           </div>

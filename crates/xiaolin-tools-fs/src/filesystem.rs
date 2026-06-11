@@ -77,6 +77,11 @@ fn workspace_root() -> std::io::Result<PathBuf> {
             return Ok(dir);
         }
     }
+    if let Some(home) = dirs::home_dir() {
+        if home.is_dir() {
+            return Ok(home);
+        }
+    }
     std::env::current_dir()
 }
 

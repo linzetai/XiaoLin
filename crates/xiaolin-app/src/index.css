@@ -564,8 +564,8 @@
     display: none;
   }
 
-  .sidebar-list::-webkit-scrollbar { width: 3px; }
-  .sidebar-list::-webkit-scrollbar:hover { width: 6px; }
+  .sidebar-list::-webkit-scrollbar { width: 8px; }
+  .sidebar-list::-webkit-scrollbar-thumb { min-height: 36px; }
 
   /* Surface depth classes */
   .surface-elevated {
@@ -622,17 +622,25 @@
 /* ━━━ Scrollbar / Selection / Focus ━━━ */
 @layer base {
   * { scrollbar-gutter: stable; }
-  ::-webkit-scrollbar { width: 4px; height: 4px; transition: width 0.2s, height 0.2s; }
-  ::-webkit-scrollbar:hover { width: 8px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; transition: background 0.2s; }
-  ::-webkit-scrollbar-track:hover { background: var(--bg-hover); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: var(--fill-quaternary);
-    border-radius: 10px;
-    border: 1px solid transparent;
-    background-clip: content-box;
+    background: color-mix(in srgb, var(--fill-quaternary) 60%, transparent);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 48px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: var(--fill-tertiary); background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fill-tertiary);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--fill-secondary);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
 
   ::selection {
     background: var(--selection-bg);
