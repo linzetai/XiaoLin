@@ -12,6 +12,20 @@ use xiaolin_protocol::AgentEvent;
 
 use crate::subagent_manager::SubAgentManager;
 
+tokio::task_local! {
+    /// Session ID available to SubAgentTool during execution.
+    /// Set by session_bridge before running the agent loop.
+    pub static SUBAGENT_SESSION_ID: String;
+}
+
+/// Scope a future with the current session ID for SubAgentTool event routing.
+pub async fn with_subagent_session_id<F, T>(session_id: String, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    SUBAGENT_SESSION_ID.scope(session_id, fut).await
+}
+
 /// A tool that spawns a child agent to handle a delegated task.
 ///
 /// Backed by [`SubAgentManager`] for lifecycle management, concurrency control,
@@ -326,8 +340,20 @@ impl Tool for SubAgentTool {
         let parent_tx = match &self.parent_tx {
             Some(tx) => tx.clone(),
             None => {
-                let (tx, _rx) = mpsc::channel(16);
-                tx
+                let effective_session_id = SUBAGENT_SESSION_ID
+                    .try_with(|s| s.clone())
+                    .unwrap_or_else(|_| self.parent_session_id.clone());
+
+                if let Some(tx) = self.manager.get_session_tx(&effective_session_id) {
+                    tx
+                } else {
+                    tracing::warn!(
+                        session_id = %effective_session_id,
+                        "SubAgentTool: no parent_tx and no session tx registered — events will be lost"
+                    );
+                    let (tx, _rx) = mpsc::channel(16);
+                    tx
+                }
             }
         };
 

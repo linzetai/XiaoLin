@@ -7,6 +7,7 @@ import type {
   ChatUsage,
   StreamItem,
   SubAgentRunUI,
+  SubAgentNotification,
   SubAgentToolCall,
   BackendMessage,
   ChatMessageToolCall,
@@ -43,6 +44,7 @@ export interface StreamState {
   subAgentToolStart: (chatId: string, runId: string, toolCall: SubAgentToolCall) => void;
   subAgentToolDone: (chatId: string, runId: string, callId: string, output: string, success: boolean) => void;
   subAgentComplete: (chatId: string, runId: string, status: string, result?: string, toolCallsMade?: number, iterations?: number, elapsedMs?: number) => void;
+  subAgentNotification: (chatId: string, runId: string, message: string) => void;
 }
 
 export const useStreamStore = create<StreamState>((set) => ({
@@ -317,6 +319,27 @@ export const useStreamStore = create<StreamState>((set) => ({
               toolCallsMade: toolCallsMade ?? run.toolCallsMade,
               iterations: iterations ?? run.iterations,
               elapsedMs: elapsedMs ?? run.elapsedMs,
+            },
+          },
+        },
+      };
+    });
+  },
+
+  subAgentNotification: (chatId, runId, message) => {
+    set((state) => {
+      const runs = state.subAgentRuns[chatId];
+      const run = runs?.[runId];
+      if (!run) return state;
+      const notification: SubAgentNotification = { message, timestamp: Date.now() };
+      return {
+        subAgentRuns: {
+          ...state.subAgentRuns,
+          [chatId]: {
+            ...runs,
+            [runId]: {
+              ...run,
+              notifications: [...run.notifications, notification],
             },
           },
         },

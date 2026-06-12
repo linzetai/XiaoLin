@@ -1,7 +1,4 @@
 use xiaolin_core::agent_config::SubAgentPolicy;
-use xiaolin_core::types::{ChatMessage, Role};
-
-use super::trajectory::append_text_to_chat_content;
 
 pub(crate) fn memory_tool_suffix(agent_id: &str) -> String {
     agent_id
@@ -16,12 +13,6 @@ pub(crate) fn memory_tool_suffix(agent_id: &str) -> String {
         .collect()
 }
 
-#[allow(dead_code)]
-pub(crate) fn append_subagent_prompt_to_system(messages: &mut [ChatMessage], block: &str) {
-    if let Some(sys) = messages.first_mut().filter(|m| m.role == Role::System) {
-        append_text_to_chat_content(&mut sys.content, block);
-    }
-}
 
 /// Information needed to dynamically inject sub-agent guidance into the system prompt.
 pub struct SubAgentPromptContext<'a> {

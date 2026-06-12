@@ -61,6 +61,11 @@ export interface SubAgentToolCall {
   result?: string;
 }
 
+export interface SubAgentNotification {
+  message: string;
+  timestamp: number;
+}
+
 export interface SubAgentRunUI {
   runId: string;
   agentId: string;
@@ -74,6 +79,7 @@ export interface SubAgentRunUI {
   toolCallsMade: number;
   iterations: number;
   elapsedMs?: number;
+  notifications: SubAgentNotification[];
 }
 
 export interface ChatStreamSegment {

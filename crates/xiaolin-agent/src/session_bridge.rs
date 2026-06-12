@@ -440,21 +440,26 @@ impl RuntimeTurnExecutor {
             ));
 
             let reprompt_result = {
+                let session_id_for_scope = session_id.to_string();
                 let wrapped_fut = async move {
                     let runtime_with_ih = crate::builtin_tools::with_interaction_handle(
                         ih_for_tools,
                         runtime_fut,
                     );
+                    let runtime_with_session = crate::with_subagent_session_id(
+                        session_id_for_scope,
+                        runtime_with_ih,
+                    );
                     if let Some(ms) = mode_state_c {
                         crate::builtin_tools::with_stream_context(
                             stream_ctx_key_inner,
-                            crate::builtin_tools::with_session_mode(ms, plan_ctx_c, runtime_with_ih),
+                            crate::builtin_tools::with_session_mode(ms, plan_ctx_c, runtime_with_session),
                         )
                         .await
                     } else {
                         crate::builtin_tools::with_stream_context(
                             stream_ctx_key_inner,
-                            runtime_with_ih,
+                            runtime_with_session,
                         )
                         .await
                     }
@@ -614,6 +619,10 @@ impl TurnExecutor for RuntimeTurnExecutor {
             }
         });
 
+        if let Some(ref mgr) = self.subagent_manager {
+            mgr.register_session_tx(&session_id_str, inner_tx.clone());
+        }
+
         let subagent_prompt = self.subagent_manager.as_ref().and_then(|mgr| {
             let policy = &config.behavior.subagent;
             let available = mgr.agent_descriptions();
@@ -697,6 +706,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
             ));
 
             let steer_inbox_inner = steer_inbox.clone();
+            let session_id_for_scope = session_id_str.clone();
             let wrapped_fut = async move {
                 let runtime_with_ih = crate::builtin_tools::with_interaction_handle(
                     ih_for_tools,
@@ -706,16 +716,20 @@ impl TurnExecutor for RuntimeTurnExecutor {
                     steer_inbox_inner,
                     runtime_with_ih,
                 );
+                let runtime_with_session = crate::with_subagent_session_id(
+                    session_id_for_scope,
+                    runtime_with_steer,
+                );
                 if let Some(ms) = mode_state {
                     crate::builtin_tools::with_stream_context(
                         stream_ctx_key_inner,
-                        crate::builtin_tools::with_session_mode(ms, plan_ctx, runtime_with_steer),
+                        crate::builtin_tools::with_session_mode(ms, plan_ctx, runtime_with_session),
                     )
                     .await
                 } else {
                     crate::builtin_tools::with_stream_context(
                         stream_ctx_key_inner,
-                        runtime_with_steer,
+                        runtime_with_session,
                     )
                     .await
                 }
@@ -760,6 +774,10 @@ impl TurnExecutor for RuntimeTurnExecutor {
 
         if let Some(ref map) = self.stream_event_tx {
             map.remove(&stream_context_key);
+        }
+
+        if let Some(ref mgr) = self.subagent_manager {
+            mgr.unregister_session_tx(&session_id_str);
         }
 
         tracing::info!(

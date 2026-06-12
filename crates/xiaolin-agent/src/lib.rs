@@ -44,5 +44,7 @@ pub use spawn_controller::{
     ActiveAgentInfo, ConcurrencySnapshot, RwState, SessionSnapshot, SlotEvent, SpawnConfig,
     SpawnController, SpawnControllerError,
 };
-pub use subagent::{SubAgentGetTool, SubAgentListTool, SubAgentTool, WaitAgentTool};
+pub use subagent::{
+    with_subagent_session_id, SubAgentGetTool, SubAgentListTool, SubAgentTool, WaitAgentTool,
+};
 pub use subagent_manager::{SubAgentInheritedContext, SubAgentManager};

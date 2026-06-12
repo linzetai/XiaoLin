@@ -59,6 +59,7 @@ export function useMessageStreamChat({
   const subAgentToolStart = useStreamStore((s) => s.subAgentToolStart);
   const subAgentToolDone = useStreamStore((s) => s.subAgentToolDone);
   const subAgentComplete = useStreamStore((s) => s.subAgentComplete);
+  const subAgentNotification = useStreamStore((s) => s.subAgentNotification);
   const addBriefMessage = useStreamStore((s) => s.addBriefMessage);
 
   const decisionLabel = useCallback((decision: string) =>
@@ -703,6 +704,7 @@ export function useMessageStreamChat({
               toolCalls: [],
               toolCallsMade: 0,
               iterations: 0,
+              notifications: [],
             };
             subAgentStart(capturedChatId, run);
             break;
@@ -747,6 +749,17 @@ export function useMessageStreamChat({
                 d.tool_calls_made as number | undefined,
                 d.iterations as number | undefined,
                 d.elapsed_ms as number | undefined,
+              );
+            }
+            break;
+          }
+          case "sub_agent_notification": {
+            const d = event.data;
+            if (d?.run_id && d?.message) {
+              subAgentNotification(
+                capturedChatId,
+                d.run_id as string,
+                d.message as string,
               );
             }
             break;

@@ -34,17 +34,18 @@ pub struct SubAgentManager {
     cancel_tokens: Arc<DashMap<String, CancellationToken>>,
     controller: Arc<SpawnController>,
     orchestrator: Arc<ToolOrchestrator>,
-    #[allow(dead_code)]
-    default_policy: SubAgentPolicy,
     /// Per-session completion broadcast channels for the reactive loop.
     completion_channels: Arc<DashMap<String, broadcast::Sender<CompletionSummary>>>,
+    /// Per-session event senders for streaming SubAgent events to the frontend.
+    /// Registered by session_bridge at turn start, unregistered at turn end.
+    session_event_senders: Arc<DashMap<String, mpsc::Sender<AgentEvent>>>,
 }
 
 impl SubAgentManager {
     pub fn new(
         runtime: Arc<AgentRuntime>,
         available_agents: Vec<AgentConfig>,
-        default_policy: SubAgentPolicy,
+        _default_policy: SubAgentPolicy,
         controller: Arc<SpawnController>,
     ) -> Self {
         Self {
@@ -55,13 +56,28 @@ impl SubAgentManager {
             cancel_tokens: Arc::new(DashMap::new()),
             controller,
             orchestrator: Arc::new(ToolOrchestrator::new()),
-            default_policy,
             completion_channels: Arc::new(DashMap::new()),
+            session_event_senders: Arc::new(DashMap::new()),
         }
     }
 
     pub fn controller(&self) -> &Arc<SpawnController> {
         &self.controller
+    }
+
+    /// Register a session's event sender so SubAgentTool can forward streaming events.
+    pub fn register_session_tx(&self, session_id: &str, tx: mpsc::Sender<AgentEvent>) {
+        self.session_event_senders.insert(session_id.to_string(), tx);
+    }
+
+    /// Unregister a session's event sender (called when a turn ends).
+    pub fn unregister_session_tx(&self, session_id: &str) {
+        self.session_event_senders.remove(session_id);
+    }
+
+    /// Get the event sender for a session (used by SubAgentTool).
+    pub fn get_session_tx(&self, session_id: &str) -> Option<mpsc::Sender<AgentEvent>> {
+        self.session_event_senders.get(session_id).map(|r| r.value().clone())
     }
 
     /// Update the available agents list (e.g. after config reload).
