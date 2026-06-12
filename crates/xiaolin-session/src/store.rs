@@ -1194,7 +1194,8 @@ impl SessionStore {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Delete a session and all its messages.
+    /// Delete a session and all its messages, including filesystem artifacts
+    /// (sidechains, tool results).
     pub async fn delete_session(&self, session_id: &str) -> anyhow::Result<bool> {
         let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
             .bind(session_id)
@@ -1209,6 +1210,23 @@ impl SessionStore {
                         session_id,
                         error = %e,
                         "search_index: delete_session hook failed"
+                    );
+                }
+            }
+
+            // Clean up filesystem artifacts (sidechains, tool results)
+            let session_dir = dirs::home_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join(".xiaolin")
+                .join("sessions")
+                .join(session_id);
+            if tokio::fs::try_exists(&session_dir).await.unwrap_or(false) {
+                if let Err(e) = tokio::fs::remove_dir_all(&session_dir).await {
+                    tracing::warn!(
+                        session_id,
+                        path = %session_dir.display(),
+                        error = %e,
+                        "failed to cleanup session filesystem directory"
                     );
                 }
             }

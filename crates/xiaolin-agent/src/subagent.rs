@@ -337,13 +337,13 @@ impl Tool for SubAgentTool {
             "spawning sub-agent"
         );
 
+        let effective_session_id = SUBAGENT_SESSION_ID
+            .try_with(|s| s.clone())
+            .unwrap_or_else(|_| self.parent_session_id.clone());
+
         let parent_tx = match &self.parent_tx {
             Some(tx) => tx.clone(),
             None => {
-                let effective_session_id = SUBAGENT_SESSION_ID
-                    .try_with(|s| s.clone())
-                    .unwrap_or_else(|_| self.parent_session_id.clone());
-
                 if let Some(tx) = self.manager.get_session_tx(&effective_session_id) {
                     tx
                 } else {
@@ -375,7 +375,7 @@ impl Tool for SubAgentTool {
                     subagent_type.clone(),
                     params.task.clone(),
                     params.context.clone(),
-                    self.parent_session_id.clone(),
+                    effective_session_id,
                     String::new(),
                     self.current_depth,
                     &self.policy,
@@ -406,7 +406,7 @@ impl Tool for SubAgentTool {
                     subagent_type.clone(),
                     params.task.clone(),
                     params.context.clone(),
-                    self.parent_session_id.clone(),
+                    effective_session_id,
                     String::new(),
                     self.current_depth,
                     &self.policy,
@@ -802,6 +802,222 @@ impl Tool for WaitAgentTool {
                     .to_string(),
                 );
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ResumeSubagentTool — resume a previously interrupted sub-agent run
+// ---------------------------------------------------------------------------
+
+pub struct ResumeSubagentTool {
+    manager: Arc<SubAgentManager>,
+    parent_tool_registry: Arc<ToolRegistry>,
+    policy: SubAgentPolicy,
+    current_depth: u32,
+    parent_tx: Option<mpsc::Sender<AgentEvent>>,
+    parent_session_id: String,
+}
+
+impl ResumeSubagentTool {
+    pub fn new(
+        manager: Arc<SubAgentManager>,
+        parent_tool_registry: Arc<ToolRegistry>,
+        policy: SubAgentPolicy,
+    ) -> Self {
+        Self {
+            manager,
+            parent_tool_registry,
+            policy,
+            current_depth: 0,
+            parent_tx: None,
+            parent_session_id: String::new(),
+        }
+    }
+
+    pub fn with_depth(mut self, current: u32) -> Self {
+        self.current_depth = current;
+        self
+    }
+
+    pub fn with_parent_tx(mut self, tx: mpsc::Sender<AgentEvent>) -> Self {
+        self.parent_tx = Some(tx);
+        self
+    }
+
+    pub fn with_parent_session(mut self, session_id: String) -> Self {
+        self.parent_session_id = session_id;
+        self
+    }
+}
+
+#[async_trait]
+impl Tool for ResumeSubagentTool {
+    fn name(&self) -> &str {
+        "resume_subagent"
+    }
+
+    fn description(&self) -> &str {
+        "Resume a previously interrupted sub-agent run by replaying its sidechain transcript \
+         as initial context and continuing execution. Optionally append a new user message."
+    }
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Execute
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "run_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The run_id of the sub-agent run to resume."
+            }),
+        );
+        props.insert(
+            "message".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional new user message to append before continuing."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["run_id".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        use crate::sidechain::SidechainReader;
+
+        #[derive(Deserialize)]
+        struct Params {
+            run_id: String,
+            #[serde(default)]
+            message: Option<String>,
+        }
+        let params: Params = match serde_json::from_str(arguments) {
+            Ok(p) => p,
+            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+        };
+
+        let effective_session_id = SUBAGENT_SESSION_ID
+            .try_with(|s| s.clone())
+            .unwrap_or_else(|_| self.parent_session_id.clone());
+
+        if !SidechainReader::exists(&effective_session_id, &params.run_id).await {
+            return ToolResult::err(format!(
+                "sidechain not found for run_id: {}",
+                params.run_id
+            ));
+        }
+
+        // Load the original run's metadata to determine agent type
+        let meta = match SidechainReader::load_meta(&effective_session_id, &params.run_id).await {
+            Ok(m) => m,
+            Err(e) => return ToolResult::err(format!("failed to read sidechain metadata: {e}")),
+        };
+
+        // Resolve the agent config for the resumed run
+        let agent_config = match self.manager.resolve_agent(&meta.agent_id) {
+            Some(cfg) => cfg,
+            None => {
+                return ToolResult::err(format!(
+                    "agent '{}' is no longer available",
+                    meta.agent_id
+                ))
+            }
+        };
+
+        // Load sidechain messages as initial context
+        let mut initial_messages =
+            match SidechainReader::load_as_chat_messages(&effective_session_id, &params.run_id)
+                .await
+            {
+                Ok(msgs) => msgs,
+                Err(e) => {
+                    return ToolResult::err(format!("failed to load sidechain transcript: {e}"))
+                }
+            };
+
+        // Append new user message if provided
+        if let Some(msg_text) = &params.message {
+            initial_messages.push(xiaolin_core::types::ChatMessage {
+                role: xiaolin_protocol::Role::User,
+                content: Some(serde_json::Value::String(msg_text.clone())),
+                ..Default::default()
+            });
+        }
+
+        // Build task description for the resumed run
+        let task = if let Some(msg) = &params.message {
+            msg.clone()
+        } else {
+            format!("(resumed) {}", meta.task)
+        };
+
+        let subagent_type = parse_subagent_type(Some(&meta.agent_id));
+        let child_registry = Arc::new(build_child_registry(
+            &self.parent_tool_registry,
+            &subagent_type,
+        ));
+
+        let parent_tx = match &self.parent_tx {
+            Some(tx) => tx.clone(),
+            None => {
+                if let Some(tx) = self.manager.get_session_tx(&effective_session_id) {
+                    tx
+                } else {
+                    let (tx, _rx) = mpsc::channel(16);
+                    tx
+                }
+            }
+        };
+
+        // Spawn a new run with the sidechain context
+        let context_text = initial_messages
+            .iter()
+            .filter_map(|m| {
+                m.content
+                    .as_ref()
+                    .and_then(|c| c.as_str())
+                    .map(|s| format!("[{:?}] {}", m.role, s))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        #[allow(deprecated)]
+        match self
+            .manager
+            .spawn_sync(
+                agent_config,
+                subagent_type.clone(),
+                task,
+                Some(context_text),
+                effective_session_id,
+                String::new(),
+                self.current_depth,
+                &self.policy,
+                child_registry,
+                parent_tx,
+                None,
+                true,
+                None,
+            )
+            .await
+        {
+            Ok((result, run_id)) => ToolResult::ok(
+                serde_json::json!({
+                    "run_id": run_id,
+                    "resumed_from": params.run_id,
+                    "status": "completed",
+                    "result": result,
+                })
+                .to_string(),
+            ),
+            Err(e) => ToolResult::err(format!("resumed sub-agent failed: {e}")),
         }
     }
 }

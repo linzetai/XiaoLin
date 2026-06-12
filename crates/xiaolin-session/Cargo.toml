@@ -14,3 +14,4 @@ tracing.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+dirs.workspace = true

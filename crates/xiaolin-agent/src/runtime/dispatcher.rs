@@ -49,6 +49,7 @@ pub struct DispatchContext<'a> {
     pub approval_cache: &'a mut ApprovalCache,
     pub denial_tracker: &'a mut DenialTracker,
     pub agent_id: &'a str,
+    pub session_id: Option<&'a str>,
 }
 
 /// Unified tool dispatcher that routes all tool calls through a consistent
@@ -186,6 +187,7 @@ impl ToolDispatcher {
         // mutable access to approval_cache/denial_tracker. We can safely execute
         // them without the mutable context by using a temporary context per call.
         if !concurrent_indices.is_empty() {
+            let session_id_for_concurrent = ctx.session_id.map(|s| s.to_owned());
             let concurrent_futures: Vec<_> = concurrent_indices
                 .iter()
                 .map(|&i| {
@@ -196,17 +198,21 @@ impl ToolDispatcher {
                     let mode_state_current =
                         ctx.mode_state.map(|ms| ms.current_mode());
                     let plan_fp = ctx.plan_file_path.clone();
+                    let sid = session_id_for_concurrent.clone();
                     async move {
-                        let result =
-                            Self::execute_unguarded_standalone(
-                                &tc,
-                                &tool_registry,
-                                &behavior,
-                                &work_dir,
-                                mode_state_current,
-                                plan_fp.as_ref(),
-                            )
-                            .await;
+                        let tool_fut = Self::execute_unguarded_standalone(
+                            &tc,
+                            &tool_registry,
+                            &behavior,
+                            &work_dir,
+                            mode_state_current,
+                            plan_fp.as_ref(),
+                        );
+                        let result = if let Some(s) = sid {
+                            crate::subagent::SUBAGENT_SESSION_ID.scope(s, tool_fut).await
+                        } else {
+                            tool_fut.await
+                        };
                         let result = Self::truncate_result_static(&tc.function.name, result);
                         (
                             tc.function.name.clone(),
@@ -479,14 +485,20 @@ impl ToolDispatcher {
 
         match self.tool_registry.get(&tc.function.name) {
             Some(tool) => {
-                with_file_access_mode(
+                let tool_fut = with_file_access_mode(
                     ctx.behavior.file_access,
                     with_additional_allowed_paths(
                         extra_paths,
                         with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),
                     ),
-                )
-                .await
+                );
+                if let Some(sid) = ctx.session_id {
+                    crate::subagent::SUBAGENT_SESSION_ID
+                        .scope(sid.to_owned(), tool_fut)
+                        .await
+                } else {
+                    tool_fut.await
+                }
             }
             None => ToolResult::err(format!("tool not found: {}", tc.function.name)),
         }

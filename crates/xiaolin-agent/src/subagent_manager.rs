@@ -363,6 +363,7 @@ impl SubAgentManager {
                     llm_override,
                     orchestrator.clone(),
                     inherited_context.as_ref(),
+                    &session_id_owned,
                 ) => {
                     res
                 }
@@ -372,12 +373,14 @@ impl SubAgentManager {
 
             match result {
                 Ok((response_text, tool_calls_made, iterations, usage)) => {
+                    let truncated_result =
+                        crate::sidechain::truncate_result(&response_text);
                     let _ = parent_tx
                         .send(AgentEvent::SubAgentComplete {
                             turn_id: complete_turn_id.clone(),
                             run_id: rid.clone(),
                             status: "completed".into(),
-                            result: Some(response_text.clone()),
+                            result: Some(truncated_result),
                             tool_calls_made,
                             iterations,
                             usage: usage.clone().map(|u| TokenUsage {
@@ -633,7 +636,9 @@ impl SubAgentManager {
         llm_override: Option<Arc<dyn LlmProvider>>,
         orchestrator: Arc<ToolOrchestrator>,
         inherited_context: Option<&SubAgentInheritedContext>,
+        parent_session_id: &str,
     ) -> anyhow::Result<(String, u32, u32, Option<Usage>)> {
+        use crate::sidechain::{SidechainMessage, SidechainMeta, SidechainWriter};
         use xiaolin_core::types::{ChatMessage, ChatRequest, Role};
 
         let mut messages = Vec::new();
@@ -668,15 +673,63 @@ impl SubAgentManager {
             response_language: None,
         };
 
+        // Initialize sidechain writer for transcript persistence
+        let sidechain_writer = match SidechainWriter::new(
+            parent_session_id,
+            run_id,
+            SidechainMeta {
+                _meta: true,
+                run_id: run_id.to_string(),
+                agent_id: config.agent_id.to_string(),
+                parent_session_id: parent_session_id.to_string(),
+                task: task.to_string(),
+                started_at: Self::now_ms(),
+            },
+        )
+        .await
+        {
+            Ok(w) => Some(w),
+            Err(e) => {
+                tracing::warn!(run_id, error = %e, "failed to create sidechain writer");
+                None
+            }
+        };
+
+        // Write initial user message to sidechain
+        if let Some(ref _writer) = sidechain_writer {
+            // We'll write it inside the forwarder after moving writer ownership
+        }
+
         let (child_tx, mut child_rx) = mpsc::channel::<AgentEvent>(256);
 
         let run_id_owned = run_id.to_string();
         let parent_tx_clone = parent_tx.clone();
         let forward_turn_id = turn_id.clone();
+        let agent_id_for_sidechain = config.agent_id.to_string();
+        let task_for_sidechain = task.to_string();
 
         let forwarder = tokio::spawn(async move {
             let mut accumulated_text = String::new();
             let mut final_usage: Option<Usage> = None;
+            let mut writer = sidechain_writer;
+
+            // Write initial user message to sidechain
+            if let Some(ref mut w) = writer {
+                let user_msg = SidechainMessage {
+                    role: "user".to_string(),
+                    content: task_for_sidechain,
+                    tool_calls_json: None,
+                    tool_call_id: None,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                    agent_id: agent_id_for_sidechain.clone(),
+                };
+                if let Err(e) = w.append(&user_msg).await {
+                    tracing::warn!(error = %e, "sidechain: failed to write user message");
+                }
+            }
 
             while let Some(event) = child_rx.recv().await {
                 match &event {
@@ -704,6 +757,31 @@ impl SubAgentManager {
                         args,
                         ..
                     } => {
+                        // Write tool call to sidechain
+                        if let Some(ref mut w) = writer {
+                            let tc_json = serde_json::json!([{
+                                "id": call_id,
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": args
+                                }
+                            }]);
+                            let msg = SidechainMessage {
+                                role: "assistant".to_string(),
+                                content: String::new(),
+                                tool_calls_json: Some(tc_json.to_string()),
+                                tool_call_id: None,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                                agent_id: agent_id_for_sidechain.clone(),
+                            };
+                            if let Err(e) = w.append(&msg).await {
+                                tracing::warn!(error = %e, "sidechain: failed to write tool call");
+                            }
+                        }
+
                         let _ = parent_tx_clone
                             .send(AgentEvent::SubAgentToolExecuting {
                                 turn_id: forward_turn_id.clone(),
@@ -722,6 +800,25 @@ impl SubAgentManager {
                         success,
                         ..
                     } => {
+                        // Write tool result to sidechain
+                        if let Some(ref mut w) = writer {
+                            let result_text = display_output.as_ref().unwrap_or(output);
+                            let msg = SidechainMessage {
+                                role: "tool".to_string(),
+                                content: result_text.clone(),
+                                tool_calls_json: None,
+                                tool_call_id: Some(call_id.clone()),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                                agent_id: tool_name.clone(),
+                            };
+                            if let Err(e) = w.append(&msg).await {
+                                tracing::warn!(error = %e, "sidechain: failed to write tool result");
+                            }
+                        }
+
                         let ui_out = display_output.as_ref().unwrap_or(output);
                         let _ = parent_tx_clone
                             .send(AgentEvent::SubAgentToolResult {
@@ -745,6 +842,26 @@ impl SubAgentManager {
                         }
                     }
                     _ => {}
+                }
+            }
+
+            // Write final assistant message to sidechain (full accumulated text)
+            if let Some(ref mut w) = writer {
+                if !accumulated_text.is_empty() {
+                    let msg = SidechainMessage {
+                        role: "assistant".to_string(),
+                        content: accumulated_text.clone(),
+                        tool_calls_json: None,
+                        tool_call_id: None,
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                        agent_id: agent_id_for_sidechain.clone(),
+                    };
+                    if let Err(e) = w.append(&msg).await {
+                        tracing::warn!(error = %e, "sidechain: failed to write assistant message");
+                    }
                 }
             }
 

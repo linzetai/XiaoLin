@@ -53,6 +53,8 @@ pub struct StreamingExecutorConfig {
     pub execution_mode: Option<ExecutionMode>,
     /// Plan file path allowed for writes even in Plan mode.
     pub plan_file_path: Option<std::path::PathBuf>,
+    /// Session ID to propagate into spawned tool tasks for sub-agent routing.
+    pub session_id: Option<String>,
 }
 
 impl Default for StreamingExecutorConfig {
@@ -63,6 +65,7 @@ impl Default for StreamingExecutorConfig {
             behavior: BehaviorConfig::default(),
             execution_mode: None,
             plan_file_path: None,
+            session_id: None,
         }
     }
 }
@@ -125,9 +128,11 @@ impl StreamingToolExecutor {
         let execution_mode = self.config.execution_mode;
         let plan_file_path = self.config.plan_file_path.clone();
 
-        let captured_session_id = crate::subagent::SUBAGENT_SESSION_ID
-            .try_with(|s| s.clone())
-            .ok();
+        let captured_session_id = self.config.session_id.clone().or_else(|| {
+            crate::subagent::SUBAGENT_SESSION_ID
+                .try_with(|s| s.clone())
+                .ok()
+        });
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {

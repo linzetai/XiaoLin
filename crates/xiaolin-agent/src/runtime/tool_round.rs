@@ -225,6 +225,7 @@ pub(crate) async fn execute_tool_round(
                     approval_cache: &mut ms.approval_cache,
                     denial_tracker: &mut ms.denial_tracker,
                     agent_id: &svc.config.agent_id,
+                    session_id: svc.session_id.as_deref(),
                 };
                 let result = svc.dispatcher.dispatch_one(tc, &mut dispatch_ctx).await;
                 all_results[i] = Some(result);
@@ -248,6 +249,7 @@ pub(crate) async fn execute_tool_round(
             approval_cache: &mut ms.approval_cache,
             denial_tracker: &mut ms.denial_tracker,
             agent_id: &svc.config.agent_id,
+            session_id: svc.session_id.as_deref(),
         };
         svc.dispatcher
             .dispatch_batch(&assembled_calls, &mut dispatch_ctx)

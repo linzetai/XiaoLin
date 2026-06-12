@@ -179,6 +179,7 @@ pub(crate) async fn perform_llm_call(
             behavior: svc.config.behavior.clone(),
             execution_mode: svc.mode_state.as_ref().map(|ms| ms.current_mode()),
             plan_file_path: streaming_plan_fp,
+            session_id: svc.session_id.clone(),
         };
         Some(StreamingToolExecutor::new(
             Arc::clone(&svc.tool_registry),
