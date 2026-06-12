@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from "react";
-import { GitBranch, Crosshair, Terminal } from "@phosphor-icons/react";
+import { GitBranch, Crosshair, Terminal, Robot } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -8,14 +8,17 @@ import { useWorkspaceTabs } from "./workspace-tabs";
 import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
 import { GoalTabContent } from "./GoalPanel";
 import { TerminalTabContent } from "./TerminalTabContent";
-import { useGitStore, useTerminalStore } from "../../lib/stores";
+import { CoordinatorTabContent } from "./CoordinatorPanel";
+import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
   const registerTab = useWorkspaceTabs((s) => s.registerTab);
+  const unregisterTab = useWorkspaceTabs((s) => s.unregisterTab);
   const activeTabId = useWorkspaceTabs((s) => s.activeTabId);
   const gitStatus = useGitStore((s) => s.status);
   const terminalSessions = useTerminalStore((s) => s.sessions);
+  const subAgentRuns = useActiveSubAgentRuns();
 
   useEffect(() => {
     registerTab({
@@ -41,6 +44,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       order: 3,
     });
   }, [registerTab, t]);
+
+  useEffect(() => {
+    const hasCoordinator = Object.values(subAgentRuns).some((r) => r.subagentType === "coordinator");
+    if (hasCoordinator) {
+      registerTab({
+        id: "coordinator",
+        label: "Coordinator",
+        icon: Robot,
+        component: CoordinatorTabContent,
+        order: 4,
+      });
+    } else {
+      unregisterTab("coordinator");
+    }
+  }, [subAgentRuns, registerTab, unregisterTab]);
 
   useEffect(() => {
     if (!gitStatus?.isGitRepo) return;

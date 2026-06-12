@@ -54,6 +54,7 @@ export const listModels = transport.listModels;
 export const getConfig = transport.getConfig;
 export const setConfig = transport.setConfig;
 export const cancelSubAgentRun = transport.cancelSubAgentRun;
+export const sendSteeringMessage = transport.sendSteeringMessage;
 export const updateSessionTitle = transport.updateSessionTitle;
 export const deleteSession = transport.deleteSession;
 export const createSession = transport.createSession;

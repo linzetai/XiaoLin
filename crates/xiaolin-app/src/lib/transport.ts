@@ -241,6 +241,19 @@ export async function cancelSubAgentRun(runId: string): Promise<void> {
   await wsClient.send("subagents.cancel", { runId });
 }
 
+export async function sendSteeringMessage(
+  runId: string,
+  message: string,
+  priority?: "normal" | "high",
+): Promise<{ ok: boolean }> {
+  const resp = (await wsClient.send("subagent.steer", {
+    run_id: runId,
+    message,
+    ...(priority && { priority }),
+  })) as { data?: { ok?: boolean } };
+  return { ok: resp?.data?.ok ?? false };
+}
+
 export async function setSessionWorkDir(sessionId: string, workDir: string | null): Promise<void> {
   await wsClient.send("sessions.set_work_dir", { sessionId, workDir });
 }

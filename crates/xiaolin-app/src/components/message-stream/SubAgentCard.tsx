@@ -1,11 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Robot, CaretRight, Check, X as XIcon, MagnifyingGlass, Terminal,
-  Globe, Wrench, Square,
+  Globe, Wrench, Square, PaperPlaneRight,
 } from "@phosphor-icons/react";
 import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/agent-store";
 import { StepIndicator, type ToolCall } from "./StepIndicator";
+import * as api from "../../lib/api";
 
 function useSubAgentCardTypeMeta() {
   const { t } = useTranslation("chat");
@@ -39,9 +40,25 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
   const { t } = useTranslation("chat");
   const getTypeMeta = useSubAgentCardTypeMeta();
   const [expanded, setExpanded] = useState(false);
+  const [steerInput, setSteerInput] = useState("");
+  const [steerSending, setSteerSending] = useState(false);
   const meta = getTypeMeta(run.subagentType);
   const isActive = run.status === "running" || run.status === "pending";
   const isFailed = run.status === "failed" || run.status === "cancelled";
+
+  const handleSteer = useCallback(async () => {
+    const msg = steerInput.trim();
+    if (!msg || steerSending) return;
+    setSteerSending(true);
+    try {
+      await api.sendSteeringMessage(run.runId, msg);
+      setSteerInput("");
+    } catch (e) {
+      console.error("Failed to send steering message:", e);
+    } finally {
+      setSteerSending(false);
+    }
+  }, [steerInput, steerSending, run.runId]);
 
   const toolCallsAsSteps = useMemo(
     () => run.toolCalls.map(adaptToolCall),
@@ -193,6 +210,54 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
               >
                 {run.result}
               </pre>
+            </div>
+          )}
+
+          {/* Notifications */}
+          {run.notifications.length > 0 && (
+            <div className="mt-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
+                {t("subAgentCard_notifications")}
+              </span>
+              <div className="mt-0.5 max-h-[60px] overflow-y-auto space-y-0.5">
+                {run.notifications.slice(-3).map((n, i) => (
+                  <div key={i} className="text-[10px] leading-tight" style={{ color: "var(--fill-secondary)" }}>
+                    <span style={{ color: "var(--fill-quaternary)" }}>
+                      {new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>{" "}
+                    {n.message.length > 100 ? n.message.slice(0, 100) + "…" : n.message}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Steering input */}
+          {isActive && (
+            <div className="mt-1.5">
+              <div
+                className="flex items-center gap-1 rounded-md border px-1.5 py-1"
+                style={{ borderColor: "var(--separator)", background: "var(--bg-primary)" }}
+              >
+                <input
+                  type="text"
+                  className="flex-1 bg-transparent text-[11px] outline-none"
+                  style={{ color: "var(--fill-primary)" }}
+                  placeholder={t("subAgentCard_steerPlaceholder")}
+                  value={steerInput}
+                  onChange={(e) => setSteerInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSteer(); } }}
+                  disabled={steerSending}
+                />
+                <button
+                  onClick={handleSteer}
+                  disabled={!steerInput.trim() || steerSending}
+                  className="shrink-0 rounded p-0.5 transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-30"
+                  title={t("subAgentCard_steerSend")}
+                >
+                  <PaperPlaneRight size={12} style={{ color: "var(--tint)" }} />
+                </button>
+              </div>
             </div>
           )}
 

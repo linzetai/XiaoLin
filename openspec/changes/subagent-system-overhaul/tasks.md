@@ -158,20 +158,28 @@
 - `SubAgentDef` 新增 `Default` impl，`parse_markdown_subagent_def` 委托到新模块
 - 加载优先级：builtin → project JSON → project markdown → user markdown
 
-## 8. Frontend Interaction
+## 8. Frontend Interaction — COMPLETED
 
-- [ ] 8.1 在 stream-store 中添加 `notifications` 数组到 SubAgentRunUI
-- [ ] 8.2 实现 `sub_agent_notification` handler 更新 store
-- [ ] 8.3 在 SubAgentMonitor 中显示 notification feed
-- [ ] 8.4 在 SubAgentCard 中添加 cancel 按钮（running 状态时显示）
-- [ ] 8.5 在 SubAgentCard 展开态添加 steering 输入框（running 状态时显示）
-- [ ] 8.6 实现 steering input → WebSocket `steering_message` 发送
-- [ ] 8.7 创建 `ApprovalBubbleCard` 组件（tool_name, args_preview, Approve/Deny 按钮）
-- [ ] 8.8 处理 `approval_bubble` WebSocket 事件 → 渲染 ApprovalBubbleCard
-- [ ] 8.9 实现 Approve/Deny 按钮 → 发送 `approval_respond` + 更新卡片状态
-- [ ] 8.10 处理 `approval_resolved` 事件（timeout/外部 resolve）→ 更新卡片状态
-- [ ] 8.11 创建 CoordinatorPanel 组件（worker 列表 + 状态 + activity）
-- [ ] 8.12 在 WorkspacePanel 中根据 coordinator run 存在与否显示/隐藏 Coordinator tab
+- [x] 8.1 在 stream-store 中添加 `notifications` 数组到 SubAgentRunUI
+- [x] 8.2 实现 `sub_agent_notification` handler 更新 store
+- [x] 8.3 在 SubAgentMonitor 中显示 notification feed
+- [x] 8.4 在 SubAgentCard 中添加 cancel 按钮（running 状态时显示）
+- [x] 8.5 在 SubAgentCard 展开态添加 steering 输入框（running 状态时显示）
+- [x] 8.6 实现 steering input → WebSocket `steering_message` 发送
+- [x] 8.7 创建 `ApprovalBubbleCard` 组件（通过 pendingQuestion 机制实现）
+- [x] 8.8 处理 `approval_required` WebSocket 事件 → 渲染审批卡片
+- [x] 8.9 实现 Approve/Deny 按钮 → 发送 `resolveApproval` + 更新卡片状态
+- [x] 8.10 处理 `approval_resolved` 事件 → 清除 pendingQuestion
+- [x] 8.11 创建 CoordinatorPanel 组件（worker 列表 + 状态 + notifications + steering）
+- [x] 8.12 在 WorkspacePanel 中根据 coordinator run 存在与否动态注册/注销 Coordinator tab
+
+**关键成果**:
+- SubAgentMonitor 展开态显示最近 5 条 notification（时间戳 + 消息）
+- SubAgentCard 展开态新增 steering 输入框（Enter 发送，PaperPlaneRight 按钮）
+- `sendSteeringMessage` transport 函数 → `subagent.steer` WebSocket 方法
+- CoordinatorPanel 完整组件：协调器状态头、worker 列表、notification feed、steering 输入
+- WorkspacePanel 动态 tab：检测到 coordinator run 时自动显示，消失时自动移除
+- Approval 机制通过已有的 `setPendingQuestion` + `resolveApproval` 全链路实现
 
 ## 9. 验证与清理
 

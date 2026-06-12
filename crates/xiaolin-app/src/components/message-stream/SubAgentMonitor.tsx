@@ -117,24 +117,49 @@ function RunItem({ run, onCancel }: { run: SubAgentRunUI; onCancel: (id: string)
         )}
       </div>
 
-      {expanded && run.result && (
-        <div className="border-t px-2 py-1.5" style={{ borderColor: "var(--separator)" }}>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("subAgent_result")}</span>
-            <button
-              onClick={() => navigator.clipboard.writeText(run.result ?? "")}
-              className="rounded p-0.5 transition-colors hover:bg-[var(--bg-tertiary)]"
-              title={t("copy", { ns: "common" })}
-            >
-              <Copy size={10} style={{ color: "var(--fill-quaternary)" }} />
-            </button>
-          </div>
-          <pre
-            className="mt-1 max-h-[120px] overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed"
-            style={{ color: "var(--fill-secondary)" }}
-          >
-            {run.result.length > 500 ? run.result.slice(0, 500) + "…" : run.result}
-          </pre>
+      {expanded && (
+        <div className="border-t px-2 py-1.5 space-y-1.5" style={{ borderColor: "var(--separator)" }}>
+          {run.notifications.length > 0 && (
+            <div>
+              <span className="text-[10px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
+                {t("subAgent_notifications")}
+              </span>
+              <div className="mt-0.5 max-h-[80px] overflow-y-auto space-y-0.5">
+                {run.notifications.slice(-5).map((n, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-1 text-[10px] leading-tight"
+                    style={{ color: "var(--fill-secondary)" }}
+                  >
+                    <span className="shrink-0" style={{ color: "var(--fill-quaternary)" }}>
+                      {new Date(n.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </span>
+                    <span className="min-w-0 break-words">{n.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {run.result && (
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("subAgent_result")}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(run.result ?? "")}
+                  className="rounded p-0.5 transition-colors hover:bg-[var(--bg-tertiary)]"
+                  title={t("copy", { ns: "common" })}
+                >
+                  <Copy size={10} style={{ color: "var(--fill-quaternary)" }} />
+                </button>
+              </div>
+              <pre
+                className="mt-1 max-h-[120px] overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed"
+                style={{ color: "var(--fill-secondary)" }}
+              >
+                {run.result.length > 500 ? run.result.slice(0, 500) + "…" : run.result}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

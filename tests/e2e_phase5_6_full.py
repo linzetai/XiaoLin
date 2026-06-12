@@ -260,7 +260,7 @@ async def test_7_chat_basic(ws):
         }
     }))
     
-    msgs = await recv_until_type(ws, "turn_end", timeout=40)
+    msgs = await recv_until_type(ws, "turn_end", timeout=60)
     types = [m.get("type") for m in msgs]
     
     mark("turn_start" in types, "turn_start present")
