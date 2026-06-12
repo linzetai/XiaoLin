@@ -25,6 +25,8 @@ use crate::llm::{CompletionParams, LlmProvider};
 use base64::Engine as _;
 
 mod accumulator;
+pub mod agent_context;
+pub mod agent_step;
 pub mod api_errors;
 pub mod approval_cache;
 pub mod runtimes;
