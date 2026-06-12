@@ -48,6 +48,6 @@ pub use spawn_controller::{
 };
 pub use subagent::{
     with_subagent_session_id, ResumeSubagentTool, SendMessageTool, SubAgentGetTool,
-    SubAgentListTool, SubAgentTool, WaitAgentTool,
+    SubAgentListTool, SubAgentTool, TaskStopTool, WaitAgentTool,
 };
 pub use subagent_manager::{SubAgentInheritedContext, SubAgentManager};

@@ -281,6 +281,7 @@ impl SubAgentManager {
         inherited_context: Option<SubAgentInheritedContext>,
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
+        parent_queue: Option<Arc<MessageQueue>>,
     ) -> anyhow::Result<String> {
         if !policy.enabled {
             anyhow::bail!("sub-agent delegation is disabled for this agent");
@@ -358,6 +359,7 @@ impl SubAgentManager {
         let forward_turn_id = turn_id.clone();
         let session_id_owned = parent_session_id.clone();
         let initial_msgs = initial_messages;
+        let coordinator_queue = parent_queue;
 
         tokio::spawn(async move {
             let reservation = match controller
@@ -473,9 +475,28 @@ impl SubAgentManager {
                             status: "completed".into(),
                             elapsed_ms,
                             tool_call_count: tool_calls_made,
-                            result_preview,
+                            result_preview: result_preview.clone(),
                             error: None,
                         });
+                    }
+
+                    // Push completion notification to coordinator's queue if present
+                    if let Some(ref cq) = coordinator_queue {
+                        let notification = format!(
+                            "[Worker Completed] run_id={}, type={}, task=\"{}\", \
+                             elapsed={}ms, tools_used={}\nResult: {}",
+                            rid,
+                            subagent_type,
+                            if task.len() > 100 { &task[..100] } else { &task },
+                            elapsed_ms,
+                            tool_calls_made,
+                            result_preview.as_deref().unwrap_or("(no result)"),
+                        );
+                        cq.push(
+                            crate::message_queue::Priority::High,
+                            "system",
+                            &notification,
+                        );
                     }
                 }
                 Err(e) => {
@@ -524,8 +545,27 @@ impl SubAgentManager {
                             elapsed_ms,
                             tool_call_count: 0,
                             result_preview: None,
-                            error: Some(msg),
+                            error: Some(msg.clone()),
                         });
+                    }
+
+                    // Push failure notification to coordinator's queue if present
+                    if let Some(ref cq) = coordinator_queue {
+                        let notification = format!(
+                            "[Worker {}] run_id={}, type={}, task=\"{}\", \
+                             elapsed={}ms\nError: {}",
+                            status_str,
+                            rid,
+                            subagent_type,
+                            if task.len() > 100 { &task[..100] } else { &task },
+                            elapsed_ms,
+                            msg,
+                        );
+                        cq.push(
+                            crate::message_queue::Priority::High,
+                            "system",
+                            &notification,
+                        );
                     }
                 }
             }
@@ -569,6 +609,7 @@ impl SubAgentManager {
         inherited_context: Option<SubAgentInheritedContext>,
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
+        parent_queue: Option<Arc<MessageQueue>>,
     ) -> anyhow::Result<(String, String)> {
         let session_pool = self
             .controller
@@ -592,6 +633,7 @@ impl SubAgentManager {
                 inherited_context,
                 initial_messages,
                 permission_mode,
+                parent_queue,
             )
             .await?;
 
@@ -659,6 +701,7 @@ impl SubAgentManager {
         inherited_context: Option<SubAgentInheritedContext>,
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
+        parent_queue: Option<Arc<MessageQueue>>,
     ) -> anyhow::Result<(String, String)> {
         self.spawn_and_wait(
             agent_config,
@@ -676,6 +719,7 @@ impl SubAgentManager {
             inherited_context,
             initial_messages,
             permission_mode,
+            parent_queue,
         )
         .await
     }
@@ -1146,6 +1190,8 @@ mod tests {
                 false,
                 None,
                 None,
+                xiaolin_core::agent_config::PermissionMode::AutoApprove,
+                None,
             )
             .await;
         assert!(err.is_err());
@@ -1177,6 +1223,8 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
+                xiaolin_core::agent_config::PermissionMode::AutoApprove,
                 None,
             )
             .await;

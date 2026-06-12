@@ -95,6 +95,9 @@ pub struct SubAgentTool {
     parent_tx: Option<mpsc::Sender<AgentEvent>>,
     parent_session_id: String,
     session_store: Option<Arc<xiaolin_session::SessionStore>>,
+    coordinator_mode: bool,
+    /// When set, worker completions push a notification into this run's MessageQueue.
+    coordinator_run_id: Option<String>,
 }
 
 impl SubAgentTool {
@@ -111,6 +114,8 @@ impl SubAgentTool {
             parent_tx: None,
             parent_session_id: String::new(),
             session_store: None,
+            coordinator_mode: false,
+            coordinator_run_id: None,
         }
     }
 
@@ -131,6 +136,16 @@ impl SubAgentTool {
 
     pub fn with_session_store(mut self, store: Arc<xiaolin_session::SessionStore>) -> Self {
         self.session_store = Some(store);
+        self
+    }
+
+    pub fn with_coordinator_mode(mut self, enabled: bool) -> Self {
+        self.coordinator_mode = enabled;
+        self
+    }
+
+    pub fn with_coordinator_run_id(mut self, run_id: String) -> Self {
+        self.coordinator_run_id = Some(run_id);
         self
     }
 }
@@ -362,13 +377,25 @@ impl Tool for SubAgentTool {
             (registry, bg)
         };
 
+        // Coordinator mode forces all worker spawns to background
+        let use_background = if self.coordinator_mode {
+            true
+        } else {
+            use_background
+        };
+
+        let is_coordinator = def
+            .as_ref()
+            .is_some_and(|d| d.mode == xiaolin_core::agent_config::SubAgentMode::Coordinator);
+
         if self.current_depth + 1 < self.policy.max_depth {
             let child_subagent = SubAgentTool::new(
                 self.manager.clone(),
                 self.parent_tool_registry.clone(),
                 self.policy.clone(),
             )
-            .with_depth(self.current_depth + 1);
+            .with_depth(self.current_depth + 1)
+            .with_coordinator_mode(is_coordinator);
             child_registry.register(Arc::new(child_subagent));
         }
 
@@ -499,6 +526,7 @@ impl Tool for SubAgentTool {
                     inherited_ctx,
                     initial_messages,
                     permission_mode,
+                    None,
                 )
                 .await
             {
@@ -532,6 +560,7 @@ impl Tool for SubAgentTool {
                     inherited_ctx,
                     initial_messages,
                     permission_mode,
+                    None,
                 )
                 .await
             {
@@ -1114,6 +1143,7 @@ impl Tool for ResumeSubagentTool {
                 None,
                 Some(initial_messages),
                 xiaolin_core::agent_config::PermissionMode::AutoApprove,
+                None,
             )
             .await
         {
@@ -1242,6 +1272,85 @@ impl Tool for SendMessageTool {
                 params.run_id
             )),
         }
+    }
+}
+
+// ── TaskStopTool ─────────────────────────────────────────────────────────
+
+/// Tool used by coordinator agents to signal task completion with a final summary.
+#[derive(Default)]
+pub struct TaskStopTool;
+
+impl TaskStopTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for TaskStopTool {
+    fn name(&self) -> &str {
+        "task_stop"
+    }
+
+    fn description(&self) -> &str {
+        "Signal that the coordination task is complete and provide a final summary. \
+         Only available to coordinator-mode sub-agents. Calling this tool ends \
+         the coordinator's execution loop."
+    }
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Execute
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "summary".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Final summary of the orchestration results to return to the caller."
+            }),
+        );
+        props.insert(
+            "status".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": ["success", "partial", "failed"],
+                "description": "Overall status of the coordinated task. Default: success."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["summary".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        #[derive(Deserialize)]
+        struct Params {
+            summary: String,
+            #[serde(default = "default_status")]
+            status: String,
+        }
+        fn default_status() -> String {
+            "success".into()
+        }
+
+        let params: Params = match serde_json::from_str(arguments) {
+            Ok(p) => p,
+            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+        };
+
+        ToolResult::ok(
+            serde_json::json!({
+                "task_stopped": true,
+                "status": params.status,
+                "summary": params.summary,
+            })
+            .to_string(),
+        )
     }
 }
 

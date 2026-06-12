@@ -258,6 +258,7 @@ pub struct StreamState {
     pub session_manager: Arc<xiaolin_session_actor::SessionManager>,
     pub git_watcher_manager: crate::git_watcher::SharedGitWatcherManager,
     pub pty_manager: Arc<xiaolin_pty::PtySessionManager>,
+    pub agent_def_watcher: Option<Arc<crate::agent_def_watcher::AgentDefWatcher>>,
 }
 
 /// Services shared across session actors and the gateway.

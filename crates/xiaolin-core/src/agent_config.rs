@@ -716,6 +716,18 @@ pub enum PermissionMode {
     Deny,
 }
 
+/// Execution mode for a sub-agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubAgentMode {
+    /// Normal worker mode — executes tasks using available tools.
+    #[default]
+    Normal,
+    /// Coordinator mode — orchestrates other sub-agents. Limited to management
+    /// tools only (spawn_subagent, send_message, task_stop, subagent_list, subagent_get).
+    Coordinator,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubAgentDef {
@@ -750,6 +762,9 @@ pub struct SubAgentDef {
     /// How tool approvals are handled for this sub-agent type.
     #[serde(default)]
     pub permission_mode: PermissionMode,
+    /// Execution mode: Normal (worker) or Coordinator (orchestrator).
+    #[serde(default)]
+    pub mode: SubAgentMode,
     /// Where this definition was loaded from.
     #[serde(skip)]
     pub source: SubAgentDefSource,
@@ -757,6 +772,25 @@ pub struct SubAgentDef {
 
 fn default_max_context_messages() -> usize {
     20
+}
+
+impl Default for SubAgentDef {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: None,
+            description: None,
+            model: None,
+            tools: SubAgentToolFilter::default(),
+            system_prompt: None,
+            background: false,
+            concurrency_safe: false,
+            max_context_messages: 20,
+            permission_mode: PermissionMode::default(),
+            mode: SubAgentMode::default(),
+            source: SubAgentDefSource::default(),
+        }
+    }
 }
 
 /// Tool allow/deny filter for a sub-agent definition.
@@ -859,9 +893,8 @@ pub fn load_subagent_defs_markdown(dir: &std::path::Path) -> anyhow::Result<Vec<
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "md") {
             let text = std::fs::read_to_string(&path)?;
-            match parse_markdown_subagent_def(&text) {
-                Ok(mut def) => {
-                    def.source = SubAgentDefSource::MarkdownFile(path.clone());
+            match parse_markdown_subagent_def(&text, &path) {
+                Ok(def) => {
                     tracing::info!(id = %def.id, path = %path.display(), "loaded sub-agent def (markdown)");
                     defs.push(def);
                 }
@@ -875,27 +908,38 @@ pub fn load_subagent_defs_markdown(dir: &std::path::Path) -> anyhow::Result<Vec<
 }
 
 /// Parse a Markdown file with YAML frontmatter into a `SubAgentDef`.
-/// The body after the frontmatter becomes the `system_prompt`.
-fn parse_markdown_subagent_def(content: &str) -> anyhow::Result<SubAgentDef> {
-    let trimmed = content.trim();
-    if !trimmed.starts_with("---") {
-        anyhow::bail!("missing YAML frontmatter delimiter");
-    }
-    let after_first = &trimmed[3..];
-    let end = after_first
-        .find("\n---")
-        .ok_or_else(|| anyhow::anyhow!("missing closing frontmatter delimiter"))?;
-    let yaml_str = &after_first[..end];
-    let body = after_first[end + 4..].trim();
-
-    let mut def: SubAgentDef = serde_yaml_ng::from_str(yaml_str)?;
-    if !body.is_empty() {
-        def.system_prompt = Some(body.to_string());
-    }
-    Ok(def)
+/// Delegates to `agent_markdown::parse_agent_markdown` for robust parsing with
+/// schema validation (unknown fields rejected, required `id` check).
+fn parse_markdown_subagent_def(content: &str, path: &std::path::Path) -> anyhow::Result<SubAgentDef> {
+    crate::agent_markdown::parse_agent_markdown(content, path)
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Return the built-in sub-agent definitions that ship with XiaoLin.
+const COORDINATOR_SYSTEM_PROMPT: &str = "\
+You are a coordinator agent that orchestrates multiple worker sub-agents to accomplish complex tasks.
+
+Your capabilities:
+- spawn_subagent: Create worker sub-agents for specific tasks (always use background=true)
+- send_message: Send steering messages to running sub-agents
+- subagent_get: Check the status and results of sub-agents
+- subagent_list: List all active sub-agents
+- task_stop: Signal that orchestration is complete and provide final summary
+
+Your workflow:
+1. Analyze the task and break it into subtasks
+2. Spawn appropriate worker sub-agents for each subtask (shell, code, explore, research)
+3. Monitor their progress via subagent_get
+4. Send steering messages if workers need guidance
+5. Once all workers complete, synthesize results and call task_stop
+
+Rules:
+- Always spawn workers in background mode
+- You cannot directly read/write files or run commands — delegate to workers
+- Provide clear, specific task descriptions to each worker
+- Synthesize worker results into a coherent final answer
+";
+
 pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
     vec![
         SubAgentDef {
@@ -937,6 +981,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
+            mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
         },
         SubAgentDef {
@@ -958,6 +1003,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             concurrency_safe: false,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
+            mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
         },
         SubAgentDef {
@@ -988,6 +1034,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             concurrency_safe: false,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
+            mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
         },
         SubAgentDef {
@@ -1024,6 +1071,37 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
+            mode: SubAgentMode::Normal,
+            source: SubAgentDefSource::Builtin,
+        },
+        SubAgentDef {
+            id: "coordinator".into(),
+            name: Some("Coordinator".into()),
+            description: Some(
+                "Orchestrates multiple sub-agents to accomplish complex tasks. \
+                 Spawns workers, sends steering messages, and synthesizes results."
+                    .into(),
+            ),
+            model: None,
+            tools: SubAgentToolFilter {
+                allowed: vec![
+                    "spawn_subagent".into(),
+                    "send_message".into(),
+                    "subagent_get".into(),
+                    "subagent_list".into(),
+                    "list_agents".into(),
+                    "get_agent_info".into(),
+                    "task_stop".into(),
+                ],
+                denied: vec![],
+                profile: None,
+            },
+            system_prompt: Some(COORDINATOR_SYSTEM_PROMPT.into()),
+            background: true,
+            concurrency_safe: false,
+            max_context_messages: default_max_context_messages(),
+            permission_mode: PermissionMode::AutoApprove,
+            mode: SubAgentMode::Coordinator,
             source: SubAgentDefSource::Builtin,
         },
     ]
@@ -1313,7 +1391,7 @@ tools:
 ---
 
 You are a code review specialist. Analyze the provided code carefully."#;
-        let def = parse_markdown_subagent_def(md).unwrap();
+        let def = parse_markdown_subagent_def(md, std::path::Path::new("test.md")).unwrap();
         assert_eq!(def.id, "reviewer");
         assert_eq!(def.name.as_deref(), Some("Code Reviewer"));
         assert!(def.system_prompt.unwrap().contains("code review specialist"));

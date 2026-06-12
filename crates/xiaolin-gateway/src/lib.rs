@@ -1,3 +1,4 @@
+pub mod agent_def_watcher;
 pub mod ask_question_card;
 pub mod audit;
 pub mod channel_tool;

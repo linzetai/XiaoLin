@@ -1,4 +1,5 @@
 pub mod agent_config;
+pub mod agent_markdown;
 pub mod bus;
 pub mod channel;
 pub mod channel_plugin;

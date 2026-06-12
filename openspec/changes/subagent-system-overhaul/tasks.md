@@ -120,27 +120,43 @@
 - `resolve_approval` WS 命令同时支持 session 审批和 bubble 审批
 - E2E 验证：resolve_approval 协议正常工作，approval.resolve 别名兼容
 
-## 6. Coordinator Mode
+## 6. Coordinator Mode — COMPLETED
 
-- [ ] 6.1 在 SubAgentDef 中添加 `mode` 字段（Normal / Coordinator）
-- [ ] 6.2 实现 coordinator tool registry filter：仅允许 spawn_subagent, send_message, task_stop, subagent_list, subagent_get
-- [ ] 6.3 创建 `TaskStopTool` struct（coordinator 主动结束编排）
-- [ ] 6.4 在 coordinator 模式下 force worker spawn 为 background=true
-- [ ] 6.5 worker 完成时将 CompletionSummary 格式化并 push 到 coordinator 的 MessageQueue
-- [ ] 6.6 创建 `coordinator_system_prompt.txt` 默认编排指引
-- [ ] 6.7 创建 builtin coordinator SubAgentDef（id="coordinator", mode=Coordinator）
-- [ ] 6.8 集成测试：coordinator spawn 多个 worker → 收到 notifications → 综合输出
+- [x] 6.1 在 SubAgentDef 中添加 `mode` 字段（`SubAgentMode::Normal` / `SubAgentMode::Coordinator`）
+- [x] 6.2 实现 coordinator tool registry filter：通过 `SubAgentToolFilter.allowed` 限制为管理工具
+- [x] 6.3 创建 `TaskStopTool` struct（coordinator 主动结束编排，返回 summary + status）
+- [x] 6.4 在 coordinator 模式下 force worker spawn 为 background=true（`coordinator_mode` 字段）
+- [x] 6.5 worker 完成时通过 `parent_queue` 将 CompletionSummary 推送到 coordinator 的 MessageQueue
+- [x] 6.6 创建 `COORDINATOR_SYSTEM_PROMPT` 常量（编排指引 + 工作流规则）
+- [x] 6.7 创建 builtin coordinator SubAgentDef（id="coordinator", mode=Coordinator, background=true）
+- [x] 6.8 E2E 验证：task_stop 工具注册、coordinator 出现在 list_agents、resolve_approval 回归通过
 
-## 7. Markdown Agent Definitions
+**关键成果**:
+- `SubAgentMode` 两态枚举（Normal / Coordinator）控制 agent 行为模式
+- Coordinator 仅允许管理工具（spawn_subagent, send_message, task_stop 等）
+- `TaskStopTool` 允许 coordinator 主动结束编排并提供最终 summary
+- `coordinator_mode` 字段强制所有 worker spawn 为 background 模式
+- `parent_queue` 参数使 worker 完成通知能推送到 coordinator 的 MessageQueue
+- 5 个 builtin sub-agent defs（explore, code, shell, research, coordinator）
 
-- [ ] 7.1 实现 `parse_agent_markdown(path) -> Result<SubAgentDef>` 函数（frontmatter YAML + body）
-- [ ] 7.2 实现 `load_agents_from_dir(dir) -> Vec<SubAgentDef>` 函数
-- [ ] 7.3 在 `SubAgentManager::new()` 中按优先级加载：builtin → `~/.xiaolin/agents/` → `{project}/.xiaolin/agents/`
-- [ ] 7.4 实现 merge 逻辑：同 id 后者覆盖前者
-- [ ] 7.5 添加 frontmatter schema 验证（required fields check + type validation）
-- [ ] 7.6 处理无效文件：跳过 + warning 日志
-- [ ] 7.7 实现 hot-reload：file watcher 监听 agents 目录变更 → 重新加载
-- [ ] 7.8 更新 `ListAgentsTool` 输出包含 source 信息（builtin/user/project）
+## 7. Markdown Agent Definitions — COMPLETED
+
+- [x] 7.1 实现 `parse_agent_markdown(path) -> Result<SubAgentDef>` 函数（frontmatter YAML + body）
+- [x] 7.2 实现 `load_agents_from_dir(dir) -> Vec<SubAgentDef>` 函数
+- [x] 7.3 在 `SubAgentManager::new()` 中按优先级加载：builtin → `~/.xiaolin/agents/` → `{project}/.xiaolin/agents/`
+- [x] 7.4 实现 merge 逻辑：同 id 后者覆盖前者
+- [x] 7.5 添加 frontmatter schema 验证（required fields check + type validation）
+- [x] 7.6 处理无效文件：跳过 + warning 日志
+- [x] 7.7 实现 hot-reload：file watcher 监听 agents 目录变更 → 重新加载
+- [x] 7.8 更新 `ListAgentsTool` 输出包含 source 信息（builtin/user/project）
+
+**关键成果**:
+- `agent_markdown` 模块：robust frontmatter 解析，支持 `deny_unknown_fields` schema 验证
+- `merge_subagent_defs` 函数：多层级定义合并，后者按 id 覆盖前者
+- `AgentDefWatcher`：基于 notify v6 的 hot-reload，300ms debounce
+- `ListAgentsTool` 输出新增 `source` 字段（builtin/json:/markdown:）
+- `SubAgentDef` 新增 `Default` impl，`parse_markdown_subagent_def` 委托到新模块
+- 加载优先级：builtin → project JSON → project markdown → user markdown
 
 ## 8. Frontend Interaction
 

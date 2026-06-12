@@ -4,9 +4,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use xiaolin_core::agent_config::SubAgentDefSource;
 use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 use crate::subagent_manager::SubAgentManager;
+
+fn format_source(source: &SubAgentDefSource) -> String {
+    match source {
+        SubAgentDefSource::Builtin => "builtin".to_string(),
+        SubAgentDefSource::JsonFile(p) => format!("json:{}", p.display()),
+        SubAgentDefSource::MarkdownFile(p) => format!("markdown:{}", p.display()),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ListAgentsTool
@@ -34,6 +43,7 @@ struct SubAgentDefSummary {
     concurrency_safe: bool,
     has_system_prompt: bool,
     tool_filter: ToolFilterSummary,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -78,6 +88,7 @@ impl Tool for ListAgentsTool {
                     allowed_count: d.tools.allowed.len(),
                     denied_count: d.tools.denied.len(),
                 },
+                source: format_source(&d.source),
             })
             .collect();
 

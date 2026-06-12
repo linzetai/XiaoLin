@@ -932,7 +932,7 @@ impl StateBuilder {
                 cost_store: Some(cost_store.clone()),
             }),
         ));
-        let state = AppState {
+        let mut state = AppState {
             cfg: super::ConfigState {
                 config: Arc::new(config),
                 config_live: Arc::new(ArcSwap::new(Arc::new(config_live_val))),
@@ -1006,6 +1006,7 @@ impl StateBuilder {
                 subagent_manager: subagent_manager_shared.clone(),
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
+                agent_def_watcher: None,
             },
             svc: super::SharedServices {
                 runtime: runtime_for_session,
@@ -1113,6 +1114,22 @@ impl StateBuilder {
                 .subagent_manager
                 .set_subagent_defs(subagent_defs);
             tracing::info!(count = def_count, "loaded sub-agent definitions (builtin + custom + user)");
+
+            // Start hot-reload watcher for agent definition directories
+            let mut watch_dirs = vec![json_dir, md_dir];
+            if let Some(home) = dirs::home_dir() {
+                watch_dirs.push(home.join(".xiaolin").join("subagents"));
+            }
+            match crate::agent_def_watcher::AgentDefWatcher::start(
+                watch_dirs,
+                state.strm.subagent_manager.clone(),
+            ) {
+                Ok(watcher) => {
+                    state.strm.agent_def_watcher = Some(Arc::new(watcher));
+                    tracing::info!("agent definition hot-reload watcher started");
+                }
+                Err(e) => tracing::warn!(error = %e, "failed to start agent def watcher"),
+            }
         }
 
         state.rt.tool_registry.register(Arc::new(
@@ -1167,7 +1184,11 @@ impl StateBuilder {
             .register(Arc::new(xiaolin_agent::SendMessageTool::new(
                 state.strm.subagent_manager.clone(),
             )));
-        tracing::info!("registered sub-agent tools (spawn_subagent, subagent_get, subagent_list, list_agents, get_agent_info, resume_subagent, send_message)");
+        state
+            .rt
+            .tool_registry
+            .register(Arc::new(xiaolin_agent::TaskStopTool::new()));
+        tracing::info!("registered sub-agent tools (spawn_subagent, subagent_get, subagent_list, list_agents, get_agent_info, resume_subagent, send_message, task_stop)");
 
         state.spawn_skill_evolution_tasks();
 
