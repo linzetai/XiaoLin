@@ -125,6 +125,10 @@ impl StreamingToolExecutor {
         let execution_mode = self.config.execution_mode;
         let plan_file_path = self.config.plan_file_path.clone();
 
+        let captured_session_id = crate::subagent::SUBAGENT_SESSION_ID
+            .try_with(|s| s.clone())
+            .ok();
+
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
                 let mut tools = tools_ref.lock().unwrap();
@@ -163,7 +167,10 @@ impl StreamingToolExecutor {
                 }
             }
 
-            // Execute the tool with work_dir and file_access context
+            // Execute the tool with work_dir and file_access context.
+            // Propagate SUBAGENT_SESSION_ID task-local across the spawn boundary
+            // so SubAgentTool can route events to the correct session.
+            let tool_fut = execute_single_tool_with_context(&call, &registry, &behavior, &work_dir, execution_mode, plan_file_path.as_ref());
             let result = tokio::select! {
                 _ = cancel.cancelled() => {
                     let mut tools = tools_ref.lock().unwrap();
@@ -172,7 +179,13 @@ impl StreamingToolExecutor {
                     }
                     return;
                 }
-                r = execute_single_tool_with_context(&call, &registry, &behavior, &work_dir, execution_mode, plan_file_path.as_ref()) => r,
+                r = async {
+                    if let Some(sid) = captured_session_id {
+                        crate::subagent::SUBAGENT_SESSION_ID.scope(sid, tool_fut).await
+                    } else {
+                        tool_fut.await
+                    }
+                } => r,
             };
 
             // Store result

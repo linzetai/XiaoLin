@@ -902,6 +902,17 @@ impl StateBuilder {
         let live_agents_swap: Arc<ArcSwap<Vec<AgentConfig>>> =
             Arc::new(ArcSwap::from_pointee(initial_agents.clone()));
 
+        let subagent_manager_shared = Arc::new(xiaolin_agent::SubAgentManager::new(
+            runtime_for_subagent,
+            initial_agents.clone(),
+            xiaolin_core::agent_config::SubAgentPolicy::default(),
+            std::sync::Arc::new(xiaolin_agent::SpawnController::new(
+                xiaolin_agent::SpawnConfig::from_policy_fallback(
+                    xiaolin_core::agent_config::SubAgentPolicy::default().max_parallel,
+                ),
+            )),
+        ));
+
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(
             Arc::new(xiaolin_agent::RuntimeTurnExecutor {
                 runtime: runtime_for_session.clone(),
@@ -914,7 +925,7 @@ impl StateBuilder {
                 goal_store: Some(goal_store_for_executor),
                 plan_file_store: Some(plan_file_store.clone()),
                 stream_event_tx: Some(stream_event_tx_for_executor),
-                subagent_manager: None,
+                subagent_manager: Some(subagent_manager_shared.clone()),
                 tool_orchestrator: Some(tool_orchestrator_for_executor),
                 behavior_overrides: Some(session_behavior_overrides.clone()),
                 live_agents: Some(live_agents_swap.clone()),
@@ -992,16 +1003,7 @@ impl StateBuilder {
                 tool_orchestrator: p5.phase2.phase4.tool_orchestrator.clone(),
                 git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(p5.ws_broadcast.clone())),
                 ws_broadcast: p5.ws_broadcast,
-                subagent_manager: Arc::new(xiaolin_agent::SubAgentManager::new(
-                    runtime_for_subagent,
-                    initial_agents.clone(),
-                    xiaolin_core::agent_config::SubAgentPolicy::default(),
-                    std::sync::Arc::new(xiaolin_agent::SpawnController::new(
-                        xiaolin_agent::SpawnConfig::from_policy_fallback(
-                            xiaolin_core::agent_config::SubAgentPolicy::default().max_parallel,
-                        ),
-                    )),
-                )),
+                subagent_manager: subagent_manager_shared.clone(),
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
             },
