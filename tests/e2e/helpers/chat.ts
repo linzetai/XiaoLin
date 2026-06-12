@@ -13,12 +13,29 @@ const STOP_BUTTON = 'button[title="停止生成"]';
 export class ChatHelper {
   constructor(private mcp: TauriMcpClient) {}
 
-  /** Send a message via the chat input and press Enter. */
+  /**
+   * Send a message via the chat input.
+   * Uses native value setter + _valueTracker invalidation to work with
+   * React controlled components on WebKitGTK, then clicks the send button.
+   */
   async sendMessage(text: string): Promise<void> {
-    await this.mcp.click(INPUT_SELECTOR);
-    await this.mcp.type(INPUT_SELECTOR, text);
+    const escaped = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+    await this.mcp.executeJs<string>(
+      `(() => {
+        const el = document.querySelector('${INPUT_SELECTOR}');
+        if (!el) return 'not found';
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype, 'value'
+        ).set;
+        nativeSetter.call(el, '${escaped}');
+        const tracker = el._valueTracker;
+        if (tracker) tracker.setValue('');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return el.value;
+      })()`,
+    );
     await sleep(100);
-    await this.mcp.press("Enter");
+    await this.mcp.click(SEND_BUTTON);
   }
 
   /**
