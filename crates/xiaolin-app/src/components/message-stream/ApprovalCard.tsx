@@ -66,7 +66,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
     if (submitted || !sessionId) return;
     setSubmitted(true);
     await setSessionPreset(sessionId, "full-auto");
-    onDecision("approved");
+    onDecision("approved_all_for_session");
   }, [submitted, sessionId, setSessionPreset, onDecision]);
 
   const hasPreview = data.action?.command || data.action?.diff || data.action?.content;

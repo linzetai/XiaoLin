@@ -12,6 +12,10 @@ use ts_rs::TS;
 pub enum ApprovalDecision {
     Approved,
     ApprovedForSession,
+    /// Approve ALL tool types for the remainder of this session/turn.
+    /// Unlike `ApprovedForSession` (which is per-tool-type), this sets a
+    /// global flag in the approval cache so no further prompts appear.
+    ApprovedAllForSession,
     Denied,
     TimedOut,
     Abort,

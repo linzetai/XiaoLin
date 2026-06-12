@@ -12,9 +12,13 @@ use xiaolin_protocol::ApprovalDecision;
 /// Also supports tool-level approval: when a tool-level key like
 /// `"tool_session:shell_exec"` is stored, ALL subsequent calls to that
 /// tool type are auto-approved for the session.
+///
+/// When `global_approved` is set (via `ApprovedAllForSession`), ALL tool
+/// calls are auto-approved regardless of type — no further prompts appear.
 #[derive(Debug, Default)]
 pub struct ApprovalCache {
     decisions: HashMap<String, ApprovalDecision>,
+    global_approved: bool,
 }
 
 impl ApprovalCache {
@@ -23,8 +27,12 @@ impl ApprovalCache {
     }
 
     /// Check if all provided keys have a cached `ApprovedForSession` decision,
-    /// OR if a tool-level key covers this tool type.
+    /// OR if a tool-level key covers this tool type,
+    /// OR if the global approval flag is set.
     pub fn check(&self, keys: &[String]) -> Option<ApprovalDecision> {
+        if self.global_approved {
+            return Some(ApprovalDecision::ApprovedForSession);
+        }
         if keys.is_empty() {
             return None;
         }
@@ -54,9 +62,15 @@ impl ApprovalCache {
         }
     }
 
-    /// Store a decision for the given keys. Only `ApprovedForSession` is cached;
-    /// other decisions are not stored (they're one-shot).
+    /// Store a decision for the given keys. Only `ApprovedForSession` and
+    /// `ApprovedAllForSession` are cached; other decisions are one-shot.
+    ///
+    /// `ApprovedAllForSession` sets the global flag so ALL future checks pass.
     pub fn store(&mut self, keys: &[String], decision: ApprovalDecision) {
+        if decision == ApprovalDecision::ApprovedAllForSession {
+            self.global_approved = true;
+            return;
+        }
         if decision == ApprovalDecision::ApprovedForSession {
             for key in keys {
                 self.decisions.insert(key.clone(), decision.clone());
@@ -73,6 +87,7 @@ impl ApprovalCache {
     /// Clear all cached decisions (e.g. on session end).
     pub fn clear(&mut self) {
         self.decisions.clear();
+        self.global_approved = false;
     }
 
     /// Number of cached approval entries.
@@ -141,5 +156,34 @@ mod tests {
         assert_eq!(cache.len(), 2);
         cache.clear();
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn global_approved_covers_all_tool_types() {
+        let mut cache = ApprovalCache::new();
+        cache.store(&["shell:ls".to_string()], ApprovalDecision::ApprovedAllForSession);
+        // Global flag set — any tool type should pass
+        assert_eq!(
+            cache.check(&["file_write:/tmp/foo".to_string()]),
+            Some(ApprovalDecision::ApprovedForSession)
+        );
+        assert_eq!(
+            cache.check(&["network:example.com:443".to_string()]),
+            Some(ApprovalDecision::ApprovedForSession)
+        );
+        // Even empty keys should pass with global flag
+        assert_eq!(cache.check(&[]), Some(ApprovalDecision::ApprovedForSession));
+    }
+
+    #[test]
+    fn clear_resets_global_approved() {
+        let mut cache = ApprovalCache::new();
+        cache.store(&[], ApprovalDecision::ApprovedAllForSession);
+        assert_eq!(
+            cache.check(&["anything".to_string()]),
+            Some(ApprovalDecision::ApprovedForSession)
+        );
+        cache.clear();
+        assert_eq!(cache.check(&["anything".to_string()]), None);
     }
 }

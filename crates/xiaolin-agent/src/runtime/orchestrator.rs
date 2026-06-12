@@ -396,11 +396,29 @@ impl ToolOrchestrator {
                     .await;
 
                 let rx = ih.request_approval(approval_id.clone(), &action);
-                let decision = rx.await.unwrap_or(ApprovalDecision::TimedOut);
 
-                if decision == ApprovalDecision::ApprovedForSession {
-                    ctx.approval_cache
-                        .store(&keys, ApprovalDecision::ApprovedForSession);
+                // Timeout so a lost/unrendered approval card doesn't block forever (Issue 2 fix)
+                let decision = match tokio::time::timeout(
+                    std::time::Duration::from_secs(300),
+                    rx,
+                )
+                .await
+                {
+                    Ok(Ok(d)) => d,
+                    Ok(Err(_)) => ApprovalDecision::TimedOut, // sender dropped
+                    Err(_) => ApprovalDecision::TimedOut,     // 5-min timeout
+                };
+
+                match &decision {
+                    ApprovalDecision::ApprovedAllForSession => {
+                        ctx.approval_cache
+                            .store(&keys, ApprovalDecision::ApprovedAllForSession);
+                    }
+                    ApprovalDecision::ApprovedForSession => {
+                        ctx.approval_cache
+                            .store(&keys, ApprovalDecision::ApprovedForSession);
+                    }
+                    _ => {}
                 }
 
                 let _ = ctx
@@ -414,7 +432,9 @@ impl ToolOrchestrator {
                     .await;
 
                 match decision {
-                    ApprovalDecision::Approved | ApprovalDecision::ApprovedForSession => {
+                    ApprovalDecision::Approved
+                    | ApprovalDecision::ApprovedForSession
+                    | ApprovalDecision::ApprovedAllForSession => {
                         Ok(DecisionSource::UserApproved)
                     }
                     ApprovalDecision::Denied => Err(ToolRuntimeError::Rejected {
