@@ -51,6 +51,7 @@ export interface ChatMessage {
   images?: ChatMessageImage[];
   usage?: ChatUsage;
   isSteer?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SubAgentToolCall {

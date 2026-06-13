@@ -650,7 +650,7 @@ export function MessageStream(_props: MessageStreamProps) {
     if (mode === "agent") {
       const planPath = activeChatMeta?.planFilePath ?? "";
       handleMentionSend(
-        `Plan approved. Execute the plan now. The plan file is at: ${planPath}`,
+        `Plan approved. Execute the plan now. The plan file is at: ${planPath}\n\nStrategy:\n1. Read the plan file and identify ALL tasks.\n2. Use \`todo_write\` to track progress.\n3. PARALLELIZATION: If there are 3+ independent tasks (no data dependency), you MUST use \`spawn_subagent\` to run them concurrently. Give each subagent a clear, self-contained prompt.\n4. For sequential/dependent tasks, execute them yourself in order.\n5. Self-verify: before marking complete, test the result.\n6. Do NOT ask for clarification — start immediately.`,
         [],
       );
     }
@@ -661,7 +661,7 @@ export function MessageStream(_props: MessageStreamProps) {
       const detail = (e as CustomEvent).detail as { planPath?: string } | undefined;
       const planPath = detail?.planPath ?? activeChatMeta?.planFilePath ?? "";
       handleMentionSend(
-        `Plan approved. Execute the plan now. The plan file is at: ${planPath}`,
+        `Plan approved. Execute the plan now. The plan file is at: ${planPath}\n\nStrategy:\n1. Read the plan file and identify ALL tasks.\n2. Use \`todo_write\` to track progress.\n3. PARALLELIZATION: If there are 3+ independent tasks (no data dependency), you MUST use \`spawn_subagent\` to run them concurrently. Give each subagent a clear, self-contained prompt.\n4. For sequential/dependent tasks, execute them yourself in order.\n5. Self-verify: before marking complete, test the result.\n6. Do NOT ask for clarification — start immediately.`,
         [],
       );
     };

@@ -360,6 +360,7 @@ impl SessionActor {
                             summary,
                             session_id: Some(task_session_id.to_string()),
                             final_tool_calls: None,
+                            reason: None,
                         })
                         .await;
                 }
@@ -393,6 +394,7 @@ impl SessionActor {
                             summary,
                             session_id: Some(task_session_id.to_string()),
                             final_tool_calls: None,
+                            reason: None,
                         })
                         .await;
                 }

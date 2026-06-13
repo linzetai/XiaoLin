@@ -19,6 +19,7 @@ use super::runtimes;
 use super::runtime_services;
 use super::session_memory;
 use super::task_decomposer;
+use super::token_budget;
 use super::tool_executor::filter_tool_definitions;
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::undo_engine;
@@ -281,6 +282,28 @@ pub(crate) async fn setup_turn(
     };
 
     // --- Assemble outputs ---
+    let budget_tracker = token_budget::resolve_turn_budget(
+        &last_user_msg,
+        request.session_id.as_deref(),
+    )
+    .map(token_budget::BudgetTracker::new);
+
+    if let Some(ref bt) = budget_tracker {
+        let budget_block = format!(
+            "\n─── Token Budget ───\n\
+             The user set a token budget of {} tokens as a safety ceiling. \
+             Complete your task naturally — stop when done, do not pad output. \
+             If you approach the budget limit, the system will ask you to wrap up.\n\
+             ────────────────────\n",
+            bt.budget.target_tokens
+        );
+        inject_system_block(&mut messages, &budget_block);
+        tracing::info!(
+            target_tokens = bt.budget.target_tokens,
+            "token_budget: budget injected into system prompt"
+        );
+    }
+
     let mutable_state = TurnMutableState {
         messages,
         max_tokens,
@@ -295,6 +318,8 @@ pub(crate) async fn setup_turn(
         had_tool_calls_this_round: false,
         injected_skill_ids,
         trajectory_steps: Vec::new(),
+        budget_tracker,
+        token_budget_reached: false,
     };
 
     let turn_services = TurnServices {

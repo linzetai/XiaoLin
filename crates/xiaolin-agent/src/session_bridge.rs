@@ -596,13 +596,19 @@ impl TurnExecutor for RuntimeTurnExecutor {
             .unwrap_or(false)
             || request.goal_mode.unwrap_or(false);
         let has_actionable_goal = session_has_actionable_goal(self.session_store.as_ref(), &sid).await;
-        let goal_auto_approve = goal_mode_flag || has_actionable_goal;
+        let has_approved_plan = self
+            .plan_file_store
+            .as_ref()
+            .map(|store| store.plan_path(&sid).exists())
+            .unwrap_or(false);
+        let goal_auto_approve = goal_mode_flag || has_actionable_goal || has_approved_plan;
         let approval_strategy = derive_approval_strategy(&effective_behavior, goal_auto_approve);
         tracing::debug!(
             session_id = %sid,
             has_override,
             goal_mode_flag,
             has_actionable_goal,
+            has_approved_plan,
             goal_auto_approve,
             tools_deny = ?effective_behavior.tools_deny,
             approval_strategy = ?effective_behavior.approval_strategy,

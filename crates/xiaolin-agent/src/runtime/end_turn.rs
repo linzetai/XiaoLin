@@ -15,6 +15,7 @@ use super::make_turn_summary;
 use super::query_state::TerminalReason;
 use super::stop_hooks;
 use super::stream_engine::send_step;
+use super::token_budget;
 use super::turn_state::{TurnMutableState, TurnServices};
 
 /// Outcome of the EndTurn finalization phase.
@@ -62,6 +63,9 @@ pub(crate) async fn handle_end_turn(
         // Goal token/time incremental accounting before stop hook evaluation.
         // Uses account_tokens/account_time to avoid double-counting across
         // continuation rounds within the same query loop.
+        //
+        // When a per-turn token_budget is active, skip goal budget enforcement
+        // to avoid conflicting control signals (token_budget takes priority).
         if let Some(ref gs) = svc.goal_store {
             if let Some(current_goal) = gs.get_current().await {
                 let goal_id = current_goal.id.clone();
@@ -78,7 +82,7 @@ pub(crate) async fn handle_end_turn(
                         if let Some((_delta, over_budget)) =
                             gs.account_tokens(&goal_id, cumulative).await
                         {
-                            if over_budget {
+                            if over_budget && ms.budget_tracker.is_none() {
                                 tracing::info!(
                                     goal_id = %goal_id,
                                     "goal budget exceeded, setting budget_limited"
@@ -90,6 +94,11 @@ pub(crate) async fn handle_end_turn(
                                         Some("budget_exhausted"),
                                     )
                                     .await;
+                            } else if over_budget {
+                                tracing::info!(
+                                    goal_id = %goal_id,
+                                    "goal budget exceeded but token_budget active — deferring to per-turn budget"
+                                );
                             }
                         }
                     }
@@ -267,6 +276,21 @@ pub(crate) async fn handle_end_turn(
         }
     }
 
+    // Check budget ceiling on all exit paths (not just force_stop).
+    // This handles the case where a single LLM iteration exceeds the budget
+    // (e.g., a long text response with no tool calls).
+    if !ms.token_budget_reached {
+        if let Some(ref tracker) = ms.budget_tracker {
+            let output_tokens = ms.query_loop.acc_completion_tokens as u64;
+            if output_tokens >= tracker.budget.target_tokens {
+                ms.token_budget_reached = true;
+                if let Some(sid) = svc.session_id.as_deref() {
+                    token_budget::clear_session_budget(sid);
+                }
+            }
+        }
+    }
+
     tracing::info!(
         agent_id = %svc.config.agent_id,
         reason = %terminal_reason,
@@ -282,11 +306,16 @@ pub(crate) async fn handle_end_turn(
         svc.stream_start,
         svc.context_window,
     );
+    let turn_end_reason = if ms.token_budget_reached {
+        TurnEndReason::TokenBudgetReached
+    } else {
+        TurnEndReason::from(terminal_reason.clone())
+    };
     let _ = send_step(
         &svc.step_tx,
         AgentStep::TurnEnd {
             turn_id: svc.turn_id.clone(),
-            reason: TurnEndReason::from(terminal_reason.clone()),
+            reason: turn_end_reason,
             summary: summary.clone(),
             session_id: svc.session_id.clone(),
         },

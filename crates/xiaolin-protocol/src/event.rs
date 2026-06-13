@@ -194,6 +194,8 @@ pub enum AgentEvent {
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         final_tool_calls: Option<Vec<crate::ToolCallData>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
 
     // ── Content streaming ───────────────────────────────────────────
@@ -569,6 +571,7 @@ mod tests {
             },
             session_id: Some("sess-1".into()),
             final_tool_calls: None,
+            reason: None,
         };
         let json = serde_json::to_string(&evt).unwrap();
         let back: AgentEvent = serde_json::from_str(&json).unwrap();

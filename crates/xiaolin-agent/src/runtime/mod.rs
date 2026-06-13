@@ -77,6 +77,7 @@ pub mod side_query;
 pub(crate) mod goal_prompts;
 mod stop_hooks;
 mod stream_engine;
+pub(crate) mod token_budget;
 pub mod streaming_tool_executor;
 pub mod task_decomposer;
 mod tool_executor;

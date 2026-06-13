@@ -80,6 +80,53 @@ pub(crate) async fn iteration_pre_check(
     // ── 2. Begin iteration bookkeeping ─────────────────────────────────
     ms.query_loop.begin_iteration();
 
+    // ── 2b. Token budget overflow check (per-iteration) ─────────────────
+    if let Some(ref mut tracker) = ms.budget_tracker {
+        let output_tokens = ms.query_loop.acc_completion_tokens as u64;
+        let target = tracker.budget.target_tokens;
+        let pct = if target > 0 { output_tokens * 100 / target } else { 0 };
+
+        if pct >= 120 {
+            // Hard stop: significantly over budget → force terminate
+            tracing::warn!(
+                agent_id = %svc.config.agent_id,
+                output_tokens,
+                target,
+                pct,
+                "token budget hard limit (120%) — forcing stop"
+            );
+            ms.messages.push(ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String(format!(
+                    "[SYSTEM] Token budget exceeded ({pct}% of target). \
+                     You MUST finish your current task immediately and provide a final response. \
+                     Do NOT start new tool calls."
+                ))),
+                ..Default::default()
+            });
+            ms.query_loop.force_stop_after_next = true;
+        } else if pct >= 100 && !tracker.soft_nudge_sent {
+            // Soft nudge: at or slightly over budget → suggest wrapping up
+            tracing::info!(
+                agent_id = %svc.config.agent_id,
+                output_tokens,
+                target,
+                pct,
+                "token budget soft nudge (100%) — suggesting wrap-up"
+            );
+            ms.messages.push(ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String(format!(
+                    "[SYSTEM] You have used {pct}% of your token budget ({output_tokens}/{target} tokens). \
+                     Please wrap up your current work soon and provide a summary. \
+                     You may finish one more tool call if absolutely necessary."
+                ))),
+                ..Default::default()
+            });
+            tracker.soft_nudge_sent = true;
+        }
+    }
+
     // ── 3. Drain mid-turn steer messages ───────────────────────────────
     if let Ok(inbox) = crate::builtin_tools::STEER_INBOX.try_with(|s| s.clone()) {
         let mut rx = inbox.lock().await;

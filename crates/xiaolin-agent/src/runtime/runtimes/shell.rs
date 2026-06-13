@@ -97,11 +97,17 @@ impl ToolRuntime for ShellRuntime {
                 message: "missing 'command' argument".into(),
             })?;
 
-        let timeout_ms = args
+        let mut timeout_ms = args
             .get("timeout_ms")
             .or_else(|| args.get("timeout"))
             .and_then(|v| v.as_u64())
             .unwrap_or(120_000);
+
+        // Cap timeout for dev server commands that are likely to run indefinitely
+        if is_dev_server_command(command) && timeout_ms > 30_000 {
+            tracing::info!(command = %command, "detected dev server command, capping timeout to 30s");
+            timeout_ms = 30_000;
+        }
 
         let cwd = args
             .get("working_dir")
@@ -198,36 +204,63 @@ impl ToolRuntime for ShellRuntime {
                 }
             });
 
-            let exit_status = tokio::time::timeout(
+            let exit_status = match tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
                 child.wait(),
             )
             .await
-            .map_err(|_| ToolRuntimeError::Timeout { elapsed_ms: timeout_ms })?
-            .map_err(|e| ToolRuntimeError::Internal {
-                message: format!("process error: {e}"),
-            })?;
+            {
+                Ok(Ok(status)) => status,
+                Ok(Err(e)) => {
+                    return Err(ToolRuntimeError::Internal {
+                        message: format!("process error: {e}"),
+                    });
+                }
+                Err(_elapsed) => {
+                    // Timeout: kill the child process and its process group
+                    let _ = child.kill().await;
+                    stdout_task.abort();
+                    stderr_task.abort();
+                    return Err(ToolRuntimeError::Timeout { elapsed_ms: timeout_ms });
+                }
+            };
 
             let stdout_lines = stdout_task.await.unwrap_or_default();
             let stderr_lines = stderr_task.await.unwrap_or_default();
 
             (stdout_lines.join("\n"), stderr_lines.join("\n"), exit_status)
         } else {
-            // Batch mode: original wait_with_output behavior
-            let output = tokio::time::timeout(
+            // Batch mode: capture PID for kill-on-timeout, then wait_with_output
+            let child_id = child.id();
+            match tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
                 child.wait_with_output(),
             )
             .await
-            .map_err(|_| ToolRuntimeError::Timeout { elapsed_ms: timeout_ms })?
-            .map_err(|e| ToolRuntimeError::Internal {
-                message: format!("process error: {e}"),
-            })?;
-            (
-                String::from_utf8_lossy(&output.stdout).into_owned(),
-                String::from_utf8_lossy(&output.stderr).into_owned(),
-                output.status,
-            )
+            {
+                Ok(Ok(output)) => (
+                    String::from_utf8_lossy(&output.stdout).into_owned(),
+                    String::from_utf8_lossy(&output.stderr).into_owned(),
+                    output.status,
+                ),
+                Ok(Err(e)) => {
+                    return Err(ToolRuntimeError::Internal {
+                        message: format!("process error: {e}"),
+                    });
+                }
+                Err(_elapsed) => {
+                    // Kill via PID since child was moved into wait_with_output
+                    if let Some(pid) = child_id {
+                        #[cfg(unix)]
+                        {
+                            let _ = std::process::Command::new("kill")
+                                .args(["-9", &format!("-{pid}")])
+                                .output();
+                        }
+                    }
+                    return Err(ToolRuntimeError::Timeout { elapsed_ms: timeout_ms });
+                }
+            }
         };
 
         let duration_ms = start.elapsed().as_millis();
@@ -287,6 +320,26 @@ fn build_plain_command(command: &str, cwd: &Path) -> tokio::process::Command {
 
 fn preferred_shell() -> &'static str {
     if cfg!(windows) { "cmd" } else { "sh" }
+}
+
+/// Detect commands that are likely dev servers (long-running by nature).
+fn is_dev_server_command(command: &str) -> bool {
+    let lower = command.to_lowercase();
+    let patterns = [
+        "vite", "next dev", "next start", "webpack serve", "webpack-dev-server",
+        "ng serve", "npm start", "npm run dev", "npm run serve",
+        "yarn dev", "yarn start", "pnpm dev", "pnpm start",
+        "flask run", "uvicorn", "gunicorn", "python -m http.server",
+        "live-server", "http-server", "nodemon",
+    ];
+    // Only match if the command appears to run a server synchronously (no & or nohup)
+    let has_background = command.trim().ends_with('&')
+        || lower.contains("nohup")
+        || lower.contains("> /dev/null");
+    if has_background {
+        return false;
+    }
+    patterns.iter().any(|p| lower.contains(p))
 }
 
 fn map_backend_to_sandbox_type(backend: SandboxBackend) -> xiaolin_sandbox::SandboxType {

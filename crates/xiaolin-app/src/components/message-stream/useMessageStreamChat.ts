@@ -475,6 +475,22 @@ export function useMessageStreamChat({
                 }
               }
             }
+
+            const turnEndReason = d?.reason as string | undefined;
+            if (turnEndReason === "token_budget_reached") {
+              const budgetUsage = summary?.usage;
+              const completionTokens = budgetUsage?.completion_tokens ?? 0;
+              addMessage({
+                role: "system",
+                content: `Token 预算已用尽（已生成 ~${completionTokens} tokens）。你可以继续追加预算或结束本次任务。`,
+                timestamp: new Date(),
+                metadata: {
+                  action: "token_budget_reached",
+                  completionTokens,
+                  sessionId: sid ?? capturedChatId,
+                },
+              }, capturedChatId);
+            }
             break;
           }
           case "turn_aborted": {

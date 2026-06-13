@@ -21,6 +21,7 @@ use super::permissions::DenialTracker;
 use super::query_deps::ProductionDeps;
 use super::query_state::QueryLoopState;
 use super::runtime_services::RuntimeServices;
+use super::token_budget::BudgetTracker;
 use super::tool_result_storage::{ContentReplacementState, ToolResultStorage};
 use super::undo_engine::UndoEngine;
 use super::validation_pipeline::ValidationPipeline;
@@ -48,6 +49,9 @@ pub(crate) struct TurnMutableState {
     pub had_tool_calls_this_round: bool,
     pub injected_skill_ids: Vec<String>,
     pub trajectory_steps: Vec<TrajectoryStep>,
+    pub budget_tracker: Option<BudgetTracker>,
+    /// Set to true when token budget was reached in this turn (for TurnEnd reason override).
+    pub token_budget_reached: bool,
 }
 
 /// Immutable context and service dependencies for a single agent turn.

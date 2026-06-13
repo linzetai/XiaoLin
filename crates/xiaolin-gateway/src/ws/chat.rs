@@ -804,7 +804,16 @@ pub async fn spawn_chat(
             .current_mode();
 
         const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024; // 2MB safety cap
-        let turn_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600); // 10min
+        // No artificial time deadline — turns are bounded by:
+        // 1. Stop hooks: idle detection (no tool calls for N rounds → pause)
+        // 2. Stop hooks: max continuation rounds → pause
+        // 3. Budget: budget_limit_usd on the session
+        // 4. Context: autocompact + blocking limit when context window fills
+        // 5. Safety: max_tool_calls_per_turn config (default: unlimited for goal mode)
+        // A generous deadline is kept only as a last-resort circuit breaker
+        // against truly pathological cases (e.g., LLM API hanging).
+        let turn_deadline_secs: u64 = if goal_mode { 7200 } else { 1800 }; // 2h goal, 30min normal
+        let turn_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(turn_deadline_secs);
 
         loop {
             let event = match tokio::time::timeout_at(turn_deadline, event_rx.recv()).await {
@@ -820,16 +829,33 @@ pub async fn spawn_chat(
                     tracing::error!(
                         session_id = %session_id,
                         content_len = assistant_content.len(),
-                        "turn exceeded 10-minute deadline, forcing cancellation"
+                        deadline_secs = turn_deadline_secs,
+                        "turn exceeded deadline, forcing cancellation"
                     );
+                    let deadline_min = turn_deadline_secs / 60;
                     let _ = bg_tx
                         .send(WsResponse {
                             id: rid.clone(),
                             msg_type: "error".into(),
-                            data: Some(json!({"type": "error", "message": "turn 运行超过 10 分钟，已被强制取消"})),
-                            error: Some(json!({"code": 408, "message": "turn 运行超过 10 分钟，已被强制取消"})),
+                            data: Some(json!({"type": "error", "message": format!("turn 运行超过 {deadline_min} 分钟，已被强制取消")})),
+                            error: Some(json!({"code": 408, "message": format!("turn 运行超过 {deadline_min} 分钟，已被强制取消")})),
                         })
                         .await;
+                    if goal_mode {
+                        let _ = bg_tx
+                            .send(WsResponse {
+                                id: None,
+                                msg_type: "turn_timeout_continue".into(),
+                                data: Some(json!({
+                                    "sessionId": session_id,
+                                    "reason": "deadline",
+                                    "elapsed_min": deadline_min,
+                                    "hint": "The turn was cancelled due to time limit. Send a continuation message to resume."
+                                })),
+                                error: None,
+                            })
+                            .await;
+                    }
                     turn_cancel.cancel();
                     break;
                 }

@@ -273,6 +273,55 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
 
 function SystemMsg({ msg }: { msg: ChatMessage }) {
   const isError = typeof msg.content === "string" && msg.content.startsWith("错误:");
+  const isBudgetReached = msg.metadata?.action === "token_budget_reached";
+
+  const handleContinue = useCallback((budget: string) => {
+    import("@tauri-apps/api/event").then(({ emit }) => {
+      emit("quick-action-send", { content: `+${budget} 继续完成任务` });
+    });
+  }, []);
+
+  if (isBudgetReached) {
+    const tokens = msg.metadata?.completionTokens as number | undefined;
+    return (
+      <div
+        className="pb-3 pt-1 px-3 my-1 rounded-lg border flex flex-col gap-2 text-[13px]"
+        style={{
+          borderColor: "var(--border-secondary)",
+          background: "var(--bg-secondary)",
+          color: "var(--fill-secondary)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-[6px] w-[6px] shrink-0 rounded-full"
+            style={{ background: "var(--orange, #ED8936)" }}
+          />
+          <span>{msg.content}</span>
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <button
+            className="px-3 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors"
+            style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
+            onClick={() => handleContinue("5k")}
+          >
+            继续 (+5k)
+          </button>
+          <button
+            className="px-3 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors"
+            style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
+            onClick={() => handleContinue("20k")}
+          >
+            继续 (+20k)
+          </button>
+          <span className="text-[11px] ml-auto" style={{ color: "var(--fill-tertiary)" }}>
+            已生成 ~{tokens ?? "?"} tokens
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="pb-2 flex items-start gap-2 text-[13px]"

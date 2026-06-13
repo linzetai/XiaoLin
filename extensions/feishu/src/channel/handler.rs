@@ -218,6 +218,7 @@ impl FeishuMessageHandler for FeishuChannel {
                 },
                 session_id: Some(session.id.clone()),
                 final_tool_calls: None,
+                reason: None,
             };
             for event in [turn_start, turn_end] {
                 self.event_log.append(&session.id, &event);

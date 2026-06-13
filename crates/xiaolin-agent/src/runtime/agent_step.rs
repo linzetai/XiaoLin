@@ -118,6 +118,7 @@ pub enum TurnEndReason {
     Cancelled,
     ContextLimit,
     BudgetExceeded,
+    TokenBudgetReached,
     ConsecutiveErrors,
     DiminishingReturns,
     PlanApprovalPending,
@@ -209,12 +210,25 @@ impl AgentStep {
                 vec![AgentEvent::GoalCleared { turn_id, goal_id }]
             }
 
-            Self::TurnEnd { turn_id, summary, session_id, .. } => {
+            Self::TurnEnd { turn_id, reason, summary, session_id } => {
+                let reason_str = match &reason {
+                    TurnEndReason::TokenBudgetReached => Some("token_budget_reached".to_string()),
+                    TurnEndReason::Completed => None,
+                    TurnEndReason::MaxTurns => Some("max_turns".to_string()),
+                    TurnEndReason::Cancelled => Some("cancelled".to_string()),
+                    TurnEndReason::ContextLimit => Some("context_limit".to_string()),
+                    TurnEndReason::BudgetExceeded => Some("budget_exceeded".to_string()),
+                    TurnEndReason::ConsecutiveErrors => Some("consecutive_errors".to_string()),
+                    TurnEndReason::DiminishingReturns => Some("diminishing_returns".to_string()),
+                    TurnEndReason::PlanApprovalPending => Some("plan_approval_pending".to_string()),
+                    TurnEndReason::Error(e) => Some(format!("error: {e}")),
+                };
                 vec![AgentEvent::TurnEnd {
                     turn_id,
                     summary,
                     session_id,
                     final_tool_calls: None,
+                    reason: reason_str,
                 }]
             }
 
