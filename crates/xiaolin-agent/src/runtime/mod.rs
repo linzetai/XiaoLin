@@ -726,6 +726,7 @@ impl AgentRuntime {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            plan_file_path: None,
             message_queue: None,
             cancel_token: None,
         };
@@ -801,6 +802,8 @@ impl AgentRuntime {
             todo_store,
             goal_store,
             cost_store,
+            plan_file_path: crate::builtin_tools::plan_mode::current_plan_context()
+                .map(|pc| pc.store.plan_path(&pc.session_id)),
             message_queue,
             cancel_token: None,
         };
@@ -1389,6 +1392,7 @@ mod stream_resume_tests {
             slash_intent: None,
             work_dir: None,
             response_language: None,
+            goal_mode: None,
         };
 
         let res = runtime

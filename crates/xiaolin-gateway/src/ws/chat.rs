@@ -9,7 +9,7 @@ use crate::chat_pipeline::{
     after_chat, maybe_spawn_smart_title_background, setup_chat, SetupChatOptions,
 };
 use crate::state::AppState;
-use xiaolin_core::types::{AgentId, ChatMessage, ChatRequest};
+use xiaolin_core::types::{AgentId, ChatMessage, ChatRequest, ExecutionMode};
 use xiaolin_protocol::{AgentEvent, ChatParams};
 use xiaolin_session_actor::SessionOp;
 
@@ -481,20 +481,60 @@ pub async fn spawn_chat(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if goal_mode {
+            if let Some(session_id) = params.session_id.as_deref() {
+                let (from, to) = state.rt.session_modes.transition(session_id, ExecutionMode::Agent);
+                if from != to {
+                    tracing::info!(
+                        session_id,
+                        ?from,
+                        ?to,
+                        "goal mode: forced transition from plan to agent"
+                    );
+                }
+            }
+        }
+        let user_goal_text = if goal_mode {
+            messages
+                .iter()
+                .rev()
+                .find(|m| m.role == xiaolin_core::types::Role::User)
+                .and_then(|m| m.text_content())
+                .map(|c| c.trim().to_string())
+                .filter(|s| !s.is_empty())
+        } else {
+            None
+        };
+        if goal_mode {
+            let objective_block = user_goal_text.as_deref().map(|desc| {
+                let escaped = desc
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+                format!("\n<objective>{escaped}</objective>\n")
+            }).unwrap_or_default();
             let goal_instruction = ChatMessage {
                 role: xiaolin_core::types::Role::User,
-                content: Some(serde_json::Value::String(
+                content: Some(serde_json::Value::String(format!(
                     "<goal_context>\n\
                      [GOAL MODE]\n\n\
-                     The user has entered Goal Mode. You MUST use the `create_goal` tool to \
-                     formally register the user's message as your objective BEFORE taking any \
-                     other action. Do not infer goals from ordinary tasks — only create a goal \
-                     when explicitly requested (as is the case here).\n\n\
-                     After creating the goal, begin working autonomously toward it. \
-                     Do NOT ask for clarification — start immediately.\n\
+                     The user has entered Goal Mode. Your objective has already been registered \
+                     in the system — do NOT call `create_goal`.{objective_block}\n\
+                     Work autonomously toward this goal. Use tools as needed. \
+                     Do NOT ask for clarification — start immediately.\n\n\
+                     Strategy:\n\
+                     1. Break the goal into subtasks using `todo_write`.\n\
+                     2. Parallelization rule: if you have 3 or more independent subtasks \
+                     (tasks with no data dependency on each other), you MUST use \
+                     `spawn_subagent` to run them concurrently. Give each subagent a \
+                     clear, self-contained prompt with all context it needs.\n\
+                     3. For sequential/dependent tasks, execute them yourself in order.\n\
+                     4. Self-verification: before calling `update_goal` to mark the goal \
+                     completed, verify the output actually works (run the code, check \
+                     the files, test the result). Do not mark complete without evidence.\n\
+                     5. When all subtasks are verified, call `update_goal` with status \
+                     `completed`.\n\
                      </goal_context>"
-                        .to_string(),
-                )),
+                ))),
                 ..Default::default()
             };
             messages.insert(0, goal_instruction);
@@ -515,6 +555,7 @@ pub async fn spawn_chat(
                 .and_then(|v| serde_json::from_value(v.clone()).ok()),
             work_dir: params.work_dir.clone(),
             response_language: params.response_language.clone(),
+            goal_mode: goal_mode.then_some(true),
         };
 
         let setup = match setup_chat(
@@ -546,6 +587,66 @@ pub async fn spawn_chat(
                 return;
             }
         };
+
+        if goal_mode {
+            let session_id = &setup.session_id;
+            let (from, to) = state
+                .rt
+                .session_modes
+                .transition(session_id, ExecutionMode::Agent);
+            if from != to {
+                tracing::info!(
+                    session_id = %session_id,
+                    ?from,
+                    ?to,
+                    "goal mode: switched session to agent mode"
+                );
+                let _ = bg_tx
+                    .send(WsResponse {
+                        id: None,
+                        msg_type: "mode_change".into(),
+                        data: Some(json!({
+                            "from": format!("{from}"),
+                            "to": format!("{to}"),
+                            "session_id": session_id,
+                        })),
+                        error: None,
+                    })
+                    .await;
+            }
+
+            let goal_store = &state.rt.goal_store;
+            goal_store.set_session_id(session_id.clone()).await;
+
+            if let Some(desc) = user_goal_text {
+                match goal_store.create(desc, None).await {
+                    Ok(goal) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            goal_id = %goal.id,
+                            "goal auto-created for goal mode"
+                        );
+                        let event = AgentEvent::GoalUpdated {
+                            turn_id: Default::default(),
+                            goal: goal.to_goal_data(),
+                        };
+                        let _ = bg_tx.send(forward_event(&event, &rid)).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = %e,
+                            "goal auto-create skipped (goal may already exist)"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "goal mode enabled but no user message text for goal description"
+                );
+            }
+        }
 
         let turn_cancel = CancellationToken::new();
         {

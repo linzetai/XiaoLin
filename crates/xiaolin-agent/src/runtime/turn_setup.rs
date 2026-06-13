@@ -317,6 +317,9 @@ pub(crate) async fn setup_turn(
         session_store: session_store.clone(),
         todo_store: todo_store.clone(),
         goal_store: goal_store.clone(),
+        plan_file_path: crate::builtin_tools::plan_mode::current_plan_context()
+            .map(|pc| pc.store.plan_path(&pc.session_id))
+            .or_else(|| ctx.plan_file_path.clone()),
         step_tx: ctx.step_tx.clone().expect("AgentContext.step_tx must be set for streaming execution"),
         event_tx: ctx.event_tx.clone().expect("AgentContext.event_tx must be set for streaming execution"),
         approval_strategy: ctx.approval_strategy.clone(),

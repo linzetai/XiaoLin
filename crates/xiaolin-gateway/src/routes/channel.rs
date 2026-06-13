@@ -522,6 +522,7 @@ pub(crate) async fn handle_channel_message(
         slash_intent: None,
         work_dir,
         response_language: None,
+        goal_mode: None,
     };
 
     let options = SetupChatOptions {

@@ -86,6 +86,15 @@ pub fn render_continuation_prompt(goal: &Goal) -> String {
          or continue the work.\n\
          - The audit must prove completion, not merely fail to find obvious remaining work.\n\
          \n\
+         Self-verification (mandatory before marking complete):\n\
+         - If the goal produces code: run it (shell_exec, open in browser, etc.) and \
+         confirm the output matches expectations.\n\
+         - If the goal produces files: read them back and verify content is correct.\n\
+         - If the goal produces a web page/app: use shell_exec to validate (e.g. check \
+         HTML structure, test HTTP endpoints, run unit tests).\n\
+         - Do NOT mark the goal complete based solely on having written files — you must \
+         verify the output actually works.\n\
+         \n\
          Do not call `update_goal` unless the goal is complete. \
          Marking the goal complete is a claim that the full objective has been finished \
          and can withstand requirement-by-requirement scrutiny. \

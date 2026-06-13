@@ -307,6 +307,9 @@ export const useStreamStore = create<StreamState>((set) => ({
       const runs = state.subAgentRuns[chatId];
       const run = runs?.[runId];
       if (!run) return state;
+      const streamedCount = run.toolCalls.length;
+      const backendCount = toolCallsMade ?? run.toolCallsMade;
+      const reconciledCount = Math.max(streamedCount, backendCount);
       return {
         subAgentRuns: {
           ...state.subAgentRuns,
@@ -316,7 +319,7 @@ export const useStreamStore = create<StreamState>((set) => ({
               ...run,
               status: status as SubAgentRunUI["status"],
               result: result ?? run.result,
-              toolCallsMade: toolCallsMade ?? run.toolCallsMade,
+              toolCallsMade: reconciledCount,
               iterations: iterations ?? run.iterations,
               elapsedMs: elapsedMs ?? run.elapsedMs,
             },

@@ -84,6 +84,7 @@ pub(crate) struct TurnServices {
     pub session_store: Option<Arc<xiaolin_session::SessionStore>>,
     pub todo_store: Option<TodoStore>,
     pub goal_store: Option<Arc<GoalStore>>,
+    pub plan_file_path: Option<std::path::PathBuf>,
 
     // --- Streaming channels ---
     /// Main-loop events (Delta, ToolResult, TurnEnd, etc.) — yielded as AgentStep from the stream.

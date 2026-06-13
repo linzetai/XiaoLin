@@ -2015,6 +2015,7 @@ mod reload_tests {
             slash_intent: None,
             work_dir: None,
             response_language: None,
+            goal_mode: None,
         };
         assert!(state.rt.router.read().await.resolve(&req).is_ok());
 

@@ -784,6 +784,7 @@ impl SubAgentManager {
             slash_intent: None,
             work_dir,
             response_language: None,
+            goal_mode: None,
         };
 
         // Initialize sidechain writer for transcript persistence
@@ -863,6 +864,16 @@ impl SubAgentManager {
                                 })
                                 .await;
                         }
+                    }
+                    AgentEvent::ReasoningDelta { content, .. } => {
+                        accumulated_text.push_str(content);
+                        let _ = parent_tx_clone
+                            .send(AgentEvent::SubAgentDelta {
+                                turn_id: forward_turn_id.clone(),
+                                run_id: run_id_owned.clone(),
+                                content: content.clone(),
+                            })
+                            .await;
                     }
                     AgentEvent::ToolExecuting {
                         tool_name,

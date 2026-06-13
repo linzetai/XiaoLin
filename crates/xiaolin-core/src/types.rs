@@ -234,6 +234,9 @@ pub struct ChatRequest {
     pub work_dir: Option<String>,
     #[serde(default, alias = "responseLanguage")]
     pub response_language: Option<String>,
+    /// When true, the user entered Goal mode — autonomous execution with auto-approved tools.
+    #[serde(default, alias = "goalMode", skip_serializing_if = "Option::is_none")]
+    pub goal_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

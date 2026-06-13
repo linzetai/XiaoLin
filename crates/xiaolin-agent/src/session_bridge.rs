@@ -25,13 +25,32 @@ use crate::AgentRuntime;
 
 fn derive_approval_strategy(
     behavior: &xiaolin_core::agent_config::BehaviorConfig,
+    goal_auto_approve: bool,
 ) -> xiaolin_core::tool_runtime::ApprovalStrategy {
+    if goal_auto_approve {
+        return xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
+    }
     if let Some(ref strategy) = behavior.approval_strategy {
         if strategy.eq_ignore_ascii_case("auto_approve") || strategy.eq_ignore_ascii_case("autoapprove") {
             return xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
         }
     }
     xiaolin_core::tool_runtime::ApprovalStrategy::Interactive
+}
+
+async fn session_has_actionable_goal(
+    session_store: Option<&Arc<xiaolin_session::SessionStore>>,
+    session_id: &str,
+) -> bool {
+    match session_store {
+        Some(store) => store
+            .get_actionable_goal(session_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some(),
+        None => false,
+    }
 }
 
 /// Adapter implementing `TurnExecutor` by delegating to `AgentRuntime`.
@@ -268,6 +287,7 @@ impl RuntimeTurnExecutor {
                 work_dir: params.work_dir.clone(),
                 slash_intent: None,
                 response_language: None,
+                goal_mode: None,
             })
     }
 
@@ -302,6 +322,7 @@ impl RuntimeTurnExecutor {
         todo_store: &Option<crate::builtin_tools::TodoStore>,
         stream_context_key: &str,
         cancel: &CancellationToken,
+        approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
     ) -> anyhow::Result<xiaolin_protocol::TurnSummary> {
         let mgr = self.subagent_manager.as_ref().unwrap();
         let policy = &config.behavior.subagent;
@@ -412,6 +433,7 @@ impl RuntimeTurnExecutor {
                 work_dir: request.work_dir.clone(),
                 slash_intent: None,
                 response_language: None,
+                goal_mode: request.goal_mode,
             };
 
             // Re-prompt LLM.
@@ -427,7 +449,7 @@ impl RuntimeTurnExecutor {
                 &reprompt_request,
                 &tool_registry,
                 tx.clone(),
-                derive_approval_strategy(&config.behavior),
+                approval_strategy.clone(),
                 llm.clone(),
                 orchestrator.clone(),
                 Some(interaction.clone()),
@@ -567,13 +589,24 @@ impl TurnExecutor for RuntimeTurnExecutor {
         let sid = params.session_id.to_string();
         let has_override = self.behavior_overrides.as_ref().map_or(false, |m| m.contains_key(&sid));
         let effective_behavior = self.effective_behavior(&sid);
-        let strategy = derive_approval_strategy(&effective_behavior);
+        let goal_mode_flag = params
+            .extra
+            .get("goalMode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || request.goal_mode.unwrap_or(false);
+        let has_actionable_goal = session_has_actionable_goal(self.session_store.as_ref(), &sid).await;
+        let goal_auto_approve = goal_mode_flag || has_actionable_goal;
+        let approval_strategy = derive_approval_strategy(&effective_behavior, goal_auto_approve);
         tracing::debug!(
             session_id = %sid,
             has_override,
+            goal_mode_flag,
+            has_actionable_goal,
+            goal_auto_approve,
             tools_deny = ?effective_behavior.tools_deny,
             approval_strategy = ?effective_behavior.approval_strategy,
-            derived_strategy = ?strategy,
+            derived_strategy = ?approval_strategy,
             "permission preset applied"
         );
         config.behavior = effective_behavior;
@@ -696,7 +729,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 &request,
                 &tool_registry,
                 inner_tx.clone(),
-                derive_approval_strategy(&config.behavior),
+                approval_strategy.clone(),
                 llm.clone(),
                 orchestrator.clone(),
                 Some(interaction.clone()),
@@ -767,6 +800,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                     &todo_store,
                     &stream_context_key,
                     &cancel,
+                    approval_strategy,
                 )
                 .await
             } else {
@@ -848,7 +882,7 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            derive_approval_strategy(&behavior),
+            derive_approval_strategy(&behavior, false),
             ApprovalStrategy::AutoApprove
         ));
     }
@@ -862,8 +896,17 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            derive_approval_strategy(&behavior),
+            derive_approval_strategy(&behavior, false),
             ApprovalStrategy::Interactive
+        ));
+    }
+
+    #[test]
+    fn goal_mode_forces_auto_approve() {
+        let behavior = BehaviorConfig::default();
+        assert!(matches!(
+            derive_approval_strategy(&behavior, true),
+            ApprovalStrategy::AutoApprove
         ));
     }
 
@@ -884,7 +927,7 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            derive_approval_strategy(&behavior),
+            derive_approval_strategy(&behavior, false),
             ApprovalStrategy::Interactive
         ));
     }
@@ -898,7 +941,7 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            derive_approval_strategy(&behavior),
+            derive_approval_strategy(&behavior, false),
             ApprovalStrategy::Interactive
         ));
     }
@@ -912,7 +955,7 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            derive_approval_strategy(&behavior),
+            derive_approval_strategy(&behavior, false),
             ApprovalStrategy::Interactive
         ));
     }

@@ -80,11 +80,16 @@ export function PlanApprovalCard({
         const { activeChatId: sessionId, setChatExecutionMode } = useChatMetaStore.getState();
         await transport.approvePlan(sessionId, mode);
         setChatExecutionMode(sessionId, mode);
+        if (mode === "agent") {
+          window.dispatchEvent(new CustomEvent("xiaolin:plan-approved", {
+            detail: { planPath: planPath ?? "" },
+          }));
+        }
       }
     } finally {
       setApproving(false);
     }
-  }, [approving, onApprove]);
+  }, [approving, onApprove, planPath]);
 
   const displayPath = planPath?.replace(/^\/home\/[^/]+\//, "~/") ?? "";
   const isPending = metadata?.approval_pending ?? false;

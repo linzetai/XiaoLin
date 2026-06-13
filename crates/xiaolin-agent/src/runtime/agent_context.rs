@@ -58,6 +58,9 @@ pub struct AgentContext {
     // === Optional - Message Queue (for steering injection) ===
     pub message_queue: Option<Arc<MessageQueue>>,
 
+    // === Optional - Plan file path (passes through tokio::spawn boundary) ===
+    pub plan_file_path: Option<std::path::PathBuf>,
+
     // === Optional - Lifecycle ===
     pub cancel_token: Option<CancellationToken>,
 }
@@ -83,6 +86,7 @@ impl AgentContext {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            plan_file_path: None,
             message_queue: None,
             cancel_token: None,
         }

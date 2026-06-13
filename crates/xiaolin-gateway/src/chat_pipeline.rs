@@ -214,6 +214,7 @@ pub async fn setup_chat(
         slash_intent: request.slash_intent.clone(),
         work_dir: request.work_dir.clone(),
         response_language: request.response_language.clone(),
+        goal_mode: request.goal_mode,
     };
     let t0 = std::time::Instant::now();
     state

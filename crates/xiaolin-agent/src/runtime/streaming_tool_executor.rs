@@ -145,6 +145,9 @@ impl StreamingToolExecutor {
                 .ok()
         });
 
+        let captured_mode_state = crate::builtin_tools::current_session_mode();
+        let captured_plan_ctx = crate::builtin_tools::current_plan_context();
+
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
                 let mut tools = lock_or_recover(&tools_ref);
@@ -184,8 +187,10 @@ impl StreamingToolExecutor {
             }
 
             // Execute the tool with work_dir and file_access context.
-            // Propagate SUBAGENT_SESSION_ID task-local across the spawn boundary
-            // so SubAgentTool can route events to the correct session.
+            // Propagate task-locals across the spawn boundary:
+            // - SUBAGENT_SESSION_ID: so SubAgentTool can route events
+            // - CURRENT_SESSION_MODE + PLAN_CONTEXT: so plan mode tools
+            //   (exit_plan_mode) can access the per-session mode state and plan file
             let tool_fut = execute_single_tool_with_context(&call, &registry, &behavior, &work_dir, execution_mode, plan_file_path.as_ref());
             let result = tokio::select! {
                 _ = cancel.cancelled() => {
@@ -196,10 +201,16 @@ impl StreamingToolExecutor {
                     return;
                 }
                 r = async {
-                    if let Some(sid) = captured_session_id {
-                        crate::subagent::SUBAGENT_SESSION_ID.scope(sid, tool_fut).await
+                    let with_mode = if let Some(ms) = captured_mode_state {
+                        let f = crate::builtin_tools::with_session_mode(ms, captured_plan_ctx, tool_fut);
+                        futures::future::Either::Left(f)
                     } else {
-                        tool_fut.await
+                        futures::future::Either::Right(tool_fut)
+                    };
+                    if let Some(sid) = captured_session_id {
+                        crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode).await
+                    } else {
+                        with_mode.await
                     }
                 } => r,
             };

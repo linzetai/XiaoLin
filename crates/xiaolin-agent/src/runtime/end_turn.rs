@@ -232,19 +232,37 @@ pub(crate) async fn handle_end_turn(
         }
     }
 
-    // Auto-exit Plan mode when turn ends without a plan file
+    // Auto-exit Plan mode when turn ends without a plan file,
+    // or emit PlanFileUpdate as fallback when a plan file exists
+    // but exit_plan_mode was never called (so frontend can show approval card).
     if let Some(ref mode_state) = svc.mode_state {
         if mode_state.current_mode() == ExecutionMode::Plan {
-            let has_plan = svc.session_id.as_ref().is_some_and(|sid| {
-                let ps = crate::builtin_tools::PlanFileStore::new(None);
-                ps.plan_exists(sid)
-            });
+            let ps = crate::builtin_tools::PlanFileStore::new(None);
+            let has_plan = svc.session_id.as_ref().is_some_and(|sid| ps.plan_exists(sid));
             if !has_plan {
                 mode_state.transition(ExecutionMode::Agent);
                 tracing::info!(
                     agent_id = %svc.config.agent_id,
                     "auto-exited Plan mode — no plan file produced, returning to Agent mode"
                 );
+            } else if let Some(sid) = svc.session_id.as_ref() {
+                let path = ps.plan_path(sid);
+                tracing::info!(
+                    agent_id = %svc.config.agent_id,
+                    path = %path.display(),
+                    "plan file exists but exit_plan_mode not called — emitting fallback PlanFileUpdate"
+                );
+                let _ = send_step(
+                    &svc.step_tx,
+                    AgentStep::PlanFileUpdate {
+                        turn_id: svc.turn_id.clone(),
+                        session_id: sid.clone(),
+                        path: path.to_string_lossy().to_string(),
+                        exists: true,
+                    },
+                    false,
+                )
+                .await;
             }
         }
     }

@@ -28,6 +28,16 @@ impl AgentRuntime {
         runtime: Arc<Self>,
         ctx: AgentContext,
     ) -> impl Stream<Item = AgentStep> + Send + 'static {
+        // Capture task-locals before tokio::spawn so they survive the
+        // task boundary. The session_bridge wraps the call site with
+        // with_session_mode / SUBAGENT_SESSION_ID, but tokio::spawn
+        // creates a fresh task that loses all task-locals.
+        let captured_mode_state = crate::builtin_tools::current_session_mode();
+        let captured_plan_ctx = crate::builtin_tools::current_plan_context();
+        let captured_session_id = crate::subagent::SUBAGENT_SESSION_ID
+            .try_with(|s| s.clone())
+            .ok();
+
         async_stream::stream! {
             let (step_tx, mut step_rx) = tokio::sync::mpsc::channel::<AgentStep>(512);
 
@@ -35,8 +45,24 @@ impl AgentRuntime {
                 let mut ctx = ctx;
                 ctx.step_tx = Some(step_tx);
 
-                let (mut ms, svc) = turn_setup::setup_turn(runtime, &ctx).await?;
-                turn_loop::run_turn_loop(&mut ms, &svc).await
+                let turn_fut = async {
+                    let (mut ms, svc) = turn_setup::setup_turn(runtime, &ctx).await?;
+                    turn_loop::run_turn_loop(&mut ms, &svc).await
+                };
+
+                // Re-establish task-locals captured from the parent task.
+                let with_mode = if let Some(ms) = captured_mode_state {
+                    futures::future::Either::Left(
+                        crate::builtin_tools::with_session_mode(ms, captured_plan_ctx, turn_fut),
+                    )
+                } else {
+                    futures::future::Either::Right(turn_fut)
+                };
+                if let Some(sid) = captured_session_id {
+                    crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode).await
+                } else {
+                    with_mode.await
+                }
             });
 
             // Abort the spawned task on stream drop to prevent resource leaks

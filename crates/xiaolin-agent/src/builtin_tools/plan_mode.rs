@@ -52,6 +52,12 @@ pub fn current_plan_context() -> Option<PlanContext> {
     PLAN_CONTEXT.try_with(|c| c.clone()).ok()
 }
 
+/// Read the per-session mode state from the task-local, if set.
+/// Used by the streaming tool executor to capture and propagate across spawn boundaries.
+pub fn current_session_mode() -> Option<ExecutionModeState> {
+    CURRENT_SESSION_MODE.try_with(|s| s.clone()).ok()
+}
+
 fn mode_from_u8(v: u8) -> ExecutionMode {
     match v {
         MODE_PLAN => ExecutionMode::Plan,
@@ -176,11 +182,19 @@ impl ExecutionModeState {
     }
 
     /// Human-readable message when a tool is blocked by plan mode.
-    pub fn blocked_message(tool_name: &str) -> String {
-        format!(
-            "Tool '{tool_name}' is blocked in Plan mode (read-only). \
-             Use exit_plan_mode to return to Agent mode before making changes."
-        )
+    pub fn blocked_message(tool_name: &str, plan_file_path: Option<&std::path::Path>) -> String {
+        match plan_file_path {
+            Some(path) => format!(
+                "Tool '{tool_name}' is blocked in Plan mode (read-only). \
+                 Only the plan file at '{}' can be written. \
+                 Use exit_plan_mode to return to Agent mode before making other changes.",
+                path.display()
+            ),
+            None => format!(
+                "Tool '{tool_name}' is blocked in Plan mode (read-only). \
+                 Use exit_plan_mode to return to Agent mode before making changes."
+            ),
+        }
     }
 }
 
@@ -289,7 +303,11 @@ impl Tool for EnterPlanModeTool {
 - task_create (delegate exploration)\n\n\
 **Blocked tools (write/edit/execute):**\n\
 - write_file, edit_file, multi_edit, apply_patch (file modifications)\n\
-- shell_exec with write commands (rm, mv, git commit, cargo install)\n\n\
+- shell_exec with write commands (rm, mv, mkdir, npm create/init/install, \
+cargo install, git commit/add, pip install, etc.)\n\n\
+**IMPORTANT:** Do NOT attempt to run blocked commands — they will fail and waste \
+iterations. Plan mode is for exploration and design ONLY. Save all implementation \
+steps (commands, file writes) for after exit_plan_mode.\n\n\
 ## When NOT to Enter Plan Mode\n\n\
 - Task is straightforward with an obvious implementation\n\
 - You've already gathered enough context and are ready to code\n\
@@ -356,7 +374,9 @@ impl Tool for EnterPlanModeTool {
              3. Design an implementation strategy\n\
              4. Write your plan to the plan file\n\
              5. Use exit_plan_mode when ready to start coding\n\n\
-             DO NOT write or edit any files except the plan file. This is a read-only phase.\
+             DO NOT write or edit any files except the plan file. This is a read-only phase.\n\
+             DO NOT attempt shell commands that modify the file system (mkdir, npm install, \
+             npm create, git add, etc.) — they will be blocked and waste iterations.\
              {plan_info}"
         ))
     }
@@ -488,9 +508,17 @@ impl Tool for ExitPlanModeTool {
             }
         }
 
+        let has_task_local = CURRENT_SESSION_MODE.try_with(|_| ()).is_ok();
         let ms = CURRENT_SESSION_MODE
             .try_with(|s| s.clone())
             .unwrap_or_else(|_| self.mode_state.clone());
+
+        if !has_task_local {
+            tracing::warn!(
+                "exit_plan_mode: CURRENT_SESSION_MODE task-local not available, \
+                 falling back to default mode_state"
+            );
+        }
 
         if ms.current_mode() == ExecutionMode::Agent {
             return ToolResult::ok("Already in agent mode.");
@@ -820,10 +848,17 @@ mod tests {
 
     #[test]
     fn blocked_message_format() {
-        let msg = ExecutionModeState::blocked_message("write_file");
+        let msg = ExecutionModeState::blocked_message("write_file", None);
         assert!(msg.contains("write_file"));
         assert!(msg.contains("Plan mode"));
         assert!(msg.contains("exit_plan_mode"));
+
+        let msg_with_path = ExecutionModeState::blocked_message(
+            "write_file",
+            Some(std::path::Path::new("/home/user/.xiaolin/plans/brave-lion.md")),
+        );
+        assert!(msg_with_path.contains("/home/user/.xiaolin/plans/brave-lion.md"));
+        assert!(msg_with_path.contains("Only the plan file"));
     }
 
     // ═══════════════════════════════════════════════════════════════

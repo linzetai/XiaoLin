@@ -131,6 +131,7 @@ impl FeishuMessageHandler for FeishuChannel {
             slash_intent: None,
             work_dir: None,
             response_language: None,
+            goal_mode: None,
         };
 
         let agent_config = self

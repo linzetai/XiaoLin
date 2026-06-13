@@ -351,6 +351,7 @@ fn spawn_cron_scheduler(state: AppState) {
                 slash_intent: None,
                 work_dir: work_dir.map(|s| s.to_string()),
                 response_language: None,
+                goal_mode: None,
             };
             let agent_config = {
                 let router = self.state.rt.router.read().await;

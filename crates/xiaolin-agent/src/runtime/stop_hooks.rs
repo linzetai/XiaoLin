@@ -173,11 +173,19 @@ async fn check_incomplete_todos(store: &TodoStore) -> Option<StopHookResult> {
         String::new()
     };
 
+    let subagent_hint = if incomplete.len() >= 3 {
+        "\n\nParallelization hint: you have 3+ pending tasks. If they are independent \
+         (no data dependency), use `spawn_subagent` to run them concurrently instead of \
+         doing them one by one."
+    } else {
+        ""
+    };
+
     Some(StopHookResult::cont(
         "incomplete_todos",
         format!(
             "[STOP HOOK: incomplete todos] You still have {} unfinished task(s):\n{}{}\n\n\
-             Please continue working on the remaining tasks before ending your turn.",
+             Please continue working on the remaining tasks before ending your turn.{subagent_hint}",
             incomplete.len(),
             summary.join("\n"),
             remaining,

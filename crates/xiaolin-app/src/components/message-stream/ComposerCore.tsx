@@ -518,9 +518,13 @@ export function ComposerCore({
   const wrappedSend = useCallback((txt: string, mentions: InlineMention[]) => {
     setSendPending(true);
     setInputHasContent(false);
-    const shouldCreateGoal = isGoalMode && !hasActiveGoal && txt.trim() && !txt.startsWith("/");
+    const storeState = useGoalStore.getState();
+    const currentGoalMode = activeChatId ? !!storeState.goalMode[activeChatId] : false;
+    const currentGoal = activeChatId ? storeState.goals[activeChatId] : undefined;
+    const goalActive = currentGoal && !["completed", "failed", "cancelled"].includes(currentGoal.status);
+    const shouldCreateGoal = currentGoalMode && !goalActive && txt.trim() && !txt.startsWith("/");
     handleMentionSend(txt, mentions, shouldCreateGoal ? { goalMode: true } : undefined);
-  }, [handleMentionSend, isGoalMode, hasActiveGoal]);
+  }, [handleMentionSend, activeChatId]);
 
   const defaultRecall = useCallback((): string | null => null, []);
   const handleRecallLastMessage = onRecallLastMessage ?? defaultRecall;

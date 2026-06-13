@@ -11,6 +11,7 @@ import {
   useChatLastSegments,
   useChatUsage,
   useActiveGoal,
+  useGoalStore,
   useSearchStore,
 } from "../../lib/stores";
 import type { Chat } from "../../lib/stores/types";
@@ -21,6 +22,7 @@ import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
 import { SubAgentMonitor } from "./SubAgentMonitor";
 import { PlanPanel } from "./PlanPanel";
+import { PlanApprovalCard } from "./PlanApprovalCard";
 import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
 import { X, CaretUp, CaretDown, UploadSimple, MagnifyingGlass, ArrowDown } from "@phosphor-icons/react";
@@ -84,7 +86,42 @@ export function MessageStream(_props: MessageStreamProps) {
       if (chatId) state.setWorkDir(chatId, path);
       return { chatId, messageCount: state.chats[chatId ?? ""]?.messageCount };
     };
-    return () => { delete (window as any).__xiaolin_setWorkDir; };
+
+    (window as any).__xiaolin_setMode = async (mode: "agent" | "plan" | "goal") => {
+      const chatMetaState = useChatMetaStore.getState();
+      const chatId = chatMetaState.activeChatId;
+      if (!chatId) return { error: "no active chat" };
+
+      const chat = chatMetaState.chats[chatId];
+      const currentExecMode = chat?.executionMode ?? "agent";
+
+      if (mode === "goal") {
+        useGoalStore.getState().setGoalMode(chatId, true);
+        if (currentExecMode === "plan") {
+          const resp = await transport.setExecutionModeIpc("agent", chatId);
+          if (resp.ok) chatMetaState.setChatExecutionMode(chatId, "agent");
+        }
+      } else {
+        useGoalStore.getState().setGoalMode(chatId, false);
+        const backendMode = mode === "plan" ? "plan" : "agent";
+        if (backendMode !== currentExecMode) {
+          const resp = await transport.setExecutionModeIpc(backendMode, chatId);
+          if (resp.ok) chatMetaState.setChatExecutionMode(chatId, backendMode);
+        }
+      }
+
+      const updated = useChatMetaStore.getState().chats[chatId];
+      return {
+        chatId,
+        goalMode: useGoalStore.getState().goalMode[chatId] ?? false,
+        executionMode: updated?.executionMode,
+      };
+    };
+
+    return () => {
+      delete (window as any).__xiaolin_setWorkDir;
+      delete (window as any).__xiaolin_setMode;
+    };
   }, []);
 
   const loadingChats = useRef(new Set<string>());
@@ -600,6 +637,37 @@ export function MessageStream(_props: MessageStreamProps) {
   const chatSessionId = activeChatMeta?.id ?? "";
   const planFilePath = activeChatMeta?.planFilePath;
   const planFileExists = activeChatMeta?.planFileExists ?? false;
+  const executionMode = activeChatMeta?.executionMode ?? "agent";
+
+  const showFallbackPlanApproval = planFileExists && executionMode === "plan" && !streaming;
+
+  const handleFallbackPlanApprove = useCallback(async (mode: "agent" | "plan") => {
+    const chatId = activeChatMeta?.id;
+    if (!chatId) return;
+    const { setChatExecutionMode } = useChatMetaStore.getState();
+    await transport.approvePlan(chatId, mode);
+    setChatExecutionMode(chatId, mode);
+    if (mode === "agent") {
+      const planPath = activeChatMeta?.planFilePath ?? "";
+      handleMentionSend(
+        `Plan approved. Execute the plan now. The plan file is at: ${planPath}`,
+        [],
+      );
+    }
+  }, [activeChatMeta, handleMentionSend]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { planPath?: string } | undefined;
+      const planPath = detail?.planPath ?? activeChatMeta?.planFilePath ?? "";
+      handleMentionSend(
+        `Plan approved. Execute the plan now. The plan file is at: ${planPath}`,
+        [],
+      );
+    };
+    window.addEventListener("xiaolin:plan-approved", handler);
+    return () => window.removeEventListener("xiaolin:plan-approved", handler);
+  }, [handleMentionSend, activeChatMeta?.planFilePath]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -809,6 +877,15 @@ export function MessageStream(_props: MessageStreamProps) {
                 </div>
               ))}
             </div>
+            {showFallbackPlanApproval && (
+              <div style={{ padding: "8px clamp(24px, 5%, 80px)" }}>
+                <PlanApprovalCard
+                  result={`Plan complete — waiting for user approval.\n\nPlan file: ${planFilePath}`}
+                  metadata={{ approval_pending: true, plan_path: planFilePath, plan_exists: true }}
+                  onApprove={handleFallbackPlanApprove}
+                />
+              </div>
+            )}
             <div className="h-8" />
           </div>
         </div>

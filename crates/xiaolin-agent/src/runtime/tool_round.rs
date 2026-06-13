@@ -55,6 +55,7 @@ fn minimal_chat_request(svc: &TurnServices) -> ChatRequest {
         slash_intent: None,
         work_dir: svc.work_dir.clone(),
         response_language: None,
+        goal_mode: None,
     }
 }
 
@@ -247,7 +248,8 @@ pub(crate) async fn execute_tool_round(
 
         // Dispatch guarded tools through ToolDispatcher
         let plan_file_path_for_ctx = crate::builtin_tools::plan_mode::current_plan_context()
-            .map(|pc| pc.store.plan_path(&pc.session_id));
+            .map(|pc| pc.store.plan_path(&pc.session_id))
+            .or_else(|| svc.plan_file_path.clone());
         for (i, tc) in assembled_calls.iter().enumerate() {
             if svc.dispatcher.is_guarded(&tc.function.name) {
                 let mut dispatch_ctx = DispatchContext {
@@ -274,7 +276,8 @@ pub(crate) async fn execute_tool_round(
     } else {
         // Non-streaming path: dispatch_batch handles everything.
         let plan_file_path_batch = crate::builtin_tools::plan_mode::current_plan_context()
-            .map(|pc| pc.store.plan_path(&pc.session_id));
+            .map(|pc| pc.store.plan_path(&pc.session_id))
+            .or_else(|| svc.plan_file_path.clone());
         let mut dispatch_ctx = DispatchContext {
             turn_id: &svc.turn_id,
             behavior: &svc.config.behavior,
@@ -608,9 +611,24 @@ pub(crate) async fn execute_tool_round(
                 consecutive_errors = error_count,
                 "consecutive error limit reached — entering grace turn"
             );
-            ms.messages.push(ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(format!(
+            let has_active_goal = if let Some(gs) = svc.goal_store.as_ref() {
+                gs.get_active().await.is_some()
+            } else {
+                false
+            };
+            let guidance = if has_active_goal {
+                format!(
+                    "[TOOL ERROR LIMIT] You have hit {error_count} consecutive tool errors. \
+                     The failing calls were:\n{failure_summary}\n\n\
+                     You are in Goal Mode — recover autonomously. Do NOT ask the user.\n\
+                     1. Analyze why the tools failed (wrong paths, missing deps, bad args).\n\
+                     2. Try a completely different approach to achieve the same outcome.\n\
+                     3. If the failing tool is not essential, skip it and continue with \
+                     the next subtask.\n\n\
+                     Do NOT retry the same failing tool calls with the same arguments.",
+                )
+            } else {
+                format!(
                     "[TOOL ERROR LIMIT] You have hit {error_count} consecutive tool errors. \
                      The failing calls were:\n{failure_summary}\n\n\
                      STOP calling the tools that keep failing. Instead:\n\
@@ -618,7 +636,11 @@ pub(crate) async fn execute_tool_round(
                      2. Suggest how to fix the issue (e.g. correct file paths, adjust permissions, change approach).\n\
                      3. Ask the user if they want you to try a different approach.\n\n\
                      Do NOT retry the same failing tool calls.",
-                ))),
+                )
+            };
+            ms.messages.push(ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(guidance)),
                 ..Default::default()
             });
             break;

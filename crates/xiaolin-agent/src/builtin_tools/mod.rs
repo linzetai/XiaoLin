@@ -62,8 +62,8 @@ pub use xiaolin_tools_network::{
 pub use xiaolin_tools_code::notebook::NotebookEditTool;
 pub use plan_file::PlanFileStore;
 pub use plan_mode::{
-    with_session_mode, EnterPlanModeTool, ExecutionModeState, ExitPlanModeTool, PlanContext,
-    SessionModeRegistry,
+    current_plan_context, current_session_mode, with_session_mode, EnterPlanModeTool,
+    ExecutionModeState, ExitPlanModeTool, PlanContext, SessionModeRegistry,
 };
 pub use request_permissions::RequestPermissionsTool;
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};

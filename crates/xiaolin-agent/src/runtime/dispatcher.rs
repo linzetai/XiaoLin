@@ -409,7 +409,10 @@ impl ToolDispatcher {
                             arguments.clone(),
                             ToolResult::typed_err(
                                 xiaolin_core::tool::ToolErrorType::ExecutionDenied,
-                                ExecutionModeState::blocked_message(tool_name),
+                                ExecutionModeState::blocked_message(
+                                    tool_name,
+                                    Some(plan_path.as_path()),
+                                ),
                             ),
                         ));
                     }
@@ -421,7 +424,10 @@ impl ToolDispatcher {
                         arguments.clone(),
                         ToolResult::typed_err(
                             xiaolin_core::tool::ToolErrorType::ExecutionDenied,
-                            ExecutionModeState::blocked_message(tool_name),
+                            ExecutionModeState::blocked_message(
+                                tool_name,
+                                ctx.plan_file_path.as_deref(),
+                            ),
                         ),
                     ));
                 }
@@ -486,6 +492,26 @@ impl ToolDispatcher {
         let skip_sandbox = rt.sandbox_preference() == SandboxPreference::Skip;
 
         if skip_sandbox {
+            // Plan file writes in plan mode are pre-authorized by the dispatcher;
+            // skip the orchestrator approval pipeline so the user isn't prompted.
+            let is_plan_file = ctx.mode_state.is_some_and(|ms|
+                ms.current_mode() == xiaolin_core::types::ExecutionMode::Plan
+            ) && ctx.plan_file_path.as_ref().is_some_and(|pfp|
+                is_plan_file_write(tool_name, &tc.function.arguments, pfp)
+            );
+            if is_plan_file {
+                tracing::info!(tool = %tool_name, "plan file write: skipping approval");
+                let mut result = self.execute_with_full_access(tc, ctx).await;
+                if result.success {
+                    result.output.push_str(
+                        "\n\n[SYSTEM] Plan file written successfully. \
+                         You MUST now call exit_plan_mode to present the plan for user approval. \
+                         Do NOT end your turn without calling exit_plan_mode."
+                    );
+                }
+                return result;
+            }
+
             // For tools that skip sandbox (edit_file, write_file, etc.), run
             // approval through the orchestrator but execute via the actual Tool
             // implementation so that rich fields (display_output, metadata) are
@@ -650,7 +676,10 @@ impl ToolDispatcher {
                     if !allowed {
                         return ToolResult::typed_err(
                             xiaolin_core::tool::ToolErrorType::ExecutionDenied,
-                            ExecutionModeState::blocked_message(tool_name),
+                            ExecutionModeState::blocked_message(
+                                tool_name,
+                                plan_file_path.map(|p| p.as_path()),
+                            ),
                         );
                     }
                 }
@@ -782,6 +811,74 @@ fn extract_path_from_args(arguments: &str) -> Option<String> {
         })
 }
 
+/// Expand a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        dirs::home_dir()
+            .map(|h| h.join(rest))
+            .unwrap_or_else(|| PathBuf::from(path))
+    } else if path == "~" {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(path))
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+/// Normalize a path for comparison without requiring the target file to exist.
+fn normalize_path_for_comparison(path: &std::path::Path) -> PathBuf {
+    let path_str = path.to_string_lossy();
+    let expanded = if path_str.starts_with('~') {
+        expand_tilde(&path_str)
+    } else {
+        path.to_path_buf()
+    };
+
+    let absolute = if expanded.is_absolute() {
+        expanded
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(expanded)
+    };
+
+    if absolute.exists() {
+        return absolute
+            .canonicalize()
+            .unwrap_or_else(|_| lexical_clean_path(&absolute));
+    }
+
+    if let Some(parent) = absolute.parent() {
+        if parent.exists() {
+            if let Ok(canon_parent) = parent.canonicalize() {
+                let filename = absolute
+                    .file_name()
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+                return canon_parent.join(filename);
+            }
+        }
+    }
+
+    lexical_clean_path(&absolute)
+}
+
+fn lexical_clean_path(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(c);
+                }
+            }
+            Component::CurDir => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Check if a file-editing tool targets the plan file, which is allowed even in Plan mode.
 fn is_plan_file_write(tool_name: &str, arguments: &str, plan_file_path: &std::path::Path) -> bool {
     let write_tools = ["write_file", "edit_file"];
@@ -791,10 +888,8 @@ fn is_plan_file_write(tool_name: &str, arguments: &str, plan_file_path: &std::pa
     let Some(target_path) = extract_path_from_args(arguments) else {
         return false;
     };
-    let target = PathBuf::from(&target_path);
-    let canonical_target = target.canonicalize().unwrap_or(target);
-    let canonical_plan = plan_file_path.canonicalize().unwrap_or_else(|_| plan_file_path.to_path_buf());
-    canonical_target == canonical_plan
+    let target = expand_tilde(&target_path);
+    normalize_path_for_comparison(&target) == normalize_path_for_comparison(plan_file_path)
 }
 
 fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
@@ -923,5 +1018,32 @@ mod tests {
         assert_eq!(dedup[0], None);
         assert_eq!(dedup[1], Some(0));
         assert_eq!(dedup[2], None);
+    }
+
+    #[test]
+    fn is_plan_file_write_matches_tilde_and_nonexistent_paths() {
+        let home = dirs::home_dir().expect("home dir");
+        let plan_path = home.join(".xiaolin/plans/brave-lion.md");
+        let tilde_path = format!("~/.xiaolin/plans/brave-lion.md");
+        let args = format!(r#"{{"file_path":"{tilde_path}"}}"#);
+
+        assert!(is_plan_file_write("write_file", &args, &plan_path));
+        assert!(!is_plan_file_write(
+            "write_file",
+            r#"{"file_path":"/tmp/other.md"}"#,
+            &plan_path
+        ));
+        assert!(!is_plan_file_write("read_file", &args, &plan_path));
+    }
+
+    #[test]
+    fn normalize_path_for_comparison_resolves_without_existing_file() {
+        let home = dirs::home_dir().expect("home dir");
+        let plan_path = home.join(".xiaolin/plans/new-plan.md");
+        let tilde = format!("~/.xiaolin/plans/new-plan.md");
+        assert_eq!(
+            normalize_path_for_comparison(&expand_tilde(&tilde)),
+            normalize_path_for_comparison(&plan_path)
+        );
     }
 }
