@@ -33,8 +33,31 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
     el.scrollTop = el.scrollHeight;
   }, [content, isStreaming, expanded]);
 
-  const charCount = content.length;
   const isActive = isStreaming && !autoCollapse;
+
+  const startTime = useRef<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const frozenElapsed = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isActive) {
+      if (startTime.current === null) startTime.current = Date.now();
+      const timer = setInterval(() => {
+        setElapsed((Date.now() - startTime.current!) / 1000);
+      }, 500);
+      return () => clearInterval(timer);
+    }
+    if (startTime.current !== null && frozenElapsed.current === null) {
+      frozenElapsed.current = (Date.now() - startTime.current) / 1000;
+      setElapsed(frozenElapsed.current);
+    }
+  }, [isActive]);
+
+  const displayTime = isActive
+    ? `${elapsed.toFixed(1)}s`
+    : frozenElapsed.current !== null
+      ? `${frozenElapsed.current.toFixed(1)}s`
+      : null;
 
   return (
     <div
@@ -75,7 +98,7 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
         <span className="opacity-70">
           {isActive ? t("reasoning_streaming", "思考中...") : t("reasoning_done", "思考过程")}
         </span>
-        <span className="ml-1 tabular-nums opacity-50">{charCount > 100 ? `${Math.round(charCount / 100) / 10}k` : charCount}</span>
+        {displayTime && <span className="ml-1 tabular-nums opacity-50">{displayTime}</span>}
       </button>
 
       {/* Content panel with animated height */}
