@@ -72,7 +72,7 @@ pub async fn read_identity_files(agent_id: String) -> Result<serde_json::Value, 
     let sd = state_dir();
     let ws_root = xiaolin_core::workspace::resolve_workspace_root(&sd, &agent_id, None);
     let ws = xiaolin_core::workspace::AgentWorkspace::new(&ws_root, &agent_id);
-    let _ = ws.ensure_bootstrap();
+    let _ = ws.ensure_workspace();
 
     let read = |name: &str| -> serde_json::Value {
         let p = ws_root.join(name);

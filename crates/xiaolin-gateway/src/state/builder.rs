@@ -303,7 +303,7 @@ impl StateBuilder {
                 xiaolin_core::workspace::resolve_workspace_root(&state_dir, &agent_entry.id, None)
             };
             let workspace = AgentWorkspace::new(&ws_root, &agent_entry.id);
-            if let Err(e) = workspace.ensure_bootstrap() {
+            if let Err(e) = workspace.ensure_workspace() {
                 tracing::warn!(
                     agent_id = %agent_entry.id,
                     error = %e,
@@ -331,7 +331,7 @@ impl StateBuilder {
                 })
                 .unwrap_or_else(|| state_dir.join("workspace"));
             let ws = AgentWorkspace::new(&default_root, "main");
-            let _ = ws.ensure_bootstrap();
+            let _ = ws.ensure_workspace();
             workspaces.insert("main".to_string(), ws);
         }
 
