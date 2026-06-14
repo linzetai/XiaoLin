@@ -173,7 +173,7 @@ export const ToolCallGroupCard = memo(function ToolCallGroupCard({
       style={{
         border: `0.5px solid ${hasErrors ? "color-mix(in srgb, var(--red) 30%, transparent)" : "var(--separator)"}`,
         background: "var(--bg-secondary)",
-        maxWidth: "min(100%, 600px)",
+        maxWidth: "min(100%, var(--content-max-w, 600px))",
       }}
     >
       <button
@@ -297,7 +297,7 @@ export const ToolCallGroupTimeline = memo(function ToolCallGroupTimeline({
       style={{
         border: "0.5px solid var(--separator)",
         background: "var(--bg-secondary)",
-        maxWidth: "min(100%, 600px)",
+        maxWidth: "min(100%, var(--content-max-w, 600px))",
       }}
     >
       {showToggle && (

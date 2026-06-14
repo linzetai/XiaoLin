@@ -77,7 +77,7 @@ export function AutomationView() {
 
       <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
         <ViewTransition key={viewKey} direction={view === "list" ? "back" : "forward"}>
-          <div className="mx-auto w-full max-w-[640px] px-6 py-8">
+          <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-8">
             {/* View header — integrated inside content area like chat welcome */}
             <div className="mb-6 flex items-center justify-between">
               <div className="flex items-center gap-2">

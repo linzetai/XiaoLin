@@ -167,7 +167,7 @@
 /* Responsive layout tiers — driven by data-layout-tier attribute set via ResizeObserver */
 [data-layout-tier="compact"] { --content-max-w: calc(100% - 32px); }
 [data-layout-tier="standard"] { --content-max-w: 660px; }
-[data-layout-tier="wide"] { --content-max-w: 760px; }
+[data-layout-tier="wide"] { --content-max-w: clamp(720px, 55%, 960px); }
 
 /* Non-macOS: use opaque chrome to avoid transparency-induced contrast loss.
    WebView2 (Windows) and WebKitGTK (Linux) lack native vibrancy/blur,
@@ -540,6 +540,14 @@
 
   .app-shell.maximized {
     border-radius: 0;
+    --gap-shell: 0px;
+    --card-r: 0px;
+  }
+  .shell-body {
+    padding-right: 3px;
+  }
+  .app-shell.maximized .shell-body {
+    padding-right: 0;
   }
 
   a, button, input, textarea, select, label,

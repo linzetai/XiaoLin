@@ -644,7 +644,7 @@ export function TasksPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto" style={{ background: "var(--bg-primary)" }}>
-      <div className="mx-auto w-full max-w-[640px] px-6 py-6">
+      <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />

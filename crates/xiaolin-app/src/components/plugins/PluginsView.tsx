@@ -88,7 +88,7 @@ export function PluginsView() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
-        <div className="mx-auto w-full max-w-[640px] px-6 py-5">
+        <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-5">
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
               <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />

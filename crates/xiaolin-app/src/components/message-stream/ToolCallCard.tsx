@@ -358,7 +358,7 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
         background: isError ? "color-mix(in srgb, var(--red) 4%, transparent)" : "var(--bg-surface)",
         boxShadow: isError ? "none" : "inset 0 1px 0 var(--highlight-top)",
         animation: "slide-up var(--duration-fast) var(--ease-out)",
-        maxWidth: "min(100%, 600px)",
+        maxWidth: "min(100%, var(--content-max-w, 600px))",
       }}
     >
       {/* Header — always visible, clickable to expand */}

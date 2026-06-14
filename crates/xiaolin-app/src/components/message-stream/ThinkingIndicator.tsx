@@ -36,7 +36,7 @@ export function PhaseIndicator({ phase = "thinking" }: PhaseIndicatorProps) {
       className="pb-3 pl-1 flex items-center gap-2"
       style={{
         animation: "slide-left var(--duration-normal) var(--ease-out)",
-        maxWidth: "75%",
+        maxWidth: "min(90%, var(--content-max-w, 720px))",
       }}
     >
       {/* Pulsing dot */}
