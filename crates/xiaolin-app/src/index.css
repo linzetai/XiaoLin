@@ -167,7 +167,7 @@
 /* Responsive layout tiers — driven by data-layout-tier attribute set via ResizeObserver */
 [data-layout-tier="compact"] { --content-max-w: calc(100% - 32px); }
 [data-layout-tier="standard"] { --content-max-w: 660px; }
-[data-layout-tier="wide"] { --content-max-w: clamp(720px, 55%, 960px); }
+[data-layout-tier="wide"] { --content-max-w: min(960px, 100%); }
 
 /* Non-macOS: use opaque chrome to avoid transparency-induced contrast loss.
    WebView2 (Windows) and WebKitGTK (Linux) lack native vibrancy/blur,

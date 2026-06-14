@@ -23,7 +23,7 @@ export function ContentBlock({ children }: { children: ReactNode }) {
         overflow: "hidden",
       }}
     >
-      <div style={{ flex: 1, minWidth: "var(--chat-min-w)", display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {children}
       </div>
       {showPanel && <WorkspacePanel />}
