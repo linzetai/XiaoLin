@@ -88,6 +88,7 @@
   "subAgent_status_failed": "失败",
   "subAgent_status_cancelled": "取消",
   "subAgent_toolsCount": "{{count}} 工具",
+  "subAgent_thinking": "思考中…",
   "subAgent_result": "结果",
   "subAgent_title": "子智能体",
   "subAgent_runningSummary": "{{count}} 个子智能体运行中",

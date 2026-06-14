@@ -269,6 +269,10 @@ impl Tool for SubAgentTool {
          directly. Set background=true for async execution."
     }
 
+    fn supports_parallel(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert(
@@ -427,7 +431,7 @@ impl Tool for SubAgentTool {
             }
         };
 
-        let concurrency_safe = def.as_ref().is_some_and(|d| d.concurrency_safe);
+        let concurrency_safe = def.as_ref().map(|d| d.concurrency_safe).unwrap_or(true);
         let permission_mode = def
             .as_ref()
             .map(|d| d.permission_mode)

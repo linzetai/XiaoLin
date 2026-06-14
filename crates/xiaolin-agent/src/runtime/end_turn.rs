@@ -128,6 +128,7 @@ pub(crate) async fn handle_end_turn(
                 svc.goal_store.as_ref().map(|g| g.as_ref()),
                 svc.mode_state.as_ref().map(|ms| ms.current_mode()),
                 ms.had_tool_calls_this_round,
+                ms.had_progress_this_round,
             )
             .await;
 
@@ -165,6 +166,7 @@ pub(crate) async fn handle_end_turn(
                     });
                 }
                 ms.had_tool_calls_this_round = false;
+                ms.had_progress_this_round = false;
                 return EndTurnOutcome::StopHookContinuation;
             }
         } else {

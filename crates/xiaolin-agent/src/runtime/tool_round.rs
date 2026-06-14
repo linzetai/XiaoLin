@@ -348,6 +348,24 @@ pub(crate) async fn execute_tool_round(
             }
         }
 
+        // ── Progress tracking for stagnation detection ──
+        if matches!(
+            tool_name.as_str(),
+            "edit_file"
+                | "write_file"
+                | "create_file"
+                | "str_replace_editor"
+                | "shell_exec"
+                | "execute_command"
+                | "terminal_input"
+                | "terminal_open"
+                | "spawn_subagent"
+                | "update_goal"
+                | "apply_patch"
+        ) {
+            ms.had_progress_this_round = true;
+        }
+
         // ── Pre-tool hook ──
         let input_json: serde_json::Value =
             serde_json::from_str(&arguments).unwrap_or_default();

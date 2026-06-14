@@ -656,7 +656,8 @@ impl StateBuilder {
                         .first()
                         .map(|a| a.model.model.clone())
                 })
-                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                .or_else(|| config.models.values().next().map(|m| m.model.clone()))
+                .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string());
 
             context_engine.add_hook(Arc::new(
                 crate::consolidation::MemoryConsolidationHook::new(
@@ -1259,7 +1260,10 @@ impl StateBuilder {
                     .list
                     .first()
                     .and_then(|a| a.model.clone())
-                    .unwrap_or_else(|| "gpt-4o-mini".to_string()),
+                    .or_else(|| {
+                        state.cfg.config.models.values().next().map(|m| m.model.clone())
+                    })
+                    .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string()),
             });
             tokio::spawn(async move {
                 const DREAM_EPISODE_BATCH: i64 = 50;

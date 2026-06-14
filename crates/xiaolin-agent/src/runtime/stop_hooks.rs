@@ -5,7 +5,9 @@
 //! returns a [`StopHookResult`].  The first hook that says `should_continue`
 //! wins — the agent injects its `continuation_message` and re-enters the loop.
 
-use crate::builtin_tools::{GoalStatus, GoalStore, TodoItem, TodoStatus, TodoStore};
+use crate::builtin_tools::{
+    ContinuationActivityResult, GoalStatus, GoalStore, TodoItem, TodoStatus, TodoStore,
+};
 use xiaolin_protocol::ExecutionMode;
 
 /// Outcome of evaluating stop hooks after the LLM finishes a turn.
@@ -49,6 +51,7 @@ impl StopHookResult {
 /// * `queued_slash_commands` — any pending slash commands from the user
 /// * `goal_store` — optional reference to the session's goal store
 /// * `execution_mode` — current execution mode; goal hook is skipped in Plan mode
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn evaluate_stop_hooks(
     _last_assistant_text: &str,
     finish_reason: Option<&str>,
@@ -57,13 +60,14 @@ pub(crate) async fn evaluate_stop_hooks(
     goal_store: Option<&GoalStore>,
     execution_mode: Option<ExecutionMode>,
     had_tool_calls: bool,
+    had_progress: bool,
 ) -> StopHookResult {
     // Hook 0: Active goal continuation (highest priority for long-running tasks)
     // Skipped in Plan mode — goal continuation should not override plan-mode read-only behavior
     let is_plan_mode = execution_mode == Some(ExecutionMode::Plan);
     if !is_plan_mode {
         if let Some(store) = goal_store {
-            if let Some(result) = check_active_goal(store, had_tool_calls).await {
+            if let Some(result) = check_active_goal(store, had_tool_calls, had_progress).await {
                 return result;
             }
         }
@@ -92,7 +96,11 @@ pub(crate) async fn evaluate_stop_hooks(
 /// Hook 0: If there is an active/budget-limited goal, inject a continuation prompt.
 /// Uses `get_current()` to also catch `BudgetLimited` goals that `get_active()` would miss.
 /// Enforces a max-round safety limit and idle detection to prevent runaway loops.
-async fn check_active_goal(store: &GoalStore, had_tool_calls: bool) -> Option<StopHookResult> {
+async fn check_active_goal(
+    store: &GoalStore,
+    had_tool_calls: bool,
+    had_progress: bool,
+) -> Option<StopHookResult> {
     let goal = store.get_current().await?;
 
     match goal.status {
@@ -113,22 +121,49 @@ async fn check_active_goal(store: &GoalStore, had_tool_calls: bool) -> Option<St
                         .to_string(),
                 ));
             }
-            if store.record_continuation_activity(had_tool_calls).await {
-                tracing::warn!(goal_id = %goal.id, "goal idle for too many rounds, pausing");
-                let _ = store
-                    .update_status(&goal.id, GoalStatus::Paused, Some("idle_rounds"))
-                    .await;
-                return Some(StopHookResult::cont(
-                    "goal_idle",
-                    "<goal_context>\n\
-                     [GOAL PAUSED — NO PROGRESS]\n\n\
-                     The goal has been automatically paused because no tool calls \
-                     were made for several consecutive rounds. The agent may be stuck. \
-                     Please summarize what was accomplished and explain any blockers \
-                     to the user.\n\
-                     </goal_context>"
-                        .to_string(),
-                ));
+            match store
+                .record_continuation_activity(had_tool_calls, had_progress)
+                .await
+            {
+                ContinuationActivityResult::IdleLimitReached => {
+                    tracing::warn!(goal_id = %goal.id, "goal idle for too many rounds, pausing");
+                    let _ = store
+                        .update_status(&goal.id, GoalStatus::Paused, Some("idle_rounds"))
+                        .await;
+                    return Some(StopHookResult::cont(
+                        "goal_idle",
+                        "<goal_context>\n\
+                         [GOAL PAUSED — NO PROGRESS]\n\n\
+                         The goal has been automatically paused because no tool calls \
+                         were made for several consecutive rounds. The agent may be stuck. \
+                         Please summarize what was accomplished and explain any blockers \
+                         to the user.\n\
+                         </goal_context>"
+                            .to_string(),
+                    ));
+                }
+                ContinuationActivityResult::StagnationLimitReached => {
+                    tracing::warn!(goal_id = %goal.id, "goal stagnating (read-only loops), pausing");
+                    let _ = store
+                        .update_status(&goal.id, GoalStatus::Paused, Some("stagnation"))
+                        .await;
+                    return Some(StopHookResult::cont(
+                        "goal_stagnation",
+                        "<goal_context>\n\
+                         [GOAL PAUSED — STAGNATION DETECTED]\n\n\
+                         The goal has been automatically paused because multiple consecutive \
+                         rounds only performed read operations (glob, read_file, list_directory) \
+                         without making any progress (no file writes, no commands executed). \
+                         This usually means the agent is stuck in a verification loop.\n\n\
+                         Please either:\n\
+                         1. Mark the goal as completed if the work is actually done\n\
+                         2. Identify what's blocking progress and take action\n\
+                         3. Ask the user for guidance\n\
+                         </goal_context>"
+                            .to_string(),
+                    ));
+                }
+                ContinuationActivityResult::Normal => {}
             }
             let prompt = if store.take_objective_updated().await {
                 crate::runtime::goal_prompts::render_objective_updated_prompt(&goal)
@@ -231,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_when_no_hooks_fire() {
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &[], None, None, false).await;
+        let result = evaluate_stop_hooks("done", Some("stop"), None, &[], None, None, false, false).await;
         assert!(!result.should_continue);
         assert!(result.continuation_message.is_none());
         assert_eq!(result.reason, "none");
@@ -267,7 +302,7 @@ mod tests {
             .await;
 
         let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false).await;
+            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "incomplete_todos");
         let msg = result.continuation_message.unwrap();
@@ -291,14 +326,14 @@ mod tests {
             .await;
 
         let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false).await;
+            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false).await;
         assert!(!result.should_continue);
     }
 
     #[tokio::test]
     async fn continue_on_output_truncation() {
         let result =
-            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false).await;
+            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "output_truncated");
         assert!(result.continuation_message.unwrap().contains("cut short"));
@@ -307,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn continue_on_queued_slash_commands() {
         let commands = vec!["/compact".to_string(), "/help".to_string()];
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &commands, None, None, false).await;
+        let result = evaluate_stop_hooks("done", Some("stop"), None, &commands, None, None, false, false).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "queued_commands");
         let msg = result.continuation_message.unwrap();

@@ -28,6 +28,7 @@ function formatElapsed(ms?: number): string {
 }
 
 function WorkerRow({ run }: { run: SubAgentRunUI }) {
+  const { t } = useTranslation("chat");
   const getTypeMeta = useTypeMeta();
   const meta = getTypeMeta(run.subagentType);
   const isActive = run.status === "running" || run.status === "pending";
@@ -53,7 +54,10 @@ function WorkerRow({ run }: { run: SubAgentRunUI }) {
             <Clock size={9} /> {formatElapsed(run.elapsedMs)}
           </span>
           <span className="inline-flex items-center gap-0.5">
-            <Lightning size={9} /> {run.toolCallsMade}
+            <Lightning size={9} /> {(() => {
+              const count = Math.max(run.toolCallsMade, run.toolCalls.length);
+              return isActive && count === 0 ? t("subAgent_thinking") : count;
+            })()}
           </span>
         </div>
       </div>

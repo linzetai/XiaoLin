@@ -319,7 +319,15 @@ fn build_plain_command(command: &str, cwd: &Path) -> tokio::process::Command {
 }
 
 fn preferred_shell() -> &'static str {
-    if cfg!(windows) { "cmd" } else { "sh" }
+    use std::sync::OnceLock;
+    static SHELL: OnceLock<String> = OnceLock::new();
+    SHELL.get_or_init(|| {
+        if cfg!(windows) {
+            "cmd".to_string()
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string())
+        }
+    })
 }
 
 /// Detect commands that are likely dev servers (long-running by nature).

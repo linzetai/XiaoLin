@@ -354,6 +354,8 @@ impl SubAgentManager {
         let completion_channels = self.completion_channels.clone();
         let timeout = Duration::from_secs(policy.timeout_seconds);
         let slot_timeout = controller.config().slot_acquire_timeout;
+        // Hard wall-clock limit: covers both slot reservation + execution + buffer
+        let wall_clock_limit = timeout + slot_timeout + Duration::from_secs(30);
         let max_depth = policy.max_depth;
         let rid = run_id.clone();
         let forward_turn_id = turn_id.clone();
@@ -362,18 +364,61 @@ impl SubAgentManager {
         let coordinator_queue = parent_queue;
 
         tokio::spawn(async move {
+            // Clone variables needed in both inner async block and outer timeout handler
+            let rid_outer = rid.clone();
+            let runs_outer = runs.clone();
+            let forward_turn_id_outer = forward_turn_id.clone();
+            let parent_tx_outer = parent_tx.clone();
+            let completion_channels_outer = completion_channels.clone();
+            let session_id_outer = session_id_owned.clone();
+            let agent_id_outer = agent_config.agent_id.to_string();
+            let subagent_type_outer = subagent_type.to_string();
+            let task_outer = task.clone();
+            let cancel_tokens_outer = cancel_tokens.clone();
+            let run_queues_outer = run_queues_ref.clone();
+
+            // Hard wall-clock timeout: ensures the entire spawned task (slot wait + execution)
+            // cannot exceed wall_clock_limit, preventing indefinite hangs.
+            let wall_clock_result = tokio::time::timeout(wall_clock_limit, async move {
             let reservation = match controller
                 .reserve(&session_id_owned, &rid, concurrency_safe, slot_timeout)
                 .await
             {
                 Ok(r) => r,
                 Err(e) => {
+                    let error_msg = format!("slot acquisition failed: {e}");
                     Self::fail_run(
                         &runs,
                         &cancel_tokens,
                         &rid,
-                        &format!("slot acquisition failed: {e}"),
+                        &error_msg,
                     );
+                    // Notify parent and completion channels so reactive loop doesn't hang
+                    let _ = parent_tx
+                        .send(AgentEvent::SubAgentComplete {
+                            turn_id: forward_turn_id.clone(),
+                            run_id: rid.clone(),
+                            status: "failed".into(),
+                            result: None,
+                            tool_calls_made: 0,
+                            iterations: 0,
+                            usage: None,
+                            elapsed_ms: 0,
+                        })
+                        .await;
+                    if let Some(tx) = completion_channels.get(&session_id_owned) {
+                        let _ = tx.send(CompletionSummary {
+                            run_id: rid.clone(),
+                            agent_id: agent_config.agent_id.to_string(),
+                            subagent_type: subagent_type.to_string(),
+                            task: task.clone(),
+                            status: "failed".into(),
+                            elapsed_ms: 0,
+                            tool_call_count: 0,
+                            result_preview: None,
+                            error: Some(error_msg),
+                        });
+                    }
                     return;
                 }
             };
@@ -571,13 +616,61 @@ impl SubAgentManager {
             }
 
             drop(reservation);
-            cancel_tokens.remove(&rid);
-            run_queues_ref.remove(&rid);
+            }).await; // end of wall_clock_result async block
+
+            // Handle wall-clock timeout (the entire task exceeded the limit)
+            if wall_clock_result.is_err() {
+                tracing::error!(
+                    run_id = %rid_outer,
+                    wall_clock_limit_secs = wall_clock_limit.as_secs(),
+                    "subagent exceeded wall-clock limit, force-terminating"
+                );
+                if let Some(mut r) = runs_outer.get_mut(&rid_outer) {
+                    if !r.status.is_terminal() {
+                        r.status = SubAgentStatus::Failed(format!(
+                            "wall-clock timeout after {}s",
+                            wall_clock_limit.as_secs()
+                        ));
+                        r.completed_at = Some(Self::now_ms());
+                    }
+                }
+                let _ = parent_tx_outer
+                    .send(AgentEvent::SubAgentComplete {
+                        turn_id: forward_turn_id_outer.clone(),
+                        run_id: rid_outer.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        tool_calls_made: 0,
+                        iterations: 0,
+                        usage: None,
+                        elapsed_ms: wall_clock_limit.as_millis() as u64,
+                    })
+                    .await;
+                if let Some(tx) = completion_channels_outer.get(&session_id_outer) {
+                    let _ = tx.send(CompletionSummary {
+                        run_id: rid_outer.clone(),
+                        agent_id: agent_id_outer.clone(),
+                        subagent_type: subagent_type_outer.clone(),
+                        task: task_outer.clone(),
+                        status: "failed".into(),
+                        elapsed_ms: wall_clock_limit.as_millis() as u64,
+                        tool_call_count: 0,
+                        result_preview: None,
+                        error: Some(format!(
+                            "wall-clock timeout after {}s",
+                            wall_clock_limit.as_secs()
+                        )),
+                    });
+                }
+            }
+
+            cancel_tokens_outer.remove(&rid_outer);
+            run_queues_outer.remove(&rid_outer);
 
             // Auto-GC: remove the run from the map after a short retention period.
             // This prevents unbounded growth of the `runs` DashMap.
-            let runs_for_gc = runs.clone();
-            let rid_for_gc = rid.clone();
+            let runs_for_gc = runs_outer;
+            let rid_for_gc = rid_outer;
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(300)).await;
                 runs_for_gc.remove(&rid_for_gc);

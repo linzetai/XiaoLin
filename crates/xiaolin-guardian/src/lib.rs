@@ -24,7 +24,7 @@ impl Default for GuardianConfig {
         Self {
             enabled: false,
             timeout: Duration::from_secs(60),
-            model: "gpt-4o-mini".to_string(),
+            model: "deepseek/deepseek-v4-flash".to_string(),
             max_transcript_tokens: 10000,
         }
     }

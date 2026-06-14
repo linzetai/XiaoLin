@@ -752,8 +752,9 @@ pub struct SubAgentDef {
     #[serde(default)]
     pub background: bool,
     /// Whether this sub-agent type is safe to run concurrently with others.
-    /// Read-only agents (e.g. "explore") should set this to `true`.
-    #[serde(default)]
+    /// Defaults to `true` since sub-agents typically work on independent tasks.
+    /// Set to `false` only for agents that need exclusive workspace access.
+    #[serde(default = "default_concurrency_safe")]
     pub concurrency_safe: bool,
     /// Maximum number of parent messages to inherit when `inherit_context` is used.
     /// Defaults to 20.
@@ -770,6 +771,10 @@ pub struct SubAgentDef {
     pub source: SubAgentDefSource,
 }
 
+fn default_concurrency_safe() -> bool {
+    true
+}
+
 fn default_max_context_messages() -> usize {
     20
 }
@@ -784,7 +789,7 @@ impl Default for SubAgentDef {
             tools: SubAgentToolFilter::default(),
             system_prompt: None,
             background: false,
-            concurrency_safe: false,
+            concurrency_safe: true,
             max_context_messages: 20,
             permission_mode: PermissionMode::default(),
             mode: SubAgentMode::default(),
@@ -1000,7 +1005,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     .into(),
             ),
             background: false,
-            concurrency_safe: false,
+            concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,
@@ -1031,7 +1036,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     .into(),
             ),
             background: false,
-            concurrency_safe: false,
+            concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,

@@ -115,10 +115,25 @@ fn validate_goal_description(desc: &str) -> Result<String, String> {
 }
 
 const MAX_IDLE_CONTINUATION_ROUNDS: u32 = 3;
+/// Max rounds where tools are called but no writes/executions happen.
+/// Prevents read-only verification loops from running indefinitely.
+const MAX_STAGNATION_ROUNDS: u32 = 5;
+
+/// Result of recording continuation activity for a goal round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinuationActivityResult {
+    /// Normal activity, goal can continue.
+    Normal,
+    /// No tool calls for too many rounds.
+    IdleLimitReached,
+    /// Tool calls present but no write/execution progress for too many rounds.
+    StagnationLimitReached,
+}
 
 struct SessionGoalState {
     continuation_rounds: std::sync::atomic::AtomicU32,
     idle_rounds: std::sync::atomic::AtomicU32,
+    stagnation_rounds: std::sync::atomic::AtomicU32,
     objective_updated: std::sync::atomic::AtomicBool,
     last_accounted_tokens: std::sync::atomic::AtomicU64,
     last_accounted_time_secs: std::sync::atomic::AtomicU64,
@@ -130,6 +145,7 @@ impl Default for SessionGoalState {
         Self {
             continuation_rounds: std::sync::atomic::AtomicU32::new(0),
             idle_rounds: std::sync::atomic::AtomicU32::new(0),
+            stagnation_rounds: std::sync::atomic::AtomicU32::new(0),
             objective_updated: std::sync::atomic::AtomicBool::new(false),
             last_accounted_tokens: std::sync::atomic::AtomicU64::new(0),
             last_accounted_time_secs: std::sync::atomic::AtomicU64::new(0),
@@ -437,22 +453,49 @@ impl GoalStore {
         }
     }
 
-    /// Track whether a continuation round was idle (no tool calls).
-    /// Returns true if the idle limit has been reached.
-    pub async fn record_continuation_activity(&self, had_tool_calls: bool) -> bool {
+    /// Track whether a continuation round was idle or stagnating.
+    /// - `had_tool_calls`: any tool was invoked this round
+    /// - `had_progress`: a write/execution tool was invoked (file write, shell, subagent, etc.)
+    ///
+    /// Returns the activity result indicating normal, idle, or stagnation.
+    pub async fn record_continuation_activity(
+        &self,
+        had_tool_calls: bool,
+        had_progress: bool,
+    ) -> ContinuationActivityResult {
         let st = match self.current_state().await {
             Some(s) => s,
-            None => return false,
+            None => return ContinuationActivityResult::Normal,
         };
-        if had_tool_calls {
+        if had_progress {
+            // Real progress resets both counters
             st.idle_rounds
                 .store(0, std::sync::atomic::Ordering::Relaxed);
-            false
+            st.stagnation_rounds
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            ContinuationActivityResult::Normal
+        } else if had_tool_calls {
+            // Tools called but no writes — stagnation
+            st.idle_rounds
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            let prev = st
+                .stagnation_rounds
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if prev + 1 >= MAX_STAGNATION_ROUNDS {
+                ContinuationActivityResult::StagnationLimitReached
+            } else {
+                ContinuationActivityResult::Normal
+            }
         } else {
+            // No tool calls at all — idle
             let prev = st
                 .idle_rounds
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            prev + 1 >= MAX_IDLE_CONTINUATION_ROUNDS
+            if prev + 1 >= MAX_IDLE_CONTINUATION_ROUNDS {
+                ContinuationActivityResult::IdleLimitReached
+            } else {
+                ContinuationActivityResult::Normal
+            }
         }
     }
 }

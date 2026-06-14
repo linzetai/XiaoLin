@@ -965,6 +965,8 @@ pub async fn spawn_chat(
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
                     after_chat_called = true;
                 }
+                let resp = forward_event(&event, &rid);
+                let _ = bg_tx.send(resp).await;
                 break;
             }
             if let AgentEvent::ContentDelta { ref delta, .. } = event {

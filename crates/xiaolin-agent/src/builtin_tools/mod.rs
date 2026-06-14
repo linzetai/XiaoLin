@@ -50,7 +50,10 @@ pub use xiaolin_tools_fs::filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
     SearchInFilesTool, WriteFileTool,
 };
-pub use goal::{CreateGoalTool, GetGoalTool, Goal, GoalStatus, GoalStore, UpdateGoalTool};
+pub use goal::{
+    ContinuationActivityResult, CreateGoalTool, GetGoalTool, Goal, GoalStatus, GoalStore,
+    UpdateGoalTool,
+};
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};

@@ -538,9 +538,9 @@ mod tests {
         let mut msgs = vec![
             system_msg("sys"),
             user_msg("q"),
-            tool_msg("list_dir", &big),  // Ephemeral
-            tool_msg("read_file", &big), // FullRetain
-            tool_msg("grep", &big),      // Summarize
+            tool_msg("web_search", &big), // Ephemeral
+            tool_msg("read_file", &big),  // FullRetain
+            tool_msg("grep", &big),       // Summarize
             tool_msg("read_file", "recent"),
             asst_msg("a"),
         ];
@@ -553,11 +553,11 @@ mod tests {
 
         apply_token_budget(&mut msgs, 1000, &config);
 
-        // Ephemeral (list_dir) should be fully cleared first
-        let list_dir_text = msgs[2].text_content().unwrap();
+        // Ephemeral (web_search) should be fully cleared first
+        let web_search_text = msgs[2].text_content().unwrap();
         assert!(
-            list_dir_text.starts_with(RECALL_HINT_MARKER),
-            "list_dir should be recall-cleared, got: {list_dir_text}"
+            web_search_text.starts_with(RECALL_HINT_MARKER),
+            "web_search should be recall-cleared, got: {web_search_text}"
         );
     }
 

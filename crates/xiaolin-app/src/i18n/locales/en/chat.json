@@ -88,6 +88,7 @@
   "subAgent_status_failed": "Failed",
   "subAgent_status_cancelled": "Cancelled",
   "subAgent_toolsCount": "{{count}} tools",
+  "subAgent_thinking": "Thinking…",
   "subAgent_result": "Result",
   "subAgent_title": "Sub-agents",
   "subAgent_runningSummary": "{{count}} sub-agent(s) running",

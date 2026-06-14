@@ -583,32 +583,33 @@ export function MessageStream(_props: MessageStreamProps) {
   }, [displayData]);
 
   const todoProgress = useMemo<TodoSummary | null>(() => {
-    if (!streamSegments || streamSegments.length === 0) return null;
-    for (let i = streamSegments.length - 1; i >= 0; i--) {
-      const seg = streamSegments[i];
-      if (seg.type === "tool" && seg.toolCall?.name === "todo_write" && seg.toolCall.result) {
-        const parsed = parseTodoResult(seg.toolCall.result);
-        if (parsed) return parsed.summary;
+    // Check current streaming segments first (most recent data)
+    if (streamSegments && streamSegments.length > 0) {
+      for (let i = streamSegments.length - 1; i >= 0; i--) {
+        const seg = streamSegments[i];
+        if (seg.type === "tool" && seg.toolCall?.name === "todo_write" && seg.toolCall.result) {
+          const parsed = parseTodoResult(seg.toolCall.result);
+          if (parsed) return parsed.summary;
+        }
       }
     }
-    if (!streaming) {
-      for (let i = stream.length - 1; i >= 0; i--) {
-        const item = stream[i];
-        if (item.type !== "message") continue;
-        const msg = item.data;
-        if (msg.role === "assistant" && msg.toolCalls) {
-          for (let j = msg.toolCalls.length - 1; j >= 0; j--) {
-            const tc = msg.toolCalls[j];
-            if (tc.name === "todo_write" && tc.result) {
-              const parsed = parseTodoResult(tc.result);
-              if (parsed) return parsed.summary;
-            }
+    // Always check full message history as fallback (including during streaming/Goal mode)
+    for (let i = stream.length - 1; i >= 0; i--) {
+      const item = stream[i];
+      if (item.type !== "message") continue;
+      const msg = item.data;
+      if (msg.role === "assistant" && msg.toolCalls) {
+        for (let j = msg.toolCalls.length - 1; j >= 0; j--) {
+          const tc = msg.toolCalls[j];
+          if (tc.name === "todo_write" && tc.result) {
+            const parsed = parseTodoResult(tc.result);
+            if (parsed) return parsed.summary;
           }
         }
       }
     }
     return null;
-  }, [streamSegments, stream, streaming]);
+  }, [streamSegments, stream]);
 
   const showContextBar = useMemo(() => {
     if (!lastUserMessage) return false;

@@ -193,9 +193,6 @@ pub(crate) enum RetentionTier {
 /// Tools whose results are ephemeral (Level 0): low-value metadata that the
 /// model rarely needs to re-read once it has processed the output.
 const TIER0_EPHEMERAL: &[&str] = &[
-    "list_dir",
-    "list_directory",
-    "glob",
     "web_search",
     "web_fetch",
     "fetch_url",
@@ -213,6 +210,9 @@ const TIER1_SUMMARIZE: &[&str] = &[
     "file_outline",
     "code_sections",
     "lsp",
+    "glob",
+    "list_dir",
+    "list_directory",
 ];
 
 /// Tools whose results should be fully retained (Level 2): high-value

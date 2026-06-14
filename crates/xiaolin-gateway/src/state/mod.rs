@@ -466,7 +466,10 @@ impl AppState {
                 .list
                 .first()
                 .and_then(|a| a.model.clone())
-                .unwrap_or_else(|| "gpt-4o-mini".to_string()),
+                .or_else(|| {
+                    self.cfg.config.models.values().next().map(|m| m.model.clone())
+                })
+                .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string()),
         });
         let extraction_secs = self.cfg.config.evolution.skill_extraction_interval_secs;
         if extraction_secs > 0 {

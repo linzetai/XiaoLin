@@ -189,7 +189,7 @@ impl SidechainReader {
 }
 
 /// Maximum result length returned to the parent agent.
-pub const MAX_RESULT_CHARS: usize = 4096;
+pub const MAX_RESULT_CHARS: usize = 12288;
 
 /// Truncates a sub-agent result if it exceeds the maximum length.
 pub fn truncate_result(text: &str) -> String {
@@ -200,7 +200,7 @@ pub fn truncate_result(text: &str) -> String {
         return text.to_string();
     }
     let truncated = &text[..MAX_RESULT_CHARS];
-    format!("{truncated}\n[truncated -- use subagent_get for full result]")
+    format!("{truncated}\n[result truncated at {MAX_RESULT_CHARS} chars -- the sub-agent's work (file writes, edits, etc.) completed successfully; only this summary is shortened. Use subagent_get for full text.]")
 }
 
 /// Cleans up all sidechain files for a session.
@@ -316,10 +316,11 @@ mod tests {
 
     #[test]
     fn test_truncate_result_long() {
-        let text = "x".repeat(5000);
+        let text = "x".repeat(20_000);
         let result = truncate_result(&text);
-        assert!(result.len() < 5000);
-        assert!(result.ends_with("[truncated -- use subagent_get for full result]"));
+        assert!(result.len() < 20_000);
+        assert!(result.contains("result truncated at"));
+        assert!(result.contains("subagent_get"));
     }
 
     #[test]

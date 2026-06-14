@@ -300,6 +300,8 @@ async fn collect_output(
 ) -> String {
     let mut collected = Vec::new();
     let deadline = tokio::time::Instant::now() + max_duration;
+    let idle_timeout = Duration::from_millis(500);
+    let mut has_received_data = false;
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -307,9 +309,16 @@ async fn collect_output(
             break;
         }
 
-        match timeout(remaining, rx.recv()).await {
+        let wait_time = if has_received_data && wait_for.is_none() {
+            remaining.min(idle_timeout)
+        } else {
+            remaining
+        };
+
+        match timeout(wait_time, rx.recv()).await {
             Ok(Ok(data)) => {
                 collected.extend_from_slice(&data);
+                has_received_data = true;
                 if collected.len() > MAX_OUTPUT_BYTES {
                     collected.truncate(MAX_OUTPUT_BYTES);
                     break;
@@ -323,7 +332,7 @@ async fn collect_output(
             }
             Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
             Ok(Err(broadcast::error::RecvError::Closed)) => break,
-            Err(_) => break, // timeout
+            Err(_) => break, // idle timeout or deadline reached
         }
     }
 

@@ -99,7 +99,10 @@ function RunItem({ run, onCancel }: { run: SubAgentRunUI; onCancel: (id: string)
           <Clock size={10} /> {formatElapsed(isActive ? elapsed : run.elapsedMs)}
         </span>
         <span className="inline-flex items-center gap-0.5">
-          <Lightning size={10} /> {t("subAgent_toolsCount", { count: run.toolCallsMade })}
+          <Lightning size={10} /> {(() => {
+            const count = Math.max(run.toolCallsMade, run.toolCalls.length);
+            return isActive && count === 0 ? t("subAgent_thinking") : t("subAgent_toolsCount", { count });
+          })()}
         </span>
         {currentTool && (
           <span className="truncate" style={{ color: meta.color }}>

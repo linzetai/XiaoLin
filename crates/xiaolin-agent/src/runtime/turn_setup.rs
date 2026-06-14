@@ -316,6 +316,7 @@ pub(crate) async fn setup_turn(
         file_tracker,
         last_seen_goal_id,
         had_tool_calls_this_round: false,
+        had_progress_this_round: false,
         injected_skill_ids,
         trajectory_steps: Vec::new(),
         budget_tracker,

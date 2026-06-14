@@ -47,6 +47,8 @@ pub(crate) struct TurnMutableState {
     pub file_tracker: SessionFileTracker,
     pub last_seen_goal_id: Option<String>,
     pub had_tool_calls_this_round: bool,
+    /// Whether any progress-making tool (write, shell, subagent) was called this round.
+    pub had_progress_this_round: bool,
     pub injected_skill_ids: Vec<String>,
     pub trajectory_steps: Vec<TrajectoryStep>,
     pub budget_tracker: Option<BudgetTracker>,
