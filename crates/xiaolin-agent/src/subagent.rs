@@ -168,6 +168,9 @@ struct SpawnParams {
     /// When true, inherit filtered parent conversation context into the child.
     #[serde(default)]
     inherit_context: bool,
+    /// Override the default timeout (seconds) for this specific spawn (60..=1800).
+    #[serde(default)]
+    timeout_seconds: Option<u64>,
 }
 
 fn parse_subagent_type(s: Option<&str>) -> SubAgentType {
@@ -325,6 +328,13 @@ impl Tool for SubAgentTool {
             serde_json::json!({
                 "type": "boolean",
                 "description": "When true, the sub-agent inherits a filtered portion of the parent conversation as initial context. This allows it to reference earlier messages without explicit context passing."
+            }),
+        );
+        props.insert(
+            "timeout_seconds".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "description": "Override default timeout (seconds) for this spawn. Range: 60-1800. Use higher values for complex tasks that generate large files."
             }),
         );
 
@@ -512,6 +522,10 @@ impl Tool for SubAgentTool {
         };
 
         if use_background {
+            let mut effective_policy = self.policy.clone();
+            if let Some(t) = params.timeout_seconds.filter(|&t| (60..=1800).contains(&t)) {
+                effective_policy.timeout_seconds = t;
+            }
             let run_id = match self
                 .manager
                 .spawn(
@@ -522,7 +536,7 @@ impl Tool for SubAgentTool {
                     effective_session_id,
                     String::new(),
                     self.current_depth,
-                    &self.policy,
+                    &effective_policy,
                     child_registry,
                     parent_tx,
                     None,
@@ -545,6 +559,10 @@ impl Tool for SubAgentTool {
                 "message": "Sub-agent spawned in background. Use subagent_get with this run_id to check results."
             }).to_string())
         } else {
+            let mut effective_policy = self.policy.clone();
+            if let Some(t) = params.timeout_seconds.filter(|&t| (60..=1800).contains(&t)) {
+                effective_policy.timeout_seconds = t;
+            }
             #[allow(deprecated)]
             match self
                 .manager
@@ -556,7 +574,7 @@ impl Tool for SubAgentTool {
                     effective_session_id,
                     String::new(),
                     self.current_depth,
-                    &self.policy,
+                    &effective_policy,
                     child_registry,
                     parent_tx,
                     None,

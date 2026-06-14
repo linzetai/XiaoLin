@@ -109,20 +109,20 @@ interface GroupSummary {
 
 function computeSummary(tools: ToolCall[]): GroupSummary {
   const typeDistribution: Record<string, number> = {};
-  let totalDuration = 0;
+  let maxDuration = 0;
   let errorCount = 0;
   let runningCount = 0;
   let successCount = 0;
 
   for (const tc of tools) {
     typeDistribution[tc.name] = (typeDistribution[tc.name] ?? 0) + 1;
-    if (tc.duration) totalDuration += tc.duration;
+    if (tc.duration && tc.duration > maxDuration) maxDuration = tc.duration;
     if (tc.status === "error") errorCount++;
     else if (tc.status === "running") runningCount++;
     else if (tc.status === "success") successCount++;
   }
 
-  return { typeDistribution, totalDuration, errorCount, runningCount, successCount };
+  return { typeDistribution, totalDuration: maxDuration, errorCount, runningCount, successCount };
 }
 
 function formatDuration(ms: number): string {

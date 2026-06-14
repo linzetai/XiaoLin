@@ -782,14 +782,39 @@ export function useMessageStreamChat({
           }
           case "error": {
             const e = (event.data?.message as string) ?? event.error?.message ?? t("unknownError");
+            // Always clear streaming on fatal error, even if chat switched (isActive() false)
+            setStreaming(false);
             if (isActive()) {
               cancelAnimationFrame(rafIdRef.current);
               rafIdRef.current = 0;
               streamAccRef.current = "";
+              // Persist tool call segments (especially todo_write) before clearing
+              const toolSegs = segmentsRef.current.filter(
+                (s) => s.type === "tool" && s.toolCall && s.toolCall.status !== "running"
+              );
+              if (toolSegs.length > 0) {
+                const toolCalls = toolSegs.map((s) => ({
+                  id: s.toolCall!.id,
+                  name: s.toolCall!.name,
+                  status: s.toolCall!.status,
+                  args: s.toolCall!.args,
+                  result: s.toolCall!.result,
+                  duration: s.toolCall!.duration,
+                  metadata: s.toolCall!.metadata,
+                }));
+                const textSegs = segmentsRef.current.filter((s) => s.type === "text" && s.content);
+                const partialContent = textSegs.map((s) => s.content).join("");
+                addMessage({
+                  role: "assistant",
+                  content: partialContent,
+                  timestamp: new Date(),
+                  toolCalls,
+                  metadata: { partial: true },
+                }, capturedChatId);
+              }
               segmentsRef.current = [];
               currentStreamChatRef.current = null;
               setStreamSegments([]);
-              setStreaming(false);
               setPendingQuestion(null);
             }
             addMessage({ role: "system", content: t("error_prefix", { message: e }), timestamp: new Date() }, capturedChatId);
@@ -835,6 +860,10 @@ export function useMessageStreamChat({
             const msg = (d?.message as string) ?? t("streamError");
             const code = (d?.error_code as string) ?? "";
             const retry = (d?.retry_attempt as number) ?? 0;
+            const recoverable = (d?.recoverable as boolean) ?? true;
+            if (!recoverable) {
+              setStreaming(false);
+            }
             if (isActive()) {
               addMessage({
                 role: "system",

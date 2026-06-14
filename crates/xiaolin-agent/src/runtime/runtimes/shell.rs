@@ -333,6 +333,25 @@ fn preferred_shell() -> &'static str {
 /// Detect commands that are likely dev servers (long-running by nature).
 fn is_dev_server_command(command: &str) -> bool {
     let lower = command.to_lowercase();
+
+    let has_background = command.trim().ends_with('&')
+        || lower.contains("nohup")
+        || lower.contains("> /dev/null");
+    if has_background {
+        return false;
+    }
+
+    let scaffolding_exclusions = [
+        "create vite",
+        "init vite",
+        "create-vite",
+        "create next",
+        "create-next-app",
+    ];
+    if scaffolding_exclusions.iter().any(|p| lower.contains(p)) {
+        return false;
+    }
+
     let patterns = [
         "vite", "next dev", "next start", "webpack serve", "webpack-dev-server",
         "ng serve", "npm start", "npm run dev", "npm run serve",
@@ -340,13 +359,6 @@ fn is_dev_server_command(command: &str) -> bool {
         "flask run", "uvicorn", "gunicorn", "python -m http.server",
         "live-server", "http-server", "nodemon",
     ];
-    // Only match if the command appears to run a server synchronously (no & or nohup)
-    let has_background = command.trim().ends_with('&')
-        || lower.contains("nohup")
-        || lower.contains("> /dev/null");
-    if has_background {
-        return false;
-    }
     patterns.iter().any(|p| lower.contains(p))
 }
 
@@ -518,5 +530,26 @@ mod tests {
         };
         let result = rt.run(&args, &sandbox, &ctx).await;
         assert!(matches!(result, Err(ToolRuntimeError::Timeout { .. })));
+    }
+
+    #[test]
+    fn dev_server_detection_excludes_scaffolding() {
+        assert!(!is_dev_server_command("npm create vite@latest my-app"));
+        assert!(!is_dev_server_command("npx create-vite my-project"));
+        assert!(!is_dev_server_command("pnpm create vite"));
+        assert!(!is_dev_server_command("npm init vite@latest"));
+        assert!(!is_dev_server_command("npx create-next-app my-app"));
+
+        assert!(is_dev_server_command("npx vite"));
+        assert!(is_dev_server_command("npm run dev"));
+        assert!(is_dev_server_command("pnpm dev"));
+        assert!(is_dev_server_command("next dev"));
+        assert!(is_dev_server_command("npx vite --port 3000"));
+    }
+
+    #[test]
+    fn dev_server_detection_background_not_matched() {
+        assert!(!is_dev_server_command("npm run dev &"));
+        assert!(!is_dev_server_command("nohup vite &"));
     }
 }

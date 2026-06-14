@@ -748,14 +748,24 @@ impl StateBuilder {
 
     /// Run all phases in dependency order and produce a ready [`AppState`].
     pub(crate) async fn build(config: XiaoLinConfig) -> anyhow::Result<AppState> {
-        if !config.security.ssrf_allowed_hosts.is_empty() {
+        let mut ssrf_hosts = config.security.ssrf_allowed_hosts.clone();
+        // In dev mode, auto-allow localhost so agents can verify local dev servers
+        if cfg!(debug_assertions)
+            || std::env::var("XIAOLIN_PROFILE").unwrap_or_default() == "dev"
+        {
+            for host in ["localhost", "127.0.0.1", "[::1]"] {
+                let h = host.to_string();
+                if !ssrf_hosts.iter().any(|x| x.eq_ignore_ascii_case(&h)) {
+                    ssrf_hosts.push(h);
+                }
+            }
+        }
+        if !ssrf_hosts.is_empty() {
             tracing::info!(
-                hosts = ?config.security.ssrf_allowed_hosts,
+                hosts = ?ssrf_hosts,
                 "SSRF: registering allowed hosts that bypass private-IP checks"
             );
-            xiaolin_security::ssrf::set_ssrf_allowed_hosts(
-                config.security.ssrf_allowed_hosts.clone(),
-            );
+            xiaolin_security::ssrf::set_ssrf_allowed_hosts(ssrf_hosts);
         }
 
         tracing::info!(

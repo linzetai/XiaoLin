@@ -368,7 +368,7 @@ fn default_subagent_max_parallel() -> u32 {
     5
 }
 fn default_subagent_timeout() -> u64 {
-    300
+    600
 }
 fn default_batch_window_ms() -> u64 {
     2000
