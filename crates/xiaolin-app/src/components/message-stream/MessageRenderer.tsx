@@ -200,7 +200,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
           </button>
         )}
         <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-1.5" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto 6px" }}>
+      <div className="flex items-center gap-2 mb-1.5" style={{ maxWidth: "var(--content-max-w)" }}>
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
           {ts(msg.timestamp)}
         </span>
@@ -219,7 +219,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         )}
       </div>
       {groupedSegments ? (
-        <div className="ai-body mb-2" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
+        <div className="ai-body mb-2" style={{ maxWidth: "var(--content-max-w)", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
           {groupedSegments.map((group, gi) => {
             if (group.type === "reasoning" && group.segment.content) {
               return (
@@ -281,7 +281,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
       ) : (
         <>
           {groupedToolCalls && groupedToolCalls.length > 0 && (
-            <div className="mb-2" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}>
+            <div className="mb-2" style={{ maxWidth: "var(--content-max-w)" }}>
               {groupedToolCalls.map((item) => {
                 if (item.type === "single") {
                   return <StepIndicator key={item.tool.id} tool={item.tool} />;
@@ -295,15 +295,15 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               })}
             </div>
           )}
-          <div className="ai-body" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
+          <div className="ai-body" style={{ maxWidth: "var(--content-max-w)", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
             <Suspense fallback={<div className="animate-pulse rounded py-2" style={{ background: "var(--bg-tertiary)", height: 20 }} />}>
               <MarkdownContent content={msg.content} />
             </Suspense>
           </div>
         </>
       )}
-      {fileChangeSummary && <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}><FileChangesCard summary={fileChangeSummary} /></div>}
-      {copyable && <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}><AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} /></div>}
+      {fileChangeSummary && <div style={{ maxWidth: "var(--content-max-w)" }}><FileChangesCard summary={fileChangeSummary} /></div>}
+      {copyable && <div style={{ maxWidth: "var(--content-max-w)" }}><AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} /></div>}
         </div>
       </div>
     </div>
@@ -712,7 +712,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     return (
       <MessageErrorBoundary>
       <div className="msg-row pb-2" style={{ padding: "0 clamp(24px, 5%, 80px)" }}>
-        <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}>
+        <div style={{ maxWidth: "var(--content-max-w)" }}>
         {!hasContent && activeSubRuns.length === 0 && <PhaseIndicator phase={phase} />}
         {grouped.map((group, gi) => {
           if (group.type === "reasoning" && group.segment.content) {
