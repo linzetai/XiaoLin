@@ -79,7 +79,7 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
             {t("steerAppend")}
           </span>
         )}
-        <div className="text-[14px] leading-[1.5] break-words" style={{ color: "var(--fill-primary)", overflowWrap: "anywhere" }}>
+        <div className="text-[14px] leading-[1.5] whitespace-pre-wrap break-words" style={{ color: "var(--fill-primary)", overflowWrap: "anywhere" }}>
           {text}
         </div>
 
