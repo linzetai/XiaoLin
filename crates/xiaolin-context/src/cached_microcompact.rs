@@ -253,7 +253,12 @@ impl CachedMicrocompactor {
         if result.len() < max_chars {
             let remaining = max_chars - result.len();
             let tail_start = text.len().saturating_sub(remaining / 2);
-            let tail = &text[tail_start..];
+            let safe_start = if text.is_char_boundary(tail_start) {
+                tail_start
+            } else {
+                text.ceil_char_boundary(tail_start)
+            };
+            let tail = &text[safe_start..];
             if let Some(newline_pos) = tail.find('\n') {
                 result.push_str("...\n");
                 result.push_str(&tail[newline_pos + 1..]);
@@ -261,7 +266,8 @@ impl CachedMicrocompactor {
         }
 
         if result.len() > max_chars {
-            result.truncate(max_chars);
+            let safe_end = result.floor_char_boundary(max_chars);
+            result.truncate(safe_end);
         }
 
         result
