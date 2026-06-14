@@ -200,7 +200,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
           </button>
         )}
         <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="flex items-center gap-2 mb-1.5" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto 6px" }}>
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
           {ts(msg.timestamp)}
         </span>
@@ -302,8 +302,8 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
           </div>
         </>
       )}
-      {fileChangeSummary && <FileChangesCard summary={fileChangeSummary} />}
-      {copyable && <AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} />}
+      {fileChangeSummary && <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}><FileChangesCard summary={fileChangeSummary} /></div>}
+      {copyable && <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}><AiReactionBar content={msg.content} sessionId={msg.chatId} turnId={String(msg.id)} /></div>}
         </div>
       </div>
     </div>
