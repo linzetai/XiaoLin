@@ -15,7 +15,7 @@ export type { AttachedFile } from "./ComposerCore";
 export type PendingToolQuestion = {
   requestId: string;
   question: string;
-  options: Array<{ id: string; label: string }>;
+  options: Array<{ id: string; label: string; prefix?: string[] }>;
   timeoutSecs: number;
   expiresAt: number;
   allowMultiple?: boolean;
@@ -23,9 +23,12 @@ export type PendingToolQuestion = {
     actionType?: string;
     command?: string;
     path?: string;
+    paths?: string[];
+    cwd?: string;
     content?: string;
     diff?: string;
-    riskLevel?: "danger" | "caution" | "safe";
+    riskLevel?: "low" | "medium" | "high";
+    policyAmendPrefix?: string[];
   };
 } | null;
 
@@ -58,13 +61,15 @@ function parseApprovalData(q: NonNullable<PendingToolQuestion>): ApprovalData {
       action_type: meta.actionType,
       command: meta.command,
       path: meta.path,
+      paths: meta.paths,
+      cwd: meta.cwd,
       content: meta.content,
       diff: meta.diff,
     } : {
       action_type: q.question.includes("操作类型:") ? q.question.split("操作类型:")[1]?.trim() : undefined,
     },
     decisions: q.options,
-    riskLevel: meta?.riskLevel ?? "caution",
+    riskLevel: meta?.riskLevel ?? "medium",
   };
 }
 
@@ -163,10 +168,10 @@ export function StreamFooter({
           <ApprovalCard
             data={parseApprovalData(pendingQuestion)}
             sessionId={activeChat?.id}
-            onDecision={async (decision) => {
+            onDecision={async (decision, extra) => {
               const approvalId = pendingQuestion.requestId.slice("approval:".length);
+              await transport.resolveApproval(approvalId, decision, activeChat?.id, extra);
               setPendingQuestion(null);
-              await transport.resolveApproval(approvalId, decision, activeChat?.id);
             }}
           />
         ) : (

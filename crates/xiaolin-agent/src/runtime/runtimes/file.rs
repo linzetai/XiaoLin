@@ -7,6 +7,40 @@ use xiaolin_core::tool_runtime::{
 };
 use xiaolin_protocol::approval::PendingAction;
 
+/// Truncate a string to at most `max_chars` characters at a valid UTF-8 boundary.
+fn truncate_preview(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let byte_idx = s
+        .char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len());
+    s[..byte_idx].to_string()
+}
+
+/// Build a unified-diff-style preview from edit_file arguments.
+fn build_diff_preview(args: &serde_json::Value) -> Option<String> {
+    if let Some(diff) = args.get("diff").and_then(|v| v.as_str()) {
+        return Some(truncate_preview(diff, 2000));
+    }
+    let old = args.get("old_string").and_then(|v| v.as_str())?;
+    let new = args.get("new_string").and_then(|v| v.as_str())?;
+    let mut result = String::new();
+    for line in old.lines() {
+        result.push('-');
+        result.push_str(line);
+        result.push('\n');
+    }
+    for line in new.lines() {
+        result.push('+');
+        result.push_str(line);
+        result.push('\n');
+    }
+    Some(truncate_preview(&result, 2000))
+}
+
 /// Runtime for `write_file` / `create_file` tool calls.
 pub struct FileWriteRuntime;
 
@@ -69,7 +103,11 @@ impl Approvable for FileWriteRuntime {
 
     fn to_pending_action(&self, args: &serde_json::Value, _cwd: &Path) -> PendingAction {
         let path = Self::extract_path(args).unwrap_or("unknown").to_string();
-        PendingAction::FileWrite { path }
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(|s| truncate_preview(s, 2000));
+        PendingAction::FileWrite { path, content }
     }
 }
 
@@ -163,8 +201,10 @@ impl Approvable for FileEditRuntime {
 
     fn to_pending_action(&self, args: &serde_json::Value, _cwd: &Path) -> PendingAction {
         let path = Self::extract_path(args).unwrap_or("unknown").to_string();
+        let diff = build_diff_preview(args);
         PendingAction::ApplyPatch {
             paths: vec![path],
+            diff,
         }
     }
 }

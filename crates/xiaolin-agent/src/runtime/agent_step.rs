@@ -47,6 +47,7 @@ pub enum AgentStep {
 
     /// Marks the boundary between tool rounds (after all results, before next LLM call).
     ToolRoundBoundary {
+        turn_id: TurnId,
         iteration: u32,
     },
 
@@ -236,7 +237,10 @@ impl AgentStep {
                 vec![AgentEvent::Error { turn_id, message, error_code }]
             }
 
-            Self::ToolRoundBoundary { .. } | Self::SteeringInjected { .. } => vec![],
+            Self::ToolRoundBoundary { turn_id, iteration } => {
+                vec![AgentEvent::IterationBoundary { turn_id, iteration }]
+            }
+            Self::SteeringInjected { .. } => vec![],
         }
     }
 

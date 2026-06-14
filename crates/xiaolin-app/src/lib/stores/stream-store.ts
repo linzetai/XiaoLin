@@ -28,6 +28,7 @@ export interface StreamState {
   usage: Record<string, ChatUsage>;
   lastSegments: Record<string, ChatStreamSegment[]>;
   subAgentRuns: Record<string, Record<string, SubAgentRunUI>>;
+  toolProgress: Record<string, { progress?: number; message?: string }>;
 
   addMessage: (chatId: string, msg: Omit<ChatMessage, "id" | "chatId">) => void;
   appendStreamDelta: (chatId: string, delta: string) => void;
@@ -38,6 +39,8 @@ export interface StreamState {
   initStream: (chatId: string) => void;
   updateStreamKey: (oldId: string, newId: string) => void;
   cleanupStream: (chatId: string) => void;
+  setToolProgress: (callId: string, data: { progress?: number; message?: string }) => void;
+  clearToolProgress: () => void;
 
   subAgentStart: (chatId: string, run: SubAgentRunUI) => void;
   subAgentDelta: (chatId: string, runId: string, content: string) => void;
@@ -52,6 +55,7 @@ export const useStreamStore = create<StreamState>((set) => ({
   usage: {},
   lastSegments: {},
   subAgentRuns: {},
+  toolProgress: {},
 
   initStream: (chatId) => {
     set((state) => {
@@ -348,5 +352,15 @@ export const useStreamStore = create<StreamState>((set) => ({
         },
       };
     });
+  },
+
+  setToolProgress: (callId, data) => {
+    set((state) => ({
+      toolProgress: { ...state.toolProgress, [callId]: data },
+    }));
+  },
+
+  clearToolProgress: () => {
+    set({ toolProgress: {} });
   },
 }));

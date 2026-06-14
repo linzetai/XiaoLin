@@ -180,6 +180,7 @@ mod tests {
             "ap-2".into(),
             &PendingAction::FileWrite {
                 path: "/tmp/x".into(),
+                content: None,
             },
         );
 

@@ -23,7 +23,17 @@ export interface TextItem {
   segment: StreamSegment;
 }
 
-export type GroupedSegment = StepGroupItem | StepGroupCluster | TextItem;
+export interface ReasoningItem {
+  type: "reasoning";
+  segment: StreamSegment;
+}
+
+export interface IterationBoundaryItem {
+  type: "iteration_boundary";
+  segment: StreamSegment;
+}
+
+export type GroupedSegment = StepGroupItem | StepGroupCluster | TextItem | ReasoningItem | IterationBoundaryItem;
 
 function isSpecialToolCall(tc: ToolCall): boolean {
   if (!tc.result) return false;
@@ -55,6 +65,12 @@ export function groupConsecutiveSegments(
     if (seg.type === "text") {
       flushBuffer();
       result.push({ type: "text", segment: seg });
+    } else if (seg.type === "reasoning") {
+      flushBuffer();
+      result.push({ type: "reasoning", segment: seg });
+    } else if (seg.type === "iteration_boundary") {
+      flushBuffer();
+      result.push({ type: "iteration_boundary", segment: seg });
     } else if (seg.type === "tool" && seg.toolCall) {
       if (isSpecialToolCall(seg.toolCall)) {
         flushBuffer();
@@ -179,8 +195,6 @@ export const StepGroup = memo(function StepGroup({
   return (
     <div
       style={{
-        border: "1px solid var(--step-border)",
-        borderRadius: "var(--step-radius)",
         marginBottom: "var(--step-gap)",
         overflow: "hidden",
       }}
@@ -188,10 +202,10 @@ export const StepGroup = memo(function StepGroup({
       {/* Summary row */}
       <button
         onClick={handleToggle}
-        className="flex w-full items-center gap-2 px-2.5 text-left transition-colors duration-100"
+        className="flex w-full items-center gap-1.5 px-1 py-1 text-left rounded transition-colors duration-100"
         style={{
           cursor: "pointer",
-          minHeight: "var(--step-height)",
+          minHeight: "28px",
         }}
         onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ""; }}
@@ -247,10 +261,7 @@ export const StepGroup = memo(function StepGroup({
       {/* Expanded/streaming visible tools — compact (no borders) inside group */}
       {visibleTools.length > 0 && (
         <div
-          className="px-1 pb-1"
-          style={{
-            borderTop: "1px solid var(--separator)",
-          }}
+          className="pl-5 pb-1"
         >
           {!expanded && streaming && tools.length > 2 && (
             <button

@@ -80,6 +80,13 @@ pub(crate) async fn iteration_pre_check(
     // ── 2. Begin iteration bookkeeping ─────────────────────────────────
     ms.query_loop.begin_iteration();
 
+    let _ = send_step(
+        &svc.step_tx,
+        AgentStep::ToolRoundBoundary { turn_id: svc.turn_id.clone(), iteration: ms.query_loop.iteration },
+        true,
+    )
+    .await;
+
     // ── 2b. Token budget overflow check (per-iteration) ─────────────────
     if let Some(ref mut tracker) = ms.budget_tracker {
         let output_tokens = ms.query_loop.acc_completion_tokens as u64;

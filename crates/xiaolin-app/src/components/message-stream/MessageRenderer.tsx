@@ -4,12 +4,15 @@ import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-stor
 import type { BriefMessageData } from "../../lib/stores/types";
 import { BTN_ICON } from "../../lib/ui-tokens";
 import { StepIndicator } from "./StepIndicator";
+import { ExploringBlock, isExploringEligible } from "./ExploringBlock";
 import { SubAgentCard } from "./SubAgentCard";
 import {
   groupConsecutiveSegments,
   groupConsecutiveToolCalls,
   StepGroup,
 } from "./StepGroup";
+import { ReasoningBlock } from "./ReasoningBlock";
+import { PhaseIndicator, type Phase } from "./ThinkingIndicator";
 import { Warning } from "@phosphor-icons/react";
 import { UserInput } from "./UserInput";
 import { BriefMessageCard } from "./BriefMessageCard";
@@ -217,7 +220,28 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
       </div>
       {groupedSegments ? (
         <div className="ai-body mb-2" style={{ maxWidth: "var(--content-max-w)", margin: "0 auto", fontSize: "13.5px", lineHeight: 1.7, color: "var(--fill-secondary)" }}>
-          {groupedSegments.map((group) => {
+          {groupedSegments.map((group, gi) => {
+            if (group.type === "reasoning" && group.segment.content) {
+              return (
+                <ReasoningBlock
+                  key={group.segment.id}
+                  content={group.segment.content}
+                  isStreaming={false}
+                />
+              );
+            }
+            if (group.type === "iteration_boundary") {
+              return (
+                <div
+                  key={group.segment.id}
+                  className="flex items-center justify-center gap-1.5 my-3 select-none"
+                >
+                  <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+                  <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+                  <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+                </div>
+              );
+            }
             if (group.type === "text" && group.segment.content) {
               return (
                 <div key={group.segment.id} className="pb-1">
@@ -228,6 +252,21 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
               );
             }
             if (group.type === "single-tool" && group.segment.toolCall) {
+              if (isExploringEligible(group.segment.toolCall)) {
+                const batch: import("./StepIndicator").ToolCall[] = [group.segment.toolCall];
+                let peek = gi + 1;
+                while (peek < groupedSegments.length) {
+                  const next = groupedSegments[peek];
+                  if (next.type === "single-tool" && next.segment.toolCall && isExploringEligible(next.segment.toolCall)) {
+                    batch.push(next.segment.toolCall);
+                    peek++;
+                  } else break;
+                }
+                if (batch.length > 1 || (gi > 0 && groupedSegments[gi - 1]?.type === "reasoning")) {
+                  if (gi > 0 && groupedSegments[gi - 1]?.type === "single-tool") return null;
+                  return <ExploringBlock key={group.segment.id} tools={batch} />;
+                }
+              }
               return <StepIndicator key={group.segment.id} tool={group.segment.toolCall} />;
             }
             if (group.type === "tool-group") {
@@ -550,20 +589,6 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-function Typing() {
-  return (
-    <div className="pb-6 flex items-center gap-1">
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          className="h-[5px] w-[5px] rounded-full"
-          style={{ background: "var(--fill-tertiary)", animation: `typing-bounce 1.4s ease-in-out ${i * 0.18}s infinite` }}
-        />
-      ))}
-    </div>
-  );
-}
-
 type StreamableMsg = ChatMessage | { role: "streaming"; content: string; timestamp: Date };
 
 type DisplayItem =
@@ -679,12 +704,42 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     const lastSeg = streamSegments[streamSegments.length - 1];
     const lastIsText = lastSeg?.type === "text";
     const activeSubRuns = subAgentRuns ? Object.values(subAgentRuns) : [];
+    const phase: Phase = !hasContent
+      ? "connecting"
+      : streamSegments.some((s) => s.type === "tool")
+        ? "planning"
+        : "thinking";
     return (
       <MessageErrorBoundary>
       <div className="msg-row pb-2" style={{ padding: "0 clamp(24px, 5%, 80px)" }}>
         <div style={{ maxWidth: "var(--content-max-w)", margin: "0 auto" }}>
-        {!hasContent && activeSubRuns.length === 0 && <Typing />}
+        {!hasContent && activeSubRuns.length === 0 && <PhaseIndicator phase={phase} />}
         {grouped.map((group, gi) => {
+          if (group.type === "reasoning" && group.segment.content) {
+            const hasFollowingContent = grouped.slice(gi + 1).some(
+              (g) => g.type === "text" || g.type === "single-tool" || g.type === "tool-group"
+            );
+            return (
+              <ReasoningBlock
+                key={group.segment.id}
+                content={group.segment.content}
+                isStreaming={!hasFollowingContent}
+                autoCollapse={hasFollowingContent}
+              />
+            );
+          }
+          if (group.type === "iteration_boundary") {
+            return (
+              <div
+                key={group.segment.id}
+                className="flex items-center justify-center gap-1.5 my-3 select-none"
+              >
+                <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+                <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+                <span className="inline-block h-[4px] w-[4px] rounded-full" style={{ background: "var(--fill-quaternary)", opacity: 0.5 }} />
+              </div>
+            );
+          }
           if (group.type === "text" && group.segment.content) {
             const isLastSegment = gi === grouped.length - 1 && lastIsText;
             return (
@@ -700,6 +755,22 @@ export const MessageRendererRow = memo(function MessageRendererRow({
             );
           }
           if (group.type === "single-tool" && group.segment.toolCall) {
+            if (isExploringEligible(group.segment.toolCall)) {
+              const batch: import("./StepIndicator").ToolCall[] = [group.segment.toolCall];
+              let peek = gi + 1;
+              while (peek < grouped.length) {
+                const next = grouped[peek];
+                if (next.type === "single-tool" && next.segment.toolCall && isExploringEligible(next.segment.toolCall)) {
+                  batch.push(next.segment.toolCall);
+                  peek++;
+                } else break;
+              }
+              if (batch.length > 1 || (gi > 0 && grouped[gi - 1]?.type === "reasoning")) {
+                const prev = gi > 0 ? grouped[gi - 1] : null;
+                if (prev?.type === "single-tool" && prev.segment?.toolCall && isExploringEligible(prev.segment.toolCall)) return null;
+                return <ExploringBlock key={group.segment.id} tools={batch} streaming />;
+              }
+            }
             return <StepIndicator key={group.segment.id} tool={group.segment.toolCall} />;
           }
           if (group.type === "tool-group") {
@@ -724,7 +795,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
           </div>
         )}
         {hasContent && !lastIsText && activeSubRuns.length === 0 && (
-          <div className="mt-1"><Typing /></div>
+          <div className="mt-1"><PhaseIndicator phase={phase} /></div>
         )}
         <div ref={bottomRef} />
         </div>

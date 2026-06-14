@@ -241,6 +241,10 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         partial_output: Option<String>,
     },
+    IterationBoundary {
+        turn_id: TurnId,
+        iteration: u32,
+    },
 
     // ── Approval / user interaction ─────────────────────────────────
     AskQuestion {
@@ -360,6 +364,8 @@ pub enum AgentEvent {
         available_decisions: Vec<crate::approval::ApprovalDecision>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        risk_level: Option<crate::approval::ActionRiskLevel>,
     },
     ApprovalResolved {
         turn_id: TurnId,
@@ -467,7 +473,8 @@ impl AgentEvent {
             | Self::MemoryStored { turn_id, .. }
             | Self::MemoryRecalled { turn_id, .. }
             | Self::GoalUpdated { turn_id, .. }
-            | Self::GoalCleared { turn_id, .. } => turn_id,
+            | Self::GoalCleared { turn_id, .. }
+            | Self::IterationBoundary { turn_id, .. } => turn_id,
         }
     }
 }

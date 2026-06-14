@@ -12,6 +12,7 @@ import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
 import { ICON_SIZE } from "../../lib/ui-tokens";
+import { useStreamStore } from "../../lib/stores";
 
 export interface ToolCall {
   id: string;
@@ -429,7 +430,7 @@ function ShellResultSummary({ result }: { result: string }) {
  * Card-style step indicator with category-colored icon badge.
  * 36px row height, 1px border, 8px radius.
  */
-export const StepIndicator = memo(function StepIndicator({ tool, compact }: { tool: ToolCall; compact?: boolean }) {
+export const StepIndicator = memo(function StepIndicator({ tool, compact: _compact }: { tool: ToolCall; compact?: boolean }) {
   const { t } = useTranslation("chat");
   const toolMeta = useMemo(() => buildToolMeta(t), [t]);
   const [expanded, setExpanded] = useState(false);
@@ -444,6 +445,8 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
 
+  const progressData = useStreamStore((s) => s.toolProgress[tool.id]);
+
   const resultImages = tool.result ? extractImages(tool.result).images : [];
   const hasSpecialResult = tool.result && (
     isTodoResult(tool.name, tool.result) ||
@@ -456,43 +459,45 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
     <div
       className={`step-indicator${expanded ? " open" : ""}`}
       style={{
-        border: compact ? "none" : "1px solid var(--step-border)",
-        borderRadius: compact ? "0" : "var(--step-radius)",
         marginBottom: "var(--step-gap)",
         overflow: "hidden",
       }}
     >
-      {/* Header row */}
+      {/* Header row — borderless Codex style */}
       <button
         onClick={() => canExpand && setExpanded(!expanded)}
-        className="tc-h flex w-full items-center gap-2 px-2.5 text-left transition-colors duration-100"
+        className="tc-h flex w-full items-center gap-1.5 px-1 py-1 text-left rounded transition-colors duration-100"
         style={{
           cursor: canExpand ? "pointer" : "default",
-          minHeight: "var(--step-height)",
-          background: isRunning ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
+          minHeight: "28px",
         }}
-        onMouseEnter={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
-        onMouseLeave={(e) => { if (!isRunning) (e.currentTarget as HTMLElement).style.background = ""; }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ""; }}
         aria-expanded={canExpand ? expanded : undefined}
       >
-        {/* Category-colored icon badge */}
-        <span
-          className="tico grid shrink-0 place-items-center"
-          style={{
-            width: "var(--step-icon-size)",
-            height: "var(--step-icon-size)",
-            borderRadius: "var(--step-icon-radius)",
-            background: `var(--tc-${category}-bg)`,
-            color: `var(--tc-${category}-fg)`,
-          } as React.CSSProperties}
-        >
-          {meta.icon}
+        {/* Status dot */}
+        <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+          {isRunning ? (
+            <span
+              className="inline-block h-[6px] w-[6px] rounded-full"
+              style={{
+                borderWidth: "1.5px",
+                borderStyle: "solid",
+                borderColor: "var(--tint) transparent transparent transparent",
+                animation: "spin 0.8s linear infinite",
+              }}
+            />
+          ) : isError ? (
+            <span className="inline-block h-[6px] w-[6px] rounded-full" style={{ background: "var(--red)" }} />
+          ) : (
+            <span className="inline-block h-[6px] w-[6px] rounded-full" style={{ background: "var(--green)" }} />
+          )}
         </span>
 
-        {/* Label + key info */}
+        {/* Verb + key info */}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
-          <span className="tl shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}>
-            {label}
+          <span className="tl shrink-0 font-medium" style={{ color: isError ? "var(--red)" : "var(--fill-tertiary)" }}>
+            {isRunning ? label : label}
           </span>
           {keyInfo && (
             <span
@@ -505,26 +510,8 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
           )}
         </span>
 
-        {/* Status area: dot + duration */}
-        <span className="ts flex shrink-0 items-center gap-1.5">
-          {/* Status dot */}
-          <span className="flex h-[14px] w-[14px] items-center justify-center">
-            {isRunning ? (
-              <span
-                className="sd inline-block h-[5px] w-[5px] rounded-full border-[1px]"
-                style={{
-                  borderColor: "var(--tint) transparent transparent transparent",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-            ) : isError ? (
-              <span className="sd inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--red)" }} />
-            ) : (
-              <span className="sd inline-block h-[5px] w-[5px] rounded-full" style={{ background: "var(--green)" }} />
-            )}
-          </span>
-
-          {/* Duration */}
+        {/* Duration */}
+        <span className="ts flex shrink-0 items-center gap-1">
           <span className="text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
             {isRunning && tool.startTime ? <ElapsedTimer startTime={tool.startTime} /> : null}
             {!isRunning && tool.duration ? formatDuration(tool.duration) : null}
@@ -534,7 +521,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
         {/* Expand chevron */}
         {canExpand && (
           <CaretRight
-            size={12}
+            size={10}
             className="tv shrink-0 transition-transform duration-150"
             style={{
               color: "var(--fill-quaternary)",
@@ -543,6 +530,28 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
           />
         )}
       </button>
+
+      {/* Progress indicator */}
+      {isRunning && progressData && (progressData.progress != null || progressData.message) && (
+        <div className="px-2.5 pb-1.5 flex items-center gap-2">
+          {progressData.progress != null && (
+            <div className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: "var(--bg-tertiary)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, Math.max(0, progressData.progress * 100))}%`,
+                  background: "var(--tint)",
+                }}
+              />
+            </div>
+          )}
+          {progressData.message && (
+            <span className="text-[10px] truncate" style={{ color: "var(--fill-quaternary)", maxWidth: "60%" }}>
+              {progressData.message}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Auto-display images from tool results */}
       {resultImages.length > 0 && (
@@ -593,8 +602,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact }: { to
           <div className="tc-bd-in overflow-hidden">
             {hasDetails && !hasSpecialResult && (
               <div
-                className="px-2.5 pb-2 pt-1.5"
-                style={{ borderTop: "1px solid var(--separator)" }}
+                className="pl-6 pb-2 pt-0.5"
               >
                 {tool.args && (
                   <div className="mb-1.5">

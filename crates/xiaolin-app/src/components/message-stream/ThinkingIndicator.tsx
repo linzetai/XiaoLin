@@ -1,87 +1,70 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
-function OrbitSpinner() {
-  return (
-    <svg
-      width={20}
-      height={20}
-      viewBox="0 0 20 20"
-      fill="none"
-      className="shrink-0"
-      style={{ animation: "spin 3s linear infinite" }}
-    >
-      <circle
-        cx={10} cy={10} r={7.5}
-        stroke="var(--tint)"
-        strokeWidth={2}
-        strokeDasharray="14 33"
-        strokeLinecap="round"
-        opacity={0.85}
-        style={{ animation: "orbit 1.5s ease-in-out infinite" }}
-      />
-      <circle
-        cx={10} cy={10} r={7.5}
-        stroke="var(--tint)"
-        strokeWidth={2}
-        strokeDasharray="8 39"
-        strokeLinecap="round"
-        opacity={0.45}
-        style={{ animation: "orbit 2.2s ease-in-out infinite reverse", transformOrigin: "center" }}
-      />
-      <circle
-        cx={10} cy={10} r={7.5}
-        stroke="var(--tint)"
-        strokeWidth={1.5}
-        strokeDasharray="5 42"
-        strokeLinecap="round"
-        opacity={0.3}
-        style={{ animation: "orbit 1.8s ease-in-out infinite", transformOrigin: "center" }}
-      />
-    </svg>
-  );
+export type Phase = "connecting" | "thinking" | "planning";
+
+interface PhaseIndicatorProps {
+  phase?: Phase;
 }
 
-export function ThinkingIndicator() {
+export function PhaseIndicator({ phase = "thinking" }: PhaseIndicatorProps) {
   const { t } = useTranslation("chat");
-  const labels = useMemo(
-    () => [t("thinking_0"), t("thinking_1"), t("thinking_2")] as const,
-    [t],
-  );
-  const [dots, setDots] = useState(0);
-  const [labelIdx, setLabelIdx] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(Date.now());
+
+  const label = useMemo(() => {
+    switch (phase) {
+      case "connecting": return t("thinking_connecting", "连接中");
+      case "planning": return t("thinking_planning", "规划下一步");
+      case "thinking":
+      default: return t("thinking_0", "思考中");
+    }
+  }, [phase, t]);
 
   useEffect(() => {
-    const dotTimer = setInterval(() => setDots((d) => (d + 1) % 4), 500);
-    const labelTimer = setInterval(
-      () => setLabelIdx((i) => (i + 1) % labels.length),
-      3000,
-    );
-    return () => {
-      clearInterval(dotTimer);
-      clearInterval(labelTimer);
-    };
-  }, [labels.length]);
+    startRef.current = Date.now();
+    setElapsed(0);
+  }, [phase]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 200);
+    return () => clearInterval(timer);
+  }, [phase]);
 
   return (
     <div
-      className="pb-4 pl-2 flex items-center gap-2.5"
+      className="pb-3 pl-1 flex items-center gap-2"
       style={{
         animation: "slide-left var(--duration-normal) var(--ease-out)",
         maxWidth: "75%",
       }}
     >
-      <OrbitSpinner />
+      {/* Pulsing dot */}
       <span
-        className="text-[13px]"
+        className="inline-block h-[8px] w-[8px] rounded-full shrink-0"
         style={{
-          color: "var(--fill-tertiary)",
-          animation: "glow-pulse 2s ease-in-out infinite",
+          background: "var(--tint)",
+          animation: "phase-pulse 1.5s ease-in-out infinite",
         }}
+      />
+      <span
+        className="text-[12px]"
+        style={{ color: "var(--fill-tertiary)" }}
       >
-        {labels[labelIdx]}
-        {".".repeat(dots)}
+        {label}
       </span>
+      {elapsed > 0 && (
+        <span
+          className="text-[11px] tabular-nums"
+          style={{ color: "var(--fill-quaternary)" }}
+        >
+          {elapsed}s
+        </span>
+      )}
     </div>
   );
+}
+
+export function ThinkingIndicator() {
+  return <PhaseIndicator phase="thinking" />;
 }

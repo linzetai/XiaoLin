@@ -85,9 +85,10 @@ export interface SubAgentRunUI {
 
 export interface ChatStreamSegment {
   id: string;
-  type: "text" | "tool";
+  type: "text" | "tool" | "reasoning" | "iteration_boundary";
   content?: string;
   toolCall?: ChatMessageToolCall;
+  iteration?: number;
 }
 
 export interface BriefMessageData {

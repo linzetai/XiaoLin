@@ -967,10 +967,11 @@ export async function resolveApproval(
   approvalId: string,
   decision: string,
   sessionId?: string,
+  extra?: Record<string, unknown>,
 ): Promise<{ ok: boolean }> {
   const resp = (await wsClient.send("resolve_approval", {
     approvalId,
-    decision: { decision },
+    decision: { decision, ...extra },
     ...(sessionId && { sessionId }),
   })) as { data?: { resolved?: boolean } };
   return { ok: resp?.data?.resolved ?? false };

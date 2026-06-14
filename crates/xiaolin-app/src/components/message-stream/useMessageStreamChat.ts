@@ -94,9 +94,12 @@ export function useMessageStreamChat({
       actionType?: string;
       command?: string;
       path?: string;
+      paths?: string[];
+      cwd?: string;
       content?: string;
       diff?: string;
-      riskLevel?: "danger" | "caution" | "safe";
+      riskLevel?: "low" | "medium" | "high";
+      policyAmendPrefix?: string[];
     };
   } | null>(null);
   const streamAccRef = useRef("");
@@ -192,15 +195,16 @@ export function useMessageStreamChat({
             const reason = d.reason as string;
             const action = d.action as Record<string, unknown> | undefined;
             const actionType = action?.action_type as string ?? "unknown";
-            const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
-            const riskLevel = (d.risk_level as string) === "danger" ? "danger"
-              : (d.risk_level as string) === "safe" ? "safe" : "caution";
+            const decisions = (d.available_decisions as Array<{decision: string; prefix?: string[]}>) ?? [];
+            const riskLevel = ((d.risk_level as string) || "medium") as "low" | "medium" | "high";
+            const policyAmendDec = decisions.find((dec) => dec.decision === "approved_with_policy_amend");
             setPendingQuestion({
               requestId: `approval:${approvalId}`,
               question: t("approval_actionType", { reason, actionType }),
               options: decisions.map((dec) => ({
                 id: dec.decision,
                 label: decisionLabel(dec.decision),
+                ...(dec.prefix ? { prefix: dec.prefix } : {}),
               })),
               timeoutSecs: 0,
               expiresAt: 0,
@@ -209,9 +213,12 @@ export function useMessageStreamChat({
                 actionType,
                 command: action?.command as string | undefined,
                 path: action?.path as string | undefined,
+                paths: action?.paths as string[] | undefined,
+                cwd: action?.cwd as string | undefined,
                 content: action?.content as string | undefined,
                 diff: action?.diff as string | undefined,
-                riskLevel: riskLevel as "danger" | "caution" | "safe",
+                riskLevel,
+                policyAmendPrefix: policyAmendDec?.prefix,
               },
             });
           } else if (pi.type === "ask_question") {
@@ -373,6 +380,30 @@ export function useMessageStreamChat({
             }
             break;
           }
+          case "reasoning_delta": {
+            const content = (event.data?.content as string) ?? "";
+            if (!content) break;
+            if (isActive()) {
+              const segs = segmentsRef.current;
+              const last = segs[segs.length - 1];
+              if (last && last.type === "reasoning") {
+                last.content = (last.content ?? "") + content;
+              } else {
+                segs.push({ id: `reasoning-${segs.length}`, type: "reasoning", content });
+              }
+              flushSegments();
+            }
+            break;
+          }
+          case "iteration_boundary": {
+            const iteration = (event.data?.iteration as number) ?? 0;
+            if (isActive()) {
+              const segs = segmentsRef.current;
+              segs.push({ id: `iter-${iteration}`, type: "iteration_boundary", iteration });
+              flushSegments();
+            }
+            break;
+          }
           case "turn_end": {
             const d = event.data;
             const sid = d?.session_id as string | undefined;
@@ -399,6 +430,7 @@ export function useMessageStreamChat({
                 id: s.id,
                 type: s.type,
                 content: s.content,
+                iteration: s.iteration,
                 toolCall: s.toolCall ? { id: s.toolCall.id, name: s.toolCall.name, status: s.toolCall.status, args: s.toolCall.args, result: s.toolCall.result, duration: s.toolCall.duration, metadata: s.toolCall.metadata } : undefined,
               })));
             }
@@ -432,6 +464,7 @@ export function useMessageStreamChat({
             }
 
             cleanup();
+            useStreamStore.getState().clearToolProgress();
 
             if (sid && capturedChatId !== sid) {
               updateChatBackendId(capturedChatId, sid);
@@ -570,6 +603,10 @@ export function useMessageStreamChat({
             if (partial) {
               useTerminalStore.getState().appendOutput(callId, partial);
             }
+            useStreamStore.getState().setToolProgress(callId, {
+              progress: d.progress as number | undefined,
+              message: (d.message as string) || undefined,
+            });
             break;
           }
           case "tool_result": {
@@ -897,10 +934,10 @@ export function useMessageStreamChat({
                 const reason = d.reason as string;
                 const action = d.action as Record<string, unknown> | undefined;
                 const actionType = action?.action_type as string ?? "unknown";
-                const decisions = (d.available_decisions as Array<{decision: string}>) ?? [];
+                const decisions = (d.available_decisions as Array<{decision: string; prefix?: string[]}>) ?? [];
 
-                const riskLevel = (d.risk_level as string) === "danger" ? "danger"
-                  : (d.risk_level as string) === "safe" ? "safe" : "caution";
+                const riskLevel = ((d.risk_level as string) || "medium") as "low" | "medium" | "high";
+                const policyAmendDec = decisions.find((dec) => dec.decision === "approved_with_policy_amend");
 
                 setPendingQuestion({
                   requestId: `approval:${approvalId}`,
@@ -908,6 +945,7 @@ export function useMessageStreamChat({
                   options: decisions.map((dec) => ({
                     id: dec.decision,
                     label: decisionLabel(dec.decision),
+                    ...(dec.prefix ? { prefix: dec.prefix } : {}),
                   })),
                   timeoutSecs: 0,
                   expiresAt: 0,
@@ -916,9 +954,12 @@ export function useMessageStreamChat({
                     actionType,
                     command: action?.command as string | undefined,
                     path: action?.path as string | undefined,
+                    paths: action?.paths as string[] | undefined,
+                    cwd: action?.cwd as string | undefined,
                     content: action?.content as string | undefined,
                     diff: action?.diff as string | undefined,
-                    riskLevel: riskLevel as "danger" | "caution" | "safe",
+                    riskLevel,
+                    policyAmendPrefix: policyAmendDec?.prefix,
                   },
                 });
                 notifyIfBackground(t("notif_needApproval"), reason);

@@ -456,6 +456,15 @@ pub(crate) async fn perform_llm_call(
                 }
                 if let Some(ref rc) = choice.delta.reasoning_content {
                     accumulated_reasoning.push_str(rc);
+                    let _ = send_step(
+                        &svc.step_tx,
+                        AgentStep::ReasoningDelta {
+                            turn_id: svc.turn_id.clone(),
+                            content: rc.clone(),
+                        },
+                        true,
+                    )
+                    .await;
                 }
 
                 if let Some(ref tc_deltas) = choice.delta.tool_calls {

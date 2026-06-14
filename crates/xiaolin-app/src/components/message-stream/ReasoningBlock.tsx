@@ -1,0 +1,106 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+
+interface ReasoningBlockProps {
+  content: string;
+  isStreaming?: boolean;
+  autoCollapse?: boolean;
+}
+
+export function ReasoningBlock({ content, isStreaming, autoCollapse }: ReasoningBlockProps) {
+  const { t } = useTranslation("chat");
+  const [expanded, setExpanded] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+
+  useEffect(() => {
+    if (autoCollapse) {
+      setExpanded(false);
+    }
+  }, [autoCollapse]);
+
+  const handleScroll = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+    userScrolledUp.current = !atBottom;
+  }, []);
+
+  useEffect(() => {
+    if (!isStreaming || !expanded) return;
+    const el = contentRef.current;
+    if (!el || userScrolledUp.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [content, isStreaming, expanded]);
+
+  const charCount = content.length;
+  const isActive = isStreaming && !autoCollapse;
+
+  return (
+    <div
+      className="my-1 pl-3 relative"
+      style={{
+        borderLeft: `2px solid ${isActive ? "color-mix(in srgb, var(--tint) 45%, var(--fill-quaternary))" : "color-mix(in srgb, var(--fill-quaternary) 50%, transparent)"}`,
+        transition: "border-color 300ms ease-out",
+      }}
+    >
+      {/* Pulsing dot at top-left */}
+      {isActive && (
+        <span
+          className="absolute -left-[5px] top-[6px] block h-[8px] w-[8px] rounded-full"
+          style={{
+            background: "color-mix(in srgb, var(--tint) 60%, var(--fill-quaternary))",
+            animation: "reasoning-pulse 1.5s ease-in-out infinite",
+          }}
+        />
+      )}
+
+      {/* Header */}
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-left text-[11px] cursor-pointer select-none py-0.5"
+        style={{ color: "var(--fill-tertiary)" }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <svg
+          width={10}
+          height={10}
+          viewBox="0 0 10 10"
+          fill="none"
+          className="shrink-0 transition-transform duration-200"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+        >
+          <path d="M3.5 2L7 5L3.5 8" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="opacity-70">
+          {isActive ? t("reasoning_streaming", "思考中...") : t("reasoning_done", "思考过程")}
+        </span>
+        <span className="ml-1 tabular-nums opacity-50">{charCount > 100 ? `${Math.round(charCount / 100) / 10}k` : charCount}</span>
+      </button>
+
+      {/* Content panel with animated height */}
+      <div
+        style={{
+          maxHeight: expanded ? (isStreaming ? 200 : 9999) : 0,
+          overflow: "hidden",
+          transition: "max-height 300ms ease-out",
+        }}
+      >
+        <div
+          ref={contentRef}
+          onScroll={handleScroll}
+          className="text-[11.5px] leading-relaxed whitespace-pre-wrap break-words pr-1"
+          style={{
+            color: "var(--fill-tertiary)",
+            fontFamily: "var(--font-mono, monospace)",
+            maxHeight: isStreaming ? 200 : "none",
+            overflowY: isStreaming ? "auto" : "visible",
+            opacity: 0.75,
+          }}
+        >
+          {content}
+        </div>
+      </div>
+    </div>
+  );
+}
