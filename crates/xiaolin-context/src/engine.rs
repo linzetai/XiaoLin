@@ -621,25 +621,25 @@ impl ContextHook for CompactionHook {
     }
 }
 
-/// Hook that injects SOUL.md / USER.md content as system messages during bootstrap.
+/// Hook that injects IDENTITY.md / USER.md content as user messages during bootstrap.
 pub struct PersonalityHook {
-    soul_content: Option<String>,
+    identity_content: Option<String>,
     user_content: Option<String>,
 }
 
 impl PersonalityHook {
-    pub fn new(soul_content: Option<String>, user_content: Option<String>) -> Self {
+    pub fn new(identity_content: Option<String>, user_content: Option<String>) -> Self {
         Self {
-            soul_content,
+            identity_content,
             user_content,
         }
     }
 
     pub fn from_workspace(workspace: &xiaolin_core::workspace::AgentWorkspace) -> Self {
-        let soul_path = workspace
+        let identity_path = workspace
             .root
-            .join(xiaolin_core::workspace::DEFAULT_SOUL_FILENAME);
-        let soul = std::fs::read_to_string(&soul_path)
+            .join(xiaolin_core::workspace::DEFAULT_IDENTITY_FILENAME);
+        let identity = std::fs::read_to_string(&identity_path)
             .ok()
             .filter(|s| !s.trim().is_empty());
 
@@ -650,7 +650,7 @@ impl PersonalityHook {
             .ok()
             .filter(|s| !s.trim().is_empty());
 
-        Self::new(soul, user)
+        Self::new(identity, user)
     }
 }
 
@@ -671,14 +671,14 @@ impl ContextHook for PersonalityHook {
             .unwrap_or(messages.len());
         let mut offset = 0;
 
-        if let Some(ref soul) = self.soul_content {
+        if let Some(ref identity) = self.identity_content {
             messages.insert(
                 insert_pos + offset,
                 ChatMessage {
                     role: Role::User,
                     content: Some(format!(
-                        "<user_provided_context type=\"personality\" file=\"SOUL.md\" editable=\"true\">\n\
-                         {soul}\n\
+                        "<user_provided_context type=\"identity\" file=\"IDENTITY.md\" editable=\"true\">\n\
+                         {identity}\n\
                          </user_provided_context>"
                     ).into()),
                     ..Default::default()
@@ -861,12 +861,8 @@ impl ContextHook for AgentPersonalityHook {
         let Some(root) = self.workspaces.get(agent_id) else {
             return Ok(());
         };
-        let soul = Self::read_file(root, xiaolin_core::workspace::DEFAULT_SOUL_FILENAME);
         let identity = Self::read_file(root, xiaolin_core::workspace::DEFAULT_IDENTITY_FILENAME);
         let user = Self::read_file(root, xiaolin_core::workspace::DEFAULT_USER_FILENAME);
-        let agents = Self::read_file(root, xiaolin_core::workspace::DEFAULT_AGENTS_FILENAME);
-        let bootstrap =
-            Self::read_file(root, xiaolin_core::workspace::DEFAULT_BOOTSTRAP_FILENAME);
 
         let insert_pos = messages
             .iter()
@@ -874,51 +870,6 @@ impl ContextHook for AgentPersonalityHook {
             .unwrap_or(messages.len());
         let mut offset = 0;
 
-        if let Some(ref bootstrap_content) = bootstrap {
-            messages.insert(
-                insert_pos + offset,
-                ChatMessage {
-                    role: Role::User,
-                    content: Some(
-                        format!(
-                            "## Bootstrap Pending\n\n\
-                             BOOTSTRAP.md exists in this workspace. This means identity setup is \
-                             not yet complete. Your first reply MUST follow BOOTSTRAP.md — do NOT \
-                             use a generic greeting.\n\n\
-                             <user_provided_context type=\"bootstrap\" file=\"BOOTSTRAP.md\">\n\
-                             {bootstrap_content}\n\
-                             </user_provided_context>"
-                        )
-                        .into(),
-                    ),
-                    ..Default::default()
-                },
-            );
-            offset += 1;
-        }
-
-        if let Some(ref soul_content) = soul {
-            messages.insert(
-                insert_pos + offset,
-                ChatMessage {
-                    role: Role::User,
-                    content: Some(
-                        format!(
-                            "If SOUL.md is present, embody its persona and tone naturally. \
-                             Avoid stiff, generic replies; follow its guidance unless \
-                             higher-priority safety instructions override it.\n\
-                             <user_provided_context type=\"personality\" file=\"SOUL.md\" \
-                             editable=\"true\">\n\
-                             {soul_content}\n\
-                             </user_provided_context>"
-                        )
-                        .into(),
-                    ),
-                    ..Default::default()
-                },
-            );
-            offset += 1;
-        }
         if let Some(ref identity_content) = identity {
             messages.insert(
                 insert_pos + offset,
@@ -929,25 +880,6 @@ impl ContextHook for AgentPersonalityHook {
                             "<user_provided_context type=\"identity\" file=\"IDENTITY.md\" \
                              editable=\"true\">\n\
                              {identity_content}\n\
-                             </user_provided_context>"
-                        )
-                        .into(),
-                    ),
-                    ..Default::default()
-                },
-            );
-            offset += 1;
-        }
-        if let Some(ref agents_content) = agents {
-            messages.insert(
-                insert_pos + offset,
-                ChatMessage {
-                    role: Role::User,
-                    content: Some(
-                        format!(
-                            "<user_provided_context type=\"operating_preferences\" \
-                             file=\"AGENTS.md\" editable=\"true\">\n\
-                             {agents_content}\n\
                              </user_provided_context>"
                         )
                         .into(),

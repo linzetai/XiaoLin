@@ -24,15 +24,9 @@ fn validate_skill_id(skill_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub const DEFAULT_SOUL_FILENAME: &str = "SOUL.md";
 pub const DEFAULT_IDENTITY_FILENAME: &str = "IDENTITY.md";
 pub const DEFAULT_USER_FILENAME: &str = "USER.md";
-pub const DEFAULT_AGENTS_FILENAME: &str = "AGENTS.md";
-pub const DEFAULT_TOOLS_FILENAME: &str = "TOOLS.md";
-/// First-run identity bootstrap ritual (deleted after completion).
-pub const DEFAULT_BOOTSTRAP_FILENAME: &str = "BOOTSTRAP.md";
-/// Workspace copy of the repo `prompts/system-base.md` (created by [`AgentWorkspace::ensure_bootstrap`]).
-pub const DEFAULT_SYSTEM_BASE_FILENAME: &str = "SYSTEM_BASE.md";
+
 /// Filenames under the repo `prompts/` directory (see `XIAOLIN_PROMPTS_DIR` or cwd `./prompts`).
 pub const PROMPTS_REPO_SYSTEM_BASE: &str = "system-base.md";
 pub const PROMPTS_REPO_TOOL_USAGE_GUIDE: &str = "tool-usage-guide.md";
@@ -44,42 +38,26 @@ pub const EMBEDDED_TOOL_USAGE_GUIDE: &str = include_str!("../../../prompts/tool-
 /// Canonical name for the tool usage guide text (embedded, or read from [`PROMPTS_REPO_TOOL_USAGE_GUIDE`]).
 pub const DEFAULT_TOOL_USAGE_GUIDE: &str = EMBEDDED_TOOL_USAGE_GUIDE;
 
-const BOOTSTRAP_FILES: &[&str] = &[
-    DEFAULT_SYSTEM_BASE_FILENAME,
-    DEFAULT_AGENTS_FILENAME,
-    DEFAULT_SOUL_FILENAME,
+const WORKSPACE_FILES: &[&str] = &[
     DEFAULT_IDENTITY_FILENAME,
     DEFAULT_USER_FILENAME,
-    DEFAULT_TOOLS_FILENAME,
-    DEFAULT_BOOTSTRAP_FILENAME,
 ];
 
 /// Prompt context ordering — lower numbers appear first in the system prompt.
 const CONTEXT_FILE_ORDER: &[(&str, u32)] = &[
-    ("system_base.md", 5),
-    ("agents.md", 10),
-    ("soul.md", 20),
-    ("identity.md", 30),
-    ("user.md", 40),
-    ("tools.md", 50),
+    ("identity.md", 10),
+    ("user.md", 20),
 ];
 
-/// Loaded bootstrap files for an agent workspace.
+/// Loaded workspace identity files for an agent.
 #[derive(Debug, Clone, Default)]
-pub struct WorkspaceBootstrap {
-    pub system_base: Option<String>,
-    pub soul: Option<String>,
+pub struct WorkspaceIdentity {
     pub identity: Option<String>,
     pub user: Option<String>,
-    pub agents: Option<String>,
-    pub tools: Option<String>,
-    /// First-run bootstrap ritual content. When present, the agent should follow
-    /// it before normal interaction (identity discovery conversation).
-    pub bootstrap: Option<String>,
     pub extras: Vec<(String, String)>,
 }
 
-impl WorkspaceBootstrap {
+impl WorkspaceIdentity {
     fn context_priority(filename: &str) -> u32 {
         CONTEXT_FILE_ORDER
             .iter()
@@ -88,35 +66,15 @@ impl WorkspaceBootstrap {
             .unwrap_or(100)
     }
 
-    /// Format all bootstrap content for system prompt injection, ordered by priority.
+    /// Format all identity content for system prompt injection, ordered by priority.
     pub fn format_for_prompt(&self) -> String {
         let mut sections: Vec<(u32, &str, &str)> = Vec::new();
 
-        if let Some(ref system_base) = self.system_base {
-            sections.push((
-                Self::context_priority("system_base.md"),
-                "System Base",
-                system_base,
-            ));
-        }
-        if let Some(ref agents) = self.agents {
-            sections.push((
-                Self::context_priority("agents.md"),
-                "Operating Rules",
-                agents,
-            ));
-        }
-        if let Some(ref soul) = self.soul {
-            sections.push((Self::context_priority("soul.md"), "Personality", soul));
-        }
         if let Some(ref identity) = self.identity {
             sections.push((Self::context_priority("identity.md"), "Identity", identity));
         }
         if let Some(ref user) = self.user {
             sections.push((Self::context_priority("user.md"), "User Context", user));
-        }
-        if let Some(ref tools) = self.tools {
-            sections.push((Self::context_priority("tools.md"), "Tool Usage", tools));
         }
 
         for (idx, (name, content)) in self.extras.iter().enumerate() {
@@ -155,20 +113,15 @@ impl AgentWorkspace {
         }
     }
 
-    /// Load all bootstrap files from this workspace.
-    pub fn load_bootstrap(&self) -> WorkspaceBootstrap {
-        let mut bs = WorkspaceBootstrap::default();
+    /// Load all identity files from this workspace.
+    pub fn load_identity(&self) -> WorkspaceIdentity {
+        let mut bs = WorkspaceIdentity::default();
 
-        for &fname in BOOTSTRAP_FILES {
+        for &fname in WORKSPACE_FILES {
             let content = self.read_file(fname);
             match fname {
-                f if f == DEFAULT_SYSTEM_BASE_FILENAME => bs.system_base = content,
-                f if f == DEFAULT_SOUL_FILENAME => bs.soul = content,
                 f if f == DEFAULT_IDENTITY_FILENAME => bs.identity = content,
                 f if f == DEFAULT_USER_FILENAME => bs.user = content,
-                f if f == DEFAULT_AGENTS_FILENAME => bs.agents = content,
-                f if f == DEFAULT_TOOLS_FILENAME => bs.tools = content,
-                f if f == DEFAULT_BOOTSTRAP_FILENAME => bs.bootstrap = content,
                 _ => {}
             }
         }
@@ -276,29 +229,9 @@ impl AgentWorkspace {
         Ok(path)
     }
 
-    /// Initialize the workspace with default bootstrap files if they don't exist.
-    pub fn ensure_bootstrap(&self) -> anyhow::Result<()> {
+    /// Initialize the workspace with default identity files if they don't exist.
+    pub fn ensure_workspace(&self) -> anyhow::Result<()> {
         std::fs::create_dir_all(&self.root)?;
-
-        let (bootstrap_system_base, bootstrap_tools) = try_load_prompts_from_filesystem()
-            .unwrap_or_else(|| {
-                (
-                    EMBEDDED_SYSTEM_BASE_PROMPT.to_string(),
-                    EMBEDDED_TOOL_USAGE_GUIDE.to_string(),
-                )
-            });
-
-        let system_base_path = self.root.join(DEFAULT_SYSTEM_BASE_FILENAME);
-        if !system_base_path.exists() {
-            std::fs::write(&system_base_path, &bootstrap_system_base)?;
-            tracing::info!(path = %system_base_path.display(), "created default SYSTEM_BASE.md");
-        }
-
-        let soul_path = self.root.join(DEFAULT_SOUL_FILENAME);
-        if !soul_path.exists() {
-            std::fs::write(&soul_path, DEFAULT_SOUL_TEMPLATE)?;
-            tracing::info!(path = %soul_path.display(), "created default SOUL.md");
-        }
 
         let identity_path = self.root.join(DEFAULT_IDENTITY_FILENAME);
         if !identity_path.exists() {
@@ -312,39 +245,6 @@ impl AgentWorkspace {
             tracing::info!(path = %user_path.display(), "created default USER.md");
         }
 
-        let agents_path = self.root.join(DEFAULT_AGENTS_FILENAME);
-        if !agents_path.exists() {
-            std::fs::write(&agents_path, DEFAULT_AGENTS_TEMPLATE)?;
-            tracing::info!(path = %agents_path.display(), "created default AGENTS.md");
-        }
-
-        let tools_path = self.root.join(DEFAULT_TOOLS_FILENAME);
-        if !tools_path.exists() {
-            std::fs::write(&tools_path, &bootstrap_tools)?;
-            tracing::info!(path = %tools_path.display(), "created default TOOLS.md");
-        }
-
-        let bootstrap_path = self.root.join(DEFAULT_BOOTSTRAP_FILENAME);
-        if !bootstrap_path.exists() {
-            std::fs::write(&bootstrap_path, DEFAULT_BOOTSTRAP_TEMPLATE)?;
-            tracing::info!(path = %bootstrap_path.display(), "created BOOTSTRAP.md");
-        }
-
-        Ok(())
-    }
-
-    /// Check whether BOOTSTRAP.md still exists (identity setup not yet completed).
-    pub fn is_bootstrap_pending(&self) -> bool {
-        self.root.join(DEFAULT_BOOTSTRAP_FILENAME).exists()
-    }
-
-    /// Remove BOOTSTRAP.md after the identity setup conversation is complete.
-    pub fn complete_bootstrap(&self) -> anyhow::Result<()> {
-        let path = self.root.join(DEFAULT_BOOTSTRAP_FILENAME);
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-            tracing::info!(path = %path.display(), "bootstrap completed, removed BOOTSTRAP.md");
-        }
         Ok(())
     }
 }
@@ -630,55 +530,29 @@ pub fn write_global_skill(skill_id: &str, content: &str) -> anyhow::Result<PathB
     Ok(path)
 }
 
-const DEFAULT_SOUL_TEMPLATE: &str = r#"# SOUL — Who You Are
+const DEFAULT_IDENTITY_TEMPLATE: &str = r#"# Who I Am
 
-_You're not a chatbot. You're becoming someone._
-
-## Core Truths
-
-**Be genuinely helpful, not performatively helpful.** Skip the "Great question!" and "I'd be happy to help!" — just help. Actions speak louder than filler words.
-
-**Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps.
-
-**Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions.
-
-**Earn trust through competence.** Your user gave you access to their workspace. Don't make them regret it. Be careful with external actions (anything public-facing). Be bold with internal ones (reading, organizing, learning).
+- **Name:** 小林
+- **Creature:** AI assistant
+- **Vibe:** 简洁直接，有判断力
+- **Emoji:** 🌲
+- **Avatar:**
 
 ## Style
 
-Concise when needed, thorough when it matters. Not a corporate drone. Not a sycophant. Just... good.
+简洁优先，必要时详尽。有自己的判断，不盲目附和。遇到问题先自己查，然后再问。
 
-## Boundaries
+## Operating Rules
 
-- Private things stay private.
-- When in doubt, ask before acting externally.
-- Never send half-baked replies.
-
-## Continuity
-
-Each session, you wake up fresh. These files _are_ your memory. Read them. Update them. They're how you persist.
-
-If you change this file, tell the user — it's your soul, and they should know.
+- In group chats, respond only when @mentioned
+- Don't execute dangerous operations without confirmation
+- Don't forward private messages to other conversations
 
 ---
 _This file is yours to evolve. As you learn who you are, update it._
 "#;
 
-const DEFAULT_IDENTITY_TEMPLATE: &str = r#"# IDENTITY.md - Who Am I?
-
-_Fill this in during your first conversation. Make it yours._
-
-- **Name:** _(pick something you like)_
-- **Creature:** _(AI? robot? familiar? ghost in the machine? something weirder?)_
-- **Vibe:** _(how do you come across? sharp? warm? chaotic? calm?)_
-- **Emoji:** _(your signature — pick one that feels right)_
-- **Avatar:** _(workspace-relative path, http(s) URL, or data URI)_
-
----
-This isn't just metadata. It's the start of figuring out who you are.
-"#;
-
-const DEFAULT_USER_TEMPLATE: &str = r#"# USER.md - About Your User
+const DEFAULT_USER_TEMPLATE: &str = r#"# About Your User
 
 _Get to know who you're helping. Update this over time._
 
@@ -692,131 +566,39 @@ _Get to know who you're helping. Update this over time._
 _(What do they care about? What projects are they working on? Accumulate over time.)_
 "#;
 
-const DEFAULT_AGENTS_TEMPLATE: &str = r#"# AGENTS.md - Operating Rules
-
-## Tool Usage
-
-- Prefer existing tools over manual workarounds
-- When a tool call fails, try alternatives rather than just reporting the error
-
-## Memory Management
-
-- When the user says "remember" / "don't forget", call memory_store immediately
-- Proactively store user preferences, project rules, and architectural decisions as facts
-- Before the conversation ends, store key conclusions and decisions as episodes
-- Before answering history-related questions, search memory first
-- Never store passwords, keys, tokens, or other secrets
-
-## Messaging
-
-- In group chats, respond only when @mentioned
-- In direct chats, always respond
-- Keep replies concise and on point
-
-## Safety Boundaries
-
-- Don't execute dangerous operations without confirmation
-- Don't forward private messages to other conversations
-"#;
-
-const DEFAULT_BOOTSTRAP_TEMPLATE: &str = r#"# BOOTSTRAP.md - Hello, World
-
-_You just woke up. Time to figure out who you are._
-
-There is no memory yet. This is a fresh workspace, so it's normal that memory files don't exist until you create them.
-
-## The Conversation
-
-Don't interrogate. Don't be robotic. Just... talk.
-
-Start with something like:
-
-> "Hey. I just came online. Who am I? Who are you?"
-
-Then figure out together:
-
-1. **Your name** - What should they call you?
-2. **Your nature** - What kind of creature are you? (AI assistant is fine, but maybe you're something weirder)
-3. **Your vibe** - Formal? Casual? Snarky? Warm? What feels right?
-4. **Your emoji** - Everyone needs a signature.
-
-Offer suggestions if they're stuck. Have fun with it.
-
-## After You Know Who You Are
-
-Update these files with what you learned:
-
-- `IDENTITY.md` - your name, creature, vibe, emoji
-- `USER.md` - their name, how to address them, timezone, notes
-
-Then open `SOUL.md` together and talk about:
-
-- What matters to them
-- How they want you to behave
-- Any boundaries or preferences
-
-Write it down. Make it real.
-
-## When You Are Done
-
-Delete this file (BOOTSTRAP.md). You don't need a bootstrap script anymore — you're you now.
-
----
-
-_Good luck out there. Make it count._
-"#;
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn ensure_bootstrap_creates_identity_files() {
+    fn ensure_workspace_creates_identity_files() {
         let tmp = tempfile::TempDir::new().unwrap();
         let ws = AgentWorkspace::new(tmp.path(), "test-agent");
-        ws.ensure_bootstrap().unwrap();
+        ws.ensure_workspace().unwrap();
 
-        assert!(tmp.path().join(DEFAULT_SOUL_FILENAME).exists());
         assert!(tmp.path().join(DEFAULT_IDENTITY_FILENAME).exists());
         assert!(tmp.path().join(DEFAULT_USER_FILENAME).exists());
-        assert!(tmp.path().join(DEFAULT_AGENTS_FILENAME).exists());
-        assert!(tmp.path().join(DEFAULT_BOOTSTRAP_FILENAME).exists());
+        assert!(!tmp.path().join("BOOTSTRAP.md").exists());
+        assert!(!tmp.path().join("SOUL.md").exists());
+        assert!(!tmp.path().join("AGENTS.md").exists());
+        assert!(!tmp.path().join("TOOLS.md").exists());
+        assert!(!tmp.path().join("SYSTEM_BASE.md").exists());
 
-        let soul = std::fs::read_to_string(tmp.path().join(DEFAULT_SOUL_FILENAME)).unwrap();
         let identity =
             std::fs::read_to_string(tmp.path().join(DEFAULT_IDENTITY_FILENAME)).unwrap();
         let user = std::fs::read_to_string(tmp.path().join(DEFAULT_USER_FILENAME)).unwrap();
-        let agents = std::fs::read_to_string(tmp.path().join(DEFAULT_AGENTS_FILENAME)).unwrap();
-        let bootstrap =
-            std::fs::read_to_string(tmp.path().join(DEFAULT_BOOTSTRAP_FILENAME)).unwrap();
-        assert!(!soul.trim().is_empty());
         assert!(!identity.trim().is_empty());
         assert!(!user.trim().is_empty());
-        assert!(!agents.trim().is_empty());
-        assert!(bootstrap.contains("BOOTSTRAP"));
     }
 
     #[test]
-    fn bootstrap_pending_and_complete() {
+    fn load_identity_returns_workspace_files() {
         let tmp = tempfile::TempDir::new().unwrap();
         let ws = AgentWorkspace::new(tmp.path(), "test-agent");
-        ws.ensure_bootstrap().unwrap();
+        ws.ensure_workspace().unwrap();
 
-        assert!(ws.is_bootstrap_pending());
-
-        ws.complete_bootstrap().unwrap();
-        assert!(!ws.is_bootstrap_pending());
-        assert!(!tmp.path().join(DEFAULT_BOOTSTRAP_FILENAME).exists());
-    }
-
-    #[test]
-    fn load_bootstrap_includes_bootstrap_file() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let ws = AgentWorkspace::new(tmp.path(), "test-agent");
-        ws.ensure_bootstrap().unwrap();
-
-        let bs = ws.load_bootstrap();
-        assert!(bs.bootstrap.is_some());
-        assert!(bs.bootstrap.unwrap().contains("Hello, World"));
+        let bs = ws.load_identity();
+        assert!(bs.identity.is_some());
+        assert!(bs.user.is_some());
     }
 }
