@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use xiaolin_core::agent_config::McpServerConfig;
+use xiaolin_core::agent_config::{McpServerConfig, McpTransportType};
 use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 use xiaolin_core::types::{McpServerStatus, McpStatus};
 
@@ -130,11 +130,10 @@ impl Tool for ManageMcpServerTool {
                     Some(s) => s.to_string(),
                     None => return ToolResult::err("'add' requires 'id' field".to_string()),
                 };
-                let transport = args
+                let transport: McpTransportType = args
                     .get("transport")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("stdio")
-                    .to_string();
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
                 let url = args
                     .get("url")
                     .and_then(|v| v.as_str())
@@ -144,20 +143,22 @@ impl Tool for ManageMcpServerTool {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                if transport == "sse" && url.is_none() {
-                    return ToolResult::err(
-                        "'add' with transport='sse' requires 'url' field".to_string(),
-                    );
-                }
-                if transport == "stdio" && command.is_empty() {
-                    return ToolResult::err(
-                        "'add' with transport='stdio' requires 'command' field".to_string(),
-                    );
-                }
                 let cmd_args: Vec<String> = args
                     .get("args")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default();
+                let tmp_cfg = McpServerConfig {
+                    id: id.clone(),
+                    command: command.clone(),
+                    args: cmd_args.clone(),
+                    enabled: Some(true),
+                    env: Default::default(),
+                    url: url.clone(),
+                    transport,
+                };
+                if let Err(e) = tmp_cfg.validate() {
+                    return ToolResult::err(e);
+                }
                 self.add_server(id, command, cmd_args, transport, url).await
             }
             "remove" => {
@@ -221,7 +222,7 @@ impl ManageMcpServerTool {
 
         let to_remove: Vec<String> = current_ids.difference(&desired_ids).cloned().collect();
         for id in &to_remove {
-            let prefix = format!("mcp_{}_", id);
+            let prefix = xiaolin_mcp::naming::mcp_server_prefix(id);
             self.tool_registry.unregister_by_prefix(&prefix);
             handles.remove(id);
         }
@@ -231,7 +232,7 @@ impl ManageMcpServerTool {
         for cfg in &desired {
             if cfg.enabled == Some(false) {
                 if handles.contains_key(&cfg.id) {
-                    let prefix = format!("mcp_{}_", cfg.id);
+                    let prefix = xiaolin_mcp::naming::mcp_server_prefix(&cfg.id);
                     self.tool_registry.unregister_by_prefix(&prefix);
                     handles.remove(&cfg.id);
                 }
@@ -249,27 +250,14 @@ impl ManageMcpServerTool {
             }
 
             if handles.contains_key(&cfg.id) {
-                let prefix = format!("mcp_{}_", cfg.id);
+                let prefix = xiaolin_mcp::naming::mcp_server_prefix(&cfg.id);
                 self.tool_registry.unregister_by_prefix(&prefix);
                 handles.remove(&cfg.id);
             }
 
-            let prefix = format!("mcp_{}_", cfg.id);
             let tc_before = self.tool_registry.len();
-            let connect_result = if cfg.transport == "sse" {
-                let url = cfg.url.as_deref().unwrap_or("");
-                xiaolin_mcp::register_mcp_tools_sse(url, &self.tool_registry, &prefix).await
-            } else {
-                let args_ref: Vec<&str> = cfg.args.iter().map(|s| s.as_str()).collect();
-                xiaolin_mcp::register_mcp_tools(
-                    &cfg.command,
-                    &args_ref,
-                    &self.tool_registry,
-                    &prefix,
-                    &cfg.env,
-                )
-                .await
-            };
+            let connect_result =
+                xiaolin_mcp::connect_mcp_server(cfg, &self.tool_registry).await;
             match connect_result {
                 Ok(handle) => {
                     let tool_count = self.tool_registry.len() - tc_before;
@@ -335,7 +323,7 @@ impl ManageMcpServerTool {
         id: String,
         command: String,
         args: Vec<String>,
-        transport: String,
+        transport: McpTransportType,
         url: Option<String>,
     ) -> ToolResult {
         let cmd_name = command.clone();

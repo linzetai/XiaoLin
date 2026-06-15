@@ -151,7 +151,7 @@ pub(crate) fn truncate_tool_result_output_with_limit(
 }
 
 /// Compactable tool names whose old results can be progressively faded.
-/// Uses `starts_with` matching so MCP tool prefixes (e.g. "mcp_") also work.
+/// Uses `starts_with` matching so MCP tool prefixes (e.g. "mcp__") also work.
 const COMPACTABLE_TOOLS: &[&str] = &[
     "read_file",
     "shell_exec",
@@ -170,7 +170,7 @@ const COMPACTABLE_TOOLS: &[&str] = &[
     "search_in_files",
     "apply_patch",
     "multi_edit",
-    "mcp_",
+    "mcp__",
 ];
 
 // ─── Tool Result Retention Tiers ──────────────────────────────────────────
@@ -240,7 +240,7 @@ pub(crate) fn classify_retention_tier(tool_name: &str) -> RetentionTier {
         return RetentionTier::Ephemeral;
     }
     // MCP tools default to Summarize; unknown tools default to Summarize.
-    if tool_name.starts_with("mcp_") {
+    if tool_name.starts_with("mcp__") {
         return RetentionTier::Summarize;
     }
     RetentionTier::Summarize

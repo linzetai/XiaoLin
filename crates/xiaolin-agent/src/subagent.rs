@@ -216,7 +216,7 @@ pub fn build_child_registry(
                     | "calculator"
                     | "list_skills"
                     | "read_skill"
-            ) || name.starts_with("mcp_")
+            ) || name.starts_with("mcp__")
         }),
         SubAgentType::Shell => Box::new(|name: &str| {
             matches!(

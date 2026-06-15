@@ -1090,20 +1090,17 @@ pub async fn spawn_chat(
         // that the relay task may still be forwarding (race with emit_sync).
         {
             let drain_deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
-            loop {
-                match tokio::time::timeout_at(drain_deadline, event_rx.recv()).await {
-                    Ok(Some(se)) => {
-                        if matches!(
-                            &se.msg,
-                            AgentEvent::SubAgentComplete { .. }
-                                | AgentEvent::SubAgentNotification { .. }
-                                | AgentEvent::GoalUpdated { .. }
-                        ) {
-                            let resp = forward_event(&se.msg, &rid);
-                            let _ = bg_tx.send(resp).await;
-                        }
-                    }
-                    _ => break,
+            while let Ok(Some(se)) =
+                tokio::time::timeout_at(drain_deadline, event_rx.recv()).await
+            {
+                if matches!(
+                    &se.msg,
+                    AgentEvent::SubAgentComplete { .. }
+                        | AgentEvent::SubAgentNotification { .. }
+                        | AgentEvent::GoalUpdated { .. }
+                ) {
+                    let resp = forward_event(&se.msg, &rid);
+                    let _ = bg_tx.send(resp).await;
                 }
             }
         }

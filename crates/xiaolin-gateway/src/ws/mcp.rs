@@ -81,6 +81,29 @@ pub async fn handle_mcp_add(
     let id = params.id;
     let command = params.command;
     let args = params.args;
+    let url = params.url;
+    let transport: xiaolin_core::agent_config::McpTransportType =
+        match serde_json::from_value(json!(params.transport)) {
+            Ok(t) => t,
+            Err(_) => {
+                send_resp(
+                    sender,
+                    &WsResponse {
+                        id: req_id,
+                        msg_type: "error".into(),
+                        data: None,
+                        error: Some(json!({
+                            "message": format!(
+                                "invalid transport '{}': expected stdio, sse, streamable_http, or http",
+                                params.transport
+                            )
+                        })),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
 
     let new_server = xiaolin_core::agent_config::McpServerConfig {
         id: id.clone(),
@@ -88,9 +111,23 @@ pub async fn handle_mcp_add(
         args,
         enabled: Some(true),
         env: Default::default(),
-        url: None,
-        transport: "stdio".to_string(),
+        url,
+        transport,
     };
+
+    if let Err(e) = new_server.validate() {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"message": e})),
+            },
+        )
+        .await;
+        return;
+    }
 
     {
         let mut live: serde_json::Value = (**state.cfg.config_live.load()).clone();

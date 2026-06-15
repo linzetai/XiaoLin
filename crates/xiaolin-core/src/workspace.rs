@@ -455,7 +455,8 @@ pub fn resolve_workspace_root(
 ///
 /// `.xiaolin/` is the strongest signal; `.git/` is the de-facto standard for
 /// version-controlled projects; language-specific manifest files act as fallback.
-const ROOT_MARKERS_HIGH: &[&str] = &[".xiaolin", ".git"];
+const ROOT_MARKERS_HIGH: &[&str] = &[".git"];
+const XIAOLIN_DIR_REQUIRED_FILES: &[&str] = &["mcp.json", "config.json"];
 const ROOT_MARKERS_LANG: &[&str] = &[
     "Cargo.toml",
     "package.json",
@@ -482,16 +483,22 @@ pub fn detect_workspace_root(start: &Path) -> PathBuf {
     let high_count = ROOT_MARKERS_HIGH.len() as u8;
     let mut dir = start.as_path();
     loop {
-        let mut found_high = false;
+        // Priority 0 (highest): .xiaolin/ with actual config files
+        let xiaolin_dir = dir.join(".xiaolin");
+        if xiaolin_dir.is_dir()
+            && XIAOLIN_DIR_REQUIRED_FILES
+                .iter()
+                .any(|f| xiaolin_dir.join(f).exists())
+        {
+            return dir.to_path_buf();
+        }
+
+        // Priority 1+: .git and other high-priority markers
         for (prio, marker) in ROOT_MARKERS_HIGH.iter().enumerate() {
             if dir.join(marker).exists() {
                 let p = prio as u8;
                 if best.as_ref().is_none_or(|(_, bp)| p < *bp) {
                     best = Some((dir.to_path_buf(), p));
-                }
-                found_high = true;
-                if p == 0 {
-                    return dir.to_path_buf();
                 }
             }
         }
@@ -500,11 +507,11 @@ pub fn detect_workspace_root(start: &Path) -> PathBuf {
                 best = Some((dir.to_path_buf(), high_count));
             }
         }
-        // Stop climbing once a HIGH marker (.xiaolin/.git) is found at this level.
-        // We still climb past LANG markers (Cargo.toml etc.) to find a .git above.
-        if found_high {
-            break;
-        }
+        // NOTE: we intentionally do NOT break when .git is found. We keep
+        // climbing so that .xiaolin/ with config files (absolute highest
+        // priority, triggers early `return` above) can be discovered at any
+        // ancestor. The first .git is already recorded in `best` and won't be
+        // replaced by a higher-level .git (same priority, not strictly less).
         match dir.parent() {
             Some(parent) if parent != dir => dir = parent,
             _ => break,
@@ -600,5 +607,68 @@ mod tests {
         let bs = ws.load_identity();
         assert!(bs.identity.is_some());
         assert!(bs.user.is_some());
+    }
+
+    #[test]
+    fn detect_workspace_root_ignores_bare_xiaolin_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir_all(sub.join(".xiaolin/agents")).unwrap();
+        std::fs::create_dir_all(sub.join(".git")).unwrap();
+
+        let result = detect_workspace_root(&sub);
+        assert_eq!(result, sub, "bare .xiaolin/ (no config files) should NOT be highest priority; .git should win");
+    }
+
+    #[test]
+    fn detect_workspace_root_finds_xiaolin_with_mcp_json() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        let deep = root.join("src/app");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(root.join(".xiaolin")).unwrap();
+        std::fs::write(root.join(".xiaolin/mcp.json"), "{}").unwrap();
+
+        let result = detect_workspace_root(&deep);
+        assert_eq!(
+            result.canonicalize().unwrap(),
+            root.canonicalize().unwrap(),
+            ".xiaolin/ with mcp.json should be detected as project root"
+        );
+    }
+
+    #[test]
+    fn detect_workspace_root_prefers_xiaolin_config_over_git() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        let sub = root.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(sub.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join(".xiaolin")).unwrap();
+        std::fs::write(root.join(".xiaolin/config.json"), "{}").unwrap();
+
+        let result = detect_workspace_root(&sub);
+        assert_eq!(
+            result.canonicalize().unwrap(),
+            root.canonicalize().unwrap(),
+            ".xiaolin/ with config.json at parent should be preferred over .git in child"
+        );
+    }
+
+    #[test]
+    fn detect_workspace_root_falls_back_to_git_when_no_xiaolin() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        let deep = root.join("src/deep/nested");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[package]").unwrap();
+
+        let result = detect_workspace_root(&deep);
+        assert_eq!(
+            result.canonicalize().unwrap(),
+            root.canonicalize().unwrap(),
+            "should fall back to .git when no .xiaolin/config"
+        );
     }
 }

@@ -645,7 +645,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         if !state.cfg.config.mcp_servers.is_empty() {
             tracing::warn!(
                 configured = state.cfg.config.mcp_servers.len(),
-                "MCP servers configured but no mcp_* tools in registry (connection may have failed at startup)"
+                "MCP servers configured but no mcp__ tools in registry (connection may have failed at startup)"
             );
         }
         return;
@@ -655,16 +655,12 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         std::collections::BTreeMap::new();
     for td in &mcp_tools {
         let name = &td.function.name;
-        let after_prefix = name.strip_prefix("mcp_").unwrap_or(name);
-        let server_id = if let Some(idx) = after_prefix.find('_') {
-            &after_prefix[..idx]
-        } else {
-            after_prefix
-        };
-        servers
-            .entry(server_id.to_string())
-            .or_default()
-            .push((name.as_str(), td.function.description.as_str()));
+        if let Some((server_id, _tool_name)) = xiaolin_mcp::naming::parse_mcp_tool_name(name) {
+            servers
+                .entry(server_id.to_string())
+                .or_default()
+                .push((name.as_str(), td.function.description.as_str()));
+        }
     }
 
     let mut prompt = String::from("[MCP Extensions]\nThe following MCP (Model Context Protocol) servers are connected, providing additional tools.\n\n");
@@ -698,7 +694,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
     }
 
     prompt.push_str(
-        "Use these MCP tools just like built-in tools — call them by their full prefixed name (e.g. `mcp_serverId_toolName`). \
+        "Use these MCP tools just like built-in tools — call them by their full prefixed name (e.g. `mcp__serverId__toolName`). \
          MCP tools extend your capabilities with external integrations."
     );
 

@@ -498,11 +498,11 @@ impl ToolRegistry {
         arc
     }
 
-    /// Returns only definitions whose name starts with `mcp_`, using the cached definitions.
+    /// Returns only definitions whose name starts with `mcp__`, using the cached definitions.
     pub fn mcp_definitions(&self) -> Vec<ToolDefinition> {
         let all = self.definitions();
         all.iter()
-            .filter(|td| td.function.name.starts_with("mcp_"))
+            .filter(|td| td.function.name.starts_with("mcp__"))
             .cloned()
             .collect()
     }

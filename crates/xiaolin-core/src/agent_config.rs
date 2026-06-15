@@ -38,6 +38,37 @@ pub struct AgentConfig {
     pub channels: HashMap<String, ChannelConfig>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransportType {
+    #[default]
+    Stdio,
+    Sse,
+    StreamableHttp,
+    #[serde(alias = "http")]
+    Http,
+}
+
+impl McpTransportType {
+    pub fn effective(&self) -> Self {
+        match self {
+            Self::Http => Self::StreamableHttp,
+            other => *other,
+        }
+    }
+}
+
+impl std::fmt::Display for McpTransportType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stdio => write!(f, "stdio"),
+            Self::Sse => write!(f, "sse"),
+            Self::StreamableHttp => write!(f, "streamable_http"),
+            Self::Http => write!(f, "http"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerConfig {
@@ -50,16 +81,47 @@ pub struct McpServerConfig {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub env: std::collections::HashMap<String, String>,
-    /// SSE URL for HTTP-based MCP servers (alternative to command+args stdio transport).
+    /// URL for HTTP-based MCP servers (SSE or Streamable HTTP).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Transport type: "stdio" (default) or "sse".
-    #[serde(default = "default_transport")]
-    pub transport: String,
+    /// Transport type: stdio (default), sse, streamable_http, or http (alias for streamable_http).
+    #[serde(default)]
+    pub transport: McpTransportType,
 }
 
-fn default_transport() -> String {
-    "stdio".to_string()
+impl McpServerConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("MCP server id must not be empty".into());
+        }
+        if self.id.contains("__") {
+            return Err(format!(
+                "MCP server id '{}' must not contain '__' (reserved as naming separator)",
+                self.id
+            ));
+        }
+        match self.transport.effective() {
+            McpTransportType::Stdio => {
+                if self.command.is_empty() {
+                    return Err(format!(
+                        "MCP server '{}': stdio transport requires a non-empty 'command'",
+                        self.id
+                    ));
+                }
+            }
+            McpTransportType::Sse | McpTransportType::StreamableHttp => {
+                if self.url.as_ref().is_none_or(|u| u.is_empty()) {
+                    return Err(format!(
+                        "MCP server '{}': {} transport requires a non-empty 'url'",
+                        self.id,
+                        self.transport
+                    ));
+                }
+            }
+            McpTransportType::Http => unreachable!("effective() normalizes Http"),
+        }
+        Ok(())
+    }
 }
 
 /// Cursor-compatible project-level MCP configuration.
@@ -101,8 +163,8 @@ pub struct ProjectMcpServerEntry {
     pub disabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(default = "default_transport")]
-    pub transport: String,
+    #[serde(default)]
+    pub transport: McpTransportType,
 }
 
 impl ProjectMcpConfig {
@@ -117,7 +179,7 @@ impl ProjectMcpConfig {
                 enabled: entry.disabled.map(|d| !d),
                 env: entry.env.clone(),
                 url: entry.url.clone(),
-                transport: entry.transport.clone(),
+                transport: entry.transport,
             })
             .collect()
     }
@@ -530,7 +592,7 @@ pub fn builtin_permission_presets() -> Vec<PermissionPreset> {
                     "write_file".into(),
                     "edit_file".into(),
                     "shell_exec".into(),
-                    "mcp_*".into(),
+                    "mcp__*".into(),
                 ]),
                 tools_deny: Some(vec![]),
             },
@@ -542,7 +604,7 @@ pub fn builtin_permission_presets() -> Vec<PermissionPreset> {
             behavior_override: BehaviorOverride {
                 approval_strategy: None,
                 file_access: Some(FileAccessMode::Workspace),
-                tools_ask: Some(vec!["shell_exec".into(), "mcp_*".into()]),
+                tools_ask: Some(vec!["shell_exec".into(), "mcp__*".into()]),
                 tools_deny: Some(vec![]),
             },
         },
@@ -632,7 +694,7 @@ impl Default for PermissionPresetRegistry {
 }
 
 /// Check if a tool name matches a pattern from `tools_allow`/`tools_deny`.
-/// Supports exact match, trailing `*` prefix glob (e.g. `mcp_*`, `mcp_chrome_*`),
+/// Supports exact match, trailing `*` prefix glob (e.g. `mcp__*`, `mcp__chrome__*`),
 /// and `!` negation prefix (e.g. `!shell_exec`).
 pub fn tool_pattern_matches(pattern: &str, tool_name: &str) -> bool {
     let (negated, pat) = if let Some(rest) = pattern.strip_prefix('!') {
@@ -963,7 +1025,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     "get_context_window".into(),
                     "list_skills".into(),
                     "read_skill".into(),
-                    "mcp_*".into(),
+                    "mcp__*".into(),
                 ],
                 denied: vec![
                     "write_file".into(),
@@ -1056,7 +1118,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                     "list_dir".into(),
                     "search_files".into(),
                     "grep".into(),
-                    "mcp_*".into(),
+                    "mcp__*".into(),
                 ],
                 denied: vec![
                     "write_file".into(),
@@ -1196,29 +1258,32 @@ mod tests {
 
     #[test]
     fn pattern_glob_prefix() {
-        assert!(tool_pattern_matches("mcp_*", "mcp_chrome_screenshot"));
-        assert!(tool_pattern_matches("mcp_*", "mcp_relay_feedback"));
-        assert!(!tool_pattern_matches("mcp_*", "http_fetch"));
+        assert!(tool_pattern_matches("mcp__*", "mcp__chrome__screenshot"));
+        assert!(tool_pattern_matches("mcp__*", "mcp__relay__feedback"));
+        assert!(!tool_pattern_matches("mcp__*", "http_fetch"));
         assert!(tool_pattern_matches(
-            "mcp_chrome_*",
-            "mcp_chrome_screenshot"
+            "mcp__chrome__*",
+            "mcp__chrome__screenshot"
         ));
-        assert!(!tool_pattern_matches("mcp_chrome_*", "mcp_relay_feedback"));
+        assert!(!tool_pattern_matches(
+            "mcp__chrome__*",
+            "mcp__relay__feedback"
+        ));
     }
 
     #[test]
     fn pattern_negation() {
         assert!(!tool_pattern_matches("!shell_exec", "shell_exec"));
         assert!(tool_pattern_matches("!shell_exec", "http_fetch"));
-        assert!(!tool_pattern_matches("!mcp_*", "mcp_chrome_screenshot"));
-        assert!(tool_pattern_matches("!mcp_*", "http_fetch"));
+        assert!(!tool_pattern_matches("!mcp__*", "mcp__chrome__screenshot"));
+        assert!(tool_pattern_matches("!mcp__*", "http_fetch"));
     }
 
     #[test]
     fn behavior_empty_allows_all() {
         let b = BehaviorConfig::default();
         assert!(b.is_tool_allowed("http_fetch"));
-        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(b.is_tool_allowed("mcp__chrome__screenshot"));
         assert!(b.is_tool_allowed("shell_exec"));
     }
 
@@ -1235,11 +1300,11 @@ mod tests {
     #[test]
     fn behavior_deny_glob() {
         let b = BehaviorConfig {
-            tools_deny: vec!["mcp_*".into()],
+            tools_deny: vec!["mcp__*".into()],
             ..Default::default()
         };
-        assert!(!b.is_tool_allowed("mcp_chrome_screenshot"));
-        assert!(!b.is_tool_allowed("mcp_relay_feedback"));
+        assert!(!b.is_tool_allowed("mcp__chrome__screenshot"));
+        assert!(!b.is_tool_allowed("mcp__relay__feedback"));
         assert!(b.is_tool_allowed("http_fetch"));
         assert!(b.is_tool_allowed("shell_exec"));
     }
@@ -1247,23 +1312,23 @@ mod tests {
     #[test]
     fn behavior_allow_glob_includes_mcp() {
         let b = BehaviorConfig {
-            tools_allow: vec!["http_fetch".into(), "web_search".into(), "mcp_*".into()],
+            tools_allow: vec!["http_fetch".into(), "web_search".into(), "mcp__*".into()],
             ..Default::default()
         };
         assert!(b.is_tool_allowed("http_fetch"));
-        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
+        assert!(b.is_tool_allowed("mcp__chrome__screenshot"));
         assert!(!b.is_tool_allowed("shell_exec"));
     }
 
     #[test]
     fn behavior_allow_with_deny_glob() {
         let b = BehaviorConfig {
-            tools_allow: vec!["mcp_*".into(), "web_search".into()],
-            tools_deny: vec!["mcp_dangerous_*".into()],
+            tools_allow: vec!["mcp__*".into(), "web_search".into()],
+            tools_deny: vec!["mcp__dangerous__*".into()],
             ..Default::default()
         };
-        assert!(b.is_tool_allowed("mcp_chrome_screenshot"));
-        assert!(!b.is_tool_allowed("mcp_dangerous_tool"));
+        assert!(b.is_tool_allowed("mcp__chrome__screenshot"));
+        assert!(!b.is_tool_allowed("mcp__dangerous__tool"));
         assert!(b.is_tool_allowed("web_search"));
         assert!(!b.is_tool_allowed("shell_exec"));
     }
@@ -1271,11 +1336,14 @@ mod tests {
     #[test]
     fn tools_ask_requires_confirmation() {
         let b = BehaviorConfig {
-            tools_ask: vec!["shell_exec".into(), "mcp_dangerous_*".into()],
+            tools_ask: vec!["shell_exec".into(), "mcp__dangerous__*".into()],
             ..Default::default()
         };
         assert_eq!(b.tool_permission("shell_exec"), ToolPermission::Ask);
-        assert_eq!(b.tool_permission("mcp_dangerous_rm"), ToolPermission::Ask);
+        assert_eq!(
+            b.tool_permission("mcp__dangerous__rm"),
+            ToolPermission::Ask
+        );
         assert_eq!(b.tool_permission("http_fetch"), ToolPermission::Allow);
         assert!(b.is_tool_allowed("shell_exec"));
         assert!(b.requires_confirmation("shell_exec"));
@@ -1350,12 +1418,12 @@ mod tests {
     #[test]
     fn subagent_tool_filter_denied_overrides() {
         let f = SubAgentToolFilter {
-            allowed: vec!["mcp_*".into()],
-            denied: vec!["mcp_dangerous_*".into()],
+            allowed: vec!["mcp__*".into()],
+            denied: vec!["mcp__dangerous__*".into()],
             profile: None,
         };
-        assert!(f.is_tool_allowed("mcp_chrome_screenshot"));
-        assert!(!f.is_tool_allowed("mcp_dangerous_tool"));
+        assert!(f.is_tool_allowed("mcp__chrome__screenshot"));
+        assert!(!f.is_tool_allowed("mcp__dangerous__tool"));
         assert!(!f.is_tool_allowed("shell_exec"));
     }
 
@@ -1474,5 +1542,116 @@ You are a code review specialist. Analyze the provided code carefully."#;
         assert!(b.requires_confirmation("shell_exec"));
         assert!(b.requires_confirmation("http_fetch"));
         assert!(!b.requires_confirmation("web_search"));
+    }
+
+    #[test]
+    fn mcp_transport_type_serde_roundtrip() {
+        let cases = [
+            (McpTransportType::Stdio, "\"stdio\""),
+            (McpTransportType::Sse, "\"sse\""),
+            (McpTransportType::StreamableHttp, "\"streamable_http\""),
+        ];
+        for (variant, expected_json) in cases {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected_json, "serialize {variant:?}");
+            let back: McpTransportType = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, variant, "roundtrip {variant:?}");
+        }
+    }
+
+    #[test]
+    fn mcp_transport_type_http_alias() {
+        let t: McpTransportType = serde_json::from_str("\"http\"").unwrap();
+        assert_eq!(t, McpTransportType::Http);
+        assert_eq!(t.effective(), McpTransportType::StreamableHttp);
+    }
+
+    #[test]
+    fn mcp_transport_type_default_is_stdio() {
+        assert_eq!(McpTransportType::default(), McpTransportType::Stdio);
+    }
+
+    #[test]
+    fn mcp_server_config_validate_stdio_ok() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: "npx".into(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: None,
+            transport: McpTransportType::Stdio,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn mcp_server_config_validate_stdio_missing_command() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: None,
+            transport: McpTransportType::Stdio,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn mcp_server_config_validate_sse_ok() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost:3000/sse".into()),
+            transport: McpTransportType::Sse,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn mcp_server_config_validate_sse_missing_url() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: None,
+            transport: McpTransportType::Sse,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn mcp_server_config_validate_id_with_double_underscore() {
+        let cfg = McpServerConfig {
+            id: "my__server".into(),
+            command: "npx".into(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: None,
+            transport: McpTransportType::Stdio,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn mcp_server_config_deserialize_legacy_string_transport() {
+        let json = r#"{"id":"test","command":"npx","transport":"sse","url":"http://localhost"}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.transport, McpTransportType::Sse);
+    }
+
+    #[test]
+    fn mcp_server_config_deserialize_default_transport() {
+        let json = r#"{"id":"test","command":"npx"}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.transport, McpTransportType::Stdio);
     }
 }

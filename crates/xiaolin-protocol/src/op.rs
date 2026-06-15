@@ -79,13 +79,25 @@ pub struct SessionsNewParams {
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct McpAddParams {
     pub id: String,
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// Transport type: "stdio" (default), "sse", "streamable_http", "http".
+    #[serde(default = "McpAddParams::default_transport")]
+    pub transport: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// Catch-all for forward compatibility
     #[serde(flatten)]
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl McpAddParams {
+    fn default_transport() -> String {
+        "stdio".to_string()
+    }
 }
 
 /// Typed parameters for ToolsList.

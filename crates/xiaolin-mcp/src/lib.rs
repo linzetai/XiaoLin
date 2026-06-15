@@ -8,6 +8,7 @@ use std::time::Duration;
 ///
 /// XiaoLin supports MCP as both server (exposing tools to external agents)
 /// and client (consuming tools from external MCP servers).
+pub mod naming;
 
 // --- JSON-RPC 2.0 ---
 
@@ -322,7 +323,7 @@ impl McpServer {
 
     fn handle_initialize(&self, id: &serde_json::Value) -> JsonRpcResponse {
         let result = InitializeResult {
-            protocol_version: "2024-11-05".into(),
+            protocol_version: "2025-06-18".into(),
             capabilities: ServerCapabilities {
                 tools: Some(ToolCapability {
                     list_changed: false,
@@ -547,6 +548,14 @@ enum McpTransport {
             Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
         reader_task: tokio::task::JoinHandle<anyhow::Result<()>>,
     },
+    StreamableHttp {
+        client: reqwest::Client,
+        endpoint_url: String,
+        session_id: Arc<tokio::sync::Mutex<Option<String>>>,
+        pending:
+            Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        listener_task: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
+    },
 }
 
 /// A client that connects to an external MCP server and discovers/invokes its tools.
@@ -636,6 +645,13 @@ impl McpClient {
             Self::stdio_reader_loop(reader, pending_reader).await;
         });
 
+        if let Some(stderr) = process.stderr.take() {
+            let server_id = command.to_string();
+            tokio::spawn(async move {
+                Self::stderr_reader_loop(stderr, &server_id).await;
+            });
+        }
+
         let mut client = Self {
             server_name: command.to_string(),
             tools: Vec::new(),
@@ -694,6 +710,131 @@ impl McpClient {
         mcp.discover_tools().await?;
 
         Ok(mcp)
+    }
+
+    /// Connect to an MCP server via the Streamable HTTP transport (MCP 2025-06-18).
+    ///
+    /// A single endpoint handles all JSON-RPC messages via POST.  An optional
+    /// GET request opens an SSE stream for server-initiated notifications.
+    pub async fn connect_streamable_http(url: &str) -> anyhow::Result<Self> {
+        let endpoint_url = url.trim().to_string();
+        let client = reqwest::Client::new();
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let session_id: Arc<tokio::sync::Mutex<Option<String>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let mut mcp = Self {
+            server_name: String::new(),
+            tools: Vec::new(),
+            transport: McpTransport::StreamableHttp {
+                client: client.clone(),
+                endpoint_url: endpoint_url.clone(),
+                session_id: session_id.clone(),
+                pending: pending.clone(),
+                listener_task: None,
+            },
+            next_id: std::sync::atomic::AtomicU64::new(1),
+        };
+
+        mcp.initialize().await?;
+
+        // Try to open an optional GET SSE stream for server-initiated notifications.
+        let sid_for_listener = session_id.lock().await.clone();
+        let listener_pending = pending.clone();
+        let listener_client = client.clone();
+        let listener_url = endpoint_url.clone();
+        let task = tokio::spawn(async move {
+            Self::streamable_http_listener(
+                &listener_client,
+                &listener_url,
+                sid_for_listener.as_deref(),
+                listener_pending,
+            )
+            .await
+        });
+        if let McpTransport::StreamableHttp {
+            ref mut listener_task,
+            ..
+        } = mcp.transport
+        {
+            *listener_task = Some(task);
+        }
+
+        mcp.discover_tools().await?;
+        Ok(mcp)
+    }
+
+    async fn streamable_http_listener(
+        client: &reqwest::Client,
+        endpoint_url: &str,
+        session_id: Option<&str>,
+        pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        >,
+    ) -> anyhow::Result<()> {
+        let mut req = client
+            .get(endpoint_url)
+            .header("Accept", "text/event-stream");
+        if let Some(sid) = session_id {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        let response = match req.send().await {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => {
+                tracing::debug!(
+                    status = %r.status(),
+                    "Streamable HTTP GET for notifications not supported by server"
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Streamable HTTP GET failed (server may not support notifications)");
+                return Ok(());
+            }
+        };
+
+        let mut stream = response.bytes_stream();
+        let mut buf = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            buf.extend_from_slice(&chunk);
+            let text = match std::str::from_utf8(&buf) {
+                Ok(t) => t.to_string(),
+                Err(_) => continue,
+            };
+            for data_line in extract_sse_data_lines(&text) {
+                if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&data_line) {
+                    let id_key = resp.id.to_string();
+                    let mut guard = pending.lock().await;
+                    if let Some(tx) = guard.remove(&id_key) {
+                        let _ = tx.send(resp);
+                    }
+                }
+            }
+            buf.clear();
+        }
+        Ok(())
+    }
+
+    async fn stderr_reader_loop(mut stderr: tokio::process::ChildStderr, server_id: &str) {
+        use tokio::io::AsyncBufReadExt;
+        let mut reader = tokio::io::BufReader::new(&mut stderr);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        tracing::warn!(mcp_server = %server_id, "[mcp:stderr] {}", trimmed);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
     }
 
     async fn stdio_reader_loop(
@@ -844,6 +985,74 @@ impl McpClient {
 
                 Self::await_pending_response(pending, &id_key, rx, "SSE").await
             }
+            McpTransport::StreamableHttp {
+                client,
+                endpoint_url,
+                session_id,
+                pending,
+                ..
+            } => {
+                let json = serde_json::to_string(&request)?;
+                let mut req = client
+                    .post(endpoint_url.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json, text/event-stream")
+                    .header("MCP-Protocol-Version", "2025-06-18");
+                if let Some(sid) = session_id.lock().await.as_ref() {
+                    req = req.header("Mcp-Session-Id", sid);
+                }
+
+                let response = req.body(json).send().await?;
+                let status = response.status();
+                if !status.is_success() && status != reqwest::StatusCode::ACCEPTED {
+                    anyhow::bail!(
+                        "Streamable HTTP POST {status}: {}",
+                        response.text().await.unwrap_or_default()
+                    );
+                }
+
+                // Extract session ID from response header
+                if let Some(sid) = response.headers().get("Mcp-Session-Id") {
+                    if let Ok(s) = sid.to_str() {
+                        *session_id.lock().await = Some(s.to_string());
+                    }
+                }
+
+                let content_type = response
+                    .headers()
+                    .get("content-type")
+                    .and_then(|h| h.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+
+                if content_type.contains("text/event-stream") {
+                    // Server sends response as SSE stream — register pending and spawn reader
+                    {
+                        let mut g = pending.lock().await;
+                        g.insert(id_key.clone(), tx);
+                    }
+                    let pending_clone = pending.clone();
+                    let body_text = response.text().await?;
+                    tokio::spawn(async move {
+                        for data_line in extract_sse_data_lines(&body_text) {
+                            if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&data_line) {
+                                let resp_id = resp.id.to_string();
+                                let mut guard = pending_clone.lock().await;
+                                if let Some(sender) = guard.remove(&resp_id) {
+                                    let _ = sender.send(resp);
+                                }
+                            }
+                        }
+                    });
+                    Self::await_pending_response(pending, &id_key, rx, "StreamableHTTP").await
+                } else {
+                    // Direct JSON response
+                    drop(tx);
+                    let body = response.text().await?;
+                    let resp: JsonRpcResponse = serde_json::from_str(&body)?;
+                    Ok(resp)
+                }
+            }
         }
     }
 
@@ -870,7 +1079,7 @@ impl McpClient {
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
         let params = serde_json::json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2025-06-18",
             "capabilities": {},
             "clientInfo": {
                 "name": "XiaoLin",
@@ -913,6 +1122,22 @@ impl McpClient {
                     .body(json)
                     .send()
                     .await?;
+            }
+            McpTransport::StreamableHttp {
+                client,
+                endpoint_url,
+                session_id,
+                ..
+            } => {
+                let json = serde_json::to_string(&notification)?;
+                let mut req = client
+                    .post(endpoint_url.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json, text/event-stream");
+                if let Some(sid) = session_id.lock().await.as_ref() {
+                    req = req.header("Mcp-Session-Id", sid);
+                }
+                let _ = req.body(json).send().await?;
             }
         }
 
@@ -977,6 +1202,13 @@ impl Drop for McpClient {
             }
             McpTransport::Sse { reader_task, .. } => {
                 reader_task.abort();
+            }
+            McpTransport::StreamableHttp {
+                listener_task, ..
+            } => {
+                if let Some(task) = listener_task.take() {
+                    task.abort();
+                }
             }
         }
     }
@@ -1126,10 +1358,41 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
     }
 }
 
+/// Unified entry point: connect to an MCP server and register its tools.
+///
+/// Dispatches to the correct transport (stdio/SSE/streamable HTTP) based on
+/// `cfg.transport`. The tool-name prefix is derived internally from `cfg.id`.
+pub async fn connect_mcp_server(
+    cfg: &xiaolin_core::agent_config::McpServerConfig,
+    registry: &xiaolin_core::tool::ToolRegistry,
+) -> anyhow::Result<SharedMcpClient> {
+    use xiaolin_core::agent_config::McpTransportType;
+
+    cfg.validate()
+        .map_err(|e| anyhow::anyhow!("invalid MCP config: {e}"))?;
+
+    let prefix = naming::mcp_server_prefix(&cfg.id);
+    match cfg.transport.effective() {
+        McpTransportType::Stdio => {
+            let args_ref: Vec<&str> = cfg.args.iter().map(|s| s.as_str()).collect();
+            register_mcp_tools(&cfg.command, &args_ref, registry, &prefix, &cfg.env).await
+        }
+        McpTransportType::Sse => {
+            let url = cfg.url.as_deref().unwrap_or("");
+            register_mcp_tools_sse(url, registry, &prefix).await
+        }
+        McpTransportType::StreamableHttp => {
+            let url = cfg.url.as_deref().unwrap_or("");
+            register_mcp_tools_streamable_http(url, registry, &prefix).await
+        }
+        McpTransportType::Http => unreachable!("effective() normalizes Http → StreamableHttp"),
+    }
+}
+
 /// Connect to an MCP server and register all its tools into a XiaoLin ToolRegistry.
 /// Returns the shared McpClient handle so it can be managed/closed later.
 ///
-/// Tools are registered with a `server_prefix` to avoid name collisions (e.g. `"mcp_myserver_"`).
+/// Tools are registered with a `server_prefix` to avoid name collisions (e.g. `"mcp__myserver__"`).
 pub async fn register_mcp_tools<S: std::hash::BuildHasher>(
     command: &str,
     args: &[&str],
@@ -1198,6 +1461,38 @@ pub async fn register_mcp_tools_sse(
     Ok(shared)
 }
 
+/// Register MCP tools from a Streamable HTTP MCP server.
+pub async fn register_mcp_tools_streamable_http(
+    url: &str,
+    registry: &xiaolin_core::tool::ToolRegistry,
+    server_prefix: &str,
+) -> anyhow::Result<SharedMcpClient> {
+    let client = McpClient::connect_streamable_http(url).await?;
+    let tools = client.tools().to_vec();
+    let shared = Arc::new(client);
+
+    let mut registered = 0usize;
+    let mut seen = std::collections::HashSet::new();
+    for tool in &tools {
+        let prefixed = format!("{server_prefix}{}", tool.name);
+        if !seen.insert(prefixed.clone()) {
+            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+            continue;
+        }
+        let bridge = McpToolBridge::new(tool, shared.clone(), server_prefix);
+        registry.register(Arc::new(bridge));
+        registered += 1;
+    }
+
+    tracing::info!(
+        count = registered,
+        prefix = server_prefix,
+        url,
+        "registered MCP tools (Streamable HTTP) into XiaoLin"
+    );
+    Ok(shared)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1229,7 +1524,7 @@ mod tests {
         assert!(resp.error.is_none());
         let result = resp.result.unwrap();
         assert_eq!(result["serverInfo"]["name"], "test-server");
-        assert_eq!(result["protocolVersion"], "2024-11-05");
+        assert_eq!(result["protocolVersion"], "2025-06-18");
     }
 
     #[tokio::test]
@@ -1781,5 +2076,221 @@ mod tests {
         let resp = server.handle_request(&rpc(1, "initialize", None)).await;
         let caps = &resp.result.unwrap()["capabilities"];
         assert!(caps["resources"].is_null());
+    }
+
+    // ---- Streamable HTTP transport tests ----
+
+    #[tokio::test]
+    async fn streamable_http_mock_json_response() {
+        use axum::body::Bytes;
+        use axum::extract::State as AxState;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        #[derive(Clone, Default)]
+        struct St {
+            session: Arc<Mutex<Option<String>>>,
+        }
+
+        async fn handle_post(
+            AxState(st): AxState<Arc<St>>,
+            headers: HeaderMap,
+            body: Bytes,
+        ) -> (StatusCode, HeaderMap, String) {
+            let text = String::from_utf8_lossy(&body);
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+            let accept = headers
+                .get("accept")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                accept.contains("application/json"),
+                "Streamable HTTP requests must include application/json in Accept"
+            );
+
+            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            if method == "notifications/initialized" {
+                return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+            }
+
+            let req: JsonRpcRequest = serde_json::from_value(v).unwrap();
+            let resp = match req.method.as_str() {
+                "initialize" => {
+                    let sid = "test-session-123".to_string();
+                    *st.session.lock().await = Some(sid.clone());
+                    let mut h = HeaderMap::new();
+                    h.insert("Mcp-Session-Id", sid.parse().unwrap());
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(InitializeResult {
+                            protocol_version: "2025-06-18".into(),
+                            capabilities: ServerCapabilities {
+                                tools: Some(ToolCapability { list_changed: false }),
+                                resources: None,
+                                prompts: None,
+                            },
+                            server_info: ServerInfo {
+                                name: "mock-streamable".into(),
+                                version: "2.0.0".into(),
+                            },
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    return (StatusCode::OK, h, body);
+                }
+                "tools/list" => JsonRpcResponse::success(
+                    req.id.clone(),
+                    serde_json::to_value(ToolListResult {
+                        tools: vec![
+                            McpTool {
+                                name: "alpha".into(),
+                                description: Some("first tool".into()),
+                                input_schema: None,
+                            },
+                            McpTool {
+                                name: "beta".into(),
+                                description: None,
+                                input_schema: None,
+                            },
+                        ],
+                    })
+                    .unwrap(),
+                ),
+                _ => JsonRpcResponse::error(req.id.clone(), -32601, "unknown"),
+            };
+            let body = serde_json::to_string(&resp).unwrap();
+            (StatusCode::OK, HeaderMap::new(), body)
+        }
+
+        let state = Arc::new(St::default());
+        let app = Router::new()
+            .route("/mcp", post(handle_post))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let url = format!("http://127.0.0.1:{}/mcp", addr.port());
+        let client = McpClient::connect_streamable_http(&url)
+            .await
+            .expect("streamable http connect");
+
+        assert_eq!(client.server_name(), "mock-streamable");
+        assert_eq!(client.tools().len(), 2);
+        assert_eq!(client.tools()[0].name, "alpha");
+        assert_eq!(client.tools()[1].name, "beta");
+    }
+
+    #[tokio::test]
+    async fn streamable_http_session_id_propagated() {
+        use axum::body::Bytes;
+        use axum::extract::State as AxState;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        #[derive(Clone)]
+        struct St {
+            session_seen_in_tools_list: Arc<AtomicBool>,
+        }
+
+        async fn handle_post(
+            AxState(st): AxState<Arc<St>>,
+            headers: HeaderMap,
+            body: Bytes,
+        ) -> (StatusCode, HeaderMap, String) {
+            let text = String::from_utf8_lossy(&body);
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            if method == "notifications/initialized" {
+                return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+            }
+
+            let req: JsonRpcRequest = serde_json::from_value(v).unwrap();
+            match req.method.as_str() {
+                "initialize" => {
+                    let mut h = HeaderMap::new();
+                    h.insert("Mcp-Session-Id", "sess-abc".parse().unwrap());
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(InitializeResult {
+                            protocol_version: "2025-06-18".into(),
+                            capabilities: ServerCapabilities {
+                                tools: Some(ToolCapability { list_changed: false }),
+                                resources: None,
+                                prompts: None,
+                            },
+                            server_info: ServerInfo {
+                                name: "session-test".into(),
+                                version: "1.0.0".into(),
+                            },
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, h, body)
+                }
+                "tools/list" => {
+                    if let Some(sid) = headers.get("Mcp-Session-Id") {
+                        if sid.to_str().unwrap_or("") == "sess-abc" {
+                            st.session_seen_in_tools_list.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(ToolListResult { tools: vec![] }).unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+                _ => {
+                    let body = serde_json::to_string(&JsonRpcResponse::error(
+                        req.id.clone(),
+                        -32601,
+                        "unknown",
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+            }
+        }
+
+        let state = Arc::new(St {
+            session_seen_in_tools_list: Arc::new(AtomicBool::new(false)),
+        });
+        let check = state.session_seen_in_tools_list.clone();
+        let app = Router::new()
+            .route("/mcp", post(handle_post))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let url = format!("http://127.0.0.1:{}/mcp", addr.port());
+        let _client = McpClient::connect_streamable_http(&url)
+            .await
+            .expect("connect");
+
+        assert!(
+            check.load(Ordering::SeqCst),
+            "Mcp-Session-Id from initialize response must be sent in subsequent requests"
+        );
     }
 }

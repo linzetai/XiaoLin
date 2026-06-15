@@ -335,7 +335,7 @@ impl AppState {
 
         let to_remove: Vec<String> = current_ids.difference(&desired_ids).cloned().collect();
         for id in &to_remove {
-            let prefix = format!("mcp_{}_", id);
+            let prefix = xiaolin_mcp::naming::mcp_server_prefix(id);
             let removed = self.rt.tool_registry.unregister_by_prefix(&prefix);
             tracing::info!(mcp_id = %id, tools_removed = removed, "stopped MCP server (removed from config)");
             handles.remove(id);
@@ -347,7 +347,7 @@ impl AppState {
         for cfg in &desired {
             if cfg.enabled == Some(false) {
                 if handles.contains_key(&cfg.id) {
-                    let prefix = format!("mcp_{}_", cfg.id);
+                    let prefix = xiaolin_mcp::naming::mcp_server_prefix(&cfg.id);
                     self.rt.tool_registry.unregister_by_prefix(&prefix);
                     handles.remove(&cfg.id);
                     tracing::info!(mcp_id = %cfg.id, "stopped MCP server (disabled)");
@@ -366,24 +366,16 @@ impl AppState {
             }
 
             if handles.contains_key(&cfg.id) {
-                let prefix = format!("mcp_{}_", cfg.id);
+                let prefix = xiaolin_mcp::naming::mcp_server_prefix(&cfg.id);
                 self.rt.tool_registry.unregister_by_prefix(&prefix);
                 handles.remove(&cfg.id);
                 tracing::info!(mcp_id = %cfg.id, "restarting MCP server");
             }
 
-            let args_ref: Vec<&str> = cfg.args.iter().map(|s| s.as_str()).collect();
-            let prefix = format!("mcp_{}_", cfg.id);
             let tool_count_before = self.rt.tool_registry.len();
-            match xiaolin_mcp::register_mcp_tools(
-                &cfg.command,
-                &args_ref,
-                &self.rt.tool_registry,
-                &prefix,
-                &cfg.env,
-            )
-            .await
-            {
+            let connect_result =
+                xiaolin_mcp::connect_mcp_server(cfg, &self.rt.tool_registry).await;
+            match connect_result {
                 Ok(handle) => {
                     let tool_count = self.rt.tool_registry.len() - tool_count_before;
                     let now = chrono::Utc::now().to_rfc3339();
@@ -903,19 +895,13 @@ impl AppState {
         let futs: Vec<_> = to_connect
             .iter()
             .map(|(mcp_cfg, scope)| {
-                let id = mcp_cfg.id.clone();
-                let command = mcp_cfg.command.clone();
-                let args: Vec<String> = mcp_cfg.args.clone();
-                let env = mcp_cfg.env.clone();
-                let prefix = format!("mcp_{}_", id);
+                let cfg = (*mcp_cfg).clone();
                 let scope = scope.to_string();
                 let registry = tool_registry.clone();
                 async move {
-                    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    let result = xiaolin_mcp::register_mcp_tools(
-                        &command, &args_ref, &registry, &prefix, &env,
-                    )
-                    .await;
+                    let id = cfg.id.clone();
+                    let result =
+                        xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
                     (id, scope, result)
                 }
             })
