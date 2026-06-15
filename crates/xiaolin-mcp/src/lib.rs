@@ -558,12 +558,20 @@ enum McpTransport {
     },
 }
 
+/// MCP server → client notification (JSON-RPC message without `id`).
+#[derive(Debug, Clone)]
+pub struct McpNotification {
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+}
+
 /// A client that connects to an external MCP server and discovers/invokes its tools.
 pub struct McpClient {
     server_name: String,
     tools: Vec<McpTool>,
     transport: McpTransport,
     next_id: std::sync::atomic::AtomicU64,
+    notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
 }
 
 impl McpClient {
@@ -640,9 +648,12 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
+        let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+
         let pending_reader = pending.clone();
+        let ntx = notification_tx.clone();
         let reader_task = tokio::spawn(async move {
-            Self::stdio_reader_loop(reader, pending_reader).await;
+            Self::stdio_reader_loop(reader, pending_reader, ntx).await;
         });
 
         if let Some(stderr) = process.stderr.take() {
@@ -662,6 +673,7 @@ impl McpClient {
                 reader_task,
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
+            notification_tx,
         };
 
         client.initialize().await?;
@@ -684,11 +696,14 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
+        let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+
         let pending_reader = pending.clone();
         let client_reader = client.clone();
         let sse_reader_url = sse_url_str.clone();
+        let ntx = notification_tx.clone();
         let reader_task = tokio::spawn(async move {
-            Self::sse_reader_loop(&client_reader, &sse_reader_url, pending_reader).await
+            Self::sse_reader_loop(&client_reader, &sse_reader_url, pending_reader, ntx).await
         });
 
         let mut mcp = Self {
@@ -701,6 +716,7 @@ impl McpClient {
                 reader_task,
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
+            notification_tx,
         };
 
         tokio::task::yield_now().await;
@@ -724,6 +740,7 @@ impl McpClient {
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let session_id: Arc<tokio::sync::Mutex<Option<String>>> =
             Arc::new(tokio::sync::Mutex::new(None));
+        let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
 
         let mut mcp = Self {
             server_name: String::new(),
@@ -736,21 +753,23 @@ impl McpClient {
                 listener_task: None,
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
+            notification_tx: notification_tx.clone(),
         };
 
         mcp.initialize().await?;
 
-        // Try to open an optional GET SSE stream for server-initiated notifications.
         let sid_for_listener = session_id.lock().await.clone();
         let listener_pending = pending.clone();
         let listener_client = client.clone();
         let listener_url = endpoint_url.clone();
+        let ntx = notification_tx.clone();
         let task = tokio::spawn(async move {
             Self::streamable_http_listener(
                 &listener_client,
                 &listener_url,
                 sid_for_listener.as_deref(),
                 listener_pending,
+                ntx,
             )
             .await
         });
@@ -773,6 +792,7 @@ impl McpClient {
         pending: Arc<
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
+        notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
     ) -> anyhow::Result<()> {
         let mut req = client
             .get(endpoint_url)
@@ -805,12 +825,28 @@ impl McpClient {
                 Err(_) => continue,
             };
             for data_line in extract_sse_data_lines(&text) {
-                if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&data_line) {
-                    let id_key = resp.id.to_string();
-                    let mut guard = pending.lock().await;
-                    if let Some(tx) = guard.remove(&id_key) {
-                        let _ = tx.send(resp);
+                let value: serde_json::Value = match serde_json::from_str(&data_line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                if value.get("id").is_some() {
+                    if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
+                        let id_key = resp.id.to_string();
+                        let mut guard = pending.lock().await;
+                        if let Some(tx) = guard.remove(&id_key) {
+                            let _ = tx.send(resp);
+                        }
                     }
+                } else if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
+                    let params = value.get("params").cloned();
+                    tracing::debug!(method, "MCP notification received (streamable_http)");
+                    let _ = notification_tx.send(McpNotification {
+                        method: method.to_string(),
+                        params,
+                    });
+                } else {
+                    tracing::debug!("MCP streamable_http: ignoring JSON message without id or method");
                 }
             }
             buf.clear();
@@ -842,6 +878,7 @@ impl McpClient {
         pending: Arc<
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
+        notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
     ) {
         use tokio::io::AsyncBufReadExt;
 
@@ -855,11 +892,30 @@ impl McpClient {
                     if trimmed.is_empty() {
                         continue;
                     }
-                    if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(trimmed) {
-                        let key = json_rpc_id_key(&resp.id);
-                        if let Some(tx) = pending.lock().await.remove(&key) {
-                            let _ = tx.send(resp);
+                    let value: serde_json::Value = match serde_json::from_str(trimmed) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!("MCP stdio: unparseable JSON: {e}");
+                            continue;
                         }
+                    };
+
+                    if value.get("id").is_some() {
+                        if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
+                            let key = json_rpc_id_key(&resp.id);
+                            if let Some(tx) = pending.lock().await.remove(&key) {
+                                let _ = tx.send(resp);
+                            }
+                        }
+                    } else if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
+                        let params = value.get("params").cloned();
+                        tracing::debug!(method, "MCP notification received (stdio)");
+                        let _ = notification_tx.send(McpNotification {
+                            method: method.to_string(),
+                            params,
+                        });
+                    } else {
+                        tracing::debug!("MCP stdio: ignoring JSON message without id or method");
                     }
                 }
                 Err(e) => {
@@ -885,6 +941,7 @@ impl McpClient {
         pending: Arc<
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
+        notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
     ) -> anyhow::Result<()> {
         let response = client
             .get(sse_url)
@@ -908,11 +965,29 @@ impl McpClient {
                 let event_block = text[..pos].to_string();
                 byte_buf.drain(..pos + 2);
                 for data in extract_sse_data_lines(&event_block) {
-                    if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&data) {
-                        let key = json_rpc_id_key(&resp.id);
-                        if let Some(tx) = pending.lock().await.remove(&key) {
-                            let _ = tx.send(resp);
+                    let value: serde_json::Value = match serde_json::from_str(&data) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    if value.get("id").is_some() {
+                        if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
+                            let key = json_rpc_id_key(&resp.id);
+                            if let Some(tx) = pending.lock().await.remove(&key) {
+                                let _ = tx.send(resp);
+                            }
                         }
+                    } else if let Some(method) =
+                        value.get("method").and_then(|m| m.as_str())
+                    {
+                        let params = value.get("params").cloned();
+                        tracing::debug!(method, "MCP notification received (sse)");
+                        let _ = notification_tx.send(McpNotification {
+                            method: method.to_string(),
+                            params,
+                        });
+                    } else {
+                        tracing::debug!("MCP sse: ignoring JSON message without id or method");
                     }
                 }
             }
@@ -1184,6 +1259,24 @@ impl McpClient {
     /// Get the server name.
     pub fn server_name(&self) -> &str {
         &self.server_name
+    }
+
+    /// Subscribe to server-initiated notifications (JSON-RPC messages without `id`).
+    ///
+    /// Returns a broadcast receiver. Callers that fall behind by more than 64
+    /// buffered messages will see `RecvError::Lagged`.
+    pub fn subscribe_notifications(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<McpNotification> {
+        self.notification_tx.subscribe()
+    }
+
+    /// Force re-fetch the tool list from the server via `tools/list`.
+    ///
+    /// Useful after receiving a `notifications/tools/list_changed` notification.
+    pub async fn refresh_tools(&mut self) -> anyhow::Result<&[McpTool]> {
+        self.discover_tools().await?;
+        Ok(&self.tools)
     }
 }
 
@@ -2292,5 +2385,64 @@ mod tests {
             check.load(Ordering::SeqCst),
             "Mcp-Session-Id from initialize response must be sent in subsequent requests"
         );
+    }
+
+    #[test]
+    fn notification_dispatch_logic() {
+        let (notification_tx, mut notification_rx) =
+            tokio::sync::broadcast::channel::<McpNotification>(64);
+
+        let notification_json =
+            r#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}"#;
+        let response_json =
+            r#"{"jsonrpc":"2.0","id":"1","result":{"protocolVersion":"2025-06-18"}}"#;
+
+        let mut dispatched_response: Option<JsonRpcResponse> = None;
+
+        for raw in [notification_json, response_json] {
+            let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+            if value.get("id").is_some() {
+                let resp: JsonRpcResponse = serde_json::from_value(value).unwrap();
+                dispatched_response = Some(resp);
+            } else if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
+                let params = value.get("params").cloned();
+                let _ = notification_tx.send(McpNotification {
+                    method: method.to_string(),
+                    params,
+                });
+            }
+        }
+
+        let notif = notification_rx.try_recv().expect("should have received notification");
+        assert_eq!(notif.method, "notifications/tools/list_changed");
+        assert!(notif.params.is_some());
+
+        let resp = dispatched_response.expect("should have dispatched response");
+        assert!(resp.error.is_none());
+        assert_eq!(resp.id, serde_json::json!("1"));
+    }
+
+    #[test]
+    fn mcp_notification_clone_and_debug() {
+        let n = McpNotification {
+            method: "notifications/message".to_string(),
+            params: Some(serde_json::json!({"level": "info", "data": "hello"})),
+        };
+        let n2 = n.clone();
+        assert_eq!(n.method, n2.method);
+        assert_eq!(format!("{:?}", n).contains("notifications/message"), true);
+    }
+
+    #[test]
+    fn subscribe_notifications_returns_receiver() {
+        let (tx, _) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let mut rx = tx.subscribe();
+        let _ = tx.send(McpNotification {
+            method: "test".to_string(),
+            params: None,
+        });
+        let msg = rx.try_recv().expect("should receive");
+        assert_eq!(msg.method, "test");
+        assert!(msg.params.is_none());
     }
 }
