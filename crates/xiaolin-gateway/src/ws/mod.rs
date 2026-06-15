@@ -109,7 +109,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "cancel", "answer", "set_mode",
                             "models.list", "config.get", "config.set",
                             "mcp.status", "mcp.reload", "mcp.add", "mcp.remove", "mcp.detail",
-                            "plugins.list", "plugins.enable", "plugins.disable", "plugins.restart", "plugins.tools",
+                            "plugins.list", "plugins.enable", "plugins.disable", "plugins.restart", "plugins.tools", "plugins.approve", "plugins.reject",
                             "channels.list", "channels.detail", "channels.connect", "channels.update", "channels.restore",
                             "channels.wechat_login", "channels.wechat_poll", "channels.wechat_verify", "channels.disconnect",
                             "sub_agents.list",
@@ -503,6 +503,12 @@ async fn dispatch(
         }
         ClientOp::PluginsTools { id: plugin_id } => {
             plugins::handle_plugins_tools(sender, state, id, &plugin_id).await
+        }
+        ClientOp::PluginsApprove { id: plugin_id } => {
+            plugins::handle_plugins_approve(sender, state, id, &plugin_id).await
+        }
+        ClientOp::PluginsReject { id: plugin_id } => {
+            plugins::handle_plugins_reject(sender, state, id, &plugin_id).await
         }
         ClientOp::AgentsGet { .. } => {
             agents::handle_agents_get(sender, state, id, req.params).await

@@ -289,6 +289,83 @@ pub struct AppState {
     pub svc: SharedServices,
 }
 
+/// Result of resolving project-level MCP servers against the approval gate.
+pub(crate) struct ProjectMcpResolution {
+    /// Project servers that the user has approved – ready to connect.
+    pub approved: Vec<xiaolin_core::agent_config::McpServerConfig>,
+    /// Project servers still awaiting user approval.
+    pub pending: std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>,
+}
+
+/// Load project-level MCP config, apply the approval gate, and mutate
+/// `user_servers` in place (removing any global servers that a project config
+/// disables).  Returns approved + pending project servers.
+pub(crate) fn resolve_project_mcp(
+    user_servers: &mut Vec<xiaolin_core::agent_config::McpServerConfig>,
+) -> ProjectMcpResolution {
+    use xiaolin_core::project_mcp_approval::{get_approval, ProjectMcpApproval};
+    use xiaolin_core::types::{McpServerStatus, McpStatus};
+
+    let mut resolution = ProjectMcpResolution {
+        approved: Vec::new(),
+        pending: std::collections::HashMap::new(),
+    };
+
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(_) => return resolution,
+    };
+    let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+    let project_mcp = match xiaolin_core::agent_config::load_project_mcp_config(&ws_root) {
+        Some(p) => p,
+        None => return resolution,
+    };
+
+    let project_configs = project_mcp.to_mcp_server_configs();
+    let existing_ids: std::collections::HashSet<String> =
+        user_servers.iter().map(|c| c.id.clone()).collect();
+
+    for cfg in project_configs {
+        if existing_ids.contains(&cfg.id) {
+            if cfg.enabled == Some(false) {
+                user_servers.retain(|c| c.id != cfg.id);
+                tracing::info!(mcp_id = %cfg.id, "project MCP config disabled global server");
+            }
+        } else {
+            let approval = get_approval(&ws_root, &cfg.id);
+            match approval {
+                ProjectMcpApproval::Approved => {
+                    tracing::info!(mcp_id = %cfg.id, "project MCP server approved");
+                    resolution.approved.push(cfg);
+                }
+                ProjectMcpApproval::Rejected => {
+                    tracing::debug!(mcp_id = %cfg.id, "project MCP server rejected, skipping");
+                }
+                ProjectMcpApproval::Pending => {
+                    let cmd_preview = if cfg.command.is_empty() {
+                        cfg.url.clone()
+                    } else {
+                        Some(format!("{} {}", cfg.command, cfg.args.join(" ")))
+                    };
+                    tracing::info!(mcp_id = %cfg.id, "project MCP server pending approval, not connecting");
+                    resolution.pending.insert(
+                        cfg.id.clone(),
+                        McpServerStatus {
+                            id: cfg.id.clone(),
+                            status: McpStatus::PendingApproval,
+                            scope: "project".into(),
+                            command_preview: cmd_preview,
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    resolution
+}
+
 impl AppState {
     /// Hot-reload all MCP servers: compare `config_live` with running handles,
     /// stop removed/changed servers, start new/changed ones, update status map.
@@ -305,25 +382,11 @@ impl AppState {
             serde_json::from_value(mcp_val).unwrap_or_default()
         };
 
-        if let Ok(cwd) = std::env::current_dir() {
-            let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
-            if let Some(project_mcp) =
-                xiaolin_core::agent_config::load_project_mcp_config(&ws_root)
-            {
-                let project_configs = project_mcp.to_mcp_server_configs();
-                let existing_ids: std::collections::HashSet<String> =
-                    desired.iter().map(|c| c.id.clone()).collect();
-                for cfg in project_configs {
-                    if existing_ids.contains(&cfg.id) {
-                        if cfg.enabled == Some(false) {
-                            desired.retain(|c| c.id != cfg.id);
-                        }
-                    } else {
-                        desired.push(cfg);
-                    }
-                }
-            }
-        }
+        let resolution = resolve_project_mcp(&mut desired);
+        let project_scope_ids: std::collections::HashSet<String> =
+            resolution.approved.iter().map(|c| c.id.clone()).collect();
+        desired.extend(resolution.approved);
+        let pending_status = resolution.pending;
 
         let desired_map: std::collections::HashMap<String, &McpServerConfig> =
             desired.iter().map(|c| (c.id.clone(), c)).collect();
@@ -345,6 +408,13 @@ impl AppState {
             std::collections::HashMap::new();
 
         for cfg in &desired {
+            let scope = if project_scope_ids.contains(&cfg.id) {
+                "project"
+            } else {
+                "global"
+            }
+            .to_string();
+
             if cfg.enabled == Some(false) {
                 if handles.contains_key(&cfg.id) {
                     let prefix = xiaolin_mcp::naming::mcp_server_prefix(&cfg.id);
@@ -357,9 +427,8 @@ impl AppState {
                     McpServerStatus {
                         id: cfg.id.clone(),
                         status: McpStatus::Disabled,
-                        error: None,
-                        tool_count: 0,
-                        connected_at: None,
+                        scope: scope.clone(),
+                        ..Default::default()
                     },
                 );
                 continue;
@@ -386,9 +455,10 @@ impl AppState {
                         McpServerStatus {
                             id: cfg.id.clone(),
                             status: McpStatus::Connected,
-                            error: None,
                             tool_count,
                             connected_at: Some(now),
+                            scope: scope.clone(),
+                            ..Default::default()
                         },
                     );
                     handles.insert(cfg.id.clone(), handle);
@@ -401,8 +471,8 @@ impl AppState {
                             id: cfg.id.clone(),
                             status: McpStatus::Failed,
                             error: Some(e.to_string()),
-                            tool_count: 0,
-                            connected_at: None,
+                            scope,
+                            ..Default::default()
                         },
                     );
                 }
@@ -413,6 +483,7 @@ impl AppState {
             new_status.remove(id);
         }
 
+        new_status.extend(pending_status);
         self.ext.mcp_status.store(Arc::new(new_status));
 
         Ok(())
@@ -874,9 +945,8 @@ impl AppState {
                     McpServerStatus {
                         id: mcp_cfg.id.clone(),
                         status: McpStatus::Disabled,
-                        error: None,
-                        tool_count: 0,
-                        connected_at: None,
+                        scope: scope.to_string(),
+                        ..Default::default()
                     },
                 );
                 continue;
@@ -925,9 +995,10 @@ impl AppState {
                         McpServerStatus {
                             id: id.clone(),
                             status: McpStatus::Connected,
-                            error: None,
                             tool_count,
                             connected_at: Some(now),
+                            scope: scope.clone(),
+                            ..Default::default()
                         },
                     );
                     handles_map.insert(id, handle);
@@ -945,8 +1016,8 @@ impl AppState {
                             id,
                             status: McpStatus::Failed,
                             error: Some(e.to_string()),
-                            tool_count: 0,
-                            connected_at: None,
+                            scope,
+                            ..Default::default()
                         },
                     );
                 }

@@ -392,29 +392,9 @@ impl StateBuilder {
         p3: BuildPhase3,
     ) -> anyhow::Result<BuildPhase4> {
         let mut all_mcp_servers = config.mcp_servers.clone();
-        if let Ok(cwd) = std::env::current_dir() {
-            let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
-            if let Some(project_mcp) =
-                xiaolin_core::agent_config::load_project_mcp_config(&ws_root)
-            {
-                let project_configs = project_mcp.to_mcp_server_configs();
-                let existing_ids: std::collections::HashSet<String> =
-                    all_mcp_servers.iter().map(|c| c.id.clone()).collect();
-                for cfg in project_configs {
-                    if existing_ids.contains(&cfg.id) {
-                        if cfg.enabled == Some(false) {
-                            all_mcp_servers.retain(|c| c.id != cfg.id);
-                            tracing::info!(
-                                mcp_id = %cfg.id,
-                                "project MCP config disabled global server"
-                            );
-                        }
-                    } else {
-                        all_mcp_servers.push(cfg);
-                    }
-                }
-            }
-        }
+        let resolution = super::resolve_project_mcp(&mut all_mcp_servers);
+        all_mcp_servers.extend(resolution.approved);
+        let pending_approval_status = resolution.pending;
 
         let (mcp_result, channel_result) = tokio::join!(
             super::AppState::register_mcp_and_subagent_tools(
@@ -425,7 +405,8 @@ impl StateBuilder {
             ),
             super::AppState::build_channels(config, &p3.tool_registry),
         );
-        let (mcp_status_init, mcp_handles_init) = mcp_result?;
+        let (mut mcp_status_init, mcp_handles_init) = mcp_result?;
+        mcp_status_init.extend(pending_approval_status);
         let (channel_registry, channel_inbound_tx, inbound_rx) = channel_result?;
 
         let base_skill_registry = Arc::new(p3.base_skill_registry.filtered(

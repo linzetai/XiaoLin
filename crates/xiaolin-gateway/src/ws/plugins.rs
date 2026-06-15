@@ -32,12 +32,15 @@ pub async fn handle_plugins_list(
 
     for (id, st) in status_map.iter() {
         seen.insert(id.clone());
-        let scope = if project_ids.contains(id) {
+        let scope = if !st.scope.is_empty() {
+            st.scope.as_str()
+        } else if project_ids.contains(id) {
             "project"
         } else {
             "user"
         };
-        let enabled = st.status != xiaolin_core::types::McpStatus::Disabled;
+        let enabled = st.status != xiaolin_core::types::McpStatus::Disabled
+            && st.status != xiaolin_core::types::McpStatus::PendingApproval;
         plugins.push(json!({
             "id": id,
             "name": id,
@@ -47,6 +50,7 @@ pub async fn handle_plugins_list(
             "toolCount": st.tool_count,
             "lastError": st.error,
             "connectedAt": st.connected_at,
+            "commandPreview": st.command_preview,
         }));
     }
 
@@ -280,6 +284,94 @@ fn set_project_mcp_disabled(plugin_id: &str, disabled: bool) -> anyhow::Result<(
     }
     std::fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
     Ok(())
+}
+
+pub async fn handle_plugins_approve(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    plugin_id: &str,
+) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+
+    if let Err(e) = xiaolin_core::project_mcp_approval::set_approval(
+        &ws_root,
+        plugin_id,
+        xiaolin_core::project_mcp_approval::ProjectMcpApproval::Approved,
+    ) {
+        send_error(sender, req_id, &format!("failed to save approval: {e}")).await;
+        return;
+    }
+
+    tracing::info!(mcp_id = %plugin_id, "project MCP server approved, connecting");
+
+    match state.reload_mcp_servers().await {
+        Ok(()) => {
+            broadcast_status_changed(state);
+            let st = state.ext.mcp_status.load().get(plugin_id).cloned();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "plugins.approve".into(),
+                    data: Some(json!({ "ok": true, "id": plugin_id, "status": st })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => send_error(sender, req_id, &format!("{e}")).await,
+    }
+}
+
+pub async fn handle_plugins_reject(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    plugin_id: &str,
+) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+
+    if let Err(e) = xiaolin_core::project_mcp_approval::set_approval(
+        &ws_root,
+        plugin_id,
+        xiaolin_core::project_mcp_approval::ProjectMcpApproval::Rejected,
+    ) {
+        send_error(sender, req_id, &format!("failed to save rejection: {e}")).await;
+        return;
+    }
+
+    tracing::info!(mcp_id = %plugin_id, "project MCP server rejected");
+
+    // Disconnect the server if it was running (e.g. previously approved then rejected).
+    {
+        let mut handles = state.ext.mcp_handles.lock().await;
+        if handles.contains_key(plugin_id) {
+            let prefix = xiaolin_mcp::naming::mcp_server_prefix(plugin_id);
+            let removed = state.rt.tool_registry.unregister_by_prefix(&prefix);
+            handles.remove(plugin_id);
+            tracing::info!(mcp_id = %plugin_id, tools_removed = removed, "disconnected rejected MCP server");
+        }
+    }
+
+    match state.reload_mcp_servers().await {
+        Ok(()) => {
+            broadcast_status_changed(state);
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "plugins.reject".into(),
+                    data: Some(json!({ "ok": true, "id": plugin_id })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => send_error(sender, req_id, &format!("{e}")).await,
+    }
 }
 
 fn broadcast_status_changed(state: &AppState) {

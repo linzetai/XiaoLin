@@ -190,6 +190,7 @@ impl ManageMcpServerTool {
                 McpStatus::Failed => "✗ failed",
                 McpStatus::Connecting => "… connecting",
                 McpStatus::Disabled => "○ disabled",
+                McpStatus::PendingApproval => "⏳ pending approval",
             };
             let mut line = format!("- {id}: {status_str}");
             if st.tool_count > 0 {
@@ -244,6 +245,7 @@ impl ManageMcpServerTool {
                         error: None,
                         tool_count: 0,
                         connected_at: None,
+                        ..Default::default()
                     },
                 );
                 continue;
@@ -270,6 +272,7 @@ impl ManageMcpServerTool {
                             error: None,
                             tool_count,
                             connected_at: Some(now),
+                            ..Default::default()
                         },
                     );
                     handles.insert(cfg.id.clone(), handle);
@@ -283,6 +286,7 @@ impl ManageMcpServerTool {
                             error: Some(e.to_string()),
                             tool_count: 0,
                             connected_at: None,
+                            ..Default::default()
                         },
                     );
                 }

@@ -456,17 +456,21 @@ pub struct SubAgentRun {
 }
 
 /// Status of an MCP server connection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpStatus {
+    #[default]
     Connecting,
     Connected,
     Failed,
     Disabled,
+    /// Project-level server awaiting user approval before connecting.
+    #[serde(rename = "pending_approval")]
+    PendingApproval,
 }
 
 /// Runtime status information for an MCP server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerStatus {
     pub id: String,
@@ -476,6 +480,16 @@ pub struct McpServerStatus {
     pub tool_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_at: Option<String>,
+    /// `"user"` or `"project"` — origin of this server's configuration.
+    #[serde(default = "default_scope")]
+    pub scope: String,
+    /// For pending_approval servers, preview of the command that will be executed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_preview: Option<String>,
+}
+
+fn default_scope() -> String {
+    "global".to_string()
 }
 
 // ---------------------------------------------------------------------------

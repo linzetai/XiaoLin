@@ -492,6 +492,12 @@ pub enum ClientOp {
     PluginsTools {
         id: String,
     },
+    PluginsApprove {
+        id: String,
+    },
+    PluginsReject {
+        id: String,
+    },
 
     // ── Workspace ────────────────────────────────────────────────────
     WorkspaceInit {
@@ -997,6 +1003,12 @@ impl ClientOp {
                 id: extract_string(&params, "id")?,
             }),
             "plugins.tools" => Ok(Self::PluginsTools {
+                id: extract_string(&params, "id")?,
+            }),
+            "plugins.approve" => Ok(Self::PluginsApprove {
+                id: extract_string(&params, "id")?,
+            }),
+            "plugins.reject" => Ok(Self::PluginsReject {
                 id: extract_string(&params, "id")?,
             }),
             "workspace.init" => Ok(Self::WorkspaceInit {
