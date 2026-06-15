@@ -32,26 +32,7 @@ pub async fn handle_plugins_list(
 
     for (id, st) in status_map.iter() {
         seen.insert(id.clone());
-        let scope = if !st.scope.is_empty() {
-            st.scope.as_str()
-        } else if project_ids.contains(id) {
-            "project"
-        } else {
-            "user"
-        };
-        let enabled = st.status != xiaolin_core::types::McpStatus::Disabled
-            && st.status != xiaolin_core::types::McpStatus::PendingApproval;
-        plugins.push(json!({
-            "id": id,
-            "name": id,
-            "scope": scope,
-            "enabled": enabled,
-            "status": st.status,
-            "toolCount": st.tool_count,
-            "lastError": st.error,
-            "connectedAt": st.connected_at,
-            "commandPreview": st.command_preview,
-        }));
+        plugins.push(enrich_status(id, st, &project_ids));
     }
 
     for uid in &user_servers {
@@ -375,13 +356,45 @@ pub async fn handle_plugins_reject(
 }
 
 fn broadcast_status_changed(state: &AppState) {
-    let status: Vec<_> = state.ext.mcp_status.load().values().cloned().collect();
+    let status_map = state.ext.mcp_status.load();
+    let project_ids = get_project_server_ids();
+    let plugins: Vec<serde_json::Value> = status_map
+        .iter()
+        .map(|(id, st)| enrich_status(id, st, &project_ids))
+        .collect();
     let payload = json!({
         "type": "event",
         "event": "plugins.status_changed",
-        "data": { "plugins": status },
+        "data": { "plugins": plugins },
     });
     let _ = state.strm.ws_broadcast.send(payload.to_string());
+}
+
+fn enrich_status(
+    id: &str,
+    st: &xiaolin_core::types::McpServerStatus,
+    project_ids: &std::collections::HashSet<String>,
+) -> serde_json::Value {
+    let scope = if !st.scope.is_empty() {
+        st.scope.as_str()
+    } else if project_ids.contains(id) {
+        "project"
+    } else {
+        "user"
+    };
+    let enabled = st.status != xiaolin_core::types::McpStatus::Disabled
+        && st.status != xiaolin_core::types::McpStatus::PendingApproval;
+    json!({
+        "id": id,
+        "name": id,
+        "scope": scope,
+        "enabled": enabled,
+        "status": st.status,
+        "toolCount": st.tool_count,
+        "lastError": st.error,
+        "connectedAt": st.connected_at,
+        "commandPreview": st.command_preview,
+    })
 }
 
 async fn send_error(

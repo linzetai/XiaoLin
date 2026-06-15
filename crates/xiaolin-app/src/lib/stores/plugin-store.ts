@@ -12,6 +12,8 @@ export interface PluginStoreState {
   enablePlugin: (id: string) => Promise<boolean>;
   disablePlugin: (id: string) => Promise<boolean>;
   restartPlugin: (id: string) => Promise<boolean>;
+  approvePlugin: (id: string) => Promise<boolean>;
+  rejectPlugin: (id: string) => Promise<boolean>;
   fetchTools: (id: string) => Promise<PluginTool[]>;
   connectedCount: () => number;
 }
@@ -57,6 +59,28 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
   restartPlugin: async (id) => {
     try {
       const ok = await transport.restartPlugin(id);
+      if (ok) await get().fetchPlugins();
+      return ok;
+    } catch (e) {
+      set({ error: String(e) });
+      return false;
+    }
+  },
+
+  approvePlugin: async (id) => {
+    try {
+      const ok = await transport.approvePlugin(id);
+      if (ok) await get().fetchPlugins();
+      return ok;
+    } catch (e) {
+      set({ error: String(e) });
+      return false;
+    }
+  },
+
+  rejectPlugin: async (id) => {
+    try {
+      const ok = await transport.rejectPlugin(id);
       if (ok) await get().fetchPlugins();
       return ok;
     } catch (e) {

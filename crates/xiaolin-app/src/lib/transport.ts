@@ -1161,12 +1161,13 @@ export function onAutomationsChanged(
 export interface PluginSummary {
   id: string;
   name: string;
-  scope: "user" | "project";
+  scope: "user" | "project" | "global";
   enabled: boolean;
-  status: "connected" | "connecting" | "failed" | "disabled";
+  status: "connected" | "connecting" | "failed" | "disabled" | "pending_approval";
   toolCount: number;
   lastError?: string | null;
   connectedAt?: string | null;
+  commandPreview?: string | null;
 }
 
 export interface PluginTool {
@@ -1207,6 +1208,20 @@ export async function getPluginTools(id: string): Promise<PluginTool[]> {
     data?: { tools?: PluginTool[] };
   };
   return resp?.data?.tools ?? [];
+}
+
+export async function approvePlugin(id: string): Promise<boolean> {
+  const resp = (await wsClient.send("plugins.approve", { id })) as {
+    data?: { ok?: boolean };
+  };
+  return resp?.data?.ok ?? false;
+}
+
+export async function rejectPlugin(id: string): Promise<boolean> {
+  const resp = (await wsClient.send("plugins.reject", { id })) as {
+    data?: { ok?: boolean };
+  };
+  return resp?.data?.ok ?? false;
 }
 
 export function onPluginsStatusChanged(

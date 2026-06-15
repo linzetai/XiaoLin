@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   PuzzlePiece, ToggleLeft, ToggleRight, ArrowsClockwise,
   CaretDown, CaretRight, WarningCircle, SpinnerGap,
@@ -7,6 +7,7 @@ import {
   QrCode, CheckCircle, DeviceMobile, Key, Terminal,
   PencilSimple, ArrowCounterClockwise, FloppyDisk,
   MagnifyingGlass, CaretUp, X,
+  ShieldWarning, CheckFat, XCircle,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore, subscribePluginEvents } from "../../lib/stores/plugin-store";
@@ -122,6 +123,8 @@ function McpTabContent() {
   const enablePlugin = usePluginStore((s) => s.enablePlugin);
   const disablePlugin = usePluginStore((s) => s.disablePlugin);
   const restartPlugin = usePluginStore((s) => s.restartPlugin);
+  const approvePlugin = usePluginStore((s) => s.approvePlugin);
+  const rejectPlugin = usePluginStore((s) => s.rejectPlugin);
   const fetchTools = usePluginStore((s) => s.fetchTools);
   const toolsById = usePluginStore((s) => s.toolsById);
 
@@ -154,7 +157,15 @@ function McpTabContent() {
     [expandedId, toolsById, fetchTools],
   );
 
-  const connectedCount = plugins.filter((p) => p.status === "connected").length;
+  const pendingPlugins = useMemo(
+    () => plugins.filter((p) => p.status === "pending_approval"),
+    [plugins],
+  );
+  const activePlugins = useMemo(
+    () => plugins.filter((p) => p.status !== "pending_approval"),
+    [plugins],
+  );
+  const connectedCount = activePlugins.filter((p) => p.status === "connected").length;
 
   if (loading) {
     return (
@@ -171,16 +182,23 @@ function McpTabContent() {
 
   return (
     <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-5">
+      {pendingPlugins.length > 0 && (
+        <PendingApprovalSection
+          plugins={pendingPlugins}
+          onApprove={approvePlugin}
+          onReject={rejectPlugin}
+        />
+      )}
       {connectedCount > 0 && (
         <div className="mb-3 flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--green, #38A169)" }} />
           <span className="text-[12px] font-semibold tabular-nums" style={{ color: "var(--green, #38A169)" }}>
-            {connectedCount}/{plugins.length} connected
+            {connectedCount}/{activePlugins.length} connected
           </span>
         </div>
       )}
       <div className="flex flex-col gap-2">
-        {plugins.map((p, idx) => (
+        {activePlugins.map((p, idx) => (
           <PluginRow
             key={p.id}
             plugin={p}
@@ -192,6 +210,142 @@ function McpTabContent() {
             index={idx}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function PendingApprovalSection({
+  plugins,
+  onApprove,
+  onReject,
+}: {
+  plugins: PluginSummary[];
+  onApprove: (id: string) => Promise<boolean>;
+  onReject: (id: string) => Promise<boolean>;
+}) {
+  return (
+    <div
+      className="mb-5 overflow-hidden rounded-[var(--radius-sm)] pv-fade-in"
+      style={{
+        background: "color-mix(in srgb, var(--orange, #ED8936) 4%, var(--bg-primary))",
+        border: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 20%, transparent)",
+      }}
+    >
+      <div
+        className="flex items-center gap-2 px-4 py-2.5"
+        style={{ borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 12%, transparent)" }}
+      >
+        <ShieldWarning size={14} weight="fill" style={{ color: "var(--orange, #ED8936)" }} />
+        <span className="text-[12px] font-semibold" style={{ color: "var(--orange, #ED8936)" }}>
+          Project MCP Servers Need Approval
+        </span>
+      </div>
+      <div className="flex flex-col">
+        {plugins.map((p, idx) => (
+          <PendingApprovalCard
+            key={p.id}
+            plugin={p}
+            onApprove={onApprove}
+            onReject={onReject}
+            isLast={idx === plugins.length - 1}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PendingApprovalCard({
+  plugin,
+  onApprove,
+  onReject,
+  isLast,
+}: {
+  plugin: PluginSummary;
+  onApprove: (id: string) => Promise<boolean>;
+  onReject: (id: string) => Promise<boolean>;
+  isLast: boolean;
+}) {
+  const [acting, setActing] = useState<"approve" | "reject" | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  const handleApprove = async () => {
+    setActing("approve");
+    await onApprove(plugin.id);
+    if (mountedRef.current) setActing(null);
+  };
+
+  const handleReject = async () => {
+    setActing("reject");
+    await onReject(plugin.id);
+    if (mountedRef.current) setActing(null);
+  };
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3"
+      style={!isLast ? { borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 10%, transparent)" } : undefined}
+    >
+      <StatusDot status="pending_approval" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+            {plugin.name}
+          </span>
+          <ScopeBadge scope={plugin.scope} />
+        </div>
+        {plugin.commandPreview && (
+          <div
+            className="mt-1 inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[11px]"
+            style={{
+              background: "var(--bg-tertiary)",
+              color: "var(--fill-tertiary)",
+            }}
+          >
+            <Terminal size={11} />
+            <span className="truncate" style={{ maxWidth: 280 }}>{plugin.commandPreview}</span>
+          </div>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button
+          onClick={handleApprove}
+          disabled={acting !== null}
+          className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+          style={{
+            cursor: acting ? "wait" : "pointer",
+            background: "var(--green, #38A169)",
+            border: "none",
+            color: "#fff",
+          }}
+        >
+          {acting === "approve" ? (
+            <SpinnerGap size={12} className="animate-spin" />
+          ) : (
+            <CheckFat size={12} weight="fill" />
+          )}
+          Approve
+        </button>
+        <button
+          onClick={handleReject}
+          disabled={acting !== null}
+          className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all hover:bg-[var(--bg-hover)] disabled:opacity-50"
+          style={{
+            cursor: acting ? "wait" : "pointer",
+            background: "none",
+            border: "0.5px solid var(--separator)",
+            color: "var(--fill-tertiary)",
+          }}
+        >
+          {acting === "reject" ? (
+            <SpinnerGap size={12} className="animate-spin" />
+          ) : (
+            <XCircle size={12} />
+          )}
+          Reject
+        </button>
       </div>
     </div>
   );
