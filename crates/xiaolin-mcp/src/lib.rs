@@ -1278,6 +1278,23 @@ impl McpClient {
         self.discover_tools().await?;
         Ok(&self.tools)
     }
+
+    /// Fetch the current tool list from the server without modifying internal state.
+    ///
+    /// Returns the freshly fetched tools. Useful when only a shared (`Arc`) reference
+    /// is available and `refresh_tools(&mut self)` cannot be called.
+    pub async fn fetch_tools(&self) -> anyhow::Result<Vec<McpTool>> {
+        let response = self.send_request("tools/list", None).await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("tools/list failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from tools/list"))?;
+
+        let parsed: ToolListResult = serde_json::from_value(result)?;
+        Ok(parsed.tools)
+    }
 }
 
 impl Drop for McpClient {
@@ -1480,6 +1497,32 @@ pub async fn connect_mcp_server(
         }
         McpTransportType::Http => unreachable!("effective() normalizes Http → StreamableHttp"),
     }
+}
+
+/// Re-register MCP tools from a fresh tool list into the registry.
+///
+/// First removes all existing tools with the given prefix, then registers
+/// the new tools. Returns the number of tools registered.
+pub fn re_register_tools(
+    tools: &[McpTool],
+    client: &SharedMcpClient,
+    registry: &xiaolin_core::tool::ToolRegistry,
+    server_prefix: &str,
+) -> usize {
+    registry.unregister_by_prefix(server_prefix);
+    let mut registered = 0usize;
+    let mut seen = std::collections::HashSet::new();
+    for tool in tools {
+        let prefixed = format!("{server_prefix}{}", tool.name);
+        if !seen.insert(prefixed.clone()) {
+            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+            continue;
+        }
+        let bridge = McpToolBridge::new(tool, client.clone(), server_prefix);
+        registry.register(Arc::new(bridge));
+        registered += 1;
+    }
+    registered
 }
 
 /// Connect to an MCP server and register all its tools into a XiaoLin ToolRegistry.

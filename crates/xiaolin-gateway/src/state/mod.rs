@@ -380,6 +380,7 @@ impl AppState {
                     let tool_count = self.rt.tool_registry.len() - tool_count_before;
                     let now = chrono::Utc::now().to_rfc3339();
                     tracing::info!(mcp_id = %cfg.id, tool_count, "MCP server connected (hot reload)");
+                    Self::spawn_notification_watcher(&cfg.id, &handle, &self.rt.tool_registry);
                     new_status.insert(
                         cfg.id.clone(),
                         McpServerStatus {
@@ -918,6 +919,7 @@ impl AppState {
                     );
                     let now = chrono::Utc::now().to_rfc3339();
                     let tool_count = handle.tools().len();
+                    Self::spawn_notification_watcher(&id, &handle, tool_registry);
                     status_map.insert(
                         id.clone(),
                         McpServerStatus {
@@ -960,6 +962,107 @@ impl AppState {
         }
 
         Ok((status_map, handles_map))
+    }
+
+    /// Spawn a background task that listens for MCP server notifications
+    /// and handles `tools/list_changed` (refresh tools in registry) and
+    /// `notifications/message` (forward to tracing).
+    ///
+    /// Uses `Weak<McpClient>` so the watcher does not prevent the client
+    /// from being dropped on hot-reload. When the last strong `Arc` is
+    /// removed (e.g. from `handles`), the watcher exits on the next
+    /// notification cycle.
+    fn spawn_notification_watcher(
+        server_id: &str,
+        handle: &xiaolin_mcp::SharedMcpClient,
+        tool_registry: &ToolRegistry,
+    ) {
+        let mut rx = handle.subscribe_notifications();
+        let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
+        let registry = tool_registry.clone();
+        let weak_client = std::sync::Arc::downgrade(handle);
+        let id = server_id.to_string();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(notif) => {
+                        let Some(client) = weak_client.upgrade() else {
+                            tracing::debug!(mcp_id = %id, "MCP client dropped, stopping notification watcher");
+                            break;
+                        };
+                        match notif.method.as_str() {
+                            "notifications/tools/list_changed" => {
+                                tracing::info!(
+                                    mcp_id = %id,
+                                    "tools/list_changed received, refreshing tools"
+                                );
+                                match client.fetch_tools().await {
+                                    Ok(new_tools) => {
+                                        let count = xiaolin_mcp::re_register_tools(
+                                            &new_tools,
+                                            &client,
+                                            &registry,
+                                            &prefix,
+                                        );
+                                        tracing::info!(
+                                            mcp_id = %id,
+                                            count,
+                                            "refreshed MCP tools after tools/list_changed"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            mcp_id = %id,
+                                            error = %e,
+                                            "failed to refresh tools after tools/list_changed"
+                                        );
+                                    }
+                                }
+                            }
+                            "notifications/message" => {
+                                if let Some(ref params) = notif.params {
+                                    let level = params
+                                        .get("level")
+                                        .and_then(|l| l.as_str())
+                                        .unwrap_or("info");
+                                    let data = params.get("data");
+                                    match level {
+                                        "error" => tracing::error!(
+                                            mcp_id = %id, ?data, "MCP server message"
+                                        ),
+                                        "warning" => tracing::warn!(
+                                            mcp_id = %id, ?data, "MCP server message"
+                                        ),
+                                        _ => tracing::info!(
+                                            mcp_id = %id, ?data, "MCP server message"
+                                        ),
+                                    }
+                                }
+                            }
+                            other => {
+                                tracing::debug!(
+                                    mcp_id = %id,
+                                    method = %other,
+                                    "unhandled MCP notification"
+                                );
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            mcp_id = %id,
+                            skipped = n,
+                            "notification watcher lagged, continuing"
+                        );
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+            tracing::debug!(mcp_id = %id, "notification watcher ended");
+        });
     }
 
     /// Per-workspace SQLite memory, pre-loaded embeddings, and memory tools on `tool_registry`.
