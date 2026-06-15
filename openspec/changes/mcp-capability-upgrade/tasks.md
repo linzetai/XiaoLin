@@ -6,7 +6,7 @@
 ## 阶段一：修 Bug + 安全基线 (P0)
 
 > 目标：修复阻塞性 Bug、消除安全漏洞、清理死代码。零新功能。
-> **进度**：7/10 完成，1/10 部分完成，2/10 未开始
+> **进度**：8/10 完成，1/10 部分完成，1/10 未开始
 
 ### T1: 删除死代码 ✅
 
@@ -99,19 +99,23 @@
 
 ---
 
-### T6: Notification Dispatch 改造
+### T6: Notification Dispatch 改造 ✅
 
 **Spec**: [`notification-dispatch/spec.md`](specs/notification-dispatch/spec.md) 变更 1-4
-**前置**: T4
-**文件**:
-- `xiaolin-mcp/src/lib.rs`:
-  - 新增 `McpNotification` struct + `broadcast::channel`
-  - 重构 `stdio_reader_loop`：`serde_json::Value` 先解析，按 `id` 有无区分 Response/Notification
-  - 重构 `sse_reader_loop`：同步增加 notification dispatch
-  - 新增 `McpClient::subscribe_notifications()` 公开 API
-  - 新增 `McpClient::list_tools()` 强制刷新（区别于缓存版 `tools()`）
+**前置**: T4 ✅
+**状态**: ✅ 已完成
 
-**验证**: 连接 MCP server → 触发 `tools/list_changed` → notification 不被丢弃 → 日志可见
+**已完成**:
+- ✅ `xiaolin-mcp/src/lib.rs` → 新增 `McpNotification` struct（`method: String` + `params: Option<Value>`，`Debug + Clone`）
+- ✅ `McpClient` 新增 `notification_tx: broadcast::Sender<McpNotification>`，缓冲区 64
+- ✅ 重构 `stdio_reader_loop`：先解析为 `serde_json::Value`，按 `id` 字段分流 Response/Notification
+- ✅ 重构 `sse_reader_loop`：同步改造，与 stdio 相同的分流逻辑
+- ✅ 重构 `streamable_http_listener`：同步改造，三条路径行为一致
+- ✅ 新增 `McpClient::subscribe_notifications()` → 返回 `broadcast::Receiver<McpNotification>`
+- ✅ 新增 `McpClient::refresh_tools()` → 强制重新 `tools/list`（区别于缓存版 `tools()`）
+- ✅ 3 个新增单测：notification_dispatch_logic、mcp_notification_clone_and_debug、subscribe_notifications_returns_receiver
+
+**验证**: ✅ `cargo check --workspace` 零错误 + `cargo clippy -- -D warnings` 零警告 + 37 tests passed + E2E 验证 reader loop 新路径生效（`MCP stdio: unparseable JSON` 日志可见）
 
 ---
 
@@ -542,9 +546,9 @@
 ✅ T1 (清理)          ─── 完成
 ✅ T2 (命名 Rust)     ─── 完成（全链路 mcp__）
 ⚠️ T3 (命名 TS)       ←── T2 ✅，prefix 更新完成，工具函数待建
-❌ T4 (Transport)     ←── T2 ✅  ← 【下一步】
-❌ T5 (路由修复)      ←── T4
-❌ T6 (Notification)  ←── T4
+✅ T4 (Transport)     ─── 完成
+✅ T5 (路由修复)      ─── 完成
+✅ T6 (Notification)  ─── 完成
 ✅ T7 (stderr)        ─── 完成
 ❌ T8 (审批门)        ←── T4 + T5
 ✅ T9 (协议版本)      ─── 完成
@@ -582,19 +586,19 @@
 | Spec | 对应任务 | 完成度 |
 |------|---------|:---:|
 | `naming-pipeline/spec.md` | T2 ✅, T3 ⚠️ | 75% |
-| `transport-fix/spec.md` | T4, T5, T9 ✅, T10 | 25% |
-| `notification-dispatch/spec.md` | T6, T7 ✅, T19 | 33% |
+| `transport-fix/spec.md` | T4 ✅, T5 ✅, T9 ✅, T10 ✅ | 100% |
+| `notification-dispatch/spec.md` | T6 ✅, T7 ✅, T19 | 67% |
 | `approval-gate/spec.md` | T8, T14 | 0% |
 | `deferred-pipeline/spec.md` | T27, T28, T29, T30, T31 | 0% |
 | `plugins-ui/spec.md` | T1 ✅, T11-T18 (4✅ 4❌) | 63% |
 
 ## 整体进度
 
-- **P0**：4/10 完成（T1 ✅, T2 ✅, T7 ✅, T9 ✅），1/10 部分完成（T3 ⚠️），5/10 未开始
-- **P1**：4/8 完成（T11 ✅, T16 ✅, T17 ✅, T18 ✅），4/8 待做
+- **P0**：8/10 完成（T1 ✅, T2 ✅, T4 ✅, T5 ✅, T6 ✅, T7 ✅, T9 ✅, T10 ✅），1/10 部分完成（T3 ⚠️），1/10 未开始（T8）
+- **P1**：4/9 完成（T11 ✅, T16 ✅, T17 ✅, T18 ✅），5/9 待做（含 T10.5 UI 风格统一）
 - **P2**：0/8 完成 + 2 新增任务（T32, T33）
 - **P3**：0/5 完成 + 2 新增任务（T32, T33 归属 P3）
-- **总计**：8/33 完成 + 1 部分完成（~26%），**当前评分 ~50/100**
+- **总计**：12/34 完成 + 1 部分完成（~36%），**当前评分 ~65/100**
 
 ### 关键阻塞项（按优先级）
 

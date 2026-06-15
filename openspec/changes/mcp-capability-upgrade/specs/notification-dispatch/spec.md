@@ -1,5 +1,7 @@
 # Notification Dispatch + Stdio Reader 改造 — 详细技术方案
 
+> **实现状态**：变更 1-4 已完成（T6 ✅），变更 5 已完成（T7 ✅），变更 6-7 待做（T19）。
+
 ## 现状分析
 
 ### 当前 stdio_reader_loop（第 699-739 行）
@@ -76,7 +78,7 @@ async fn stdio_reader_loop(
 
 ## 设计方案
 
-### 变更 1: Notification Channel
+### 变更 1: Notification Channel ✅ 已实现
 
 在 `McpClient` 和 `McpTransport` 中增加 notification channel：
 
@@ -102,7 +104,7 @@ pub struct McpNotification {
 `broadcast` channel 允许多个订阅者（gateway 可以订阅处理 `tools/list_changed`，
 前端可以订阅显示 progress）。
 
-### 变更 2: stdio_reader_loop 改造
+### 变更 2: stdio_reader_loop 改造 ✅ 已实现
 
 ```rust
 async fn stdio_reader_loop(
@@ -165,7 +167,7 @@ async fn stdio_reader_loop(
 }
 ```
 
-### 变更 3: SSE reader 同步改造
+### 变更 3: SSE reader 同步改造 ✅ 已实现
 
 `sse_reader_loop` 同样加入 notification dispatch：
 
@@ -193,7 +195,7 @@ for data in extract_sse_data_lines(&event_block) {
 }
 ```
 
-### 变更 4: McpClient 公开 notification 订阅
+### 变更 4: McpClient 公开 notification 订阅 ✅ 已实现
 
 ```rust
 impl McpClient {
@@ -312,7 +314,7 @@ tokio::spawn(async move {
 });
 ```
 
-### 变更 7: McpClient 增加 list_tools 方法
+### 变更 7: McpClient 增加 list_tools 方法 ✅ 已实现（命名为 `refresh_tools`）
 
 当前 `tools()` 返回缓存，需要增加强制刷新版本：
 
