@@ -13,6 +13,7 @@ import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
 import { buildToolMeta } from "./StepIndicator";
 import { ICON_SIZE } from "../../lib/ui-tokens";
+import { parseMcpToolName } from "../../lib/mcpNaming";
 
 export interface ToolCall {
   id: string;
@@ -28,12 +29,9 @@ export interface ToolCall {
 const DEFAULT_META = { icon: <Wrench  /> };
 
 function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
-  if (!name.startsWith("mcp_")) return null;
-  const rest = name.slice(4);
-  const idx = rest.indexOf("_");
-  const serverId = idx >= 0 ? rest.slice(0, idx) : rest;
-  const toolName = idx >= 0 ? rest.slice(idx + 1) : "";
-  return { icon: <Plug  />, label: `${serverId}/${toolName}` };
+  const parsed = parseMcpToolName(name);
+  if (!parsed) return null;
+  return { icon: <Plug  />, label: `${parsed.serverId}/${parsed.toolName}` };
 }
 
 

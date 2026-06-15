@@ -12,6 +12,7 @@ import { TodoCard, isTodoResult } from "./TodoCard";
 import { DiffCard, isEditResult } from "./DiffCard";
 import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from "./PlanApprovalCard";
 import { ICON_SIZE } from "../../lib/ui-tokens";
+import { parseMcpToolName } from "../../lib/mcpNaming";
 import { useStreamStore } from "../../lib/stores";
 
 export interface ToolCall {
@@ -39,7 +40,7 @@ const CATEGORY_MAP: Record<string, ToolCategory> = {
 
 export function getToolCategory(name: string): ToolCategory {
   if (CATEGORY_MAP[name]) return CATEGORY_MAP[name];
-  if (name.startsWith("mcp_")) return "mcp";
+  if (name.startsWith("mcp__")) return "mcp";
   return "default";
 }
 
@@ -80,12 +81,9 @@ export function buildToolMeta(t: TFunction<"chat">): Record<string, { icon: Reac
 const DEFAULT_META = { icon: <Wrench  /> };
 
 function getMcpMeta(name: string): { icon: ReactNode; label: string } | null {
-  if (!name.startsWith("mcp_")) return null;
-  const rest = name.slice(4);
-  const idx = rest.indexOf("_");
-  const serverId = idx >= 0 ? rest.slice(0, idx) : rest;
-  const toolName = idx >= 0 ? rest.slice(idx + 1) : "";
-  return { icon: <Plug  />, label: `${serverId}/${toolName}` };
+  const parsed = parseMcpToolName(name);
+  if (!parsed) return null;
+  return { icon: <Plug  />, label: `${parsed.serverId}/${parsed.toolName}` };
 }
 
 function ElapsedTimer({ startTime }: { startTime: number }) {

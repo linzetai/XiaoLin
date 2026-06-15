@@ -138,7 +138,7 @@ describe("ToolCallCard", () => {
     });
 
     it("recognizes MCP tools with server prefix", () => {
-      render(<ToolCallCard tool={makeTool({ name: "mcp_github_list_repos" })} />);
+      render(<ToolCallCard tool={makeTool({ name: "mcp__github__list_repos" })} />);
       expect(screen.getByText("github/list_repos")).toBeInTheDocument();
     });
   });

@@ -509,6 +509,7 @@ export const channelsDisconnect = transport.channelsDisconnect;
 export type { ChannelsUpdateResult } from "./transport";
 export const channelsUpdate = transport.channelsUpdate;
 export const channelsRestore = transport.channelsRestore;
+export const onChannelsChanged = transport.onChannelsChanged;
 
 // ─── MCP Servers ───
 

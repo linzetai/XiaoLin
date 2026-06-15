@@ -1,12 +1,11 @@
 import { useState, useEffect, lazy, Suspense, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { GearSix, Cube, Wrench, HardDrives, Info, MagnifyingGlass, Shield, X, ArrowCounterClockwise, Robot, CurrencyDollar } from "@phosphor-icons/react";
+import { GearSix, Cube, HardDrives, Info, MagnifyingGlass, Shield, X, ArrowCounterClockwise, Robot, CurrencyDollar } from "@phosphor-icons/react";
 import { ICON_SIZE, BTN_ICON } from "../../lib/ui-tokens";
 
 const GeneralTab = lazy(() => import("./GeneralTab").then((m) => ({ default: m.GeneralTab })));
 const ModelTab = lazy(() => import("./ModelTab").then((m) => ({ default: m.ModelTab })));
 const WebSearchTab = lazy(() => import("./WebSearchTab").then((m) => ({ default: m.WebSearchTab })));
-const SkillsTab = lazy(() => import("./SkillsTab").then((m) => ({ default: m.SkillsTab })));
 const SubAgentsTab = lazy(() => import("./SubAgentsTab").then((m) => ({ default: m.SubAgentsTab })));
 const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m.SecurityTab })));
 const GatewayTab = lazy(() => import("./GatewayTab").then((m) => ({ default: m.GatewayTab })));
@@ -19,7 +18,7 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-type SettingsTab = "general" | "models" | "web-search" | "skills" | "sub-agents" | "security" | "gateway" | "cost" | "about" | "migration";
+type SettingsTab = "general" | "models" | "web-search" | "sub-agents" | "security" | "gateway" | "cost" | "about" | "migration";
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
@@ -29,7 +28,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     { id: "general", label: t("general"), icon: <GearSix size={ICON_SIZE.md} /> },
     { id: "models", label: t("model"), icon: <Cube size={ICON_SIZE.md} /> },
     { id: "web-search", label: t("webSearchTab"), icon: <MagnifyingGlass size={ICON_SIZE.md} /> },
-    { id: "skills", label: t("skills"), icon: <Wrench size={ICON_SIZE.md} /> },
     { id: "sub-agents", label: t("subAgents"), icon: <Robot size={ICON_SIZE.md} /> },
     { id: "security", label: t("security"), icon: <Shield size={ICON_SIZE.md} /> },
     { id: "gateway", label: t("gateway"), icon: <HardDrives size={ICON_SIZE.md} /> },
@@ -103,7 +101,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 {tab === "general" && <GeneralTab />}
                 {tab === "models" && <ModelTab />}
                 {tab === "web-search" && <WebSearchTab />}
-                {tab === "skills" && <SkillsTab />}
                 {tab === "sub-agents" && <SubAgentsTab />}
                 {tab === "security" && <SecurityTab />}
                 {tab === "gateway" && <GatewayTab />}
