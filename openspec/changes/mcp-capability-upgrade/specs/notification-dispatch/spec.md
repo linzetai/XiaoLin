@@ -1,6 +1,6 @@
 # Notification Dispatch + Stdio Reader 改造 — 详细技术方案
 
-> **实现状态**：变更 1-4 已完成（T6 ✅），变更 5 已完成（T7 ✅），变更 6-7 待做（T19）。
+> **实现状态**：变更 1-4 已完成（T6 ✅），变更 5 已完成（T7 ✅），变更 6-7 已完成（T19 ✅）。**全部完成。**
 
 ## 现状分析
 
@@ -240,7 +240,13 @@ tokio::spawn(async move {
 });
 ```
 
-### 变更 6: Gateway 订阅 tools/list_changed
+### 变更 6: Gateway 订阅 tools/list_changed ✅ 已实现
+
+> T19 已完成。实际实现与设计方案略有不同：
+> - 使用 `Weak<McpClient>` 而非 `Arc<McpClient>`（防止热重载资源泄漏）
+> - 使用 `fetch_tools(&self)` 而非 `list_tools()` / `refresh_tools(&mut self)`（避免 `&mut` 限制）
+> - 新增 `re_register_tools()` 公开辅助函数封装 unregister + register 逻辑
+> - 区分 `RecvError::Lagged`（warn + continue）和 `RecvError::Closed`（退出）
 
 在 `register_mcp_tools` 返回 `SharedMcpClient` 后，gateway 订阅 notification：
 
@@ -314,7 +320,11 @@ tokio::spawn(async move {
 });
 ```
 
-### 变更 7: McpClient 增加 list_tools 方法 ✅ 已实现（命名为 `refresh_tools`）
+### 变更 7: McpClient 增加 list_tools 方法 ✅ 已实现
+
+> 实际实现为两个 API：
+> - `refresh_tools(&mut self)` — 刷新内部缓存（需要独占引用）
+> - `fetch_tools(&self)` — 只获取不修改缓存（适用于 `Arc<McpClient>` 场景，T19 使用此 API）
 
 当前 `tools()` 返回缓存，需要增加强制刷新版本：
 

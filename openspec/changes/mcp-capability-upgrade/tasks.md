@@ -351,17 +351,26 @@
 > 目标：连接管理健壮性、性能优化、动态更新。
 > **关键洞察**：Codex 的 `tools/list_changed` 也只 log 不处理，XiaoLin 做好 T19 即超越 Codex。
 
-### T19: tools/list_changed 处理
+### T19: tools/list_changed 处理 ✅
 
 **Spec**: [`notification-dispatch/spec.md`](specs/notification-dispatch/spec.md)（Gateway 订阅部分）
-**前置**: T6
-**文件**:
-- `xiaolin-gateway/src/state/mod.rs` → 连接后 `subscribe_notifications()`，处理 `tools/list_changed`：
-  - 调用 `list_tools()` 刷新
-  - `unregister_by_prefix(prefix)` + 重新 register
-  - 推送 `plugins.status_changed` 事件
+**前置**: T6 ✅
+**状态**: ✅ 已完成
 
-**验证**: MCP server 动态添加工具 → XiaoLin 自动感知 + 工具列表更新
+**已完成**:
+- ✅ `xiaolin-mcp/src/lib.rs` — `fetch_tools(&self)` 获取最新工具列表（不需 `&mut self`）
+- ✅ `xiaolin-mcp/src/lib.rs` — `re_register_tools()` 公开函数：`unregister_by_prefix` + 重新注册
+- ✅ `xiaolin-gateway/src/state/mod.rs` — `spawn_notification_watcher()`：
+  - 使用 `Weak<McpClient>` 防止热重载资源泄漏
+  - `tools/list_changed` → `fetch_tools` + `re_register_tools` 刷新 ToolRegistry
+  - `notifications/message` → 按 level (error/warning/info) 路由到 tracing
+  - 区分 `RecvError::Lagged`（warn + continue）和 `RecvError::Closed`（退出）
+- ✅ 启动路径 + 热重载路径均已接入 `spawn_notification_watcher`
+- ✅ Code review 通过：3 个问题已修复（Weak client、Lagged 处理、ToolListResult 复用）
+
+**验证**: ✅ `cargo check` + `cargo clippy -- -D warnings` 零警告 + 37 测试全通过 + E2E 验证（Plugins 页面正确显示 13 tools）
+
+**超越 Codex**：Codex 的 `tools/list_changed` 仅 `info!` 日志不刷新工具；XiaoLin 完整处理链路（fetch + re-register）
 
 ---
 
@@ -561,7 +570,8 @@
 ✅ T16 (Skills)       ─── 完成
 ✅ T17 (Channels)     ─── 完成
 ✅ T18 (EmptyState)   ─── 完成
-❌ T19-T26 (P2)       ←── 各自前置
+✅ T19 (list_changed) ─── 完成
+❌ T20-T26 (P2)       ←── 各自前置
 ❌ T27-T31 (P3)       ←── T2 ✅ + T6
 ❌ T32 (Instructions) ←── T6（新增）
 ❌ T33 (签名去重)     ←── T4（新增）
@@ -573,7 +583,7 @@
 
 1. ~~**T2**（命名全链路）~~ → ✅ 已完成
 2. **T4 + T5**（统一连接入口）— 消除三套重载 + 修复 streamable_http/mcp.add bug，后续所有改进的基础 ← **下一步**
-3. **T6 + T19**（Notification dispatch + list_changed）— 超越 Codex 的机会（Codex 只 log 不处理）
+3. ~~**T6 + T19**（Notification dispatch + list_changed）~~ → ✅ 已完成，已超越 Codex
 4. **T8 + T14**（审批门）— 安全必须项（`.xiaolin/mcp.json` 任意 command 当前直接执行）
 5. **T10 + T33**（配置验证 + 签名去重）— 防御性编程
 6. **T3 剩余 + T12 + T15**（前端工具函数 + Add Modal + Detail Modal）— 用户体验
@@ -587,7 +597,7 @@
 |------|---------|:---:|
 | `naming-pipeline/spec.md` | T2 ✅, T3 ⚠️ | 75% |
 | `transport-fix/spec.md` | T4 ✅, T5 ✅, T9 ✅, T10 ✅ | 100% |
-| `notification-dispatch/spec.md` | T6 ✅, T7 ✅, T19 | 67% |
+| `notification-dispatch/spec.md` | T6 ✅, T7 ✅, T19 ✅ | 100% |
 | `approval-gate/spec.md` | T8, T14 | 0% |
 | `deferred-pipeline/spec.md` | T27, T28, T29, T30, T31 | 0% |
 | `plugins-ui/spec.md` | T1 ✅, T11-T18 (4✅ 4❌) | 63% |
@@ -596,12 +606,12 @@
 
 - **P0**：8/10 完成（T1 ✅, T2 ✅, T4 ✅, T5 ✅, T6 ✅, T7 ✅, T9 ✅, T10 ✅），1/10 部分完成（T3 ⚠️），1/10 未开始（T8）
 - **P1**：4/9 完成（T11 ✅, T16 ✅, T17 ✅, T18 ✅），5/9 待做（含 T10.5 UI 风格统一）
-- **P2**：0/8 完成 + 2 新增任务（T32, T33）
+- **P2**：1/8 完成（T19 ✅） + 2 新增任务（T32, T33）
 - **P3**：0/5 完成 + 2 新增任务（T32, T33 归属 P3）
-- **总计**：12/34 完成 + 1 部分完成（~36%），**当前评分 ~65/100**
+- **总计**：13/34 完成 + 1 部分完成（~39%），**当前评分 ~70/100**
 
 ### 关键阻塞项（按优先级）
 
 1. **T4+T5（统一连接入口）**：所有后续改进的基础，解除 T6/T8/T10/T12 的前置依赖
-2. **T6（Notification dispatch）**：解除 T19/T27/T32 的前置依赖
+2. ~~**T6（Notification dispatch）**~~：✅ 已完成，T19 也已完成
 3. **T8（审批门后端）**：安全风险，解除 T14 UI 前置依赖

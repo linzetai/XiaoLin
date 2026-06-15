@@ -4,7 +4,7 @@
 
 对标 Codex CLI 和 Claude Code 的 MCP 实现，将 XiaoLin 的 MCP 能力从约 30 分提升到 100 分。
 
-**当前进度**：~65 分（2026-06-15）。12/34 任务完成 + 1 部分完成。P1 UI 重构已完成，P0 命名（T2）、Transport 统一（T4+T5）、Notification Dispatch（T6）均已完成并通过 E2E 验证。Notification channel 已就绪，下一步 T19（gateway 订阅 `tools/list_changed`）即可超越 Codex。主要差距集中在：安全审批门、Deferred 工具注入、前端安装流程。
+**当前进度**：~70 分（2026-06-15）。13/34 任务完成 + 1 部分完成。P1 UI 重构已完成，P0 命名（T2）、Transport 统一（T4+T5）、Notification Dispatch（T6）、Gateway tools/list_changed（T19）均已完成并通过 E2E 验证。**Notification 处理已超越 Codex**（Codex 只 log 不处理 tools/list_changed）。主要差距集中在：安全审批门、Deferred 工具注入、前端安装流程。
 
 ## 动机
 
@@ -28,7 +28,7 @@
 | **Transport 管理面** | ✅ `connect_mcp_server` 统一入口（T4+T5） | 统一 `AsyncManagedClient` → `make_rmcp_client` | 统一 `connectToServer` [memoized] |
 | **工具命名** | ✅ `mcp__` 全链路（T2 完成） | `mcp__` 全链路 + hash 去重 + 64B 截断 | `mcp__` 全链路 |
 | **Deferred Loading** | ❌ 全量 eager + 双注入 | 阈值 100 + BM25 search + startup snapshot | **默认 defer** + 10% context window |
-| **Notification** | ✅ broadcast dispatch（T6 完成） | ⚠️ 只 log 不处理 | ✅ 完整 list_changed 链路（三类） |
+| **Notification** | ✅ broadcast dispatch + tools/list_changed 完整链路（T6+T19 完成，**超越 Codex**） | ⚠️ 只 log 不处理 | ✅ 完整 list_changed 链路（三类） |
 | **自动重连** | ❌ | ⚠️ StreamableHTTP 404 session 恢复 | ✅ remote 指数退避 5 次 + 3 连续错误触发 |
 | **批次限制** | ❌ | ✅ JoinSet 并行（无 cap） | ✅ local 3 / remote 20 |
 | **启动超时** | ❌ 仅 RPC 30s | ✅ per-server 30s + required 标志 | ✅ 30s |
@@ -42,7 +42,7 @@
 
 ### 关键洞察
 
-1. **Codex 也没处理 `tools/list_changed`**（只 log）→ XiaoLin 做好此项即超越 Codex
+1. ~~**Codex 也没处理 `tools/list_changed`**（只 log）~~ → ✅ T19 已完成，XiaoLin 已超越 Codex
 2. **Claude Code 默认 defer 所有 MCP 工具**（非阈值触发）→ 更激进但效果显著
 3. **Claude Code 的 instructions delta 注入**避免 system prompt 变化导致 prompt cache 失效
 4. **Codex 已完全弃用 legacy SSE**，只保留 Stdio + StreamableHTTP → 更符合 MCP 2025-06-18 规范
@@ -163,8 +163,9 @@ PluginsView 已重构为 **MCP + Skills + Channels 的统一管理入口**：
 
 ```
 ~30 分 (初始)  →  ~45 分 (P1 UI 完成)  →  ~50 分 (T2 命名完成)
-→  ~60 分 (T4+T5 统一连接)  →  ★ ~65 分 (T6 Notification Dispatch) ← 当前
-→  ~70 分 (T19 tools/list_changed)  →  ~76 分 (T8 审批门)
-→  ~83 分 (T12+T15 MCP UI)  →  ~90 分 (T20-T22 重连/超时)
-→  ~97 分 (T27-T31 Deferred)  →  100 分 (T32+T33 Delta+去重)
+→  ~60 分 (T4+T5 统一连接)  →  ~65 分 (T6 Notification Dispatch)
+→  ★ ~70 分 (T19 tools/list_changed, 超越 Codex) ← 当前
+→  ~76 分 (T8 审批门)  →  ~83 分 (T12+T15 MCP UI)
+→  ~90 分 (T20-T22 重连/超时)  →  ~97 分 (T27-T31 Deferred)
+→  100 分 (T32+T33 Delta+去重)
 ```
