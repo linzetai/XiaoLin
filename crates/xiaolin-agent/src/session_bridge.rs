@@ -814,6 +814,32 @@ impl TurnExecutor for RuntimeTurnExecutor {
             }
         };
 
+        // Cancel active sub-agents BEFORE aborting the injector, so events can still flow.
+        if let Some(ref mgr) = self.subagent_manager {
+            let active = mgr.active_runs(&session_id_str);
+            if !active.is_empty() {
+                tracing::info!(
+                    session_id = %session_id_str,
+                    count = active.len(),
+                    "cancelling active sub-agents on session end"
+                );
+                for run in &active {
+                    mgr.cancel(&run.run_id);
+                    // Use try_send to avoid blocking during the 100ms cancel grace period.
+                    let _ = tx.try_send(AgentEvent::SubAgentComplete {
+                        turn_id: Default::default(),
+                        run_id: run.run_id.clone(),
+                        status: "cancelled".into(),
+                        result: None,
+                        tool_calls_made: 0,
+                        iterations: 0,
+                        usage: None,
+                        elapsed_ms: run.elapsed_ms.unwrap_or(0),
+                    });
+                }
+            }
+        }
+
         injector.abort();
         drop(steer_inbox);
 

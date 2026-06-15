@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { GitBranch, Crosshair, Terminal, Robot } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
@@ -8,8 +8,9 @@ import { useWorkspaceTabs } from "./workspace-tabs";
 import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
 import { GoalTabContent } from "./GoalPanel";
 import { TerminalTabContent } from "./TerminalTabContent";
-import { CoordinatorTabContent } from "./CoordinatorPanel";
+import { SubAgentsTabContent } from "./CoordinatorPanel";
 import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
@@ -19,6 +20,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const gitStatus = useGitStore((s) => s.status);
   const terminalSessions = useTerminalStore((s) => s.sessions);
   const subAgentRuns = useActiveSubAgentRuns();
+  const activeChatId = useChatMetaStore((s) => s.activeChatId);
+  const prevChatRef = useRef(activeChatId);
+
+  useEffect(() => {
+    if (activeChatId !== prevChatRef.current) {
+      useWorkspaceTabs.getState().switchSession(activeChatId, prevChatRef.current);
+      prevChatRef.current = activeChatId;
+    }
+  }, [activeChatId]);
 
   useEffect(() => {
     registerTab({
@@ -46,17 +56,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [registerTab, t]);
 
   useEffect(() => {
-    const hasCoordinator = Object.values(subAgentRuns).some((r) => r.subagentType === "coordinator");
-    if (hasCoordinator) {
+    const hasSubAgents = Object.keys(subAgentRuns).length > 0;
+    if (hasSubAgents) {
       registerTab({
-        id: "coordinator",
-        label: "Coordinator",
+        id: "subagents",
+        label: "SubAgents",
         icon: Robot,
-        component: CoordinatorTabContent,
+        component: SubAgentsTabContent,
         order: 4,
       });
+      const { activeTabId: currentTab, panelOpen } = useWorkspaceTabs.getState();
+      if (currentTab !== "subagents" && !panelOpen) {
+        useWorkspaceTabs.getState().setActiveTab("subagents");
+      }
     } else {
-      unregisterTab("coordinator");
+      unregisterTab("subagents");
     }
   }, [subAgentRuns, registerTab, unregisterTab]);
 

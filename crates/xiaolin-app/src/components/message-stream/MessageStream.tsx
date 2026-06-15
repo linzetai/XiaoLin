@@ -20,7 +20,6 @@ import { MessageRendererRow } from "./MessageRenderer";
 
 import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
-import { SubAgentMonitor } from "./SubAgentMonitor";
 import { PlanPanel } from "./PlanPanel";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
@@ -920,8 +919,6 @@ export function MessageStream(_props: MessageStreamProps) {
           </button>
         </div>
       )}
-
-      <SubAgentMonitor />
 
       {!isEmpty && (
         <StreamFooter

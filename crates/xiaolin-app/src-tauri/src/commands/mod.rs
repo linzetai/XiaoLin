@@ -2,6 +2,7 @@ pub mod agent;
 pub mod audio_capture;
 pub mod clipboard;
 pub mod config;
+pub mod http_proxy;
 pub mod migration;
 pub mod session;
 pub mod skill;
@@ -15,6 +16,7 @@ pub use clipboard::{
     read_image_file, ClipboardState,
 };
 pub use config::get_gateway_info;
+pub use http_proxy::http_proxy;
 pub use migration::{export_data, import_data};
 pub use session::export_session_content;
 pub use skill::upload_skill;

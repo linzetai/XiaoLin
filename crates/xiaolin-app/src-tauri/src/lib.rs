@@ -307,6 +307,7 @@ pub fn run() {
         // All business logic goes through WebSocket
         .invoke_handler(tauri::generate_handler![
             commands::config::get_gateway_info,
+            commands::http_proxy::http_proxy,
             commands::session::export_session_content,
             commands::agent::upload_agent_avatar,
             commands::agent::read_identity_files,

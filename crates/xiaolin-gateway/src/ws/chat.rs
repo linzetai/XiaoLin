@@ -1086,6 +1086,28 @@ pub async fn spawn_chat(
             }
         }
 
+        // After TurnEnd/TurnAborted, drain any trailing SubAgentComplete events
+        // that the relay task may still be forwarding (race with emit_sync).
+        {
+            let drain_deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
+            loop {
+                match tokio::time::timeout_at(drain_deadline, event_rx.recv()).await {
+                    Ok(Some(se)) => {
+                        if matches!(
+                            &se.msg,
+                            AgentEvent::SubAgentComplete { .. }
+                                | AgentEvent::SubAgentNotification { .. }
+                                | AgentEvent::GoalUpdated { .. }
+                        ) {
+                            let resp = forward_event(&se.msg, &rid);
+                            let _ = bg_tx.send(resp).await;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        }
+
         // Session actor emits TurnAborted when cancelled, so the event loop
         // above already forwards it. No need to synthesize one.
 

@@ -398,7 +398,7 @@ fn default_concurrency_max_global() -> usize {
     20
 }
 fn default_concurrency_max_per_session() -> usize {
-    5
+    15
 }
 fn default_slot_acquire_timeout() -> u64 {
     30

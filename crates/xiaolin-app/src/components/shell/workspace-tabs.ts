@@ -67,6 +67,8 @@ interface WorkspaceTabsState {
   panelOpen: boolean;
   panelWidth: number;
   prePanelWidth: number | null;
+  /** Per-session tab memory: sessionId → last activeTabId */
+  sessionTabMap: Record<string, string>;
 
   registerTab: (tab: WorkspaceTab) => void;
   unregisterTab: (id: string) => void;
@@ -74,6 +76,8 @@ interface WorkspaceTabsState {
   setPanelOpen: (open: boolean) => void;
   togglePanel: () => void;
   setPanelWidth: (width: number) => void;
+  /** Call when active session changes to save/restore tab state */
+  switchSession: (newSessionId: string, oldSessionId?: string) => void;
 }
 
 function loadPanelWidth(): number {
@@ -93,6 +97,7 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   panelOpen: false,
   panelWidth: loadPanelWidth(),
   prePanelWidth: null,
+  sessionTabMap: {},
 
   registerTab: (tab) => {
     set((s) => {
@@ -161,5 +166,23 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
     try {
       localStorage.setItem("xiaolin:panel-width", String(clamped));
     } catch {}
+  },
+
+  switchSession: (newSessionId, oldSessionId) => {
+    const { activeTabId, tabs, sessionTabMap } = get();
+    const updates: Partial<WorkspaceTabsState> = {};
+
+    if (oldSessionId && activeTabId) {
+      updates.sessionTabMap = { ...sessionTabMap, [oldSessionId]: activeTabId };
+    }
+
+    const savedTab = (updates.sessionTabMap ?? sessionTabMap)[newSessionId];
+    if (savedTab && tabs.some((t) => t.id === savedTab)) {
+      updates.activeTabId = savedTab;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      set(updates as WorkspaceTabsState);
+    }
   },
 }));

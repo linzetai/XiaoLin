@@ -241,6 +241,26 @@ export async function cancelSubAgentRun(runId: string): Promise<void> {
   await wsClient.send("subagents.cancel", { runId });
 }
 
+export interface SubAgentRunWs {
+  runId: string;
+  parentSessionId: string;
+  agentId: string;
+  subagentType: string;
+  task: string;
+  status: string;
+  result?: string | null;
+  elapsedMs?: number | null;
+  toolCallsMade: number;
+  iterations: number;
+}
+
+export async function listSubAgentRunsWs(sessionId?: string): Promise<SubAgentRunWs[]> {
+  const resp = (await wsClient.send("sub_agents.runs", sessionId ? { sessionId } : {})) as {
+    data?: { runs?: SubAgentRunWs[] };
+  };
+  return resp?.data?.runs ?? [];
+}
+
 export async function sendSteeringMessage(
   runId: string,
   message: string,

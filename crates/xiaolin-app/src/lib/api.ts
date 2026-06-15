@@ -11,7 +11,23 @@ function ensureBase(): string {
   return base;
 }
 
+let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
+
+async function getTauriInvoke() {
+  if (tauriInvoke) return tauriInvoke;
+  if (!transport.isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  tauriInvoke = invoke;
+  return tauriInvoke;
+}
+
 async function httpGet<T>(path: string): Promise<T> {
+  const invoke = await getTauriInvoke();
+  if (invoke) {
+    const resp = (await invoke("http_proxy", { request: { method: "GET", path, body: null } })) as { status: number; body: T };
+    if (resp.status >= 400) throw new Error(`HTTP ${resp.status}`);
+    return resp.body;
+  }
   const base = ensureBase();
   const resp = await fetch(`${base}${path}`);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -19,6 +35,12 @@ async function httpGet<T>(path: string): Promise<T> {
 }
 
 async function httpPost<T>(path: string, body?: unknown): Promise<T> {
+  const invoke = await getTauriInvoke();
+  if (invoke) {
+    const resp = (await invoke("http_proxy", { request: { method: "POST", path, body: body ?? null } })) as { status: number; body: T };
+    if (resp.status >= 400) throw new Error(`HTTP ${resp.status}`);
+    return resp.body;
+  }
   const base = ensureBase();
   const resp = await fetch(`${base}${path}`, {
     method: "POST",
@@ -30,6 +52,12 @@ async function httpPost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function httpPut<T>(path: string, body?: unknown): Promise<T> {
+  const invoke = await getTauriInvoke();
+  if (invoke) {
+    const resp = (await invoke("http_proxy", { request: { method: "PUT", path, body: body ?? null } })) as { status: number; body: T };
+    if (resp.status >= 400) throw new Error(`HTTP ${resp.status}`);
+    return resp.body;
+  }
   const base = ensureBase();
   const resp = await fetch(`${base}${path}`, {
     method: "PUT",
@@ -41,6 +69,12 @@ async function httpPut<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function httpDelete(path: string): Promise<void> {
+  const invoke = await getTauriInvoke();
+  if (invoke) {
+    const resp = (await invoke("http_proxy", { request: { method: "DELETE", path, body: null } })) as { status: number; body: unknown };
+    if (resp.status >= 400) throw new Error(`HTTP ${resp.status}`);
+    return;
+  }
   const base = ensureBase();
   const resp = await fetch(`${base}${path}`, { method: "DELETE" });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -55,6 +89,35 @@ export const getConfig = transport.getConfig;
 export const setConfig = transport.setConfig;
 export const cancelSubAgentRun = transport.cancelSubAgentRun;
 export const sendSteeringMessage = transport.sendSteeringMessage;
+
+export interface SubAgentRunInfo {
+  runId: string;
+  parentSessionId: string;
+  agentId: string;
+  subagentType: string;
+  task: string;
+  status: string;
+  result?: string | null;
+  elapsedMs?: number;
+  toolCallsMade: number;
+  iterations: number;
+}
+
+export async function listSubAgentRuns(sessionId?: string): Promise<SubAgentRunInfo[]> {
+  const runs = await transport.listSubAgentRunsWs(sessionId);
+  return runs.map((r) => ({
+    runId: r.runId,
+    parentSessionId: r.parentSessionId,
+    agentId: r.agentId,
+    subagentType: r.subagentType,
+    task: r.task,
+    status: r.status,
+    result: r.result,
+    elapsedMs: r.elapsedMs ?? undefined,
+    toolCallsMade: r.toolCallsMade,
+    iterations: r.iterations,
+  }));
+}
 export const updateSessionTitle = transport.updateSessionTitle;
 export const deleteSession = transport.deleteSession;
 export const createSession = transport.createSession;

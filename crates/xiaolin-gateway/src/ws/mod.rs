@@ -365,6 +365,39 @@ async fn dispatch(
             )
             .await;
         }
+        ClientOp::SubAgentsRuns { session_id } => {
+            let runs = state.strm.subagent_manager.list_runs(session_id.as_deref());
+            let runs_json: Vec<serde_json::Value> = runs
+                .into_iter()
+                .map(|r| {
+                    let resp: crate::routes::subagent::SubAgentRunResponse = r.into();
+                    serde_json::to_value(resp).unwrap_or_default()
+                })
+                .collect();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "sub_agents.runs".into(),
+                    data: Some(json!({ "runs": runs_json })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        ClientOp::SubAgentCancel { run_id } => {
+            state.strm.subagent_manager.cancel(&run_id);
+            send_resp(
+                sender,
+                &WsResponse {
+                    id,
+                    msg_type: "subagents.cancel".into(),
+                    data: Some(serde_json::json!({"ok": true})),
+                    error: None,
+                },
+            )
+            .await;
+        }
         ClientOp::AgentsList => agents::handle_agents(sender, state, id).await,
         ClientOp::Chat { params } => {
             chat::spawn_chat(

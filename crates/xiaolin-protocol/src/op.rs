@@ -225,7 +225,13 @@ pub enum ClientOp {
 
     // ── Sub-Agent definitions ────────────────────────────────────────
     SubAgentsList,
+    SubAgentsRuns {
+        session_id: Option<String>,
+    },
     SubAgentsConcurrency,
+    SubAgentCancel {
+        run_id: String,
+    },
 
     // ── Agent CRUD (deprecated) ───────────────────────────────────
     AgentsList,
@@ -663,7 +669,18 @@ impl ClientOp {
                 id: extract_string(&params, "id")?,
             }),
             "sub_agents.list" => Ok(Self::SubAgentsList),
+            "sub_agents.runs" | "subagents.runs" => {
+                let session_id = extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))
+                    .ok();
+                Ok(Self::SubAgentsRuns { session_id })
+            }
             "sub_agents.concurrency" => Ok(Self::SubAgentsConcurrency),
+            "subagents.cancel" | "sub_agents.cancel" => {
+                let run_id = extract_string(&params, "runId")
+                    .or_else(|_| extract_string(&params, "run_id"))?;
+                Ok(Self::SubAgentCancel { run_id })
+            }
             "agents" | "agents.list" => Ok(Self::AgentsList),
             "agents.get" => Ok(Self::AgentsGet {
                 agent_id: AgentId::new(extract_string(&params, "agentId")
