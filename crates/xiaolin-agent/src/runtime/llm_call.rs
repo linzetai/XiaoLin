@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use xiaolin_core::tool::ToolProfile;
 use xiaolin_core::types::{ChatMessage, Role};
 use xiaolin_protocol::{AgentEvent, ExecutionMode, TurnSummary, WarningCategory};
 
@@ -17,6 +18,7 @@ use super::query_state::{self, ESCALATED_MAX_TOKENS};
 use super::stream_engine::{send_step, send_stream_event};
 use super::streaming_tool_executor::{StreamingExecutorConfig, StreamingToolExecutor};
 use super::task_decomposer;
+use super::tool_executor::filter_tool_definitions;
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::{
     apply_message_budget, classify_stream_error_code, inject_tool_recovery_guidance,
@@ -79,14 +81,42 @@ pub(crate) async fn perform_llm_call(
     svc: &TurnServices,
     estimated_tokens: usize,
 ) -> LlmCallOutcome {
-    let total_est_with_tools = estimated_tokens + svc.tool_defs_est_tokens;
+    // Refresh tool_defs if the registry changed (e.g. tool_search activated a deferred tool)
+    let current_reg_version = svc.tool_registry.version();
+    if current_reg_version != ms.registry_version_at_setup {
+        let mode_profile = svc
+            .mode_state
+            .as_ref()
+            .map(|mode_s| match mode_s.current_mode() {
+                ExecutionMode::Plan => ToolProfile::plan_mode(),
+                _ => ToolProfile::default(),
+            })
+            .unwrap_or_default();
+        let mut all_defs = svc.tool_registry.definitions_with_profile(&mode_profile);
+        all_defs.extend(ms.extra_tool_defs.iter().cloned());
+        ms.tool_defs = filter_tool_definitions(&all_defs, &svc.config);
+        ms.tool_defs_est_tokens = ms
+            .tool_defs
+            .iter()
+            .map(|td| serde_json::to_string(td).map(|s| s.len()).unwrap_or(0))
+            .sum::<usize>()
+            / 4;
+        ms.registry_version_at_setup = current_reg_version;
+        tracing::info!(
+            count = ms.tool_defs.len(),
+            est_tokens = ms.tool_defs_est_tokens,
+            "tool_defs refreshed after registry change"
+        );
+    }
+
+    let total_est_with_tools = estimated_tokens + ms.tool_defs_est_tokens;
     tracing::info!(
         agent_id = %svc.config.agent_id,
         model = %svc.model,
         iteration = ms.query_loop.iteration,
         msg_count = ms.messages.len(),
         msg_tokens = estimated_tokens,
-        tool_def_tokens = svc.tool_defs_est_tokens,
+        tool_def_tokens = ms.tool_defs_est_tokens,
         total_est = total_est_with_tools,
         context_window = svc.context_window,
         "streaming LLM call"
@@ -194,10 +224,10 @@ pub(crate) async fn perform_llm_call(
     let acc_tokens_before_stream =
         ms.query_loop.acc_prompt_tokens + ms.query_loop.acc_completion_tokens;
 
-    let tools_for_llm = if svc.tool_defs.is_empty() {
+    let tools_for_llm = if ms.tool_defs.is_empty() {
         None
     } else {
-        Some(svc.tool_defs.as_slice())
+        Some(ms.tool_defs.as_slice())
     };
 
     'stream_try: loop {

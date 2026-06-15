@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use xiaolin_core::tool::ToolProfile;
+use xiaolin_core::tool::{ToolDefinition, ToolProfile};
 use xiaolin_core::types::Role;
 use xiaolin_protocol::{ExecutionMode, TurnId};
 
@@ -133,10 +133,13 @@ pub(crate) async fn setup_turn(
             _ => ToolProfile::default(),
         })
         .unwrap_or_default();
+    let extra_tool_defs: Vec<ToolDefinition> = request
+        .tools
+        .as_deref()
+        .unwrap_or(&[])
+        .to_vec();
     let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
-    if let Some(extra) = &request.tools {
-        all_tool_defs.extend(extra.iter().cloned());
-    }
+    all_tool_defs.extend(extra_tool_defs.iter().cloned());
     let tool_defs = filter_tool_definitions(&all_tool_defs, config);
     let tool_defs_json_chars: usize = tool_defs
         .iter()
@@ -304,6 +307,7 @@ pub(crate) async fn setup_turn(
         );
     }
 
+    let registry_version_at_setup = tool_registry.version();
     let mutable_state = TurnMutableState {
         messages,
         max_tokens,
@@ -321,6 +325,10 @@ pub(crate) async fn setup_turn(
         trajectory_steps: Vec::new(),
         budget_tracker,
         token_budget_reached: false,
+        tool_defs,
+        tool_defs_est_tokens,
+        registry_version_at_setup,
+        extra_tool_defs,
     };
 
     let turn_services = TurnServices {
@@ -330,8 +338,6 @@ pub(crate) async fn setup_turn(
         model,
         temperature,
         context_window,
-        tool_defs,
-        tool_defs_est_tokens,
         auto_compact_enabled,
         config: Arc::new(config.clone()),
         session_id: request.session_id.clone().map(Into::into),

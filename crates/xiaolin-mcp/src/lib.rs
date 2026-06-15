@@ -141,6 +141,24 @@ pub struct McpTool {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<serde_json::Value>,
+    /// Server-defined metadata (MCP `_meta` field).
+    /// Used to carry hints like `{"alwaysLoad": true}` that influence
+    /// whether a tool stays eager when others are deferred.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "_meta")]
+    pub meta: Option<serde_json::Value>,
+}
+
+impl McpTool {
+    /// Whether this tool declares `_meta.alwaysLoad: true`, indicating
+    /// it should remain in the eager set even when the server's tools are
+    /// bulk-deferred due to token budget.
+    pub fn always_load(&self) -> bool {
+        self.meta
+            .as_ref()
+            .and_then(|m| m.get("alwaysLoad"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1338,6 +1356,7 @@ pub fn create_xiaolin_mcp_server(
             name: tool_name.clone(),
             description: Some(def.function.description.clone()),
             input_schema: Some(serde_json::to_value(&def.function.parameters).unwrap_or_default()),
+            meta: None,
         };
 
         let registry = tool_registry.clone();
@@ -1375,13 +1394,18 @@ pub struct McpToolBridge {
     schema: serde_json::Value,
     client: SharedMcpClient,
     server_prefix: String,
+    hint: String,
+    keep_eager: bool,
 }
 
 impl McpToolBridge {
     fn new(mcp_tool: &McpTool, client: SharedMcpClient, server_prefix: &str) -> Self {
+        let desc = mcp_tool.description.clone().unwrap_or_default();
         Self {
             tool_name: format!("{server_prefix}{}", mcp_tool.name),
-            description: mcp_tool.description.clone().unwrap_or_default(),
+            hint: format!("{} {}", mcp_tool.name, desc),
+            keep_eager: mcp_tool.always_load(),
+            description: desc,
             schema: mcp_tool.input_schema.clone().unwrap_or(serde_json::json!({
                 "type": "object",
                 "properties": {},
@@ -1400,6 +1424,14 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
 
     fn description(&self) -> &str {
         &self.description
+    }
+
+    fn search_hint(&self) -> &str {
+        &self.hint
+    }
+
+    fn force_eager(&self) -> bool {
+        self.keep_eager
     }
 
     fn parameters_schema(&self) -> xiaolin_core::tool::ToolParameterSchema {
@@ -1670,6 +1702,7 @@ mod tests {
             name: "echo".into(),
             description: Some("echo input".into()),
             input_schema: None,
+            meta: None,
         });
 
         let req = JsonRpcRequest {
@@ -1718,6 +1751,7 @@ mod tests {
             name: "greet".into(),
             description: Some("greet someone".into()),
             input_schema: None,
+            meta: None,
         };
         server.register_tool(tool, |args| async move {
             let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("world");
@@ -1837,6 +1871,7 @@ mod tests {
                             name: "t1".into(),
                             description: None,
                             input_schema: None,
+                            meta: None,
                         }],
                     })
                     .unwrap(),
@@ -1946,6 +1981,7 @@ mod tests {
                             name: "after_ping".into(),
                             description: None,
                             input_schema: None,
+                            meta: None,
                         }],
                     })
                     .unwrap(),
@@ -2288,11 +2324,13 @@ mod tests {
                                 name: "alpha".into(),
                                 description: Some("first tool".into()),
                                 input_schema: None,
+                                meta: None,
                             },
                             McpTool {
                                 name: "beta".into(),
                                 description: None,
                                 input_schema: None,
+                                meta: None,
                             },
                         ],
                     })

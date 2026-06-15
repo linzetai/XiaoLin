@@ -58,6 +58,50 @@ pub fn validate_agents_for_reload(agents: &[AgentConfig]) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// When the total number of eager tool definitions exceeds this threshold,
+/// MCP server tools are bulk-demoted to the deferred set (discoverable via
+/// `tool_search`). Tools with `force_eager() == true` are preserved.
+const MCP_DEFER_TOOL_THRESHOLD: usize = 128;
+
+/// Check total eager tool count and defer MCP tools if over threshold.
+///
+/// Iterates through connected MCP server prefixes and demotes each server's
+/// tools until the eager count drops below the threshold. Servers whose tools
+/// are all `force_eager` are unaffected.
+fn maybe_defer_mcp_tools<'a>(
+    registry: &ToolRegistry,
+    server_ids: impl Iterator<Item = &'a String>,
+) {
+    let eager_before = registry.eager_definitions().len();
+    if eager_before <= MCP_DEFER_TOOL_THRESHOLD {
+        tracing::debug!(
+            eager_count = eager_before,
+            threshold = MCP_DEFER_TOOL_THRESHOLD,
+            "tool count within threshold, no MCP deferral needed"
+        );
+        return;
+    }
+
+    let mut total_deferred = 0usize;
+    for id in server_ids {
+        let prefix = xiaolin_mcp::naming::mcp_server_prefix(id);
+        total_deferred += registry.demote_to_deferred_by_prefix(&prefix);
+        if registry.eager_definitions().len() <= MCP_DEFER_TOOL_THRESHOLD {
+            break;
+        }
+    }
+
+    if total_deferred > 0 {
+        tracing::info!(
+            total_deferred,
+            eager_before,
+            eager_after = registry.eager_definitions().len(),
+            threshold = MCP_DEFER_TOOL_THRESHOLD,
+            "MCP tools deferred to keep eager set under threshold"
+        );
+    }
+}
+
 mod builder;
 mod helpers;
 
@@ -482,6 +526,8 @@ impl AppState {
         for id in &to_remove {
             new_status.remove(id);
         }
+
+        maybe_defer_mcp_tools(&self.rt.tool_registry, handles.keys());
 
         new_status.extend(pending_status);
         self.ext.mcp_status.store(Arc::new(new_status));
@@ -1032,6 +1078,8 @@ impl AppState {
             );
         }
 
+        maybe_defer_mcp_tools(tool_registry, handles_map.keys());
+
         Ok((status_map, handles_map))
     }
 
@@ -1075,6 +1123,14 @@ impl AppState {
                                             &registry,
                                             &prefix,
                                         );
+                                        if registry.eager_definitions().len() > MCP_DEFER_TOOL_THRESHOLD {
+                                            let demoted = registry.demote_to_deferred_by_prefix(&prefix);
+                                            tracing::info!(
+                                                mcp_id = %id,
+                                                demoted,
+                                                "deferred tools after list_changed to stay within threshold"
+                                            );
+                                        }
                                         tracing::info!(
                                             mcp_id = %id,
                                             count,

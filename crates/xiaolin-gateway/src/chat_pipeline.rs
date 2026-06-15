@@ -633,15 +633,19 @@ Guidance:\n\
 }
 
 fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
-    let mcp_tools = state.rt.tool_registry.mcp_definitions();
+    let eager_tools = state.rt.tool_registry.eager_mcp_definitions();
+    let deferred_names = state.rt.tool_registry.deferred_tool_names();
+
+    let total = eager_tools.len() + deferred_names.len();
 
     tracing::debug!(
-        mcp_tools = mcp_tools.len(),
+        eager = eager_tools.len(),
+        deferred = deferred_names.len(),
         global_mcp_configured = state.cfg.config.mcp_servers.len(),
         "inject_mcp_tools_prompt check"
     );
 
-    if mcp_tools.is_empty() {
+    if total == 0 {
         if !state.cfg.config.mcp_servers.is_empty() {
             tracing::warn!(
                 configured = state.cfg.config.mcp_servers.len(),
@@ -653,7 +657,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
 
     let mut servers: std::collections::BTreeMap<String, Vec<(&str, &str)>> =
         std::collections::BTreeMap::new();
-    for td in &mcp_tools {
+    for td in &eager_tools {
         let name = &td.function.name;
         if let Some((server_id, _tool_name)) = xiaolin_mcp::naming::parse_mcp_tool_name(name) {
             servers
@@ -693,10 +697,29 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         prompt.push('\n');
     }
 
+    if !deferred_names.is_empty() {
+        prompt.push_str(&format!(
+            "### Deferred Tools ({} additional tools available on demand)\n\
+             The following tools are not loaded by default to save context. \
+             Use `tool_search` with a keyword to discover and activate them:\n",
+            deferred_names.len()
+        ));
+        for name in &deferred_names {
+            prompt.push_str(&format!("- `{name}`\n"));
+        }
+        prompt.push('\n');
+    }
+
     prompt.push_str(
         "Use these MCP tools just like built-in tools — call them by their full prefixed name (e.g. `mcp__serverId__toolName`). \
          MCP tools extend your capabilities with external integrations."
     );
+
+    if !deferred_names.is_empty() {
+        prompt.push_str(
+            " When you need a tool that isn't in your current set, call `tool_search` with a descriptive keyword to find and activate it."
+        );
+    }
 
     messages.insert(
         0,

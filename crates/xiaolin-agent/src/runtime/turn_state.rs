@@ -54,6 +54,16 @@ pub(crate) struct TurnMutableState {
     pub budget_tracker: Option<BudgetTracker>,
     /// Set to true when token budget was reached in this turn (for TurnEnd reason override).
     pub token_budget_reached: bool,
+    /// Tool definitions sent to the LLM. Refreshed when the registry version changes
+    /// (e.g. after `tool_search` activates a deferred tool).
+    pub tool_defs: Vec<ToolDefinition>,
+    pub tool_defs_est_tokens: usize,
+    /// Snapshot of `ToolRegistry::version()` at the time `tool_defs` was built.
+    pub registry_version_at_setup: u64,
+    /// Extra tool definitions injected by the channel request (`request.tools`).
+    /// Preserved across `tool_defs` refreshes so channel-scoped tools survive
+    /// registry version changes.
+    pub extra_tool_defs: Vec<ToolDefinition>,
 }
 
 /// Immutable context and service dependencies for a single agent turn.
@@ -75,8 +85,6 @@ pub(crate) struct TurnServices {
     pub model: String,
     pub temperature: f32,
     pub context_window: u32,
-    pub tool_defs: Vec<ToolDefinition>,
-    pub tool_defs_est_tokens: usize,
     pub auto_compact_enabled: bool,
 
     // --- Request context (only fields used in the loop body) ---

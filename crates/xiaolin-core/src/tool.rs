@@ -367,6 +367,13 @@ pub trait Tool: Send + Sync {
         ToolExposure::Direct
     }
 
+    /// Whether this tool must remain in the eager set even when the deferred
+    /// pipeline bulk-demotes tools (e.g. MCP server tools over token budget).
+    /// Default is `false`. MCP tools with `_meta.alwaysLoad: true` return `true`.
+    fn force_eager(&self) -> bool {
+        false
+    }
+
     /// Deprecated: use `exposure()` instead.
     fn is_deferred(&self) -> bool {
         self.exposure() == ToolExposure::Deferred
@@ -446,6 +453,12 @@ impl ToolRegistry {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Current registry version. Incremented on every register/unregister/activate.
+    /// Callers can snapshot this value and compare later to detect changes.
+    pub fn version(&self) -> u64 {
+        self.version.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn register(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         let is_deferred = tool.exposure() == ToolExposure::Deferred;
@@ -455,21 +468,45 @@ impl ToolRegistry {
         }
         guard.insert(name.clone(), tool);
         drop(guard);
+        let mut def_guard = self.deferred.write().expect("deferred set poisoned");
         if is_deferred {
-            let mut def_guard = self.deferred.write().expect("deferred set poisoned");
             def_guard.insert(name);
+        } else {
+            def_guard.remove(&name);
         }
+        drop(def_guard);
         self.bump_version();
     }
 
     /// Remove all tools whose name starts with `prefix`. Returns the number removed.
+    ///
+    /// Also cleans the `deferred` and `channel_scoped` sets so stale entries
+    /// don't accumulate across hot-reloads.
     pub fn unregister_by_prefix(&self, prefix: &str) -> usize {
         let mut guard = self.tools.write().expect("ToolRegistry poisoned");
         let before = guard.len();
+        let removed_names: Vec<String> = guard
+            .keys()
+            .filter(|name| name.starts_with(prefix))
+            .cloned()
+            .collect();
         guard.retain(|name, _| !name.starts_with(prefix));
         let removed = before - guard.len();
         drop(guard);
         if removed > 0 {
+            let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+            for name in &removed_names {
+                def_guard.remove(name);
+            }
+            drop(def_guard);
+            let mut ch_guard = self
+                .channel_scoped
+                .write()
+                .expect("channel_scoped poisoned");
+            for name in &removed_names {
+                ch_guard.remove(name);
+            }
+            drop(ch_guard);
             self.bump_version();
         }
         removed
@@ -740,6 +777,59 @@ impl ToolRegistry {
                     return true;
                 }
                 !deferred.contains(n)
+            })
+            .map(|t| t.to_definition())
+            .collect()
+    }
+
+    /// Demote all tools matching `prefix` into the deferred set, except those
+    /// where `force_eager()` returns `true`. Returns the number of tools demoted.
+    ///
+    /// Used by the deferred pipeline to bulk-defer an MCP server's tools when
+    /// the total tool token budget exceeds the threshold.
+    pub fn demote_to_deferred_by_prefix(&self, prefix: &str) -> usize {
+        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let to_demote: Vec<String> = tools
+            .iter()
+            .filter(|(name, tool)| name.starts_with(prefix) && !tool.force_eager())
+            .map(|(name, _)| name.clone())
+            .collect();
+        drop(tools);
+
+        if to_demote.is_empty() {
+            return 0;
+        }
+        let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+        let mut count = 0;
+        for name in &to_demote {
+            if def_guard.insert(name.clone()) {
+                count += 1;
+            }
+        }
+        drop(def_guard);
+        if count > 0 {
+            self.bump_version();
+        }
+        count
+    }
+
+    /// Names of all tools currently in the deferred set.
+    pub fn deferred_tool_names(&self) -> Vec<String> {
+        let guard = self.deferred.read().expect("deferred set poisoned");
+        guard.iter().cloned().collect()
+    }
+
+    /// Returns definitions for MCP tools (name starts with `mcp__`) that are
+    /// **not** in the deferred set. Used by prompt injection to describe only
+    /// the eager MCP tools available to the model.
+    pub fn eager_mcp_definitions(&self) -> Vec<ToolDefinition> {
+        let deferred = self.deferred.read().expect("deferred set poisoned");
+        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        tools
+            .values()
+            .filter(|t| {
+                let n = t.name();
+                n.starts_with("mcp__") && !deferred.contains(n)
             })
             .map(|t| t.to_definition())
             .collect()
@@ -1214,6 +1304,39 @@ mod tests {
         let names: Vec<_> = plan_defs.iter().map(|d| d.function.name.as_str()).collect();
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"exit_plan_mode"), "promote should make deferred visible");
+    }
+
+    #[test]
+    fn unregister_by_prefix_cleans_deferred_set() {
+        let reg = ToolRegistry::new();
+        reg.register_deferred(make_tool("mcp__srv__a", ""));
+        reg.register_deferred(make_tool("mcp__srv__b", ""));
+        reg.register(make_tool("eager_x", ""));
+
+        assert_eq!(reg.deferred_count(), 2);
+        let removed = reg.unregister_by_prefix("mcp__srv__");
+        assert_eq!(removed, 2);
+        assert_eq!(reg.deferred_count(), 0, "deferred set should be cleaned");
+        assert_eq!(reg.len(), 1);
+        assert!(reg.get("eager_x").is_some());
+    }
+
+    #[test]
+    fn version_increments_on_mutations() {
+        let reg = ToolRegistry::new();
+        let v0 = reg.version();
+        reg.register(make_tool("a", ""));
+        let v1 = reg.version();
+        assert!(v1 > v0);
+        reg.register_deferred(make_tool("b", ""));
+        let v2 = reg.version();
+        assert!(v2 > v1);
+        reg.unregister_by_prefix("a");
+        let v3 = reg.version();
+        assert!(v3 > v2);
+        reg.activate_deferred("b");
+        let v4 = reg.version();
+        assert!(v4 > v3);
     }
 
     #[test]
