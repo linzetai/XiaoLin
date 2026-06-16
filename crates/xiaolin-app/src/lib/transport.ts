@@ -677,15 +677,28 @@ export async function reloadMcpServers(): Promise<McpServerStatus[]> {
   return resp?.data?.servers ?? [];
 }
 
+export interface AddMcpServerParams {
+  id: string;
+  command?: string;
+  args?: string[];
+  transport?: "stdio" | "sse" | "streamable_http" | "http";
+  url?: string;
+  env?: Record<string, string>;
+}
+
 export async function addMcpServer(
-  id: string,
-  command: string,
-  args?: string[],
+  params: AddMcpServerParams,
 ): Promise<{ ok: boolean; id: string; status?: McpServerStatus }> {
-  const resp = (await wsClient.send("mcp.add", { id, command, args: args ?? [] })) as {
+  const payload: Record<string, unknown> = { id: params.id };
+  if (params.command) payload.command = params.command;
+  if (params.args?.length) payload.args = params.args;
+  if (params.transport) payload.transport = params.transport;
+  if (params.url) payload.url = params.url;
+  if (params.env && Object.keys(params.env).length > 0) payload.env = params.env;
+  const resp = (await wsClient.send("mcp.add", payload)) as {
     data?: { ok?: boolean; id?: string; status?: McpServerStatus };
   };
-  return { ok: resp?.data?.ok ?? false, id: resp?.data?.id ?? id, status: resp?.data?.status };
+  return { ok: resp?.data?.ok ?? false, id: resp?.data?.id ?? params.id, status: resp?.data?.status };
 }
 
 export async function removeMcpServer(id: string): Promise<{ ok: boolean; id: string }> {

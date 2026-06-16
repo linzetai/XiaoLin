@@ -88,6 +88,8 @@ pub struct McpAddParams {
     pub transport: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub env: std::collections::HashMap<String, String>,
     /// Catch-all for forward compatibility
     #[serde(flatten)]
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]

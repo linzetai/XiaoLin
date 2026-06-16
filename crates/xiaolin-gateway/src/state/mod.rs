@@ -63,6 +63,11 @@ pub fn validate_agents_for_reload(agents: &[AgentConfig]) -> anyhow::Result<()> 
 /// `tool_search`). Tools with `force_eager() == true` are preserved.
 const MCP_DEFER_TOOL_THRESHOLD: usize = 128;
 
+/// Max concurrent stdio MCP server connections (process spawns).
+const MCP_STDIO_CONCURRENCY: usize = 3;
+/// Max concurrent remote (SSE/StreamableHttp) MCP server connections.
+const MCP_REMOTE_CONCURRENCY: usize = 20;
+
 /// Check total eager tool count and defer MCP tools if over threshold.
 ///
 /// Iterates through connected MCP server prefixes and demotes each server's
@@ -451,6 +456,8 @@ impl AppState {
         let mut new_status: std::collections::HashMap<String, McpServerStatus> =
             std::collections::HashMap::new();
 
+        // Phase 1: handle disabled servers and collect configs that need (re)connecting.
+        let mut to_reconnect: Vec<(McpServerConfig, String)> = Vec::new();
         for cfg in &desired {
             let scope = if project_scope_ids.contains(&cfg.id) {
                 "project"
@@ -485,40 +492,76 @@ impl AppState {
                 tracing::info!(mcp_id = %cfg.id, "restarting MCP server");
             }
 
-            let tool_count_before = self.rt.tool_registry.len();
-            let connect_result =
-                xiaolin_mcp::connect_mcp_server(cfg, &self.rt.tool_registry).await;
-            match connect_result {
-                Ok(handle) => {
-                    let tool_count = self.rt.tool_registry.len() - tool_count_before;
-                    let now = chrono::Utc::now().to_rfc3339();
-                    tracing::info!(mcp_id = %cfg.id, tool_count, "MCP server connected (hot reload)");
-                    Self::spawn_notification_watcher(&cfg.id, &handle, &self.rt.tool_registry);
-                    new_status.insert(
-                        cfg.id.clone(),
-                        McpServerStatus {
-                            id: cfg.id.clone(),
-                            status: McpStatus::Connected,
-                            tool_count,
-                            connected_at: Some(now),
-                            scope: scope.clone(),
-                            ..Default::default()
-                        },
-                    );
-                    handles.insert(cfg.id.clone(), handle);
-                }
-                Err(e) => {
-                    tracing::warn!(mcp_id = %cfg.id, error = %e, "MCP server failed to connect (hot reload)");
-                    new_status.insert(
-                        cfg.id.clone(),
-                        McpServerStatus {
-                            id: cfg.id.clone(),
-                            status: McpStatus::Failed,
-                            error: Some(e.to_string()),
-                            scope,
-                            ..Default::default()
-                        },
-                    );
+            to_reconnect.push((cfg.clone(), scope));
+        }
+
+        // Phase 2: connect in parallel with semaphore-limited concurrency.
+        {
+            use xiaolin_core::agent_config::McpTransportType;
+
+            let stdio_sem = Arc::new(tokio::sync::Semaphore::new(MCP_STDIO_CONCURRENCY));
+            let remote_sem = Arc::new(tokio::sync::Semaphore::new(MCP_REMOTE_CONCURRENCY));
+
+            let reload_futs: Vec<_> = to_reconnect
+                .iter()
+                .map(|(cfg, scope)| {
+                    let cfg = cfg.clone();
+                    let scope = scope.clone();
+                    let registry = self.rt.tool_registry.clone();
+                    let sem = match cfg.transport.effective() {
+                        McpTransportType::Stdio => stdio_sem.clone(),
+                        _ => remote_sem.clone(),
+                    };
+                    async move {
+                        let _permit = sem.acquire().await.expect("semaphore closed");
+                        let id = cfg.id.clone();
+                        let result =
+                            xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
+                        (id, scope, result)
+                    }
+                })
+                .collect();
+
+            let results = futures::future::join_all(reload_futs).await;
+            for (id, scope, result) in results {
+                match result {
+                    Ok(handle) => {
+                        let tool_count = handle.tools().len();
+                        let now = chrono::Utc::now().to_rfc3339();
+                        tracing::info!(mcp_id = %id, tool_count, "MCP server connected (hot reload)");
+                        Self::spawn_notification_watcher_with_handles(
+                            &id,
+                            &handle,
+                            &self.rt.tool_registry,
+                            Some(self.ext.mcp_handles.clone()),
+                            Some(self.ext.mcp_status.clone()),
+                        );
+                        new_status.insert(
+                            id.clone(),
+                            McpServerStatus {
+                                id: id.clone(),
+                                status: McpStatus::Connected,
+                                tool_count,
+                                connected_at: Some(now),
+                                scope: scope.clone(),
+                                ..Default::default()
+                            },
+                        );
+                        handles.insert(id, handle);
+                    }
+                    Err(e) => {
+                        tracing::warn!(mcp_id = %id, error = %e, "MCP server failed to connect (hot reload)");
+                        new_status.insert(
+                            id.clone(),
+                            McpServerStatus {
+                                id,
+                                status: McpStatus::Failed,
+                                error: Some(e.to_string()),
+                                scope,
+                                ..Default::default()
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -532,6 +575,86 @@ impl AppState {
         new_status.extend(pending_status);
         self.ext.mcp_status.store(Arc::new(new_status));
 
+        Ok(())
+    }
+
+    pub async fn restart_single_mcp_server(&self, server_id: &str) -> anyhow::Result<()> {
+        use xiaolin_core::agent_config::McpServerConfig;
+        use xiaolin_core::types::{McpServerStatus, McpStatus};
+
+        let cfg: Option<McpServerConfig> = {
+            let live = self.cfg.config_live.load();
+            let mcp_val = live
+                .get("mcpServers")
+                .cloned()
+                .unwrap_or(serde_json::Value::Array(vec![]));
+            let all: Vec<McpServerConfig> = serde_json::from_value(mcp_val).unwrap_or_default();
+            all.into_iter().find(|c| c.id == server_id)
+        };
+
+        let cfg = cfg.ok_or_else(|| anyhow::anyhow!("server '{}' not found in config", server_id))?;
+
+        let mut handles = self.ext.mcp_handles.lock().await;
+        if handles.contains_key(server_id) {
+            let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
+            self.rt.tool_registry.unregister_by_prefix(&prefix);
+            handles.remove(server_id);
+        }
+
+        let scope = {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+            let project = xiaolin_core::agent_config::load_project_mcp_config(&ws_root);
+            if project.map_or(false, |p| p.to_mcp_server_configs().iter().any(|c| c.id == server_id)) {
+                "project"
+            } else {
+                "global"
+            }
+        }.to_string();
+
+        let result = xiaolin_mcp::connect_mcp_server(&cfg, &self.rt.tool_registry).await;
+        let mut status_map: std::collections::HashMap<String, McpServerStatus> =
+            (**self.ext.mcp_status.load()).clone();
+
+        match result {
+            Ok(handle) => {
+                let tool_count = handle.tools().len();
+                let now = chrono::Utc::now().to_rfc3339();
+                Self::spawn_notification_watcher_with_handles(
+                    server_id,
+                    &handle,
+                    &self.rt.tool_registry,
+                    Some(self.ext.mcp_handles.clone()),
+                    Some(self.ext.mcp_status.clone()),
+                );
+                status_map.insert(
+                    server_id.to_string(),
+                    McpServerStatus {
+                        id: server_id.to_string(),
+                        status: McpStatus::Connected,
+                        tool_count,
+                        connected_at: Some(now),
+                        scope,
+                        ..Default::default()
+                    },
+                );
+                handles.insert(server_id.to_string(), handle);
+            }
+            Err(e) => {
+                status_map.insert(
+                    server_id.to_string(),
+                    McpServerStatus {
+                        id: server_id.to_string(),
+                        status: McpStatus::Failed,
+                        error: Some(e.to_string()),
+                        scope,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        self.ext.mcp_status.store(Arc::new(status_map));
         Ok(())
     }
 
@@ -1009,13 +1132,21 @@ impl AppState {
             to_connect.push((*mcp_cfg, *scope));
         }
 
+        let stdio_sem = Arc::new(tokio::sync::Semaphore::new(MCP_STDIO_CONCURRENCY));
+        let remote_sem = Arc::new(tokio::sync::Semaphore::new(MCP_REMOTE_CONCURRENCY));
+
         let futs: Vec<_> = to_connect
             .iter()
             .map(|(mcp_cfg, scope)| {
                 let cfg = (*mcp_cfg).clone();
                 let scope = scope.to_string();
                 let registry = tool_registry.clone();
+                let sem = match cfg.transport.effective() {
+                    xiaolin_core::agent_config::McpTransportType::Stdio => stdio_sem.clone(),
+                    _ => remote_sem.clone(),
+                };
                 async move {
+                    let _permit = sem.acquire().await.expect("semaphore closed");
                     let id = cfg.id.clone();
                     let result =
                         xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
@@ -1096,11 +1227,32 @@ impl AppState {
         handle: &xiaolin_mcp::SharedMcpClient,
         tool_registry: &ToolRegistry,
     ) {
+        Self::spawn_notification_watcher_with_handles(
+            server_id,
+            handle,
+            tool_registry,
+            None,
+            None,
+        );
+    }
+
+    fn spawn_notification_watcher_with_handles(
+        server_id: &str,
+        handle: &xiaolin_mcp::SharedMcpClient,
+        tool_registry: &ToolRegistry,
+        handles_map: Option<
+            Arc<tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>>,
+        >,
+        status_store: Option<
+            Arc<ArcSwap<std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>>>,
+        >,
+    ) {
         let mut rx = handle.subscribe_notifications();
         let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
         let registry = tool_registry.clone();
         let weak_client = std::sync::Arc::downgrade(handle);
         let id = server_id.to_string();
+        let sse_url = handle.sse_url().map(|s| s.to_string());
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
@@ -1164,6 +1316,92 @@ impl AppState {
                                             mcp_id = %id, ?data, "MCP server message"
                                         ),
                                     }
+                                }
+                            }
+                            "xiaolin/transport_disconnected" => {
+                                let Some(ref url) = sse_url else {
+                                    tracing::debug!(mcp_id = %id, "transport_disconnected on non-SSE, ignoring");
+                                    continue;
+                                };
+                                tracing::warn!(mcp_id = %id, "transport disconnected, attempting reconnect");
+                                let mut reconnected = false;
+                                for attempt in 1u32..=5 {
+                                    let delay_ms = std::cmp::min(1000u64 * (1u64 << (attempt - 1)), 30_000);
+                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+                                    if weak_client.upgrade().is_none() {
+                                        tracing::debug!(mcp_id = %id, "client dropped during reconnect, stopping");
+                                        break;
+                                    }
+
+                                    tracing::info!(mcp_id = %id, attempt, "reconnect attempt");
+                                    let connect_fut = xiaolin_mcp::McpClient::connect_sse(url);
+                                    let connect_result = tokio::time::timeout(
+                                        std::time::Duration::from_secs(30),
+                                        connect_fut,
+                                    ).await;
+                                    let connect_result = match connect_result {
+                                        Ok(inner) => inner,
+                                        Err(_) => Err(anyhow::anyhow!("reconnect timed out after 30s")),
+                                    };
+                                    match connect_result {
+                                        Ok(new_client) => {
+                                            let new_handle: xiaolin_mcp::SharedMcpClient =
+                                                std::sync::Arc::new(new_client);
+                                            let new_tools = new_handle.tools();
+                                            let count = xiaolin_mcp::re_register_tools(
+                                                new_tools, &new_handle, &registry, &prefix,
+                                            );
+                                            tracing::info!(
+                                                mcp_id = %id,
+                                                attempt,
+                                                count,
+                                                "SSE reconnected, tools re-registered"
+                                            );
+                                            if let Some(ref hm) = handles_map {
+                                                hm.lock().await.insert(id.clone(), new_handle.clone());
+                                            }
+                                            if let Some(ref ss) = status_store {
+                                                let mut map = (**ss.load()).clone();
+                                                map.insert(id.clone(), xiaolin_core::types::McpServerStatus {
+                                                    id: id.clone(),
+                                                    status: xiaolin_core::types::McpStatus::Connected,
+                                                    tool_count: count,
+                                                    connected_at: Some(chrono::Utc::now().to_rfc3339()),
+                                                    ..Default::default()
+                                                });
+                                                ss.store(Arc::new(map));
+                                            }
+                                            rx = new_handle.subscribe_notifications();
+                                            reconnected = true;
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                mcp_id = %id,
+                                                attempt,
+                                                error = %e,
+                                                "reconnect attempt failed"
+                                            );
+                                        }
+                                    }
+                                }
+                                if !reconnected {
+                                    tracing::error!(
+                                        mcp_id = %id,
+                                        "all reconnect attempts failed, marking disconnected"
+                                    );
+                                    if let Some(ref ss) = status_store {
+                                        let mut map = (**ss.load()).clone();
+                                        map.insert(id.clone(), xiaolin_core::types::McpServerStatus {
+                                            id: id.clone(),
+                                            status: xiaolin_core::types::McpStatus::Failed,
+                                            error: Some("all reconnect attempts exhausted".into()),
+                                            ..Default::default()
+                                        });
+                                        ss.store(Arc::new(map));
+                                    }
+                                    break;
                                 }
                             }
                             other => {

@@ -48,3 +48,9 @@ export const BTN_ICON = {
   sm: "flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] transition-colors duration-150 hover:bg-[var(--bg-hover)]",
   lg: "flex h-9 w-9 items-center justify-center rounded-[var(--radius-xs)] transition-colors duration-150 hover:bg-[var(--bg-hover)]",
 } as const;
+
+export const BTN_TEXT_SM =
+  "flex items-center gap-1 rounded-[var(--radius-xs)] px-2.5 py-1.5 text-[11px] font-medium transition-colors duration-150 hover:bg-[var(--bg-hover)] text-[var(--fill-tertiary)] bg-transparent border-none cursor-pointer" as const;
+
+export const BTN_PRIMARY_SM =
+  "flex items-center gap-1.5 rounded-[var(--radius-xs)] px-3 py-1.5 text-[12px] font-semibold transition-colors duration-150 bg-[var(--tint)] text-white border-none cursor-pointer hover:opacity-90" as const;

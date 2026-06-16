@@ -87,6 +87,10 @@ pub struct McpServerConfig {
     /// Transport type: stdio (default), sse, streamable_http, or http (alias for streamable_http).
     #[serde(default)]
     pub transport: McpTransportType,
+    /// Maximum seconds to wait for the server to connect and become ready.
+    /// Defaults to 30 if omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_timeout_sec: Option<u32>,
 }
 
 impl McpServerConfig {
@@ -180,6 +184,7 @@ impl ProjectMcpConfig {
                 env: entry.env.clone(),
                 url: entry.url.clone(),
                 transport: entry.transport,
+                startup_timeout_sec: None,
             })
             .collect()
     }
@@ -1581,6 +1586,7 @@ You are a code review specialist. Analyze the provided code carefully."#;
             env: Default::default(),
             url: None,
             transport: McpTransportType::Stdio,
+            startup_timeout_sec: None,
         };
         assert!(cfg.validate().is_ok());
     }
@@ -1595,6 +1601,7 @@ You are a code review specialist. Analyze the provided code carefully."#;
             env: Default::default(),
             url: None,
             transport: McpTransportType::Stdio,
+            startup_timeout_sec: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -1609,6 +1616,7 @@ You are a code review specialist. Analyze the provided code carefully."#;
             env: Default::default(),
             url: Some("http://localhost:3000/sse".into()),
             transport: McpTransportType::Sse,
+            startup_timeout_sec: None,
         };
         assert!(cfg.validate().is_ok());
     }
@@ -1623,6 +1631,7 @@ You are a code review specialist. Analyze the provided code carefully."#;
             env: Default::default(),
             url: None,
             transport: McpTransportType::Sse,
+            startup_timeout_sec: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -1637,6 +1646,7 @@ You are a code review specialist. Analyze the provided code carefully."#;
             env: Default::default(),
             url: None,
             transport: McpTransportType::Stdio,
+            startup_timeout_sec: None,
         };
         assert!(cfg.validate().is_err());
     }

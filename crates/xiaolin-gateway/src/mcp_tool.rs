@@ -130,6 +130,11 @@ impl Tool for ManageMcpServerTool {
                     Some(s) => s.to_string(),
                     None => return ToolResult::err("'add' requires 'id' field".to_string()),
                 };
+                if id.contains("__") {
+                    return ToolResult::err(
+                        "server ID must not contain consecutive double underscores ('__') — it conflicts with the MCP tool naming convention".to_string(),
+                    );
+                }
                 let transport: McpTransportType = args
                     .get("transport")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -155,6 +160,7 @@ impl Tool for ManageMcpServerTool {
                     env: Default::default(),
                     url: url.clone(),
                     transport,
+                    startup_timeout_sec: None,
                 };
                 if let Err(e) = tmp_cfg.validate() {
                     return ToolResult::err(e);
@@ -339,6 +345,7 @@ impl ManageMcpServerTool {
             env: Default::default(),
             url,
             transport,
+            startup_timeout_sec: None,
         };
 
         {

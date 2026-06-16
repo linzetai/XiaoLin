@@ -30,6 +30,7 @@ const pending = new Map<
   string,
   { resolve: (v: unknown) => void; reject: (e: Error) => void }
 >();
+const timedOut = new Set<string>();
 const listeners = new Map<string, Set<EventHandler>>();
 
 function jitteredDelay(baseMs: number): number {
@@ -118,6 +119,11 @@ function doConnect(url: string, token?: string): Promise<void> {
       }
 
       if (msg.type === "heartbeat" || msg.type === "pong") return;
+
+      if (msg.id && timedOut.has(msg.id)) {
+        timedOut.delete(msg.id);
+        return;
+      }
 
       if (msg.id && pending.has(msg.id)) {
         const p = pending.get(msg.id)!;
@@ -211,6 +217,7 @@ export function send(
     setTimeout(() => {
       if (pending.has(id)) {
         pending.delete(id);
+        timedOut.add(id);
         reject(new Error("timeout"));
       }
     }, REQUEST_TIMEOUT);

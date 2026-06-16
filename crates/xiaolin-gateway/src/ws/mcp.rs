@@ -110,9 +110,10 @@ pub async fn handle_mcp_add(
         command,
         args,
         enabled: Some(true),
-        env: Default::default(),
+        env: params.env,
         url,
         transport,
+        startup_timeout_sec: None,
     };
 
     if let Err(e) = new_server.validate() {

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import type { Icon } from "@phosphor-icons/react";
 import {
   PuzzlePiece, ToggleLeft, ToggleRight, ArrowsClockwise,
   CaretDown, CaretRight, WarningCircle, SpinnerGap,
@@ -8,103 +9,96 @@ import {
   PencilSimple, ArrowCounterClockwise, FloppyDisk,
   MagnifyingGlass, CaretUp, X,
   ShieldWarning, CheckFat, XCircle,
+  Plus, Trash,
+  GithubLogo, Database, Browser, ChatCircle,
+  Brain, TreeStructure, Cube, MapPin, Clock,
+  Package, GitBranch,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore, subscribePluginEvents } from "../../lib/stores/plugin-store";
 import { useGatewayStore } from "../../lib/store";
 import type { PluginSummary, PluginTool, ChannelStatus, ChannelDetailResult } from "../../lib/transport";
 import * as api from "../../lib/api";
+import { ICON_SIZE, BTN_TEXT_SM } from "../../lib/ui-tokens";
+import { SegmentedControl } from "../common/SegmentedControl";
+import { AddServerModal } from "./AddServerModal";
+import { McpExplorePanel, registry as mcpRegistry } from "./McpExplorePanel";
+import type { McpRegistryEntry } from "./McpExplorePanel";
+import { McpDetailModal } from "./McpDetailModal";
 
 type PluginsTab = "mcp" | "skills" | "channels";
+type McpSubView = "installed" | "explore";
+
+const PLUGIN_ICON_MAP: Record<string, Icon> = {
+  FolderOpen, GithubLogo, Database, Browser, ChatCircle,
+  Brain, TreeStructure, Cube, Globe, MapPin, Clock,
+  Package, GitBranch, MagnifyingGlass, PuzzlePiece,
+};
 
 export function PluginsView() {
+  const { t } = useTranslation("plugins");
   const [activeTab, setActiveTab] = useState<PluginsTab>("mcp");
   const [skillCount, setSkillCount] = useState(0);
   const [channelCount, setChannelCount] = useState(0);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
 
   const plugins = usePluginStore((s) => s.plugins);
   const mcpCount = plugins.length;
 
+  const tabItems = useMemo(() => [
+    { value: "mcp" as const, label: t("tab_mcp"), count: mcpCount },
+    { value: "skills" as const, label: t("tab_skills"), count: skillCount },
+    { value: "channels" as const, label: t("tab_channels"), count: channelCount },
+  ], [t, mcpCount, skillCount, channelCount]);
+
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--bg-card)" }}>
-      <style>{ANIM_CSS}</style>
-
-      {/* Header */}
       <div
-        className="flex shrink-0 flex-col gap-4 px-6 py-5"
+        className="flex shrink-0 flex-col gap-3 px-6 py-4"
         style={{ borderBottom: "0.5px solid var(--separator)" }}
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-[10px]"
-              style={{ background: "color-mix(in srgb, var(--tint) 8%, transparent)" }}
-            >
-              <PuzzlePiece size={18} style={{ color: "var(--tint)" }} />
-            </div>
-            <div>
-              <h1 className="text-[17px] font-bold tracking-[-0.01em]" style={{ color: "var(--fill-primary)" }}>
-                Plugins
-              </h1>
-              <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-                Extend capabilities with MCP servers, skills &amp; channels
-              </p>
-            </div>
+          <div className="flex items-center gap-2.5">
+            <PuzzlePiece size={ICON_SIZE.md} style={{ color: "var(--fill-tertiary)" }} />
+            <h1 className="text-[16px] font-semibold tracking-[-0.01em]" style={{ color: "var(--fill-primary)" }}>
+              {t("title")}
+            </h1>
           </div>
-          <TabActions activeTab={activeTab} />
+          <TabActions activeTab={activeTab} onAddServer={() => setAddModalOpen(true)} />
         </div>
 
-        {/* Tab Bar */}
-        <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: "var(--bg-tertiary)" }}>
-          {(["mcp", "skills", "channels"] as const).map((tab) => {
-            const count = tab === "mcp" ? mcpCount : tab === "skills" ? skillCount : channelCount;
-            const label = tab === "mcp" ? "MCP Servers" : tab === "skills" ? "Skills" : "Channels";
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className="flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all duration-150"
-                style={{
-                  background: activeTab === tab ? "var(--bg-elevated)" : "transparent",
-                  color: activeTab === tab ? "var(--fill-primary)" : "var(--fill-tertiary)",
-                  boxShadow: activeTab === tab ? "var(--shadow-sm)" : "none",
-                  cursor: "pointer",
-                  border: "none",
-                }}
-              >
-                {label} ({count})
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl value={activeTab} onChange={setActiveTab} items={tabItems} />
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
         <div key={activeTab} className="pv-fade-in">
-          {activeTab === "mcp" && <McpTabContent />}
+          {activeTab === "mcp" && <McpTabContent onDetail={setDetailPluginId} onAdd={() => setAddModalOpen(true)} />}
           {activeTab === "skills" && <SkillsTabContent onCountChange={setSkillCount} />}
           {activeTab === "channels" && <ChannelsTabContent onCountChange={setChannelCount} />}
         </div>
       </div>
+
+      <AddServerModal open={addModalOpen} onClose={() => setAddModalOpen(false)} />
+      <McpDetailModal open={detailPluginId !== null} pluginId={detailPluginId} onClose={() => setDetailPluginId(null)} />
     </div>
   );
 }
 
 // ─── Tab Action Buttons ───
 
-function TabActions({ activeTab }: { activeTab: PluginsTab }) {
+function TabActions({ activeTab, onAddServer }: { activeTab: PluginsTab; onAddServer: () => void }) {
+  const { t } = useTranslation("plugins");
   const fetchPlugins = usePluginStore((s) => s.fetchPlugins);
 
   if (activeTab === "mcp") {
     return (
       <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => fetchPlugins()}
-          className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
-          style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
-        >
-          <ArrowsClockwise size={12} /> Reload
+        <button onClick={onAddServer} className={BTN_TEXT_SM}>
+          <Plus size={ICON_SIZE.xs} weight="bold" /> {t("add_server")}
+        </button>
+        <button onClick={() => fetchPlugins()} className={BTN_TEXT_SM}>
+          <ArrowsClockwise size={ICON_SIZE.xs} /> {t("reload")}
         </button>
       </div>
     );
@@ -116,18 +110,21 @@ function TabActions({ activeTab }: { activeTab: PluginsTab }) {
 // MCP Tab
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function McpTabContent() {
+function McpTabContent({ onDetail, onAdd }: { onDetail: (id: string) => void; onAdd: () => void }) {
+  const { t } = useTranslation("plugins");
   const plugins = usePluginStore((s) => s.plugins);
   const loading = usePluginStore((s) => s.loading);
   const fetchPlugins = usePluginStore((s) => s.fetchPlugins);
   const enablePlugin = usePluginStore((s) => s.enablePlugin);
   const disablePlugin = usePluginStore((s) => s.disablePlugin);
   const restartPlugin = usePluginStore((s) => s.restartPlugin);
+  const removePlugin = usePluginStore((s) => s.removePlugin);
   const approvePlugin = usePluginStore((s) => s.approvePlugin);
   const rejectPlugin = usePluginStore((s) => s.rejectPlugin);
   const fetchTools = usePluginStore((s) => s.fetchTools);
   const toolsById = usePluginStore((s) => s.toolsById);
 
+  const [mcpSubView, setMcpSubView] = useState<McpSubView>("installed");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -157,6 +154,11 @@ function McpTabContent() {
     [expandedId, toolsById, fetchTools],
   );
 
+  const handleRemove = useCallback(
+    async (id: string) => removePlugin(id),
+    [removePlugin],
+  );
+
   const pendingPlugins = useMemo(
     () => plugins.filter((p) => p.status === "pending_approval"),
     [plugins],
@@ -167,50 +169,91 @@ function McpTabContent() {
   );
   const connectedCount = activePlugins.filter((p) => p.status === "connected").length;
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
-        <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-        <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading plugins…</p>
-      </div>
-    );
-  }
+  const registryMap = useMemo(
+    () => new Map<string, McpRegistryEntry>(mcpRegistry.map((e) => [e.id, e])),
+    [],
+  );
 
-  if (plugins.length === 0) {
-    return <McpEmptyState />;
-  }
+  const subViewItems = useMemo(() => [
+    { value: "installed" as const, label: t("mcp_sub.installed"), count: plugins.length },
+    { value: "explore" as const, label: t("mcp_sub.explore") },
+  ], [t, plugins.length]);
 
   return (
-    <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-5">
-      {pendingPlugins.length > 0 && (
-        <PendingApprovalSection
-          plugins={pendingPlugins}
-          onApprove={approvePlugin}
-          onReject={rejectPlugin}
-        />
-      )}
-      {connectedCount > 0 && (
-        <div className="mb-3 flex items-center gap-1.5">
-          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--green, #38A169)" }} />
-          <span className="text-[12px] font-semibold tabular-nums" style={{ color: "var(--green, #38A169)" }}>
-            {connectedCount}/{activePlugins.length} connected
-          </span>
+    <div>
+      {/* Sub-view toggle */}
+      <div className="mx-auto w-full px-6 pt-4" style={{ maxWidth: "var(--content-max-w)" }}>
+        <div className="flex gap-1 rounded-lg p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+          {subViewItems.map((item) => {
+            const active = mcpSubView === item.value;
+            return (
+              <button
+                key={item.value}
+                onClick={() => setMcpSubView(item.value)}
+                className="flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors"
+                style={{
+                  background: active ? "var(--bg-card)" : "transparent",
+                  color: active ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                {item.label}
+                {"count" in item && item.count != null && (
+                  <span className="ml-1 opacity-60">{item.count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
-      )}
-      <div className="flex flex-col gap-2">
-        {activePlugins.map((p, idx) => (
+      </div>
+
+      {mcpSubView === "explore" ? (
+        <McpExplorePanel />
+      ) : loading ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
+          <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+          <p className="text-xs" style={{ color: "var(--fill-quaternary)" }}>{t("loading_plugins")}</p>
+        </div>
+      ) : plugins.length === 0 ? (
+        <McpEmptyState onExplore={() => setMcpSubView("explore")} onAdd={onAdd} />
+      ) : (
+        <div className="mx-auto w-full px-6 py-5" style={{ maxWidth: "var(--content-max-w)" }}>
+          {pendingPlugins.length > 0 && (
+            <PendingApprovalSection
+              plugins={pendingPlugins}
+              onApprove={approvePlugin}
+              onReject={rejectPlugin}
+            />
+          )}
+          {connectedCount > 0 && (
+            <div className="mb-3 flex items-center gap-1.5">
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "var(--green)" }} />
+              <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--green)" }}>
+                {t("connected_count", { connected: connectedCount, total: activePlugins.length })}
+              </span>
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            {activePlugins.map((p, idx) => (
           <PluginRow
             key={p.id}
             plugin={p}
             expanded={expandedId === p.id}
             tools={toolsById[p.id]}
+            registryEntry={registryMap.get(p.id)}
             onToggle={() => handleToggle(p)}
             onRestart={() => handleRestart(p.id)}
             onExpand={() => handleExpand(p.id)}
+            onRemove={() => handleRemove(p.id)}
+            onDetail={() => onDetail(p.id)}
             index={idx}
           />
-        ))}
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,7 +279,7 @@ function PendingApprovalSection({
         className="flex items-center gap-2 px-4 py-2.5"
         style={{ borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 12%, transparent)" }}
       >
-        <ShieldWarning size={14} weight="fill" style={{ color: "var(--orange, #ED8936)" }} />
+        <ShieldWarning size={ICON_SIZE.sm} weight="fill" style={{ color: "var(--orange, #ED8936)" }} />
         <span className="text-[12px] font-semibold" style={{ color: "var(--orange, #ED8936)" }}>
           Project MCP Servers Need Approval
         </span>
@@ -304,7 +347,7 @@ function PendingApprovalCard({
               color: "var(--fill-tertiary)",
             }}
           >
-            <Terminal size={11} />
+            <Terminal size={ICON_SIZE.xs} />
             <span className="truncate" style={{ maxWidth: 280 }}>{plugin.commandPreview}</span>
           </div>
         )}
@@ -322,9 +365,9 @@ function PendingApprovalCard({
           }}
         >
           {acting === "approve" ? (
-            <SpinnerGap size={12} className="animate-spin" />
+            <SpinnerGap size={ICON_SIZE.xs} className="animate-spin" />
           ) : (
-            <CheckFat size={12} weight="fill" />
+            <CheckFat size={ICON_SIZE.xs} weight="fill" />
           )}
           Approve
         </button>
@@ -340,9 +383,9 @@ function PendingApprovalCard({
           }}
         >
           {acting === "reject" ? (
-            <SpinnerGap size={12} className="animate-spin" />
+            <SpinnerGap size={ICON_SIZE.xs} className="animate-spin" />
           ) : (
-            <XCircle size={12} />
+            <XCircle size={ICON_SIZE.xs} />
           )}
           Reject
         </button>
@@ -351,20 +394,41 @@ function PendingApprovalCard({
   );
 }
 
-function McpEmptyState() {
+function McpEmptyState({ onExplore, onAdd }: { onExplore?: () => void; onAdd?: () => void }) {
+  const { t } = useTranslation("plugins");
   return (
     <div className="flex flex-col items-center justify-center gap-5 py-24 pv-fade-in">
       <div
-        className="pv-float flex h-16 w-16 items-center justify-center rounded-[16px]"
+        className="pv-float flex h-16 w-16 items-center justify-center rounded-[var(--radius-md)]"
         style={{ background: "color-mix(in srgb, var(--tint) 6%, transparent)" }}
       >
-        <PuzzlePiece size={32} style={{ color: "var(--tint)", opacity: 0.8 }} />
+        <PuzzlePiece size={ICON_SIZE["2xl"]} style={{ color: "var(--tint)", opacity: 0.8 }} />
       </div>
       <div className="text-center">
-        <p className="text-[17px] font-bold" style={{ color: "var(--fill-primary)" }}>No MCP servers</p>
+        <p className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("no_mcp_title")}</p>
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--fill-quaternary)", maxWidth: 320 }}>
-          Add MCP servers to your configuration to extend your agent&apos;s capabilities with external tools.
+          {t("no_mcp_desc")}
         </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {onExplore && (
+          <button
+            onClick={onExplore}
+            className="rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+            style={{ background: "var(--tint)", color: "#fff", border: "none", cursor: "pointer" }}
+          >
+            {t("explore.browse_servers")}
+          </button>
+        )}
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            className="rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+            style={{ background: "transparent", color: "var(--fill-secondary)", border: "0.5px solid var(--separator)", cursor: "pointer" }}
+          >
+            {t("empty.add_manually")}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -375,7 +439,7 @@ function McpEmptyState() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => void }) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("plugins");
   const gatewayReady = useGatewayStore((s) => s.connected);
   const [publicSkills, setPublicSkills] = useState<api.SkillInfo[]>([]);
   const [agentSkillsMap, setAgentSkillsMap] = useState<Record<string, api.SkillInfo[]>>({});
@@ -457,14 +521,14 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
-        <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-        <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading skills…</p>
+        <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+        <p className="text-xs" style={{ color: "var(--fill-quaternary)" }}>{t("loading_skills")}</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-5 pv-fade-in">
+    <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
       {/* Sub-header: filter toggle + actions */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex rounded-md p-0.5" style={{ background: "var(--bg-tertiary)" }}>
@@ -495,7 +559,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
               style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
               title="Refresh skills"
             >
-              <ArrowsClockwise size={14} className={refreshing ? "animate-spin" : ""} />
+              <ArrowsClockwise size={ICON_SIZE.sm} className={refreshing ? "animate-spin" : ""} />
             </button>
             <div className="relative">
               <button
@@ -505,7 +569,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                 style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
                 title="Upload skill"
               >
-                <UploadSimple size={14} />
+                <UploadSimple size={ICON_SIZE.sm} />
               </button>
               {skillMenuOpen && (
                 <div
@@ -518,14 +582,14 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-primary)" }}
                   >
-                    <FolderOpen size={13} /> Select Folder
+                    <FolderOpen size={ICON_SIZE.sm} /> Select Folder
                   </button>
                   <button
                     onClick={() => { setSkillMenuOpen(false); handleUploadZip(); }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-primary)" }}
                   >
-                    <FileText size={13} /> Select ZIP
+                    <FileText size={ICON_SIZE.sm} /> Select ZIP
                   </button>
                 </div>
               )}
@@ -539,7 +603,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
           {/* Global skills */}
           <div>
             <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-              <Globe size={12} />
+              <Globe size={ICON_SIZE.xs} />
               Global Skills ({publicSkills.length})
             </div>
             {publicSkills.length === 0 ? (
@@ -559,7 +623,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
             skills.length > 0 && (
               <div key={agentId}>
                 <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-                  <User size={12} />
+                  <User size={ICON_SIZE.xs} />
                   Agent: {agentId} ({skills.length})
                 </div>
                 <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
@@ -586,7 +650,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                   <div className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>{tool.name}</div>
                   {tool.description && <div className="mt-0.5 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>{tool.description}</div>}
                 </div>
-                <span className="text-[10px] font-mono" style={{ color: "var(--fill-quaternary)" }}>{tool.id}</span>
+                <span className="text-[11px] font-mono" style={{ color: "var(--fill-quaternary)" }}>{tool.id}</span>
               </div>
             ))}
           </div>
@@ -604,7 +668,7 @@ function SkillRow({ skill, isLast }: { skill: api.SkillInfo; isLast: boolean }) 
     >
       <div className="flex items-baseline gap-2">
         <span className="break-all text-[13px] font-semibold leading-snug" style={{ color: "var(--fill-primary)" }}>{skill.name}</span>
-        {skill.version && <span className="shrink-0 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>v{skill.version}</span>}
+        {skill.version && <span className="shrink-0 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>v{skill.version}</span>}
       </div>
       {skill.description && (
         <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>{skill.description}</div>
@@ -612,7 +676,7 @@ function SkillRow({ skill, isLast }: { skill: api.SkillInfo; isLast: boolean }) 
       {skill.tags && skill.tags.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {skill.tags.map((tag) => (
-            <span key={tag} className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+            <span key={tag} className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
               {tag}
             </span>
           ))}
@@ -645,6 +709,7 @@ const CH_CAP_LABELS: Record<string, string> = {
 const EDITABLE_CONFIG_KEYS = ["appId", "appSecret", "verificationToken", "encryptKey", "domain", "replyMode"];
 
 function ChannelsTabContent({ onCountChange }: { onCountChange: (n: number) => void }) {
+  const { t } = useTranslation("plugins");
   const [channels, setChannels] = useState<ChannelStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [showWechatQr, setShowWechatQr] = useState(false);
@@ -708,8 +773,8 @@ function ChannelsTabContent({ onCountChange }: { onCountChange: (n: number) => v
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
-        <SpinnerGap size={20} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-        <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading channels…</p>
+        <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+        <p className="text-xs" style={{ color: "var(--fill-quaternary)" }}>{t("loading_channels")}</p>
       </div>
     );
   }
@@ -721,12 +786,12 @@ function ChannelsTabContent({ onCountChange }: { onCountChange: (n: number) => v
           className="pv-float flex h-16 w-16 items-center justify-center rounded-[16px]"
           style={{ background: "color-mix(in srgb, var(--tint) 6%, transparent)" }}
         >
-          <WifiSlash size={32} style={{ color: "var(--tint)", opacity: 0.8 }} />
+          <WifiSlash size={ICON_SIZE["2xl"]} style={{ color: "var(--tint)", opacity: 0.8 }} />
         </div>
         <div className="text-center">
-          <p className="text-[17px] font-bold" style={{ color: "var(--fill-primary)" }}>No channels configured</p>
+          <p className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("no_channels_title")}</p>
           <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--fill-quaternary)", maxWidth: 320 }}>
-            Configure messaging integrations like WeChat or Feishu.
+            {t("no_channels_desc")}
           </p>
         </div>
       </div>
@@ -734,7 +799,7 @@ function ChannelsTabContent({ onCountChange }: { onCountChange: (n: number) => v
   }
 
   return (
-    <div className="mx-auto w-full max-w-[clamp(560px,65%,800px)] px-6 py-5 pv-fade-in">
+    <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
       <div className="flex flex-col gap-2">
         {channels.map((ch) => (
           <ChannelCard
@@ -805,18 +870,18 @@ function ChannelCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{channel.name}</span>
-          <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: statusCfg.bg, color: statusCfg.fg }}>
+          <span className="rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: statusCfg.bg, color: statusCfg.fg }}>
             {statusCfg.label}
           </span>
           {channel.connectionMode && (
-            <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>{channel.connectionMode}</span>
+            <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>{channel.connectionMode}</span>
           )}
         </div>
         <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--fill-tertiary)" }}>{channel.description}</p>
         {activeCaps.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {activeCaps.map((cap) => (
-              <span key={cap} className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+              <span key={cap} className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
                 {CH_CAP_LABELS[cap] ?? cap}
               </span>
             ))}
@@ -830,7 +895,7 @@ function ChannelCard({
           className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
           style={{ cursor: "pointer", background: "none", border: "none", color: "var(--red)" }}
         >
-          <LinkBreak size={12} /> Disconnect
+          <LinkBreak size={ICON_SIZE.xs} /> Disconnect
         </button>
       ) : (
         <button
@@ -838,7 +903,7 @@ function ChannelCard({
           className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
           style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}
         >
-          <Link size={12} /> Connect
+          <Link size={ICON_SIZE.xs} /> Connect
         </button>
       )}
     </div>
@@ -932,13 +997,13 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
       <div className="w-[400px] rounded-[var(--radius-lg)] p-6" style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }} onClick={(e) => e.stopPropagation()}>
         <div className="mb-5 flex items-center justify-between">
           <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>WeChat Login</h3>
-          <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={16} /></button>
+          <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={ICON_SIZE.md} /></button>
         </div>
 
         {step === "idle" && (
           <div className="flex flex-col items-center gap-4 py-6">
             <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "rgba(72,187,120,0.1)" }}>
-              <QrCode size={28} style={{ color: "var(--green)" }} />
+              <QrCode size={ICON_SIZE.xl} style={{ color: "var(--green)" }} />
             </div>
             <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>Scan QR code with WeChat to connect</p>
             <button onClick={startLogin} className="rounded-md px-4 py-2 text-[13px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>Get QR Code</button>
@@ -947,7 +1012,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
 
         {step === "loading" && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <SpinnerGap size={24} className="animate-spin" style={{ color: "var(--tint)" }} />
+            <SpinnerGap size={ICON_SIZE.xl} className="animate-spin" style={{ color: "var(--tint)" }} />
             <p className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>Fetching QR code…</p>
           </div>
         )}
@@ -959,13 +1024,13 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
                 <img src={qrUrl} alt="WeChat QR Code" className="h-48 w-48" />
               </div>
             ) : (
-              <div className="flex h-48 w-48 items-center justify-center rounded-md bg-white"><QrCode size={48} style={{ color: "#ccc" }} /></div>
+              <div className="flex h-48 w-48 items-center justify-center rounded-md bg-white"><QrCode size={ICON_SIZE["2xl"]} style={{ color: "#ccc" }} /></div>
             )}
             <div className="flex items-center gap-2">
               {step === "scanned" ? (
-                <><DeviceMobile size={14} style={{ color: "var(--green)" }} /><p className="text-[13px] font-medium" style={{ color: "var(--green)" }}>Scanned — confirm on phone</p></>
+                <><DeviceMobile size={ICON_SIZE.sm} style={{ color: "var(--green)" }} /><p className="text-[13px] font-medium" style={{ color: "var(--green)" }}>Scanned — confirm on phone</p></>
               ) : (
-                <><QrCode size={14} style={{ color: "var(--fill-tertiary)" }} /><p className="text-[13px]" style={{ color: "var(--fill-secondary)" }}>Scan QR code with WeChat</p></>
+                <><QrCode size={ICON_SIZE.sm} style={{ color: "var(--fill-tertiary)" }} /><p className="text-[13px]" style={{ color: "var(--fill-secondary)" }}>Scan QR code with WeChat</p></>
               )}
             </div>
           </div>
@@ -974,7 +1039,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
         {step === "verify_code" && (
           <div className="flex flex-col items-center gap-4 py-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "rgba(237,137,54,0.1)" }}>
-              <Key size={22} style={{ color: "var(--yellow)" }} />
+              <Key size={ICON_SIZE.lg} style={{ color: "var(--yellow)" }} />
             </div>
             <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>{message}</p>
             <input value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} placeholder="Enter code"
@@ -986,7 +1051,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
 
         {step === "confirmed" && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle size={32} style={{ color: "var(--green)" }} />
+            <CheckCircle size={ICON_SIZE["2xl"]} style={{ color: "var(--green)" }} />
             <p className="text-[14px] font-medium" style={{ color: "var(--green)" }}>{message}</p>
           </div>
         )}
@@ -1079,16 +1144,16 @@ function ChannelDetailModal({
       <div className="flex max-h-[80vh] w-[480px] flex-col rounded-[var(--radius-lg)]" style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-2">
-            <WifiHigh size={16} style={{ color: "var(--fill-secondary)" }} />
+            <WifiHigh size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />
             <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{data?.name ?? channelId}</h3>
-            {statusCfg && <span className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: statusCfg.bg, color: statusCfg.fg }}>{statusCfg.label}</span>}
+            {statusCfg && <span className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: statusCfg.bg, color: statusCfg.fg }}>{statusCfg.label}</span>}
           </div>
-          <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={16} /></button>
+          <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={ICON_SIZE.md} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-5">
           {loading ? (
-            <div className="flex items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin" style={{ color: "var(--tint)" }} /></div>
+            <div className="flex items-center justify-center py-12"><SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--tint)" }} /></div>
           ) : data ? (
             <div className="flex flex-col gap-4">
               <p className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>{data.description}</p>
@@ -1098,8 +1163,8 @@ function ChannelDetailModal({
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>Configuration</span>
                   {!editing && (
-                    <button onClick={startEdit} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}>
-                      <PencilSimple size={10} /> Edit
+                    <button onClick={startEdit} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}>
+                      <PencilSimple size={ICON_SIZE.xs} /> Edit
                     </button>
                   )}
                 </div>
@@ -1108,7 +1173,7 @@ function ChannelDetailModal({
                   <div className="flex flex-col gap-2 rounded-md p-3" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--tint)" }}>
                     {EDITABLE_CONFIG_KEYS.map((k) => (
                       <div key={k}>
-                        <label className="mb-0.5 block text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{k}</label>
+                        <label className="mb-0.5 block text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{k}</label>
                         <input value={editValues[k] ?? ""} onChange={(e) => setEditValues((prev) => ({ ...prev, [k]: e.target.value }))}
                           className="w-full rounded-md px-2 py-1.5 text-[12px] font-mono outline-none" style={inputStyle}
                           placeholder={k.includes("Secret") || k.includes("Key") || k.includes("Token") ? "••••••" : ""} />
@@ -1116,11 +1181,11 @@ function ChannelDetailModal({
                     ))}
                     <div className="mt-1 flex items-center gap-2">
                       <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[11px] font-medium disabled:opacity-40" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                        <FloppyDisk size={11} /> {saving ? "Saving…" : "Save & Reload"}
+                        <FloppyDisk size={ICON_SIZE.xs} /> {saving ? "Saving…" : "Save & Reload"}
                       </button>
                       {data.hasBackup && (
                         <button onClick={handleRestore} disabled={restoring} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}>
-                          <ArrowCounterClockwise size={11} /> Restore
+                          <ArrowCounterClockwise size={ICON_SIZE.xs} /> Restore
                         </button>
                       )}
                       <button onClick={() => { setEditing(false); setSaveMsg(null); }} className="ml-auto text-[11px] transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}>Cancel</button>
@@ -1150,11 +1215,11 @@ function ChannelDetailModal({
                   <div className="mb-2 flex items-center justify-between">
                     <button className="flex items-center gap-1" onClick={() => setToolsExpanded((v) => !v)} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}>
                       <span className="text-[11px] font-medium uppercase tracking-wider">Tools ({data.tools.length})</span>
-                      {toolsExpanded ? <CaretUp size={12} /> : <CaretDown size={12} />}
+                      {toolsExpanded ? <CaretUp size={ICON_SIZE.xs} /> : <CaretDown size={ICON_SIZE.xs} />}
                     </button>
                     {toolsExpanded && data.tools.length > 5 && (
                       <div className="flex items-center gap-1 rounded-md px-2 py-1" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
-                        <MagnifyingGlass size={10} style={{ color: "var(--fill-quaternary)" }} />
+                        <MagnifyingGlass size={ICON_SIZE.xs} style={{ color: "var(--fill-quaternary)" }} />
                         <input value={toolSearch} onChange={(e) => setToolSearch(e.target.value)} placeholder="Search…" className="w-24 bg-transparent text-[11px] outline-none" style={{ color: "var(--fill-primary)" }} />
                       </div>
                     )}
@@ -1165,7 +1230,7 @@ function ChannelDetailModal({
                         <div className="py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>{toolSearch ? "No matching tools" : "No tools"}</div>
                       ) : filteredTools.map((t, i) => (
                         <div key={t.name} className="flex items-start gap-2 px-3 py-2" style={{ borderBottom: i < filteredTools.length - 1 ? "0.5px solid var(--separator)" : undefined }}>
-                          <Terminal size={12} className="mt-0.5 shrink-0" style={{ color: "var(--fill-quaternary)" }} />
+                          <Terminal size={ICON_SIZE.xs} className="mt-0.5 shrink-0" style={{ color: "var(--fill-quaternary)" }} />
                           <div>
                             <div className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>{t.name}</div>
                             {t.description && <div className="mt-0.5 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>{t.description}</div>}
@@ -1181,15 +1246,15 @@ function ChannelDetailModal({
               <div className="flex items-center gap-2 border-t pt-3" style={{ borderColor: "var(--separator)" }}>
                 {connected ? (
                   <button onClick={() => { onDisconnect(channelId); onClose(); }} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--red)" }}>
-                    <LinkBreak size={12} /> Disconnect
+                    <LinkBreak size={ICON_SIZE.xs} /> Disconnect
                   </button>
                 ) : configEntries.length > 0 ? (
                   <button onClick={() => { onConnect(channelId); onClose(); }} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                    <Link size={12} /> Connect
+                    <Link size={ICON_SIZE.xs} /> Connect
                   </button>
                 ) : (
                   <button onClick={startEdit} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                    <PencilSimple size={12} /> Configure & Connect
+                    <PencilSimple size={ICON_SIZE.xs} /> Configure & Connect
                   </button>
                 )}
               </div>
@@ -1208,18 +1273,36 @@ function ChannelDetailModal({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function PluginRow({
-  plugin: p, expanded, tools, onToggle, onRestart, onExpand, index,
+  plugin: p, expanded, tools, registryEntry, onToggle, onRestart, onExpand, onRemove, onDetail, index,
 }: {
-  plugin: PluginSummary; expanded: boolean; tools?: PluginTool[];
-  onToggle: () => void; onRestart: () => void; onExpand: () => void; index: number;
+  plugin: PluginSummary; expanded: boolean; tools?: PluginTool[]; registryEntry?: McpRegistryEntry;
+  onToggle: () => void; onRestart: () => void; onExpand: () => void; onRemove: () => Promise<boolean>; onDetail: () => void; index: number;
 }) {
+  const { t } = useTranslation("plugins");
   const [restarting, setRestarting] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const handleRestart = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setRestarting(true);
     await onRestart();
     setRestarting(false);
+  };
+
+  const handleRemoveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmRemove(true);
+  };
+
+  const handleConfirmRemove = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = await onRemove();
+    if (ok !== false) setConfirmRemove(false);
+  };
+
+  const handleCancelRemove = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmRemove(false);
   };
 
   return (
@@ -1239,34 +1322,74 @@ function PluginRow({
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onExpand(); } }}
       >
-        {expanded ? <CaretDown size={14} style={{ color: "var(--fill-quaternary)" }} /> : <CaretRight size={14} style={{ color: "var(--fill-quaternary)" }} />}
-        <StatusDot status={p.status} />
+        {expanded ? <CaretDown size={ICON_SIZE.sm} style={{ color: "var(--fill-quaternary)" }} /> : <CaretRight size={ICON_SIZE.sm} style={{ color: "var(--fill-quaternary)" }} />}
+        <PluginIcon entry={registryEntry} status={p.status} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5">
-            <span className="truncate text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{p.name}</span>
+            <span
+              className="truncate text-[14px] font-semibold transition-colors hover:underline"
+              style={{ color: "var(--fill-primary)", cursor: "pointer" }}
+              onClick={(e) => { e.stopPropagation(); onDetail(); }}
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onDetail(); } }}
+            >
+              {p.name}
+            </span>
             <ScopeBadge scope={p.scope} />
           </div>
           {p.lastError && (
             <div className="mt-0.5 flex items-center gap-1 text-[11px]" style={{ color: "var(--red, #E53E3E)" }}>
-              <WarningCircle size={10} />
+              <WarningCircle size={ICON_SIZE.xs} />
               <span className="truncate">{p.lastError}</span>
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
           {p.toolCount > 0 && (
-            <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>{p.toolCount} tools</span>
+            <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>{t("tools_count", { count: p.toolCount })}</span>
           )}
-          <button
-            onClick={handleRestart}
-            disabled={restarting || !p.enabled}
-            className="rounded-[var(--radius-xs)] p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-[var(--bg-hover)] disabled:opacity-30"
-            style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
-            title="Restart"
-            aria-label={`Restart ${p.name}`}
-          >
-            <ArrowsClockwise size={13} className={restarting ? "animate-spin" : ""} />
-          </button>
+          {confirmRemove ? (
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <span className="text-[11px]" style={{ color: "var(--red)" }}>{t("remove_confirm")}</span>
+              <button
+                onClick={handleConfirmRemove}
+                className="rounded-[var(--radius-xs)] px-2 py-1 text-[11px] font-medium"
+                style={{ cursor: "pointer", background: "var(--red)", color: "#fff", border: "none" }}
+              >
+                {t("remove_yes")}
+              </button>
+              <button
+                onClick={handleCancelRemove}
+                className="rounded-[var(--radius-xs)] px-2 py-1 text-[11px] font-medium"
+                style={{ cursor: "pointer", background: "var(--bg-tertiary)", color: "var(--fill-secondary)", border: "none" }}
+              >
+                {t("remove_no")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={handleRemoveClick}
+                className="rounded-[var(--radius-xs)] p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-[var(--bg-hover)]"
+                style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}
+                title={t("remove_server")}
+                aria-label={`Remove ${p.name}`}
+              >
+                <Trash size={ICON_SIZE.sm} />
+              </button>
+              <button
+                onClick={handleRestart}
+                disabled={restarting || !p.enabled}
+                className="rounded-[var(--radius-xs)] p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-[var(--bg-hover)] disabled:opacity-30"
+                style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
+                title="Restart"
+                aria-label={`Restart ${p.name}`}
+              >
+                <ArrowsClockwise size={ICON_SIZE.sm} className={restarting ? "animate-spin" : ""} />
+              </button>
+            </>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
             className="rounded-[var(--radius-xs)] p-1.5 transition-all duration-200"
@@ -1274,7 +1397,7 @@ function PluginRow({
             title={p.enabled ? "Disable" : "Enable"}
             aria-label={`${p.enabled ? "Disable" : "Enable"} ${p.name}`}
           >
-            {p.enabled ? <ToggleRight size={20} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={20} style={{ color: "var(--fill-quaternary)" }} />}
+            {p.enabled ? <ToggleRight size={ICON_SIZE.lg} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={ICON_SIZE.lg} style={{ color: "var(--fill-quaternary)" }} />}
           </button>
         </div>
       </div>
@@ -1288,7 +1411,7 @@ function PluginRow({
             {tools && tools.length > 0 && (
               <div className="mt-3">
                 <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
-                  <Wrench size={11} /> Tools ({tools.length})
+                  <Wrench size={ICON_SIZE.xs} /> Tools ({tools.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {tools.map((t) => (
@@ -1306,6 +1429,30 @@ function PluginRow({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PluginIcon({ entry, status }: { entry?: McpRegistryEntry; status: string }) {
+  const IconComp = entry ? (PLUGIN_ICON_MAP[entry.icon] ?? PuzzlePiece) : PuzzlePiece;
+  const brand = entry?.brandColor ?? "var(--tint)";
+  const statusColor =
+    status === "connected" ? "var(--green)" :
+    status === "failed" ? "var(--red)" :
+    status === "connecting" ? "var(--orange)" :
+    status === "pending_approval" ? "var(--yellow)" : "var(--fill-quaternary)";
+  return (
+    <div className="relative shrink-0">
+      <div
+        className="flex h-7 w-7 items-center justify-center rounded-[7px]"
+        style={{ background: `color-mix(in srgb, ${brand} 10%, transparent)` }}
+      >
+        <IconComp size={ICON_SIZE.sm} style={{ color: brand }} />
+      </div>
+      <span
+        className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full"
+        style={{ background: statusColor, border: "1.5px solid var(--bg-card)" }}
+      />
     </div>
   );
 }
@@ -1329,7 +1476,7 @@ function StatusDot({ status }: { status: string }) {
 function ScopeBadge({ scope }: { scope: string }) {
   return (
     <span
-      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+      className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
       style={{
         background: scope === "project" ? "color-mix(in srgb, var(--orange, #ED8936) 8%, transparent)" : "var(--bg-tertiary)",
         color: scope === "project" ? "var(--orange, #ED8936)" : "var(--fill-quaternary)",
@@ -1349,15 +1496,3 @@ function DetailRow({ label, value, isError }: { label: string; value: string; is
   );
 }
 
-// ─── Animation CSS ───
-
-const ANIM_CSS = `
-@media (prefers-reduced-motion: no-preference) {
-  .pv-fade-in { animation: pvFadeIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-  .pv-float { animation: pvFloat 4s ease-in-out infinite; }
-  .pv-stagger { animation: pvFadeUp 260ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--stagger-i, 0) * 40ms); }
-}
-@keyframes pvFadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pvFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-@keyframes pvFadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-`;

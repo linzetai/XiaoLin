@@ -94,6 +94,7 @@
 
   /* Spacing system */
   --content-pad: 20px;
+  --content-max-w: clamp(560px, 65%, 800px);
   --section-gap: 16px;
   --item-gap: 8px;
   --inline-gap: 6px;
@@ -1324,6 +1325,22 @@ mark[data-search-highlight="current"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ━━━ Plugins View ━━━ */
+@keyframes pv-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes modal-enter {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pv-fade-in { animation: fade-in var(--duration-normal) var(--ease-out) both; }
+  .pv-stagger { animation: fade-slide-up 260ms var(--ease-out) both; animation-delay: calc(var(--stagger-i, 0) * 30ms); }
+  .pv-float { animation: pv-float 3s ease-in-out infinite; }
+  .pv-modal-enter { animation: modal-enter 200ms var(--ease-out) both; }
 }
 
 /* ━━━ Tab Crossfade ━━━ */

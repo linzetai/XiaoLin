@@ -8,6 +8,7 @@ import zhSidebar from "./locales/zh/sidebar.json";
 import zhHeader from "./locales/zh/header.json";
 import zhOnboarding from "./locales/zh/onboarding.json";
 import zhNotification from "./locales/zh/notification.json";
+import zhPlugins from "./locales/zh/plugins.json";
 
 import enCommon from "./locales/en/common.json";
 import enChat from "./locales/en/chat.json";
@@ -16,6 +17,7 @@ import enSidebar from "./locales/en/sidebar.json";
 import enHeader from "./locales/en/header.json";
 import enOnboarding from "./locales/en/onboarding.json";
 import enNotification from "./locales/en/notification.json";
+import enPlugins from "./locales/en/plugins.json";
 
 const LOCALE_STORAGE_KEY = "xiaolin-locale";
 
@@ -40,6 +42,7 @@ i18n.use(initReactI18next).init({
       header: zhHeader,
       onboarding: zhOnboarding,
       notification: zhNotification,
+      plugins: zhPlugins,
     },
     en: {
       common: enCommon,
@@ -49,11 +52,12 @@ i18n.use(initReactI18next).init({
       header: enHeader,
       onboarding: enOnboarding,
       notification: enNotification,
+      plugins: enPlugins,
     },
   },
   lng: getSavedLocale(),
   fallbackLng: "zh",
-  ns: ["common", "chat", "settings", "sidebar", "header", "onboarding", "notification"],
+  ns: ["common", "chat", "settings", "sidebar", "header", "onboarding", "notification", "plugins"],
   defaultNS: "common",
   interpolation: {
     escapeValue: false,

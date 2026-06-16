@@ -142,7 +142,7 @@ pub async fn handle_plugins_restart(
         return;
     }
 
-    match state.reload_mcp_servers().await {
+    match state.restart_single_mcp_server(plugin_id).await {
         Ok(()) => {
             broadcast_status_changed(state);
             let st = state.ext.mcp_status.load().get(plugin_id).cloned();
@@ -358,10 +358,32 @@ pub async fn handle_plugins_reject(
 fn broadcast_status_changed(state: &AppState) {
     let status_map = state.ext.mcp_status.load();
     let project_ids = get_project_server_ids();
-    let plugins: Vec<serde_json::Value> = status_map
+    let mut seen = std::collections::HashSet::new();
+    let mut plugins: Vec<serde_json::Value> = status_map
         .iter()
-        .map(|(id, st)| enrich_status(id, st, &project_ids))
+        .map(|(id, st)| { seen.insert(id.clone()); enrich_status(id, st, &project_ids) })
         .collect();
+
+    let live = state.cfg.config_live.load();
+    if let Some(arr) = live.get("mcpServers").and_then(|v| v.as_array()) {
+        for s in arr {
+            if let Some(uid) = s.get("id").and_then(|i| i.as_str()) {
+                if !seen.contains(uid) {
+                    plugins.push(json!({
+                        "id": uid,
+                        "name": uid,
+                        "scope": "user",
+                        "enabled": false,
+                        "status": "disabled",
+                        "toolCount": 0,
+                        "lastError": null,
+                        "connectedAt": null,
+                    }));
+                }
+            }
+        }
+    }
+
     let payload = json!({
         "type": "event",
         "event": "plugins.status_changed",

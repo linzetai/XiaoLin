@@ -27,11 +27,11 @@ export function parseMcpToolName(
   if (!fullName.startsWith(MCP_PREFIX)) return null;
   const rest = fullName.slice(MCP_PREFIX.length);
   const idx = rest.indexOf(MCP_DELIMITER);
-  if (idx < 0) return null;
-  return {
-    serverId: rest.slice(0, idx),
-    toolName: rest.slice(idx + MCP_DELIMITER.length),
-  };
+  if (idx <= 0) return null;
+  const serverId = rest.slice(0, idx);
+  const toolName = rest.slice(idx + MCP_DELIMITER.length);
+  if (!serverId || !toolName) return null;
+  return { serverId, toolName };
 }
 
 export function isMcpTool(name: string): boolean {

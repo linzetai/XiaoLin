@@ -590,6 +590,8 @@ pub struct McpClient {
     transport: McpTransport,
     next_id: std::sync::atomic::AtomicU64,
     notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+    /// Original SSE URL, kept for reconnection. `None` for stdio/streamable-http.
+    sse_url: Option<String>,
 }
 
 impl McpClient {
@@ -692,6 +694,7 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx,
+            sse_url: None,
         };
 
         client.initialize().await?;
@@ -725,7 +728,7 @@ impl McpClient {
         });
 
         let mut mcp = Self {
-            server_name: sse_url_str,
+            server_name: sse_url_str.clone(),
             tools: Vec::new(),
             transport: McpTransport::Sse {
                 client: client.clone(),
@@ -735,6 +738,7 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx,
+            sse_url: Some(sse_url_str),
         };
 
         tokio::task::yield_now().await;
@@ -772,6 +776,7 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx: notification_tx.clone(),
+            sse_url: None,
         };
 
         mcp.initialize().await?;
@@ -961,6 +966,28 @@ impl McpClient {
         >,
         notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
     ) -> anyhow::Result<()> {
+        let result = Self::sse_reader_loop_inner(client, sse_url, pending, &notification_tx).await;
+
+        match &result {
+            Ok(()) => tracing::warn!("SSE stream ended normally, signaling disconnection"),
+            Err(e) => tracing::warn!(error = %e, "SSE stream error, signaling disconnection"),
+        }
+        let _ = notification_tx.send(McpNotification {
+            method: "xiaolin/transport_disconnected".into(),
+            params: None,
+        });
+
+        result
+    }
+
+    async fn sse_reader_loop_inner(
+        client: &reqwest::Client,
+        sse_url: &str,
+        pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        >,
+        notification_tx: &tokio::sync::broadcast::Sender<McpNotification>,
+    ) -> anyhow::Result<()> {
         let response = client
             .get(sse_url)
             .header("Accept", "text/event-stream")
@@ -1010,6 +1037,7 @@ impl McpClient {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -1086,16 +1114,47 @@ impl McpClient {
                 ..
             } => {
                 let json = serde_json::to_string(&request)?;
-                let mut req = client
-                    .post(endpoint_url.as_str())
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json, text/event-stream")
-                    .header("MCP-Protocol-Version", "2025-06-18");
-                if let Some(sid) = session_id.lock().await.as_ref() {
-                    req = req.header("Mcp-Session-Id", sid);
-                }
 
-                let response = req.body(json).send().await?;
+                // Retry transport errors with exponential backoff (max 3 attempts).
+                let response = {
+                    const MAX_RETRIES: u32 = 3;
+                    let mut last_err = None;
+                    let mut resp_out = None;
+                    for attempt in 0..MAX_RETRIES {
+                        let mut req = client
+                            .post(endpoint_url.as_str())
+                            .header("Content-Type", "application/json")
+                            .header("Accept", "application/json, text/event-stream")
+                            .header("MCP-Protocol-Version", "2025-06-18");
+                        if let Some(sid) = session_id.lock().await.as_ref() {
+                            req = req.header("Mcp-Session-Id", sid);
+                        }
+
+                        match req.body(json.clone()).send().await {
+                            Ok(r) => {
+                                resp_out = Some(r);
+                                break;
+                            }
+                            Err(e) if e.is_connect() || e.is_timeout() => {
+                                let delay_ms = std::cmp::min(500u64 * (1u64 << attempt), 4_000);
+                                tracing::warn!(
+                                    attempt = attempt + 1,
+                                    error = %e,
+                                    "StreamableHttp transport error, retrying in {}ms",
+                                    delay_ms
+                                );
+                                last_err = Some(e);
+                                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                            }
+                            Err(e) => return Err(e.into()),
+                        }
+                    }
+                    match resp_out {
+                        Some(r) => r,
+                        None => return Err(last_err.unwrap().into()),
+                    }
+                };
+
                 let status = response.status();
                 if !status.is_success() && status != reqwest::StatusCode::ACCEPTED {
                     anyhow::bail!(
@@ -1287,6 +1346,11 @@ impl McpClient {
         &self,
     ) -> tokio::sync::broadcast::Receiver<McpNotification> {
         self.notification_tx.subscribe()
+    }
+
+    /// Returns the original SSE URL if this client was created via `connect_sse`.
+    pub fn sse_url(&self) -> Option<&str> {
+        self.sse_url.as_deref()
     }
 
     /// Force re-fetch the tool list from the server via `tools/list`.
@@ -1504,7 +1568,31 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
 ///
 /// Dispatches to the correct transport (stdio/SSE/streamable HTTP) based on
 /// `cfg.transport`. The tool-name prefix is derived internally from `cfg.id`.
+///
+/// The entire connection is wrapped in a timeout derived from
+/// `cfg.startup_timeout_sec` (default 30 s).
 pub async fn connect_mcp_server(
+    cfg: &xiaolin_core::agent_config::McpServerConfig,
+    registry: &xiaolin_core::tool::ToolRegistry,
+) -> anyhow::Result<SharedMcpClient> {
+    let timeout_secs = cfg.startup_timeout_sec.unwrap_or(30);
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs as u64),
+        connect_mcp_server_inner(cfg, registry),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!(
+            "MCP server '{}' failed to connect within {}s (transport: {:?})",
+            cfg.id,
+            timeout_secs,
+            cfg.transport.effective()
+        ),
+    }
+}
+
+async fn connect_mcp_server_inner(
     cfg: &xiaolin_core::agent_config::McpServerConfig,
     registry: &xiaolin_core::tool::ToolRegistry,
 ) -> anyhow::Result<SharedMcpClient> {

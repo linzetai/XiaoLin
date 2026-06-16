@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as transport from "../transport";
-import type { PluginSummary, PluginTool } from "../transport";
+import type { AddMcpServerParams, PluginSummary, PluginTool } from "../transport";
 
 export interface PluginStoreState {
   plugins: PluginSummary[];
@@ -9,6 +9,8 @@ export interface PluginStoreState {
   toolsById: Record<string, PluginTool[]>;
 
   fetchPlugins: () => Promise<void>;
+  addPlugin: (params: AddMcpServerParams) => Promise<boolean>;
+  removePlugin: (id: string) => Promise<boolean>;
   enablePlugin: (id: string) => Promise<boolean>;
   disablePlugin: (id: string) => Promise<boolean>;
   restartPlugin: (id: string) => Promise<boolean>;
@@ -31,6 +33,34 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
       set({ plugins, loading: false });
     } catch (e) {
       set({ error: String(e), loading: false });
+    }
+  },
+
+  addPlugin: async (params) => {
+    try {
+      const result = await transport.addMcpServer(params);
+      if (result.ok) await get().fetchPlugins();
+      return result.ok;
+    } catch (e) {
+      set({ error: String(e) });
+      return false;
+    }
+  },
+
+  removePlugin: async (id) => {
+    try {
+      const result = await transport.removeMcpServer(id);
+      if (result.ok) {
+        set((s) => {
+          const { [id]: _, ...rest } = s.toolsById;
+          return { toolsById: rest };
+        });
+        await get().fetchPlugins();
+      }
+      return result.ok;
+    } catch (e) {
+      set({ error: String(e) });
+      return false;
     }
   },
 
