@@ -7,12 +7,12 @@ import {
   MagnifyingGlass, PencilSimple, PuzzlePiece,
   FolderOpen, GithubLogo, Database, Browser, ChatCircle,
   Brain, TreeStructure, Cube, MapPin,
-  Package, GitBranch, ChatText,
+  Package, GitBranch, ChatText, Files,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore } from "../../lib/stores/plugin-store";
 import * as transport from "../../lib/transport";
-import type { McpDetailResult, McpPromptInfo } from "../../lib/transport";
+import type { McpDetailResult, McpPromptInfo, McpResourceInfo } from "../../lib/transport";
 import { ICON_SIZE, BTN_PRIMARY_SM } from "../../lib/ui-tokens";
 import { registry } from "./McpExplorePanel";
 import type { McpRegistryEntry } from "./McpExplorePanel";
@@ -58,11 +58,19 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
   const [toolSearch, setToolSearch] = useState("");
   const [prompts, setPrompts] = useState<McpPromptInfo[]>([]);
   const [promptsOpen, setPromptsOpen] = useState(true);
+  const [resources, setResources] = useState<McpResourceInfo[]>([]);
+  const [resourcesOpen, setResourcesOpen] = useState(true);
 
   const registryMap = useMemo(
     () => new Map<string, McpRegistryEntry>(registry.map((e) => [e.id, e])),
     [],
   );
+
+  const plugins = usePluginStore((s) => s.plugins);
+  const pluginCaps = useMemo(() => {
+    const p = plugins.find((pl) => pl.id === pluginId);
+    return p?.capabilities ?? { tools: true, resources: false, prompts: false };
+  }, [plugins, pluginId]);
 
   useEffect(() => {
     if (!open || !pluginId) {
@@ -70,6 +78,7 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
       setConfirmRemove(false);
       setToolSearch("");
       setPrompts([]);
+      setResources([]);
       return;
     }
     let cancelled = false;
@@ -77,11 +86,18 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
     transport.mcpDetail(pluginId)
       .then((d) => { if (!cancelled) { setDetail(d); setLoading(false); } })
       .catch(() => { if (!cancelled) { setDetail(null); setLoading(false); } });
-    transport.mcpPrompts()
-      .then((all) => { if (!cancelled) setPrompts(all.filter((p) => p.server === pluginId)); })
-      .catch(() => {});
+    if (pluginCaps.prompts) {
+      transport.mcpPrompts()
+        .then((all) => { if (!cancelled) setPrompts(all.filter((p) => p.server === pluginId)); })
+        .catch(() => {});
+    }
+    if (pluginCaps.resources) {
+      transport.mcpResources(pluginId)
+        .then((r) => { if (!cancelled) setResources(r); })
+        .catch(() => {});
+    }
     return () => { cancelled = true; };
-  }, [open, pluginId]);
+  }, [open, pluginId, pluginCaps.prompts, pluginCaps.resources]);
 
   const handleRestart = useCallback(async () => {
     if (!pluginId || restarting) return;
@@ -331,8 +347,50 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
                 )}
               </div>
 
+              {/* Resources Section */}
+              {pluginCaps.resources && resources.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setResourcesOpen((o) => !o)}
+                    className="flex w-full items-center gap-1.5 mb-2"
+                    style={{ color: "var(--fill-quaternary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    {resourcesOpen ? <CaretDown size={ICON_SIZE.xs} /> : <CaretRight size={ICON_SIZE.xs} />}
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider">
+                      {t("detail.resources_title")} ({resources.length})
+                    </h3>
+                  </button>
+                  {resourcesOpen && (
+                    <div className="flex flex-col gap-1.5">
+                      {resources.map((r) => (
+                        <div
+                          key={r.uri}
+                          className="flex items-start gap-2 rounded-md px-2.5 py-2"
+                          style={{ background: "var(--bg-tertiary)" }}
+                        >
+                          <Files size={ICON_SIZE.xs} className="mt-0.5 shrink-0" style={{ color: "var(--fill-quaternary)" }} />
+                          <div className="min-w-0">
+                            <span className="text-[12px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+                              {r.name}
+                            </span>
+                            <p className="text-[10px]" style={{ color: "var(--fill-quaternary)", fontFamily: "var(--font-mono, monospace)", wordBreak: "break-all" }}>
+                              {r.uri}
+                            </p>
+                            {r.description && (
+                              <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
+                                {r.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Prompts Section */}
-              {prompts.length > 0 && (
+              {pluginCaps.prompts && prompts.length > 0 && (
                 <div>
                   <button
                     onClick={() => setPromptsOpen((o) => !o)}

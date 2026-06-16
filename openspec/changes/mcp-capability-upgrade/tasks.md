@@ -940,18 +940,19 @@
 - [x] T92: 前端 elicitation 取消逻辑：点击"取消"按钮或点击遮罩 → `handleDecline()` → `transport.mcpElicitationReply(id, "decline")` → dialog 关闭
 - [x] T93: `cargo clippy -- -D warnings` 零警告 + 5 个新增单元测试（dispatch_incoming 三路分发 + server_request clone/debug + elicitation_response 序列化） + 2 个 protocol 测试（parse_elicitation_reply accept/decline）
 
-### P4-G: Plugin Panel 扩展（plugin-panel modified）
+### P4-G: Plugin Panel 扩展（plugin-panel modified） ✅
 
 **Spec**: `specs/plugin-panel/spec.md`（MODIFIED）
 **前置**: T62（NeedsAuth 变体）, T68-T76（Resources）, T77-T85（Prompts）
+**进度**: 7/7 完成 ✅
 
-- [ ] T94: `PluginRow` 新增 `needs_auth` 状态样式：黄色认证图标 + "登录"按钮
-- [ ] T95: 插件详情展开区域新增 Resources 子标签：请求 `plugins.resources` 接口显示资源列表
-- [ ] T96: `xiaolin-gateway/src/ws/plugins.rs` 新增 `plugins.resources` 请求处理
-- [ ] T97: 无 resources/prompts 能力的服务器不显示对应标签
-- [ ] T98: `enrich_status` 函数新增 `capabilities` 字段输出（resources/prompts/tools 能力标记）
-- [ ] T99: 前端类型定义更新：`McpServerStatus` 新增 `capabilities` 和 `needs_auth` 相关字段
-- [ ] T100: i18n 更新：`plugins.json` 新增 needs_auth、login、resources、prompts 相关翻译 key
+- [x] T94: `PluginRow` 已有 `needs_auth` 状态样式（P4-C 实现）：黄色 Key 图标 + 脉冲动画 + "登录"按钮 + `oauthLoginPlugin` store action
+- [x] T95: `McpDetailModal` 新增 Resources 可折叠区域：使用 `transport.mcpResources(serverId)` 获取资源列表，展示 name/uri/description/mimeType
+- [x] T96: `xiaolin-gateway/src/ws/plugins.rs` 新增 `handle_plugins_resources` handler：按 `server_name` 查找 client → `list_resources()` → 返回 resources 数组
+- [x] T97: Resources/Prompts 区域仅在 `pluginCaps.resources`/`pluginCaps.prompts` 为 true 且有数据时显示
+- [x] T98: `McpServerStatus` 新增 `has_resources: bool` + `has_prompts: bool` 字段；5 处 Connected 状态创建点均从 `handle` 读取真实值；`enrich_status` 输出 `capabilities: { tools, resources, prompts }`
+- [x] T99: 前端 `PluginSummary` 新增 `capabilities?: { tools, resources, prompts }` 字段；新增 `McpResourceInfo` 接口 + `mcpResources()` API
+- [x] T100: i18n 新增 `detail.resources_title`（中：资源 / 英：Resources）；`detail.prompts_title` 中文改为"提示词"
 
 ---
 
@@ -971,7 +972,7 @@
 | `explore-card-grid/spec.md` | T34 ✅, T36 ✅ | 100% |
 | `detail-modal-hero/spec.md` | T37 ✅ | 100% |
 | `plugin-ui-animation/spec.md` | T35 ✅, T36 ✅, T38 ✅ | 100% |
-| `plugin-panel/spec.md` | T38 ✅, T94-T100 | P0-P3: 100%, P4-G: 0% |
+| `plugin-panel/spec.md` | T38 ✅, T94-T100 ✅ | 100% |
 | `mcp-security-hardening/spec.md` | T42-T49 ✅ | 100% |
 | `mcp-oauth/spec.md` | T50-T67 ✅ | 100% |
 | `mcp-resources/spec.md` | T68-T76 ✅ | 100% |
@@ -986,15 +987,15 @@
 - **P1.5 (UI 抛光)**：6/6 组完成（T34-T39 ✅），23 个子任务全部完成
 - **P2**：10/10 完成 ✅（T19-T26 ✅, T32 ✅, T33 ✅）
 - **P3**：5/5 完成（T27-T31 ✅ Deferred Pipeline 全部完成）
-- **P4 (协议完整度)**：52/59 完成
+- **P4 (协议完整度)**：59/59 完成 ✅
   - P4-A 安全加固：8/8（T42-T49）✅
   - P4-B Bearer Token & Headers：6/6（T50-T55）✅
   - P4-C OAuth PKCE：12/12（T56-T67）✅ + Review 修复 5 项
   - P4-D Resources 客户端：9/9（T68-T76）✅ + Review 修复 2 项
   - P4-E Prompts 客户端：9/9（T77-T85）✅ + Review 修复 1 项
   - P4-F Elicitation：8/8（T86-T93）✅ + Review 零问题
-  - P4-G Plugin Panel 扩展：0/7（T94-T100）
-- **总计**：93/100 完成（93%）
+  - P4-G Plugin Panel 扩展：7/7（T94-T100）✅
+- **总计**：100/100 完成（100%）🎉
 
 ### 关键路径
 

@@ -582,7 +582,63 @@ fn enrich_status(
         "connectedAt": st.connected_at,
         "commandPreview": st.command_preview,
         "transport": st.transport,
+        "capabilities": {
+            "tools": true,
+            "resources": st.has_resources,
+            "prompts": st.has_prompts,
+        },
     })
+}
+
+pub async fn handle_plugins_resources(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    server_name: &str,
+) {
+    let client = {
+        let handles = state.ext.mcp_handles.lock().await;
+        handles.get(server_name).cloned()
+    };
+    let client = match client {
+        Some(c) => c,
+        None => {
+            send_error(sender, req_id, &format!("server '{server_name}' not found")).await;
+            return;
+        }
+    };
+
+    match client.list_resources().await {
+        Ok(resources) => {
+            let items: Vec<serde_json::Value> = resources
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "uri": r.uri,
+                        "name": r.name,
+                        "description": r.description,
+                        "mimeType": r.mime_type,
+                    })
+                })
+                .collect();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "plugins.resources".into(),
+                    data: Some(json!({
+                        "server": server_name,
+                        "resources": items,
+                    })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_error(sender, req_id, &format!("resources/list failed: {e}")).await;
+        }
+    }
 }
 
 pub async fn handle_plugins_prompts(

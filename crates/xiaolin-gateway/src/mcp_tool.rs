@@ -281,6 +281,8 @@ impl ManageMcpServerTool {
                             error: None,
                             tool_count,
                             connected_at: Some(now),
+                            has_resources: handle.has_resources(),
+                            has_prompts: handle.has_prompts(),
                             ..Default::default()
                         },
                     );

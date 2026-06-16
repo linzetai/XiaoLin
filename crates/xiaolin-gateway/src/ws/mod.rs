@@ -514,6 +514,9 @@ async fn dispatch(
         ClientOp::PluginsOauthLogin { id: plugin_id } => {
             plugins::handle_plugins_oauth_login(sender, state, id, &plugin_id).await
         }
+        ClientOp::PluginsResources { server_name } => {
+            plugins::handle_plugins_resources(sender, state, id, &server_name).await
+        }
         ClientOp::PluginsPrompts => {
             plugins::handle_plugins_prompts(sender, state, id).await
         }

@@ -754,6 +754,20 @@ export interface McpPromptMessage {
   content: McpPromptMessageContent;
 }
 
+export interface McpResourceInfo {
+  uri: string;
+  name: string;
+  description?: string | null;
+  mimeType?: string | null;
+}
+
+export async function mcpResources(serverName: string): Promise<McpResourceInfo[]> {
+  const resp = (await wsClient.send("plugins.resources", { server_name: serverName })) as {
+    data?: { resources: McpResourceInfo[] };
+  };
+  return resp?.data?.resources ?? [];
+}
+
 export async function mcpPrompts(): Promise<McpPromptInfo[]> {
   const resp = (await wsClient.send("plugins.prompts", {})) as { data?: { prompts: McpPromptInfo[] } };
   return resp?.data?.prompts ?? [];
@@ -1236,6 +1250,11 @@ export interface PluginSummary {
   connectedAt?: string | null;
   commandPreview?: string | null;
   transport?: "stdio" | "sse" | "streamable_http" | null;
+  capabilities?: {
+    tools: boolean;
+    resources: boolean;
+    prompts: boolean;
+  };
 }
 
 export interface PluginTool {

@@ -618,6 +618,8 @@ impl AppState {
                                 connected_at: Some(now),
                                 scope: scope.clone(),
                                 transport: Some(transport.clone()),
+                                has_resources: handle.has_resources(),
+                                has_prompts: handle.has_prompts(),
                                 ..Default::default()
                             },
                         );
@@ -725,6 +727,8 @@ impl AppState {
                         connected_at: Some(now),
                         scope,
                         transport: Some(transport.clone()),
+                        has_resources: handle.has_resources(),
+                        has_prompts: handle.has_prompts(),
                         ..Default::default()
                     },
                 );
@@ -1279,6 +1283,8 @@ impl AppState {
                             connected_at: Some(now),
                             scope: scope.clone(),
                             transport: Some(transport.clone()),
+                            has_resources: handle.has_resources(),
+                            has_prompts: handle.has_prompts(),
                             ..Default::default()
                         },
                     );
@@ -1498,6 +1504,8 @@ impl AppState {
                                                     status: xiaolin_core::types::McpStatus::Connected,
                                                     tool_count: count,
                                                     connected_at: Some(chrono::Utc::now().to_rfc3339()),
+                                                    has_resources: new_handle.has_resources(),
+                                                    has_prompts: new_handle.has_prompts(),
                                                     ..Default::default()
                                                 });
                                                 ss.store(Arc::new(map));

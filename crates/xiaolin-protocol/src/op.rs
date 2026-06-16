@@ -507,6 +507,9 @@ pub enum ClientOp {
     PluginsOauthLogin {
         id: String,
     },
+    PluginsResources {
+        server_name: String,
+    },
     PluginsPrompts,
     PluginsGetPrompt {
         server_name: String,
@@ -1035,6 +1038,9 @@ impl ClientOp {
             }),
             "plugins.oauth_login" => Ok(Self::PluginsOauthLogin {
                 id: extract_string(&params, "id")?,
+            }),
+            "plugins.resources" => Ok(Self::PluginsResources {
+                server_name: extract_string(&params, "server_name")?,
             }),
             "plugins.prompts" => Ok(Self::PluginsPrompts),
             "plugins.get_prompt" => Ok(Self::PluginsGetPrompt {

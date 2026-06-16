@@ -492,6 +492,12 @@ pub struct McpServerStatus {
     /// Transport type: "stdio", "sse", or "streamable_http".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
+    /// Whether the server declared `capabilities.resources`.
+    #[serde(default)]
+    pub has_resources: bool,
+    /// Whether the server declared `capabilities.prompts`.
+    #[serde(default)]
+    pub has_prompts: bool,
 }
 
 fn default_scope() -> String {
