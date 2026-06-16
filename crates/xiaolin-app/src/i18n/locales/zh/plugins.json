@@ -65,7 +65,7 @@
   "tools_label": "工具",
   "global_skills": "全局技能",
   "agent_skills": "Agent 技能",
-  "add_server": "+ 添加",
+  "add_server": "添加",
   "mcp_sub": {
     "installed": "已安装",
     "explore": "探索"
@@ -81,7 +81,10 @@
     "installed": "已安装",
     "install": "安装",
     "install_failed": "安装失败",
-    "browse_servers": "浏览服务器目录"
+    "browse_servers": "浏览服务器目录",
+    "env_config_subtitle": "需要配置环境变量",
+    "env_placeholder": "输入值…",
+    "install_with_config": "安装并连接"
   },
   "remove_server": "删除",
   "remove_confirm": "确定删除？",

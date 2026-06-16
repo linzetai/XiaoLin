@@ -4,7 +4,7 @@ import {
   MagnifyingGlass, Check, SpinnerGap, WarningCircle,
   FolderOpen, GithubLogo, Database, Browser, ChatCircle,
   Brain, TreeStructure, Cube, Globe, MapPin, Clock,
-  Package, GitBranch,
+  Package, GitBranch, X, Key,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore } from "../../lib/stores/plugin-store";
@@ -31,11 +31,13 @@ export interface McpRegistryEntry {
 
 export const registry: McpRegistryEntry[] = registryData as McpRegistryEntry[];
 
-const ICON_MAP: Record<string, Icon> = {
+export const MCP_ICON_MAP: Record<string, Icon> = {
   FolderOpen, GithubLogo, Database, Browser, ChatCircle,
   Brain, TreeStructure, Cube, Globe, MapPin, Clock,
   Package, GitBranch, MagnifyingGlass,
 };
+
+const ICON_MAP = MCP_ICON_MAP;
 
 type Category = "all" | "development" | "productivity" | "data" | "communication";
 
@@ -54,6 +56,11 @@ const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
   communication: { bg: "rgba(159,122,234,0.12)", fg: "var(--purple, #9F7AEA)" },
 };
 
+function needsEnvInput(entry: McpRegistryEntry): boolean {
+  if (!entry.env) return false;
+  return Object.values(entry.env).some((v) => v === "");
+}
+
 export function McpExplorePanel() {
   const { t } = useTranslation("plugins");
   const plugins = usePluginStore((s) => s.plugins);
@@ -63,6 +70,7 @@ export function McpExplorePanel() {
   const [category, setCategory] = useState<Category>("all");
   const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
   const [errorId, setErrorId] = useState<string | null>(null);
+  const [envDialogEntry, setEnvDialogEntry] = useState<McpRegistryEntry | null>(null);
 
   const installedIds = useMemo(
     () => new Set(plugins.map((p) => p.id)),
@@ -86,26 +94,47 @@ export function McpExplorePanel() {
     return items;
   }, [search, category]);
 
-  const handleInstall = useCallback(
-    async (entry: McpRegistryEntry) => {
-      if (installingIds.has(entry.id)) return;
+  const doInstall = useCallback(
+    async (entry: McpRegistryEntry, envOverrides?: Record<string, string>) => {
       setInstallingIds((prev) => new Set(prev).add(entry.id));
       setErrorId(null);
 
+      const finalEnv = envOverrides ?? entry.env;
       const params: AddMcpServerParams = {
         id: entry.id,
         transport: entry.transport,
         ...(entry.command ? { command: entry.command } : {}),
         ...(entry.args ? { args: entry.args } : {}),
         ...(entry.url ? { url: entry.url } : {}),
-        ...(entry.env ? { env: entry.env } : {}),
+        ...(finalEnv && Object.keys(finalEnv).length > 0 ? { env: finalEnv } : {}),
       };
 
       const ok = await addPlugin(params);
       setInstallingIds((prev) => { const next = new Set(prev); next.delete(entry.id); return next; });
       if (!ok) setErrorId(entry.id);
     },
-    [addPlugin, installingIds],
+    [addPlugin],
+  );
+
+  const handleInstall = useCallback(
+    (entry: McpRegistryEntry) => {
+      if (installingIds.has(entry.id)) return;
+      if (needsEnvInput(entry)) {
+        setEnvDialogEntry(entry);
+      } else {
+        doInstall(entry);
+      }
+    },
+    [installingIds, doInstall],
+  );
+
+  const handleEnvSubmit = useCallback(
+    (env: Record<string, string>) => {
+      if (!envDialogEntry) return;
+      setEnvDialogEntry(null);
+      doInstall(envDialogEntry, env);
+    },
+    [envDialogEntry, doInstall],
   );
 
   return (
@@ -175,6 +204,14 @@ export function McpExplorePanel() {
             />
           ))}
         </div>
+      )}
+
+      {envDialogEntry && (
+        <EnvConfigDialog
+          entry={envDialogEntry}
+          onSubmit={handleEnvSubmit}
+          onCancel={() => setEnvDialogEntry(null)}
+        />
       )}
     </div>
   );
@@ -281,7 +318,7 @@ function ExploreCard({
           <button
             onClick={() => onInstall(entry)}
             disabled={installing}
-            className="w-full rounded-md py-1.5 text-[11px] font-semibold transition-colors hover:opacity-90"
+            className="flex w-full items-center justify-center rounded-md py-1.5 text-[11px] font-semibold transition-colors hover:opacity-90"
             style={{
               background: "var(--tint)",
               color: "#fff",
@@ -297,6 +334,138 @@ function ExploreCard({
             )}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function EnvConfigDialog({
+  entry,
+  onSubmit,
+  onCancel,
+}: {
+  entry: McpRegistryEntry;
+  onSubmit: (env: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("plugins");
+  const emptyKeys = Object.entries(entry.env ?? {})
+    .filter(([, v]) => v === "")
+    .map(([k]) => k);
+  const [values, setValues] = useState<Record<string, string>>(
+    () => Object.fromEntries(emptyKeys.map((k) => [k, ""])),
+  );
+
+  const allFilled = emptyKeys.every((k) => values[k]?.trim());
+  const IconComp = ICON_MAP[entry.icon] ?? Cube;
+  const brand = entry.brandColor ?? "var(--tint)";
+
+  const handleSubmit = () => {
+    const merged = { ...entry.env };
+    for (const [k, v] of Object.entries(values)) {
+      merged[k] = v.trim();
+    }
+    onSubmit(merged);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={onCancel}
+    >
+      <div
+        className="w-[420px] rounded-[var(--radius-lg)] p-6"
+        style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-[9px]"
+              style={{ background: `color-mix(in srgb, ${brand} 12%, transparent)` }}
+            >
+              <IconComp size={ICON_SIZE.md} style={{ color: brand }} />
+            </div>
+            <div>
+              <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+                {entry.name}
+              </h3>
+              <p className="text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+                {t("explore.env_config_subtitle")}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
+          >
+            <X size={ICON_SIZE.md} />
+          </button>
+        </div>
+
+        {entry.installHint && (
+          <div
+            className="mb-4 flex items-start gap-2 rounded-md px-3 py-2.5 text-[11px] leading-relaxed"
+            style={{
+              background: "color-mix(in srgb, var(--yellow, #D69E2E) 6%, transparent)",
+              border: "0.5px solid color-mix(in srgb, var(--yellow, #D69E2E) 20%, transparent)",
+              color: "var(--fill-secondary)",
+            }}
+          >
+            <Key size={ICON_SIZE.sm} className="mt-0.5 shrink-0" style={{ color: "var(--yellow, #D69E2E)" }} />
+            <span>{entry.installHint}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3">
+          {emptyKeys.map((key) => (
+            <div key={key}>
+              <label
+                className="mb-1 block text-[11px] font-medium font-mono"
+                style={{ color: "var(--fill-quaternary)" }}
+              >
+                {key}
+              </label>
+              <input
+                type={key.toLowerCase().includes("token") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("key") ? "password" : "text"}
+                value={values[key] ?? ""}
+                onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                placeholder={t("explore.env_placeholder")}
+                className="w-full rounded-md px-3 py-2 text-[12px] font-mono outline-none transition-all"
+                style={{
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--separator)",
+                  color: "var(--fill-primary)",
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = "var(--tint)"; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = "var(--separator)"; }}
+                autoFocus={emptyKeys.indexOf(key) === 0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && allFilled) handleSubmit();
+                }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ cursor: "pointer", background: "none", border: "0.5px solid var(--separator)", color: "var(--fill-secondary)" }}
+          >
+            {t("cancel")}
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!allFilled}
+            className="rounded-md px-4 py-1.5 text-[12px] font-semibold transition-colors hover:opacity-90 disabled:opacity-40"
+            style={{ cursor: allFilled ? "pointer" : "not-allowed", background: "var(--tint)", border: "none", color: "#fff" }}
+          >
+            {t("explore.install_with_config")}
+          </button>
+        </div>
       </div>
     </div>
   );

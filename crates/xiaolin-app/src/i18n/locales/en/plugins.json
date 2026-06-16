@@ -65,7 +65,7 @@
   "tools_label": "Tools",
   "global_skills": "Global skills",
   "agent_skills": "Agent skills",
-  "add_server": "+ Add",
+  "add_server": "Add",
   "mcp_sub": {
     "installed": "Installed",
     "explore": "Explore"
@@ -81,7 +81,10 @@
     "installed": "Installed",
     "install": "Install",
     "install_failed": "Installation failed",
-    "browse_servers": "Browse Server Directory"
+    "browse_servers": "Browse Server Directory",
+    "env_config_subtitle": "Environment variables required",
+    "env_placeholder": "Enter value…",
+    "install_with_config": "Install & Connect"
   },
   "remove_server": "Remove",
   "remove_confirm": "Remove?",

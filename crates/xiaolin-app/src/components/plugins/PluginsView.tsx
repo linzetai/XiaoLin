@@ -10,9 +10,6 @@ import {
   MagnifyingGlass, CaretUp, X,
   ShieldWarning, CheckFat, XCircle,
   Plus, Trash,
-  GithubLogo, Database, Browser, ChatCircle,
-  Brain, TreeStructure, Cube, MapPin, Clock,
-  Package, GitBranch,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore, subscribePluginEvents } from "../../lib/stores/plugin-store";
@@ -22,7 +19,7 @@ import * as api from "../../lib/api";
 import { ICON_SIZE, BTN_TEXT_SM } from "../../lib/ui-tokens";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { AddServerModal } from "./AddServerModal";
-import { McpExplorePanel, registry as mcpRegistry } from "./McpExplorePanel";
+import { McpExplorePanel, registry as mcpRegistry, MCP_ICON_MAP } from "./McpExplorePanel";
 import type { McpRegistryEntry } from "./McpExplorePanel";
 import { McpDetailModal } from "./McpDetailModal";
 
@@ -30,9 +27,8 @@ type PluginsTab = "mcp" | "skills" | "channels";
 type McpSubView = "installed" | "explore";
 
 const PLUGIN_ICON_MAP: Record<string, Icon> = {
-  FolderOpen, GithubLogo, Database, Browser, ChatCircle,
-  Brain, TreeStructure, Cube, Globe, MapPin, Clock,
-  Package, GitBranch, MagnifyingGlass, PuzzlePiece,
+  ...MCP_ICON_MAP,
+  PuzzlePiece,
 };
 
 export function PluginsView() {
