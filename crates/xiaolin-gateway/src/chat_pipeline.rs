@@ -265,6 +265,7 @@ pub async fn setup_chat(
         &mut enriched_request.messages,
     );
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
+    inject_mcp_instructions_delta(state, &mut enriched_request.messages).await;
     tracing::info!(
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "perf: prompt_injections"
@@ -632,7 +633,28 @@ Guidance:\n\
     );
 }
 
+/// Cached MCP tools prompt: (registry_version, prompt_string).
+/// Rebuilt only when tool registry version changes (e.g. on tools/list_changed).
+static MCP_TOOLS_PROMPT_CACHE: std::sync::RwLock<(u64, String)> =
+    std::sync::RwLock::new((u64::MAX, String::new()));
+
 fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
+    let reg_version = state.rt.tool_registry.version();
+
+    if let Ok(cache) = MCP_TOOLS_PROMPT_CACHE.read() {
+        if cache.0 == reg_version && !cache.1.is_empty() {
+            messages.insert(
+                0,
+                ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(cache.1.clone())),
+                    ..Default::default()
+                },
+            );
+            return;
+        }
+    }
+
     let eager_tools = state.rt.tool_registry.eager_mcp_definitions();
     let deferred_names = state.rt.tool_registry.deferred_tool_names();
 
@@ -651,6 +673,9 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
                 configured = state.cfg.config.mcp_servers.len(),
                 "MCP servers configured but no mcp__ tools in registry (connection may have failed at startup)"
             );
+        }
+        if let Ok(mut cache) = MCP_TOOLS_PROMPT_CACHE.write() {
+            *cache = (reg_version, String::new());
         }
         return;
     }
@@ -721,6 +746,10 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         );
     }
 
+    if let Ok(mut cache) = MCP_TOOLS_PROMPT_CACHE.write() {
+        *cache = (reg_version, prompt.clone());
+    }
+
     messages.insert(
         0,
         ChatMessage {
@@ -729,6 +758,78 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         ..Default::default()
         },
     );
+}
+
+/// Max characters per server's instructions to prevent prompt bloat.
+const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
+
+/// Inject MCP server instructions as a **stable, separate system message**.
+///
+/// Instructions are collected from connected MCP clients and inserted as an
+/// independent system message (after the tools prompt). The content is
+/// deterministically sorted by server ID, so it only changes when servers
+/// connect or disconnect — maximising prompt-cache hits on the LLM side.
+async fn inject_mcp_instructions_delta(state: &AppState, messages: &mut Vec<ChatMessage>) {
+    static SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)ignore previous|system:|<\||\[INST\]").unwrap()
+    });
+
+    let instructions: std::collections::BTreeMap<String, String> = {
+        let handles = state.ext.mcp_handles.lock().await;
+        handles
+            .iter()
+            .filter_map(|(id, client)| {
+                client
+                    .instructions()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| {
+                        let sanitized = xiaolin_mcp::sanitize::sanitize_unicode(s.trim());
+                        let truncated: String =
+                            sanitized.chars().take(MCP_INSTRUCTIONS_MAX_CHARS).collect();
+                        (id.clone(), truncated)
+                    })
+            })
+            .collect()
+    };
+
+    let instructions: std::collections::BTreeMap<String, String> = instructions
+        .into_iter()
+        .filter(|(id, instr)| {
+            if SUSPICIOUS_RE.is_match(instr) {
+                tracing::warn!(
+                    server_id = %id,
+                    "blocking MCP server instructions: suspicious prompt injection pattern detected"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    if instructions.is_empty() {
+        return;
+    }
+
+    let mut prompt = String::from(
+        "[MCP Server Instructions]\n\
+         The following instructions are provided by connected MCP servers. \
+         Follow them when using that server's tools.\n\n",
+    );
+    for (server_id, instr) in &instructions {
+        prompt.push_str(&format!("### {server_id}:\n{instr}\n\n"));
+    }
+
+    tracing::debug!(
+        servers_with_instructions = instructions.len(),
+        "inject_mcp_instructions_delta"
+    );
+
+    messages.push(ChatMessage {
+        role: Role::System,
+        content: Some(serde_json::Value::String(prompt)),
+        ..Default::default()
+    });
 }
 
 /// Append the assistant message and record an episode when textual content is present.

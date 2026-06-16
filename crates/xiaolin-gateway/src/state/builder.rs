@@ -40,7 +40,7 @@ struct BuildPhase3 {
     phase1: BuildPhase1,
     runtime: Arc<AgentRuntime>,
     router: AgentRouter,
-    tool_registry: ToolRegistry,
+    tool_registry: Arc<ToolRegistry>,
     base_skill_registry: SkillRegistry,
     agent_skill_registries: std::collections::HashMap<String, Arc<SkillRegistry>>,
     workspaces: std::collections::HashMap<String, AgentWorkspace>,
@@ -377,7 +377,7 @@ impl StateBuilder {
             phase1: p1,
             runtime,
             router,
-            tool_registry,
+            tool_registry: Arc::new(tool_registry),
             base_skill_registry,
             agent_skill_registries,
             workspaces,
@@ -401,7 +401,7 @@ impl StateBuilder {
                 &p3.phase1.agents,
                 &all_mcp_servers,
                 p3.runtime.clone(),
-                &p3.tool_registry,
+                p3.tool_registry.clone(),
             ),
             super::AppState::build_channels(config, &p3.tool_registry),
         );
@@ -881,7 +881,7 @@ impl StateBuilder {
         // uses interior mutability (RwLock) so later registrations are visible
         // to both holders.
         let shared_tool_registry = {
-            let reg = Arc::new(p5.phase2.phase4.phase3.tool_registry);
+            let reg = p5.phase2.phase4.phase3.tool_registry;
             xiaolin_agent::builtin_tools::register_tool_search(&reg);
             reg
         };
@@ -999,6 +999,7 @@ impl StateBuilder {
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
                 agent_def_watcher: None,
+                pending_elicitations: Arc::new(dashmap::DashMap::new()),
             },
             svc: super::SharedServices {
                 runtime: runtime_for_session,
@@ -1032,6 +1033,29 @@ impl StateBuilder {
                 state.rt.tool_registry.clone(),
             )));
         tracing::info!("registered manage_mcp_server tool");
+
+        state.rt.tool_registry.register_deferred(Arc::new(
+            crate::mcp_tool::McpListResourcesTool::new(state.ext.mcp_handles.clone()),
+        ));
+        state.rt.tool_registry.register_deferred(Arc::new(
+            crate::mcp_tool::McpReadResourceTool::new(state.ext.mcp_handles.clone()),
+        ));
+        tracing::info!("registered mcp__list_resources and mcp__read_resource tools (deferred)");
+
+        {
+            let handles = state.ext.mcp_handles.lock().await;
+            for (sid, handle) in handles.iter() {
+                super::AppState::spawn_server_request_watcher(
+                    sid,
+                    handle,
+                    state.strm.ws_broadcast.clone(),
+                    state.strm.pending_elicitations.clone(),
+                );
+            }
+            if !handles.is_empty() {
+                tracing::info!(count = handles.len(), "spawned server request watchers for MCP clients");
+            }
+        }
 
         state
             .rt

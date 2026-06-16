@@ -1145,7 +1145,15 @@ impl AgentRuntime {
             platform,
             shell,
             execution_mode: mode,
-            mcp_servers: vec![],
+            mcp_servers: ctx
+                .tool_registry
+                .mcp_instructions_snapshot()
+                .into_iter()
+                .map(|(id, instr)| prompt_engine::McpServerInfo {
+                    id,
+                    instructions: Some(instr),
+                })
+                .collect(),
             language_preference: ctx.request.response_language.clone(),
             token_budget: None,
             memory_prompt: None,

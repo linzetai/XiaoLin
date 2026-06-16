@@ -9,6 +9,8 @@ use std::time::Duration;
 /// XiaoLin supports MCP as both server (exposing tools to external agents)
 /// and client (consuming tools from external MCP servers).
 pub mod naming;
+pub mod oauth;
+pub mod sanitize;
 
 // --- JSON-RPC 2.0 ---
 
@@ -96,6 +98,7 @@ pub struct ServerInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ServerCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolCapability>,
@@ -131,6 +134,8 @@ pub struct InitializeResult {
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
     pub server_info: ServerInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +198,7 @@ pub enum ToolContent {
 
 /// An MCP resource descriptor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpResource {
     pub uri: String,
     pub name: String,
@@ -200,6 +206,31 @@ pub struct McpResource {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+}
+
+/// An MCP resource template descriptor (client-side).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpResourceTemplate {
+    pub uri_template: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+/// Content item returned by `resources/read`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpResourceContent {
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
 }
 
 /// An MCP prompt descriptor.
@@ -219,6 +250,26 @@ pub struct McpPromptArgument {
     pub description: Option<String>,
     #[serde(default)]
     pub required: bool,
+}
+
+/// A message returned by `prompts/get`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptMessage {
+    pub role: String,
+    pub content: McpPromptContent,
+}
+
+/// Content of a prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum McpPromptContent {
+    Text { text: String },
+    Image {
+        data: String,
+        #[serde(alias = "mime_type", rename = "mimeType")]
+        mime_type: String,
+    },
+    Resource { resource: McpResourceContent },
 }
 
 type McpResourceFuture =
@@ -363,6 +414,7 @@ impl McpServer {
                 },
             },
             server_info: self.server_info.clone(),
+            instructions: None,
         };
         json_rpc_success_serialized(id, result)
     }
@@ -551,6 +603,19 @@ fn extract_sse_data_lines(block: &str) -> Vec<String> {
     out
 }
 
+const SESSION_EXPIRED_ERROR_CODE: i64 = -32001;
+
+#[derive(Debug)]
+struct SessionExpired(String);
+
+impl std::fmt::Display for SessionExpired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MCP session expired: {}", self.0)
+    }
+}
+
+impl std::error::Error for SessionExpired {}
+
 enum McpTransport {
     Stdio {
         process: Arc<std::sync::Mutex<Box<tokio::process::Child>>>,
@@ -583,15 +648,33 @@ pub struct McpNotification {
     pub params: Option<serde_json::Value>,
 }
 
+/// MCP server → client request (JSON-RPC message with both `id` and `method`).
+/// Unlike notifications, these require a response from the client.
+#[derive(Debug, Clone)]
+pub struct McpServerRequest {
+    pub id: serde_json::Value,
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+}
+
 /// A client that connects to an external MCP server and discovers/invokes its tools.
 pub struct McpClient {
-    server_name: String,
+    server_name: std::sync::RwLock<String>,
     tools: Vec<McpTool>,
     transport: McpTransport,
     next_id: std::sync::atomic::AtomicU64,
     notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+    server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
     /// Original SSE URL, kept for reconnection. `None` for stdio/streamable-http.
     sse_url: Option<String>,
+    /// Server-provided instructions from `InitializeResult.instructions`.
+    server_instructions: std::sync::RwLock<Option<String>>,
+    /// Server capabilities declared during `initialize`.
+    server_capabilities: std::sync::RwLock<ServerCapabilities>,
+    /// Serializes session recovery so that concurrent requests only re-initialize once.
+    recovery_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Extra HTTP headers (Bearer auth, custom headers) carried for reconnects.
+    extra_headers: reqwest::header::HeaderMap,
 }
 
 impl McpClient {
@@ -669,11 +752,13 @@ impl McpClient {
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
         let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+        let (server_request_tx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
 
         let pending_reader = pending.clone();
         let ntx = notification_tx.clone();
+        let srtx = server_request_tx.clone();
         let reader_task = tokio::spawn(async move {
-            Self::stdio_reader_loop(reader, pending_reader, ntx).await;
+            Self::stdio_reader_loop(reader, pending_reader, ntx, srtx).await;
         });
 
         if let Some(stderr) = process.stderr.take() {
@@ -684,7 +769,7 @@ impl McpClient {
         }
 
         let mut client = Self {
-            server_name: command.to_string(),
+            server_name: std::sync::RwLock::new(command.to_string()),
             tools: Vec::new(),
             transport: McpTransport::Stdio {
                 process: Arc::new(std::sync::Mutex::new(Box::new(process))),
@@ -694,7 +779,12 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx,
+            server_request_tx,
             sse_url: None,
+            server_instructions: std::sync::RwLock::new(None),
+            server_capabilities: std::sync::RwLock::new(ServerCapabilities::default()),
+            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+            extra_headers: reqwest::header::HeaderMap::new(),
         };
 
         client.initialize().await?;
@@ -707,28 +797,35 @@ impl McpClient {
     ///
     /// `url` must be the full SSE URL whose path ends with `/sse`; POST target is the same path
     /// with the `/sse` suffix replaced by `/message`.
-    pub async fn connect_sse(url: &str) -> anyhow::Result<Self> {
+    pub async fn connect_sse(
+        url: &str,
+        extra_headers: reqwest::header::HeaderMap,
+    ) -> anyhow::Result<Self> {
         let sse_url = reqwest::Url::parse(url.trim())?;
         let post_url = companion_post_url(&sse_url)?.to_string();
         let sse_url_str = sse_url.to_string();
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .default_headers(extra_headers.clone())
+            .build()?;
         let pending: Arc<
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
         let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+        let (server_request_tx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
 
         let pending_reader = pending.clone();
         let client_reader = client.clone();
         let sse_reader_url = sse_url_str.clone();
         let ntx = notification_tx.clone();
+        let srtx = server_request_tx.clone();
         let reader_task = tokio::spawn(async move {
-            Self::sse_reader_loop(&client_reader, &sse_reader_url, pending_reader, ntx).await
+            Self::sse_reader_loop(&client_reader, &sse_reader_url, pending_reader, ntx, srtx).await
         });
 
         let mut mcp = Self {
-            server_name: sse_url_str.clone(),
+            server_name: std::sync::RwLock::new(sse_url_str.clone()),
             tools: Vec::new(),
             transport: McpTransport::Sse {
                 client: client.clone(),
@@ -738,7 +835,12 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx,
+            server_request_tx,
             sse_url: Some(sse_url_str),
+            server_instructions: std::sync::RwLock::new(None),
+            server_capabilities: std::sync::RwLock::new(ServerCapabilities::default()),
+            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+            extra_headers,
         };
 
         tokio::task::yield_now().await;
@@ -754,18 +856,24 @@ impl McpClient {
     ///
     /// A single endpoint handles all JSON-RPC messages via POST.  An optional
     /// GET request opens an SSE stream for server-initiated notifications.
-    pub async fn connect_streamable_http(url: &str) -> anyhow::Result<Self> {
+    pub async fn connect_streamable_http(
+        url: &str,
+        extra_headers: reqwest::header::HeaderMap,
+    ) -> anyhow::Result<Self> {
         let endpoint_url = url.trim().to_string();
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .default_headers(extra_headers.clone())
+            .build()?;
         let pending: Arc<
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let session_id: Arc<tokio::sync::Mutex<Option<String>>> =
             Arc::new(tokio::sync::Mutex::new(None));
         let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+        let (server_request_tx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
 
         let mut mcp = Self {
-            server_name: String::new(),
+            server_name: std::sync::RwLock::new(String::new()),
             tools: Vec::new(),
             transport: McpTransport::StreamableHttp {
                 client: client.clone(),
@@ -776,7 +884,12 @@ impl McpClient {
             },
             next_id: std::sync::atomic::AtomicU64::new(1),
             notification_tx: notification_tx.clone(),
+            server_request_tx: server_request_tx.clone(),
             sse_url: None,
+            server_instructions: std::sync::RwLock::new(None),
+            server_capabilities: std::sync::RwLock::new(ServerCapabilities::default()),
+            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+            extra_headers,
         };
 
         mcp.initialize().await?;
@@ -786,6 +899,7 @@ impl McpClient {
         let listener_client = client.clone();
         let listener_url = endpoint_url.clone();
         let ntx = notification_tx.clone();
+        let srtx = server_request_tx.clone();
         let task = tokio::spawn(async move {
             Self::streamable_http_listener(
                 &listener_client,
@@ -793,6 +907,7 @@ impl McpClient {
                 sid_for_listener.as_deref(),
                 listener_pending,
                 ntx,
+                srtx,
             )
             .await
         });
@@ -816,6 +931,7 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
         notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
     ) -> anyhow::Result<()> {
         let mut req = client
             .get(endpoint_url)
@@ -853,24 +969,14 @@ impl McpClient {
                     Err(_) => continue,
                 };
 
-                if value.get("id").is_some() {
-                    if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
-                        let id_key = resp.id.to_string();
-                        let mut guard = pending.lock().await;
-                        if let Some(tx) = guard.remove(&id_key) {
-                            let _ = tx.send(resp);
-                        }
-                    }
-                } else if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
-                    let params = value.get("params").cloned();
-                    tracing::debug!(method, "MCP notification received (streamable_http)");
-                    let _ = notification_tx.send(McpNotification {
-                        method: method.to_string(),
-                        params,
-                    });
-                } else {
-                    tracing::debug!("MCP streamable_http: ignoring JSON message without id or method");
-                }
+                Self::dispatch_incoming(
+                    value,
+                    &pending,
+                    &notification_tx,
+                    &server_request_tx,
+                    "streamable_http",
+                )
+                .await;
             }
             buf.clear();
         }
@@ -902,6 +1008,7 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
         notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
     ) {
         use tokio::io::AsyncBufReadExt;
 
@@ -923,23 +1030,14 @@ impl McpClient {
                         }
                     };
 
-                    if value.get("id").is_some() {
-                        if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
-                            let key = json_rpc_id_key(&resp.id);
-                            if let Some(tx) = pending.lock().await.remove(&key) {
-                                let _ = tx.send(resp);
-                            }
-                        }
-                    } else if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
-                        let params = value.get("params").cloned();
-                        tracing::debug!(method, "MCP notification received (stdio)");
-                        let _ = notification_tx.send(McpNotification {
-                            method: method.to_string(),
-                            params,
-                        });
-                    } else {
-                        tracing::debug!("MCP stdio: ignoring JSON message without id or method");
-                    }
+                    Self::dispatch_incoming(
+                        value,
+                        &pending,
+                        &notification_tx,
+                        &server_request_tx,
+                        "stdio",
+                    )
+                    .await;
                 }
                 Err(e) => {
                     tracing::warn!("MCP stdio reader error: {e}");
@@ -965,8 +1063,11 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
         notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
     ) -> anyhow::Result<()> {
-        let result = Self::sse_reader_loop_inner(client, sse_url, pending, &notification_tx).await;
+        let result =
+            Self::sse_reader_loop_inner(client, sse_url, pending, &notification_tx, &server_request_tx)
+                .await;
 
         match &result {
             Ok(()) => tracing::warn!("SSE stream ended normally, signaling disconnection"),
@@ -987,6 +1088,7 @@ impl McpClient {
             tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
         >,
         notification_tx: &tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: &tokio::sync::broadcast::Sender<McpServerRequest>,
     ) -> anyhow::Result<()> {
         let response = client
             .get(sse_url)
@@ -1015,25 +1117,111 @@ impl McpClient {
                         Err(_) => continue,
                     };
 
-                    if value.get("id").is_some() {
-                        if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
-                            let key = json_rpc_id_key(&resp.id);
-                            if let Some(tx) = pending.lock().await.remove(&key) {
-                                let _ = tx.send(resp);
-                            }
-                        }
-                    } else if let Some(method) =
-                        value.get("method").and_then(|m| m.as_str())
-                    {
-                        let params = value.get("params").cloned();
-                        tracing::debug!(method, "MCP notification received (sse)");
-                        let _ = notification_tx.send(McpNotification {
-                            method: method.to_string(),
-                            params,
-                        });
-                    } else {
-                        tracing::debug!("MCP sse: ignoring JSON message without id or method");
+                    Self::dispatch_incoming(
+                        value,
+                        &pending,
+                        notification_tx,
+                        server_request_tx,
+                        "sse",
+                    )
+                    .await;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Classify an incoming JSON-RPC message and route it to the appropriate
+    /// channel: pending response map, notification broadcast, or server request
+    /// broadcast. A message with both `id` and `method` is a server-initiated
+    /// request; one with only `id` is a response; one with only `method` is a
+    /// notification.
+    async fn dispatch_incoming(
+        value: serde_json::Value,
+        pending: &Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        >,
+        notification_tx: &tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: &tokio::sync::broadcast::Sender<McpServerRequest>,
+        transport_label: &str,
+    ) {
+        let has_id = value.get("id").is_some();
+        let method_str = value.get("method").and_then(|m| m.as_str()).map(String::from);
+
+        match (has_id, method_str) {
+            (true, Some(method)) => {
+                let id = value.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                let params = value.get("params").cloned();
+                tracing::info!(method = %method, %transport_label, "MCP server request received");
+                let _ = server_request_tx.send(McpServerRequest { id, method, params });
+            }
+            (true, None) => {
+                if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(value) {
+                    let key = json_rpc_id_key(&resp.id);
+                    if let Some(tx) = pending.lock().await.remove(&key) {
+                        let _ = tx.send(resp);
                     }
+                }
+            }
+            (false, Some(method)) => {
+                let params = value.get("params").cloned();
+                tracing::debug!(method = %method, %transport_label, "MCP notification received");
+                let _ = notification_tx.send(McpNotification {
+                    method,
+                    params,
+                });
+            }
+            (false, None) => {
+                tracing::debug!(%transport_label, "MCP: ignoring JSON message without id or method");
+            }
+        }
+    }
+
+    /// Send a JSON-RPC response back to the server (for server-initiated
+    /// requests like `elicitation/create`).
+    pub async fn send_response(&self, response: JsonRpcResponse) -> anyhow::Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let json = serde_json::to_string(&response)?;
+
+        match &self.transport {
+            McpTransport::Stdio { stdin, .. } => {
+                let mut stdin_guard = stdin.lock().await;
+                stdin_guard.write_all(json.as_bytes()).await?;
+                stdin_guard.write_all(b"\n").await?;
+                stdin_guard.flush().await?;
+            }
+            McpTransport::Sse { client, post_url, .. } => {
+                let resp = client
+                    .post(post_url.as_str())
+                    .header("Content-Type", "application/json")
+                    .body(json)
+                    .send()
+                    .await?;
+                if !resp.status().is_success() {
+                    let body = resp.text().await.unwrap_or_default();
+                    tracing::warn!("MCP send_response POST failed: {body}");
+                }
+            }
+            McpTransport::StreamableHttp {
+                client,
+                endpoint_url,
+                session_id,
+                ..
+            } => {
+                let mut req = client
+                    .post(endpoint_url.as_str())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .header("MCP-Protocol-Version", "2025-06-18");
+                if let Some(sid) = session_id.lock().await.as_ref() {
+                    req = req.header("Mcp-Session-Id", sid);
+                }
+                let resp = req.body(json).send().await?;
+                if !resp.status().is_success() {
+                    let body = resp.text().await.unwrap_or_default();
+                    tracing::warn!("MCP send_response StreamableHttp POST failed: {body}");
                 }
             }
         }
@@ -1156,6 +1344,11 @@ impl McpClient {
                 };
 
                 let status = response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(
+                        SessionExpired(format!("HTTP 404 from {endpoint_url}")).into(),
+                    );
+                }
                 if !status.is_success() && status != reqwest::StatusCode::ACCEPTED {
                     anyhow::bail!(
                         "Streamable HTTP POST {status}: {}",
@@ -1229,10 +1422,152 @@ impl McpClient {
         }
     }
 
+    fn is_streamable_http(&self) -> bool {
+        matches!(self.transport, McpTransport::StreamableHttp { .. })
+    }
+
+    fn is_session_expired_response(resp: &JsonRpcResponse) -> bool {
+        resp.error
+            .as_ref()
+            .is_some_and(|e| e.code == SESSION_EXPIRED_ERROR_CODE)
+    }
+
+    /// Re-initialize a Streamable HTTP session after expiry.
+    ///
+    /// Acquires `recovery_lock` so concurrent callers coalesce into a single recovery.
+    /// If another request already recovered (session_id changed), this is a no-op.
+    async fn recover_streamable_http_session(&self) -> anyhow::Result<()> {
+        let McpTransport::StreamableHttp {
+            client: http_client,
+            endpoint_url,
+            session_id,
+            ..
+        } = &self.transport
+        else {
+            return Ok(());
+        };
+
+        let old_session = session_id.lock().await.clone();
+
+        let _guard = self.recovery_lock.lock().await;
+
+        let current_session = session_id.lock().await.clone();
+        if current_session != old_session {
+            tracing::info!(
+                server = %self.server_name.read().unwrap(),
+                "session already recovered by another request, skipping"
+            );
+            return Ok(());
+        }
+
+        tracing::warn!(
+            server = %self.server_name.read().unwrap(),
+            "recovering Streamable HTTP session"
+        );
+
+        *session_id.lock().await = None;
+
+        let init_params = serde_json::json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {
+                "elicitation": {}
+            },
+            "clientInfo": {
+                "name": "XiaoLin",
+                "version": env!("CARGO_PKG_VERSION"),
+            }
+        });
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::Value::Number(id.into()),
+            method: "initialize".into(),
+            params: Some(init_params),
+        };
+        let json = serde_json::to_string(&request)?;
+
+        let response = http_client
+            .post(endpoint_url.as_str())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .body(json)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "session recovery initialize failed: HTTP {}",
+                response.status()
+            );
+        }
+
+        if let Some(sid) = response.headers().get("Mcp-Session-Id") {
+            if let Ok(s) = sid.to_str() {
+                *session_id.lock().await = Some(s.to_string());
+            }
+        }
+
+        let body = response.text().await?;
+        if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&body) {
+            if let Some(result) = resp.result {
+                if let Ok(info) = serde_json::from_value::<InitializeResult>(result) {
+                    *self.server_name.write().unwrap() = info.server_info.name;
+                    *self.server_instructions.write().unwrap() = info.instructions;
+                }
+            }
+        }
+
+        let notification = JsonRpcNotification {
+            jsonrpc: "2.0".into(),
+            method: "notifications/initialized".into(),
+            params: None,
+        };
+        let notif_json = serde_json::to_string(&notification)?;
+        let mut req = http_client
+            .post(endpoint_url.as_str())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        if let Some(sid) = session_id.lock().await.as_ref() {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        let _ = req.body(notif_json).send().await?;
+
+        tracing::info!(server = %self.server_name.read().unwrap(), "Streamable HTTP session recovered");
+        Ok(())
+    }
+
+    /// Like `send_request`, but transparently recovers from session expiry
+    /// (HTTP 404 or JSON-RPC -32001) on the Streamable HTTP transport.
+    /// Retries the original request at most once after a successful recovery.
+    async fn send_request_with_session_recovery(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> anyhow::Result<JsonRpcResponse> {
+        match self.send_request(method, params.clone()).await {
+            Ok(resp) if self.is_streamable_http() && Self::is_session_expired_response(&resp) => {
+                tracing::warn!(method, "JSON-RPC -32001 session expired, recovering");
+                self.recover_streamable_http_session().await?;
+                self.send_request(method, params).await
+            }
+            Err(e) if self.is_streamable_http() && e.downcast_ref::<SessionExpired>().is_some() => {
+                tracing::warn!(method, error = %e, "HTTP 404 session expired, recovering");
+                self.recover_streamable_http_session().await?;
+                self.send_request(method, params).await
+            }
+            other => other,
+        }
+    }
+
     async fn initialize(&mut self) -> anyhow::Result<()> {
         let params = serde_json::json!({
             "protocolVersion": "2025-06-18",
-            "capabilities": {},
+            "capabilities": {
+                "elicitation": {}
+            },
             "clientInfo": {
                 "name": "XiaoLin",
                 "version": env!("CARGO_PKG_VERSION"),
@@ -1246,8 +1581,20 @@ impl McpClient {
 
         if let Some(result) = response.result {
             let info: InitializeResult = serde_json::from_value(result)?;
-            self.server_name = info.server_info.name;
-            tracing::info!(server = %self.server_name, version = %info.server_info.version, "MCP server connected");
+            *self.server_name.write().unwrap() = info.server_info.name;
+            let has_instructions = info.instructions.is_some();
+            let has_resources = info.capabilities.resources.is_some();
+            let has_prompts = info.capabilities.prompts.is_some();
+            *self.server_capabilities.write().unwrap() = info.capabilities;
+            *self.server_instructions.write().unwrap() = info.instructions;
+            tracing::info!(
+                server = %self.server_name.read().unwrap(),
+                version = %info.server_info.version,
+                has_instructions,
+                has_resources,
+                has_prompts,
+                "MCP server connected"
+            );
         }
 
         let notification = JsonRpcNotification {
@@ -1297,10 +1644,21 @@ impl McpClient {
     }
 
     async fn discover_tools(&mut self) -> anyhow::Result<()> {
-        let response = self.send_request("tools/list", None).await?;
+        let response = self
+            .send_request_with_session_recovery("tools/list", None)
+            .await?;
         if let Some(result) = response.result {
-            let tool_list: ToolListResult = serde_json::from_value(result)?;
-            tracing::info!(count = tool_list.tools.len(), server = %self.server_name, "discovered MCP tools");
+            let mut tool_list: ToolListResult = serde_json::from_value(result)?;
+            for tool in &mut tool_list.tools {
+                tool.name = sanitize::sanitize_unicode(&tool.name);
+                if let Some(desc) = &mut tool.description {
+                    *desc = sanitize::sanitize_unicode(desc);
+                }
+                if let Some(schema) = &mut tool.input_schema {
+                    sanitize::sanitize_json_schema_descriptions(schema);
+                }
+            }
+            tracing::info!(count = tool_list.tools.len(), server = %self.server_name.read().unwrap(), "discovered MCP tools");
             self.tools = tool_list.tools;
         }
         Ok(())
@@ -1322,7 +1680,9 @@ impl McpClient {
             "arguments": arguments,
         });
 
-        let response = self.send_request("tools/call", Some(params)).await?;
+        let response = self
+            .send_request_with_session_recovery("tools/call", Some(params))
+            .await?;
         if let Some(error) = response.error {
             anyhow::bail!("tool call failed: {}", error.message);
         }
@@ -1334,8 +1694,13 @@ impl McpClient {
     }
 
     /// Get the server name.
-    pub fn server_name(&self) -> &str {
-        &self.server_name
+    pub fn server_name(&self) -> String {
+        self.server_name.read().unwrap().clone()
+    }
+
+    /// Get the server-provided instructions (from `InitializeResult.instructions`).
+    pub fn instructions(&self) -> Option<String> {
+        self.server_instructions.read().unwrap().clone()
     }
 
     /// Subscribe to server-initiated notifications (JSON-RPC messages without `id`).
@@ -1348,9 +1713,23 @@ impl McpClient {
         self.notification_tx.subscribe()
     }
 
+    /// Subscribe to server-initiated requests (JSON-RPC messages with both `id`
+    /// and `method`, e.g. `elicitation/create`). The consumer is responsible for
+    /// sending a response via [`send_response`](Self::send_response).
+    pub fn subscribe_server_requests(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<McpServerRequest> {
+        self.server_request_tx.subscribe()
+    }
+
     /// Returns the original SSE URL if this client was created via `connect_sse`.
     pub fn sse_url(&self) -> Option<&str> {
         self.sse_url.as_deref()
+    }
+
+    /// Returns a clone of the extra HTTP headers used for this connection.
+    pub fn extra_headers(&self) -> reqwest::header::HeaderMap {
+        self.extra_headers.clone()
     }
 
     /// Force re-fetch the tool list from the server via `tools/list`.
@@ -1366,7 +1745,9 @@ impl McpClient {
     /// Returns the freshly fetched tools. Useful when only a shared (`Arc`) reference
     /// is available and `refresh_tools(&mut self)` cannot be called.
     pub async fn fetch_tools(&self) -> anyhow::Result<Vec<McpTool>> {
-        let response = self.send_request("tools/list", None).await?;
+        let response = self
+            .send_request_with_session_recovery("tools/list", None)
+            .await?;
         if let Some(error) = response.error {
             anyhow::bail!("tools/list failed: {}", error.message);
         }
@@ -1374,8 +1755,209 @@ impl McpClient {
             .result
             .ok_or_else(|| anyhow::anyhow!("empty result from tools/list"))?;
 
-        let parsed: ToolListResult = serde_json::from_value(result)?;
+        let mut parsed: ToolListResult = serde_json::from_value(result)?;
+        for tool in &mut parsed.tools {
+            tool.name = sanitize::sanitize_unicode(&tool.name);
+            if let Some(desc) = &mut tool.description {
+                *desc = sanitize::sanitize_unicode(desc);
+            }
+            if let Some(schema) = &mut tool.input_schema {
+                sanitize::sanitize_json_schema_descriptions(schema);
+            }
+        }
         Ok(parsed.tools)
+    }
+
+    /// Returns the server capabilities declared during `initialize`.
+    pub fn server_capabilities(&self) -> ServerCapabilities {
+        self.server_capabilities.read().unwrap().clone()
+    }
+
+    /// Whether the server declared `capabilities.resources`.
+    pub fn has_resources(&self) -> bool {
+        self.server_capabilities.read().unwrap().resources.is_some()
+    }
+
+    /// Whether the server declared `capabilities.prompts`.
+    pub fn has_prompts(&self) -> bool {
+        self.server_capabilities.read().unwrap().prompts.is_some()
+    }
+
+    /// List resources exposed by the server (`resources/list`).
+    ///
+    /// Returns an empty list if the server didn't declare `capabilities.resources`.
+    pub async fn list_resources(&self) -> anyhow::Result<Vec<McpResource>> {
+        if !self.has_resources() {
+            return Ok(Vec::new());
+        }
+        let response = self
+            .send_request_with_session_recovery("resources/list", None)
+            .await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("resources/list failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from resources/list"))?;
+
+        #[derive(Deserialize)]
+        struct ResourceListResult {
+            #[serde(default)]
+            resources: Vec<McpResource>,
+        }
+        let mut parsed: ResourceListResult = serde_json::from_value(result)?;
+        for r in &mut parsed.resources {
+            r.name = sanitize::sanitize_unicode(&r.name);
+            r.uri = sanitize::sanitize_unicode(&r.uri);
+            if let Some(desc) = &mut r.description {
+                *desc = sanitize::sanitize_unicode(desc);
+            }
+        }
+        Ok(parsed.resources)
+    }
+
+    /// Read a resource by URI (`resources/read`).
+    ///
+    /// Content exceeding 1 MB is truncated with a `[truncated]` suffix.
+    pub async fn read_resource(&self, uri: &str) -> anyhow::Result<Vec<McpResourceContent>> {
+        if !self.has_resources() {
+            anyhow::bail!("server does not support resources");
+        }
+        let params = serde_json::json!({ "uri": uri });
+        let response = self
+            .send_request_with_session_recovery("resources/read", Some(params))
+            .await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("resources/read failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from resources/read"))?;
+
+        #[derive(Deserialize)]
+        struct ReadResult {
+            #[serde(default)]
+            contents: Vec<McpResourceContent>,
+        }
+        let mut parsed: ReadResult = serde_json::from_value(result)?;
+
+        const MAX_CONTENT_BYTES: usize = 1_048_576; // 1 MB
+        for c in &mut parsed.contents {
+            if let Some(text) = &mut c.text {
+                if text.len() > MAX_CONTENT_BYTES {
+                    let boundary = text.floor_char_boundary(MAX_CONTENT_BYTES);
+                    text.truncate(boundary);
+                    text.push_str("\n[truncated]");
+                }
+            }
+        }
+        Ok(parsed.contents)
+    }
+
+    /// List resource templates from the server (`resources/templates/list`).
+    ///
+    /// Returns an empty list if the server didn't declare `capabilities.resources`.
+    pub async fn list_resource_templates(&self) -> anyhow::Result<Vec<McpResourceTemplate>> {
+        if !self.has_resources() {
+            return Ok(Vec::new());
+        }
+        let response = self
+            .send_request_with_session_recovery("resources/templates/list", None)
+            .await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("resources/templates/list failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from resources/templates/list"))?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct TemplateListResult {
+            #[serde(default)]
+            resource_templates: Vec<McpResourceTemplate>,
+        }
+        let mut parsed: TemplateListResult = serde_json::from_value(result)?;
+        for t in &mut parsed.resource_templates {
+            t.name = sanitize::sanitize_unicode(&t.name);
+            t.uri_template = sanitize::sanitize_unicode(&t.uri_template);
+            if let Some(desc) = &mut t.description {
+                *desc = sanitize::sanitize_unicode(desc);
+            }
+        }
+        Ok(parsed.resource_templates)
+    }
+
+    /// List prompts from the server (`prompts/list`).
+    ///
+    /// Returns an empty list if the server didn't declare `capabilities.prompts`.
+    pub async fn list_prompts(&self) -> anyhow::Result<Vec<McpPrompt>> {
+        if !self.has_prompts() {
+            return Ok(Vec::new());
+        }
+        let response = self
+            .send_request_with_session_recovery("prompts/list", None)
+            .await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("prompts/list failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from prompts/list"))?;
+
+        #[derive(Deserialize)]
+        struct PromptListResult {
+            #[serde(default)]
+            prompts: Vec<McpPrompt>,
+        }
+        let mut parsed: PromptListResult = serde_json::from_value(result)?;
+        for p in &mut parsed.prompts {
+            p.name = sanitize::sanitize_unicode(&p.name);
+            if let Some(desc) = &mut p.description {
+                *desc = sanitize::sanitize_unicode(desc);
+            }
+            for arg in &mut p.arguments {
+                arg.name = sanitize::sanitize_unicode(&arg.name);
+                if let Some(desc) = &mut arg.description {
+                    *desc = sanitize::sanitize_unicode(desc);
+                }
+            }
+        }
+        Ok(parsed.prompts)
+    }
+
+    /// Get a rendered prompt from the server (`prompts/get`).
+    ///
+    /// Returns the prompt messages with the given arguments applied.
+    pub async fn get_prompt(
+        &self,
+        name: &str,
+        arguments: Option<std::collections::HashMap<String, String>>,
+    ) -> anyhow::Result<Vec<McpPromptMessage>> {
+        if !self.has_prompts() {
+            anyhow::bail!("server does not support prompts");
+        }
+        let mut params = serde_json::json!({ "name": name });
+        if let Some(args) = arguments {
+            params["arguments"] = serde_json::to_value(args)?;
+        }
+        let response = self
+            .send_request_with_session_recovery("prompts/get", Some(params))
+            .await?;
+        if let Some(error) = response.error {
+            anyhow::bail!("prompts/get failed: {}", error.message);
+        }
+        let result = response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("empty result from prompts/get"))?;
+
+        #[derive(Deserialize)]
+        struct GetPromptResult {
+            #[serde(default)]
+            messages: Vec<McpPromptMessage>,
+        }
+        let parsed: GetPromptResult = serde_json::from_value(result)?;
+        Ok(parsed.messages)
     }
 }
 
@@ -1451,6 +2033,9 @@ pub fn create_xiaolin_mcp_server(
 /// Shared handle to an MCP client; safe for concurrent tool calls.
 pub type SharedMcpClient = Arc<McpClient>;
 
+/// Max characters for an MCP tool description to prevent prompt bloat.
+const MCP_TOOL_DESC_MAX_CHARS: usize = 2048;
+
 /// A XiaoLin `Tool` that delegates execution to a remote MCP server via `McpClient`.
 pub struct McpToolBridge {
     tool_name: String,
@@ -1464,10 +2049,21 @@ pub struct McpToolBridge {
 
 impl McpToolBridge {
     fn new(mcp_tool: &McpTool, client: SharedMcpClient, server_prefix: &str) -> Self {
-        let desc = mcp_tool.description.clone().unwrap_or_default();
+        let raw_desc = mcp_tool.description.clone().unwrap_or_default();
+        let desc: String = if raw_desc.len() > MCP_TOOL_DESC_MAX_CHARS {
+            let truncated: String = raw_desc.chars().take(MCP_TOOL_DESC_MAX_CHARS).collect();
+            tracing::warn!(
+                tool = %mcp_tool.name,
+                original_len = raw_desc.len(),
+                "MCP tool description truncated to {MCP_TOOL_DESC_MAX_CHARS} chars"
+            );
+            truncated
+        } else {
+            raw_desc.clone()
+        };
         Self {
-            tool_name: format!("{server_prefix}{}", mcp_tool.name),
-            hint: format!("{} {}", mcp_tool.name, desc),
+            tool_name: format!("{server_prefix}{}", naming::sanitize_for_api(&mcp_tool.name)),
+            hint: format!("{} {}", mcp_tool.name, raw_desc),
             keep_eager: mcp_tool.always_load(),
             description: desc,
             schema: mcp_tool.input_schema.clone().unwrap_or(serde_json::json!({
@@ -1564,6 +2160,22 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
     }
 }
 
+/// Error returned when an MCP server requires OAuth authentication.
+/// The gateway should set the server status to `NeedsAuth` when it sees this.
+#[derive(Debug)]
+pub struct NeedsOAuth {
+    pub server_id: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for NeedsOAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MCP server '{}' needs OAuth: {}", self.server_id, self.message)
+    }
+}
+
+impl std::error::Error for NeedsOAuth {}
+
 /// Unified entry point: connect to an MCP server and register its tools.
 ///
 /// Dispatches to the correct transport (stdio/SSE/streamable HTTP) based on
@@ -1571,25 +2183,225 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
 ///
 /// The entire connection is wrapped in a timeout derived from
 /// `cfg.startup_timeout_sec` (default 30 s).
+///
+/// On HTTP 401, attempts to use a stored OAuth token (refresh if expired).
+/// If no valid token is available, returns a `NeedsOAuth` error so the gateway
+/// can set the server status to `NeedsAuth`.
+static NEEDS_AUTH_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+const NEEDS_AUTH_TTL: Duration = Duration::from_secs(15 * 60);
+
+/// Clear the NeedsAuth TTL cache for a specific server (e.g. after a user-initiated OAuth login).
+pub fn clear_needs_auth_cache(server_id: &str) {
+    if let Ok(mut cache) = NEEDS_AUTH_CACHE.lock() {
+        cache.remove(server_id);
+    }
+}
+
 pub async fn connect_mcp_server(
     cfg: &xiaolin_core::agent_config::McpServerConfig,
     registry: &xiaolin_core::tool::ToolRegistry,
 ) -> anyhow::Result<SharedMcpClient> {
+    cfg.validate().map_err(|e| anyhow::anyhow!(e))?;
+
+    if let Ok(cache) = NEEDS_AUTH_CACHE.lock() {
+        if let Some(&ts) = cache.get(&cfg.id) {
+            if ts.elapsed() < NEEDS_AUTH_TTL {
+                return Err(NeedsOAuth {
+                    server_id: cfg.id.clone(),
+                    message: "server requires OAuth (cached, retry after TTL)".into(),
+                }
+                .into());
+            }
+        }
+    }
     let timeout_secs = cfg.startup_timeout_sec.unwrap_or(30);
-    match tokio::time::timeout(
+    let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs as u64),
         connect_mcp_server_inner(cfg, registry),
     )
-    .await
-    {
-        Ok(result) => result,
+    .await;
+
+    let client = match result {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            let is_http = matches!(
+                cfg.transport.effective(),
+                xiaolin_core::agent_config::McpTransportType::Sse
+                    | xiaolin_core::agent_config::McpTransportType::StreamableHttp
+            );
+            let is_401 = e.to_string().contains("401")
+                || e.downcast_ref::<reqwest::Error>()
+                    .and_then(|re| re.status())
+                    .is_some_and(|s| s == reqwest::StatusCode::UNAUTHORIZED);
+
+            if is_http && is_401 {
+                return try_oauth_recovery(cfg, registry).await;
+            }
+            return Err(e);
+        }
         Err(_) => anyhow::bail!(
             "MCP server '{}' failed to connect within {}s (transport: {:?})",
             cfg.id,
             timeout_secs,
             cfg.transport.effective()
         ),
+    };
+
+    registry.set_mcp_instructions(&cfg.id, client.instructions().as_deref());
+    Ok(client)
+}
+
+/// Attempt OAuth token recovery: stored token refresh, or signal NeedsAuth.
+async fn try_oauth_recovery(
+    cfg: &xiaolin_core::agent_config::McpServerConfig,
+    registry: &xiaolin_core::tool::ToolRegistry,
+) -> anyhow::Result<SharedMcpClient> {
+    let url = cfg.url.as_deref().unwrap_or("");
+    tracing::info!(server = %cfg.id, "HTTP 401 — attempting OAuth token recovery");
+
+    if let Some(stored) = oauth::load_stored_token(&cfg.id) {
+        if let Some(ref refresh) = stored.refresh_token {
+            let mut oauth_client = oauth::McpOAuthClient::new(url);
+            if oauth_client.discover_metadata().await.is_ok() {
+                match oauth_client.refresh_token(refresh).await {
+                    Ok(new_token) => {
+                        let now_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let stored_token = oauth::StoredToken {
+                            access_token: new_token.access_token.clone(),
+                            refresh_token: new_token
+                                .refresh_token
+                                .or(Some(refresh.clone())),
+                            expires_at: new_token.expires_in.map(|e| now_secs + e),
+                            server_url: url.to_string(),
+                        };
+                        let _ = oauth::save_stored_token(&cfg.id, &stored_token);
+
+                        let mut headers = resolve_mcp_http_headers(cfg)?;
+                        let auth_val = reqwest::header::HeaderValue::from_str(&format!(
+                            "Bearer {}",
+                            new_token.access_token
+                        ))
+                        .map_err(|e| anyhow::anyhow!("invalid token: {e}"))?;
+                        headers.insert(reqwest::header::AUTHORIZATION, auth_val);
+
+                        let prefix = naming::mcp_server_prefix(&cfg.id);
+                        let client = match cfg.transport.effective() {
+                            xiaolin_core::agent_config::McpTransportType::Sse => {
+                                register_mcp_tools_sse(url, registry, &prefix, headers).await?
+                            }
+                            _ => {
+                                register_mcp_tools_streamable_http(url, registry, &prefix, headers)
+                                    .await?
+                            }
+                        };
+                        registry.set_mcp_instructions(
+                            &cfg.id,
+                            client.instructions().as_deref(),
+                        );
+                        tracing::info!(server = %cfg.id, "OAuth token refreshed, reconnected");
+                        return Ok(client);
+                    }
+                    Err(e) => {
+                        tracing::warn!(server = %cfg.id, error = %e, "token refresh failed");
+                        oauth::remove_stored_token(&cfg.id);
+                    }
+                }
+            }
+        }
     }
+
+    if let Ok(mut cache) = NEEDS_AUTH_CACHE.lock() {
+        cache.insert(cfg.id.clone(), std::time::Instant::now());
+    }
+
+    Err(NeedsOAuth {
+        server_id: cfg.id.clone(),
+        message: "server returned 401, no valid OAuth token available".into(),
+    }
+    .into())
+}
+
+/// Build a `reqwest::header::HeaderMap` from the MCP server config's
+/// `bearer_token_env_var` and `http_headers` fields.
+///
+/// - `bearer_token_env_var`: reads the named env var and adds `Authorization: Bearer <value>`.
+///   Returns an error if the env var is missing.
+/// - `http_headers`: values starting with `$` are treated as env var references
+///   (`$API_KEY` → reads env var `API_KEY`). Missing env vars are skipped with a warning.
+pub fn resolve_mcp_http_headers(
+    cfg: &xiaolin_core::agent_config::McpServerConfig,
+) -> anyhow::Result<reqwest::header::HeaderMap> {
+    let mut headers = reqwest::header::HeaderMap::new();
+
+    if let Some(ref var_name) = cfg.bearer_token_env_var {
+        match std::env::var(var_name) {
+            Ok(token) if !token.is_empty() => {
+                let val = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                    .map_err(|e| anyhow::anyhow!("invalid bearer token value: {e}"))?;
+                headers.insert(reqwest::header::AUTHORIZATION, val);
+                tracing::debug!(server = %cfg.id, "injected Authorization header from env var");
+            }
+            Ok(_) => {
+                anyhow::bail!(
+                    "MCP server '{}': env var '{}' is empty (expected a Bearer token)",
+                    cfg.id,
+                    var_name
+                );
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "MCP server '{}': env var '{}' not found (required for bearer_token_env_var)",
+                    cfg.id,
+                    var_name
+                );
+            }
+        }
+    }
+
+    if let Some(ref extra) = cfg.http_headers {
+        for (key, raw_value) in extra {
+            let resolved = if let Some(var_name) = raw_value.strip_prefix('$') {
+                match std::env::var(var_name) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        tracing::warn!(
+                            server = %cfg.id,
+                            header = %key,
+                            env_var = %var_name,
+                            "skipping HTTP header: env var not found"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                raw_value.clone()
+            };
+
+            match (
+                reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                reqwest::header::HeaderValue::from_str(&resolved),
+            ) {
+                (Ok(name), Ok(value)) => {
+                    headers.insert(name, value);
+                }
+                _ => {
+                    tracing::warn!(
+                        server = %cfg.id,
+                        header = %key,
+                        "skipping HTTP header: invalid header name or value"
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(headers)
 }
 
 async fn connect_mcp_server_inner(
@@ -1609,11 +2421,13 @@ async fn connect_mcp_server_inner(
         }
         McpTransportType::Sse => {
             let url = cfg.url.as_deref().unwrap_or("");
-            register_mcp_tools_sse(url, registry, &prefix).await
+            let headers = resolve_mcp_http_headers(cfg)?;
+            register_mcp_tools_sse(url, registry, &prefix, headers).await
         }
         McpTransportType::StreamableHttp => {
             let url = cfg.url.as_deref().unwrap_or("");
-            register_mcp_tools_streamable_http(url, registry, &prefix).await
+            let headers = resolve_mcp_http_headers(cfg)?;
+            register_mcp_tools_streamable_http(url, registry, &prefix, headers).await
         }
         McpTransportType::Http => unreachable!("effective() normalizes Http → StreamableHttp"),
     }
@@ -1630,12 +2444,15 @@ pub fn re_register_tools(
     server_prefix: &str,
 ) -> usize {
     registry.unregister_by_prefix(server_prefix);
+    if let Some(server_id) = naming::parse_server_id_from_prefix(server_prefix) {
+        registry.set_mcp_instructions(server_id, client.instructions().as_deref());
+    }
     let mut registered = 0usize;
     let mut seen = std::collections::HashSet::new();
     for tool in tools {
-        let prefixed = format!("{server_prefix}{}", tool.name);
-        if !seen.insert(prefixed.clone()) {
-            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+        let sanitized = format!("{server_prefix}{}", naming::sanitize_for_api(&tool.name));
+        if !seen.insert(sanitized.clone()) {
+            tracing::warn!(tool = %sanitized, "skipping duplicate MCP tool within same server (post-sanitize collision)");
             continue;
         }
         let bridge = McpToolBridge::new(tool, client.clone(), server_prefix);
@@ -1663,9 +2480,9 @@ pub async fn register_mcp_tools<S: std::hash::BuildHasher>(
     let mut registered = 0usize;
     let mut seen = std::collections::HashSet::new();
     for tool in &tools {
-        let prefixed = format!("{server_prefix}{}", tool.name);
-        if !seen.insert(prefixed.clone()) {
-            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+        let sanitized = format!("{server_prefix}{}", naming::sanitize_for_api(&tool.name));
+        if !seen.insert(sanitized.clone()) {
+            tracing::warn!(tool = %sanitized, "skipping duplicate MCP tool within same server (post-sanitize collision)");
             continue;
         }
         let bridge = McpToolBridge::new(tool, shared.clone(), server_prefix);
@@ -1689,17 +2506,18 @@ pub async fn register_mcp_tools_sse(
     url: &str,
     registry: &xiaolin_core::tool::ToolRegistry,
     server_prefix: &str,
+    extra_headers: reqwest::header::HeaderMap,
 ) -> anyhow::Result<SharedMcpClient> {
-    let client = McpClient::connect_sse(url).await?;
+    let client = McpClient::connect_sse(url, extra_headers).await?;
     let tools = client.tools().to_vec();
     let shared = Arc::new(client);
 
     let mut registered = 0usize;
     let mut seen = std::collections::HashSet::new();
     for tool in &tools {
-        let prefixed = format!("{server_prefix}{}", tool.name);
-        if !seen.insert(prefixed.clone()) {
-            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+        let sanitized = format!("{server_prefix}{}", naming::sanitize_for_api(&tool.name));
+        if !seen.insert(sanitized.clone()) {
+            tracing::warn!(tool = %sanitized, "skipping duplicate MCP tool within same server (post-sanitize collision)");
             continue;
         }
         let bridge = McpToolBridge::new(tool, shared.clone(), server_prefix);
@@ -1722,17 +2540,18 @@ pub async fn register_mcp_tools_streamable_http(
     url: &str,
     registry: &xiaolin_core::tool::ToolRegistry,
     server_prefix: &str,
+    extra_headers: reqwest::header::HeaderMap,
 ) -> anyhow::Result<SharedMcpClient> {
-    let client = McpClient::connect_streamable_http(url).await?;
+    let client = McpClient::connect_streamable_http(url, extra_headers).await?;
     let tools = client.tools().to_vec();
     let shared = Arc::new(client);
 
     let mut registered = 0usize;
     let mut seen = std::collections::HashSet::new();
     for tool in &tools {
-        let prefixed = format!("{server_prefix}{}", tool.name);
-        if !seen.insert(prefixed.clone()) {
-            tracing::warn!(tool = %prefixed, "skipping duplicate MCP tool within same server");
+        let sanitized = format!("{server_prefix}{}", naming::sanitize_for_api(&tool.name));
+        if !seen.insert(sanitized.clone()) {
+            tracing::warn!(tool = %sanitized, "skipping duplicate MCP tool within same server (post-sanitize collision)");
             continue;
         }
         let bridge = McpToolBridge::new(tool, shared.clone(), server_prefix);
@@ -1765,6 +2584,93 @@ mod tests {
         let resp = JsonRpcResponse::error(serde_json::json!(1), -32601, "not found");
         assert!(resp.result.is_none());
         assert_eq!(resp.error.unwrap().code, -32601);
+    }
+
+    #[test]
+    fn resolve_headers_empty_config() {
+        let cfg = xiaolin_core::agent_config::McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: xiaolin_core::agent_config::McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
+        };
+        let headers = resolve_mcp_http_headers(&cfg).unwrap();
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn resolve_headers_bearer_from_env() {
+        let unique_var = format!("__TEST_BEARER_{}", std::process::id());
+        std::env::set_var(&unique_var, "s3cret");
+        let cfg = xiaolin_core::agent_config::McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: xiaolin_core::agent_config::McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: Some(unique_var.clone()),
+            http_headers: None,
+        };
+        let headers = resolve_mcp_http_headers(&cfg).unwrap();
+        assert_eq!(
+            headers.get(reqwest::header::AUTHORIZATION).unwrap(),
+            "Bearer s3cret"
+        );
+        std::env::remove_var(&unique_var);
+    }
+
+    #[test]
+    fn resolve_headers_bearer_missing_env() {
+        let cfg = xiaolin_core::agent_config::McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: xiaolin_core::agent_config::McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: Some("__NONEXISTENT_VAR_12345__".into()),
+            http_headers: None,
+        };
+        let err = resolve_mcp_http_headers(&cfg).unwrap_err();
+        assert!(err.to_string().contains("not found"), "err: {err}");
+    }
+
+    #[test]
+    fn resolve_headers_static_and_env_ref() {
+        let unique_var = format!("__TEST_HDR_{}", std::process::id());
+        std::env::set_var(&unique_var, "resolved_value");
+        let mut hmap = std::collections::HashMap::new();
+        hmap.insert("X-Static".to_string(), "hello".to_string());
+        hmap.insert("X-Dynamic".to_string(), format!("${unique_var}"));
+        hmap.insert("X-Missing".to_string(), "$__NO_SUCH_ENV_999__".to_string());
+        let cfg = xiaolin_core::agent_config::McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: xiaolin_core::agent_config::McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: Some(hmap),
+        };
+        let headers = resolve_mcp_http_headers(&cfg).unwrap();
+        assert_eq!(headers.get("X-Static").unwrap(), "hello");
+        assert_eq!(headers.get("X-Dynamic").unwrap(), "resolved_value");
+        assert!(headers.get("X-Missing").is_none(), "missing env var should be skipped");
+        std::env::remove_var(&unique_var);
     }
 
     #[tokio::test]
@@ -1949,6 +2855,7 @@ mod tests {
                             name: "mock-sse".into(),
                             version: "1.0.0".into(),
                         },
+                        instructions: None,
                     })
                     .unwrap(),
                 ),
@@ -1985,7 +2892,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let client = McpClient::connect_sse(&url).await.expect("sse connect");
+        let client = McpClient::connect_sse(&url, Default::default()).await.expect("sse connect");
         assert_eq!(client.server_name(), "mock-sse");
         assert_eq!(client.tools().len(), 1);
         assert_eq!(client.tools()[0].name, "t1");
@@ -2059,6 +2966,7 @@ mod tests {
                             name: "mock-sse-ping".into(),
                             version: "1.0.0".into(),
                         },
+                        instructions: None,
                     })
                     .unwrap(),
                 ),
@@ -2096,7 +3004,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let client = McpClient::connect_sse(&url)
+        let client = McpClient::connect_sse(&url, Default::default())
             .await
             .expect("sse connect with ping noise");
         assert_eq!(client.server_name(), "mock-sse-ping");
@@ -2136,7 +3044,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let Err(err) = McpClient::connect_sse(&url).await else {
+        let Err(err) = McpClient::connect_sse(&url, Default::default()).await else {
             panic!("initialize POST should fail")
         };
         let msg = format!("{err:#}");
@@ -2153,7 +3061,7 @@ mod tests {
     #[tokio::test]
     async fn companion_post_url_rejects_non_sse_path() {
         let url = "http://127.0.0.1:9/mcp/stream";
-        let Err(err) = McpClient::connect_sse(url).await else {
+        let Err(err) = McpClient::connect_sse(url, Default::default()).await else {
             panic!("non-/sse URL should be rejected")
         };
         let msg = format!("{err:#}");
@@ -2398,6 +3306,7 @@ mod tests {
                                 name: "mock-streamable".into(),
                                 version: "2.0.0".into(),
                             },
+                            instructions: None,
                         })
                         .unwrap(),
                     ))
@@ -2443,7 +3352,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp", addr.port());
-        let client = McpClient::connect_streamable_http(&url)
+        let client = McpClient::connect_streamable_http(&url, Default::default())
             .await
             .expect("streamable http connect");
 
@@ -2499,6 +3408,7 @@ mod tests {
                                 name: "session-test".into(),
                                 version: "1.0.0".into(),
                             },
+                            instructions: None,
                         })
                         .unwrap(),
                     ))
@@ -2546,7 +3456,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp", addr.port());
-        let _client = McpClient::connect_streamable_http(&url)
+        let _client = McpClient::connect_streamable_http(&url, Default::default())
             .await
             .expect("connect");
 
@@ -2613,5 +3523,669 @@ mod tests {
         let msg = rx.try_recv().expect("should receive");
         assert_eq!(msg.method, "test");
         assert!(msg.params.is_none());
+    }
+
+    #[test]
+    fn session_expired_response_detection() {
+        let expired = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            result: None,
+            error: Some(JsonRpcError {
+                code: SESSION_EXPIRED_ERROR_CODE,
+                message: "Session expired".into(),
+                data: None,
+            }),
+        };
+        assert!(McpClient::is_session_expired_response(&expired));
+
+        let normal_error = JsonRpcResponse::error(serde_json::json!(2), -32601, "not found");
+        assert!(!McpClient::is_session_expired_response(&normal_error));
+
+        let success =
+            JsonRpcResponse::success(serde_json::json!(3), serde_json::json!({"ok": true}));
+        assert!(!McpClient::is_session_expired_response(&success));
+    }
+
+    #[test]
+    fn session_expired_error_type() {
+        let err: anyhow::Error = SessionExpired("HTTP 404".into()).into();
+        assert!(err.downcast_ref::<SessionExpired>().is_some());
+        assert!(format!("{err}").contains("session expired"));
+    }
+
+    /// Mock server that returns 404 once then succeeds, testing automatic session recovery.
+    #[tokio::test]
+    async fn streamable_http_recovers_from_404() {
+        use axum::body::Bytes;
+        use axum::extract::State as AxState;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        #[derive(Clone)]
+        struct St {
+            call_count: Arc<AtomicU32>,
+        }
+
+        async fn handle_post(
+            AxState(st): AxState<Arc<St>>,
+            _headers: HeaderMap,
+            body: Bytes,
+        ) -> (StatusCode, HeaderMap, String) {
+            let text = String::from_utf8_lossy(&body);
+            let v: serde_json::Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(_) => return (StatusCode::BAD_REQUEST, HeaderMap::new(), String::new()),
+            };
+            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            if method == "notifications/initialized" {
+                return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+            }
+
+            let req: JsonRpcRequest = match serde_json::from_value(v) {
+                Ok(r) => r,
+                Err(_) => return (StatusCode::BAD_REQUEST, HeaderMap::new(), String::new()),
+            };
+
+            match req.method.as_str() {
+                "initialize" => {
+                    let mut h = HeaderMap::new();
+                    let count = st.call_count.fetch_add(1, Ordering::SeqCst);
+                    let sid = format!("session-{count}");
+                    h.insert("Mcp-Session-Id", sid.parse().unwrap());
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(InitializeResult {
+                            protocol_version: "2025-06-18".into(),
+                            capabilities: ServerCapabilities {
+                                tools: Some(ToolCapability { list_changed: false }),
+                                resources: None,
+                                prompts: None,
+                            },
+                            server_info: ServerInfo {
+                                name: "recovery-test".into(),
+                                version: "1.0.0".into(),
+                            },
+                            instructions: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, h, body)
+                }
+                "tools/list" => {
+                    let count = st.call_count.load(Ordering::SeqCst);
+                    if count <= 1 {
+                        return (StatusCode::NOT_FOUND, HeaderMap::new(), String::new());
+                    }
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(ToolListResult {
+                            tools: vec![McpTool {
+                                name: "recovered_tool".into(),
+                                description: None,
+                                input_schema: None,
+                                meta: None,
+                            }],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+                _ => {
+                    let body = serde_json::to_string(&JsonRpcResponse::error(
+                        req.id.clone(),
+                        -32601,
+                        "unknown",
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+            }
+        }
+
+        let state = Arc::new(St {
+            call_count: Arc::new(AtomicU32::new(0)),
+        });
+        let app = Router::new()
+            .route("/mcp", post(handle_post))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let url = format!("http://127.0.0.1:{}/mcp", addr.port());
+        let client = McpClient::connect_streamable_http(&url, Default::default())
+            .await
+            .expect("should recover from 404 during tools/list");
+
+        assert_eq!(client.server_name(), "recovery-test");
+        assert_eq!(client.tools().len(), 1);
+        assert_eq!(client.tools()[0].name, "recovered_tool");
+    }
+
+    /// Mock server that returns JSON-RPC -32001 once then succeeds.
+    #[tokio::test]
+    async fn streamable_http_recovers_from_json_rpc_32001() {
+        use axum::body::Bytes;
+        use axum::extract::State as AxState;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        #[derive(Clone)]
+        struct St {
+            tools_list_count: Arc<AtomicU32>,
+        }
+
+        async fn handle_post(
+            AxState(st): AxState<Arc<St>>,
+            _headers: HeaderMap,
+            body: Bytes,
+        ) -> (StatusCode, HeaderMap, String) {
+            let text = String::from_utf8_lossy(&body);
+            let v: serde_json::Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(_) => return (StatusCode::BAD_REQUEST, HeaderMap::new(), String::new()),
+            };
+            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            if method == "notifications/initialized" {
+                return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+            }
+
+            let req: JsonRpcRequest = match serde_json::from_value(v) {
+                Ok(r) => r,
+                Err(_) => return (StatusCode::BAD_REQUEST, HeaderMap::new(), String::new()),
+            };
+
+            match req.method.as_str() {
+                "initialize" => {
+                    let mut h = HeaderMap::new();
+                    h.insert("Mcp-Session-Id", "sess-new".parse().unwrap());
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(InitializeResult {
+                            protocol_version: "2025-06-18".into(),
+                            capabilities: ServerCapabilities {
+                                tools: Some(ToolCapability { list_changed: false }),
+                                resources: None,
+                                prompts: None,
+                            },
+                            server_info: ServerInfo {
+                                name: "rpc-recovery-test".into(),
+                                version: "1.0.0".into(),
+                            },
+                            instructions: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, h, body)
+                }
+                "tools/list" => {
+                    let count = st.tools_list_count.fetch_add(1, Ordering::SeqCst);
+                    if count == 0 {
+                        let body = serde_json::to_string(&JsonRpcResponse::error(
+                            req.id.clone(),
+                            SESSION_EXPIRED_ERROR_CODE,
+                            "Session expired",
+                        ))
+                        .unwrap();
+                        return (StatusCode::OK, HeaderMap::new(), body);
+                    }
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(ToolListResult {
+                            tools: vec![McpTool {
+                                name: "after_recovery".into(),
+                                description: None,
+                                input_schema: None,
+                                meta: None,
+                            }],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+                _ => {
+                    let body = serde_json::to_string(&JsonRpcResponse::error(
+                        req.id.clone(),
+                        -32601,
+                        "unknown",
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+            }
+        }
+
+        let state = Arc::new(St {
+            tools_list_count: Arc::new(AtomicU32::new(0)),
+        });
+        let app = Router::new()
+            .route("/mcp", post(handle_post))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let url = format!("http://127.0.0.1:{}/mcp", addr.port());
+        let client = McpClient::connect_streamable_http(&url, Default::default())
+            .await
+            .expect("should recover from -32001 during tools/list");
+
+        assert_eq!(client.server_name(), "rpc-recovery-test");
+        assert_eq!(client.tools().len(), 1);
+        assert_eq!(client.tools()[0].name, "after_recovery");
+    }
+
+    #[test]
+    fn resource_list_result_parses() {
+        let json = serde_json::json!({
+            "resources": [
+                {
+                    "uri": "file:///logs/app.log",
+                    "name": "App Log",
+                    "description": "Application log file",
+                    "mimeType": "text/plain"
+                },
+                {
+                    "uri": "db://users",
+                    "name": "Users",
+                }
+            ]
+        });
+        #[derive(Deserialize)]
+        struct ResourceListResult {
+            #[serde(default)]
+            resources: Vec<McpResource>,
+        }
+        let parsed: ResourceListResult = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.resources.len(), 2);
+        assert_eq!(parsed.resources[0].uri, "file:///logs/app.log");
+        assert_eq!(parsed.resources[0].name, "App Log");
+        assert!(parsed.resources[0].description.is_some());
+        assert_eq!(parsed.resources[0].mime_type.as_deref(), Some("text/plain"));
+        assert!(parsed.resources[1].description.is_none());
+        assert!(parsed.resources[1].mime_type.is_none());
+    }
+
+    #[test]
+    fn resource_template_parses() {
+        let json = serde_json::json!({
+            "resourceTemplates": [
+                {
+                    "uriTemplate": "file:///{path}",
+                    "name": "File",
+                    "description": "Read any file"
+                }
+            ]
+        });
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct TemplateListResult {
+            #[serde(default)]
+            resource_templates: Vec<McpResourceTemplate>,
+        }
+        let parsed: TemplateListResult = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.resource_templates.len(), 1);
+        assert_eq!(parsed.resource_templates[0].uri_template, "file:///{path}");
+        assert_eq!(parsed.resource_templates[0].name, "File");
+    }
+
+    #[test]
+    fn resource_content_parses() {
+        let json = serde_json::json!({
+            "contents": [
+                {
+                    "uri": "file:///x.txt",
+                    "mimeType": "text/plain",
+                    "text": "hello world"
+                }
+            ]
+        });
+        #[derive(Deserialize)]
+        struct ReadResult {
+            #[serde(default)]
+            contents: Vec<McpResourceContent>,
+        }
+        let parsed: ReadResult = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.contents.len(), 1);
+        assert_eq!(parsed.contents[0].text.as_deref(), Some("hello world"));
+        assert!(parsed.contents[0].blob.is_none());
+    }
+
+    #[test]
+    fn resource_content_truncation() {
+        let big_text = "A".repeat(2_000_000);
+        let mut content = McpResourceContent {
+            uri: "test://x".into(),
+            mime_type: None,
+            text: Some(big_text),
+            blob: None,
+        };
+
+        const MAX: usize = 1_048_576;
+        if let Some(text) = &mut content.text {
+            if text.len() > MAX {
+                let boundary = text.floor_char_boundary(MAX);
+                text.truncate(boundary);
+                text.push_str("\n[truncated]");
+            }
+        }
+
+        let text = content.text.unwrap();
+        assert!(text.len() < 2_000_000);
+        assert!(text.ends_with("[truncated]"));
+        assert!(text.len() > MAX);
+    }
+
+    #[test]
+    fn server_capabilities_default() {
+        let caps = ServerCapabilities::default();
+        assert!(caps.tools.is_none());
+        assert!(caps.resources.is_none());
+        assert!(caps.prompts.is_none());
+    }
+
+    #[tokio::test]
+    async fn mcp_server_resources_list() {
+        let mut server = McpServer::new("test", "1.0");
+        server.register_resource(
+            McpResource {
+                uri: "file:///a.txt".into(),
+                name: "a".into(),
+                description: Some("file a".into()),
+                mime_type: Some("text/plain".into()),
+            },
+            |_| async { Ok(serde_json::json!({"contents": [{"uri":"file:///a.txt","text":"hi"}]})) },
+        );
+
+        let resp = server
+            .handle_request(&rpc(10, "resources/list", None))
+            .await;
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        let resources = result["resources"].as_array().unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0]["name"], "a");
+    }
+
+    #[tokio::test]
+    async fn mcp_server_resources_read() {
+        let mut server = McpServer::new("test", "1.0");
+        server.register_resource(
+            McpResource {
+                uri: "test://data".into(),
+                name: "data".into(),
+                description: None,
+                mime_type: None,
+            },
+            |_| async {
+                Ok(serde_json::json!({
+                    "contents": [{"uri": "test://data", "text": "the content"}]
+                }))
+            },
+        );
+
+        let resp = server
+            .handle_request(&rpc(
+                11,
+                "resources/read",
+                Some(serde_json::json!({"uri": "test://data"})),
+            ))
+            .await;
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        let contents = result["contents"].as_array().unwrap();
+        assert_eq!(contents[0]["text"], "the content");
+    }
+
+    #[test]
+    fn prompt_list_result_parses() {
+        let json = serde_json::json!({
+            "prompts": [
+                {
+                    "name": "code_review",
+                    "description": "Review code changes",
+                    "arguments": [
+                        { "name": "code", "description": "The code to review", "required": true },
+                        { "name": "language", "description": "Programming language" }
+                    ]
+                },
+                {
+                    "name": "summarize",
+                    "description": "Summarize text"
+                }
+            ]
+        });
+        #[derive(Deserialize)]
+        struct PromptListResult {
+            #[serde(default)]
+            prompts: Vec<McpPrompt>,
+        }
+        let parsed: PromptListResult = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.prompts.len(), 2);
+        assert_eq!(parsed.prompts[0].name, "code_review");
+        assert_eq!(parsed.prompts[0].arguments.len(), 2);
+        assert!(parsed.prompts[0].arguments[0].required);
+        assert!(!parsed.prompts[0].arguments[1].required);
+        assert_eq!(parsed.prompts[1].name, "summarize");
+        assert!(parsed.prompts[1].arguments.is_empty());
+    }
+
+    #[test]
+    fn prompt_message_text_parses() {
+        let json = serde_json::json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": { "type": "text", "text": "Hello world" }
+                },
+                {
+                    "role": "assistant",
+                    "content": { "type": "text", "text": "Hi there" }
+                }
+            ]
+        });
+        #[derive(Deserialize)]
+        struct GetPromptResult {
+            #[serde(default)]
+            messages: Vec<McpPromptMessage>,
+        }
+        let parsed: GetPromptResult = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.messages.len(), 2);
+        assert_eq!(parsed.messages[0].role, "user");
+        match &parsed.messages[0].content {
+            McpPromptContent::Text { text } => assert_eq!(text, "Hello world"),
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn prompt_message_image_parses() {
+        let json = serde_json::json!({
+            "role": "user",
+            "content": {
+                "type": "image",
+                "data": "iVBORw0KGgo...",
+                "mimeType": "image/png"
+            }
+        });
+        let msg: McpPromptMessage = serde_json::from_value(json).unwrap();
+        match &msg.content {
+            McpPromptContent::Image { data, mime_type } => {
+                assert_eq!(data, "iVBORw0KGgo...");
+                assert_eq!(mime_type, "image/png");
+            }
+            _ => panic!("expected image content"),
+        }
+    }
+
+    #[test]
+    fn prompt_message_resource_parses() {
+        let json = serde_json::json!({
+            "role": "user",
+            "content": {
+                "type": "resource",
+                "resource": {
+                    "uri": "file:///test.txt",
+                    "mimeType": "text/plain",
+                    "text": "file content here"
+                }
+            }
+        });
+        let msg: McpPromptMessage = serde_json::from_value(json).unwrap();
+        match &msg.content {
+            McpPromptContent::Resource { resource } => {
+                assert_eq!(resource.uri, "file:///test.txt");
+                assert_eq!(resource.text.as_deref(), Some("file content here"));
+            }
+            _ => panic!("expected resource content"),
+        }
+    }
+
+    #[test]
+    fn prompt_with_empty_arguments() {
+        let json = serde_json::json!({
+            "name": "simple_prompt",
+            "description": "A simple prompt"
+        });
+        let prompt: McpPrompt = serde_json::from_value(json).unwrap();
+        assert_eq!(prompt.name, "simple_prompt");
+        assert!(prompt.arguments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dispatch_incoming_routes_server_request() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, _) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, mut srrx) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let server_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "elicitation/create",
+            "params": {
+                "message": "Please enter your name",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    }
+                }
+            }
+        });
+
+        McpClient::dispatch_incoming(server_request, &pending, &ntx, &srtx, "test").await;
+
+        let req = srrx.try_recv().expect("should receive server request");
+        assert_eq!(req.method, "elicitation/create");
+        assert_eq!(req.id, serde_json::json!(42));
+        assert!(req.params.is_some());
+        let params = req.params.unwrap();
+        assert_eq!(params["message"], "Please enter your name");
+    }
+
+    #[tokio::test]
+    async fn dispatch_incoming_routes_response() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, mut nrx) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, mut srrx) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        pending.lock().await.insert("99".to_string(), tx);
+
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 99,
+            "result": { "tools": [] }
+        });
+
+        McpClient::dispatch_incoming(response, &pending, &ntx, &srtx, "test").await;
+
+        let resp = rx.await.expect("should receive response");
+        assert!(resp.error.is_none());
+        assert_eq!(resp.id, serde_json::json!(99));
+
+        assert!(nrx.try_recv().is_err());
+        assert!(srrx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn dispatch_incoming_routes_notification() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, mut nrx) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, mut srrx) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let notification = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/tools/list_changed",
+            "params": {}
+        });
+
+        McpClient::dispatch_incoming(notification, &pending, &ntx, &srtx, "test").await;
+
+        let notif = nrx.try_recv().expect("should receive notification");
+        assert_eq!(notif.method, "notifications/tools/list_changed");
+
+        assert!(srrx.try_recv().is_err());
+    }
+
+    #[test]
+    fn server_request_clone_and_debug() {
+        let req = McpServerRequest {
+            id: serde_json::json!(1),
+            method: "elicitation/create".to_string(),
+            params: Some(serde_json::json!({"message": "hello"})),
+        };
+        let req2 = req.clone();
+        assert_eq!(req.method, req2.method);
+        assert_eq!(format!("{:?}", req).contains("elicitation/create"), true);
+    }
+
+    #[test]
+    fn elicitation_response_serializes_correctly() {
+        let accept = JsonRpcResponse::success(
+            serde_json::json!(42),
+            serde_json::json!({
+                "action": "accept",
+                "content": { "name": "Alice" }
+            }),
+        );
+        let json = serde_json::to_value(&accept).unwrap();
+        assert_eq!(json["id"], 42);
+        assert_eq!(json["result"]["action"], "accept");
+        assert_eq!(json["result"]["content"]["name"], "Alice");
+
+        let decline = JsonRpcResponse::success(
+            serde_json::json!(43),
+            serde_json::json!({ "action": "decline" }),
+        );
+        let json = serde_json::to_value(&decline).unwrap();
+        assert_eq!(json["result"]["action"], "decline");
     }
 }

@@ -62,6 +62,13 @@ pub fn is_mcp_tool(name: &str) -> bool {
     name.starts_with("mcp__")
 }
 
+/// Extract the server ID from a prefix like `mcp__serverid__`.
+pub fn parse_server_id_from_prefix(prefix: &str) -> Option<&str> {
+    let rest = prefix.strip_prefix("mcp__")?;
+    let id = rest.strip_suffix("__")?;
+    if id.is_empty() { None } else { Some(id) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

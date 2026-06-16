@@ -121,6 +121,7 @@ function McpTabContent({ onDetail, onAdd }: { onDetail: (id: string) => void; on
   const removePlugin = usePluginStore((s) => s.removePlugin);
   const approvePlugin = usePluginStore((s) => s.approvePlugin);
   const rejectPlugin = usePluginStore((s) => s.rejectPlugin);
+  const oauthLoginPlugin = usePluginStore((s) => s.oauthLoginPlugin);
   const fetchTools = usePluginStore((s) => s.fetchTools);
   const toolsById = usePluginStore((s) => s.toolsById);
 
@@ -159,6 +160,11 @@ function McpTabContent({ onDetail, onAdd }: { onDetail: (id: string) => void; on
     [removePlugin],
   );
 
+  const handleOauthLogin = useCallback(
+    async (id: string) => { await oauthLoginPlugin(id); },
+    [oauthLoginPlugin],
+  );
+
   const pendingPlugins = useMemo(
     () => plugins.filter((p) => p.status === "pending_approval"),
     [plugins],
@@ -168,6 +174,14 @@ function McpTabContent({ onDetail, onAdd }: { onDetail: (id: string) => void; on
     [plugins],
   );
   const connectedCount = activePlugins.filter((p) => p.status === "connected").length;
+  const userPlugins = useMemo(
+    () => activePlugins.filter((p) => p.scope !== "project"),
+    [activePlugins],
+  );
+  const projectPlugins = useMemo(
+    () => activePlugins.filter((p) => p.scope === "project"),
+    [activePlugins],
+  );
 
   const registryMap = useMemo(
     () => new Map<string, McpRegistryEntry>(mcpRegistry.map((e) => [e.id, e])),
@@ -235,25 +249,85 @@ function McpTabContent({ onDetail, onAdd }: { onDetail: (id: string) => void; on
               </span>
             </div>
           )}
-          <div className="flex flex-col gap-2">
-            {activePlugins.map((p, idx) => (
+          {userPlugins.length > 0 && (
+            <PluginGroup
+              label={t("group.user")}
+              plugins={userPlugins}
+              expandedId={expandedId}
+              toolsById={toolsById}
+              registryMap={registryMap}
+              onToggle={handleToggle}
+              onRestart={handleRestart}
+              onExpand={handleExpand}
+              onRemove={handleRemove}
+              onDetail={onDetail}
+              onOauthLogin={handleOauthLogin}
+            />
+          )}
+          {projectPlugins.length > 0 && (
+            <PluginGroup
+              label={t("group.project")}
+              plugins={projectPlugins}
+              expandedId={expandedId}
+              toolsById={toolsById}
+              registryMap={registryMap}
+              onToggle={handleToggle}
+              onRestart={handleRestart}
+              onExpand={handleExpand}
+              onRemove={handleRemove}
+              onDetail={onDetail}
+              onOauthLogin={handleOauthLogin}
+              className={userPlugins.length > 0 ? "mt-4" : undefined}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PluginGroup({
+  label, plugins, expandedId, toolsById, registryMap, onToggle, onRestart, onExpand, onRemove, onDetail, onOauthLogin, className,
+}: {
+  label: string;
+  plugins: PluginSummary[];
+  expandedId: string | null;
+  toolsById: Record<string, PluginTool[] | undefined>;
+  registryMap: Map<string, McpRegistryEntry>;
+  onToggle: (p: PluginSummary) => void;
+  onRestart: (id: string) => void;
+  onExpand: (id: string) => void;
+  onRemove: (id: string) => Promise<boolean>;
+  onDetail: (id: string) => void;
+  onOauthLogin: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
+          {label}
+        </span>
+        <span className="text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>({plugins.length})</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {plugins.map((p, idx) => (
           <PluginRow
             key={p.id}
             plugin={p}
             expanded={expandedId === p.id}
             tools={toolsById[p.id]}
             registryEntry={registryMap.get(p.id)}
-            onToggle={() => handleToggle(p)}
-            onRestart={() => handleRestart(p.id)}
-            onExpand={() => handleExpand(p.id)}
-            onRemove={() => handleRemove(p.id)}
+            onToggle={() => onToggle(p)}
+            onRestart={() => onRestart(p.id)}
+            onExpand={() => onExpand(p.id)}
+            onRemove={() => onRemove(p.id)}
             onDetail={() => onDetail(p.id)}
+            onOauthLogin={() => onOauthLogin(p.id)}
             index={idx}
           />
-            ))}
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -1273,13 +1347,14 @@ function ChannelDetailModal({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function PluginRow({
-  plugin: p, expanded, tools, registryEntry, onToggle, onRestart, onExpand, onRemove, onDetail, index,
+  plugin: p, expanded, tools, registryEntry, onToggle, onRestart, onExpand, onRemove, onDetail, onOauthLogin, index,
 }: {
   plugin: PluginSummary; expanded: boolean; tools?: PluginTool[]; registryEntry?: McpRegistryEntry;
-  onToggle: () => void; onRestart: () => void; onExpand: () => void; onRemove: () => Promise<boolean>; onDetail: () => void; index: number;
+  onToggle: () => void; onRestart: () => void; onExpand: () => void; onRemove: () => Promise<boolean>; onDetail: () => void; onOauthLogin?: () => void; index: number;
 }) {
   const { t } = useTranslation("plugins");
   const [restarting, setRestarting] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const handleRestart = async (e: React.MouseEvent) => {
@@ -1337,8 +1412,22 @@ function PluginRow({
               {p.name}
             </span>
             <ScopeBadge scope={p.scope} />
+            {p.transport && p.transport !== "stdio" && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase"
+                style={{ background: "var(--bg-tertiary)", color: "var(--fill-quaternary)" }}
+              >
+                {p.transport === "streamable_http" ? "HTTP" : p.transport.toUpperCase()}
+              </span>
+            )}
           </div>
-          {p.lastError && (
+          {p.status === "needs_auth" && (
+            <div className="mt-0.5 flex items-center gap-1 text-[11px]" style={{ color: "var(--yellow, #D69E2E)" }}>
+              <Key size={ICON_SIZE.xs} />
+              <span>{t("needs_auth_hint", "OAuth authentication required")}</span>
+            </div>
+          )}
+          {p.lastError && p.status !== "needs_auth" && (
             <div className="mt-0.5 flex items-center gap-1 text-[11px]" style={{ color: "var(--red, #E53E3E)" }}>
               <WarningCircle size={ICON_SIZE.xs} />
               <span className="truncate">{p.lastError}</span>
@@ -1346,6 +1435,31 @@ function PluginRow({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {p.status === "needs_auth" && onOauthLogin && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLoggingIn(true);
+                onOauthLogin();
+                setTimeout(() => setLoggingIn(false), 3000);
+              }}
+              disabled={loggingIn}
+              className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+              style={{
+                cursor: loggingIn ? "wait" : "pointer",
+                background: "var(--yellow, #D69E2E)",
+                border: "none",
+                color: "#fff",
+              }}
+            >
+              {loggingIn ? (
+                <SpinnerGap size={ICON_SIZE.xs} className="animate-spin" />
+              ) : (
+                <Key size={ICON_SIZE.xs} weight="fill" />
+              )}
+              {t("oauth_login", "Login")}
+            </button>
+          )}
           {p.toolCount > 0 && (
             <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>{t("tools_count", { count: p.toolCount })}</span>
           )}
@@ -1440,7 +1554,8 @@ function PluginIcon({ entry, status }: { entry?: McpRegistryEntry; status: strin
     status === "connected" ? "var(--green)" :
     status === "failed" ? "var(--red)" :
     status === "connecting" ? "var(--orange)" :
-    status === "pending_approval" ? "var(--yellow)" : "var(--fill-quaternary)";
+    status === "pending_approval" ? "var(--yellow)" :
+    status === "needs_auth" ? "var(--yellow)" : "var(--fill-quaternary)";
   return (
     <div className="relative shrink-0">
       <div
@@ -1464,10 +1579,12 @@ function StatusDot({ status }: { status: string }) {
     status === "failed" ? "var(--red, #E53E3E)" :
     isConnecting ? "var(--orange, #ED8936)" :
     status === "pending_approval" ? "var(--yellow, #D69E2E)" :
+    status === "needs_auth" ? "var(--yellow, #D69E2E)" :
     "var(--fill-quaternary)";
+  const shouldPulse = isConnecting || status === "pending_approval" || status === "needs_auth";
   return (
     <span className="relative flex h-2.5 w-2.5 shrink-0">
-      {(isConnecting || status === "pending_approval") && <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-40" style={{ background: color }} />}
+      {shouldPulse && <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-40" style={{ background: color }} />}
       <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ background: color }} />
     </span>
   );

@@ -90,6 +90,10 @@ pub struct McpAddParams {
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub env: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bearer_token_env_var: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_headers: Option<std::collections::HashMap<String, String>>,
     /// Catch-all for forward compatibility
     #[serde(flatten)]
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
@@ -499,6 +503,22 @@ pub enum ClientOp {
     },
     PluginsReject {
         id: String,
+    },
+    PluginsOauthLogin {
+        id: String,
+    },
+    PluginsPrompts,
+    PluginsGetPrompt {
+        server_name: String,
+        prompt_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arguments: Option<std::collections::HashMap<String, String>>,
+    },
+    PluginsElicitationReply {
+        elicitation_id: String,
+        action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<serde_json::Value>,
     },
 
     // ── Workspace ────────────────────────────────────────────────────
@@ -1013,6 +1033,22 @@ impl ClientOp {
             "plugins.reject" => Ok(Self::PluginsReject {
                 id: extract_string(&params, "id")?,
             }),
+            "plugins.oauth_login" => Ok(Self::PluginsOauthLogin {
+                id: extract_string(&params, "id")?,
+            }),
+            "plugins.prompts" => Ok(Self::PluginsPrompts),
+            "plugins.get_prompt" => Ok(Self::PluginsGetPrompt {
+                server_name: extract_string(&params, "server_name")?,
+                prompt_name: extract_string(&params, "prompt_name")?,
+                arguments: params
+                    .get("arguments")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            }),
+            "plugins.elicitation_reply" => Ok(Self::PluginsElicitationReply {
+                elicitation_id: extract_string(&params, "elicitation_id")?,
+                action: extract_string(&params, "action")?,
+                content: params.get("content").cloned(),
+            }),
             "workspace.init" => Ok(Self::WorkspaceInit {
                 work_dir: params
                     .get("workDir")
@@ -1272,5 +1308,54 @@ mod tests {
         let json = serde_json::to_string(&op).unwrap();
         let back: ClientOp = serde_json::from_str(&json).unwrap();
         assert!(matches!(back, ClientOp::Ping));
+    }
+
+    #[test]
+    fn parse_elicitation_reply() {
+        let op = ClientOp::parse_request(
+            "plugins.elicitation_reply",
+            json!({
+                "elicitation_id": "elic-123",
+                "action": "accept",
+                "content": { "name": "Alice", "remember": true }
+            }),
+        )
+        .unwrap();
+        if let ClientOp::PluginsElicitationReply {
+            elicitation_id,
+            action,
+            content,
+        } = op
+        {
+            assert_eq!(elicitation_id, "elic-123");
+            assert_eq!(action, "accept");
+            assert_eq!(content.unwrap()["name"], "Alice");
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn parse_elicitation_reply_decline() {
+        let op = ClientOp::parse_request(
+            "plugins.elicitation_reply",
+            json!({
+                "elicitation_id": "elic-456",
+                "action": "decline"
+            }),
+        )
+        .unwrap();
+        if let ClientOp::PluginsElicitationReply {
+            elicitation_id,
+            action,
+            content,
+        } = op
+        {
+            assert_eq!(elicitation_id, "elic-456");
+            assert_eq!(action, "decline");
+            assert!(content.is_none());
+        } else {
+            panic!("wrong variant");
+        }
     }
 }

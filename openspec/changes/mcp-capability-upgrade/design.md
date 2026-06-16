@@ -234,8 +234,50 @@ Gateway 启动 / reload_mcp_servers()
 | `crates/xiaolin-core/src/tool.rs` | mcp_definitions() 前缀更新 |
 | `crates/xiaolin-core/src/agent_config.rs` | 权限 glob `mcp__*`、审批状态配置 |
 
+---
+
+## P4: MCP 协议完整度补齐（mcp-protocol-completeness）
+
+> 基于三方深度对比（XiaoLin 65.5 / Codex 68.5 / Claude Code 79.5），补齐 Auth、协议覆盖、安全防护三大差距。
+
+### D8: OAuth 流程 — 基于 MCP 规范的 PKCE 授权码流
+
+**选择**：实现 MCP 2025-06-18 规范定义的 OAuth 流程（Metadata Discovery → PKCE Authorization Code → Token Refresh）。先支持 `bearer_token_env_var` 静态 token（P0），再实现完整 OAuth PKCE（P1）。
+
+**替代方案**：
+- A) 仅支持静态 Bearer token — 简单但无法支持交互式 OAuth
+- B) 通用 OAuth 库 — 过于复杂，MCP 规范已明确定义
+
+**实现**：`McpServerConfig` 新增 `bearer_token_env_var` + `http_headers`；`McpStatus` 新增 `NeedsAuth`；新增 `xiaolin-mcp/src/oauth.rs` 模块；token 优先 keyring 存储，降级文件系统。
+
+### D9: Resources/Prompts — 作为 Agent 工具暴露
+
+**选择**：Resources 作为 `mcp__list_resources` / `mcp__read_resource` deferred 工具注册到 ToolRegistry；Prompts 通过 WebSocket API 暴露给前端。
+
+**理由**：对标 Codex（Resources 作为 agent 工具）和 Claude Code（Resources 工具 + Prompts 斜杠命令）。
+
+### D10: Elicitation — WebSocket 转发到前端 GUI
+
+**选择**：后端接收 MCP 服务器 `elicitation/create` → WebSocket 转发 → 前端 `ElicitationDialog` 表单 → 结果回传。
+
+**支持类型**：string → 文本框、number → 数字框、boolean → 复选框、enum → 下拉框。超时 5 分钟自动 decline。
+
+### D11: Unicode 安全清洗
+
+**选择**：递归清洗所有 MCP 返回字符串的不可见控制字符、双向覆盖字符、零宽字符。对标 Claude Code HackerOne #3086545 修复。
+
+**实现位置**：`xiaolin-mcp/src/sanitize.rs`，在 `tools/list`、`resources/list`、`prompts/list` 返回后统一调用。
+
+### D12: HTTP Session 恢复
+
+**选择**：Streamable HTTP 404 / JSON-RPC -32001 → 自动 reinitialize → 重试一次。多个并发请求使用 `tokio::sync::Mutex` 序列化恢复。
+
+**对标**：Codex `reinitialize_after_session_expiry` + Claude Code `McpSessionExpiredError`。
+
 ## Open Questions
 
-1. **Streamable HTTP 时机**：P2 还是 P1？新版 MCP server（GitHub Copilot MCP 等）可能只支持 Streamable HTTP。
-2. **Elicitation 最小路径**：是否在 P2 补一个「空 schema 审批 fallback」？可覆盖 80% MCP tool approval 场景，代价很小。
-3. **per-server enabled_tools/disabled_tools**：Codex 有完整实现，是否在 P2 加入？
+1. ~~**Streamable HTTP 时机**~~ → ✅ 已在 P2 完成
+2. ~~**Elicitation 最小路径**~~ → P4 完整实现 Elicitation
+3. **per-server enabled_tools/disabled_tools**：Codex 有完整实现，是否在后续加入？
+4. **OAuth 回调方式**：Tauri deep link（`xiaolin://oauth/callback`）vs 临时本地 HTTP 服务器？
+5. **Prompts 前端展示形态**：独立 tab 还是插件详情内的子标签？

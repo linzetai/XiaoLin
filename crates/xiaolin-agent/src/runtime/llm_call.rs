@@ -95,12 +95,7 @@ pub(crate) async fn perform_llm_call(
         let mut all_defs = svc.tool_registry.definitions_with_profile(&mode_profile);
         all_defs.extend(ms.extra_tool_defs.iter().cloned());
         ms.tool_defs = filter_tool_definitions(&all_defs, &svc.config);
-        ms.tool_defs_est_tokens = ms
-            .tool_defs
-            .iter()
-            .map(|td| serde_json::to_string(td).map(|s| s.len()).unwrap_or(0))
-            .sum::<usize>()
-            / 4;
+        ms.tool_defs_est_tokens = svc.tool_registry.estimated_json_chars(&ms.tool_defs) / 4;
         ms.registry_version_at_setup = current_reg_version;
         tracing::info!(
             count = ms.tool_defs.len(),

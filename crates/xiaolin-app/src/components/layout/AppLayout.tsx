@@ -7,6 +7,7 @@ import { MessageStream } from "../message-stream/MessageStream";
 import { AutomationView } from "../automation/AutomationView";
 import { PluginsView } from "../plugins/PluginsView";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import { ElicitationDialog } from "../plugins/ElicitationDialog";
 import { TitleBar } from "./TitleBar";
 import { ClawIcon } from "./ClawIcon";
 import { UpdateBanner } from "./UpdateBanner";
@@ -229,6 +230,7 @@ export function AppLayout() {
       {!isMaximized && <WindowResizeHandles />}
       {content}
       <SettingsPanel open={settingsOpen} onClose={closeSettings} />
+      <ElicitationDialog />
     </div>
   );
 }

@@ -467,6 +467,9 @@ pub enum McpStatus {
     /// Project-level server awaiting user approval before connecting.
     #[serde(rename = "pending_approval")]
     PendingApproval,
+    /// Server requires OAuth authentication; user must click "Login" in the UI.
+    #[serde(rename = "needs_auth")]
+    NeedsAuth,
 }
 
 /// Runtime status information for an MCP server.
@@ -486,6 +489,9 @@ pub struct McpServerStatus {
     /// For pending_approval servers, preview of the command that will be executed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_preview: Option<String>,
+    /// Transport type: "stdio", "sse", or "streamable_http".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
 }
 
 fn default_scope() -> String {

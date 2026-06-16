@@ -11,6 +11,10 @@
   "no_channels_title": "暂无频道",
   "no_channels_desc": "在设置中配置频道以连接外部服务",
   "connected_count": "{{connected}}/{{total}} 已连接",
+  "group": {
+    "user": "用户",
+    "project": "项目"
+  },
   "tools_count": "{{count}} 工具",
   "restart": "重启",
   "restart_all": "全部重启",
@@ -96,6 +100,7 @@
     "env_title": "环境变量",
     "error_title": "错误",
     "tools_title": "工具",
+    "prompts_title": "Prompts",
     "remove": "删除服务器",
     "removing": "删除中…",
     "restart": "重启",
@@ -115,9 +120,22 @@
     "url_label": "URL",
     "env_label": "环境变量",
     "env_add": "添加变量",
+    "bearer_label": "Bearer Token 环境变量名",
+    "bearer_hint": "填写存放 token 的环境变量名（如 MY_TOKEN），系统从中读取 Bearer 值",
+    "headers_label": "自定义 HTTP Headers",
+    "headers_add": "添加 Header",
+    "headers_hint": "值以 $ 开头则视为环境变量引用（如 $API_KEY）",
     "cancel": "取消",
     "submit": "添加并连接",
     "submitting": "连接中…",
     "submit_error": "添加失败，请检查配置后重试"
+  },
+  "needs_auth_hint": "需要 OAuth 认证",
+  "oauth_login": "登录",
+  "elicitation": {
+    "title": "服务器请求输入",
+    "submit": "提交",
+    "cancel": "取消",
+    "timeout_hint": "将在 {{minutes}} 分钟后自动关闭"
   }
 }

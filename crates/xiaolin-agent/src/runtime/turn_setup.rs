@@ -141,10 +141,7 @@ pub(crate) async fn setup_turn(
     let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
     all_tool_defs.extend(extra_tool_defs.iter().cloned());
     let tool_defs = filter_tool_definitions(&all_tool_defs, config);
-    let tool_defs_json_chars: usize = tool_defs
-        .iter()
-        .map(|td| serde_json::to_string(td).map(|s| s.len()).unwrap_or(0))
-        .sum();
+    let tool_defs_json_chars: usize = tool_registry.estimated_json_chars(&tool_defs);
     let tool_defs_est_tokens = tool_defs_json_chars / 4;
     tracing::info!(
         elapsed_ms = t0.elapsed().as_millis() as u64,

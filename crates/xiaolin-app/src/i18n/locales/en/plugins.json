@@ -11,6 +11,10 @@
   "no_channels_title": "No channels configured",
   "no_channels_desc": "Configure channels in Settings to connect external services",
   "connected_count": "{{connected}}/{{total}} connected",
+  "group": {
+    "user": "User",
+    "project": "Project"
+  },
   "tools_count": "{{count}} tools",
   "restart": "Restart",
   "restart_all": "Restart everything",
@@ -96,6 +100,7 @@
     "env_title": "Environment Variables",
     "error_title": "Error",
     "tools_title": "Tools",
+    "prompts_title": "Prompts",
     "remove": "Remove Server",
     "removing": "Removing…",
     "restart": "Restart",
@@ -115,9 +120,22 @@
     "url_label": "URL",
     "env_label": "Environment Variables",
     "env_add": "Add Variable",
+    "bearer_label": "Bearer Token Env Var",
+    "bearer_hint": "Name of the env var holding the Bearer token (e.g. MY_TOKEN)",
+    "headers_label": "Custom HTTP Headers",
+    "headers_add": "Add Header",
+    "headers_hint": "Values starting with $ are treated as env var references (e.g. $API_KEY)",
     "cancel": "Cancel",
     "submit": "Add & Connect",
     "submitting": "Connecting…",
     "submit_error": "Failed to add server. Check your config and try again."
+  },
+  "needs_auth_hint": "OAuth authentication required",
+  "oauth_login": "Login",
+  "elicitation": {
+    "title": "Server Requests Input",
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "timeout_hint": "Will auto-close in {{minutes}} minutes"
   }
 }

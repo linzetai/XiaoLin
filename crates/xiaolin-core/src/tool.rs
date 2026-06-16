@@ -418,6 +418,12 @@ pub struct ToolRegistry {
     channel_scoped: std::sync::RwLock<HashSet<String>>,
     version: std::sync::atomic::AtomicU64,
     def_cache: std::sync::RwLock<(u64, Arc<Vec<ToolDefinition>>)>,
+    /// Per-MCP-server instructions captured from `InitializeResult`.
+    /// Key: server ID, Value: instructions text (if provided).
+    mcp_instructions: std::sync::RwLock<HashMap<String, String>>,
+    /// Cache of per-tool serialized JSON char counts, keyed by registry version.
+    /// Avoids re-serializing tool definitions just to estimate token counts.
+    json_sizes_cache: std::sync::RwLock<(u64, HashMap<String, usize>)>,
 }
 
 impl Clone for ToolRegistry {
@@ -427,12 +433,16 @@ impl Clone for ToolRegistry {
         let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
         let ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
         let cache = self.def_cache.read().expect("def_cache poisoned");
+        let mcp_instr = self.mcp_instructions.read().expect("mcp_instructions poisoned");
+        let json_sizes = self.json_sizes_cache.read().expect("json_sizes_cache poisoned");
         Self {
             tools: std::sync::RwLock::new(guard.clone()),
             deferred: std::sync::RwLock::new(deferred.clone()),
             channel_scoped: std::sync::RwLock::new(ch_scoped.clone()),
             version: std::sync::atomic::AtomicU64::new(ver),
             def_cache: std::sync::RwLock::new(cache.clone()),
+            mcp_instructions: std::sync::RwLock::new(mcp_instr.clone()),
+            json_sizes_cache: std::sync::RwLock::new(json_sizes.clone()),
         }
     }
 }
@@ -445,6 +455,8 @@ impl ToolRegistry {
             channel_scoped: std::sync::RwLock::new(HashSet::new()),
             version: std::sync::atomic::AtomicU64::new(0),
             def_cache: std::sync::RwLock::new((u64::MAX, Arc::new(Vec::new()))),
+            mcp_instructions: std::sync::RwLock::new(HashMap::new()),
+            json_sizes_cache: std::sync::RwLock::new((u64::MAX, HashMap::new())),
         }
     }
 
@@ -517,6 +529,36 @@ impl ToolRegistry {
         guard.get(name).cloned()
     }
 
+    /// Store instructions for an MCP server. Overwrites any previous value.
+    pub fn set_mcp_instructions(&self, server_id: &str, instructions: Option<&str>) {
+        let mut guard = self.mcp_instructions.write().expect("mcp_instructions poisoned");
+        match instructions {
+            Some(instr) if !instr.trim().is_empty() => {
+                guard.insert(server_id.to_string(), instr.trim().to_string());
+            }
+            _ => {
+                guard.remove(server_id);
+            }
+        }
+    }
+
+    /// Remove MCP instructions for a server (e.g. on disconnect).
+    pub fn remove_mcp_instructions(&self, server_id: &str) {
+        let mut guard = self.mcp_instructions.write().expect("mcp_instructions poisoned");
+        guard.remove(server_id);
+    }
+
+    /// Get a snapshot of all MCP server instructions. Sorted by key.
+    pub fn mcp_instructions_snapshot(&self) -> Vec<(String, String)> {
+        let guard = self.mcp_instructions.read().expect("mcp_instructions poisoned");
+        let mut pairs: Vec<(String, String)> = guard
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+
     /// Returns cached tool definitions. Rebuilt only when tools are registered/unregistered.
     pub fn definitions(&self) -> Arc<Vec<ToolDefinition>> {
         let current_ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
@@ -533,6 +575,44 @@ impl ToolRegistry {
             *cache = (current_ver, arc.clone());
         }
         arc
+    }
+
+    /// Estimate total JSON chars for a set of tool definitions using cached sizes.
+    ///
+    /// On cache hit (same registry version), looks up pre-computed per-tool sizes.
+    /// On cache miss, serializes each definition once and populates the cache.
+    /// Avoids re-serializing tool definitions on every LLM call just for token estimation.
+    pub fn estimated_json_chars(&self, defs: &[ToolDefinition]) -> usize {
+        let current_ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
+        {
+            let cache = self.json_sizes_cache.read().expect("json_sizes_cache poisoned");
+            if cache.0 == current_ver {
+                let total: usize = defs
+                    .iter()
+                    .map(|td| cache.1.get(&td.function.name).copied().unwrap_or(0))
+                    .sum();
+                if total > 0 {
+                    return total;
+                }
+            }
+        }
+
+        let mut new_sizes = HashMap::new();
+        let mut total = 0usize;
+        for td in defs {
+            let size = serde_json::to_string(td).map(|s| s.len()).unwrap_or(0);
+            new_sizes.insert(td.function.name.clone(), size);
+            total += size;
+        }
+
+        if let Ok(mut cache) = self.json_sizes_cache.write() {
+            if cache.0 != current_ver {
+                *cache = (current_ver, new_sizes);
+            } else {
+                cache.1.extend(new_sizes);
+            }
+        }
+        total
     }
 
     /// Returns only definitions whose name starts with `mcp__`, using the cached definitions.

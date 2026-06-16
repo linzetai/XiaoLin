@@ -16,6 +16,7 @@ export interface PluginStoreState {
   restartPlugin: (id: string) => Promise<boolean>;
   approvePlugin: (id: string) => Promise<boolean>;
   rejectPlugin: (id: string) => Promise<boolean>;
+  oauthLoginPlugin: (id: string) => Promise<boolean>;
   fetchTools: (id: string) => Promise<PluginTool[]>;
   connectedCount: () => number;
 }
@@ -113,6 +114,19 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
       const ok = await transport.rejectPlugin(id);
       if (ok) await get().fetchPlugins();
       return ok;
+    } catch (e) {
+      set({ error: String(e) });
+      return false;
+    }
+  },
+
+  oauthLoginPlugin: async (id) => {
+    try {
+      const result = await transport.oauthLoginPlugin(id);
+      if (result.ok && result.auth_url) {
+        window.open(result.auth_url, "_blank");
+      }
+      return result.ok;
     } catch (e) {
       set({ error: String(e) });
       return false;

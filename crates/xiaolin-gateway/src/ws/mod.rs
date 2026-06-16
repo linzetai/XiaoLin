@@ -16,6 +16,7 @@ mod session;
 mod skills;
 mod types;
 
+pub use plugins::broadcast_status_changed;
 pub use types::WsQueryParams;
 
 use types::{WsRequest, WsResponse};
@@ -109,7 +110,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "cancel", "answer", "set_mode",
                             "models.list", "config.get", "config.set",
                             "mcp.status", "mcp.reload", "mcp.add", "mcp.remove", "mcp.detail",
-                            "plugins.list", "plugins.enable", "plugins.disable", "plugins.restart", "plugins.tools", "plugins.approve", "plugins.reject",
+                            "plugins.list", "plugins.enable", "plugins.disable", "plugins.restart", "plugins.tools", "plugins.approve", "plugins.reject", "plugins.oauth_login",
                             "channels.list", "channels.detail", "channels.connect", "channels.update", "channels.restore",
                             "channels.wechat_login", "channels.wechat_poll", "channels.wechat_verify", "channels.disconnect",
                             "sub_agents.list",
@@ -509,6 +510,32 @@ async fn dispatch(
         }
         ClientOp::PluginsReject { id: plugin_id } => {
             plugins::handle_plugins_reject(sender, state, id, &plugin_id).await
+        }
+        ClientOp::PluginsOauthLogin { id: plugin_id } => {
+            plugins::handle_plugins_oauth_login(sender, state, id, &plugin_id).await
+        }
+        ClientOp::PluginsPrompts => {
+            plugins::handle_plugins_prompts(sender, state, id).await
+        }
+        ClientOp::PluginsGetPrompt {
+            server_name,
+            prompt_name,
+            arguments,
+        } => {
+            plugins::handle_plugins_get_prompt(
+                sender, state, id, &server_name, &prompt_name, arguments,
+            )
+            .await
+        }
+        ClientOp::PluginsElicitationReply {
+            elicitation_id,
+            action,
+            content,
+        } => {
+            plugins::handle_plugins_elicitation_reply(
+                sender, state, id, &elicitation_id, &action, content,
+            )
+            .await
         }
         ClientOp::AgentsGet { .. } => {
             agents::handle_agents_get(sender, state, id, req.params).await

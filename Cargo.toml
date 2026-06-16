@@ -82,6 +82,8 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 constant_time_eq = "0.3"
+base64 = "0.22"
+rand = "0.9"
 
 # Embedding (local — hypembed is pure Rust, no ML runtime needed)
 hypembed = "0.2"

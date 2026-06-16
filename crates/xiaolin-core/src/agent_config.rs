@@ -91,9 +91,32 @@ pub struct McpServerConfig {
     /// Defaults to 30 if omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup_timeout_sec: Option<u32>,
+    /// Name of an environment variable holding a Bearer token for HTTP transports.
+    /// The token value is read at connect time and sent as `Authorization: Bearer <value>`.
+    /// Inline tokens (`bearer_token`) are rejected by `validate()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bearer_token_env_var: Option<String>,
+    /// Extra HTTP headers to attach to every request (SSE / Streamable HTTP only).
+    /// Values starting with `$` are treated as environment variable references
+    /// (e.g. `"$API_KEY"` → reads env var `API_KEY`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_headers: Option<HashMap<String, String>>,
 }
 
 impl McpServerConfig {
+    /// Generate a connection signature for dedup: servers with the same signature
+    /// point to the same underlying process/endpoint and should only connect once.
+    pub fn connection_signature(&self) -> String {
+        match self.transport.effective() {
+            McpTransportType::Stdio => {
+                format!("stdio:{}:{}", self.command, self.args.join(" "))
+            }
+            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::Http => {
+                format!("url:{}", self.url.as_deref().unwrap_or(""))
+            }
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() {
             return Err("MCP server id must not be empty".into());
@@ -124,6 +147,22 @@ impl McpServerConfig {
             }
             McpTransportType::Http => unreachable!("effective() normalizes Http"),
         }
+
+        if let Some(ref var) = self.bearer_token_env_var {
+            if var.is_empty() {
+                return Err(format!(
+                    "MCP server '{}': bearer_token_env_var must not be empty",
+                    self.id
+                ));
+            }
+            if self.transport.effective() == McpTransportType::Stdio {
+                return Err(format!(
+                    "MCP server '{}': bearer_token_env_var is only valid for HTTP transports (sse/streamable_http), not stdio",
+                    self.id
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -169,6 +208,10 @@ pub struct ProjectMcpServerEntry {
     pub url: Option<String>,
     #[serde(default)]
     pub transport: McpTransportType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bearer_token_env_var: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_headers: Option<HashMap<String, String>>,
 }
 
 impl ProjectMcpConfig {
@@ -185,6 +228,8 @@ impl ProjectMcpConfig {
                 url: entry.url.clone(),
                 transport: entry.transport,
                 startup_timeout_sec: None,
+                bearer_token_env_var: entry.bearer_token_env_var.clone(),
+                http_headers: entry.http_headers.clone(),
             })
             .collect()
     }
@@ -1587,6 +1632,8 @@ You are a code review specialist. Analyze the provided code carefully."#;
             url: None,
             transport: McpTransportType::Stdio,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
         assert!(cfg.validate().is_ok());
     }
@@ -1602,6 +1649,8 @@ You are a code review specialist. Analyze the provided code carefully."#;
             url: None,
             transport: McpTransportType::Stdio,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -1617,6 +1666,8 @@ You are a code review specialist. Analyze the provided code carefully."#;
             url: Some("http://localhost:3000/sse".into()),
             transport: McpTransportType::Sse,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
         assert!(cfg.validate().is_ok());
     }
@@ -1632,6 +1683,8 @@ You are a code review specialist. Analyze the provided code carefully."#;
             url: None,
             transport: McpTransportType::Sse,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -1647,8 +1700,81 @@ You are a code review specialist. Analyze the provided code carefully."#;
             url: None,
             transport: McpTransportType::Stdio,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn mcp_server_config_bearer_token_stdio_rejected() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: "npx".into(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: None,
+            transport: McpTransportType::Stdio,
+            startup_timeout_sec: None,
+            bearer_token_env_var: Some("MY_TOKEN".into()),
+            http_headers: None,
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("stdio"), "should reject bearer_token on stdio: {err}");
+    }
+
+    #[test]
+    fn mcp_server_config_bearer_token_empty_rejected() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: Some(String::new()),
+            http_headers: None,
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("must not be empty"), "empty env var name: {err}");
+    }
+
+    #[test]
+    fn mcp_server_config_bearer_token_http_ok() {
+        let cfg = McpServerConfig {
+            id: "test".into(),
+            command: String::new(),
+            args: vec![],
+            enabled: Some(true),
+            env: Default::default(),
+            url: Some("http://localhost/mcp".into()),
+            transport: McpTransportType::StreamableHttp,
+            startup_timeout_sec: None,
+            bearer_token_env_var: Some("MY_TOKEN".into()),
+            http_headers: None,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn mcp_server_config_serde_with_new_fields() {
+        let json = r#"{"id":"auth-server","command":"","transport":"streamable_http","url":"https://api.example.com/mcp","bearerTokenEnvVar":"API_TOKEN","httpHeaders":{"X-Custom":"static","X-Api-Key":"$SECRET"}}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.bearer_token_env_var.as_deref(), Some("API_TOKEN"));
+        let headers = cfg.http_headers.as_ref().unwrap();
+        assert_eq!(headers.get("X-Custom").unwrap(), "static");
+        assert_eq!(headers.get("X-Api-Key").unwrap(), "$SECRET");
+    }
+
+    #[test]
+    fn mcp_server_config_serde_without_new_fields() {
+        let json = r#"{"id":"test","command":"npx"}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.bearer_token_env_var.is_none());
+        assert!(cfg.http_headers.is_none());
     }
 
     #[test]

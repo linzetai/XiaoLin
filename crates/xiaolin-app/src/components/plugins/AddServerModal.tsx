@@ -6,7 +6,7 @@ import { ICON_SIZE, BTN_PRIMARY_SM } from "../../lib/ui-tokens";
 
 type TransportType = "stdio" | "sse" | "streamable_http";
 
-interface EnvEntry {
+interface KvEntry {
   key: string;
   value: string;
 }
@@ -39,7 +39,9 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
   const [command, setCommand] = useState(prefill?.command ?? "");
   const [args, setArgs] = useState(prefill?.args?.join(" ") ?? "");
   const [url, setUrl] = useState(prefill?.url ?? "");
-  const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
+  const [envEntries, setEnvEntries] = useState<KvEntry[]>([]);
+  const [bearerTokenEnvVar, setBearerTokenEnvVar] = useState("");
+  const [headerEntries, setHeaderEntries] = useState<KvEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +89,8 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
     setArgs("");
     setUrl("");
     setEnvEntries([]);
+    setBearerTokenEnvVar("");
+    setHeaderEntries([]);
     setError(null);
     setTransport("stdio");
     onClose();
@@ -102,6 +106,11 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
       if (e.key.trim()) env[e.key.trim()] = e.value;
     }
 
+    const httpHeaders: Record<string, string> = {};
+    for (const h of headerEntries) {
+      if (h.key.trim()) httpHeaders[h.key.trim()] = h.value;
+    }
+
     const ok = await addPlugin({
       id: serverId.trim(),
       ...(isStdio
@@ -113,6 +122,8 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
         : {
             transport,
             url: url.trim(),
+            ...(bearerTokenEnvVar.trim() ? { bearer_token_env_var: bearerTokenEnvVar.trim() } : {}),
+            ...(Object.keys(httpHeaders).length > 0 ? { http_headers: httpHeaders } : {}),
           }),
       ...(Object.keys(env).length > 0 ? { env } : {}),
     });
@@ -123,7 +134,7 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
     } else {
       setError(t("add_modal.submit_error"));
     }
-  }, [canSubmit, submitting, addPlugin, serverId, isStdio, command, args, transport, url, envEntries, handleClose, t]);
+  }, [canSubmit, submitting, addPlugin, serverId, isStdio, command, args, transport, url, envEntries, bearerTokenEnvVar, headerEntries, handleClose, t]);
 
   const addEnvRow = useCallback(() => {
     setEnvEntries((prev) => [...prev, { key: "", value: "" }]);
@@ -135,6 +146,20 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
 
   const updateEnv = useCallback((index: number, field: "key" | "value", val: string) => {
     setEnvEntries((prev) =>
+      prev.map((e, i) => (i === index ? { ...e, [field]: val } : e)),
+    );
+  }, []);
+
+  const addHeaderRow = useCallback(() => {
+    setHeaderEntries((prev) => [...prev, { key: "", value: "" }]);
+  }, []);
+
+  const removeHeaderRow = useCallback((index: number) => {
+    setHeaderEntries((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const updateHeader = useCallback((index: number, field: "key" | "value", val: string) => {
+    setHeaderEntries((prev) =>
       prev.map((e, i) => (i === index ? { ...e, [field]: val } : e)),
     );
   }, []);
@@ -252,6 +277,75 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
                 className="modal-input"
               />
             </FieldGroup>
+          )}
+
+          {/* Bearer Token (HTTP only) */}
+          {!isStdio && (
+            <FieldGroup label={t("add_modal.bearer_label")}>
+              <input
+                type="text"
+                value={bearerTokenEnvVar}
+                onChange={(e) => setBearerTokenEnvVar(e.target.value)}
+                placeholder="MY_MCP_TOKEN"
+                className="modal-input"
+                style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12px" }}
+              />
+              <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+                {t("add_modal.bearer_hint")}
+              </span>
+            </FieldGroup>
+          )}
+
+          {/* Custom HTTP Headers (HTTP only) */}
+          {!isStdio && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
+                  {t("add_modal.headers_label")}
+                </label>
+                <button
+                  onClick={addHeaderRow}
+                  className="flex items-center gap-1 text-[11px] font-medium transition-colors hover:opacity-80"
+                  style={{ color: "var(--tint)", background: "transparent", border: "none", cursor: "pointer" }}
+                >
+                  <Plus size={ICON_SIZE.xs} />
+                  {t("add_modal.headers_add")}
+                </button>
+              </div>
+              {headerEntries.map((entry, i) => (
+                <div key={i} className="flex gap-1.5 items-center">
+                  <input
+                    type="text"
+                    value={entry.key}
+                    onChange={(e) => updateHeader(i, "key", e.target.value)}
+                    placeholder="X-Custom-Header"
+                    className="modal-input flex-1"
+                    style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12px" }}
+                  />
+                  <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>:</span>
+                  <input
+                    type="text"
+                    value={entry.value}
+                    onChange={(e) => updateHeader(i, "value", e.target.value)}
+                    placeholder="value or $ENV_VAR"
+                    className="modal-input flex-[2]"
+                    style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12px" }}
+                  />
+                  <button
+                    onClick={() => removeHeaderRow(i)}
+                    className="flex items-center justify-center w-6 h-6 rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+                    style={{ color: "var(--red)", background: "transparent", border: "none", cursor: "pointer", flexShrink: 0 }}
+                  >
+                    <Trash size={ICON_SIZE.xs} />
+                  </button>
+                </div>
+              ))}
+              {headerEntries.length > 0 && (
+                <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+                  {t("add_modal.headers_hint")}
+                </span>
+              )}
+            </div>
           )}
 
           {/* Environment Variables */}

@@ -114,6 +114,8 @@ pub async fn handle_mcp_add(
         url,
         transport,
         startup_timeout_sec: None,
+        bearer_token_env_var: params.bearer_token_env_var,
+        http_headers: params.http_headers,
     };
 
     if let Err(e) = new_server.validate() {

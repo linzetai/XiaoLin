@@ -7,7 +7,7 @@
 ## 阶段一：修 Bug + 安全基线 (P0)
 
 > 目标：修复阻塞性 Bug、消除安全漏洞、清理死代码。零新功能。
-> **进度**：9/10 完成（T8 审批门后端已完成），1/10 部分完成（T3 前端命名）
+> **进度**：10/10 完成 ✅
 
 ### T1: 删除死代码 ✅
 
@@ -45,21 +45,19 @@
 
 ---
 
-### T3: 工具命名规范化 — 前端 ⚠️ 部分完成
+### T3: 工具命名规范化 — 前端 ✅
 
 **Spec**: [`naming-pipeline/spec.md`](specs/naming-pipeline/spec.md)
 **前置**: T2
-**状态**: ⚠️ prefix 字符串更新完成，工具函数待创建
+**状态**: ✅ 已完成
 
-**已完成**（随 T2 一并处理）:
+**已完成**:
 - ✅ `components/message-stream/StepIndicator.tsx` → `getToolCategory` 中 `name.startsWith("mcp_")` → `name.startsWith("mcp__")`
 - ✅ `components/message-stream/__tests__/ToolCallCard.test.tsx` → mock 工具名 `mcp_github_list_repos` → `mcp__github__list_repos`
+- ✅ `lib/mcpNaming.ts` — `sanitizeForApi`、`mcpServerPrefix`、`parseMcpToolName`、`isMcpTool` 前端工具函数
+- ✅ `components/message-stream/ToolCallCard.tsx` → `getMcpMeta` 使用 `parseMcpToolName`
 
-**剩余**:
-- ❌ `lib/mcpNaming.ts` → **新建**：`sanitizeForApi`、`mcpServerPrefix`、`parseMcpToolName`、`isMcpTool` 前端工具函数
-- ❌ `components/message-stream/ToolCallCard.tsx` → `getMcpMeta` 改用 `parseMcpToolName`（当前仍按第一个 `_` 分割）
-
-**验证**: 前端编译通过 + tool call 卡片正确显示 MCP server 名 + 测试通过
+**验证**: 前端编译通过 + tool call 卡片正确显示 MCP server 名
 
 ---
 
@@ -167,14 +165,17 @@
 
 ---
 
-### T10: 配置验证
+### T10: 配置验证 ✅
 
 **Spec**: [`transport-fix/spec.md`](specs/transport-fix/spec.md) 变更 6
 **前置**: T4
-**文件**:
-- `xiaolin-core/src/agent_config.rs` → `McpServerConfig::validate()` — stdio 需 command、sse 需 url、id 不含 `__`
-- `xiaolin-gateway/src/state/mod.rs` → 连接前调用 validate
-- `xiaolin-gateway/src/ws/plugins.rs` → `plugins.add` handler 调用 validate
+**状态**: ✅ 已完成
+
+**已完成**:
+- ✅ `xiaolin-core/src/agent_config.rs` → `McpServerConfig::validate()` — stdio 需 command、sse 需 url、id 不含 `__`
+- ✅ `xiaolin-mcp/src/lib.rs` → `connect_mcp_server` 入口统一调用 `validate()`（所有路径受益）
+- ✅ `xiaolin-gateway/src/mcp_tool.rs` → `do_reload` handler 调用 validate
+- ✅ `xiaolin-gateway/src/ws/mcp.rs` → `handle_mcp_add` handler 调用 validate
 
 **验证**: 无效配置（缺 command、id 含 `__`）→ 清晰错误消息
 
@@ -183,7 +184,7 @@
 ## 阶段二：PluginsView 三 Tab 整合 (P1)
 
 > 目标：PluginsView 成为 MCP + Skills + Channels 的统一管理入口。
-> **进度**：9/10 完成（T10.5 ✅ T11 ✅ T12 ✅ T12.5 ✅ T14 ✅ T15 ✅ T16 ✅ T17 ✅ T18 ✅），1/10 待做（T13）
+> **进度**：10/10 完成 ✅
 
 ### T10.5: PluginsView UI 风格统一（与主界面对齐）✅
 
@@ -279,16 +280,22 @@
 
 ---
 
-### T13: MCP Tab — PluginSummary 扩展 + 分组
+### T13: MCP Tab — PluginSummary 扩展 + 分组 ✅
 
 **Spec**: [`plugins-ui/spec.md`](specs/plugins-ui/spec.md) 变更 2, 10
 **前置**: T11
-**文件**:
-- `lib/transport.ts` → `PluginSummary` 增加 `transport`、`commandPreview`、`pendingApproval` 字段
-- `plugins/PluginsView.tsx` → MCP 列表按 scope（User/Project）分组
-- `xiaolin-gateway/src/ws/plugins.rs` → `plugins.list` 响应增加新字段
+**状态**: ✅ 已完成
 
-**验证**: User / Project 分组正确显示，transport 类型可见
+**已完成**:
+- ✅ `xiaolin-core/src/types.rs` → `McpServerStatus` 增加 `transport: Option<String>` 字段
+- ✅ `xiaolin-gateway/src/state/mod.rs` → 启动/热重载/单server添加路径均传递 transport 信息
+- ✅ `xiaolin-gateway/src/ws/plugins.rs` → `enrich_status` 输出 transport 字段
+- ✅ `lib/transport.ts` → `PluginSummary` 增加 `transport` 字段
+- ✅ `plugins/PluginsView.tsx` → MCP 列表按 scope（User/Project）分组（`PluginGroup` 组件）
+- ✅ `plugins/PluginsView.tsx` → `PluginRow` 显示非 stdio 的 transport 类型 badge
+- ✅ `locales/{zh,en}/plugins.json` → 新增 `group.user` / `group.project` i18n key
+
+**验证**: `cargo clippy -D warnings` 零警告 + `npx tsc --noEmit` 零类型错误
 
 ---
 
@@ -493,7 +500,7 @@
 ## 阶段三：后端能力增强 (P2)
 
 > 目标：连接管理健壮性、性能优化、动态更新。
-> **进度**：4/8 完成（T19-T22 ✅），4/8 待做（T23-T26）+ 2 新增（T32-T33）
+> **进度**：10/10 完成 ✅
 > **关键洞察**：Codex 的 `tools/list_changed` 也只 log 不处理，XiaoLin 做好 T19 即超越 Codex。
 
 ### T19: tools/list_changed 处理 ✅
@@ -574,51 +581,63 @@
 
 ---
 
-### T23: stale server 清理
+### T23: stale server 清理 ✅
 
 **Spec**: 无独立 spec，对应 D7
 **前置**: T5
-**文件**:
-- `xiaolin-gateway/src/state/mod.rs` → `reload_mcp_servers` 中检测 config 移除/变更的 server → `unregister_by_prefix` + kill 进程
+**状态**: ✅ 已完成（随 T5 一并实现）
 
-**验证**: 从配置删除 MCP server → 重载后工具自动注销
+**已完成**:
+- ✅ `xiaolin-gateway/src/state/mod.rs` → `reload_mcp_servers` 中 `to_remove` 逻辑：检测 config 移除的 server → `unregister_by_prefix` + `remove_mcp_instructions` + 从 handles 移除
+- ✅ `xiaolin-mcp/src/lib.rs` → `McpClient::drop()` 自动 `start_kill()` 子进程
+
+**验证**: 从配置删除 MCP server → 重载后工具自动注销 + 进程被 kill
 
 ---
 
-### T24: Description 截断保护
+### T24: Description 截断保护 ✅
 
 **Spec**: 无独立 spec
 **前置**: T2
-**文件**:
-- `xiaolin-mcp/src/lib.rs` → `register_mcp_tools` 中截断 description ≤ 2048 字符
-- `xiaolin-gateway/src/chat_pipeline.rs` → `inject_mcp_tools_prompt` 中同步截断
+**状态**: ✅ 已完成
 
-**验证**: 超长 description 的工具 → 截断后注册 + prompt 注入不溢出
+**已完成**:
+- ✅ `xiaolin-mcp/src/lib.rs` → `McpToolBridge::new` 中截断 description ≤ `MCP_TOOL_DESC_MAX_CHARS`（2048）字符，超长时 warn 日志
+- ✅ `xiaolin-gateway/src/chat_pipeline.rs` → `inject_mcp_tools_prompt` 中 system prompt 截断 ≤ 120 字符
+
+**验证**: 超长 description → 截断后注册 + prompt 注入不溢出
 
 ---
 
-### T25: Session 级 Schema 缓存
+### T25: Session 级 Schema 缓存 ✅
 
 **Spec**: 无独立 spec
 **前置**: T19
-**文件**:
-- `xiaolin-gateway/src/chat_pipeline.rs` → 缓存序列化后的 tool schema JSON 字节
-- `tools/list_changed` 时按 prefix 局部 invalidate
+**状态**: ✅ 已完成
 
-**验证**: 重复调用时 schema 不重复序列化
+**已完成**:
+- ✅ `xiaolin-core/src/tool.rs` → `ToolRegistry` 新增 `json_sizes_cache` 字段和 `estimated_json_chars()` 方法，版本化缓存每个工具定义的 JSON 字符数
+- ✅ `xiaolin-agent/src/runtime/turn_setup.rs` → 使用 `estimated_json_chars()` 替代逐个 `serde_json::to_string` 序列化
+- ✅ `xiaolin-agent/src/runtime/llm_call.rs` → 同上，工具定义刷新时使用缓存的 JSON 字符数
+- ✅ `xiaolin-gateway/src/chat_pipeline.rs` → `inject_mcp_tools_prompt` 使用 `MCP_TOOLS_PROMPT_CACHE` 静态缓存 MCP 工具 prompt，按 registry version 失效
+- ✅ `tools/list_changed` → 自然失效：`re_register_tools` 调用 `unregister_by_prefix` + `register` → `bump_version()` → 缓存失效
+
+**验证**: `cargo clippy -- -D warnings` 零警告，重复调用时 schema 不重复序列化
 
 ---
 
-### T26: 逐 server 启动状态事件
+### T26: 逐 server 启动状态事件 ✅
 
 **Spec**: 无独立 spec，对应 D9
 **前置**: T4
-**文件**:
-- `xiaolin-gateway/src/state/mod.rs` → 并行启动时推送 `McpStartupUpdate { server_name, status }`
-- `lib/transport.ts` → 订阅 startup 事件
-- `plugins/PluginsView.tsx` → MCP tab 逐行状态动画
+**状态**: ✅ 已完成
 
-**验证**: 启动时 PluginsView 每个 server 逐个从 connecting → connected/failed
+**已完成**:
+- ✅ `xiaolin-gateway/src/state/mod.rs` → `reload_mcp_servers` 使用 `FuturesUnordered` 替代 `join_all`，每个 server 先设 "connecting" 状态并广播，完成后逐个推送 connected/failed 状态更新
+- ✅ `xiaolin-gateway/src/ws/plugins.rs` → `broadcast_status_changed` 改为 `pub` 并通过 `ws/mod.rs` re-export
+- ✅ 前端无需改动 — `onPluginsStatusChanged` + `usePluginStore` 已自动响应 `plugins.status_changed` 事件，实现逐行状态更新
+
+**验证**: `cargo clippy -- -D warnings` 零警告，热重载时 PluginsView 逐个 server 从 connecting → connected/failed
 
 ---
 
@@ -703,17 +722,19 @@
 
 ---
 
-### T32: Server Instructions Delta 注入（新增）
+### T32: Server Instructions Delta 注入（新增） ✅
 
 **Spec**: 无独立 spec（对标 Claude Code `getMcpInstructionsDelta`）
 **前置**: T6
-**文件**:
-- `xiaolin-gateway/src/chat_pipeline.rs` → MCP server 的 `InitializeResult.instructions` 以 delta 方式增量注入对话历史，而非每轮重建 system prompt
-- 避免 instructions 变化导致 prompt cache 失效
+**状态**: ✅ 已完成
 
-**背景**: Claude Code 通过 `getMcpInstructionsDelta()` 对比已公告的 server 和当前连接的 server，仅发送增量 `addedBlocks`/`removedNames`，保持 system prompt 稳定以最大化 prompt cache 命中率。
-
-**验证**: MCP server 连接/断开后，system prompt 主体不变，instructions 通过 delta message 注入
+**已完成**:
+- ✅ `xiaolin-mcp/src/lib.rs` — `InitializeResult` 新增 `instructions: Option<String>` 字段
+- ✅ `xiaolin-mcp/src/lib.rs` — `McpClient` 新增 `server_instructions` 字段，`initialize()` 时从 `InitializeResult` 捕获
+- ✅ `xiaolin-mcp/src/lib.rs` — `McpClient::instructions()` getter 暴露 server instructions
+- ✅ `xiaolin-gateway/src/chat_pipeline.rs` — 新增 `inject_mcp_instructions_delta()`，从 `mcp_handles` 异步收集 instructions，以独立 system message 注入（与工具列表分离）
+- ✅ 内容按 server ID 确定性排序（BTreeMap），仅在 server 连接/断开时变化 → 最大化 prompt cache 命中率
+- ✅ 37 个 MCP 测试全通过，`cargo clippy -- -D warnings` 零警告
 
 ---
 
@@ -736,18 +757,18 @@
 ```
 ✅ T1 (清理)          ─── 完成
 ✅ T2 (命名 Rust)     ─── 完成（全链路 mcp__）
-⚠️ T3 (命名 TS)       ←── T2 ✅，prefix 更新完成，工具函数待建
+✅ T3 (命名 TS)       ─── 完成（mcpNaming.ts + ToolCallCard）
 ✅ T4 (Transport)     ─── 完成
 ✅ T5 (路由修复)      ─── 完成
 ✅ T6 (Notification)  ─── 完成
 ✅ T7 (stderr)        ─── 完成
 ✅ T8 (审批门)        ─── 完成
 ✅ T9 (协议版本)      ─── 完成
-❌ T10 (配置验证)     ←── T4
+✅ T10 (配置验证)     ─── 完成（connect_mcp_server 入口统一 validate）
 ✅ T11 (Tab 骨架)     ─── 完成
 ✅ T12 (AddServerModal) ─── 完成（Batch A）
 ✅ T12.5 (Explore)    ─── 完成（Batch A）
-❌ T13 (分组)         ←── T11
+✅ T13 (分组)         ─── 完成（scope 分组 + transport badge）
 ✅ T14 (审批 UI)      ─── 完成
 ✅ T15 (DetailModal)  ─── 完成（Batch A）
 ✅ T16 (Skills)       ─── 完成
@@ -757,10 +778,13 @@
 ✅ T20 (自动重连)     ─── 完成
 ✅ T21 (批次限制)     ─── 完成
 ✅ T22 (启动超时)     ─── 完成
-❌ T23-T26 (P2 剩余)  ←── 各自前置
+✅ T23 (stale 清理)   ─── 完成（reload_mcp_servers + McpClient::drop）
+✅ T24 (截断保护)     ─── 完成（MCP_TOOL_DESC_MAX_CHARS = 2048）
+❌ T25 (Schema 缓存)  ←── T19
+❌ T26 (启动事件)     ←── T4
 ✅ T27-T31 (P3)       ─── 完成
-❌ T32 (Instructions) ←── T6（新增）
-❌ T33 (签名去重)     ←── T4（新增）
+✅ T32 (Instructions) ─── 完成（新增）
+✅ T33 (签名去重)     ─── 完成（connection_signature 去重）
 ✅ T34 (Registry 扩展) ─── 完成（UI 抛光）
 ✅ T35 (CSS 动画)     ─── 完成（UI 抛光）
 ✅ T36 (Explore 网格)  ─── 完成（UI 抛光）
@@ -781,20 +805,21 @@
 6. ~~**T27-T31**（Deferred 管线）~~ → ✅ 已完成，对标 Claude Code 默认 defer 模式
 7. ~~**T12 + T12.5 + T15**（AddServerModal + Explore + DetailModal）~~ → ✅ 已完成（Batch A）
 8. ~~**T34-T39**（UI 视觉抛光：卡片网格 + 品牌色 + Hero + 动画）~~ → ✅ 已完成
-9. **T10 + T33**（配置验证 + 签名去重）— 防御性编程
-10. **T32**（Instructions Delta）— prompt cache 优化（对标 Claude Code 独有能力）
-11. **T3 剩余 + T13**（前端命名工具函数 + 分组）— 一致性打磨
+9. ~~**T10 + T33**（配置验证 + 签名去重）~~ → ✅ 已完成
+10. ~~**T3 + T13**（前端命名 + 分组）~~ → ✅ 已完成
+11. ~~**T23 + T24**（stale 清理 + 截断保护）~~ → ✅ 已完成
+12. **T25 + T26**（Schema 缓存 + 启动事件）— 性能优化（+1 分）
 
 ## Spec 覆盖对照
 
 | Spec | 对应任务 | 完成度 |
 |------|---------|:---:|
-| `naming-pipeline/spec.md` | T2 ✅, T3 ⚠️ | 75% |
+| `naming-pipeline/spec.md` | T2 ✅, T3 ✅ | 100% |
 | `transport-fix/spec.md` | T4 ✅, T5 ✅, T9 ✅, T10 ✅ | 100% |
 | `notification-dispatch/spec.md` | T6 ✅, T7 ✅, T19 ✅ | 100% |
 | `approval-gate/spec.md` | T8 ✅, T14 ✅ | 100% |
 | `deferred-pipeline/spec.md` | T27 ✅, T28 ✅, T29 ✅, T30 ✅, T31 ✅ | 100% |
-| `plugins-ui/spec.md` | T1 ✅, T11-T18 (8✅ 1❌) | 90% |
+| `plugins-ui/spec.md` | T1 ✅, T11-T18 (9✅) | 100% |
 | `mcp-explore/spec.md` | T12.5 ✅ | 100% |
 | `mcp-add-modal/spec.md` | T12 ✅ | 100% |
 | `mcp-detail-modal/spec.md` | T15 ✅ | 100% |
@@ -803,23 +828,179 @@
 | `plugin-ui-animation/spec.md` | T35 ✅, T36 ✅, T38 ✅ | 100% |
 | `plugin-panel/spec.md` | T38 ✅ | 100% |
 
+---
+
+## P4: 协议完整度补齐（mcp-protocol-completeness）
+
+> 基于三方深度对比评审（XiaoLin 65.5 / Codex 68.5 / Claude Code 79.5），补齐 Auth、协议覆盖、安全防护三大差距。
+> Specs: `mcp-security-hardening`、`mcp-oauth`、`mcp-resources`、`mcp-prompts`、`mcp-elicitation`、`plugin-panel`（modified）
+
+### P4-A: 安全加固（mcp-security-hardening）
+
+**Spec**: `specs/mcp-security-hardening/spec.md`
+
+- [x] T42: `xiaolin-mcp/src/sanitize.rs` 新增 `sanitize_unicode(s: &str) -> String` 函数，移除双向控制字符（U+200E—U+200F, U+202A—U+202E, U+2066—U+2069）、零宽字符（U+200B/C/D, U+FEFF）、不可见控制字符（U+0000—U+001F 中除 `\t\n\r`），保留所有可见字符（中文、emoji 等）
+- [x] T43: `sanitize.rs` 新增 `sanitize_json_schema_descriptions(schema: &mut serde_json::Value)` 递归清洗 JSON Schema 中所有 `description` 字段
+- [x] T44: 在 `tools/list` 返回后对所有 tool name/description 和 inputSchema description 执行 Unicode 清洗；新增单元测试覆盖双向覆盖字符、零宽字符、嵌套 schema description
+- [x] T45: `xiaolin-gateway/src/chat_pipeline.rs` `inject_mcp_instructions_delta` 中，对每个 server instructions 先做 `sanitize_unicode` 再做可疑模式检测（正则匹配 `ignore previous|system:|<\||\[INST\]`），命中时跳过该 server instructions 注入并记录 `warn!` 日志，不影响服务器连接
+- [x] T46: `xiaolin-mcp/src/lib.rs` 中 4 处 `format!("{server_prefix}{}", tool.name)` 替换为 `naming::mcp_tool_name(server_id, &tool.name)`，确保工具名经过 `sanitize_for_api` 消毒；消毒后名称碰撞时跳过后注册的工具并 warn
+- [x] T47: Streamable HTTP RPC 方法新增 session expired 检测（HTTP 404 或 JSON-RPC error code -32001）和恢复逻辑：`send_request_with_session_recovery` 包装器自动检测 `SessionExpired` 错误和 `-32001` 响应，调用 `recover_streamable_http_session` 重新 `initialize` 并重试原操作（最多 1 次）
+- [x] T48: HTTP session 恢复的并发保护：`McpClient` 新增 `recovery_lock: Arc<tokio::sync::Mutex<()>>`，recovery 方法先保存旧 session_id、获取锁后对比判断是否已被其他请求恢复，仅执行一次恢复
+- [x] T49: `cargo clippy -- -D warnings` 零警告验证 + 新增单元测试（`session_expired_response_detection`、`session_expired_error_type`、`streamable_http_recovers_from_404`、`streamable_http_recovers_from_json_rpc_32001`），全部 50 个测试通过
+
+### P4-B: Bearer Token & HTTP Headers（mcp-oauth P0）
+
+**Spec**: `specs/mcp-oauth/spec.md`
+**前置**: T42-T49（安全加固）
+
+- [x] T50: `McpServerConfig` 新增 `bearer_token_env_var: Option<String>` 和 `http_headers: Option<HashMap<String, String>>` 字段（serde `skip_serializing_if` 避免空 map 输出）
+- [x] T51: `validate()` 中新增校验：`bearer_token_env_var` 仅在 HTTP 传输时有效（stdio 报错）；环境变量名不允许空字符串
+- [x] T52: `connect_mcp_server` 的 SSE 和 Streamable HTTP 路径中，通过 `resolve_mcp_http_headers()` 解析 `bearer_token_env_var`，注入 `Authorization: Bearer <value>` header；`reqwest::ClientBuilder::default_headers()` 确保所有请求自动携带；变量不存在时 bail 错误
+- [x] T53: `connect_mcp_server` 中解析 `http_headers`：值以 `$` 开头的视为环境变量引用（`$MY_VAR` → 读 `MY_VAR`），其他直接使用；环境变量不存在时跳过该 header 并 warn；`McpClient` 新增 `extra_headers` 字段用于 SSE 重连复用
+- [x] T54: 前端 `AddServerModal` 新增 `bearer_token_env_var`（单行输入 + 提示文字）和 `http_headers`（key-value 编辑器，支持 `$ENV_VAR` 引用），仅 HTTP 传输时显示
+- [x] T55: `cargo clippy -- -D warnings` 零警告验证 + 16 个单元测试（12 agent_config + 4 resolve_headers）全部通过
+
+### P4-C: OAuth 2.0 PKCE 流程（mcp-oauth P1） ✅
+
+**Spec**: `specs/mcp-oauth/spec.md`
+**前置**: T50-T55（Bearer Token）
+**进度**: 12/12 完成 ✅
+
+- [x] T56: 新增 `xiaolin-mcp/src/oauth.rs` 模块：`McpOAuthClient` 结构体 + `OAuthMetadata` / `TokenResponse` / `StoredToken` / `PkceChallenge` + metadata discovery
+- [x] T57: 实现 PKCE 授权码生成：`code_verifier`（64 随机字节 base64url）+ `code_challenge`（S256 hash）
+- [x] T58: 实现本地回调 HTTP 服务器（`127.0.0.1:随机端口`），监听 OAuth 授权码回调，含 HTML 成功/失败页
+- [x] T59: 实现 token exchange：`exchange_code()` 用授权码 + code_verifier 换取 access_token + refresh_token
+- [x] T60: 实现 token 持久化存储：`~/.xiaolin/mcp-tokens/<server_id>.json` 文件存储 + `load/save/remove_stored_token`
+- [x] T61: 实现 token 自动刷新：`try_oauth_recovery()` 在 HTTP 401 时加载 stored token → refresh → 重连，失败则 NeedsOAuth
+- [x] T62: `McpStatus` 新增 `NeedsAuth` 变体（序列化 `needs_auth`），`mcp_tool.rs` match 补全
+- [x] T63: `connect_mcp_server` 集成 OAuth：401 → `try_oauth_recovery` → `mcp_status_for_error` 映射 NeedsOAuth→NeedsAuth（4 处 McpStatus::Failed 改用 helper）
+- [x] T64: `plugins.rs` 新增 `handle_plugins_oauth_login`：metadata discovery → PKCE → 本地回调 → 返回 auth_url → 后台等待回调 → 换 token → 重连
+- [x] T65: 前端 `PluginRow` / `PluginIcon` / `StatusDot` 支持 `needs_auth` 状态（黄色脉冲 + Key 图标 + "登录" 按钮），`oauthLoginPlugin` store action + `window.open(auth_url)`
+- [x] T66: `NEEDS_AUTH_CACHE` 15 分钟 TTL 静态缓存，`connect_mcp_server` 入口检查，`clear_needs_auth_cache()` 在 oauth_login 时清除
+- [x] T67: `cargo clippy --workspace -- -D warnings` 零警告 + 7 个 OAuth 单元测试通过（pkce_format/s256/uniqueness, metadata_deserialize, stored_token_roundtrip, callback_server, build_auth_url）
+
+**P4-C Review 修复（5 项）**:
+- [x] [P1] 回调服务器未关闭：`AtomicBool` done 标记 + listener loop break，收到 code 后立即停止 accept
+- [x] [P1] 后台 OAuth 失败无通知：spawn block 改为 `Result` 流式处理，失败时 broadcast `plugins.oauth_failed` 事件
+- [x] [P2] URL 参数未 decode：改用 `reqwest::Url::parse` + `query_pairs()` 自动 percent-decode
+- [x] [P2] `build_authorization_url` 缺 client_id：新增 `client_id: Option<&str>` 参数，默认回退到 `server_url`
+- [x] [P2] Config 查找过窄：`handle_plugins_oauth_login` 同时查找 user config 和 project-level config
+
+### P4-D: Resources 客户端（mcp-resources） ✅
+
+**Spec**: `specs/mcp-resources/spec.md`
+**前置**: T42-T44（Unicode 清洗）
+**进度**: 9/9 完成 ✅ + Review 修复 2 项
+
+- [x] T68: `McpClient` 新增 `list_resources()` 方法：发送 `resources/list` RPC，返回 `Vec<McpResource>`（含 has_resources() 守卫）
+- [x] T69: `McpClient` 新增 `read_resource(uri: &str)` 方法：发送 `resources/read` RPC，返回资源内容（含 1MB 截断 + `[truncated]` 标记）
+- [x] T70: `McpClient` 新增 `list_resource_templates()` 方法：发送 `resources/templates/list` RPC，新增 `McpResourceTemplate` 类型
+- [x] T71: `initialize()` 中解析 `ServerCapabilities` 并存入 `server_capabilities: RwLock<ServerCapabilities>`，记录 has_resources/has_prompts 日志
+- [x] T72: `xiaolin-gateway` 注册 `mcp__list_resources` deferred agent 工具：聚合所有有 resources 能力的服务器资源列表，附带 server name
+- [x] T73: `xiaolin-gateway` 注册 `mcp__read_resource` deferred agent 工具：按 `server_name` + `uri` 参数读取指定资源
+- [x] T74: notification watcher 中监听 `notifications/resources/list_changed` 和 `notifications/prompts/list_changed`
+- [x] T75: `list_resources()`、`read_resource()`、`list_resource_templates()` 中均调用 `sanitize::sanitize_unicode` 清洗 name/uri/description
+- [x] T76: `cargo clippy -- -D warnings` 零警告 + 12 个 resource 单元测试通过 + `McpResource`/`McpResourceContent` 加 `rename_all = "camelCase"` 确保协议兼容
+
+**P4-D Review 修复（2 项）**:
+- [x] [P2] `McpListResourcesTool::execute` 持锁调 RPC：重构为先 collect 有 resources 能力的 clients（block scope 内 lock + clone + collect），scope 结束后 lock 自动释放，再遍历做网络请求。避免长时间持有 mutex 阻塞其他工具
+- [x] [P3] `read_resource` 截断 UTF-8 边界 panic：`text.truncate(MAX)` 改为 `text.truncate(text.floor_char_boundary(MAX))`，确保截断点落在字符边界上。同步修复测试中的截断逻辑
+
+### P4-E: Prompts 客户端（mcp-prompts） ✅
+
+**Spec**: `specs/mcp-prompts/spec.md`
+**前置**: T42-T44（Unicode 清洗）
+**进度**: 9/9 完成 ✅ + Review 修复 1 项
+
+- [x] T77: `McpClient` 新增 `list_prompts()` 方法：发送 `prompts/list` RPC，返回 `Vec<McpPrompt>`，含 `has_prompts()` 守卫 + Unicode 清洗
+- [x] T78: `McpClient` 新增 `get_prompt(name, arguments)` 方法：发送 `prompts/get` RPC，返回 `Vec<McpPromptMessage>`；新增 `McpPromptMessage`、`McpPromptContent`（Text/Image/Resource）枚举
+- [x] T79: `has_prompts()` + `ServerCapabilities.prompts` 已在 P4-D 中实现，无需额外改动
+- [x] T80: `plugins.prompts` WS handler：先 collect 有 prompts 能力的 clients（block scope lock），再遍历调用聚合
+- [x] T81: `plugins.get_prompt` WS handler：按 `server_name` 查找 client（drop lock），调用 `get_prompt(prompt_name, arguments)`
+- [x] T82: notification watcher 中 `prompts/list_changed` → `ws_broadcast` 发送 `plugins.prompts_changed` 事件（新增 `ws_broadcast: Option` 参数）
+- [x] T83: `list_prompts()` 中对 name/description/argument.name/argument.description 做 `sanitize_unicode`
+- [x] T84: 前端 `McpDetailModal` 新增 Prompts 可折叠区域：显示 prompt name/description/arguments badges（含 required 标记）；`transport.ts` 新增 `mcpPrompts()` + `mcpGetPrompt()` API；i18n `detail.prompts_title` 中英文
+- [x] T85: `cargo clippy --workspace -- -D warnings` 零警告 + 73 个 mcp 测试全通过（含 5 个新增 prompt 测试） + `npx tsc --noEmit` 零错误
+
+**P4-E Review 修复（1 项）**:
+- [x] [P2] `McpPromptContent::Image` 的 `mime_type` 字段未加 serde rename — MCP 协议使用 `mimeType`（camelCase），已修复为 `#[serde(alias = "mime_type", rename = "mimeType")]`
+
+### P4-F: Elicitation 处理（mcp-elicitation） ✅
+
+**Spec**: `specs/mcp-elicitation/spec.md`
+**前置**: T42-T49（安全加固）
+**进度**: 8/8 完成 ✅ + Review 零问题
+
+- [x] T86: `xiaolin-mcp` 的 `initialize` 请求中声明 `elicitation: {}` 客户端能力（含 session recovery 路径）
+- [x] T87: `McpClient` 新增 `McpServerRequest` 结构体 + `server_request_tx` broadcast channel + `dispatch_incoming()` 三路分发（server request/response/notification）+ `subscribe_server_requests()` API
+- [x] T88: `xiaolin-gateway` 新增 `spawn_server_request_watcher`：监听 `elicitation/create` → 生成唯一 ID → 存入 `pending_elicitations` DashMap → broadcast `mcp.elicitation.request` WS 事件
+- [x] T89: `xiaolin-gateway` 处理前端回复：`plugins.elicitation_reply` WS handler → 从 DashMap remove → `oneshot::Sender` 发送 `ElicitationReply` → `send_response` 回传 MCP server
+- [x] T90: Elicitation 超时处理：`tokio::time::timeout(300s)` 等待 `reply_rx`，超时自动 broadcast `mcp.elicitation.timeout` 事件 + 回复 `{ action: "decline" }`
+- [x] T91: 前端 `ElicitationDialog` 组件：根据 `requestedSchema.properties` 动态渲染表单（string→文本框、number→数字框、boolean→复选框、enum/oneOf→下拉框），`wsClient.on("mcp.elicitation.request")` 订阅 + i18n
+- [x] T92: 前端 elicitation 取消逻辑：点击"取消"按钮或点击遮罩 → `handleDecline()` → `transport.mcpElicitationReply(id, "decline")` → dialog 关闭
+- [x] T93: `cargo clippy -- -D warnings` 零警告 + 5 个新增单元测试（dispatch_incoming 三路分发 + server_request clone/debug + elicitation_response 序列化） + 2 个 protocol 测试（parse_elicitation_reply accept/decline）
+
+### P4-G: Plugin Panel 扩展（plugin-panel modified）
+
+**Spec**: `specs/plugin-panel/spec.md`（MODIFIED）
+**前置**: T62（NeedsAuth 变体）, T68-T76（Resources）, T77-T85（Prompts）
+
+- [ ] T94: `PluginRow` 新增 `needs_auth` 状态样式：黄色认证图标 + "登录"按钮
+- [ ] T95: 插件详情展开区域新增 Resources 子标签：请求 `plugins.resources` 接口显示资源列表
+- [ ] T96: `xiaolin-gateway/src/ws/plugins.rs` 新增 `plugins.resources` 请求处理
+- [ ] T97: 无 resources/prompts 能力的服务器不显示对应标签
+- [ ] T98: `enrich_status` 函数新增 `capabilities` 字段输出（resources/prompts/tools 能力标记）
+- [ ] T99: 前端类型定义更新：`McpServerStatus` 新增 `capabilities` 和 `needs_auth` 相关字段
+- [ ] T100: i18n 更新：`plugins.json` 新增 needs_auth、login、resources、prompts 相关翻译 key
+
+---
+
+## Spec 覆盖矩阵
+
+| Spec | 任务 | 完成度 |
+|------|------|--------|
+| `naming-pipeline/spec.md` | T2 ✅, T3 ✅ | 100% |
+| `transport-fix/spec.md` | T4 ✅, T5 ✅, T7 ✅, T9 ✅ | 100% |
+| `notification-dispatch/spec.md` | T6 ✅, T19 ✅ | 100% |
+| `approval-gate/spec.md` | T8 ✅, T14 ✅ | 100% |
+| `deferred-pipeline/spec.md` | T27 ✅, T28 ✅, T29 ✅, T30 ✅, T31 ✅ | 100% |
+| `plugins-ui/spec.md` | T1 ✅, T11-T18 (9✅) | 100% |
+| `mcp-explore/spec.md` | T12.5 ✅ | 100% |
+| `mcp-add-modal/spec.md` | T12 ✅ | 100% |
+| `mcp-detail-modal/spec.md` | T15 ✅ | 100% |
+| `explore-card-grid/spec.md` | T34 ✅, T36 ✅ | 100% |
+| `detail-modal-hero/spec.md` | T37 ✅ | 100% |
+| `plugin-ui-animation/spec.md` | T35 ✅, T36 ✅, T38 ✅ | 100% |
+| `plugin-panel/spec.md` | T38 ✅, T94-T100 | P0-P3: 100%, P4-G: 0% |
+| `mcp-security-hardening/spec.md` | T42-T49 ✅ | 100% |
+| `mcp-oauth/spec.md` | T50-T67 ✅ | 100% |
+| `mcp-resources/spec.md` | T68-T76 ✅ | 100% |
+| `mcp-prompts/spec.md` | T77-T85 ✅ | 100% |
+| `mcp-elicitation/spec.md` | T86-T93 ✅ | 100% |
+| `plugins-ui-alignment/spec.md` | T39 ✅ | 100% |
+
 ## 整体进度
 
-- **P0**：9/10 完成（T1-T2 ✅, T4-T9 ✅, T10 ✅），1/10 部分完成（T3 ⚠️）
-- **P1**：9/10 完成（T10.5 ✅, T11 ✅, T12 ✅, T12.5 ✅, T14 ✅, T15 ✅, T16 ✅, T17 ✅, T18 ✅），1/10 待做（T13）
+- **P0**：10/10 完成（T1-T10 ✅）
+- **P1**：10/10 完成（T10.5 ✅, T11 ✅, T12 ✅, T12.5 ✅, T13 ✅, T14 ✅, T15 ✅, T16 ✅, T17 ✅, T18 ✅）
 - **P1.5 (UI 抛光)**：6/6 组完成（T34-T39 ✅），23 个子任务全部完成
-- **P2**：4/8 完成（T19-T22 ✅） + 2 新增任务（T32, T33）
+- **P2**：10/10 完成 ✅（T19-T26 ✅, T32 ✅, T33 ✅）
 - **P3**：5/5 完成（T27-T31 ✅ Deferred Pipeline 全部完成）
-- **总计**：33/41 完成 + 1 部分完成（~80%），**当前评分 ~92/100**
+- **P4 (协议完整度)**：52/59 完成
+  - P4-A 安全加固：8/8（T42-T49）✅
+  - P4-B Bearer Token & Headers：6/6（T50-T55）✅
+  - P4-C OAuth PKCE：12/12（T56-T67）✅ + Review 修复 5 项
+  - P4-D Resources 客户端：9/9（T68-T76）✅ + Review 修复 2 项
+  - P4-E Prompts 客户端：9/9（T77-T85）✅ + Review 修复 1 项
+  - P4-F Elicitation：8/8（T86-T93）✅ + Review 零问题
+  - P4-G Plugin Panel 扩展：0/7（T94-T100）
+- **总计**：93/100 完成（93%）
 
-### 通往 100 分的关键路径
+### 关键路径
 
-1. ~~**T27-T31（Deferred Pipeline）**~~ → ✅ 已完成
-2. ~~**T20-T22（重连+批次+超时）**~~ → ✅ 已完成
-3. ~~**T12 + T12.5 + T15（AddServerModal + Explore + DetailModal）**~~ → ✅ 已完成（Batch A）
-4. ~~**T34-T39（UI 视觉抛光）**~~ → ✅ 已完成
-5. **T32（Instructions Delta）**— prompt cache 优化，Claude Code 独有能力（+3 分）← **下一步**
-6. **T10 + T33（配置验证 + 签名去重）**— 防御性编程（+2 分）
-7. **T3 剩余（前端命名工具函数）**— 前端一致性（+1 分）
-8. **T13（分组）**— 视觉清晰度（+1 分）
-9. **T23-T26（P2 剩余）**— stale 清理、截断保护、缓存、启动事件（+1 分）
+```
+T42-T49（安全加固）→ T50-T55（Bearer Token）→ T56-T67（OAuth PKCE）
+                   ↘ T68-T76（Resources）→ T94-T100（Plugin Panel）
+                   ↘ T77-T85（Prompts）  ↗
+                   ↘ T86-T93（Elicitation）
+```

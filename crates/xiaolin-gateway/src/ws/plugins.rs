@@ -355,7 +355,7 @@ pub async fn handle_plugins_reject(
     }
 }
 
-fn broadcast_status_changed(state: &AppState) {
+pub fn broadcast_status_changed(state: &AppState) {
     let status_map = state.ext.mcp_status.load();
     let project_ids = get_project_server_ids();
     let mut seen = std::collections::HashSet::new();
@@ -392,6 +392,171 @@ fn broadcast_status_changed(state: &AppState) {
     let _ = state.strm.ws_broadcast.send(payload.to_string());
 }
 
+pub async fn handle_plugins_oauth_login(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    plugin_id: &str,
+) {
+    use xiaolin_core::agent_config::McpServerConfig;
+    use xiaolin_mcp::oauth;
+
+    let cfg: Option<McpServerConfig> = {
+        let live = state.cfg.config_live.load();
+        let mcp_val = live
+            .get("mcpServers")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        let user_servers: Vec<McpServerConfig> =
+            serde_json::from_value(mcp_val).unwrap_or_default();
+        user_servers
+            .into_iter()
+            .find(|c| c.id == plugin_id)
+            .or_else(|| {
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+                xiaolin_core::agent_config::load_project_mcp_config(&ws_root).and_then(|p| {
+                    p.to_mcp_server_configs()
+                        .into_iter()
+                        .find(|c| c.id == plugin_id)
+                })
+            })
+    };
+
+    let cfg = match cfg {
+        Some(c) => c,
+        None => {
+            send_error(sender, req_id, "plugin not found in config").await;
+            return;
+        }
+    };
+
+    let url = match cfg.url.as_deref() {
+        Some(u) if !u.is_empty() => u.to_string(),
+        _ => {
+            send_error(sender, req_id, "server has no URL, OAuth not applicable").await;
+            return;
+        }
+    };
+
+    xiaolin_mcp::clear_needs_auth_cache(plugin_id);
+
+    let mut oauth_client = oauth::McpOAuthClient::new(&url);
+    if let Err(e) = oauth_client.discover_metadata().await {
+        send_error(
+            sender,
+            req_id,
+            &format!("OAuth metadata discovery failed: {e}"),
+        )
+        .await;
+        return;
+    }
+
+    let (redirect_uri, code_rx) = match oauth::start_callback_server().await {
+        Ok(pair) => pair,
+        Err(e) => {
+            send_error(
+                sender,
+                req_id,
+                &format!("failed to start OAuth callback server: {e}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let pkce = oauth::PkceChallenge::generate();
+    let state_param = format!("xiaolin_{}", chrono::Utc::now().timestamp_millis());
+
+    let auth_url = match oauth_client.build_authorization_url(&pkce, &redirect_uri, &state_param, None) {
+        Ok(u) => u,
+        Err(e) => {
+            send_error(
+                sender,
+                req_id,
+                &format!("failed to build auth URL: {e}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: "plugins.oauth_login".into(),
+            data: Some(json!({
+                "ok": true,
+                "id": plugin_id,
+                "auth_url": auth_url,
+            })),
+            error: None,
+        },
+    )
+    .await;
+
+    let plugin_id = plugin_id.to_string();
+    let state = state.clone();
+    tokio::spawn(async move {
+        let oauth_result: Result<(), String> = async {
+            let code_state = tokio::time::timeout(std::time::Duration::from_secs(300), code_rx)
+                .await
+                .map_err(|_| "OAuth callback timed out (5 min)".to_string())?
+                .map_err(|_| "OAuth callback channel closed".to_string())?;
+
+            let (code, recv_state) = code_state;
+
+            if recv_state != state_param {
+                return Err(format!(
+                    "OAuth state mismatch: expected {state_param}, got {recv_state}"
+                ));
+            }
+
+            let token = oauth_client
+                .exchange_code(&code, &pkce.code_verifier, &redirect_uri)
+                .await
+                .map_err(|e| format!("OAuth code exchange failed: {e}"))?;
+
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let stored = oauth::StoredToken {
+                access_token: token.access_token,
+                refresh_token: token.refresh_token,
+                expires_at: token.expires_in.map(|e| now_secs + e),
+                server_url: url,
+            };
+            oauth::save_stored_token(&plugin_id, &stored)
+                .map_err(|e| format!("failed to save OAuth token: {e}"))?;
+
+            tracing::info!(server = %plugin_id, "OAuth token obtained, reconnecting server");
+            if let Err(e) = state.restart_single_mcp_server(&plugin_id).await {
+                tracing::error!(server = %plugin_id, error = %e, "failed to reconnect after OAuth");
+            }
+            Ok(())
+        }
+        .await;
+
+        if let Err(reason) = &oauth_result {
+            tracing::warn!(server = %plugin_id, error = %reason, "OAuth flow failed");
+            let _ = state.strm.ws_broadcast.send(
+                json!({
+                    "type": "event",
+                    "event": "plugins.oauth_failed",
+                    "data": {
+                        "id": plugin_id,
+                        "error": reason,
+                    }
+                })
+                .to_string(),
+            );
+        }
+        broadcast_status_changed(&state);
+    });
+}
+
 fn enrich_status(
     id: &str,
     st: &xiaolin_core::types::McpServerStatus,
@@ -416,7 +581,134 @@ fn enrich_status(
         "lastError": st.error,
         "connectedAt": st.connected_at,
         "commandPreview": st.command_preview,
+        "transport": st.transport,
     })
+}
+
+pub async fn handle_plugins_prompts(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+) {
+    let prompt_clients: Vec<(String, std::sync::Arc<xiaolin_mcp::McpClient>)> = {
+        let handles = state.ext.mcp_handles.lock().await;
+        handles
+            .iter()
+            .filter(|(_, c)| c.has_prompts())
+            .map(|(id, c)| (id.clone(), c.clone()))
+            .collect()
+    };
+
+    let mut all_prompts = Vec::new();
+    for (server_id, client) in &prompt_clients {
+        match client.list_prompts().await {
+            Ok(prompts) => {
+                for p in prompts {
+                    all_prompts.push(json!({
+                        "server": server_id,
+                        "name": p.name,
+                        "description": p.description,
+                        "arguments": p.arguments,
+                    }));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(server = %server_id, error = %e, "failed to list prompts");
+            }
+        }
+    }
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: "plugins.prompts".into(),
+            data: Some(json!({ "prompts": all_prompts })),
+            error: None,
+        },
+    )
+    .await;
+}
+
+pub async fn handle_plugins_elicitation_reply(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    elicitation_id: &str,
+    action: &str,
+    content: Option<serde_json::Value>,
+) {
+    let entry = state.strm.pending_elicitations.remove(elicitation_id);
+    match entry {
+        Some((_, pending)) => {
+            let reply = crate::state::ElicitationReply {
+                action: action.to_string(),
+                content,
+            };
+            let _ = pending.reply_tx.send(reply);
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "plugins.elicitation_reply".into(),
+                    data: Some(json!({"status": "ok"})),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        None => {
+            send_error(
+                sender,
+                req_id,
+                &format!("elicitation '{elicitation_id}' not found or already expired"),
+            )
+            .await;
+        }
+    }
+}
+
+pub async fn handle_plugins_get_prompt(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    server_name: &str,
+    prompt_name: &str,
+    arguments: Option<std::collections::HashMap<String, String>>,
+) {
+    let client = {
+        let handles = state.ext.mcp_handles.lock().await;
+        handles.get(server_name).cloned()
+    };
+    let client = match client {
+        Some(c) => c,
+        None => {
+            send_error(sender, req_id, &format!("server '{server_name}' not found")).await;
+            return;
+        }
+    };
+
+    match client.get_prompt(prompt_name, arguments).await {
+        Ok(messages) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "plugins.get_prompt".into(),
+                    data: Some(json!({
+                        "server": server_name,
+                        "prompt": prompt_name,
+                        "messages": messages,
+                    })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_error(sender, req_id, &format!("prompts/get failed: {e}")).await;
+        }
+    }
 }
 
 async fn send_error(

@@ -141,31 +141,56 @@ PluginsView 已重构为 **MCP + Skills + Channels 的统一管理入口**：
 - Schema 完整性：保留完整 JSON Schema 嵌套结构（oneOf、additionalProperties）
 - **新增**：考虑默认 defer 模式（Claude Code 默认 `tst` 模式，所有 MCP 工具 defer）
 
+### 阶段五：协议完整度补齐 (P4) — 新增
+
+> 基于三方深度对比评审（XiaoLin 65.5 / Codex 68.5 / Claude Code 79.5），补齐 Auth、协议覆盖、安全防护三大差距，目标提升至 ~76 分。
+
+| 项目 | 状态 | 说明 |
+|------|:---:|------|
+| Unicode 递归清洗 | ❌ | 移除双向控制/零宽/不可见字符，对标 HackerOne #3086545 |
+| Instructions PromptGuard | ❌ | 可疑模式检测 + sanitize，防止 prompt injection |
+| 工具名统一消毒 | ❌ | 4 处 format! 替换为 mcp_tool_name() |
+| HTTP session 恢复 | ❌ | 404/-32001 自动 reinitialize + 重试 |
+| Bearer Token + HTTP Headers | ❌ | 环境变量注入静态 token 和自定义 header |
+| OAuth 2.0 PKCE | ❌ | Metadata Discovery → PKCE Auth → Token Refresh |
+| Resources 客户端 | ❌ | list/read 作为 deferred agent 工具 |
+| Prompts 客户端 | ❌ | list/get，通过 WebSocket 暴露给前端 |
+| Elicitation 处理 | ❌ | 服务器发起用户输入请求，前端表单 UI |
+| Plugin Panel 扩展 | ❌ | NeedsAuth 状态 + OAuth 登录 + Resources/Prompts 展示 |
+
 ## 不做的事
 
 - Plugin marketplace / registry（当前规模不需要）
-- OAuth 认证流程（后续单独提案；Codex 有 `StreamableHttpWithOAuth`，Claude Code 有 `ClaudeAuthProvider`）
-- 完整 Elicitation Form/URL UI（后续单独提案；**风险**：部分 MCP server 如 OAuth/GitHub Copilot 依赖 elicitation，当前会静默失败）
+- ~~OAuth 认证流程~~ → ✅ 已纳入 P4
+- ~~完整 Elicitation Form/URL UI~~ → ✅ 已纳入 P4
 - 企业级策略 allowlist/denylist（Claude Code 有 `deniedMcpServers`/`allowedMcpServers`，暂不需要）
-- MCP Resources/Prompts client 消费（Claude Code 消费 prompts 作为 commands/skills）
+- ~~MCP Resources/Prompts client 消费~~ → ✅ 已纳入 P4
 - per-tool approval_mode 细粒度配置（Codex 有 4 层 approval，暂按 per-server 即可）
 - WebSocket transport（Codex 不支持，Claude Code 有但非主流）
+- MCP Sampling（三家都未实现）
 - 7+ 层配置 stack（Codex 7 层、Claude Code 8 层 + enterprise 独占模式，XiaoLin 2 层足够）
 
 ## 影响
 
-- **前端**（已完成）：✅ 删除 McpManager.tsx + ConnectionsPage.tsx + SkillsTab.tsx，PluginsView.tsx 成为三 Tab 统一入口
-- **后端**（进行中）：`xiaolin-mcp` 客户端增加 notification dispatch + 重连，gateway 统一连接入口
-- **协议**（已完成）：工具名分隔符从 `_` 改为 `__` 全链路一致（T2 完成）
-- **配置**：兼容现有格式，Transport 枚举化待做
+- **前端**（P0-P3 已完成）：✅ 删除 McpManager.tsx + ConnectionsPage.tsx + SkillsTab.tsx，PluginsView.tsx 成为三 Tab 统一入口
+- **后端**（P0-P3 已完成）：`xiaolin-mcp` 客户端 notification dispatch + 重连，gateway 统一连接入口
+- **协议**（P0 已完成）：工具名分隔符从 `_` 改为 `__` 全链路一致
+- **P4 新增影响**：
+  - `xiaolin-mcp`：新增 OAuth client、sanitize 模块、Resources/Prompts/Elicitation 方法、HTTP session recovery
+  - `xiaolin-core`：`McpServerConfig` 新增 auth 字段；`McpStatus` 新增 `NeedsAuth`
+  - `xiaolin-gateway`：OAuth 集成、agent 工具注册、Elicitation handler
+  - 前端：NeedsAuth 状态 + 登录按钮 + ElicitationDialog + Resources/Prompts 展示
+  - 依赖：可能新增 `oauth2`/`keyring` crate
 
 ## 评分路线图
 
 ```
-~30 分 (初始)  →  ~45 分 (P1 UI 完成)  →  ~50 分 (T2 命名完成)
-→  ~60 分 (T4+T5 统一连接)  →  ~65 分 (T6 Notification Dispatch)
-→  ★ ~70 分 (T19 tools/list_changed, 超越 Codex) ← 当前
-→  ~76 分 (T8 审批门)  →  ~83 分 (T12+T15 MCP UI)
-→  ~90 分 (T20-T22 重连/超时)  →  ~97 分 (T27-T31 Deferred)
-→  100 分 (T32+T33 Delta+去重)
+~30 分 (初始)  →  ~45 分 (P1 UI)  →  ~50 分 (T2 命名)
+→  ~60 分 (T4+T5 统一连接)  →  ~65 分 (T6 Notification)
+→  ~70 分 (T19 list_changed)  →  ~76 分 (T8 审批门)
+→  ~83 分 (T12+T15 MCP UI)  →  ~90 分 (T20-T22 重连/超时)
+→  ~97 分 (T27-T31 Deferred)
+→  ★ 65.5 分 (P0-P3 全部完成，三方对比校准) ← 当前
+→  ~70 分 (P4 安全加固)  →  ~72 分 (P4 Bearer/Headers)
+→  ~76 分 (P4 OAuth + Resources + Prompts + Elicitation)
 ```

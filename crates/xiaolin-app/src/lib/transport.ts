@@ -661,7 +661,7 @@ export function onWsEvent(event: string, handler: (data: unknown) => void): Unsu
 
 export interface McpServerStatus {
   id: string;
-  status: "connecting" | "connected" | "failed" | "disabled";
+  status: "connecting" | "connected" | "failed" | "disabled" | "needs_auth";
   error?: string | null;
   toolCount: number;
   connectedAt?: string | null;
@@ -684,6 +684,8 @@ export interface AddMcpServerParams {
   transport?: "stdio" | "sse" | "streamable_http" | "http";
   url?: string;
   env?: Record<string, string>;
+  bearer_token_env_var?: string;
+  http_headers?: Record<string, string>;
 }
 
 export async function addMcpServer(
@@ -728,6 +730,58 @@ export interface McpDetailResult {
 export async function mcpDetail(id: string): Promise<McpDetailResult | null> {
   const resp = (await wsClient.send("mcp.detail", { id })) as { data?: McpDetailResult };
   return resp?.data ?? null;
+}
+
+// ─── MCP Prompts ───
+
+export interface McpPromptInfo {
+  server: string;
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
+export interface McpPromptMessageContent {
+  type: "text" | "image" | "resource";
+  text?: string;
+  data?: string;
+  mime_type?: string;
+  resource?: { uri: string; mimeType?: string; text?: string };
+}
+
+export interface McpPromptMessage {
+  role: string;
+  content: McpPromptMessageContent;
+}
+
+export async function mcpPrompts(): Promise<McpPromptInfo[]> {
+  const resp = (await wsClient.send("plugins.prompts", {})) as { data?: { prompts: McpPromptInfo[] } };
+  return resp?.data?.prompts ?? [];
+}
+
+export async function mcpGetPrompt(
+  serverName: string,
+  promptName: string,
+  args?: Record<string, string>,
+): Promise<McpPromptMessage[]> {
+  const resp = (await wsClient.send("plugins.get_prompt", {
+    server_name: serverName,
+    prompt_name: promptName,
+    arguments: args,
+  })) as { data?: { messages: McpPromptMessage[] } };
+  return resp?.data?.messages ?? [];
+}
+
+export async function mcpElicitationReply(
+  elicitationId: string,
+  action: "accept" | "decline",
+  content?: Record<string, unknown>,
+): Promise<void> {
+  await wsClient.send("plugins.elicitation_reply", {
+    elicitation_id: elicitationId,
+    action,
+    content,
+  });
 }
 
 // ─── Channel Management ───
@@ -1176,11 +1230,12 @@ export interface PluginSummary {
   name: string;
   scope: "user" | "project" | "global";
   enabled: boolean;
-  status: "connected" | "connecting" | "failed" | "disabled" | "pending_approval";
+  status: "connected" | "connecting" | "failed" | "disabled" | "pending_approval" | "needs_auth";
   toolCount: number;
   lastError?: string | null;
   connectedAt?: string | null;
   commandPreview?: string | null;
+  transport?: "stdio" | "sse" | "streamable_http" | null;
 }
 
 export interface PluginTool {
@@ -1235,6 +1290,13 @@ export async function rejectPlugin(id: string): Promise<boolean> {
     data?: { ok?: boolean };
   };
   return resp?.data?.ok ?? false;
+}
+
+export async function oauthLoginPlugin(id: string): Promise<{ ok: boolean; auth_url?: string }> {
+  const resp = (await wsClient.send("plugins.oauth_login", { id })) as {
+    data?: { ok?: boolean; auth_url?: string };
+  };
+  return { ok: resp?.data?.ok ?? false, auth_url: resp?.data?.auth_url };
 }
 
 export function onPluginsStatusChanged(

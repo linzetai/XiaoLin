@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use xiaolin_core::agent_config::{McpServerConfig, McpTransportType};
-use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
+use xiaolin_core::tool::{Tool, ToolExposure, ToolParameterSchema, ToolRegistry, ToolResult};
 use xiaolin_core::types::{McpServerStatus, McpStatus};
 
 type ConfigLive = Arc<ArcSwap<serde_json::Value>>;
@@ -161,6 +161,8 @@ impl Tool for ManageMcpServerTool {
                     url: url.clone(),
                     transport,
                     startup_timeout_sec: None,
+                    bearer_token_env_var: None,
+                    http_headers: None,
                 };
                 if let Err(e) = tmp_cfg.validate() {
                     return ToolResult::err(e);
@@ -197,6 +199,7 @@ impl ManageMcpServerTool {
                 McpStatus::Connecting => "… connecting",
                 McpStatus::Disabled => "○ disabled",
                 McpStatus::PendingApproval => "⏳ pending approval",
+                McpStatus::NeedsAuth => "🔑 needs auth",
             };
             let mut line = format!("- {id}: {status_str}");
             if st.tool_count > 0 {
@@ -346,6 +349,8 @@ impl ManageMcpServerTool {
             url,
             transport,
             startup_timeout_sec: None,
+            bearer_token_env_var: None,
+            http_headers: None,
         };
 
         {
@@ -438,6 +443,165 @@ impl ManageMcpServerTool {
             if let Ok(text) = serde_json::to_string_pretty(&cfg_value) {
                 let _ = std::fs::write(&cfg_path, text);
             }
+        }
+    }
+}
+
+/// Deferred agent tool: list resources from all MCP servers that support resources.
+pub struct McpListResourcesTool {
+    mcp_handles: McpHandles,
+}
+
+impl McpListResourcesTool {
+    pub fn new(mcp_handles: McpHandles) -> Self {
+        Self { mcp_handles }
+    }
+}
+
+#[async_trait]
+impl Tool for McpListResourcesTool {
+    fn name(&self) -> &str {
+        "mcp__list_resources"
+    }
+
+    fn description(&self) -> &str {
+        "List resources from all connected MCP servers that declare resources capability. \
+         Returns each resource with its server name, URI, name, description, and MIME type."
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: HashMap::new(),
+            required: Vec::new(),
+        }
+    }
+
+    async fn execute(&self, _arguments: &str) -> ToolResult {
+        let resource_clients: Vec<(String, std::sync::Arc<xiaolin_mcp::McpClient>)> = {
+            let handles = self.mcp_handles.lock().await;
+            handles
+                .iter()
+                .filter(|(_, c)| c.has_resources())
+                .map(|(id, c)| (id.clone(), c.clone()))
+                .collect()
+        };
+
+        let mut all_resources = Vec::new();
+        for (server_id, client) in &resource_clients {
+            match client.list_resources().await {
+                Ok(resources) => {
+                    for r in resources {
+                        all_resources.push(serde_json::json!({
+                            "server": server_id,
+                            "uri": r.uri,
+                            "name": r.name,
+                            "description": r.description,
+                            "mimeType": r.mime_type,
+                        }));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(server = %server_id, error = %e, "failed to list resources");
+                }
+            }
+        }
+
+        ToolResult::ok(serde_json::to_string_pretty(&all_resources).unwrap_or_default())
+    }
+}
+
+/// Deferred agent tool: read a specific resource from an MCP server.
+pub struct McpReadResourceTool {
+    mcp_handles: McpHandles,
+}
+
+impl McpReadResourceTool {
+    pub fn new(mcp_handles: McpHandles) -> Self {
+        Self { mcp_handles }
+    }
+}
+
+#[async_trait]
+impl Tool for McpReadResourceTool {
+    fn name(&self) -> &str {
+        "mcp__read_resource"
+    }
+
+    fn description(&self) -> &str {
+        "Read a resource from a specific MCP server by URI. \
+         The server_name must match one returned by mcp__list_resources. \
+         Content larger than 1 MB is automatically truncated."
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
+    }
+
+    fn parameters_schema(&self) -> ToolParameterSchema {
+        let mut props = HashMap::new();
+        props.insert(
+            "server_name".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The MCP server name (id) that hosts the resource."
+            }),
+        );
+        props.insert(
+            "uri".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The resource URI to read."
+            }),
+        );
+        ToolParameterSchema {
+            schema_type: "object".to_string(),
+            properties: props,
+            required: vec!["server_name".to_string(), "uri".to_string()],
+        }
+    }
+
+    async fn execute(&self, arguments: &str) -> ToolResult {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return ToolResult::err(format!("invalid JSON: {e}")),
+        };
+
+        let server_name = match args.get("server_name").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => return ToolResult::err("missing required parameter: server_name"),
+        };
+        let uri = match args.get("uri").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => return ToolResult::err("missing required parameter: uri"),
+        };
+
+        let handles = self.mcp_handles.lock().await;
+        let client = match handles.get(server_name) {
+            Some(c) => c.clone(),
+            None => return ToolResult::err(format!("server '{server_name}' not found")),
+        };
+        drop(handles);
+
+        match client.read_resource(uri).await {
+            Ok(contents) => {
+                let result: Vec<serde_json::Value> = contents
+                    .into_iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "uri": c.uri,
+                            "mimeType": c.mime_type,
+                            "text": c.text,
+                        })
+                    })
+                    .collect();
+                ToolResult::ok(serde_json::to_string_pretty(&result).unwrap_or_default())
+            }
+            Err(e) => ToolResult::err(format!("failed to read resource: {e}")),
         }
     }
 }

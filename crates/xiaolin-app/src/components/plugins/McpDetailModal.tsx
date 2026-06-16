@@ -7,12 +7,12 @@ import {
   MagnifyingGlass, PencilSimple, PuzzlePiece,
   FolderOpen, GithubLogo, Database, Browser, ChatCircle,
   Brain, TreeStructure, Cube, MapPin,
-  Package, GitBranch,
+  Package, GitBranch, ChatText,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore } from "../../lib/stores/plugin-store";
 import * as transport from "../../lib/transport";
-import type { McpDetailResult } from "../../lib/transport";
+import type { McpDetailResult, McpPromptInfo } from "../../lib/transport";
 import { ICON_SIZE, BTN_PRIMARY_SM } from "../../lib/ui-tokens";
 import { registry } from "./McpExplorePanel";
 import type { McpRegistryEntry } from "./McpExplorePanel";
@@ -56,6 +56,8 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
   const [removing, setRemoving] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolSearch, setToolSearch] = useState("");
+  const [prompts, setPrompts] = useState<McpPromptInfo[]>([]);
+  const [promptsOpen, setPromptsOpen] = useState(true);
 
   const registryMap = useMemo(
     () => new Map<string, McpRegistryEntry>(registry.map((e) => [e.id, e])),
@@ -67,6 +69,7 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
       setDetail(null);
       setConfirmRemove(false);
       setToolSearch("");
+      setPrompts([]);
       return;
     }
     let cancelled = false;
@@ -74,6 +77,9 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
     transport.mcpDetail(pluginId)
       .then((d) => { if (!cancelled) { setDetail(d); setLoading(false); } })
       .catch(() => { if (!cancelled) { setDetail(null); setLoading(false); } });
+    transport.mcpPrompts()
+      .then((all) => { if (!cancelled) setPrompts(all.filter((p) => p.server === pluginId)); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [open, pluginId]);
 
@@ -324,6 +330,63 @@ export function McpDetailModal({ open, pluginId, onClose, onEditConfig }: McpDet
                   </>
                 )}
               </div>
+
+              {/* Prompts Section */}
+              {prompts.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setPromptsOpen((o) => !o)}
+                    className="flex w-full items-center gap-1.5 mb-2"
+                    style={{ color: "var(--fill-quaternary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    {promptsOpen ? <CaretDown size={ICON_SIZE.xs} /> : <CaretRight size={ICON_SIZE.xs} />}
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider">
+                      {t("detail.prompts_title")} ({prompts.length})
+                    </h3>
+                  </button>
+                  {promptsOpen && (
+                    <div className="flex flex-col gap-1.5">
+                      {prompts.map((p) => (
+                        <div
+                          key={p.name}
+                          className="flex items-start gap-2 rounded-md px-2.5 py-2"
+                          style={{ background: "var(--bg-tertiary)" }}
+                        >
+                          <ChatText size={ICON_SIZE.xs} className="mt-0.5 shrink-0" style={{ color: "var(--fill-quaternary)" }} />
+                          <div className="min-w-0">
+                            <span className="text-[12px] font-semibold" style={{ color: "var(--fill-primary)", fontFamily: "var(--font-mono, monospace)" }}>
+                              {p.name}
+                            </span>
+                            {p.description && (
+                              <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
+                                {p.description}
+                              </p>
+                            )}
+                            {p.arguments && p.arguments.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {p.arguments.map((arg) => (
+                                  <span
+                                    key={arg.name}
+                                    className="rounded px-1.5 py-0.5 text-[10px]"
+                                    style={{
+                                      background: "var(--bg-secondary)",
+                                      color: arg.required ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                                      border: "0.5px solid var(--separator)",
+                                    }}
+                                    title={arg.description}
+                                  >
+                                    {arg.name}{arg.required ? "*" : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <p className="py-8 text-center text-[13px]" style={{ color: "var(--fill-quaternary)" }}>

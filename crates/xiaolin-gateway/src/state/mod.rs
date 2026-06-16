@@ -17,6 +17,7 @@ use xiaolin_core::tool::Tool;
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::workspace::AgentWorkspace;
 use xiaolin_core::Router as AgentRouter;
+use xiaolin_core::types::McpStatus;
 use xiaolin_cron::CronJobStore;
 use xiaolin_evolution::{
     FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromptDistiller, SkillExtractor,
@@ -62,6 +63,15 @@ pub fn validate_agents_for_reload(agents: &[AgentConfig]) -> anyhow::Result<()> 
 /// MCP server tools are bulk-demoted to the deferred set (discoverable via
 /// `tool_search`). Tools with `force_eager() == true` are preserved.
 const MCP_DEFER_TOOL_THRESHOLD: usize = 128;
+
+/// Map an MCP connection error to the appropriate `McpStatus`.
+fn mcp_status_for_error(error: &anyhow::Error) -> McpStatus {
+    if error.downcast_ref::<xiaolin_mcp::NeedsOAuth>().is_some() {
+        McpStatus::NeedsAuth
+    } else {
+        McpStatus::Failed
+    }
+}
 
 /// Max concurrent stdio MCP server connections (process spawns).
 const MCP_STDIO_CONCURRENCY: usize = 3;
@@ -292,6 +302,21 @@ pub struct ObserveState {
 /// inside the Session Actor. The DashMap bridges have been removed. Only
 /// `stream_event_tx` remains for builtin-tool event delivery and
 /// `tool_orchestrator` for policy-only checks (no pending DashMap).
+/// A pending elicitation request waiting for a frontend reply.
+pub struct PendingElicitation {
+    pub server_id: String,
+    pub mcp_request_id: serde_json::Value,
+    pub client: xiaolin_mcp::SharedMcpClient,
+    pub reply_tx: tokio::sync::oneshot::Sender<ElicitationReply>,
+}
+
+/// The frontend's reply to an elicitation request.
+#[derive(Debug)]
+pub struct ElicitationReply {
+    pub action: String,
+    pub content: Option<serde_json::Value>,
+}
+
 #[derive(Clone)]
 pub struct StreamState {
     /// Used by `RuntimeTurnExecutor` for `ask_question`/`confirm`
@@ -308,6 +333,7 @@ pub struct StreamState {
     pub git_watcher_manager: crate::git_watcher::SharedGitWatcherManager,
     pub pty_manager: Arc<xiaolin_pty::PtySessionManager>,
     pub agent_def_watcher: Option<Arc<crate::agent_def_watcher::AgentDefWatcher>>,
+    pub pending_elicitations: Arc<DashMap<String, PendingElicitation>>,
 }
 
 /// Services shared across session actors and the gateway.
@@ -437,6 +463,23 @@ impl AppState {
         desired.extend(resolution.approved);
         let pending_status = resolution.pending;
 
+        {
+            let mut seen_sigs = std::collections::HashSet::new();
+            desired.retain(|cfg| {
+                let sig = cfg.connection_signature();
+                if seen_sigs.insert(sig.clone()) {
+                    true
+                } else {
+                    tracing::info!(
+                        mcp_id = %cfg.id,
+                        signature = %sig,
+                        "dedup: skipping MCP server with duplicate connection signature"
+                    );
+                    false
+                }
+            });
+        }
+
         let desired_map: std::collections::HashMap<String, &McpServerConfig> =
             desired.iter().map(|c| (c.id.clone(), c)).collect();
 
@@ -449,6 +492,7 @@ impl AppState {
         for id in &to_remove {
             let prefix = xiaolin_mcp::naming::mcp_server_prefix(id);
             let removed = self.rt.tool_registry.unregister_by_prefix(&prefix);
+            self.rt.tool_registry.remove_mcp_instructions(id);
             tracing::info!(mcp_id = %id, tools_removed = removed, "stopped MCP server (removed from config)");
             handles.remove(id);
         }
@@ -495,18 +539,41 @@ impl AppState {
             to_reconnect.push((cfg.clone(), scope));
         }
 
-        // Phase 2: connect in parallel with semaphore-limited concurrency.
+        // Phase 2: connect with semaphore-limited concurrency, broadcasting
+        // per-server status updates as each completes (connecting → connected/failed).
         {
             use xiaolin_core::agent_config::McpTransportType;
+            use futures::stream::{FuturesUnordered, StreamExt};
+
+            // Set all servers to "connecting" and broadcast so the frontend shows progress.
+            for (cfg, scope) in &to_reconnect {
+                new_status.insert(
+                    cfg.id.clone(),
+                    McpServerStatus {
+                        id: cfg.id.clone(),
+                        status: McpStatus::Connecting,
+                        scope: scope.clone(),
+                        transport: Some(cfg.transport.effective().to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+            {
+                let mut snap = new_status.clone();
+                snap.extend(pending_status.clone());
+                self.ext.mcp_status.store(Arc::new(snap));
+                crate::ws::broadcast_status_changed(self);
+            }
 
             let stdio_sem = Arc::new(tokio::sync::Semaphore::new(MCP_STDIO_CONCURRENCY));
             let remote_sem = Arc::new(tokio::sync::Semaphore::new(MCP_REMOTE_CONCURRENCY));
 
-            let reload_futs: Vec<_> = to_reconnect
+            let mut futs: FuturesUnordered<_> = to_reconnect
                 .iter()
                 .map(|(cfg, scope)| {
                     let cfg = cfg.clone();
                     let scope = scope.clone();
+                    let transport = cfg.transport.effective().to_string();
                     let registry = self.rt.tool_registry.clone();
                     let sem = match cfg.transport.effective() {
                         McpTransportType::Stdio => stdio_sem.clone(),
@@ -517,13 +584,12 @@ impl AppState {
                         let id = cfg.id.clone();
                         let result =
                             xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
-                        (id, scope, result)
+                        (id, scope, transport, result)
                     }
                 })
                 .collect();
 
-            let results = futures::future::join_all(reload_futs).await;
-            for (id, scope, result) in results {
+            while let Some((id, scope, transport, result)) = futs.next().await {
                 match result {
                     Ok(handle) => {
                         let tool_count = handle.tools().len();
@@ -535,6 +601,13 @@ impl AppState {
                             &self.rt.tool_registry,
                             Some(self.ext.mcp_handles.clone()),
                             Some(self.ext.mcp_status.clone()),
+                            Some(self.strm.ws_broadcast.clone()),
+                        );
+                        Self::spawn_server_request_watcher(
+                            &id,
+                            &handle,
+                            self.strm.ws_broadcast.clone(),
+                            self.strm.pending_elicitations.clone(),
                         );
                         new_status.insert(
                             id.clone(),
@@ -544,6 +617,7 @@ impl AppState {
                                 tool_count,
                                 connected_at: Some(now),
                                 scope: scope.clone(),
+                                transport: Some(transport.clone()),
                                 ..Default::default()
                             },
                         );
@@ -555,14 +629,20 @@ impl AppState {
                             id.clone(),
                             McpServerStatus {
                                 id,
-                                status: McpStatus::Failed,
+                                status: mcp_status_for_error(&e),
                                 error: Some(e.to_string()),
                                 scope,
+                                transport: Some(transport),
                                 ..Default::default()
                             },
                         );
                     }
                 }
+                // Broadcast incremental status after each server resolves.
+                let mut snap = new_status.clone();
+                snap.extend(pending_status.clone());
+                self.ext.mcp_status.store(Arc::new(snap));
+                crate::ws::broadcast_status_changed(self);
             }
         }
 
@@ -598,6 +678,7 @@ impl AppState {
         if handles.contains_key(server_id) {
             let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
             self.rt.tool_registry.unregister_by_prefix(&prefix);
+            self.rt.tool_registry.remove_mcp_instructions(server_id);
             handles.remove(server_id);
         }
 
@@ -605,13 +686,14 @@ impl AppState {
             let cwd = std::env::current_dir().unwrap_or_default();
             let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
             let project = xiaolin_core::agent_config::load_project_mcp_config(&ws_root);
-            if project.map_or(false, |p| p.to_mcp_server_configs().iter().any(|c| c.id == server_id)) {
+            if project.is_some_and(|p| p.to_mcp_server_configs().iter().any(|c| c.id == server_id)) {
                 "project"
             } else {
                 "global"
             }
         }.to_string();
 
+        let transport = cfg.transport.effective().to_string();
         let result = xiaolin_mcp::connect_mcp_server(&cfg, &self.rt.tool_registry).await;
         let mut status_map: std::collections::HashMap<String, McpServerStatus> =
             (**self.ext.mcp_status.load()).clone();
@@ -626,6 +708,13 @@ impl AppState {
                     &self.rt.tool_registry,
                     Some(self.ext.mcp_handles.clone()),
                     Some(self.ext.mcp_status.clone()),
+                    Some(self.strm.ws_broadcast.clone()),
+                );
+                Self::spawn_server_request_watcher(
+                    server_id,
+                    &handle,
+                    self.strm.ws_broadcast.clone(),
+                    self.strm.pending_elicitations.clone(),
                 );
                 status_map.insert(
                     server_id.to_string(),
@@ -635,6 +724,7 @@ impl AppState {
                         tool_count,
                         connected_at: Some(now),
                         scope,
+                        transport: Some(transport.clone()),
                         ..Default::default()
                     },
                 );
@@ -645,9 +735,10 @@ impl AppState {
                     server_id.to_string(),
                     McpServerStatus {
                         id: server_id.to_string(),
-                        status: McpStatus::Failed,
+                        status: mcp_status_for_error(&e),
                         error: Some(e.to_string()),
                         scope,
+                        transport: Some(transport),
                         ..Default::default()
                     },
                 );
@@ -1074,7 +1165,7 @@ impl AppState {
         agents: &[AgentConfig],
         global_mcp: &[xiaolin_core::agent_config::McpServerConfig],
         _runtime: Arc<AgentRuntime>,
-        tool_registry: &ToolRegistry,
+        tool_registry: Arc<ToolRegistry>,
     ) -> anyhow::Result<(
         std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>,
         std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>,
@@ -1105,8 +1196,9 @@ impl AppState {
                 )
                 .collect();
 
-        // Partition configs: disabled/duplicate → immediate status; enabled → parallel connect.
+        // Partition configs: disabled/duplicate/same-signature → immediate status; enabled → parallel connect.
         let mut to_connect = Vec::new();
+        let mut seen_signatures = std::collections::HashSet::new();
         for (mcp_cfg, scope) in &all_mcp_configs {
             if mcp_cfg.enabled == Some(false) {
                 status_map.insert(
@@ -1124,7 +1216,17 @@ impl AppState {
                 tracing::debug!(
                     mcp_id = %mcp_cfg.id,
                     scope = %scope,
-                    "skipping MCP server already registered"
+                    "skipping MCP server already registered (duplicate id)"
+                );
+                continue;
+            }
+            let sig = mcp_cfg.connection_signature();
+            if !seen_signatures.insert(sig.clone()) {
+                tracing::info!(
+                    mcp_id = %mcp_cfg.id,
+                    scope = %scope,
+                    signature = %sig,
+                    "skipping MCP server with duplicate connection signature"
                 );
                 continue;
             }
@@ -1140,6 +1242,7 @@ impl AppState {
             .map(|(mcp_cfg, scope)| {
                 let cfg = (*mcp_cfg).clone();
                 let scope = scope.to_string();
+                let transport = cfg.transport.effective().to_string();
                 let registry = tool_registry.clone();
                 let sem = match cfg.transport.effective() {
                     xiaolin_core::agent_config::McpTransportType::Stdio => stdio_sem.clone(),
@@ -1150,13 +1253,13 @@ impl AppState {
                     let id = cfg.id.clone();
                     let result =
                         xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
-                    (id, scope, result)
+                    (id, scope, transport, result)
                 }
             })
             .collect();
 
         let results = futures::future::join_all(futs).await;
-        for (id, scope, result) in results {
+        for (id, scope, transport, result) in results {
             match result {
                 Ok(handle) => {
                     tracing::info!(
@@ -1166,7 +1269,7 @@ impl AppState {
                     );
                     let now = chrono::Utc::now().to_rfc3339();
                     let tool_count = handle.tools().len();
-                    Self::spawn_notification_watcher(&id, &handle, tool_registry);
+                    Self::spawn_notification_watcher(&id, &handle, &tool_registry);
                     status_map.insert(
                         id.clone(),
                         McpServerStatus {
@@ -1175,6 +1278,7 @@ impl AppState {
                             tool_count,
                             connected_at: Some(now),
                             scope: scope.clone(),
+                            transport: Some(transport.clone()),
                             ..Default::default()
                         },
                     );
@@ -1191,9 +1295,10 @@ impl AppState {
                         id.clone(),
                         McpServerStatus {
                             id,
-                            status: McpStatus::Failed,
+                            status: mcp_status_for_error(&e),
                             error: Some(e.to_string()),
                             scope,
+                            transport: Some(transport),
                             ..Default::default()
                         },
                     );
@@ -1209,7 +1314,7 @@ impl AppState {
             );
         }
 
-        maybe_defer_mcp_tools(tool_registry, handles_map.keys());
+        maybe_defer_mcp_tools(&tool_registry, handles_map.keys());
 
         Ok((status_map, handles_map))
     }
@@ -1233,6 +1338,7 @@ impl AppState {
             tool_registry,
             None,
             None,
+            None,
         );
     }
 
@@ -1246,6 +1352,7 @@ impl AppState {
         status_store: Option<
             Arc<ArcSwap<std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>>>,
         >,
+        ws_broadcast: Option<tokio::sync::broadcast::Sender<String>>,
     ) {
         let mut rx = handle.subscribe_notifications();
         let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
@@ -1298,6 +1405,25 @@ impl AppState {
                                     }
                                 }
                             }
+                            "notifications/resources/list_changed" => {
+                                tracing::info!(
+                                    mcp_id = %id,
+                                    "resources/list_changed received"
+                                );
+                            }
+                            "notifications/prompts/list_changed" => {
+                                tracing::info!(
+                                    mcp_id = %id,
+                                    "prompts/list_changed received"
+                                );
+                                if let Some(ref tx) = ws_broadcast {
+                                    let _ = tx.send(serde_json::json!({
+                                        "type": "event",
+                                        "event": "plugins.prompts_changed",
+                                        "data": { "server": id }
+                                    }).to_string());
+                                }
+                            }
                             "notifications/message" => {
                                 if let Some(ref params) = notif.params {
                                     let level = params
@@ -1335,7 +1461,11 @@ impl AppState {
                                     }
 
                                     tracing::info!(mcp_id = %id, attempt, "reconnect attempt");
-                                    let connect_fut = xiaolin_mcp::McpClient::connect_sse(url);
+                                    let reconnect_headers = weak_client
+                                        .upgrade()
+                                        .map(|c| c.extra_headers())
+                                        .unwrap_or_default();
+                                    let connect_fut = xiaolin_mcp::McpClient::connect_sse(url, reconnect_headers);
                                     let connect_result = tokio::time::timeout(
                                         std::time::Duration::from_secs(30),
                                         connect_fut,
@@ -1427,6 +1557,138 @@ impl AppState {
                 }
             }
             tracing::debug!(mcp_id = %id, "notification watcher ended");
+        });
+    }
+
+    /// Spawn a watcher for server-initiated requests (e.g. `elicitation/create`)
+    /// on an MCP client. Each incoming request is forwarded to the frontend
+    /// via WebSocket, then waits for a reply (or 5-minute timeout).
+    fn spawn_server_request_watcher(
+        server_id: &str,
+        handle: &xiaolin_mcp::SharedMcpClient,
+        ws_broadcast: tokio::sync::broadcast::Sender<String>,
+        pending_elicitations: Arc<DashMap<String, PendingElicitation>>,
+    ) {
+        let mut rx = handle.subscribe_server_requests();
+        let weak_client = std::sync::Arc::downgrade(handle);
+        let id = server_id.to_string();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(req) => {
+                        let Some(client) = weak_client.upgrade() else {
+                            tracing::debug!(mcp_id = %id, "MCP client dropped, stopping server request watcher");
+                            break;
+                        };
+                        match req.method.as_str() {
+                            "elicitation/create" => {
+                                let elicitation_id = uuid::Uuid::new_v4().to_string();
+                                let message = req.params.as_ref()
+                                    .and_then(|p| p.get("message"))
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let requested_schema = req.params.as_ref()
+                                    .and_then(|p| p.get("requestedSchema"))
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!({}));
+
+                                let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                pending_elicitations.insert(elicitation_id.clone(), PendingElicitation {
+                                    server_id: id.clone(),
+                                    mcp_request_id: req.id.clone(),
+                                    client: client.clone(),
+                                    reply_tx,
+                                });
+
+                                let server_name = client.server_name();
+                                let ws_event = serde_json::json!({
+                                    "type": "event",
+                                    "event": "mcp.elicitation.request",
+                                    "data": {
+                                        "elicitationId": elicitation_id,
+                                        "serverId": id,
+                                        "serverName": server_name,
+                                        "message": message,
+                                        "requestedSchema": requested_schema,
+                                    }
+                                });
+                                let _ = ws_broadcast.send(ws_event.to_string());
+                                tracing::info!(
+                                    mcp_id = %id,
+                                    %elicitation_id,
+                                    "elicitation request forwarded to frontend"
+                                );
+
+                                let mcp_request_id = req.id.clone();
+                                let client_for_reply = client.clone();
+                                let pe = pending_elicitations.clone();
+                                let eid = elicitation_id.clone();
+                                let ws_bc = ws_broadcast.clone();
+                                tokio::spawn(async move {
+                                    let reply = tokio::time::timeout(
+                                        std::time::Duration::from_secs(300),
+                                        reply_rx,
+                                    ).await;
+
+                                    let (action, content) = match reply {
+                                        Ok(Ok(r)) => (r.action, r.content),
+                                        _ => {
+                                            pe.remove(&eid);
+                                            let _ = ws_bc.send(serde_json::json!({
+                                                "type": "event",
+                                                "event": "mcp.elicitation.timeout",
+                                                "data": { "elicitationId": eid }
+                                            }).to_string());
+                                            ("decline".to_string(), None)
+                                        }
+                                    };
+
+                                    let result = if action == "accept" {
+                                        serde_json::json!({
+                                            "action": "accept",
+                                            "content": content.unwrap_or(serde_json::json!({}))
+                                        })
+                                    } else {
+                                        serde_json::json!({ "action": "decline" })
+                                    };
+
+                                    let response = xiaolin_mcp::JsonRpcResponse::success(
+                                        mcp_request_id,
+                                        result,
+                                    );
+                                    if let Err(e) = client_for_reply.send_response(response).await {
+                                        tracing::error!(
+                                            error = %e,
+                                            "failed to send elicitation response to MCP server"
+                                        );
+                                    }
+                                });
+                            }
+                            other => {
+                                tracing::warn!(
+                                    mcp_id = %id,
+                                    method = %other,
+                                    "unhandled server-initiated request, responding with method not found"
+                                );
+                                let response = xiaolin_mcp::JsonRpcResponse::error(
+                                    req.id, -32601, "Method not found",
+                                );
+                                let _ = client.send_response(response).await;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            mcp_id = %id,
+                            skipped = n,
+                            "server request watcher lagged, continuing"
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            tracing::debug!(mcp_id = %id, "server request watcher ended");
         });
     }
 
@@ -2340,6 +2602,7 @@ impl AppState {
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
                 agent_def_watcher: None,
+                pending_elicitations: Arc::new(DashMap::new()),
             },
             svc: SharedServices {
                 runtime,
