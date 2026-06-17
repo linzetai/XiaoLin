@@ -293,6 +293,33 @@ pub fn register_terminal_tools(registry: &xiaolin_core::tool::ToolRegistry, pty_
     registry.register(Arc::new(TerminalCloseTool::new(pty_manager)));
 }
 
+/// Check if the output ends with a shell prompt, indicating command completion.
+/// Only checks the last non-empty line to avoid false positives from command output.
+fn ends_with_shell_prompt(text: &str) -> bool {
+    let last_line = text
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
+    let trimmed = last_line.trim_end();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Common prompt endings: `$ `, `% `, `# `, `> `, `❯ `, `➜ `
+    // Also match user@host patterns like `user@host:~/dir$ `
+    trimmed.ends_with("$ ")
+        || trimmed.ends_with("% ")
+        || trimmed.ends_with("# ")
+        || trimmed.ends_with("❯ ")
+        || trimmed.ends_with("➜ ")
+        || trimmed.ends_with('$')
+        || trimmed.ends_with('%')
+        || trimmed.ends_with('#')
+        || trimmed.ends_with('❯')
+        || trimmed.ends_with('➜')
+        || trimmed.ends_with("> ")
+}
+
 async fn collect_output(
     rx: &mut broadcast::Receiver<Vec<u8>>,
     max_duration: Duration,
@@ -301,7 +328,9 @@ async fn collect_output(
     let mut collected = Vec::new();
     let deadline = tokio::time::Instant::now() + max_duration;
     let idle_timeout = Duration::from_millis(500);
+    let prompt_grace = Duration::from_millis(50);
     let mut has_received_data = false;
+    let mut prompt_detected = false;
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -309,7 +338,9 @@ async fn collect_output(
             break;
         }
 
-        let wait_time = if has_received_data && wait_for.is_none() {
+        let wait_time = if prompt_detected {
+            remaining.min(prompt_grace)
+        } else if has_received_data && wait_for.is_none() {
             remaining.min(idle_timeout)
         } else {
             remaining
@@ -328,13 +359,64 @@ async fn collect_output(
                     if text.contains(pattern) {
                         break;
                     }
+                } else if !prompt_detected {
+                    let text = String::from_utf8_lossy(&collected);
+                    if ends_with_shell_prompt(&text) {
+                        prompt_detected = true;
+                    }
                 }
             }
             Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
             Ok(Err(broadcast::error::RecvError::Closed)) => break,
-            Err(_) => break, // idle timeout or deadline reached
+            Err(_) => break, // idle/prompt-grace/deadline timeout
         }
     }
 
     String::from_utf8_lossy(&collected).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_bash_prompt() {
+        assert!(ends_with_shell_prompt("file1.txt  file2.txt\nuser@host:~/project$ "));
+        assert!(ends_with_shell_prompt("output\n$ "));
+        assert!(ends_with_shell_prompt("output\n$"));
+    }
+
+    #[test]
+    fn detect_zsh_prompt() {
+        assert!(ends_with_shell_prompt("output\n% "));
+        assert!(ends_with_shell_prompt("output\n%"));
+        assert!(ends_with_shell_prompt("output\nuser@host ~/project %"));
+    }
+
+    #[test]
+    fn detect_root_prompt() {
+        assert!(ends_with_shell_prompt("output\nroot@host:/# "));
+        assert!(ends_with_shell_prompt("output\n# "));
+    }
+
+    #[test]
+    fn detect_fancy_prompts() {
+        assert!(ends_with_shell_prompt("output\n❯ "));
+        assert!(ends_with_shell_prompt("output\n❯"));
+        assert!(ends_with_shell_prompt("output\n➜ "));
+    }
+
+    #[test]
+    fn no_false_positive_on_output() {
+        assert!(!ends_with_shell_prompt("checking file $HOME/test"));
+        assert!(!ends_with_shell_prompt("50% done"));
+        assert!(!ends_with_shell_prompt("line 1\nline 2\nstill running..."));
+        assert!(!ends_with_shell_prompt(""));
+    }
+
+    #[test]
+    fn handles_trailing_newlines() {
+        assert!(ends_with_shell_prompt("output\n$ \n"));
+        assert!(ends_with_shell_prompt("output\n$ \n\n"));
+    }
 }

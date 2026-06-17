@@ -348,24 +348,6 @@ pub(crate) async fn execute_tool_round(
             }
         }
 
-        // ── Progress tracking for stagnation detection ──
-        if matches!(
-            tool_name.as_str(),
-            "edit_file"
-                | "write_file"
-                | "create_file"
-                | "str_replace_editor"
-                | "shell_exec"
-                | "execute_command"
-                | "terminal_input"
-                | "terminal_open"
-                | "spawn_subagent"
-                | "update_goal"
-                | "apply_patch"
-        ) {
-            ms.had_progress_this_round = true;
-        }
-
         // ── Pre-tool hook ──
         let input_json: serde_json::Value =
             serde_json::from_str(&arguments).unwrap_or_default();
@@ -378,6 +360,30 @@ pub(crate) async fn execute_tool_round(
                 tracing::warn!(tool = %tool_name, %err, "tool blocked by pre-hook");
                 result = xiaolin_core::tool::ToolResult::err(&err);
             }
+        }
+
+        // ── Progress tracking for stagnation detection ──
+        // Only count SUCCESSFUL progress-tool calls as real progress.
+        // Failed writes/shell commands should not reset the stagnation counter,
+        // otherwise the agent can loop indefinitely alternating between failed
+        // operations and read-only verification.
+        if result.success
+            && matches!(
+                tool_name.as_str(),
+                "edit_file"
+                    | "write_file"
+                    | "create_file"
+                    | "str_replace_editor"
+                    | "shell_exec"
+                    | "execute_command"
+                    | "terminal_input"
+                    | "terminal_open"
+                    | "spawn_subagent"
+                    | "update_goal"
+                    | "apply_patch"
+            )
+        {
+            ms.had_progress_this_round = true;
         }
 
         // ── Track restoration state for post-compact recovery ──

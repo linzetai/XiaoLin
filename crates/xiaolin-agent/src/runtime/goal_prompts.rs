@@ -76,6 +76,14 @@ pub fn render_continuation_prompt(goal: &Goal) -> String {
          it is more likely to pass current tests.\n\
          - An edit is aligned only if it makes the requested final state more true.\n\
          \n\
+         Unreachable sub-goals:\n\
+         If an operation fails repeatedly due to system restrictions (e.g. sandbox \
+         path limits, missing permissions, unavailable commands), do NOT retry. Instead:\n\
+         - Skip the sub-goal and move on to the next actionable step.\n\
+         - If the main objective is already achieved, mark the goal as completed.\n\
+         - If the failure blocks the core objective, mark the goal as failed with an \
+         explanation.\n\
+         \n\
          Completion audit:\n\
          Before deciding that the goal is achieved, treat completion as unproven and \
          verify it against the actual current state:\n\

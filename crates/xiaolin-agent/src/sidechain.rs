@@ -189,9 +189,13 @@ impl SidechainReader {
 }
 
 /// Maximum result length returned to the parent agent.
-pub const MAX_RESULT_CHARS: usize = 12288;
+/// 32 KB allows most sub-agent outputs (including large file writes) to pass
+/// through without truncation, while still bounding context window usage.
+pub const MAX_RESULT_CHARS: usize = 32768;
 
 /// Truncates a sub-agent result if it exceeds the maximum length.
+/// Keeps the head and tail of the result for maximum context preservation.
+/// Uses char boundaries to avoid panicking on multi-byte UTF-8 text.
 pub fn truncate_result(text: &str) -> String {
     if text.is_empty() {
         return "[subagent terminated without producing a result]".to_string();
@@ -199,8 +203,39 @@ pub fn truncate_result(text: &str) -> String {
     if text.len() <= MAX_RESULT_CHARS {
         return text.to_string();
     }
-    let truncated = &text[..MAX_RESULT_CHARS];
-    format!("{truncated}\n[result truncated at {MAX_RESULT_CHARS} chars -- the sub-agent's work (file writes, edits, etc.) completed successfully; only this summary is shortened. Use subagent_get for full text.]")
+    let head_target = MAX_RESULT_CHARS * 3 / 4;
+    let tail_target = MAX_RESULT_CHARS / 4;
+    let head_end = floor_char_boundary(text, head_target);
+    let tail_start = ceil_char_boundary(text, text.len().saturating_sub(tail_target));
+    let head = &text[..head_end];
+    let tail = &text[tail_start..];
+    let omitted = text.len() - head.len() - tail.len();
+    format!(
+        "{head}\n\n[... {omitted} chars omitted — sub-agent's work (file writes, edits, etc.) \
+         completed successfully; only this summary is shortened. Use subagent_get for full text.]\n\n{tail}"
+    )
+}
+
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn ceil_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
 }
 
 /// Cleans up all sidechain files for a session.
@@ -316,11 +351,13 @@ mod tests {
 
     #[test]
     fn test_truncate_result_long() {
-        let text = "x".repeat(20_000);
+        let text = "x".repeat(50_000);
         let result = truncate_result(&text);
-        assert!(result.len() < 20_000);
-        assert!(result.contains("result truncated at"));
+        assert!(result.len() < 50_000);
+        assert!(result.contains("chars omitted"));
         assert!(result.contains("subagent_get"));
+        assert!(result.starts_with("x"));
+        assert!(result.ends_with("x"));
     }
 
     #[test]
