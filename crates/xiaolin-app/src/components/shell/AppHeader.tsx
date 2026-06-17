@@ -210,7 +210,7 @@ export function AppHeader() {
           <SidebarSimple size={16} />
         </IconButton>
         <IconButton title={t("togglePanel")} onClick={togglePanel} active={panelOpen}>
-          <SidebarSimple size={16} />
+          <SidebarSimple size={16} style={{ transform: "scaleX(-1)" }} />
         </IconButton>
       </div>
 

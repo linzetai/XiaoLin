@@ -151,7 +151,7 @@ export function McpExplorePanel() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("explore.search_placeholder")}
-          className="w-full rounded-xl py-2.5 pl-9 pr-3 text-[13px] outline-none transition-all"
+          className="explore-search w-full rounded-xl py-2.5 pl-9 pr-3 text-[13px] outline-none transition-all"
           style={{
             background: "var(--bg-tertiary)",
             border: "1px solid var(--separator)",
@@ -170,8 +170,8 @@ export function McpExplorePanel() {
               onClick={() => setCategory(cat.value)}
               className="rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
               style={{
-                background: active ? "var(--tint)" : "var(--bg-tertiary)",
-                color: active ? "#fff" : "var(--fill-secondary)",
+                background: active ? "color-mix(in srgb, var(--tint) 14%, transparent)" : "var(--bg-tertiary)",
+                color: active ? "var(--tint)" : "var(--fill-secondary)",
                 border: "none",
                 cursor: "pointer",
               }}
@@ -190,7 +190,7 @@ export function McpExplorePanel() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+        <div className="explore-card-grid grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
           {filtered.map((entry, i) => (
             <ExploreCard
               key={entry.id}
@@ -320,8 +320,8 @@ function ExploreCard({
             disabled={installing}
             className="flex w-full items-center justify-center rounded-md py-1.5 text-[11px] font-semibold transition-colors hover:opacity-90"
             style={{
-              background: "var(--tint)",
-              color: "#fff",
+              background: "color-mix(in srgb, var(--tint) 14%, transparent)",
+              color: "var(--tint)",
               border: "none",
               cursor: installing ? "wait" : "pointer",
               opacity: installing ? 0.7 : 1,

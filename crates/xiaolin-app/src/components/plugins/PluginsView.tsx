@@ -37,10 +37,37 @@ export function PluginsView() {
   const [skillCount, setSkillCount] = useState(0);
   const [channelCount, setChannelCount] = useState(0);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addModalPrefill, setAddModalPrefill] = useState<{ id?: string; command?: string; args?: string[]; transport?: "stdio" | "sse" | "streamable_http"; url?: string } | undefined>(undefined);
   const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
 
   const plugins = usePluginStore((s) => s.plugins);
   const mcpCount = plugins.length;
+
+  const handleEditConfig = useCallback(async (pluginId: string) => {
+    setDetailPluginId(null);
+    try {
+      const detail = await api.mcpDetail(pluginId);
+      if (detail) {
+        setAddModalPrefill({
+          id: detail.id,
+          transport: (detail.config.transport as "stdio" | "sse" | "streamable_http") ?? "stdio",
+          ...(detail.config.command ? { command: detail.config.command } : {}),
+          ...(detail.config.args?.length ? { args: detail.config.args } : {}),
+          ...(detail.config.url ? { url: detail.config.url } : {}),
+        });
+      } else {
+        setAddModalPrefill({ id: pluginId });
+      }
+    } catch {
+      setAddModalPrefill({ id: pluginId });
+    }
+    setAddModalOpen(true);
+  }, []);
+
+  const handleCloseAddModal = useCallback(() => {
+    setAddModalOpen(false);
+    setAddModalPrefill(undefined);
+  }, []);
 
   const tabItems = useMemo(() => [
     { value: "mcp" as const, label: t("tab_mcp"), count: mcpCount },
@@ -61,7 +88,7 @@ export function PluginsView() {
               {t("title")}
             </h1>
           </div>
-          <TabActions activeTab={activeTab} onAddServer={() => setAddModalOpen(true)} />
+          <TabActions activeTab={activeTab} onAddServer={() => { setAddModalPrefill(undefined); setAddModalOpen(true); }} />
         </div>
 
         <SegmentedControl value={activeTab} onChange={setActiveTab} items={tabItems} />
@@ -75,8 +102,8 @@ export function PluginsView() {
         </div>
       </div>
 
-      <AddServerModal open={addModalOpen} onClose={() => setAddModalOpen(false)} />
-      <McpDetailModal open={detailPluginId !== null} pluginId={detailPluginId} onClose={() => setDetailPluginId(null)} />
+      <AddServerModal open={addModalOpen} onClose={handleCloseAddModal} prefill={addModalPrefill} />
+      <McpDetailModal open={detailPluginId !== null} pluginId={detailPluginId} onClose={() => setDetailPluginId(null)} onEditConfig={handleEditConfig} />
     </div>
   );
 }

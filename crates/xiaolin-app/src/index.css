@@ -1509,6 +1509,18 @@ mark[data-search-highlight="current"] {
   animation: voice-spin 0.8s linear infinite;
 }
 
+/* Explore panel: single column on narrow viewports */
+@media (max-width: 479px) {
+  .explore-card-grid { grid-template-columns: 1fr !important; }
+}
+
+/* Explore search: focus ring */
+.explore-search:focus-visible {
+  border-color: var(--tint) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tint) 25%, transparent);
+  outline: none;
+}
+
 /* ANSI terminal output colors */
 .ansi-red { color: var(--ansi-red); }
 .ansi-green { color: var(--ansi-green); }
