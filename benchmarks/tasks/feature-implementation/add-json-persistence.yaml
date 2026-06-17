@@ -1,0 +1,34 @@
+id: add-json-persistence
+version: 1
+suite: feature-implementation
+tier: L3
+tags: [feature, multi-file, complex, persistence]
+prompt: |
+  Add JSON file persistence to the task-tracker project:
+  1. First, read all existing source files to understand the codebase
+  2. Add `save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>>` to TaskStore
+     that serializes all tasks to a JSON file
+  3. Add `load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>>` to TaskStore
+     that loads tasks from a JSON file
+  4. Update main.rs to load tasks on startup (if file exists) and save on exit
+  5. Make sure storage.rs derives Serialize/Deserialize for TaskStore or handles it manually
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+  - type: filesystem_check
+    files:
+      - path: src/storage.rs
+        contains: ["save_to_file", "load_from_file", "serde_json"]
+      - path: src/main.rs
+        contains: ["save_to_file"]
+  - type: turn_limit
+    max_turns: 15
+  - type: token_budget
+    max_total_tokens: 250000
+metrics:
+  thresholds:
+    max_turns: 15
+    max_total_tokens: 250000
+environment:
+  workspace_fixture: complex-rust-project
+  timeout_ms: 300000

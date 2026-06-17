@@ -1,0 +1,33 @@
+id: analyze-architecture
+version: 1
+suite: codebase-understanding
+tier: L2
+tags: [analysis, architecture, multi-file]
+prompt: |
+  Analyze the task-tracker project in the workspace. I need you to:
+  1. List all Rust source files and their module relationships
+  2. Describe the data model (Task struct and its fields)
+  3. Explain what Priority variants exist and how tasks are sorted
+  4. Identify any missing functionality (e.g., no delete, no update, no persistence)
+  Do NOT modify any files. Only read and analyze.
+graders:
+  - type: output_contains
+    patterns:
+      - "Priority"
+      - "Critical"
+      - "Pending"
+      - "TaskStore"
+  - type: tool_trace
+    must_include: [read_file]
+    must_not_include: [edit_file, shell_exec]
+  - type: turn_limit
+    max_turns: 5
+  - type: token_budget
+    max_total_tokens: 80000
+metrics:
+  thresholds:
+    max_turns: 5
+    max_total_tokens: 80000
+environment:
+  workspace_fixture: complex-rust-project
+  timeout_ms: 120000

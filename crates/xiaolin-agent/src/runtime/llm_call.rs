@@ -619,8 +619,6 @@ pub(crate) async fn perform_llm_call(
             }
 
             if tool_call_accum.is_empty() {
-                eprintln!("  [llm_call] emitting AgentStep::Delta, content={:?}",
-                    delta.choices.first().and_then(|c| c.delta.content.as_deref()));
                 let _ = send_step(
                     &svc.step_tx,
                     AgentStep::Delta {

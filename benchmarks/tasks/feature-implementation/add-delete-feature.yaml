@@ -1,0 +1,32 @@
+id: add-delete-feature
+version: 1
+suite: feature-implementation
+tier: L2
+tags: [feature, multi-file, edit]
+prompt: |
+  Add a delete_task method to the TaskStore in the task-tracker project:
+  1. Read the existing storage.rs to understand the current API
+  2. Add a `pub fn delete_task(&mut self, id: &str) -> bool` method that removes a task by ID
+  3. Add a test in storage.rs (in a #[cfg(test)] mod tests block) that:
+     - Creates a store, adds a task, deletes it, and verifies count is 0
+     - Verifies deleting a non-existent task returns false
+  Do NOT modify any other files besides storage.rs.
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+    must_not_include: [shell_exec]
+  - type: filesystem_check
+    files:
+      - path: src/storage.rs
+        contains: ["delete_task", "#[test]"]
+  - type: turn_limit
+    max_turns: 8
+  - type: token_budget
+    max_total_tokens: 120000
+metrics:
+  thresholds:
+    max_turns: 8
+    max_total_tokens: 120000
+environment:
+  workspace_fixture: complex-rust-project
+  timeout_ms: 120000

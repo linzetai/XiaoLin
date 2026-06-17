@@ -1,0 +1,7 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+max_connections = 100
+
+[database]
+url = "sqlite:data.db"

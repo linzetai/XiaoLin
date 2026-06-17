@@ -1,0 +1,21 @@
+id: simple-task-budget
+version: 1
+suite: context-efficiency
+tier: L1
+tags: [tokens, efficiency]
+prompt: |
+  Add a single-line comment "// Entry point" above the main function in src/main.rs.
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+  - type: token_budget
+    max_total_tokens: 30000
+  - type: turn_limit
+    max_turns: 5
+metrics:
+  thresholds:
+    max_turns: 5
+    max_total_tokens: 30000
+environment:
+  workspace_fixture: context-efficiency/simple-edit
+  timeout_ms: 60000

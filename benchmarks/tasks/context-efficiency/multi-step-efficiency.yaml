@@ -1,0 +1,24 @@
+id: multi-step-efficiency
+version: 1
+suite: context-efficiency
+tier: L1
+tags: [tokens, efficiency, multi-step]
+prompt: |
+  In the workspace:
+  1. Read src/lib.rs to understand the existing code
+  2. Add a new public function `pub fn greet(name: &str) -> String` that returns "Hello, {name}!"
+  3. Add a test for the greet function in the tests module
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+  - type: token_budget
+    max_total_tokens: 50000
+  - type: turn_limit
+    max_turns: 8
+metrics:
+  thresholds:
+    max_turns: 8
+    max_total_tokens: 50000
+environment:
+  workspace_fixture: context-efficiency/multi-step
+  timeout_ms: 120000

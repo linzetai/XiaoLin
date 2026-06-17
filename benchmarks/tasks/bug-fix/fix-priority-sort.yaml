@@ -1,0 +1,34 @@
+id: fix-priority-sort
+version: 1
+suite: bug-fix
+tier: L2
+tags: [bugfix, analysis, logic]
+prompt: |
+  There's a bug in the task-tracker project. The `pending_by_priority` method should
+  show Critical tasks first, then High, then Medium, then Low. But the Priority enum
+  derives Ord which gives alphabetical ordering (Critical < High < Low < Medium) instead
+  of severity ordering.
+
+  Fix this by:
+  1. Read the existing code to understand the issue
+  2. Fix the ordering in task.rs so Critical > High > Medium > Low
+  3. You can either reorder the enum variants or implement custom Ord
+  4. Make sure the sort in storage.rs still works correctly after the fix
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+  - type: filesystem_check
+    files:
+      - path: src/task.rs
+        contains: ["Priority"]
+  - type: turn_limit
+    max_turns: 8
+  - type: token_budget
+    max_total_tokens: 120000
+metrics:
+  thresholds:
+    max_turns: 8
+    max_total_tokens: 120000
+environment:
+  workspace_fixture: complex-rust-project
+  timeout_ms: 120000

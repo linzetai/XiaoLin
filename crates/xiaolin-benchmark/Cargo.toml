@@ -1,0 +1,29 @@
+[package]
+name = "xiaolin-benchmark"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+xiaolin-protocol = { path = "../xiaolin-protocol" }
+xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-agent = { path = "../xiaolin-agent" }
+
+tokio.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+anyhow.workspace = true
+tempfile = "3"
+async-trait.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+regex.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

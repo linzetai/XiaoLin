@@ -1,0 +1,20 @@
+id: stale-file-recovery
+version: 1
+suite: error-recovery
+tier: L1
+tags: [error, recovery, stale]
+prompt: |
+  Edit src/config.rs and change the default port from 3000 to 8080.
+  Note: another process may modify the file concurrently, so you may need to re-read if stale.
+graders:
+  - type: tool_trace
+    must_include: [read_file]
+  - type: turn_limit
+    max_turns: 10
+metrics:
+  thresholds:
+    max_turns: 10
+    max_total_tokens: 60000
+environment:
+  workspace_fixture: error-recovery/stale-file
+  timeout_ms: 120000

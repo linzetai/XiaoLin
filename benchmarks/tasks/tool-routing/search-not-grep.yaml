@@ -1,0 +1,24 @@
+id: search-not-grep
+version: 1
+suite: tool-routing
+tier: L1
+tags: [shell, routing, search]
+prompt: |
+  Search for all occurrences of "TODO" in the workspace src/ directory.
+  List each file path and line number where TODO appears.
+  Do not modify any files.
+graders:
+  - type: output_contains
+    patterns: ["main.rs", "lib.rs"]
+  - type: tool_trace
+    must_include: [search_in_files]
+    must_not_include: [shell_exec]
+  - type: turn_limit
+    max_turns: 3
+metrics:
+  thresholds:
+    max_turns: 3
+    max_total_tokens: 20000
+environment:
+  workspace_fixture: tool-routing/search-todo
+  timeout_ms: 30000

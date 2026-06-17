@@ -1,0 +1,28 @@
+[
+  {
+    "ToolResult": {
+      "call_id": "c1",
+      "output": "[server]\nport = 8080",
+      "success": true,
+      "tool_name": "read_file",
+      "turn_id": "t1"
+    }
+  },
+  {
+    "TurnEnd": {
+      "summary": {
+        "elapsed_ms": 2000,
+        "iterations": 1,
+        "tool_calls_made": 1,
+        "turn_id": "t1",
+        "usage": {
+          "cached_input_tokens": 0,
+          "completion_tokens": 500,
+          "prompt_tokens": 5000,
+          "total_tokens": 5500
+        }
+      },
+      "turn_id": "t1"
+    }
+  }
+]

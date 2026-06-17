@@ -28,6 +28,7 @@ members = [
     "crates/xiaolin-protocol",
     "crates/xiaolin-session-actor",
     "crates/xiaolin-pty",
+    "crates/xiaolin-benchmark",
     "crates/xiaolin-app/src-tauri",
 ]
 resolver = "2"

@@ -1,0 +1,31 @@
+id: extract-display-trait
+version: 1
+suite: refactoring
+tier: L2
+tags: [refactor, trait, display]
+prompt: |
+  Refactor the task-tracker project:
+  1. Read the existing code
+  2. Implement the `std::fmt::Display` trait for Task, Priority, and Status types in task.rs
+  3. For Task, the format should be: "[Priority] Title (Status)"
+     e.g., "[Critical] Fix login bug (Pending)"
+  4. Update main.rs to use the Display trait when printing tasks instead of Debug format
+  Do not change the logic or data model, only add Display implementations and update print statements.
+graders:
+  - type: tool_trace
+    must_include: [read_file, edit_file]
+  - type: filesystem_check
+    files:
+      - path: src/task.rs
+        contains: ["Display", "fn fmt"]
+  - type: turn_limit
+    max_turns: 8
+  - type: token_budget
+    max_total_tokens: 120000
+metrics:
+  thresholds:
+    max_turns: 8
+    max_total_tokens: 120000
+environment:
+  workspace_fixture: complex-rust-project
+  timeout_ms: 120000
