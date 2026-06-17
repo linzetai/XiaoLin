@@ -212,6 +212,61 @@ impl McpOAuthClient {
         Ok(token)
     }
 
+    /// Perform RFC 7591 Dynamic Client Registration.
+    ///
+    /// Only called when:
+    /// 1. No explicit `client_id` is configured for this server
+    /// 2. The server's OAuth metadata includes a `registration_endpoint`
+    ///
+    /// Returns the registered client credentials, which should be persisted
+    /// for subsequent OAuth flows.
+    pub async fn register_client(
+        &self,
+        redirect_uris: &[String],
+    ) -> anyhow::Result<ClientRegistration> {
+        let meta = self
+            .metadata
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("OAuth metadata not discovered yet"))?;
+        let endpoint = meta
+            .registration_endpoint
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("server does not support dynamic client registration"))?;
+
+        let body = serde_json::json!({
+            "client_name": "XiaoLin",
+            "redirect_uris": redirect_uris,
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+        });
+
+        tracing::info!(endpoint = %endpoint, "performing dynamic client registration");
+
+        let resp = self.http.post(endpoint).json(&body).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("DCR failed: HTTP {status}: {err_body}");
+        }
+
+        let reg: ClientRegistration = resp.json().await?;
+        tracing::info!(
+            client_id = %reg.client_id,
+            "dynamic client registration successful"
+        );
+        Ok(reg)
+    }
+
+    /// Check if the server supports dynamic client registration.
+    pub fn supports_dcr(&self) -> bool {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.registration_endpoint.as_ref())
+            .is_some()
+    }
+
     pub fn metadata(&self) -> Option<&OAuthMetadata> {
         self.metadata.as_ref()
     }
@@ -219,6 +274,18 @@ impl McpOAuthClient {
     pub fn server_url(&self) -> &str {
         &self.server_url
     }
+}
+
+/// Result of RFC 7591 Dynamic Client Registration.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClientRegistration {
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    #[serde(default)]
+    pub client_id_issued_at: Option<u64>,
+    #[serde(default)]
+    pub client_secret_expires_at: Option<u64>,
 }
 
 /// Start a local HTTP server on a random port to receive the OAuth callback.
@@ -315,6 +382,33 @@ async fn handle_callback_connection(
 
 // ─── Token Storage ─────────────────────────────────────────────────
 
+/// Abstraction for token persistence, allowing swappable backends.
+#[async_trait::async_trait]
+pub trait TokenStore: Send + Sync {
+    async fn load(&self, server_id: &str) -> Option<StoredToken>;
+    async fn save(&self, server_id: &str, token: &StoredToken) -> anyhow::Result<()>;
+    async fn delete(&self, server_id: &str) -> anyhow::Result<()>;
+}
+
+/// File-based token storage (plaintext JSON, legacy default).
+pub struct FileTokenStore;
+
+#[async_trait::async_trait]
+impl TokenStore for FileTokenStore {
+    async fn load(&self, server_id: &str) -> Option<StoredToken> {
+        load_stored_token(server_id)
+    }
+
+    async fn save(&self, server_id: &str, token: &StoredToken) -> anyhow::Result<()> {
+        save_stored_token(server_id, token)
+    }
+
+    async fn delete(&self, server_id: &str) -> anyhow::Result<()> {
+        remove_stored_token(server_id);
+        Ok(())
+    }
+}
+
 /// Load a stored token for the given MCP server ID.
 pub fn load_stored_token(server_id: &str) -> Option<StoredToken> {
     let path = token_file_path(server_id);
@@ -347,6 +441,24 @@ fn token_file_path(server_id: &str) -> std::path::PathBuf {
         .join("com.xiaolin.desktop")
         .join("mcp-tokens")
         .join(format!("{sanitized}.json"))
+}
+
+/// List all server IDs that have stored tokens (for migration).
+pub fn list_stored_token_ids() -> Vec<String> {
+    let dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("com.xiaolin.desktop")
+        .join("mcp-tokens");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.strip_suffix(".json").map(String::from)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -421,6 +533,36 @@ mod tests {
         let (code, state) = rx.await.unwrap();
         assert_eq!(code, "test_code_123");
         assert_eq!(state, "test_state_456");
+    }
+
+    #[test]
+    fn client_registration_deserialize() {
+        let json = r#"{
+            "client_id": "abc123",
+            "client_secret": "secret456",
+            "client_id_issued_at": 1700000000
+        }"#;
+        let reg: ClientRegistration = serde_json::from_str(json).unwrap();
+        assert_eq!(reg.client_id, "abc123");
+        assert_eq!(reg.client_secret.as_deref(), Some("secret456"));
+        assert_eq!(reg.client_id_issued_at, Some(1700000000));
+        assert_eq!(reg.client_secret_expires_at, None);
+    }
+
+    #[test]
+    fn supports_dcr_checks_registration_endpoint() {
+        let mut client = McpOAuthClient::new("https://mcp.example.com");
+        assert!(!client.supports_dcr());
+
+        client.metadata = Some(OAuthMetadata {
+            authorization_endpoint: "https://auth.example.com/authorize".into(),
+            token_endpoint: "https://auth.example.com/token".into(),
+            registration_endpoint: Some("https://auth.example.com/register".into()),
+            code_challenge_methods_supported: vec![],
+            response_types_supported: vec![],
+            grant_types_supported: vec![],
+        });
+        assert!(client.supports_dcr());
     }
 
     #[test]

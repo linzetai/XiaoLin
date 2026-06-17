@@ -639,6 +639,20 @@ enum McpTransport {
             Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
         listener_task: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     },
+    WebSocket {
+        ws_write: Arc<tokio::sync::Mutex<
+            futures::stream::SplitSink<
+                tokio_tungstenite::WebSocketStream<
+                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                >,
+                tokio_tungstenite::tungstenite::Message,
+            >,
+        >>,
+        pending:
+            Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        reader_task: tokio::task::JoinHandle<()>,
+        url: String,
+    },
 }
 
 /// MCP server → client notification (JSON-RPC message without `id`).
@@ -921,6 +935,119 @@ impl McpClient {
 
         mcp.discover_tools().await?;
         Ok(mcp)
+    }
+
+    /// Connect to an MCP server over WebSocket (`ws://` or `wss://`).
+    pub async fn connect_websocket(url: &str) -> anyhow::Result<Self> {
+        use futures::StreamExt;
+        use tokio_tungstenite::tungstenite;
+
+        let request = tungstenite::http::Request::builder()
+            .uri(url)
+            .header("Sec-WebSocket-Protocol", "mcp")
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
+            .header("Host", reqwest::Url::parse(url)
+                .map_or_else(|_| "localhost".to_string(), |u| u.host_str().unwrap_or("localhost").to_string()))
+            .body(())?;
+
+        let (ws_stream, _) = tokio_tungstenite::connect_async(request).await
+            .map_err(|e| anyhow::anyhow!("WebSocket connection failed: {e}"))?;
+
+        let (write, read) = ws_stream.split();
+        let ws_write = Arc::new(tokio::sync::Mutex::new(write));
+
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (notification_tx, _) = tokio::sync::broadcast::channel::<McpNotification>(64);
+        let (server_request_tx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let pending_reader = pending.clone();
+        let ntx = notification_tx.clone();
+        let srtx = server_request_tx.clone();
+        let reader_task = tokio::spawn(async move {
+            Self::websocket_reader_loop(read, pending_reader, ntx, srtx).await;
+        });
+
+        let mut mcp = Self {
+            server_name: std::sync::RwLock::new(url.to_string()),
+            tools: Vec::new(),
+            transport: McpTransport::WebSocket {
+                ws_write,
+                pending: pending.clone(),
+                reader_task,
+                url: url.to_string(),
+            },
+            next_id: std::sync::atomic::AtomicU64::new(1),
+            notification_tx,
+            server_request_tx,
+            sse_url: None,
+            server_instructions: std::sync::RwLock::new(None),
+            server_capabilities: std::sync::RwLock::new(ServerCapabilities::default()),
+            recovery_lock: Arc::new(tokio::sync::Mutex::new(())),
+            extra_headers: reqwest::header::HeaderMap::new(),
+        };
+
+        mcp.initialize().await?;
+        mcp.discover_tools().await?;
+        Ok(mcp)
+    }
+
+    async fn websocket_reader_loop(
+        mut read: futures::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+        pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        >,
+        notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
+        server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
+    ) {
+        use futures::StreamExt;
+        while let Some(msg_result) = read.next().await {
+            match msg_result {
+                Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    match serde_json::from_str::<serde_json::Value>(&text) {
+                        Ok(value) => {
+                            Self::dispatch_incoming(
+                                value,
+                                &pending,
+                                &notification_tx,
+                                &server_request_tx,
+                                "websocket",
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "invalid JSON from WebSocket MCP server");
+                        }
+                    }
+                }
+                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                    tracing::info!("WebSocket MCP connection closed by server");
+                    let _ = notification_tx.send(McpNotification {
+                        method: "xiaolin/transport_disconnected".into(),
+                        params: None,
+                    });
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "WebSocket read error");
+                    let _ = notification_tx.send(McpNotification {
+                        method: "xiaolin/transport_disconnected".into(),
+                        params: None,
+                    });
+                    break;
+                }
+                _ => {}
+            }
+        }
+        tracing::debug!("WebSocket reader loop ended");
     }
 
     async fn streamable_http_listener(
@@ -1224,6 +1351,13 @@ impl McpClient {
                     tracing::warn!("MCP send_response StreamableHttp POST failed: {body}");
                 }
             }
+            McpTransport::WebSocket { ws_write, .. } => {
+                use futures::SinkExt;
+                let mut writer = ws_write.lock().await;
+                writer
+                    .send(tokio_tungstenite::tungstenite::Message::Text(json))
+                    .await?;
+            }
         }
 
         Ok(())
@@ -1398,6 +1532,25 @@ impl McpClient {
                     Ok(resp)
                 }
             }
+            McpTransport::WebSocket {
+                ws_write, pending, ..
+            } => {
+                {
+                    let mut g = pending.lock().await;
+                    g.insert(id_key.clone(), tx);
+                }
+
+                let json = serde_json::to_string(&request)?;
+                {
+                    use futures::SinkExt;
+                    let mut writer = ws_write.lock().await;
+                    writer
+                        .send(tokio_tungstenite::tungstenite::Message::Text(json))
+                        .await?;
+                }
+
+                Self::await_pending_response(pending, &id_key, rx, "WebSocket").await
+            }
         }
     }
 
@@ -1470,7 +1623,8 @@ impl McpClient {
         let init_params = serde_json::json!({
             "protocolVersion": "2025-06-18",
             "capabilities": {
-                "elicitation": {}
+                "elicitation": {},
+                "roots": { "listChanged": true }
             },
             "clientInfo": {
                 "name": "XiaoLin",
@@ -1566,7 +1720,8 @@ impl McpClient {
         let params = serde_json::json!({
             "protocolVersion": "2025-06-18",
             "capabilities": {
-                "elicitation": {}
+                "elicitation": {},
+                "roots": { "listChanged": true }
             },
             "clientInfo": {
                 "name": "XiaoLin",
@@ -1638,6 +1793,14 @@ impl McpClient {
                 }
                 let _ = req.body(json).send().await?;
             }
+            McpTransport::WebSocket { ws_write, .. } => {
+                use futures::SinkExt;
+                let json = serde_json::to_string(&notification)?;
+                let mut writer = ws_write.lock().await;
+                writer
+                    .send(tokio_tungstenite::tungstenite::Message::Text(json))
+                    .await?;
+            }
         }
 
         Ok(())
@@ -1670,15 +1833,31 @@ impl McpClient {
     }
 
     /// Call a tool on the remote MCP server.
+    ///
+    /// If `progress_token` is provided, it is included as `_meta.progressToken`
+    /// in the request so the server can send `notifications/progress` updates.
     pub async fn call_tool(
         &self,
         name: &str,
         arguments: serde_json::Value,
     ) -> anyhow::Result<CallToolResult> {
-        let params = serde_json::json!({
+        self.call_tool_with_progress(name, arguments, None).await
+    }
+
+    /// Call a tool with an optional progress token for tracking long-running operations.
+    pub async fn call_tool_with_progress(
+        &self,
+        name: &str,
+        arguments: serde_json::Value,
+        progress_token: Option<&str>,
+    ) -> anyhow::Result<CallToolResult> {
+        let mut params = serde_json::json!({
             "name": name,
             "arguments": arguments,
         });
+        if let Some(token) = progress_token {
+            params["_meta"] = serde_json::json!({ "progressToken": token });
+        }
 
         let response = self
             .send_request_with_session_recovery("tools/call", Some(params))
@@ -1984,6 +2163,10 @@ impl Drop for McpClient {
                     task.abort();
                 }
             }
+            McpTransport::WebSocket { reader_task, url, .. } => {
+                tracing::debug!(url = %url, "dropping WebSocket MCP client");
+                reader_task.abort();
+            }
         }
     }
 }
@@ -1991,6 +2174,9 @@ impl Drop for McpClient {
 // --- Bridge: Expose XiaoLin tools as MCP ---
 
 /// Create an MCP server pre-populated with XiaoLin's built-in tools.
+///
+/// Tools with the `mcp__` prefix are excluded to avoid circular delegation
+/// (remote MCP tools re-exported through the reverse server).
 pub fn create_xiaolin_mcp_server(
     tool_registry: &Arc<xiaolin_core::tool::ToolRegistry>,
 ) -> McpServer {
@@ -1998,6 +2184,9 @@ pub fn create_xiaolin_mcp_server(
 
     for def in tool_registry.definitions().iter() {
         let tool_name = def.function.name.clone();
+        if naming::is_mcp_tool(&tool_name) {
+            continue;
+        }
         let mcp_tool = McpTool {
             name: tool_name.clone(),
             description: Some(def.function.description.clone()),
@@ -2429,6 +2618,10 @@ async fn connect_mcp_server_inner(
             let headers = resolve_mcp_http_headers(cfg)?;
             register_mcp_tools_streamable_http(url, registry, &prefix, headers).await
         }
+        McpTransportType::WebSocket => {
+            let url = cfg.url.as_deref().unwrap_or("");
+            register_mcp_tools_websocket(url, registry, &prefix).await
+        }
         McpTransportType::Http => unreachable!("effective() normalizes Http → StreamableHttp"),
     }
 }
@@ -2564,6 +2757,38 @@ pub async fn register_mcp_tools_streamable_http(
         prefix = server_prefix,
         url,
         "registered MCP tools (Streamable HTTP) into XiaoLin"
+    );
+    Ok(shared)
+}
+
+/// Register MCP tools from a WebSocket MCP server.
+pub async fn register_mcp_tools_websocket(
+    url: &str,
+    registry: &xiaolin_core::tool::ToolRegistry,
+    server_prefix: &str,
+) -> anyhow::Result<SharedMcpClient> {
+    let client = McpClient::connect_websocket(url).await?;
+    let tools = client.tools().to_vec();
+    let shared = Arc::new(client);
+
+    let mut registered = 0usize;
+    let mut seen = std::collections::HashSet::new();
+    for tool in &tools {
+        let sanitized = format!("{server_prefix}{}", naming::sanitize_for_api(&tool.name));
+        if !seen.insert(sanitized.clone()) {
+            tracing::warn!(tool = %sanitized, "skipping duplicate MCP tool within same server (post-sanitize collision)");
+            continue;
+        }
+        let bridge = McpToolBridge::new(tool, shared.clone(), server_prefix);
+        registry.register(Arc::new(bridge));
+        registered += 1;
+    }
+
+    tracing::info!(
+        count = registered,
+        prefix = server_prefix,
+        url,
+        "registered MCP tools (WebSocket) into XiaoLin"
     );
     Ok(shared)
 }

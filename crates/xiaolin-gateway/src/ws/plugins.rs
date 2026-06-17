@@ -468,7 +468,37 @@ pub async fn handle_plugins_oauth_login(
     let pkce = oauth::PkceChallenge::generate();
     let state_param = format!("xiaolin_{}", chrono::Utc::now().timestamp_millis());
 
-    let auth_url = match oauth_client.build_authorization_url(&pkce, &redirect_uri, &state_param, None) {
+    let dcr_client_id: Option<String> = if oauth_client.supports_dcr() {
+        match oauth_client.register_client(std::slice::from_ref(&redirect_uri)).await {
+            Ok(reg) => {
+                tracing::info!(
+                    server = %plugin_id, client_id = %reg.client_id,
+                    "DCR successful, using dynamic client_id"
+                );
+                if let Ok(json) = serde_json::to_string(&reg) {
+                    let dcr_token = oauth::StoredToken {
+                        access_token: String::new(),
+                        refresh_token: None,
+                        expires_at: None,
+                        server_url: format!("dcr:{}", json),
+                    };
+                    let _ = oauth::save_stored_token(&format!("{plugin_id}__dcr"), &dcr_token);
+                }
+                Some(reg.client_id)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    server = %plugin_id, error = %e,
+                    "DCR failed, falling back to server URL as client_id"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let auth_url = match oauth_client.build_authorization_url(&pkce, &redirect_uri, &state_param, dcr_client_id.as_deref()) {
         Ok(u) => u,
         Err(e) => {
             send_error(

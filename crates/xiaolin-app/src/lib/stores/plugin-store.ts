@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as transport from "../transport";
 import type { AddMcpServerParams, PluginSummary, PluginTool } from "../transport";
+import { useStreamStore } from "./stream-store";
 
 export interface PluginStoreState {
   plugins: PluginSummary[];
@@ -149,16 +150,41 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
   },
 }));
 
-let unsubscribe: (() => void) | null = null;
+let unsubscribers: (() => void)[] = [];
 
 export function subscribePluginEvents() {
-  if (unsubscribe) return;
-  unsubscribe = transport.onPluginsStatusChanged((plugins) => {
-    usePluginStore.setState({ plugins });
-  });
+  if (unsubscribers.length > 0) return;
+  unsubscribers.push(
+    transport.onPluginsStatusChanged((plugins) => {
+      usePluginStore.setState({ plugins });
+    }),
+  );
+  unsubscribers.push(
+    transport.onPluginEvent("plugins.resources_changed", () => {
+      usePluginStore.getState().fetchPlugins();
+    }),
+  );
+  unsubscribers.push(
+    transport.onPluginEvent("plugins.prompts_changed", () => {
+      usePluginStore.getState().fetchPlugins();
+    }),
+  );
+  unsubscribers.push(
+    transport.onPluginEvent("plugins.tool_progress", (data) => {
+      const token = data.progressToken as string | undefined;
+      if (!token) return;
+      const progress = data.progress as number | undefined;
+      const total = data.total as number | undefined;
+      const ratio = progress != null && total ? progress / total : undefined;
+      useStreamStore.getState().setToolProgress(token, {
+        progress: ratio,
+        message: (data.message as string) || undefined,
+      });
+    }),
+  );
 }
 
 export function unsubscribePluginEvents() {
-  unsubscribe?.();
-  unsubscribe = null;
+  for (const unsub of unsubscribers) unsub();
+  unsubscribers = [];
 }

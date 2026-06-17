@@ -47,6 +47,8 @@ pub enum McpTransportType {
     StreamableHttp,
     #[serde(alias = "http")]
     Http,
+    #[serde(alias = "ws")]
+    WebSocket,
 }
 
 impl McpTransportType {
@@ -65,6 +67,7 @@ impl std::fmt::Display for McpTransportType {
             Self::Sse => write!(f, "sse"),
             Self::StreamableHttp => write!(f, "streamable_http"),
             Self::Http => write!(f, "http"),
+            Self::WebSocket => write!(f, "websocket"),
         }
     }
 }
@@ -111,7 +114,7 @@ impl McpServerConfig {
             McpTransportType::Stdio => {
                 format!("stdio:{}:{}", self.command, self.args.join(" "))
             }
-            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::Http => {
+            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::Http | McpTransportType::WebSocket => {
                 format!("url:{}", self.url.as_deref().unwrap_or(""))
             }
         }
@@ -136,7 +139,7 @@ impl McpServerConfig {
                     ));
                 }
             }
-            McpTransportType::Sse | McpTransportType::StreamableHttp => {
+            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::WebSocket => {
                 if self.url.as_ref().is_none_or(|u| u.is_empty()) {
                     return Err(format!(
                         "MCP server '{}': {} transport requires a non-empty 'url'",

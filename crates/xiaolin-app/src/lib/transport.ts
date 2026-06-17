@@ -681,7 +681,7 @@ export interface AddMcpServerParams {
   id: string;
   command?: string;
   args?: string[];
-  transport?: "stdio" | "sse" | "streamable_http" | "http";
+  transport?: "stdio" | "sse" | "streamable_http" | "http" | "websocket";
   url?: string;
   env?: Record<string, string>;
   bearer_token_env_var?: string;
@@ -1324,6 +1324,16 @@ export function onPluginsStatusChanged(
   return wsClient.on("plugins.status_changed", (raw) => {
     const msg = raw as { data?: { plugins?: PluginSummary[] } };
     if (msg?.data?.plugins) handler(msg.data.plugins);
+  });
+}
+
+export function onPluginEvent(
+  event: string,
+  handler: (data: Record<string, unknown>) => void,
+): () => void {
+  return wsClient.on(event, (raw) => {
+    const msg = raw as { data?: Record<string, unknown> };
+    handler(msg?.data ?? {});
   });
 }
 

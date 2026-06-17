@@ -11,6 +11,7 @@ browser = ["dep:xiaolin-tools-browser"]
 [dependencies]
 bytes = "1"
 xiaolin-core = { path = "../xiaolin-core" }
+xiaolin-mcp = { path = "../xiaolin-mcp" }
 xiaolin-protocol = { path = "../xiaolin-protocol" }
 xiaolin-session-actor = { path = "../xiaolin-session-actor" }
 xiaolin-context = { path = "../xiaolin-context" }

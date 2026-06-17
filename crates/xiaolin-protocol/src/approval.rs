@@ -62,6 +62,11 @@ pub enum PendingAction {
         diff: Option<String>,
     },
     NetworkAccess { host: String, port: u16 },
+    McpToolCall {
+        server_id: String,
+        tool_name: String,
+        arguments_summary: String,
+    },
 }
 
 #[cfg(test)]

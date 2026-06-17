@@ -18,7 +18,8 @@ use xiaolin_protocol::{AgentEvent, TurnId};
 use xiaolin_session_actor::InteractionHandle;
 
 use super::approval_cache::ApprovalCache;
-use super::orchestrator::{OrchestratorContext, ToolOrchestrator};
+use super::orchestrator::OrchestratorContext;
+use super::orchestrator::ToolOrchestrator;
 use super::permissions::DenialTracker;
 use super::runtimes::RuntimeRegistry;
 use super::tool_executor::truncate_tool_result_output_with_limit;
@@ -133,6 +134,10 @@ impl ToolDispatcher {
         let start = std::time::Instant::now();
         let result = if self.runtime_registry.has(&tool_name) {
             self.execute_guarded(&effective_tc, ctx).await
+        } else if xiaolin_mcp::naming::is_mcp_tool(&tool_name)
+            && ctx.behavior.requires_confirmation(&tool_name)
+        {
+            self.execute_mcp_with_approval(&effective_tc, ctx).await
         } else {
             self.execute_unguarded(&effective_tc, ctx).await
         };
@@ -603,6 +608,56 @@ impl ToolDispatcher {
         }
     }
 
+    /// Execute an MCP tool after getting user approval through the orchestrator.
+    ///
+    /// MCP tools don't have a `ToolRuntime` entry, so they can't use the
+    /// standard `execute_guarded` path. This method runs the approval pipeline
+    /// via `ToolOrchestrator::authorize_mcp_tool` and then executes through
+    /// the normal `ToolRegistry::call` path.
+    async fn execute_mcp_with_approval(
+        &self,
+        tc: &ToolCall,
+        ctx: &mut DispatchContext<'_>,
+    ) -> ToolResult {
+        let tool_name = &tc.function.name;
+        let cwd = ctx
+            .work_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let mut orch_ctx = OrchestratorContext {
+            turn_id: ctx.turn_id,
+            cwd: &cwd,
+            call_id: &tc.id,
+            approval_cache: ctx.approval_cache,
+            approval_strategy: ctx.approval_strategy,
+            interaction_handle: ctx.interaction_handle,
+            event_tx: ctx.event_tx,
+            denial_tracker: ctx.denial_tracker,
+            behavior_overrides: ctx.behavior_overrides,
+            session_id: ctx.session_id,
+        };
+
+        if let Err(e) = self
+            .orchestrator
+            .authorize_mcp_tool(tool_name, &tc.function.arguments, &mut orch_ctx)
+            .await
+        {
+            return match e {
+                xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason } => {
+                    ToolResult::err(format!("Denied: {reason}"))
+                }
+                xiaolin_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms } => {
+                    ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
+                }
+                other => ToolResult::err(other.to_string()),
+            };
+        }
+
+        self.execute_unguarded(tc, ctx).await
+    }
+
     /// Execute a tool with Full file access after explicit user approval.
     /// User approval means the user has reviewed and accepted the specific action,
     /// so path restrictions should not block execution.
@@ -1045,5 +1100,50 @@ mod tests {
             normalize_path_for_comparison(&expand_tilde(&tilde)),
             normalize_path_for_comparison(&plan_path)
         );
+    }
+
+    #[test]
+    fn mcp_tool_needs_confirmation_with_tools_ask() {
+        let behavior = BehaviorConfig {
+            tools_ask: vec!["mcp__*".into()],
+            ..Default::default()
+        };
+        assert!(behavior.requires_confirmation("mcp__github__create_issue"));
+        assert!(behavior.requires_confirmation("mcp__filesystem__read"));
+        assert!(!behavior.requires_confirmation("read_file"));
+        assert!(!behavior.requires_confirmation("shell_exec"));
+    }
+
+    #[test]
+    fn mcp_tool_server_specific_ask_pattern() {
+        let behavior = BehaviorConfig {
+            tools_ask: vec!["mcp__dangerous__*".into()],
+            ..Default::default()
+        };
+        assert!(behavior.requires_confirmation("mcp__dangerous__delete_all"));
+        assert!(!behavior.requires_confirmation("mcp__safe__search"));
+    }
+
+    #[test]
+    fn mcp_tool_auto_execute_with_tools_allow() {
+        let behavior = BehaviorConfig {
+            tools_allow: vec!["mcp__*".into(), "read_file".into()],
+            ..Default::default()
+        };
+        assert!(behavior.is_tool_allowed("mcp__github__list_repos"));
+        assert!(!behavior.requires_confirmation("mcp__github__list_repos"));
+    }
+
+    #[test]
+    fn mcp_tool_routing_goes_through_approval_branch() {
+        let behavior = BehaviorConfig {
+            tools_ask: vec!["mcp__*".into()],
+            ..Default::default()
+        };
+        let tool_name = "mcp__github__create_issue";
+        let is_mcp = xiaolin_mcp::naming::is_mcp_tool(tool_name);
+        let needs_confirm = behavior.requires_confirmation(tool_name);
+        assert!(is_mcp, "should be detected as MCP tool");
+        assert!(needs_confirm, "should require confirmation per tools_ask");
     }
 }

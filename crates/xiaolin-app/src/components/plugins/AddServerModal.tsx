@@ -1,10 +1,10 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { X, Plus, Trash, Terminal, Globe, Lightning } from "@phosphor-icons/react";
+import { X, Plus, Trash, Terminal, Globe, Lightning, ArrowsClockwise } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore } from "../../lib/stores/plugin-store";
 import { ICON_SIZE, BTN_PRIMARY_SM } from "../../lib/ui-tokens";
 
-type TransportType = "stdio" | "sse" | "streamable_http";
+type TransportType = "stdio" | "sse" | "streamable_http" | "websocket";
 
 interface KvEntry {
   key: string;
@@ -27,6 +27,7 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; icon: typeof Ter
   { value: "stdio", label: "Stdio", icon: Terminal },
   { value: "sse", label: "SSE", icon: Globe },
   { value: "streamable_http", label: "Streamable HTTP", icon: Lightning },
+  { value: "websocket", label: "WebSocket", icon: ArrowsClockwise },
 ];
 
 export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) {

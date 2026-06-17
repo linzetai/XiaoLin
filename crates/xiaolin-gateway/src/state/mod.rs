@@ -1414,14 +1414,57 @@ impl AppState {
                             "notifications/resources/list_changed" => {
                                 tracing::info!(
                                     mcp_id = %id,
-                                    "resources/list_changed received"
+                                    "resources/list_changed received, refreshing"
                                 );
+                                if let Some(client) = weak_client.upgrade() {
+                                    match client.list_resources().await {
+                                        Ok(resources) => {
+                                            tracing::info!(
+                                                mcp_id = %id,
+                                                count = resources.len(),
+                                                "refreshed resources after list_changed"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                mcp_id = %id,
+                                                error = %e,
+                                                "failed to refresh resources after list_changed"
+                                            );
+                                        }
+                                    }
+                                }
+                                if let Some(ref tx) = ws_broadcast {
+                                    let _ = tx.send(serde_json::json!({
+                                        "type": "event",
+                                        "event": "plugins.resources_changed",
+                                        "data": { "server": id }
+                                    }).to_string());
+                                }
                             }
                             "notifications/prompts/list_changed" => {
                                 tracing::info!(
                                     mcp_id = %id,
-                                    "prompts/list_changed received"
+                                    "prompts/list_changed received, refreshing"
                                 );
+                                if let Some(client) = weak_client.upgrade() {
+                                    match client.list_prompts().await {
+                                        Ok(prompts) => {
+                                            tracing::info!(
+                                                mcp_id = %id,
+                                                count = prompts.len(),
+                                                "refreshed prompts after list_changed"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                mcp_id = %id,
+                                                error = %e,
+                                                "failed to refresh prompts after list_changed"
+                                            );
+                                        }
+                                    }
+                                }
                                 if let Some(ref tx) = ws_broadcast {
                                     let _ = tx.send(serde_json::json!({
                                         "type": "event",
@@ -1447,6 +1490,40 @@ impl AppState {
                                         _ => tracing::info!(
                                             mcp_id = %id, ?data, "MCP server message"
                                         ),
+                                    }
+                                }
+                            }
+                            "notifications/progress" => {
+                                if let Some(ref params) = notif.params {
+                                    let progress_token = params.get("progressToken")
+                                        .and_then(|v| v.as_str().map(String::from)
+                                            .or_else(|| v.as_i64().map(|n| n.to_string())));
+                                    let progress = params.get("progress")
+                                        .and_then(|v| v.as_f64());
+                                    let total = params.get("total")
+                                        .and_then(|v| v.as_f64());
+                                    let message = params.get("message")
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from);
+
+                                    tracing::debug!(
+                                        mcp_id = %id,
+                                        ?progress_token, ?progress, ?total, ?message,
+                                        "MCP progress notification"
+                                    );
+
+                                    if let Some(ref tx) = ws_broadcast {
+                                        let _ = tx.send(serde_json::json!({
+                                            "type": "event",
+                                            "event": "plugins.tool_progress",
+                                            "data": {
+                                                "server": id,
+                                                "progressToken": progress_token,
+                                                "progress": progress,
+                                                "total": total,
+                                                "message": message,
+                                            }
+                                        }).to_string());
                                     }
                                 }
                             }
@@ -1672,6 +1749,32 @@ impl AppState {
                                         );
                                     }
                                 });
+                            }
+                            "roots/list" => {
+                                let cwd = std::env::current_dir().unwrap_or_default();
+                                let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+                                let uri = format!(
+                                    "file://{}",
+                                    ws_root.to_string_lossy().replace('\\', "/")
+                                );
+                                tracing::info!(
+                                    mcp_id = %id,
+                                    root = %uri,
+                                    "responding to roots/list"
+                                );
+                                let result = serde_json::json!({
+                                    "roots": [{
+                                        "uri": uri,
+                                        "name": ws_root.file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string(),
+                                    }]
+                                });
+                                let response = xiaolin_mcp::JsonRpcResponse::success(
+                                    req.id, result,
+                                );
+                                let _ = client.send_response(response).await;
                             }
                             other => {
                                 tracing::warn!(

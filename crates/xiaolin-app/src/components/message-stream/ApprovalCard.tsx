@@ -13,6 +13,9 @@ export interface ApprovalData {
     cwd?: string;
     content?: string;
     diff?: string;
+    server_id?: string;
+    tool_name?: string;
+    arguments_summary?: string;
   };
   decisions: Array<{ id: string; label: string; prefix?: string[] }>;
   riskLevel: "low" | "medium" | "high";
@@ -48,6 +51,8 @@ function getIntentTitle(action?: ApprovalData["action"]): string {
       return "允许修改此文件？";
     case "network_access":
       return "允许网络访问？";
+    case "mcp_tool_call":
+      return `允许调用 MCP 工具？`;
     default:
       return "需要你的许可";
   }
@@ -161,6 +166,38 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
           >
             {data.action.path}
           </span>
+        </div>
+      )}
+
+      {/* MCP tool call details */}
+      {data.action?.action_type === "mcp_tool_call" && data.action?.server_id && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--fill-secondary)" }}>
+            <span
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium"
+              style={{ background: "var(--bg-elevated)", color: "var(--fill-primary)" }}
+            >
+              {data.action.server_id}
+            </span>
+            <span style={{ color: "var(--fill-tertiary)" }}>/</span>
+            <span style={{ fontFamily: "var(--font-mono, ui-monospace, monospace)", color: "var(--fill-primary)" }}>
+              {data.action.tool_name}
+            </span>
+          </div>
+          {data.action.arguments_summary && (
+            <pre
+              className="mt-1.5 max-h-32 overflow-auto rounded-md p-2 text-xs leading-relaxed"
+              style={{
+                background: "var(--bg-code, rgba(0,0,0,0.04))",
+                color: "var(--fill-primary)",
+                fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+              }}
+            >
+              {data.action.arguments_summary}
+            </pre>
+          )}
         </div>
       )}
 

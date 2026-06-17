@@ -10376,6 +10376,7 @@ dependencies = [
  "xiaolin-evolution",
  "xiaolin-execpolicy",
  "xiaolin-guardian",
+ "xiaolin-mcp",
  "xiaolin-memory",
  "xiaolin-network-proxy",
  "xiaolin-observe",
@@ -10661,6 +10662,7 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "base64 0.22.1",
+ "chrono",
  "dirs 5.0.1",
  "futures",
  "rand 0.9.4",
@@ -10669,6 +10671,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "tokio-tungstenite 0.24.0",
  "tracing",
  "xiaolin-core",
 ]

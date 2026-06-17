@@ -78,10 +78,30 @@ pub fn map_tool_to_pending_action(
                 diff: None,
             }
         }
-        _ => PendingAction::ShellCommand {
-            command: format!("{tool_name}({arguments})"),
-            cwd,
-        },
+        _ => {
+            if let Some((server_id, raw_tool)) = xiaolin_mcp::naming::parse_mcp_tool_name(tool_name) {
+                let args_summary = truncate_args_summary(arguments, 200);
+                PendingAction::McpToolCall {
+                    server_id: server_id.to_string(),
+                    tool_name: raw_tool.to_string(),
+                    arguments_summary: args_summary,
+                }
+            } else {
+                PendingAction::ShellCommand {
+                    command: format!("{tool_name}({arguments})"),
+                    cwd,
+                }
+            }
+        }
+    }
+}
+
+fn truncate_args_summary(arguments: &str, max_len: usize) -> String {
+    if arguments.chars().count() <= max_len {
+        arguments.to_string()
+    } else {
+        let truncated: String = arguments.chars().take(max_len).collect();
+        format!("{truncated}...")
     }
 }
 
@@ -99,6 +119,9 @@ fn action_to_command_tokens(action: &PendingAction) -> Vec<String> {
         }
         PendingAction::NetworkAccess { host, port } => {
             vec!["network".into(), host.clone(), port.to_string()]
+        }
+        PendingAction::McpToolCall { server_id, tool_name, .. } => {
+            vec!["mcp".into(), server_id.clone(), tool_name.clone()]
         }
         _ => vec!["unknown".into()],
     }
@@ -143,6 +166,7 @@ pub fn infer_risk_level(action: &PendingAction, workspace: &Path) -> ActionRiskL
             ActionRiskLevel::Medium
         }
         PendingAction::NetworkAccess { .. } => ActionRiskLevel::Medium,
+        PendingAction::McpToolCall { .. } => ActionRiskLevel::Medium,
         _ => ActionRiskLevel::Medium,
     }
 }
@@ -399,6 +423,222 @@ impl ToolOrchestrator {
                             .record_denial(runtime.name(), &format!("{args}"));
                         Err(e)
                     }
+                }
+            }
+        }
+    }
+
+    /// Authorize an MCP tool call without requiring a ToolRuntime.
+    ///
+    /// This is used by the dispatcher for MCP tools (which don't have a
+    /// RuntimeRegistry entry) when the behavior config requires confirmation.
+    pub async fn authorize_mcp_tool(
+        &self,
+        tool_name: &str,
+        arguments: &str,
+        ctx: &mut OrchestratorContext<'_>,
+    ) -> Result<(), ToolRuntimeError> {
+        let approval_keys = vec![format!("tool_session:{tool_name}")];
+
+        if ctx.denial_tracker.is_denied(tool_name, arguments) {
+            return Err(ToolRuntimeError::Rejected {
+                reason: "previously denied in this session".to_string(),
+            });
+        }
+
+        if ctx.approval_cache.check(&approval_keys).is_some() {
+            return Ok(());
+        }
+
+        let action = map_tool_to_pending_action(
+            tool_name,
+            arguments,
+            ctx.cwd.to_str(),
+        );
+        let tokens = action_to_command_tokens(&action);
+        let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        let policy_decision = {
+            let policy = self.policy.lock().await;
+            policy.evaluate(&token_refs).decision
+        };
+
+        match policy_decision {
+            PolicyDecision::Allow { .. } => return Ok(()),
+            PolicyDecision::Forbidden { justification, .. } => {
+                return Err(ToolRuntimeError::Rejected {
+                    reason: justification,
+                });
+            }
+            PolicyDecision::Prompt { .. } => { /* fall through to strategy */ }
+        }
+
+        if let (Some(overrides), Some(sid)) = (&ctx.behavior_overrides, ctx.session_id) {
+            if let Some(entry) = overrides.get(sid) {
+                if let Some(ref strat) = entry.approval_strategy {
+                    if strat.eq_ignore_ascii_case("auto_approve")
+                        || strat.eq_ignore_ascii_case("autoapprove")
+                    {
+                        ctx.approval_cache
+                            .store(&approval_keys, ApprovalDecision::ApprovedAllForSession);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        match ctx.approval_strategy {
+            ApprovalStrategy::AutoApprove => {
+                ctx.approval_cache
+                    .store(&approval_keys, ApprovalDecision::ApprovedForSession);
+                Ok(())
+            }
+            ApprovalStrategy::DenyAll => Err(ToolRuntimeError::Rejected {
+                reason: "approval required but strategy is DenyAll".into(),
+            }),
+            ApprovalStrategy::PolicyBased => Err(ToolRuntimeError::Rejected {
+                reason: "MCP tool requires approval but no interactive session".into(),
+            }),
+            ApprovalStrategy::Interactive => {
+                let ih = ctx.interaction_handle.ok_or(ToolRuntimeError::Internal {
+                    message: "Interactive strategy requires an InteractionHandle".into(),
+                })?;
+
+                let approval_id = uuid::Uuid::new_v4().to_string();
+                let risk = infer_risk_level(&action, ctx.cwd);
+                let available_decisions = vec![
+                    ApprovalDecision::Approved,
+                    ApprovalDecision::ApprovedForSession,
+                    ApprovalDecision::ApprovedAllForSession,
+                    ApprovalDecision::Denied,
+                    ApprovalDecision::Abort,
+                ];
+
+                let _ = ctx
+                    .event_tx
+                    .send(AgentEvent::ApprovalRequired {
+                        turn_id: ctx.turn_id.clone(),
+                        approval_id: approval_id.clone(),
+                        action: action.clone(),
+                        reason: format!("MCP tool call: {tool_name}"),
+                        available_decisions,
+                        session_id: None,
+                        risk_level: Some(risk),
+                    })
+                    .await;
+
+                let rx = ih.request_approval(approval_id.clone(), &action);
+
+                let decision = match tokio::time::timeout(
+                    std::time::Duration::from_secs(300),
+                    rx,
+                )
+                .await
+                {
+                    Ok(Ok(d)) => d,
+                    Ok(Err(_)) => ApprovalDecision::TimedOut,
+                    Err(_) => ApprovalDecision::TimedOut,
+                };
+
+                match &decision {
+                    ApprovalDecision::ApprovedAllForSession => {
+                        ctx.approval_cache
+                            .store(&approval_keys, ApprovalDecision::ApprovedAllForSession);
+                    }
+                    ApprovalDecision::ApprovedForSession => {
+                        ctx.approval_cache
+                            .store(&approval_keys, ApprovalDecision::ApprovedForSession);
+                    }
+                    _ => {}
+                }
+
+                let _ = ctx
+                    .event_tx
+                    .send(AgentEvent::ApprovalResolved {
+                        turn_id: ctx.turn_id.clone(),
+                        approval_id,
+                        decision: decision.clone(),
+                        source: "user".to_string(),
+                    })
+                    .await;
+
+                match decision {
+                    ApprovalDecision::Approved
+                    | ApprovalDecision::ApprovedForSession
+                    | ApprovalDecision::ApprovedAllForSession => Ok(()),
+                    ApprovalDecision::Denied => {
+                        ctx.denial_tracker.record_denial(tool_name, arguments);
+                        Err(ToolRuntimeError::Rejected {
+                            reason: "user denied MCP tool call".into(),
+                        })
+                    }
+                    ApprovalDecision::Abort => Err(ToolRuntimeError::Rejected {
+                        reason: "user aborted".into(),
+                    }),
+                    ApprovalDecision::TimedOut => Err(ToolRuntimeError::Rejected {
+                        reason: "MCP tool approval timed out".into(),
+                    }),
+                    _ => Err(ToolRuntimeError::Rejected {
+                        reason: "unexpected approval decision".into(),
+                    }),
+                }
+            }
+            ApprovalStrategy::Bubble(port) => {
+                let approval_id = uuid::Uuid::new_v4().to_string();
+                let risk = infer_risk_level(&action, ctx.cwd);
+                let available_decisions = vec![
+                    ApprovalDecision::Approved,
+                    ApprovalDecision::ApprovedForSession,
+                    ApprovalDecision::Denied,
+                ];
+
+                let rx = port.register(approval_id.clone());
+
+                let _ = ctx
+                    .event_tx
+                    .send(AgentEvent::ApprovalRequired {
+                        turn_id: ctx.turn_id.clone(),
+                        approval_id: approval_id.clone(),
+                        action: action.clone(),
+                        reason: format!("MCP tool call: {tool_name}"),
+                        available_decisions,
+                        session_id: None,
+                        risk_level: Some(risk),
+                    })
+                    .await;
+
+                let decision = match tokio::time::timeout(
+                    std::time::Duration::from_secs(300),
+                    rx,
+                )
+                .await
+                {
+                    Ok(Ok(d)) => d,
+                    Ok(Err(_)) => ApprovalDecision::TimedOut,
+                    Err(_) => ApprovalDecision::TimedOut,
+                };
+
+                match &decision {
+                    ApprovalDecision::ApprovedForSession
+                    | ApprovalDecision::ApprovedAllForSession => {
+                        ctx.approval_cache
+                            .store(&approval_keys, decision.clone());
+                    }
+                    _ => {}
+                }
+
+                match decision {
+                    ApprovalDecision::Approved
+                    | ApprovalDecision::ApprovedForSession
+                    | ApprovalDecision::ApprovedAllForSession => Ok(()),
+                    ApprovalDecision::Denied => {
+                        ctx.denial_tracker.record_denial(tool_name, arguments);
+                        Err(ToolRuntimeError::Rejected {
+                            reason: "user denied MCP tool call".into(),
+                        })
+                    }
+                    _ => Err(ToolRuntimeError::Rejected {
+                        reason: "MCP tool approval timed out or aborted".into(),
+                    }),
                 }
             }
         }
