@@ -565,6 +565,122 @@ mod tests {
         assert!(client.supports_dcr());
     }
 
+    #[tokio::test]
+    async fn register_client_with_mock_dcr_endpoint() {
+        use axum::body::Bytes;
+        use axum::http::StatusCode;
+        use axum::routing::post;
+        use axum::Router;
+
+        async fn handle_register(body: Bytes) -> (StatusCode, String) {
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(v["client_name"], "XiaoLin");
+            assert!(v["redirect_uris"].is_array());
+            assert_eq!(v["grant_types"][0], "authorization_code");
+            assert_eq!(v["response_types"][0], "code");
+
+            let resp = serde_json::json!({
+                "client_id": "dcr-client-id-001",
+                "client_secret": "dcr-secret-xyz",
+                "client_id_issued_at": 1700000000,
+                "redirect_uris": v["redirect_uris"]
+            });
+            (StatusCode::CREATED, serde_json::to_string(&resp).unwrap())
+        }
+
+        let app = Router::new().route("/register", post(handle_register));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let reg_endpoint = format!("http://127.0.0.1:{}/register", addr.port());
+        let mut client = McpOAuthClient::new("https://mcp.example.com");
+        client.metadata = Some(OAuthMetadata {
+            authorization_endpoint: "https://auth.example.com/authorize".into(),
+            token_endpoint: "https://auth.example.com/token".into(),
+            registration_endpoint: Some(reg_endpoint),
+            code_challenge_methods_supported: vec!["S256".into()],
+            response_types_supported: vec!["code".into()],
+            grant_types_supported: vec!["authorization_code".into()],
+        });
+
+        assert!(client.supports_dcr());
+        let reg = client
+            .register_client(&["http://127.0.0.1:9999/callback".into()])
+            .await
+            .expect("DCR should succeed");
+        assert_eq!(reg.client_id, "dcr-client-id-001");
+        assert_eq!(reg.client_secret.as_deref(), Some("dcr-secret-xyz"));
+        assert_eq!(reg.client_id_issued_at, Some(1700000000));
+    }
+
+    #[tokio::test]
+    async fn register_client_dcr_failure_returns_error() {
+        use axum::body::Bytes;
+        use axum::http::StatusCode;
+        use axum::routing::post;
+        use axum::Router;
+
+        async fn handle_register(_body: Bytes) -> (StatusCode, String) {
+            (StatusCode::BAD_REQUEST, r#"{"error":"invalid_client_metadata"}"#.into())
+        }
+
+        let app = Router::new().route("/register", post(handle_register));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let reg_endpoint = format!("http://127.0.0.1:{}/register", addr.port());
+        let mut client = McpOAuthClient::new("https://mcp.example.com");
+        client.metadata = Some(OAuthMetadata {
+            authorization_endpoint: "https://auth.example.com/authorize".into(),
+            token_endpoint: "https://auth.example.com/token".into(),
+            registration_endpoint: Some(reg_endpoint),
+            code_challenge_methods_supported: vec![],
+            response_types_supported: vec![],
+            grant_types_supported: vec![],
+        });
+
+        let result = client
+            .register_client(&["http://127.0.0.1:9999/callback".into()])
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("DCR failed") || err.contains("400"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn file_token_store_save_load_delete() {
+        let unique_id = format!("__test_token_store_{}", std::process::id());
+
+        let loaded = load_stored_token(&unique_id);
+        assert!(loaded.is_none(), "should be empty initially");
+
+        let token = StoredToken {
+            access_token: "tok-abc".into(),
+            refresh_token: Some("ref-xyz".into()),
+            expires_at: Some(9999999999),
+            server_url: "https://example.com".into(),
+        };
+        save_stored_token(&unique_id, &token).unwrap();
+
+        let loaded = load_stored_token(&unique_id);
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.access_token, "tok-abc");
+        assert_eq!(loaded.refresh_token.as_deref(), Some("ref-xyz"));
+
+        remove_stored_token(&unique_id);
+        let loaded = load_stored_token(&unique_id);
+        assert!(loaded.is_none(), "should be empty after delete");
+    }
+
     #[test]
     fn build_authorization_url_works() {
         let mut client = McpOAuthClient::new("https://mcp.example.com");

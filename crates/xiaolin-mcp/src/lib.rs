@@ -4413,4 +4413,634 @@ mod tests {
         let json = serde_json::to_value(&decline).unwrap();
         assert_eq!(json["result"]["action"], "decline");
     }
+
+    // ---- [2.5] Progress notification tests ----
+
+    #[tokio::test]
+    async fn progress_notification_dispatched_to_subscriber() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, mut nrx) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let progress_notif = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "tok-42",
+                "progress": 3,
+                "total": 10,
+                "message": "Processing item 3/10"
+            }
+        });
+
+        McpClient::dispatch_incoming(progress_notif, &pending, &ntx, &srtx, "test-server").await;
+
+        let notif = nrx.try_recv().expect("should receive progress notification");
+        assert_eq!(notif.method, "notifications/progress");
+        let params = notif.params.unwrap();
+        assert_eq!(params["progressToken"], "tok-42");
+        assert_eq!(params["progress"], 3);
+        assert_eq!(params["total"], 10);
+        assert_eq!(params["message"], "Processing item 3/10");
+    }
+
+    #[tokio::test]
+    async fn call_tool_with_progress_injects_meta_token() {
+        use axum::body::Bytes;
+        use axum::extract::State as AxState;
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        #[derive(Clone, Default)]
+        struct St {
+            captured_meta: Arc<Mutex<Option<serde_json::Value>>>,
+        }
+
+        async fn handle_post(
+            AxState(st): AxState<Arc<St>>,
+            _headers: HeaderMap,
+            body: Bytes,
+        ) -> (StatusCode, HeaderMap, String) {
+            let text = String::from_utf8_lossy(&body);
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            if method == "notifications/initialized" {
+                return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+            }
+
+            let req: JsonRpcRequest = serde_json::from_value(v.clone()).unwrap();
+            match req.method.as_str() {
+                "initialize" => {
+                    let mut h = HeaderMap::new();
+                    h.insert("Mcp-Session-Id", "progress-sess".parse().unwrap());
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(InitializeResult {
+                            protocol_version: "2025-06-18".into(),
+                            capabilities: ServerCapabilities {
+                                tools: Some(ToolCapability { list_changed: false }),
+                                resources: None,
+                                prompts: None,
+                            },
+                            server_info: ServerInfo {
+                                name: "progress-test".into(),
+                                version: "1.0.0".into(),
+                            },
+                            instructions: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, h, body)
+                }
+                "tools/list" => {
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(ToolListResult {
+                            tools: vec![McpTool {
+                                name: "slow_op".into(),
+                                description: Some("A slow operation".into()),
+                                input_schema: None,
+                                meta: None,
+                            }],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+                "tools/call" => {
+                    if let Some(params) = v.get("params") {
+                        if let Some(meta) = params.get("_meta") {
+                            *st.captured_meta.lock().await = Some(meta.clone());
+                        }
+                    }
+                    let body = serde_json::to_string(&JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(CallToolResult {
+                            content: vec![ToolContent::Text {
+                                text: "done".into(),
+                            }],
+                            is_error: false,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+                _ => {
+                    let body = serde_json::to_string(&JsonRpcResponse::error(
+                        req.id.clone(),
+                        -32601,
+                        "unknown",
+                    ))
+                    .unwrap();
+                    (StatusCode::OK, HeaderMap::new(), body)
+                }
+            }
+        }
+
+        let state = Arc::new(St::default());
+        let check = state.captured_meta.clone();
+        let app = Router::new()
+            .route("/mcp", post(handle_post))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let url = format!("http://127.0.0.1:{}/mcp", addr.port());
+        let client = McpClient::connect_streamable_http(&url, Default::default())
+            .await
+            .expect("connect");
+
+        let result = client
+            .call_tool_with_progress("slow_op", serde_json::json!({"input": "x"}), Some("my-token"))
+            .await
+            .expect("tool call should succeed");
+        match &result.content[0] {
+            ToolContent::Text { text } => assert_eq!(text, "done"),
+            other => panic!("expected Text content, got {:?}", other),
+        }
+
+        let meta = check.lock().await;
+        let meta = meta.as_ref().expect("_meta should have been captured by server");
+        assert_eq!(meta["progressToken"], "my-token");
+    }
+
+    // ---- [3.4] Cache refresh notification tests ----
+
+    #[tokio::test]
+    async fn resources_list_changed_notification_dispatched() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, mut nrx) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let notif = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/list_changed",
+            "params": {}
+        });
+        McpClient::dispatch_incoming(notif, &pending, &ntx, &srtx, "test").await;
+
+        let received = nrx.try_recv().expect("should receive notification");
+        assert_eq!(received.method, "notifications/resources/list_changed");
+    }
+
+    #[tokio::test]
+    async fn prompts_list_changed_notification_dispatched() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, mut nrx) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, _) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let notif = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/prompts/list_changed",
+            "params": {}
+        });
+        McpClient::dispatch_incoming(notif, &pending, &ntx, &srtx, "test").await;
+
+        let received = nrx.try_recv().expect("should receive notification");
+        assert_eq!(received.method, "notifications/prompts/list_changed");
+    }
+
+    // ---- [6.4] roots/list server request tests ----
+
+    #[tokio::test]
+    async fn roots_list_request_dispatched_as_server_request() {
+        let pending: Arc<
+            tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        > = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let (ntx, _) = tokio::sync::broadcast::channel::<McpNotification>(16);
+        let (srtx, mut srrx) = tokio::sync::broadcast::channel::<McpServerRequest>(16);
+
+        let roots_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 77,
+            "method": "roots/list",
+            "params": {}
+        });
+        McpClient::dispatch_incoming(roots_request, &pending, &ntx, &srtx, "test").await;
+
+        let req = srrx.try_recv().expect("should receive roots/list as server request");
+        assert_eq!(req.method, "roots/list");
+        assert_eq!(req.id, serde_json::json!(77));
+    }
+
+    // ---- [7.5] Reverse MCP server tests ----
+
+    #[tokio::test]
+    async fn create_xiaolin_mcp_server_filters_mcp_prefix() {
+        use xiaolin_core::tool::{ToolRegistry, ToolParameterSchema, Tool, ToolResult};
+        use std::sync::Arc;
+        use async_trait::async_trait;
+
+        struct DummyTool(String);
+        #[async_trait]
+        impl Tool for DummyTool {
+            fn name(&self) -> &str { &self.0 }
+            fn description(&self) -> &str { "dummy" }
+            fn parameters_schema(&self) -> ToolParameterSchema {
+                ToolParameterSchema {
+                    schema_type: "object".into(),
+                    properties: Default::default(),
+                    required: vec![],
+                }
+            }
+            async fn execute(&self, _args: &str) -> ToolResult {
+                ToolResult {
+                    output: format!("result from {}", self.0),
+                    success: true,
+                    display_output: None,
+                    error_type: None,
+                    metadata: None,
+                    images: vec![],
+                }
+            }
+        }
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyTool("read_file".into())));
+        registry.register(Arc::new(DummyTool("write_file".into())));
+        registry.register(Arc::new(DummyTool("mcp__github__list_repos".into())));
+        registry.register(Arc::new(DummyTool("mcp__slack__send_message".into())));
+
+        let registry = Arc::new(registry);
+        let server = create_xiaolin_mcp_server(&registry);
+
+        let resp = server.handle_request(&rpc(1, "initialize", None)).await;
+        let result = resp.result.unwrap();
+        assert_eq!(result["serverInfo"]["name"], "XiaoLin");
+
+        let resp = server.handle_request(&rpc(2, "tools/list", None)).await;
+        let tools = resp.result.unwrap()["tools"].as_array().unwrap().clone();
+        let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(tool_names.contains(&"read_file"));
+        assert!(tool_names.contains(&"write_file"));
+        assert!(!tool_names.iter().any(|n| n.starts_with("mcp__")),
+            "mcp__ prefixed tools should be filtered out, but found: {:?}", tool_names);
+    }
+
+    #[tokio::test]
+    async fn create_xiaolin_mcp_server_tool_call_works() {
+        use xiaolin_core::tool::{ToolRegistry, ToolParameterSchema, Tool, ToolResult};
+        use std::sync::Arc;
+        use async_trait::async_trait;
+
+        struct EchoTool;
+        #[async_trait]
+        impl Tool for EchoTool {
+            fn name(&self) -> &str { "echo" }
+            fn description(&self) -> &str { "Echo back the input" }
+            fn parameters_schema(&self) -> ToolParameterSchema {
+                ToolParameterSchema {
+                    schema_type: "object".into(),
+                    properties: Default::default(),
+                    required: vec![],
+                }
+            }
+            async fn execute(&self, args: &str) -> ToolResult {
+                let v: serde_json::Value = serde_json::from_str(args).unwrap_or_default();
+                let msg = v.get("msg").and_then(|m| m.as_str()).unwrap_or("empty");
+                ToolResult {
+                    output: format!("Echo: {msg}"),
+                    success: true,
+                    display_output: None,
+                    error_type: None,
+                    metadata: None,
+                    images: vec![],
+                }
+            }
+        }
+
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(Arc::new(EchoTool));
+
+        let server = create_xiaolin_mcp_server(&registry);
+        let resp = server
+            .handle_request(&rpc(
+                5,
+                "tools/call",
+                Some(serde_json::json!({"name": "echo", "arguments": {"msg": "hello"}})),
+            ))
+            .await;
+        assert!(resp.error.is_none(), "tool call should succeed: {:?}", resp.error);
+        let result = resp.result.unwrap();
+        assert_eq!(result["content"][0]["text"], "Echo: hello");
+        assert_eq!(result["is_error"], false);
+    }
+
+    // ---- [8.7] WebSocket transport tests ----
+
+    async fn accept_ws_with_mcp_subprotocol(
+        stream: tokio::net::TcpStream,
+    ) -> tokio_tungstenite::WebSocketStream<tokio::net::TcpStream> {
+        use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+
+        tokio_tungstenite::accept_hdr_async(stream, |req: &Request, mut resp: Response| {
+            if let Some(protos) = req.headers().get("Sec-WebSocket-Protocol") {
+                let val = protos.to_str().unwrap_or("");
+                if val.contains("mcp") {
+                    resp.headers_mut().insert(
+                        "Sec-WebSocket-Protocol",
+                        "mcp".parse().unwrap(),
+                    );
+                }
+            }
+            Ok(resp)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn websocket_mcp_client_connect_and_tools_list() {
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws_stream = accept_ws_with_mcp_subprotocol(stream).await;
+            let (mut write, mut read) = ws_stream.split();
+
+            while let Some(Ok(msg)) = read.next().await {
+                if let Message::Text(text) = msg {
+                    let v: serde_json::Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+                    if method == "notifications/initialized" {
+                        continue;
+                    }
+
+                    let req: JsonRpcRequest = match serde_json::from_value(v) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let resp = match req.method.as_str() {
+                        "initialize" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(InitializeResult {
+                                protocol_version: "2025-06-18".into(),
+                                capabilities: ServerCapabilities {
+                                    tools: Some(ToolCapability { list_changed: true }),
+                                    resources: None,
+                                    prompts: None,
+                                },
+                                server_info: ServerInfo {
+                                    name: "mock-ws".into(),
+                                    version: "1.0.0".into(),
+                                },
+                                instructions: None,
+                            })
+                            .unwrap(),
+                        ),
+                        "tools/list" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(ToolListResult {
+                                tools: vec![
+                                    McpTool {
+                                        name: "ws_tool_a".into(),
+                                        description: Some("First WS tool".into()),
+                                        input_schema: None,
+                                        meta: None,
+                                    },
+                                    McpTool {
+                                        name: "ws_tool_b".into(),
+                                        description: None,
+                                        input_schema: None,
+                                        meta: None,
+                                    },
+                                ],
+                            })
+                            .unwrap(),
+                        ),
+                        _ => JsonRpcResponse::error(req.id.clone(), -32601, "unknown"),
+                    };
+                    let resp_text = serde_json::to_string(&resp).unwrap();
+                    let _ = write.send(Message::Text(resp_text.into())).await;
+                }
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+        let client = McpClient::connect_websocket(&url).await.expect("WS connect should succeed");
+
+        assert_eq!(client.server_name(), "mock-ws");
+        assert_eq!(client.tools().len(), 2);
+        assert_eq!(client.tools()[0].name, "ws_tool_a");
+        assert_eq!(client.tools()[1].name, "ws_tool_b");
+    }
+
+    #[tokio::test]
+    async fn websocket_mcp_client_tool_call() {
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws_stream = accept_ws_with_mcp_subprotocol(stream).await;
+            let (mut write, mut read) = ws_stream.split();
+
+            while let Some(Ok(msg)) = read.next().await {
+                if let Message::Text(text) = msg {
+                    let v: serde_json::Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                    if method == "notifications/initialized" {
+                        continue;
+                    }
+
+                    let req: JsonRpcRequest = match serde_json::from_value(v) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let resp = match req.method.as_str() {
+                        "initialize" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(InitializeResult {
+                                protocol_version: "2025-06-18".into(),
+                                capabilities: ServerCapabilities {
+                                    tools: Some(ToolCapability { list_changed: false }),
+                                    resources: None,
+                                    prompts: None,
+                                },
+                                server_info: ServerInfo {
+                                    name: "ws-call-test".into(),
+                                    version: "1.0.0".into(),
+                                },
+                                instructions: None,
+                            })
+                            .unwrap(),
+                        ),
+                        "tools/list" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(ToolListResult {
+                                tools: vec![McpTool {
+                                    name: "add".into(),
+                                    description: Some("Add two numbers".into()),
+                                    input_schema: None,
+                                    meta: None,
+                                }],
+                            })
+                            .unwrap(),
+                        ),
+                        "tools/call" => {
+                            let params = req.params.unwrap_or_default();
+                            let args = params.get("arguments").cloned().unwrap_or_default();
+                            let a = args.get("a").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let b = args.get("b").and_then(|v| v.as_i64()).unwrap_or(0);
+                            JsonRpcResponse::success(
+                                req.id.clone(),
+                                serde_json::to_value(CallToolResult {
+                                    content: vec![ToolContent::Text {
+                                        text: format!("{}", a + b),
+                                    }],
+                                    is_error: false,
+                                })
+                                .unwrap(),
+                            )
+                        }
+                        _ => JsonRpcResponse::error(req.id.clone(), -32601, "unknown"),
+                    };
+                    let resp_text = serde_json::to_string(&resp).unwrap();
+                    let _ = write.send(Message::Text(resp_text.into())).await;
+                }
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+        let client = McpClient::connect_websocket(&url).await.expect("WS connect");
+
+        let result = client
+            .call_tool("add", serde_json::json!({"a": 17, "b": 25}))
+            .await
+            .expect("tool call should succeed");
+        match &result.content[0] {
+            ToolContent::Text { text } => assert_eq!(text, "42"),
+            other => panic!("expected Text content, got {:?}", other),
+        }
+        assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn websocket_notification_received() {
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (trigger_tx, mut trigger_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws_stream = accept_ws_with_mcp_subprotocol(stream).await;
+            let (write, mut read) = ws_stream.split();
+            let write = Arc::new(tokio::sync::Mutex::new(write));
+
+            let write_clone = write.clone();
+            tokio::spawn(async move {
+                let _ = trigger_rx.recv().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let notif = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/tools/list_changed",
+                    "params": {}
+                });
+                let _ = write_clone.lock().await
+                    .send(Message::Text(serde_json::to_string(&notif).unwrap().into()))
+                    .await;
+            });
+
+            while let Some(Ok(msg)) = read.next().await {
+                if let Message::Text(text) = msg {
+                    let v: serde_json::Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                    if method == "notifications/initialized" {
+                        continue;
+                    }
+
+                    let req: JsonRpcRequest = match serde_json::from_value(v) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let resp = match req.method.as_str() {
+                        "initialize" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(InitializeResult {
+                                protocol_version: "2025-06-18".into(),
+                                capabilities: ServerCapabilities {
+                                    tools: Some(ToolCapability { list_changed: true }),
+                                    resources: None,
+                                    prompts: None,
+                                },
+                                server_info: ServerInfo {
+                                    name: "ws-notif-test".into(),
+                                    version: "1.0.0".into(),
+                                },
+                                instructions: None,
+                            })
+                            .unwrap(),
+                        ),
+                        "tools/list" => JsonRpcResponse::success(
+                            req.id.clone(),
+                            serde_json::to_value(ToolListResult { tools: vec![] }).unwrap(),
+                        ),
+                        _ => JsonRpcResponse::error(req.id.clone(), -32601, "unknown"),
+                    };
+                    let resp_text = serde_json::to_string(&resp).unwrap();
+                    let _ = write.lock().await.send(Message::Text(resp_text.into())).await;
+                }
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let url = format!("ws://127.0.0.1:{}", addr.port());
+        let client = McpClient::connect_websocket(&url).await.expect("WS connect");
+        let mut rx = client.subscribe_notifications();
+
+        let _ = trigger_tx.send(()).await;
+
+        let notif = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("should receive notification within timeout")
+            .expect("recv should succeed");
+        assert_eq!(notif.method, "notifications/tools/list_changed");
+    }
 }
