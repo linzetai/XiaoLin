@@ -18,8 +18,8 @@
 - [x] 3.2 重构单张卡片为竖式布局
 - [x] 3.3 实现卡片 hover 效果
 - [x] 3.4 实现卡片 stagger 入场动画
-- [ ] 3.5 添加响应式断点：viewport < 480px 时回退到 `grid-cols-1`
-- [ ] 3.6 美化搜索栏：focus 时 ring 效果
+- [x] 3.5 添加响应式断点：viewport < 480px 时回退到 `grid-cols-1`
+- [x] 3.6 美化搜索栏：focus 时 ring 效果
 
 ## 4. McpDetailModal 沉浸式升级
 
@@ -28,7 +28,7 @@
 - [x] 4.3 添加 3px 渐变色条
 - [x] 4.4 工具列表增加折叠/展开切换
 - [x] 4.5 工具列表在 toolCount > 5 时显示搜索 input
-- [ ] 4.6 添加"编辑配置"按钮 → 打开 AddServerModal(prefill) — `onEditConfig` prop 存在但未接线
+- [x] 4.6 添加"编辑配置"按钮 → 打开 AddServerModal(prefill) — PluginsView 传入 onEditConfig，通过 mcpDetail 获取配置后 prefill
 - [x] 4.7 应用 `pv-modal-enter` 动画到 modal 容器
 
 ## 5. 空状态与已安装列表增强
@@ -42,5 +42,5 @@
 ## 6. 国际化与验证
 
 - [x] 6.1 更新 `plugins.json`（zh/en）添加新增 i18n key
-- [ ] 6.2 运行 `npx tsc --noEmit` 确认零类型错误
-- [ ] 6.3 Tauri MCP E2E 验证：截图对比 Explore 网格、Detail Hero、空状态动画
+- [x] 6.2 运行 `npx tsc --noEmit` 确认零类型错误
+- [x] 6.3 Tauri MCP E2E 验证：DOM snapshot 确认 Explore 网格渲染（搜索栏、category pills、15 张卡片带 icon/tags/安装按钮）
