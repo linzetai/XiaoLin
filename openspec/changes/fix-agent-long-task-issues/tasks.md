@@ -43,7 +43,7 @@
   - 支持 "等待 shell prompt" 模式（检测 $ 或 % 或 ❯ 等提示符出现）
   - 或：支持 "命令完成检测"（exit code 可用时立即返回）
   - 保留 wait_ms 作为最大超时而非固定等待
-- 状态: pending
+- 状态: partial — default wait_ms=2000, wait_for param, 500ms idle early-return 已实现；缺少 shell prompt 自动检测
 
 ## T6: 修复前端任务进度计数器
 - 涉及: 前端 task progress UI 组件
@@ -51,4 +51,4 @@
 - 调查方向:
   - 检查 task_management 工具的 "mark complete" 是否触发前端更新事件
   - 可能是 WebSocket 事件未推送到 UI 或 UI 未监听正确的 state change
-- 状态: pending
+- 状态: done — MessageStream 现在扫描最新 streamSegments 获取 todo 进度
