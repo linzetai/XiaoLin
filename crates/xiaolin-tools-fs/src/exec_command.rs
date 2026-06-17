@@ -9,6 +9,16 @@ use xiaolin_core::tool::{Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolRes
 
 pub use self::pty_session::PtySessionManager;
 
+fn default_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "windows") {
+            "powershell.exe".to_string()
+        } else {
+            "/bin/bash".to_string()
+        }
+    })
+}
+
 /// Starts a command in a PTY session. Returns initial output and a `session_id`
 /// for subsequent interaction via `write_stdin`.
 pub struct ExecCommandTool {
@@ -75,7 +85,7 @@ impl Tool for ExecCommandTool {
             serde_json::json!({
                 "type": "string",
                 "enum": ["bash", "sh", "zsh"],
-                "description": "Shell to use. Defaults to bash."
+                "description": "Shell to use. Defaults to $SHELL (or /bin/bash if unset)."
             }),
         );
         props.insert(
@@ -114,8 +124,8 @@ impl Tool for ExecCommandTool {
         let shell = args
             .get("shell")
             .and_then(|v| v.as_str())
-            .unwrap_or("bash")
-            .to_string();
+            .map(String::from)
+            .unwrap_or_else(default_shell);
         let yield_time_ms = args
             .get("yield_time_ms")
             .and_then(|v| v.as_u64())

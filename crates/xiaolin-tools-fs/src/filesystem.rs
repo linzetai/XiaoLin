@@ -4699,11 +4699,11 @@ Examples:\n\
         let truncated = entries.len() > max_results;
         entries.truncate(max_results);
 
-        let cwd = std::env::current_dir().unwrap_or_default();
+        let effective_root = workspace_root().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         let file_list: Vec<String> = entries
             .iter()
             .map(|(p, _)| {
-                p.strip_prefix(&cwd)
+                p.strip_prefix(&effective_root)
                     .unwrap_or(p)
                     .to_string_lossy()
                     .to_string()
