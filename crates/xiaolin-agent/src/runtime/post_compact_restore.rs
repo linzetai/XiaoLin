@@ -52,6 +52,13 @@ pub struct InvokedSkill {
     pub invoked_at: SystemTime,
 }
 
+/// A deferred tool that was activated during this session.
+#[derive(Debug, Clone)]
+pub struct ActivatedTool {
+    pub name: String,
+    pub description: String,
+}
+
 /// State to be restored after compaction.
 #[derive(Debug, Clone, Default)]
 pub struct RestorationState {
@@ -65,6 +72,10 @@ pub struct RestorationState {
     pub plan_path: Option<PathBuf>,
     /// Whether we're in plan mode.
     pub is_plan_mode: bool,
+    /// Deferred tools that were activated during this session.
+    /// After compaction, the activation context may be lost;
+    /// this list ensures the LLM knows they are still available.
+    pub activated_tools: Vec<ActivatedTool>,
 }
 
 impl RestorationState {
@@ -116,6 +127,13 @@ impl RestorationState {
     pub fn clear_plan(&mut self) {
         self.plan_path = None;
         self.plan_content = None;
+    }
+
+    /// Record a deferred tool activation so it can be restored after compaction.
+    pub fn record_tool_activation(&mut self, name: String, description: String) {
+        if !self.activated_tools.iter().any(|t| t.name == name) {
+            self.activated_tools.push(ActivatedTool { name, description });
+        }
     }
 
     /// Populate plan content from PlanFileStore if a plan exists.
@@ -170,6 +188,11 @@ impl RestorationState {
         // 4. Restore plan mode marker
         if self.is_plan_mode {
             messages.push(self.build_plan_mode_message());
+        }
+
+        // 5. Restore activated deferred tools reminder
+        if let Some(msg) = self.build_activated_tools_message() {
+            messages.push(msg);
         }
 
         messages
@@ -267,6 +290,22 @@ impl RestorationState {
         Some(ChatMessage {
             role: Role::System,
             content: Some(json!(message)),
+            ..Default::default()
+        })
+    }
+
+    fn build_activated_tools_message(&self) -> Option<ChatMessage> {
+        if self.activated_tools.is_empty() {
+            return None;
+        }
+        let mut text =
+            String::from("[Previously activated tools — still available after compaction]\n\n");
+        for tool in &self.activated_tools {
+            text.push_str(&format!("- **{}**: {}\n", tool.name, tool.description));
+        }
+        Some(ChatMessage {
+            role: Role::System,
+            content: Some(json!(text)),
             ..Default::default()
         })
     }

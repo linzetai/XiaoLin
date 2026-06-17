@@ -2279,6 +2279,14 @@ impl xiaolin_core::tool::Tool for McpToolBridge {
         &self.hint
     }
 
+    fn exposure(&self) -> xiaolin_core::tool::ToolExposure {
+        if self.keep_eager {
+            xiaolin_core::tool::ToolExposure::Direct
+        } else {
+            xiaolin_core::tool::ToolExposure::Deferred
+        }
+    }
+
     fn force_eager(&self) -> bool {
         self.keep_eager
     }

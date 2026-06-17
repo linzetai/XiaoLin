@@ -115,6 +115,15 @@ impl FileStateCache {
         };
 
         if current_mtime > entry.modified_at {
+            // mtime changed — fall back to content hash comparison.
+            // Editors like vim/emacs rewrite the file on save even without
+            // content changes, causing mtime bumps. Comparing the hash
+            // avoids false-positive stale rejections.
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if compute_hash(&content) == entry.content_hash {
+                    return StaleCheckResult::Fresh;
+                }
+            }
             StaleCheckResult::Stale
         } else {
             StaleCheckResult::Fresh
@@ -288,6 +297,47 @@ mod tests {
         assert!(cache.is_empty());
         assert!(!cache.is_unchanged(&path_a));
         assert!(!cache.is_unchanged(&path_b));
+    }
+
+    #[test]
+    fn check_stale_mtime_changed_content_same_returns_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("stale_test.txt");
+        std::fs::write(&file_path, "same content").unwrap();
+
+        let cache = FileStateCache::new();
+        cache.update(&file_path, "same content");
+        assert_eq!(cache.check_stale(&file_path), StaleCheckResult::Fresh);
+
+        // Bump mtime by re-writing the same content after a delay
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&file_path, "same content").unwrap();
+
+        // mtime changed but content hash matches → should be Fresh
+        assert_eq!(
+            cache.check_stale(&file_path),
+            StaleCheckResult::Fresh,
+            "should be Fresh when mtime changed but content hash is the same"
+        );
+    }
+
+    #[test]
+    fn check_stale_mtime_changed_content_different_returns_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("stale_test2.txt");
+        std::fs::write(&file_path, "original content").unwrap();
+
+        let cache = FileStateCache::new();
+        cache.update(&file_path, "original content");
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&file_path, "modified content").unwrap();
+
+        assert_eq!(
+            cache.check_stale(&file_path),
+            StaleCheckResult::Stale,
+            "should be Stale when both mtime and content changed"
+        );
     }
 
     #[test]

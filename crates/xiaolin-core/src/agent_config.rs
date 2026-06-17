@@ -422,6 +422,11 @@ pub struct BehaviorConfig {
     /// When false, falls back to the legacy fixed-threshold behavior.
     #[serde(default = "default_true")]
     pub enable_smart_compression: bool,
+    /// Enable context collapse (LLM-based round summarization).
+    /// When true, old API rounds are summarized via LLM and projected back
+    /// into the conversation. Mutually exclusive with autocompact.
+    #[serde(default)]
+    pub enable_collapse: bool,
     /// Optional budget limit in USD. When set, the runtime tracks accumulated
     /// LLM costs and stops execution when the limit is exceeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -581,6 +586,7 @@ impl Default for BehaviorConfig {
             subagent: SubAgentPolicy::default(),
             streaming_tool_execution: false,
             enable_smart_compression: true,
+            enable_collapse: false,
             budget_limit_usd: None,
             approval_strategy: None,
         }

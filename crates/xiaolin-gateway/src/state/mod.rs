@@ -78,22 +78,17 @@ const MCP_STDIO_CONCURRENCY: usize = 3;
 /// Max concurrent remote (SSE/StreamableHttp) MCP server connections.
 const MCP_REMOTE_CONCURRENCY: usize = 20;
 
-/// Check total eager tool count and defer MCP tools if over threshold.
+/// Safety-net: check total eager tool count and defer MCP tools if over threshold.
 ///
-/// Iterates through connected MCP server prefixes and demotes each server's
-/// tools until the eager count drops below the threshold. Servers whose tools
-/// are all `force_eager` are unaffected.
+/// Since MCP tools now self-declare `ToolExposure::Deferred` by default (unless
+/// `alwaysLoad`), this function only triggers for legacy scenarios where
+/// `force_eager` tools still push the eager set over the threshold.
 fn maybe_defer_mcp_tools<'a>(
     registry: &ToolRegistry,
     server_ids: impl Iterator<Item = &'a String>,
 ) {
     let eager_before = registry.eager_definitions().len();
     if eager_before <= MCP_DEFER_TOOL_THRESHOLD {
-        tracing::debug!(
-            eager_count = eager_before,
-            threshold = MCP_DEFER_TOOL_THRESHOLD,
-            "tool count within threshold, no MCP deferral needed"
-        );
         return;
     }
 
@@ -112,7 +107,7 @@ fn maybe_defer_mcp_tools<'a>(
             eager_before,
             eager_after = registry.eager_definitions().len(),
             threshold = MCP_DEFER_TOOL_THRESHOLD,
-            "MCP tools deferred to keep eager set under threshold"
+            "safety-net: MCP tools deferred to keep eager set under threshold"
         );
     }
 }

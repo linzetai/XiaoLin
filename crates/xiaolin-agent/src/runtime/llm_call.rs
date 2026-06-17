@@ -258,19 +258,26 @@ pub(crate) async fn perform_llm_call(
                     "LLM stream call failed"
                 );
                 if query_state::is_prompt_too_long_error(&e.to_string()) {
-                    tracing::warn!(
-                        error = %e,
-                        "prompt_too_long detected — attempting reactive compaction"
-                    );
-                    let reactive_result = svc.deps.reactive_compact(&ms.messages);
-                    if reactive_result.recovered {
-                        tracing::info!(
-                            level = ?reactive_result.level_used,
-                            tokens_after = reactive_result.tokens_after,
-                            "reactive compaction recovered — retrying LLM call"
+                    if !ms.query_loop.has_attempted_reactive_compact {
+                        ms.query_loop.has_attempted_reactive_compact = true;
+                        tracing::warn!(
+                            error = %e,
+                            "prompt_too_long detected — attempting reactive compaction"
                         );
-                        ms.messages = reactive_result.messages;
-                        continue 'stream_try;
+                        let reactive_result = svc.deps.reactive_compact(&ms.messages);
+                        if reactive_result.recovered {
+                            tracing::info!(
+                                level = ?reactive_result.level_used,
+                                tokens_after = reactive_result.tokens_after,
+                                "reactive compaction recovered — retrying LLM call"
+                            );
+                            ms.messages = reactive_result.messages;
+                            continue 'stream_try;
+                        }
+                    } else {
+                        tracing::warn!(
+                            "prompt_too_long on connect but reactive compact already attempted — not retrying"
+                        );
                     }
                 }
                 return LlmCallOutcome::FatalError(e);

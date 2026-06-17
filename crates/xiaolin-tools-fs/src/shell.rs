@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use xiaolin_core::tool::{
-    Tool, ToolKind, ToolParameterSchema, ToolResult,
+    Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolResult,
 };
 
 /// Definition-only stub for ToolRegistry. Execution is handled by RuntimeRegistry.
@@ -23,6 +23,100 @@ impl Tool for ShellDefinitionStub {
          For long-running processes (dev servers, watchers), use 'nohup cmd > output.log 2>&1 &' \
          and poll with 'cat output.log' to monitor progress."
     }
+
+    fn group(&self) -> ToolGroup {
+        ToolGroup::System
+    }
+
+    fn prompt(&self) -> String {
+        "\
+Run a shell command via sh -c. Returns exit_code, duration, stdout, stderr.
+
+## When to Use shell_exec
+
+shell_exec is for system commands that have NO dedicated tool:
+- Git operations: commit, push, pull, branch, rebase, stash
+- Build & test: cargo build, cargo test, npm run, make
+- Package management: cargo add, npm install, pip install
+- Process inspection: ps, lsof, netstat
+- Environment setup: export, source, creating virtualenvs
+
+## When NOT to Use shell_exec
+
+NEVER use shell_exec for operations that have dedicated tools:
+- Reading files → use read_file (handles encoding, line ranges, stale detection)
+- Writing files → use write_file (atomic writes, conflict detection)
+- Editing files → use edit_file (fuzzy match, multi-occurrence handling)
+- Searching content → use search_in_files (structured output, regex)
+- Finding files → use glob (gitignore-aware, sorted results)
+- Listing dirs → use list_directory (structured output)
+
+NEVER use these shell patterns:
+- `cat`, `head`, `tail`, `less` → read_file
+- `sed -i`, `awk`, `perl -i` → edit_file
+- `echo >`, `cat >`, heredoc → write_file
+- `grep`, `rg`, `ag` → search_in_files
+- `find`, `fd` → glob
+- `ls` → list_directory
+
+## Git Operation Rules
+
+### Commits
+- Use descriptive commit messages explaining WHY, not WHAT
+- Pass message via heredoc for multi-line:
+  git commit -m \"$(cat <<'EOF'\n  Your message here\n  EOF\n  )\"
+- NEVER use `git commit --amend` unless the user explicitly requests it AND the commit was made by you in this session AND hasn't been pushed
+
+### Safety
+- NEVER run `git push --force` to main/master — warn the user first
+- NEVER skip hooks (--no-verify) unless user explicitly requests
+- NEVER modify git config (user.name, user.email)
+- Before destructive operations (reset --hard, clean -fd), confirm with the user
+
+### Workflow
+- Run `git status` and `git diff` in parallel to understand state
+- Always verify with `git status` after a commit succeeds
+
+## Command Construction
+
+### Quoting
+- Always double-quote paths with spaces: cd \"/path/with spaces\"
+- Use single quotes for literal strings: grep 'exact match'
+
+### Chaining
+- Use `&&` for dependent commands: mkdir foo && cd foo
+- Use `;` only when later commands should run regardless of earlier failures
+- NEVER use newlines to separate commands in the command string
+
+### Parallelism
+- If you need output from multiple independent commands, make separate shell_exec calls in the same response — they may execute in parallel
+- Do NOT chain independent commands with && (forces serial execution)
+
+### Working Directory
+- Use the working_dir parameter instead of `cd dir && command`
+- Paths are relative to project root or absolute
+
+## Anti-Patterns
+
+NEVER do these:
+1. `sleep N && check` polling loops — use appropriate timeouts instead
+2. `echo \"message\"` to communicate — write your response text directly
+3. Infinite loops or watch commands — they will hit the timeout
+4. Here-doc or echo to create files — use write_file
+5. `sed -i` to edit files — use edit_file
+6. Multi-line scripts — prefer single-line commands; for complex logic, write a script file first
+7. `wc -l` to count lines — estimate from what you've already read
+8. `pwd` when you already know the working directory
+9. `cat file | grep pattern` — use search_in_files directly
+
+## Timeout
+
+Default: 120s. Max: 300s (5min). Override with timeout_ms parameter.
+For builds or tests that may take longer, set an appropriate timeout.
+If a command times out, do NOT retry with the same timeout — increase it or investigate why it's slow."
+            .to_string()
+    }
+
     fn parameters_schema(&self) -> ToolParameterSchema {
         shell_parameter_schema(true)
     }

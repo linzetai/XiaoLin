@@ -189,6 +189,17 @@ pub(crate) async fn iteration_pre_check(
     ms.query_loop.last_estimated_tokens = compact_result.estimated_tokens;
     let estimated_tokens = compact_result.estimated_tokens;
 
+    // ── 6b. Invalidate file state cache after significant compression ─
+    // The LLM's "memory" of file contents may now be gone, so the cache's
+    // dedup logic (skip re-reading unchanged files) would incorrectly
+    // suppress reads that the LLM actually needs.
+    if compact_result.file_state_needs_invalidation {
+        if let Some(cache) = crate::builtin_tools::get_file_state_cache() {
+            cache.invalidate_all();
+            tracing::debug!("file state cache invalidated after context compaction");
+        }
+    }
+
     // ── 7. Persist session memory if extracted ─────────────────────────
     if let Some(ref mem) = compact_result.extracted_memory {
         ms.query_loop.session_memory = Some(mem.clone());

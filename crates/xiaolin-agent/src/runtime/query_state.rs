@@ -71,6 +71,7 @@ pub(crate) struct QueryLoopState {
     // ── Recovery tracking (used by 6C-02 max_output_tokens, 6C-04 reactive compact)
     pub max_output_tokens_recovery_count: u32,
     pub has_attempted_reactive_compact: bool,
+    pub max_output_recovery_exhausted: bool,
 
     // ── Token accumulation (streaming path) ──────────────────────────
     pub acc_prompt_tokens: u32,
@@ -172,6 +173,7 @@ impl QueryLoopState {
 
             max_output_tokens_recovery_count: 0,
             has_attempted_reactive_compact: false,
+            max_output_recovery_exhausted: false,
 
             acc_prompt_tokens: 0,
             acc_completion_tokens: 0,
@@ -371,6 +373,7 @@ impl QueryLoopState {
                 ContinueReason::MaxOutputTokensRecovery,
             ))
         } else {
+            self.max_output_recovery_exhausted = true;
             None
         }
     }
@@ -617,17 +620,33 @@ mod tests {
         s.max_output_tokens_recovery_count = MAX_OUTPUT_TOKENS_RECOVERY_LIMIT;
         let result = s.try_max_output_tokens_recovery();
         assert!(result.is_none(), "should return None when limit exhausted");
+        assert!(
+            s.max_output_recovery_exhausted,
+            "should set exhausted flag when limit reached"
+        );
     }
 
     #[test]
     fn max_output_tokens_recovery_exhaustion_sequence() {
         let mut s = QueryLoopState::new(10);
+        assert!(
+            !s.max_output_recovery_exhausted,
+            "should start as not exhausted"
+        );
         for _ in 0..MAX_OUTPUT_TOKENS_RECOVERY_LIMIT {
             assert!(s.try_max_output_tokens_recovery().is_some());
+            assert!(
+                !s.max_output_recovery_exhausted,
+                "should not be exhausted while under limit"
+            );
         }
         assert!(
             s.try_max_output_tokens_recovery().is_none(),
             "4th attempt should fail after 3 successes"
+        );
+        assert!(
+            s.max_output_recovery_exhausted,
+            "should be exhausted after all retries consumed"
         );
     }
 

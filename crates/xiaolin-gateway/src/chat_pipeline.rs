@@ -680,7 +680,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         return;
     }
 
-    let mut servers: std::collections::BTreeMap<String, Vec<(&str, &str)>> =
+    let mut servers: std::collections::BTreeMap<String, Vec<&str>> =
         std::collections::BTreeMap::new();
     for td in &eager_tools {
         let name = &td.function.name;
@@ -688,36 +688,20 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
             servers
                 .entry(server_id.to_string())
                 .or_default()
-                .push((name.as_str(), td.function.description.as_str()));
+                .push(name.as_str());
         }
     }
 
     let mut prompt = String::from("[MCP Extensions]\nThe following MCP (Model Context Protocol) servers are connected, providing additional tools.\n\n");
 
     for (server_id, tools) in &servers {
-        let cfg_match = state
-            .cfg
-            .config
-            .mcp_servers
-            .iter()
-            .find(|c| c.id == *server_id);
-        let cmd_info = cfg_match
-            .map(|c| format!("{} {}", c.command, c.args.join(" ")))
-            .unwrap_or_default();
-
-        prompt.push_str(&format!("### MCP Server: {server_id}"));
-        if !cmd_info.is_empty() {
-            prompt.push_str(&format!(" ({cmd_info})"));
-        }
-        prompt.push('\n');
-        prompt.push_str(&format!("Tools ({} available):\n", tools.len()));
-        for (tool_name, desc) in tools {
-            if desc.is_empty() {
-                prompt.push_str(&format!("- `{tool_name}`\n"));
-            } else {
-                let short_desc: String = desc.chars().take(120).collect();
-                prompt.push_str(&format!("- `{tool_name}`: {short_desc}\n"));
-            }
+        prompt.push_str(&format!("### MCP Server: {server_id}\n"));
+        prompt.push_str(&format!(
+            "Eager tools ({} loaded, full schema in tool definitions):\n",
+            tools.len()
+        ));
+        for tool_name in tools {
+            prompt.push_str(&format!("- `{tool_name}`\n"));
         }
         prompt.push('\n');
     }

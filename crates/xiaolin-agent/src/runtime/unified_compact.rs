@@ -14,6 +14,52 @@ use super::tool_executor::{
 };
 use crate::llm::LlmProvider;
 
+/// Bridges [`xiaolin_context::collapse::CollapseSummarizer`] to the LLM provider,
+/// reusing the same compact-model call path as autocompact.
+struct LlmCollapseSummarizer {
+    provider: Arc<dyn LlmProvider>,
+    model: String,
+}
+
+#[async_trait::async_trait]
+impl xiaolin_context::collapse::CollapseSummarizer for LlmCollapseSummarizer {
+    async fn summarize(&self, messages: &[ChatMessage]) -> anyhow::Result<String> {
+        let mut conversation = Vec::with_capacity(messages.len() + 2);
+        conversation.push(ChatMessage {
+            role: xiaolin_core::types::Role::System,
+            content: Some(serde_json::json!(
+                "Summarize the following conversation rounds into a concise paragraph. \
+                 Preserve key decisions, file paths, tool outputs, and action items. \
+                 Omit greetings, filler, and redundant details."
+            )),
+            ..Default::default()
+        });
+        conversation.extend_from_slice(messages);
+        conversation.push(ChatMessage {
+            role: xiaolin_core::types::Role::User,
+            content: Some(serde_json::json!(
+                "Please produce a concise summary of the above conversation."
+            )),
+            ..Default::default()
+        });
+
+        let params = crate::llm::CompletionParams {
+            model: &self.model,
+            messages: &conversation,
+            temperature: 0.0,
+            max_tokens: Some(1024),
+            tools: None,
+        };
+        let response = self.provider.chat_completion(&params).await?;
+        let text = response
+            .choices
+            .first()
+            .and_then(|c| c.message.text_content().map(|s| s.to_string()))
+            .unwrap_or_default();
+        Ok(text)
+    }
+}
+
 /// Read an environment variable as a boolean flag.
 /// Returns `default` if the variable is unset; parses "1"/"true"/"yes" as true.
 fn env_var_is_true(name: &str, default: bool) -> bool {
@@ -67,6 +113,9 @@ pub(crate) struct UnifiedCompactResult {
     pub state_restored: bool,
     /// Extracted/updated session memory (if any), for the caller to persist.
     pub extracted_memory: Option<session_memory::SessionMemory>,
+    /// When true, the caller should invalidate `FileStateCache` to prevent
+    /// stale dedup detection after context compression removed file content.
+    pub file_state_needs_invalidation: bool,
 }
 
 /// Run all pre-query compression steps in a single call.
@@ -235,6 +284,46 @@ pub(crate) async fn unified_pre_query_compact(
         *messages = compacted;
     }
 
+    // Step 5.1: Context Collapse — LLM-based round summarization (Layer 3).
+    // When enabled, collapses old API rounds into summaries stored in CollapseStore,
+    // then projects them into the message list. Mutually exclusive with autocompact.
+    if pipeline.config().enable_collapse {
+        let engine =
+            xiaolin_context::collapse::CollapseEngine::new(Default::default());
+        let summarizer = LlmCollapseSummarizer {
+            provider: provider.clone(),
+            model: model.to_string(),
+        };
+        match engine
+            .collapse(
+                messages,
+                context_window as usize,
+                &mut pipeline.collapse_store,
+                &summarizer,
+            )
+            .await
+        {
+            Ok(result) => {
+                if let Some(ref span) = result.span {
+                    tracing::info!(
+                        start = span.start_round,
+                        end = span.end_round,
+                        saved = span.tokens_saved(),
+                        mode = ?result.mode,
+                        "context collapse summarized rounds"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "context collapse failed, continuing without");
+            }
+        }
+        // Project collapsed summaries into the message list.
+        if !pipeline.collapse_store.is_empty() {
+            *messages = xiaolin_context::collapse::project(messages, &pipeline.collapse_store);
+        }
+    }
+
     // Detect and strip the [COMPACT_REQUESTED] marker injected by /compact.
     let force_compact = messages.iter().any(|m| {
         matches!(m.role, xiaolin_core::types::Role::System)
@@ -322,7 +411,9 @@ pub(crate) async fn unified_pre_query_compact(
     // periodic_cleanup uses a lowered threshold (0.25) to proactively compress.
     // Preemptive compact uses the buffer-based threshold (matches Claude-Code).
     // Skip LLM compression entirely if disabled via feature gate.
+    let collapse_active = pipeline.config().enable_collapse;
     let compress_result = if gates.enable_llm_compact
+        && !collapse_active
         && (force_compact
             || periodic_cleanup
             || (should_preemptive_compact && pipeline.should_attempt_autocompact()))
@@ -444,6 +535,9 @@ pub(crate) async fn unified_pre_query_compact(
         0
     };
 
+    let any_significant_compression =
+        compress_result.compressed || pipeline_applied || !pipeline.collapse_store.is_empty();
+
     UnifiedCompactResult {
         estimated_tokens,
         compressed_by_llm: compress_result.compressed,
@@ -452,6 +546,7 @@ pub(crate) async fn unified_pre_query_compact(
         session_memory_extracted,
         extracted_memory: extraction.memory,
         state_restored,
+        file_state_needs_invalidation: any_significant_compression,
     }
 }
 

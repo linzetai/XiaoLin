@@ -61,7 +61,7 @@ where
     FILE_STATE_CACHE.scope(cache, fut).await
 }
 
-fn get_file_state_cache() -> Option<Arc<FileStateCache>> {
+pub fn get_file_state_cache() -> Option<Arc<FileStateCache>> {
     FILE_STATE_CACHE.try_with(|c| c.clone()).ok()
 }
 

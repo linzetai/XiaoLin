@@ -142,8 +142,23 @@ fn track_restoration_state(
         }
         "ExitPlanMode" => {
             restoration_state.is_plan_mode = false;
-            // Clear plan content when exiting plan mode
             restoration_state.clear_plan();
+        }
+        // Track deferred tool activations via tool_search select mode
+        "tool_search" => {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
+                if parsed.get("activated").and_then(|v| v.as_bool()) == Some(true) {
+                    if let Some(tool_name) = parsed.get("tool").and_then(|v| v.as_str()) {
+                        let description = parsed
+                            .pointer("/schema/description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("(no description)")
+                            .to_string();
+                        restoration_state
+                            .record_tool_activation(tool_name.to_string(), description);
+                    }
+                }
+            }
         }
         _ => {}
     }

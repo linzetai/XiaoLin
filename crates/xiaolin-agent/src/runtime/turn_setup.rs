@@ -194,6 +194,7 @@ pub(crate) async fn setup_turn(
     let pipeline_config = xiaolin_context::PipelineConfig {
         snip_max_tokens: context_window as usize,
         reactive_target_tokens: (context_window as f64 * 0.8) as usize,
+        enable_collapse: config.behavior.enable_collapse,
         ..Default::default()
     };
     let auto_compact_enabled = pipeline_config.enable_auto_compact;

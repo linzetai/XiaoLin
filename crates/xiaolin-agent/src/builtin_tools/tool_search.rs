@@ -107,10 +107,27 @@ impl Tool for ToolSearchTool {
         if let Some(tool_name) = query.strip_prefix("select:") {
             let tool_name = tool_name.trim();
             if self.registry.activate_deferred(tool_name) {
-                return ToolResult::ok(format!(
-                    "{{\"activated\": true, \"tool\": \"{tool_name}\", \
-                     \"message\": \"Tool '{tool_name}' is now available.\"}}"
-                ));
+                let schema_info = self
+                    .registry
+                    .get(tool_name)
+                    .map(|t| {
+                        let def = t.to_definition();
+                        serde_json::json!({
+                            "name": def.function.name,
+                            "description": def.function.description,
+                            "parameters": def.function.parameters,
+                        })
+                    })
+                    .unwrap_or_else(|| serde_json::json!({}));
+                return ToolResult::ok(
+                    serde_json::json!({
+                        "activated": true,
+                        "tool": tool_name,
+                        "message": format!("Tool '{tool_name}' is now available. Full schema below."),
+                        "schema": schema_info,
+                    })
+                    .to_string(),
+                );
             } else {
                 return ToolResult::err(format!(
                     "Tool '{tool_name}' not found in deferred tools. \

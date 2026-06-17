@@ -337,7 +337,38 @@ Both execute in the same turn, saving a round-trip.\n\n\
 - Don't create single-item todo lists (pointless overhead)\n\
 - Don't forget to mark items completed as you go (stale list = confusing)\n\
 - Don't modify completed items — add new ones instead\n\
-- Don't end your turn with incomplete todos without explanation"
+- Don't end your turn with incomplete todos without explanation\n\n\
+## Narrative Examples\n\n\
+<example>\n\
+User: \"Add user authentication with JWT, a /users API endpoint, and rate limiting.\"\n\
+Agent action: Creates todo list with 5 items — [JWT setup, user model, /users endpoint, rate limiter middleware, integration test]. \
+Marks \"JWT setup\" as in_progress. Immediately begins reading the existing auth module.\n\
+<reasoning>\n\
+Three distinct features requested, each with multiple sub-steps and cross-file dependencies. \
+A todo list prevents losing track of the rate-limiting requirement while deep in JWT implementation. \
+Breaking into 5 items keeps each completable in 3-5 tool calls.\n\
+</reasoning>\n\
+</example>\n\n\
+<example>\n\
+User: \"Fix the typo in the README — it says 'instal' instead of 'install'.\"\n\
+Agent action: Uses edit_file directly. No todo list created.\n\
+<reasoning>\n\
+Single file, single edit, obvious fix. Creating a todo list for this adds overhead \
+without any organizational benefit. The entire task is one tool call.\n\
+</reasoning>\n\
+</example>\n\n\
+<example>\n\
+User: \"Refactor the database module to use connection pooling. Also update the config \
+to support pool size settings, and make sure all existing tests still pass.\"\n\
+Agent action: Creates todo list — [search current DB usage patterns, implement connection pool wrapper, \
+update config schema + parsing, migrate callers to pooled connections, run existing test suite]. \
+Marks \"search current DB usage patterns\" as in_progress. Starts with search_in_files to understand scope.\n\
+<reasoning>\n\
+Refactoring touches multiple files with cascading changes (pool wrapper → config → callers → tests). \
+Starting with a search phase prevents premature edits. The todo list ensures the config update \
+and test verification don't get forgotten after the main refactoring work.\n\
+</reasoning>\n\
+</example>"
         )
     }
 

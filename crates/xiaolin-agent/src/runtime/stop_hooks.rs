@@ -39,6 +39,16 @@ impl StopHookResult {
     }
 }
 
+/// Recovery state flags passed from QueryLoopState to stop hooks.
+///
+/// When the agent has exhausted its recovery budget (max-output retries,
+/// reactive compact), continuation hooks like truncation should be
+/// suppressed to avoid infinite retry loops.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RecoveryState {
+    pub max_output_recovery_exhausted: bool,
+}
+
 /// Evaluate all stop hooks in priority order.
 ///
 /// Returns as soon as any hook says `should_continue = true`.
@@ -51,6 +61,7 @@ impl StopHookResult {
 /// * `queued_slash_commands` — any pending slash commands from the user
 /// * `goal_store` — optional reference to the session's goal store
 /// * `execution_mode` — current execution mode; goal hook is skipped in Plan mode
+/// * `recovery` — recovery state from `QueryLoopState`
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn evaluate_stop_hooks(
     _last_assistant_text: &str,
@@ -61,6 +72,7 @@ pub(crate) async fn evaluate_stop_hooks(
     execution_mode: Option<ExecutionMode>,
     had_tool_calls: bool,
     had_progress: bool,
+    recovery: RecoveryState,
 ) -> StopHookResult {
     // Hook 0: Active goal continuation (highest priority for long-running tasks)
     // Skipped in Plan mode — goal continuation should not override plan-mode read-only behavior
@@ -81,8 +93,11 @@ pub(crate) async fn evaluate_stop_hooks(
     }
 
     // Hook 2: Output truncation (finish_reason=length)
-    if let Some(result) = check_truncation(finish_reason) {
-        return result;
+    // Skip when max_output recovery is exhausted to prevent infinite retry loops.
+    if !recovery.max_output_recovery_exhausted {
+        if let Some(result) = check_truncation(finish_reason) {
+            return result;
+        }
     }
 
     // Hook 3: Queued slash commands
@@ -266,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_when_no_hooks_fire() {
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &[], None, None, false, false).await;
+        let result = evaluate_stop_hooks("done", Some("stop"), None, &[], None, None, false, false, RecoveryState::default()).await;
         assert!(!result.should_continue);
         assert!(result.continuation_message.is_none());
         assert_eq!(result.reason, "none");
@@ -302,7 +317,7 @@ mod tests {
             .await;
 
         let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false).await;
+            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false, RecoveryState::default()).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "incomplete_todos");
         let msg = result.continuation_message.unwrap();
@@ -326,23 +341,33 @@ mod tests {
             .await;
 
         let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false).await;
+            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false, RecoveryState::default()).await;
         assert!(!result.should_continue);
     }
 
     #[tokio::test]
     async fn continue_on_output_truncation() {
         let result =
-            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false).await;
+            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false, RecoveryState::default()).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "output_truncated");
         assert!(result.continuation_message.unwrap().contains("cut short"));
     }
 
     #[tokio::test]
+    async fn skip_truncation_when_recovery_exhausted() {
+        let recovery = RecoveryState {
+            max_output_recovery_exhausted: true,
+        };
+        let result =
+            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false, recovery).await;
+        assert!(!result.should_continue, "should stop when recovery exhausted");
+    }
+
+    #[tokio::test]
     async fn continue_on_queued_slash_commands() {
         let commands = vec!["/compact".to_string(), "/help".to_string()];
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &commands, None, None, false, false).await;
+        let result = evaluate_stop_hooks("done", Some("stop"), None, &commands, None, None, false, false, RecoveryState::default()).await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "queued_commands");
         let msg = result.continuation_message.unwrap();

@@ -129,6 +129,9 @@ pub(crate) async fn handle_end_turn(
                 svc.mode_state.as_ref().map(|ms| ms.current_mode()),
                 ms.had_tool_calls_this_round,
                 ms.had_progress_this_round,
+                stop_hooks::RecoveryState {
+                    max_output_recovery_exhausted: ms.query_loop.max_output_recovery_exhausted,
+                },
             )
             .await;
 

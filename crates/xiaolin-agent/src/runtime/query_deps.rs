@@ -204,6 +204,7 @@ pub(crate) mod mock {
                     session_memory_extracted: false,
                     extracted_memory: None,
                     state_restored: false,
+                    file_state_needs_invalidation: false,
                 }
             } else {
                 results.remove(0)

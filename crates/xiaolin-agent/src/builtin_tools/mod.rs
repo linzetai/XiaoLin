@@ -43,8 +43,8 @@ pub use xiaolin_tools_code::code_intel::{
 pub use clipboard::{register_clipboard_tools, ClipboardReadTool, ClipboardWriteTool};
 pub use confirm::ConfirmTool;
 pub use xiaolin_tools_fs::filesystem::{
-    get_effective_work_dir, set_code_graph_hook, with_additional_allowed_paths,
-    with_file_access_mode, with_file_state_cache, with_work_dir,
+    get_effective_work_dir, get_file_state_cache, set_code_graph_hook,
+    with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir,
 };
 pub use xiaolin_tools_fs::filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
