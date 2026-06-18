@@ -179,6 +179,8 @@ export interface SkillInfo {
   source?: string;
   layer?: string;
   enabled?: boolean;
+  paths?: string[];
+  conditional?: boolean;
 }
 
 export interface SkillDetail extends SkillInfo {
@@ -199,6 +201,8 @@ export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
         source: s.source,
         layer: s.layer,
         enabled: s.enabled,
+        paths: s.paths,
+        conditional: s.conditional,
       }));
     }
     const url = agentId ? `/api/v1/skills?agentId=${encodeURIComponent(agentId)}` : "/api/v1/skills";

@@ -10587,6 +10587,7 @@ dependencies = [
  "dashmap",
  "dirs 5.0.1",
  "glob",
+ "globset",
  "hex",
  "hmac",
  "json5",

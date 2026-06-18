@@ -616,6 +616,27 @@ fn inject_skills_prompt(
     let agent_skill_reg = state.skill_registry_for(agent_id);
     let skills_cfg = &state.cfg.config.skills;
 
+    let touched = xiaolin_core::skill::extract_touched_paths(messages);
+    let touched_refs: Vec<&str> = touched.iter().map(|s| s.as_str()).collect();
+    let effective_reg = agent_skill_reg.filter_for_paths(&touched_refs);
+
+    if effective_reg.count() < agent_skill_reg.count() {
+        let conditional_activated = effective_reg.count().saturating_sub(
+            agent_skill_reg
+                .list()
+                .iter()
+                .filter(|s| !s.is_conditional())
+                .count(),
+        );
+        tracing::debug!(
+            total = agent_skill_reg.count(),
+            unconditional = agent_skill_reg.list().iter().filter(|s| !s.is_conditional()).count(),
+            conditional_activated,
+            touched_paths = touched.len(),
+            "conditional skill activation applied"
+        );
+    }
+
     let char_budget = if skills_cfg.context_budget_percent == 0 {
         None
     } else {
@@ -625,7 +646,7 @@ fn inject_skills_prompt(
     };
 
     let (skills_prompt, truncation) =
-        agent_skill_reg.format_with_budget(&skills_cfg.prompt_mode, char_budget);
+        effective_reg.format_with_budget(&skills_cfg.prompt_mode, char_budget);
 
     if skills_prompt.is_empty() {
         return;

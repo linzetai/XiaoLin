@@ -59,6 +59,8 @@ pub async fn handle_skills_list(
                 "source": origin,
                 "layer": format!("{:?}", s.layer),
                 "enabled": enabled,
+                "paths": s.frontmatter.paths,
+                "conditional": s.is_conditional(),
             })
         })
         .collect();
@@ -113,6 +115,8 @@ pub async fn handle_skills_read(
                         "content": skill.content,
                         "tags": skill.frontmatter.tags,
                         "tools": skill.frontmatter.tools,
+                        "paths": skill.frontmatter.paths,
+                        "conditional": skill.is_conditional(),
                         "source": origin,
                         "layer": format!("{:?}", skill.layer),
                         "enabled": enabled,

@@ -360,6 +360,8 @@ export interface SkillInfo {
   source?: string;
   layer?: string;
   enabled?: boolean;
+  paths?: string[];
+  conditional?: boolean;
 }
 
 export interface SkillDetail extends SkillInfo {

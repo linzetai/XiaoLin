@@ -43,6 +43,14 @@ export function PluginsView() {
   const plugins = usePluginStore((s) => s.plugins);
   const mcpCount = plugins.length;
 
+  useEffect(() => {
+    let cancelled = false;
+    api.listSkills().then((skills) => {
+      if (!cancelled) setSkillCount(skills.length);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleEditConfig = useCallback(async (pluginId: string) => {
     setDetailPluginId(null);
     try {
@@ -874,6 +882,15 @@ function SkillRow({
               {skill.layer}
             </span>
           )}
+          {skill.conditional && (
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
+              style={{ background: "var(--status-warning-bg, rgba(234, 179, 8, 0.15))", color: "var(--status-warning, #ca8a04)" }}
+              title={`Conditional: ${(skill.paths ?? []).join(", ")}`}
+            >
+              conditional
+            </span>
+          )}
         </div>
         {skill.description && (
           <div className="mt-0.5 line-clamp-1 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
@@ -1047,7 +1064,7 @@ function SkillDetailModal({
           ) : detail ? (
             <>
               {/* Frontmatter metadata */}
-              {(detail.tags?.length || detail.tools?.length) && (
+              {(detail.tags?.length || detail.tools?.length || detail.paths?.length) && (
                 <div className="mb-4 flex flex-wrap gap-3">
                   {detail.tags && detail.tags.length > 0 && (
                     <div className="flex items-center gap-1">
@@ -1065,6 +1082,18 @@ function SkillDetailModal({
                       {detail.tools.map((tool) => (
                         <span key={tool} className="rounded-full px-1.5 py-0.5 font-mono text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
                           {tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {detail.paths && detail.paths.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>
+                        {detail.conditional ? "Paths (conditional):" : "Paths:"}
+                      </span>
+                      {detail.paths.map((p) => (
+                        <span key={p} className="rounded-full px-1.5 py-0.5 font-mono text-[10px]" style={{ background: "var(--status-warning-bg, rgba(234, 179, 8, 0.15))", color: "var(--status-warning, #ca8a04)" }}>
+                          {p}
                         </span>
                       ))}
                     </div>

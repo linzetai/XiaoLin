@@ -1,3 +1,4 @@
+use globset::{Glob, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -59,6 +60,18 @@ fn default_layer() -> SkillLayer {
     SkillLayer::Project
 }
 
+impl SkillEntry {
+    /// A skill is conditional if it has non-empty `paths` without a catch-all `**` pattern.
+    /// Conditional skills are only injected when touched files match the glob patterns.
+    pub fn is_conditional(&self) -> bool {
+        let paths = &self.frontmatter.paths;
+        if paths.is_empty() {
+            return false;
+        }
+        !paths.iter().any(|p| p.trim() == "**")
+    }
+}
+
 /// YAML frontmatter from a SKILL.md file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillFrontmatter {
@@ -72,6 +85,10 @@ pub struct SkillFrontmatter {
     pub tools: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// File path globs for conditional activation. Empty = unconditional (always on).
+    /// Patterns are gitignore-style relative paths matched against workspace files.
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 /// Registry of loaded skills keyed by id.
@@ -159,6 +176,37 @@ impl SkillRegistry {
                 }
             }
             out.skills.insert(id.clone(), skill.clone());
+        }
+        out
+    }
+
+    /// Return a new registry containing only skills relevant for the given touched file paths.
+    ///
+    /// - **Unconditional** skills (`paths: []` or `paths: ["**"]`) are always included.
+    /// - **Conditional** skills are included only if at least one touched path matches
+    ///   any of the skill's `paths` globs.
+    /// - Skills already excluded by deny list (via `filtered()`) stay excluded — call
+    ///   `filtered()` first, then `filter_for_paths()`.
+    pub fn filter_for_paths(&self, touched: &[&str]) -> SkillRegistry {
+        if touched.is_empty() {
+            let mut out = SkillRegistry::new();
+            for (id, skill) in &self.skills {
+                if !skill.is_conditional() {
+                    out.skills.insert(id.clone(), skill.clone());
+                }
+            }
+            return out;
+        }
+
+        let mut out = SkillRegistry::new();
+        for (id, skill) in &self.skills {
+            if !skill.is_conditional() {
+                out.skills.insert(id.clone(), skill.clone());
+                continue;
+            }
+            if skill_matches_paths(skill, touched) {
+                out.skills.insert(id.clone(), skill.clone());
+            }
         }
         out
     }
@@ -777,6 +825,77 @@ fn extract_first_paragraph(content: &str) -> Option<String> {
     }
 }
 
+/// Check if any of the touched paths match the conditional skill's `paths` globs.
+fn skill_matches_paths(skill: &SkillEntry, touched: &[&str]) -> bool {
+    let mut builder = GlobSetBuilder::new();
+    let mut has_patterns = false;
+
+    for pattern in &skill.frontmatter.paths {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match Glob::new(trimmed) {
+            Ok(g) => {
+                builder.add(g);
+                has_patterns = true;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    skill_id = %skill.id,
+                    pattern = %trimmed,
+                    error = %e,
+                    "invalid glob pattern in skill frontmatter paths"
+                );
+            }
+        }
+    }
+
+    if !has_patterns {
+        return false;
+    }
+
+    let globset = match builder.build() {
+        Ok(gs) => gs,
+        Err(e) => {
+            tracing::warn!(skill_id = %skill.id, error = %e, "failed to build globset");
+            return false;
+        }
+    };
+
+    touched.iter().any(|path| globset.is_match(path))
+}
+
+/// Extract file paths mentioned in conversation messages' tool calls.
+///
+/// Scans tool call arguments for common path-bearing parameters (`path`, `file_path`,
+/// `target_path`, `directory`) and returns them as a deduplicated list.
+pub fn extract_touched_paths(messages: &[crate::types::ChatMessage]) -> Vec<String> {
+    use std::collections::HashSet;
+    let mut paths = HashSet::new();
+
+    for msg in messages {
+        if let Some(ref tool_calls) = msg.tool_calls {
+            for tc in tool_calls {
+                if let Ok(args) = serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
+                {
+                    if let Some(obj) = args.as_object() {
+                        for key in &["path", "file_path", "target_path", "directory", "file", "filename"] {
+                            if let Some(serde_json::Value::String(p)) = obj.get(*key) {
+                                if !p.is_empty() {
+                                    paths.insert(p.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    paths.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1361,5 +1480,168 @@ mod tests {
         } else {
             assert!(dir.ends_with(".xiaolin/skills"), "got {}", dir.display());
         }
+    }
+
+    // ── Conditional activation (paths) ────────────────────────────
+
+    fn make_conditional_skill(id: &str, name: &str, paths: Vec<&str>) -> SkillEntry {
+        SkillEntry {
+            id: id.into(),
+            name: name.into(),
+            description: Some(format!("{name} description")),
+            content: format!("Content of {name}"),
+            source_path: PathBuf::from(format!("/fake/{id}/SKILL.md")),
+            frontmatter: SkillFrontmatter {
+                name: Some(name.into()),
+                paths: paths.into_iter().map(String::from).collect(),
+                ..Default::default()
+            },
+            layer: SkillLayer::Project,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn is_conditional_empty_paths() {
+        assert!(!make_conditional_skill("a", "A", vec![]).is_conditional());
+    }
+
+    #[test]
+    fn is_conditional_star_star() {
+        assert!(!make_conditional_skill("a", "A", vec!["**"]).is_conditional());
+    }
+
+    #[test]
+    fn is_conditional_with_patterns() {
+        assert!(make_conditional_skill("a", "A", vec!["*.rs"]).is_conditional());
+    }
+
+    #[test]
+    fn is_conditional_star_star_among_others() {
+        assert!(!make_conditional_skill("a", "A", vec!["*.rs", "**"]).is_conditional());
+    }
+
+    #[test]
+    fn filter_paths_no_touched_returns_unconditional_only() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("always", "Always On", None));
+        reg.register(make_conditional_skill("rs-only", "Rust Only", vec!["*.rs"]));
+
+        let filtered = reg.filter_for_paths(&[]);
+        assert_eq!(filtered.count(), 1);
+        assert!(filtered.get("always").is_some());
+        assert!(filtered.get("rs-only").is_none());
+    }
+
+    #[test]
+    fn filter_paths_matching_includes_conditional() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("always", "Always On", None));
+        reg.register(make_conditional_skill("rs-only", "Rust Only", vec!["*.rs"]));
+
+        let filtered = reg.filter_for_paths(&["src/main.rs"]);
+        assert_eq!(filtered.count(), 2);
+        assert!(filtered.get("always").is_some());
+        assert!(filtered.get("rs-only").is_some());
+    }
+
+    #[test]
+    fn filter_paths_no_match_excludes_conditional() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("always", "Always On", None));
+        reg.register(make_conditional_skill("rs-only", "Rust Only", vec!["*.rs"]));
+
+        let filtered = reg.filter_for_paths(&["package.json", "src/app.tsx"]);
+        assert_eq!(filtered.count(), 1);
+        assert!(filtered.get("always").is_some());
+    }
+
+    #[test]
+    fn filter_paths_deny_takes_priority() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("always", "Always On", None));
+        reg.register(make_conditional_skill("rs-only", "Rust Only", vec!["*.rs"]));
+
+        let denied = reg.filtered(&[], &["rs-only".to_string()], None);
+        let result = denied.filter_for_paths(&["main.rs"]);
+        assert_eq!(result.count(), 1);
+        assert!(result.get("always").is_some());
+        assert!(result.get("rs-only").is_none());
+    }
+
+    #[test]
+    fn filter_paths_multiple_globs() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_conditional_skill("web", "Web", vec!["*.tsx", "*.css", "*.html"]));
+
+        assert_eq!(reg.filter_for_paths(&["app.tsx"]).count(), 1);
+        assert_eq!(reg.filter_for_paths(&["style.css"]).count(), 1);
+        assert_eq!(reg.filter_for_paths(&["page.html"]).count(), 1);
+        assert_eq!(reg.filter_for_paths(&["main.rs"]).count(), 0);
+    }
+
+    #[test]
+    fn filter_paths_directory_glob() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_conditional_skill("tests", "Test", vec!["tests/**", "**/*_test.rs"]));
+
+        assert_eq!(reg.filter_for_paths(&["tests/unit.rs"]).count(), 1);
+        assert_eq!(reg.filter_for_paths(&["src/foo_test.rs"]).count(), 1);
+        assert_eq!(reg.filter_for_paths(&["src/main.rs"]).count(), 0);
+    }
+
+    #[test]
+    fn frontmatter_paths_round_trip() {
+        let yaml = "---\nname: Cond\npaths:\n  - \"*.rs\"\n  - \"src/**/*.toml\"\n---\n# Body";
+        let (fm, _) = parse_frontmatter(yaml);
+        assert_eq!(fm.paths, vec!["*.rs", "src/**/*.toml"]);
+    }
+
+    #[test]
+    fn extract_touched_paths_from_tool_calls() {
+        use crate::types::{ChatMessage, FunctionCall, Role, ToolCall};
+
+        let msgs = vec![
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("help".into())),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                tool_calls: Some(vec![ToolCall {
+                    id: "tc1".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "read_file".into(),
+                        arguments: r#"{"path": "src/main.rs"}"#.into(),
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                }]),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                tool_calls: Some(vec![ToolCall {
+                    id: "tc2".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "write_file".into(),
+                        arguments: r#"{"file_path": "Cargo.toml", "content": "..."}"#.into(),
+                    },
+                    output: None,
+                    success: None,
+                    duration_ms: None,
+                }]),
+                ..Default::default()
+            },
+        ];
+
+        let paths = extract_touched_paths(&msgs);
+        assert!(paths.contains(&"src/main.rs".to_string()));
+        assert!(paths.contains(&"Cargo.toml".to_string()));
+        assert_eq!(paths.len(), 2);
     }
 }

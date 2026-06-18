@@ -41,13 +41,13 @@
 
 ## 5. Phase 3: 条件激活（skill-conditional-activation）
 
-- [ ] 5.1 在 `SkillFrontmatter` 新增 `paths: Vec<String>` 字段
-- [ ] 5.2 初始化时分离 conditional（有 `paths:`）和 unconditional（无 `paths:`）skill
-- [ ] 5.3 实现 touch-triggered 激活：tool 操作文件后检查路径是否匹配 conditional skill 的 `paths:` glob（使用 `globset` crate，gitignore 风格相对路径）
-- [ ] 5.4 Cargo.toml 添加 `globset` 依赖到 `xiaolin-core`
-- [ ] 5.5 `paths: []` 或 `paths: ["**"]` 视为 unconditional（always-on）
-- [ ] 5.6 已被 deny list 禁用的 skill 不受 paths 匹配影响（deny 优先于 paths）
-- [ ] 5.7 添加测试覆盖匹配/不匹配/无 paths/deny 优先四种场景
+- [x] 5.1 在 `SkillFrontmatter` 新增 `paths: Vec<String>` 字段
+- [x] 5.2 初始化时分离 conditional（有 `paths:`）和 unconditional（无 `paths:`）skill
+- [x] 5.3 实现 touch-triggered 激活：tool 操作文件后检查路径是否匹配 conditional skill 的 `paths:` glob（使用 `globset` crate，gitignore 风格相对路径）
+- [x] 5.4 Cargo.toml 添加 `globset` 依赖到 `xiaolin-core`
+- [x] 5.5 `paths: []` 或 `paths: ["**"]` 视为 unconditional（always-on）
+- [x] 5.6 已被 deny list 禁用的 skill 不受 paths 匹配影响（deny 优先于 paths）
+- [x] 5.7 添加测试覆盖匹配/不匹配/无 paths/deny 优先四种场景
 
 ## 6. Phase 3: Skill Marketplace（skill-marketplace）
 
