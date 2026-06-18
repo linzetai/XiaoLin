@@ -941,6 +941,9 @@ impl StateBuilder {
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     p5.phase2.phase4.phase3.agent_skill_registries,
                 ))),
+                mcp_skill_registry: Arc::new(ArcSwap::new(Arc::new(
+                    xiaolin_core::skill::SkillRegistry::new(),
+                ))),
                 workspaces: Arc::new(p5.phase2.phase4.phase3.workspaces),
                 prompt_guard: prompt_guard.clone(),
                 session_modes: p5.phase2.phase4.session_modes,
@@ -1233,6 +1236,13 @@ impl StateBuilder {
         }
 
         state.spawn_skill_evolution_tasks();
+
+        {
+            let mcp_state = state.clone();
+            tokio::spawn(async move {
+                mcp_state.refresh_mcp_skills().await;
+            });
+        }
 
         state.spawn_inbound_dispatcher(inbound_rx);
 

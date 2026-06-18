@@ -69,11 +69,11 @@
 
 ## 8. Phase 3: MCP Skill 资源（skill-mcp-resource）
 
-- [ ] 8.1 在 MCP 资源发现逻辑中识别 `skill://` URI scheme
-- [ ] 8.2 Fetch skill 资源内容并解析为 SkillEntry（Extension layer），ID 命名为 `mcp__<server_id>__<resource_suffix>` 避免冲突
-- [ ] 8.3 MCP 服务器重连时刷新 skill 资源
-- [ ] 8.4 MCP skill 设为只读（update/delete 返回错误）
-- [ ] 8.5 将 MCP skills 接入 `ext_registry` 或 per-agent registry 的 merge 链
+- [x] 8.1 在 MCP 资源发现逻辑中识别 `skill://` URI scheme
+- [x] 8.2 Fetch skill 资源内容并解析为 SkillEntry（Extension layer），ID 命名为 `mcp__<server_id>__<resource_suffix>` 避免冲突
+- [x] 8.3 MCP 服务器重连时刷新 skill 资源
+- [x] 8.4 MCP skill 设为只读（update/delete 返回错误）
+- [x] 8.5 将 MCP skills 接入 `ext_registry` 或 per-agent registry 的 merge 链
 
 ## 9. Phase 4: 语义搜索（skill-semantic-search）
 

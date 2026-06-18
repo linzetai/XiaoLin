@@ -15,6 +15,7 @@ fn origin_str(origin: SkillOrigin) -> &'static str {
         SkillOrigin::Codex => "codex",
         SkillOrigin::SharedAgents => "shared_agents",
         SkillOrigin::Extension => "extension",
+        SkillOrigin::Mcp => "mcp",
     }
 }
 

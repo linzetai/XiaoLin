@@ -137,6 +137,8 @@ pub struct RuntimeState {
     /// Unfiltered registry for UI listing (includes deny-listed skills).
     pub unfiltered_skill_registry: Arc<ArcSwap<SkillRegistry>>,
     pub agent_skill_registries: Arc<ArcSwap<std::collections::HashMap<String, Arc<SkillRegistry>>>>,
+    /// Skills discovered from MCP server resources (`skill://` URI scheme).
+    pub mcp_skill_registry: Arc<ArcSwap<SkillRegistry>>,
     pub workspaces: Arc<std::collections::HashMap<String, AgentWorkspace>>,
     pub prompt_guard: Arc<xiaolin_security::PromptGuard>,
     pub session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry,
@@ -488,12 +490,18 @@ impl AppState {
         let desired_ids: std::collections::HashSet<String> = desired_map.keys().cloned().collect();
 
         let to_remove: Vec<String> = current_ids.difference(&desired_ids).cloned().collect();
+        let mut mcp_skills_changed = false;
         for id in &to_remove {
             let prefix = xiaolin_mcp::naming::mcp_server_prefix(id);
             let removed = self.rt.tool_registry.unregister_by_prefix(&prefix);
             self.rt.tool_registry.remove_mcp_instructions(id);
             tracing::info!(mcp_id = %id, tools_removed = removed, "stopped MCP server (removed from config)");
             handles.remove(id);
+            let skill_prefix = format!("mcp__{}__", id);
+            let mut mcp_reg = (**self.rt.mcp_skill_registry.load()).clone();
+            mcp_reg.remove_by_prefix(&skill_prefix);
+            self.rt.mcp_skill_registry.store(Arc::new(mcp_reg));
+            mcp_skills_changed = true;
         }
 
         let mut new_status: std::collections::HashMap<String, McpServerStatus> =
@@ -594,13 +602,27 @@ impl AppState {
                         let tool_count = handle.tools().len();
                         let now = chrono::Utc::now().to_rfc3339();
                         tracing::info!(mcp_id = %id, tool_count, "MCP server connected (hot reload)");
-                        Self::spawn_notification_watcher_with_handles(
+                        let skill_cb = {
+                            let state = self.clone();
+                            let sid = id.clone();
+                            let cb: Arc<dyn Fn(xiaolin_mcp::SharedMcpClient) + Send + Sync> =
+                                Arc::new(move |client| {
+                                    let s = state.clone();
+                                    let sid = sid.clone();
+                                    tokio::spawn(async move {
+                                        s.refresh_mcp_skills_for_server(&sid, &client).await;
+                                    });
+                                });
+                            cb
+                        };
+                        Self::spawn_notification_watcher_full(
                             &id,
                             &handle,
                             &self.rt.tool_registry,
                             Some(self.ext.mcp_handles.clone()),
                             Some(self.ext.mcp_status.clone()),
                             Some(self.strm.ws_broadcast.clone()),
+                            Some(skill_cb),
                         );
                         Self::spawn_server_request_watcher(
                             &id,
@@ -656,6 +678,12 @@ impl AppState {
         new_status.extend(pending_status);
         self.ext.mcp_status.store(Arc::new(new_status));
 
+        if mcp_skills_changed {
+            if let Err(e) = self.reload_skills() {
+                tracing::warn!(error = %e, "failed to reload skills after MCP server removal");
+            }
+        }
+
         Ok(())
     }
 
@@ -703,13 +731,27 @@ impl AppState {
             Ok(handle) => {
                 let tool_count = handle.tools().len();
                 let now = chrono::Utc::now().to_rfc3339();
-                Self::spawn_notification_watcher_with_handles(
+                let skill_cb = {
+                    let state = self.clone();
+                    let sid = server_id.to_string();
+                    let cb: Arc<dyn Fn(xiaolin_mcp::SharedMcpClient) + Send + Sync> =
+                        Arc::new(move |client| {
+                            let s = state.clone();
+                            let sid = sid.clone();
+                            tokio::spawn(async move {
+                                s.refresh_mcp_skills_for_server(&sid, &client).await;
+                            });
+                        });
+                    cb
+                };
+                Self::spawn_notification_watcher_full(
                     server_id,
                     &handle,
                     &self.rt.tool_registry,
                     Some(self.ext.mcp_handles.clone()),
                     Some(self.ext.mcp_status.clone()),
                     Some(self.strm.ws_broadcast.clone()),
+                    Some(skill_cb),
                 );
                 Self::spawn_server_request_watcher(
                     server_id,
@@ -1359,6 +1401,31 @@ impl AppState {
         >,
         ws_broadcast: Option<tokio::sync::broadcast::Sender<String>>,
     ) {
+        Self::spawn_notification_watcher_full(
+            server_id,
+            handle,
+            tool_registry,
+            handles_map,
+            status_store,
+            ws_broadcast,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_notification_watcher_full(
+        server_id: &str,
+        handle: &xiaolin_mcp::SharedMcpClient,
+        tool_registry: &ToolRegistry,
+        handles_map: Option<
+            Arc<tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>>,
+        >,
+        status_store: Option<
+            Arc<ArcSwap<std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>>>,
+        >,
+        ws_broadcast: Option<tokio::sync::broadcast::Sender<String>>,
+        skill_refresh: Option<Arc<dyn Fn(xiaolin_mcp::SharedMcpClient) + Send + Sync>>,
+    ) {
         let mut rx = handle.subscribe_notifications();
         let prefix = xiaolin_mcp::naming::mcp_server_prefix(server_id);
         let registry = tool_registry.clone();
@@ -1431,6 +1498,9 @@ impl AppState {
                                                 "failed to refresh resources after list_changed"
                                             );
                                         }
+                                    }
+                                    if let Some(ref cb) = skill_refresh {
+                                        cb(client);
                                     }
                                 }
                                 if let Some(ref tx) = ws_broadcast {
@@ -1585,6 +1655,9 @@ impl AppState {
                                                     ..Default::default()
                                                 });
                                                 ss.store(Arc::new(map));
+                                            }
+                                            if let Some(ref cb) = skill_refresh {
+                                                cb(new_handle.clone());
                                             }
                                             rx = new_handle.subscribe_notifications();
                                             reconnected = true;
@@ -2163,9 +2236,12 @@ impl AppState {
             xiaolin_core::skill::load_skills_cross_tool(workspace_root.as_deref());
         let ext_registry = Self::load_extension_skills(paths_cfg);
 
+        let mcp_skills: SkillRegistry = (**self.rt.mcp_skill_registry.load()).clone();
+
         let mut base = SkillRegistry::new();
         xiaolin_core::skill::register_builtin_skills(&mut base);
         base.merge_from(ext_registry);
+        base.merge_from(mcp_skills);
         base.merge_from(legacy_project_registry);
         base.merge_from(cross_tool_registry);
 
@@ -2237,6 +2313,191 @@ impl AppState {
             reg
         } else {
             SkillRegistry::new()
+        }
+    }
+
+    /// Scan all connected MCP servers for `skill://` resources, fetch their content,
+    /// parse into `SkillEntry`, and store in `mcp_skill_registry`. Then triggers
+    /// `reload_skills()` to rebuild the full merge chain.
+    pub async fn refresh_mcp_skills(&self) {
+        use xiaolin_core::skill::{
+            parse_skill_content, SkillLayer, SkillOrigin, SkillSource,
+        };
+
+        let servers: Vec<(String, xiaolin_mcp::SharedMcpClient)> = {
+            let handles = self.ext.mcp_handles.lock().await;
+            handles
+                .iter()
+                .filter(|(_, c)| c.has_resources())
+                .map(|(id, c)| (id.clone(), c.clone()))
+                .collect()
+        };
+
+        let mut registry = SkillRegistry::new();
+        let mut total = 0usize;
+
+        for (server_id, client) in &servers {
+            let resources = match client.list_resources().await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        mcp_id = %server_id,
+                        error = %e,
+                        "failed to list MCP resources for skill discovery"
+                    );
+                    continue;
+                }
+            };
+            let skill_resources: Vec<_> = resources
+                .into_iter()
+                .filter(|r| r.uri.starts_with("skill://"))
+                .collect();
+
+            if skill_resources.is_empty() {
+                continue;
+            }
+            tracing::info!(
+                mcp_id = %server_id,
+                count = skill_resources.len(),
+                "found skill:// resources from MCP server"
+            );
+
+            for resource in skill_resources {
+                let suffix = resource.uri.strip_prefix("skill://").unwrap_or(&resource.uri);
+                let skill_id = format!(
+                    "mcp__{}__{}", server_id, suffix.replace('/', "__")
+                );
+                let contents = match client.read_resource(&resource.uri).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!(
+                            mcp_id = %server_id,
+                            uri = %resource.uri,
+                            error = %e,
+                            "failed to read MCP skill resource"
+                        );
+                        continue;
+                    }
+                };
+                let raw_content = contents
+                    .into_iter()
+                    .filter_map(|c| c.text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if raw_content.is_empty() {
+                    continue;
+                }
+
+                let source = SkillSource {
+                    origin: SkillOrigin::Mcp,
+                    layer: SkillLayer::Extension,
+                    path: std::path::PathBuf::from(format!("mcp://{}/{}", server_id, suffix)),
+                };
+                let entry = parse_skill_content(
+                    &skill_id,
+                    &raw_content,
+                    SkillLayer::Extension,
+                    Some(source),
+                );
+                registry.register(entry);
+                total += 1;
+            }
+        }
+
+        if total > 0 {
+            tracing::info!(count = total, "loaded MCP skill resources");
+        }
+        self.rt.mcp_skill_registry.store(Arc::new(registry));
+        if let Err(e) = self.reload_skills() {
+            tracing::warn!(error = %e, "failed to reload skills after MCP skill discovery");
+        }
+    }
+
+    /// Refresh MCP skills for a single server after reconnect.
+    pub async fn refresh_mcp_skills_for_server(
+        &self,
+        server_id: &str,
+        client: &xiaolin_mcp::SharedMcpClient,
+    ) {
+        use xiaolin_core::skill::{
+            parse_skill_content, SkillLayer, SkillOrigin, SkillSource,
+        };
+
+        if !client.has_resources() {
+            return;
+        }
+
+        let resources = match client.list_resources().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    mcp_id = %server_id,
+                    error = %e,
+                    "failed to list MCP resources after reconnect"
+                );
+                return;
+            }
+        };
+        let skill_resources: Vec<_> = resources
+            .into_iter()
+            .filter(|r| r.uri.starts_with("skill://"))
+            .collect();
+
+        let mut current = (**self.rt.mcp_skill_registry.load()).clone();
+        let prefix = format!("mcp__{}__", server_id);
+        current.remove_by_prefix(&prefix);
+
+        let mut added = 0usize;
+        for resource in &skill_resources {
+            let suffix = resource.uri.strip_prefix("skill://").unwrap_or(&resource.uri);
+            let skill_id = format!(
+                "mcp__{}__{}", server_id, suffix.replace('/', "__")
+            );
+            let contents = match client.read_resource(&resource.uri).await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        mcp_id = %server_id,
+                        uri = %resource.uri,
+                        error = %e,
+                        "failed to read MCP skill resource after reconnect"
+                    );
+                    continue;
+                }
+            };
+            let raw_content = contents
+                .into_iter()
+                .filter_map(|c| c.text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if raw_content.is_empty() {
+                continue;
+            }
+            let source = SkillSource {
+                origin: SkillOrigin::Mcp,
+                layer: SkillLayer::Extension,
+                path: std::path::PathBuf::from(format!("mcp://{}/{}", server_id, suffix)),
+            };
+            let entry = parse_skill_content(
+                &skill_id,
+                &raw_content,
+                SkillLayer::Extension,
+                Some(source),
+            );
+            current.register(entry);
+            added += 1;
+        }
+
+        self.rt.mcp_skill_registry.store(Arc::new(current));
+        if added > 0 || !skill_resources.is_empty() {
+            tracing::info!(
+                mcp_id = %server_id,
+                added,
+                "refreshed MCP skill resources after reconnect"
+            );
+        }
+        if let Err(e) = self.reload_skills() {
+            tracing::warn!(error = %e, "failed to reload skills after MCP skill refresh");
         }
     }
 
@@ -2687,6 +2948,7 @@ impl AppState {
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     std::collections::HashMap::new(),
                 ))),
+                mcp_skill_registry: Arc::new(ArcSwap::new(Arc::new(SkillRegistry::new()))),
                 workspaces: Arc::new(std::collections::HashMap::new()),
                 prompt_guard: prompt_guard.clone(),
                 session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry::new(),

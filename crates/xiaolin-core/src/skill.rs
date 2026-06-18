@@ -29,6 +29,7 @@ pub enum SkillOrigin {
     Codex,
     SharedAgents,
     Extension,
+    Mcp,
 }
 
 /// Provenance metadata attached to every discovered skill.
@@ -127,6 +128,11 @@ impl SkillRegistry {
         for (id, skill) in other.skills {
             self.skills.insert(id, skill);
         }
+    }
+
+    /// Remove all skills whose ID starts with the given prefix.
+    pub fn remove_by_prefix(&mut self, prefix: &str) {
+        self.skills.retain(|id, _| !id.starts_with(prefix));
     }
 
     /// Return true if the registry contains a skill with the given ID.
@@ -766,6 +772,45 @@ fn parse_skill_file(path: &Path, dir: &Path) -> anyhow::Result<SkillEntry> {
         layer: SkillLayer::Project,
         source: None,
     })
+}
+
+/// Parse a SKILL.md content string into a `SkillEntry`.
+///
+/// Used for non-file sources (e.g. MCP resources) where content comes as a string
+/// rather than from disk. The caller provides the `id`, `layer`, and `source`.
+pub fn parse_skill_content(
+    id: &str,
+    raw: &str,
+    layer: SkillLayer,
+    source: Option<SkillSource>,
+) -> SkillEntry {
+    let (frontmatter, content) = parse_frontmatter(raw);
+
+    let name = frontmatter
+        .name
+        .clone()
+        .unwrap_or_else(|| extract_title_from_md(&content).unwrap_or_else(|| id.to_string()));
+
+    let description = frontmatter
+        .description
+        .clone()
+        .or_else(|| extract_first_paragraph(&content));
+
+    let source_path = source
+        .as_ref()
+        .map(|s| s.path.clone())
+        .unwrap_or_else(|| PathBuf::from("(mcp)"));
+
+    SkillEntry {
+        id: id.to_string(),
+        name,
+        description,
+        content,
+        source_path,
+        frontmatter,
+        layer,
+        source,
+    }
 }
 
 fn parse_frontmatter(raw: &str) -> (SkillFrontmatter, String) {
