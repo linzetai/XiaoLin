@@ -21,6 +21,6 @@ fn main() {
 
     println!("\nPending tasks (sorted by priority):");
     for task in store.pending_by_priority() {
-        println!("  [{:?}] {} - {}", task.priority, task.id, task.title);
+        println!("  {}", task);
     }
 }

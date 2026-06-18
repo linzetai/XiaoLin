@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use xiaolin_agent::{CompletionParams, LlmProvider};
 use xiaolin_core::types::{
     ChatChoice, ChatMessage, ChatResponse, DeltaContent, FunctionCall, Role, StreamChoice,
-    StreamDelta, ToolCall,
+    StreamDelta, StreamFunctionDelta, StreamToolCallDelta, ToolCall,
 };
 use xiaolin_gateway::{build_app, AppState};
 use xiaolin_security::{ApiKeyAuth, AuthConfig};
@@ -89,6 +89,28 @@ impl LlmProvider for ScriptedProvider {
         let resp = self.chat_completion(params).await?;
         let choice = &resp.choices[0];
         use futures::stream;
+
+        let tool_calls_for_delta = choice.message.tool_calls.as_ref().map(|tcs| {
+            tcs.iter()
+                .enumerate()
+                .map(|(i, tc)| StreamToolCallDelta {
+                    index: i as u32,
+                    id: Some(tc.id.clone()),
+                    call_type: Some("function".into()),
+                    function: Some(StreamFunctionDelta {
+                        name: Some(tc.function.name.clone()),
+                        arguments: Some(tc.function.arguments.clone()),
+                    }),
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let finish_reason = if tool_calls_for_delta.is_some() {
+            Some("tool_calls".into())
+        } else {
+            Some("stop".into())
+        };
+
         let deltas = vec![
             Ok(StreamDelta {
                 id: resp.id.clone(),
@@ -101,7 +123,7 @@ impl LlmProvider for ScriptedProvider {
                         role: Some(Role::Assistant),
                         content: choice.message.text_content().map(|c| c.into_owned()),
                         reasoning_content: None,
-                        tool_calls: None,
+                        tool_calls: tool_calls_for_delta,
                     },
                     finish_reason: None,
                 }],
@@ -121,9 +143,9 @@ impl LlmProvider for ScriptedProvider {
                         reasoning_content: None,
                         tool_calls: None,
                     },
-                    finish_reason: Some("stop".into()),
+                    finish_reason,
                 }],
-                usage: None,
+                usage: resp.usage.clone(),
                 raw_sse_json: None,
             }),
         ];
@@ -618,7 +640,6 @@ async fn ws_chat_to_completion(
     loop {
         let msg = ws_recv_json(rx).await;
         let ty = msg["type"].as_str().unwrap_or("unknown").to_string();
-        eprintln!("  WS event: type={ty} data_keys={:?}", msg["data"].as_object().map(|o| o.keys().collect::<Vec<_>>()));
         event_types.push(ty.clone());
         if ty == "turn_start" {
             sid = msg["data"]["session_id"]
@@ -681,10 +702,6 @@ async fn e2e_ws_multi_turn_streaming() {
     let resp = ws_recv_json(&mut rx).await;
     assert_eq!(resp["type"], "sessions.messages");
     let messages = resp["data"]["messages"].as_array().unwrap();
-    eprintln!("=== DEBUG messages ({}) ===", messages.len());
-    for (i, m) in messages.iter().enumerate() {
-        eprintln!("  [{}] role={} content={}", i, m["role"], m["content"]);
-    }
     assert!(
         messages.len() >= 4,
         "2 turns = 2 user + 2 assistant = 4 messages minimum, got {}",

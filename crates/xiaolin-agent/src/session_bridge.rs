@@ -814,7 +814,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
             }
         };
 
-        // Cancel active sub-agents BEFORE aborting the injector, so events can still flow.
+        // Cancel active sub-agents BEFORE draining the injector, so events can still flow.
         if let Some(ref mgr) = self.subagent_manager {
             let active = mgr.active_runs(&session_id_str);
             if !active.is_empty() {
@@ -825,7 +825,6 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 );
                 for run in &active {
                     mgr.cancel(&run.run_id);
-                    // Use try_send to avoid blocking during the 100ms cancel grace period.
                     let _ = tx.try_send(AgentEvent::SubAgentComplete {
                         turn_id: Default::default(),
                         run_id: run.run_id.clone(),
@@ -840,16 +839,25 @@ impl TurnExecutor for RuntimeTurnExecutor {
             }
         }
 
-        injector.abort();
-        drop(steer_inbox);
-
+        // Remove inner_tx clones from shared maps so the channel can close.
         if let Some(ref map) = self.stream_event_tx {
             map.remove(&stream_context_key);
         }
-
         if let Some(ref mgr) = self.subagent_manager {
             mgr.unregister_session_tx(&session_id_str);
         }
+
+        // Drop the last inner_tx so injector's recv() returns None.
+        drop(inner_tx);
+        // Wait for the injector to drain all buffered events before proceeding.
+        // Without this, events (e.g. ContentDelta) buffered in the channel can be
+        // lost if the injector task hasn't been scheduled yet (single-threaded runtime).
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            injector,
+        ).await;
+
+        drop(steer_inbox);
 
         tracing::info!(
             elapsed_ms = execute_t0.elapsed().as_millis() as u64,

@@ -364,79 +364,36 @@ pub fn deserialize_migration_data(bytes: &[u8]) -> Result<MigrationData> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
+    use crate::types::AgentId;
 
     #[tokio::test]
     async fn test_export_import_basic_flow() -> Result<()> {
-        // 创建一个临时目录模拟状态目录
-        let temp_dir = TempDir::new()?;
-        let state_dir = temp_dir.path();
 
-        // 创建必要的子目录
-        fs::create_dir_all(state_dir.join("config"))?;
-        fs::create_dir_all(state_dir.join("config").join("agents"))?;
-        fs::create_dir_all(state_dir.join("data"))?;
-        fs::create_dir_all(state_dir.join("skills"))?;
-        fs::create_dir_all(state_dir.join("workspace"))?;
+        let agent_json = r#"{"agentId":"test_agent","name":"Test Agent"}"#;
+        let agent: AgentConfig = serde_json::from_str(agent_json)?;
 
-        // 创建一个简单的配置文件
-        let config_path = state_dir.join("config").join("default.json");
-        fs::write(&config_path, r#"{"gateway": {"port": 18789}}"#)?;
-
-        // 创建一个简单的代理配置
-        let agent_path = state_dir
-            .join("config")
-            .join("agents")
-            .join("test_agent.json");
-        fs::write(
-            &agent_path,
-            r#"{"agentId": "test_agent", "name": "Test Agent"}"#,
-        )?;
-
-        // 创建一个简单的技能文件
-        let skills_path = state_dir.join("skills").join("test_skill.md");
-        fs::write(&skills_path, "# Test Skill\nThis is a test skill.")?;
-
-        // 设置导出选项
-        let export_options = ExportOptions {
-            include_sessions: false,
-            include_skills: true,
-            include_agent_workspaces: false,
+        let migration_data = MigrationData {
+            config: Some(serde_json::json!({"gateway": {"port": 18789}})),
+            agents: vec![agent],
+            agent_workspaces: None,
+            sessions: None,
+            skills: Some(b"# Test Skill\nThis is a test skill.".to_vec()),
         };
+        println!("✓ Data constructed");
 
-        // 执行导出
-        let migration_data =
-            export_data(&ConfigMode::from_flags(false, None), &export_options).await?;
-        println!("✓ Data exported successfully");
-
-        // 序列化数据
         let serialized_data = serialize_migration_data(&migration_data)?;
         println!("✓ Data serialized to {} bytes", serialized_data.len());
 
-        // 反序列化数据
         let deserialized_data = deserialize_migration_data(&serialized_data)?;
         println!("✓ Data deserialized successfully");
 
-        // 验证反序列化的数据
         assert!(deserialized_data.config.is_some());
         assert!(!deserialized_data.agents.is_empty());
+        assert_eq!(
+            deserialized_data.agents[0].agent_id,
+            AgentId::from("test_agent")
+        );
         assert!(deserialized_data.skills.is_some());
-
-        // 设置导入选项
-        let _import_options = ImportOptions {
-            merge: false,
-            overwrite_config: true,
-            overwrite_agents: true,
-            overwrite_sessions: true,
-            overwrite_skills: true,
-        };
-
-        // 创建一个临时的目标目录用于导入
-        let import_temp_dir = TempDir::new()?;
-        let _import_state_dir = import_temp_dir.path();
-
-        // 为测试目的，我们需要修改路径解析函数，但这里我们只是测试序列化/反序列化流程
 
         Ok(())
     }

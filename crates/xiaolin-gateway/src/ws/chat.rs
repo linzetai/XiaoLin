@@ -818,10 +818,6 @@ pub async fn spawn_chat(
         loop {
             let event = match tokio::time::timeout_at(turn_deadline, event_rx.recv()).await {
                 Ok(Some(se)) => {
-                    eprintln!(
-                        "  [ws_chat_event_loop] event_type={:?}",
-                        std::mem::discriminant(&se.msg)
-                    );
                     se.msg
                 }
                 Ok(None) => break,

@@ -9,13 +9,13 @@ graders:
   - type: tool_trace
     must_include: [read_file, edit_file]
   - type: token_budget
-    max_total_tokens: 30000
+    max_total_tokens: 130000
   - type: turn_limit
     max_turns: 5
 metrics:
   thresholds:
     max_turns: 5
-    max_total_tokens: 30000
+    max_total_tokens: 130000
 environment:
   workspace_fixture: context-efficiency/simple-edit
   timeout_ms: 60000

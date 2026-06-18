@@ -7,6 +7,7 @@ use super::agent_step::AgentStep;
 use super::turn_loop;
 use super::turn_setup;
 use super::AgentRuntime;
+use crate::builtin_tools::file_state_cache::FileStateCache;
 
 impl AgentRuntime {
     /// Execute an agent turn as a composable async stream.
@@ -58,10 +59,15 @@ impl AgentRuntime {
                 } else {
                     futures::future::Either::Right(turn_fut)
                 };
+                let file_cache = Arc::new(FileStateCache::new());
+                let with_fsc = crate::builtin_tools::with_file_state_cache(
+                    file_cache,
+                    with_mode,
+                );
                 if let Some(sid) = captured_session_id {
-                    crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode).await
+                    crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_fsc).await
                 } else {
-                    with_mode.await
+                    with_fsc.await
                 }
             });
 

@@ -510,6 +510,16 @@ Rules:
 - NEVER guess function names. Use {grep} to find them.
 - NEVER assume file content is unchanged since you last read it. Re-read before editing.
 
+## Search Before Declaring Missing
+
+NEVER tell the user a file, function, or module \"does not exist\" without first \
+searching for it with {glob} or {grep}. Common mistakes:
+- Saying \"there is no config file\" without running {glob} for `**/config*`
+- Saying \"this function doesn't exist\" without running {grep}
+- Creating a new file without first checking if a similar one already exists
+
+Always search first, then report your findings.
+
 ## Anti-Patterns — When NOT to Call Tools
 
 Do NOT use tools for:
@@ -571,6 +581,10 @@ Request: \"Why is the build failing?\"
 
 Request: \"Rename the Config struct to AppConfig\"
 → {grep} for all `Config` occurrences, then {edit} each file (check re-exports too).
+
+Request: \"Read the file config.toml\"
+→ {glob} for `**/config.toml` to find the exact path, then {read} with the discovered absolute path. \
+NEVER guess the path — always discover first.
 
 ## Multi-Step Search Strategy
 
@@ -671,6 +685,15 @@ fn using_tools_zh(ctx: &PromptContext) -> String {
 - 绝不猜测函数名。用 {grep} 查找。
 - 绝不假设文件内容自上次读取后未变。编辑前重新读取。
 
+## 搜索后再说不存在
+
+绝对不要在没有搜索的情况下告诉用户某个文件、函数或模块「不存在」。常见错误：
+- 说「没有配置文件」却没用 {glob} 搜索 `**/config*`
+- 说「这个函数不存在」却没用 {grep} 搜索
+- 创建新文件前没检查是否已有类似文件
+
+始终先搜索，然后再报告结果。
+
 ## 反模式 — 何时不该调用工具
 
 以下情况不要使用工具：
@@ -732,6 +755,10 @@ fn using_tools_zh(ctx: &PromptContext) -> String {
 
 请求：「将 Config 结构体重命名为 AppConfig」
 → {grep} 搜索所有 `Config` 出现位置，然后 {edit} 每个文件（检查 re-export）。
+
+请求：「读取文件 config.toml」
+→ {glob} 搜索 `**/config.toml` 找到精确路径，然后用发现的绝对路径 {read}。\
+绝不猜测路径 — 始终先用 glob 发现。
 
 ## 多步搜索策略
 

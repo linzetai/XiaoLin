@@ -77,12 +77,18 @@ fn workspace_root() -> std::io::Result<PathBuf> {
             return Ok(dir);
         }
     }
+    if let Ok(cwd) = std::env::current_dir() {
+        return Ok(cwd);
+    }
     if let Some(home) = dirs::home_dir() {
         if home.is_dir() {
             return Ok(home);
         }
     }
-    std::env::current_dir()
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "unable to determine workspace root: no work_dir, cwd, or home directory available",
+    ))
 }
 
 /// Get the effective work directory from the task-local context.
@@ -1637,6 +1643,152 @@ fn classify_workspace_error(e: &std::io::Error) -> ToolErrorType {
     }
 }
 
+/// Structured error codes for `edit_file`, enabling LLM to parse failure type and recovery action.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditErrorCode {
+    NoChange = 1,
+    FileExists = 3,
+    NotFound = 4,
+    Stale = 7,
+    NotMatched = 8,
+    Ambiguous = 9,
+}
+
+impl EditErrorCode {
+    fn error_type(self) -> &'static str {
+        match self {
+            Self::NoChange => "no_change",
+            Self::FileExists => "file_exists",
+            Self::NotFound => "not_found",
+            Self::Stale => "stale",
+            Self::NotMatched => "not_matched",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+
+    fn recovery_hint(self) -> &'static str {
+        match self {
+            Self::NoChange => "Modify new_string so it differs from old_string.",
+            Self::FileExists => "The file already exists. Use old_string + new_string to edit, not create.",
+            Self::NotFound => "Check the file path. See suggestions below, or use list_directory / glob.",
+            Self::Stale => "File was modified externally. Re-read with read_file before editing.",
+            Self::NotMatched => "old_string not found in file. Re-read the target section with read_file, copy exact text, and retry.",
+            Self::Ambiguous => "Multiple matches found. Add more surrounding context to old_string, or set replace_all=true.",
+        }
+    }
+
+    fn format_error(self, file_path: &str, detail: &str) -> String {
+        serde_json::json!({
+            "errorCode": self as u8,
+            "errorType": self.error_type(),
+            "file": file_path,
+            "recovery_hint": self.recovery_hint(),
+            "message": detail,
+        })
+        .to_string()
+    }
+}
+
+/// When a requested path resolves under the CWD's parent but not under CWD itself,
+/// try re-rooting it under CWD. This fixes the common LLM mistake of omitting the
+/// repository directory from the path (e.g. `/tmp/src/lib.rs` instead of
+/// `/tmp/myrepo/src/lib.rs` when CWD is `/tmp/myrepo`).
+fn suggest_path_under_cwd(requested_path: &Path) -> Option<PathBuf> {
+    let cwd = get_effective_work_dir()?;
+    let cwd_parent = cwd.parent()?;
+
+    let resolved = if requested_path.is_absolute() {
+        requested_path.to_path_buf()
+    } else {
+        cwd.join(requested_path)
+    };
+
+    if resolved.starts_with(&cwd) {
+        return None;
+    }
+
+    if !resolved.starts_with(cwd_parent) {
+        return None;
+    }
+
+    let rel_from_parent = resolved.strip_prefix(cwd_parent).ok()?;
+    let corrected = cwd.join(rel_from_parent);
+    if corrected.exists() {
+        Some(corrected)
+    } else {
+        None
+    }
+}
+
+/// Search for files with the same basename under `root`, up to `max_depth` levels deep.
+/// Returns at most `max_results` absolute paths, sorted by depth (shallowest first).
+fn find_similar_files(basename: &str, root: &Path, max_depth: usize, max_results: usize) -> Vec<PathBuf> {
+    use std::collections::BinaryHeap;
+    use std::cmp::Reverse;
+
+    if basename.is_empty() {
+        return Vec::new();
+    }
+
+    let mut heap: BinaryHeap<Reverse<(usize, PathBuf)>> = BinaryHeap::new();
+    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > max_depth {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let skip = matches!(
+                    name.to_str(),
+                    Some(".git" | "node_modules" | "target" | ".next" | "__pycache__" | ".venv")
+                );
+                if !skip && depth < max_depth {
+                    stack.push((path, depth + 1));
+                }
+            } else if entry.file_name().to_str() == Some(basename) {
+                heap.push(Reverse((depth, path)));
+            }
+        }
+    }
+
+    let mut results = Vec::with_capacity(max_results);
+    while results.len() < max_results {
+        match heap.pop() {
+            Some(Reverse((_, p))) => results.push(p),
+            None => break,
+        }
+    }
+    results
+}
+
+fn format_not_found_with_suggestions(path: &str, suggestions: &[PathBuf]) -> String {
+    let cwd_hint = get_effective_work_dir()
+        .map(|d| format!(" Current working directory: {}.", d.display()))
+        .unwrap_or_default();
+    let mut msg = format!("The file '{}' does not exist.{}", path, cwd_hint);
+    if suggestions.is_empty() {
+        msg.push_str(
+            " Recovery: use glob (e.g. \"*keyword*\") to discover the correct path, \
+             or list_directory on the parent directory to see available files.",
+        );
+    } else {
+        msg.push_str(" Did you mean:\n");
+        for s in suggestions {
+            msg.push_str(&format!("  - {}\n", s.display()));
+        }
+        msg.push_str("Use the correct absolute path and try again.");
+    }
+    msg
+}
+
 /// Creates user-friendly error messages based on the error type.
 /// This helps prevent exposing internal system details to the LLM.
 fn create_user_friendly_error(error_type: ToolErrorType, path: &str) -> String {
@@ -2210,18 +2362,32 @@ it provides structured output with line numbers, handles encoding detection, and
                 } else {
                     ToolErrorType::ReadContentFailure
                 };
-                return ToolResult::typed_err(
-                    err_type,
+                let msg = if err_type == ToolErrorType::FileNotFound {
+                    let cwd_suggestion = suggest_path_under_cwd(Path::new(path));
+                    let mut suggestions: Vec<PathBuf> = Vec::new();
+                    if let Some(s) = cwd_suggestion {
+                        suggestions.push(s);
+                    }
+                    let basename = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if let Some(root) = get_effective_work_dir() {
+                        for s in find_similar_files(basename, &root, 3, 3) {
+                            if !suggestions.contains(&s) {
+                                suggestions.push(s);
+                            }
+                        }
+                    }
+                    suggestions.truncate(5);
+                    format_not_found_with_suggestions(path, &suggestions)
+                } else {
                     format!(
-                        "read_file failed for path '{path}': {e}. \
-                         Recovery: {recovery}",
+                        "read_file failed for path '{path}': {e}. Recovery: {recovery}",
                         recovery = match err_type {
-                            ToolErrorType::FileNotFound => "Run list_directory on the parent to find the correct filename, or use glob with a partial name pattern (e.g. \"*keyword*\") to search recursively.",
                             ToolErrorType::PermissionDenied => "The user may need to switch execution mode in Settings → Security, or set a different working directory via the folder icon at the bottom of the chat.",
                             _ => "Check file permissions or retry. For binary files, use shell_exec to inspect."
                         }
-                    ),
-                );
+                    )
+                };
+                return ToolResult::typed_err(err_type, msg);
             }
         };
 
@@ -2989,9 +3155,9 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             if validated.exists() {
                 return ToolResult::typed_err(
                     ToolErrorType::AttemptToCreateExistingFile,
-                    create_user_friendly_error(
-                        ToolErrorType::AttemptToCreateExistingFile,
+                    EditErrorCode::FileExists.format_error(
                         &args.file_path,
+                        &format!("File '{}' already exists.", args.file_path),
                     ),
                 );
             }
@@ -3035,7 +3201,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
         if args.old_string == args.new_string {
             return ToolResult::typed_err(
                 ToolErrorType::EditNoChange,
-                create_user_friendly_error(ToolErrorType::EditNoChange, &args.file_path),
+                EditErrorCode::NoChange.format_error(
+                    &args.file_path,
+                    &format!("old_string and new_string are identical in '{}'.", args.file_path),
+                ),
             );
         }
 
@@ -3072,16 +3241,16 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 StaleCheckResult::Stale => {
                     return ToolResult::typed_err(
                         ToolErrorType::EditPreparationFailure,
-                        format!(
-                            "File '{}' has been modified since you last read it (by the user, a linter, \
-                             or another tool). Read the file again with read_file before attempting to edit.",
-                            args.file_path
+                        EditErrorCode::Stale.format_error(
+                            &args.file_path,
+                            &format!(
+                                "File '{}' has been modified since you last read it.",
+                                args.file_path
+                            ),
                         ),
                     );
                 }
-                StaleCheckResult::NeverRead => {
-                    // Allow the edit but it's risky — the prompt encourages read-before-edit.
-                }
+                StaleCheckResult::NeverRead => {}
                 StaleCheckResult::Fresh => {}
             }
         }
@@ -3096,10 +3265,27 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 } else {
                     ToolErrorType::ReadContentFailure
                 };
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, &args.file_path),
-                );
+                let msg = if err_type == ToolErrorType::FileNotFound {
+                    let cwd_suggestion = suggest_path_under_cwd(Path::new(&args.file_path));
+                    let mut suggestions: Vec<PathBuf> = Vec::new();
+                    if let Some(s) = cwd_suggestion {
+                        suggestions.push(s);
+                    }
+                    let basename = Path::new(&args.file_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if let Some(root) = get_effective_work_dir() {
+                        for s in find_similar_files(basename, &root, 3, 3) {
+                            if !suggestions.contains(&s) {
+                                suggestions.push(s);
+                            }
+                        }
+                    }
+                    suggestions.truncate(5);
+                    let detail = format_not_found_with_suggestions(&args.file_path, &suggestions);
+                    EditErrorCode::NotFound.format_error(&args.file_path, &detail)
+                } else {
+                    create_user_friendly_error(err_type, &args.file_path)
+                };
+                return ToolResult::typed_err(err_type, msg);
             }
         };
 
@@ -3130,23 +3316,21 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 }
                 FuzzyMatchResult::NoMatch => {
                     return ToolResult::typed_err(
-                            ToolErrorType::EditNoOccurrenceFound,
-                            format!(
-                                "In file '{}': Could not find old_string as a substring (contains mode). \
-                                 Verify the text exists in the file.",
-                                args.file_path
-                            ),
-                        );
+                        ToolErrorType::EditNoOccurrenceFound,
+                        EditErrorCode::NotMatched.format_error(
+                            &args.file_path,
+                            &format!("Could not find old_string as a substring (contains mode) in '{}'.", args.file_path),
+                        ),
+                    );
                 }
                 FuzzyMatchResult::MultipleMatches(n) => {
                     return ToolResult::typed_err(
-                            ToolErrorType::EditMultipleOccurrences,
-                            format!(
-                                "In file '{}': Found {n} substring matches (contains mode). \
-                                 Provide more surrounding context to uniquely identify the location.",
-                                args.file_path
-                            ),
-                        );
+                        ToolErrorType::EditMultipleOccurrences,
+                        EditErrorCode::Ambiguous.format_error(
+                            &args.file_path,
+                            &format!("Found {n} substring matches (contains mode) in '{}'.", args.file_path),
+                        ),
+                    );
                 }
             },
             MatchMode::Fuzzy => match try_fuzzy_match(&normalized, &old_normalized) {
@@ -3160,22 +3344,20 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 FuzzyMatchResult::NoMatch => {
                     return ToolResult::typed_err(
                         ToolErrorType::EditNoOccurrenceFound,
-                        format!(
-                            "In file '{}': Could not find old_string with fuzzy matching \
-                                 (whitespace/Unicode-normalized). The file may have changed.",
-                            args.file_path
+                        EditErrorCode::NotMatched.format_error(
+                            &args.file_path,
+                            &format!("Could not find old_string with fuzzy matching in '{}'.", args.file_path),
                         ),
                     );
                 }
                 FuzzyMatchResult::MultipleMatches(n) => {
                     return ToolResult::typed_err(
-                            ToolErrorType::EditMultipleOccurrences,
-                            format!(
-                                "In file '{}': Found {n} fuzzy matches. \
-                                 Provide more surrounding context to uniquely identify the location.",
-                                args.file_path
-                            ),
-                        );
+                        ToolErrorType::EditMultipleOccurrences,
+                        EditErrorCode::Ambiguous.format_error(
+                            &args.file_path,
+                            &format!("Found {n} fuzzy matches in '{}'.", args.file_path),
+                        ),
+                    );
                 }
             },
             MatchMode::Exact => {
@@ -3199,9 +3381,9 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                     if match_count != expected {
                         return ToolResult::typed_err(
                             ToolErrorType::EditMultipleOccurrences,
-                            create_user_friendly_error(
-                                ToolErrorType::EditMultipleOccurrences,
+                            EditErrorCode::Ambiguous.format_error(
                                 &args.file_path,
+                                &format!("Expected {expected} matches but found {match_count} in '{}'.", args.file_path),
                             ),
                         );
                     }
@@ -3240,10 +3422,12 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                     LineRangeMatchResult::OutOfBounds { total_lines } => {
                                         return ToolResult::typed_err(
                                             ToolErrorType::EditNoOccurrenceFound,
-                                            format!(
-                                                "In file '{}': start_line={sl}/end_line={el} is out of bounds \
-                                                 (file has {total_lines} lines). Fix the line range and retry.",
-                                                args.file_path
+                                            EditErrorCode::NotMatched.format_error(
+                                                &args.file_path,
+                                                &format!(
+                                                    "start_line={sl}/end_line={el} out of bounds (file has {total_lines} lines) in '{}'.",
+                                                    args.file_path
+                                                ),
                                             ),
                                         );
                                     }
@@ -3259,18 +3443,14 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                 return ToolResult::typed_err(
                                     ToolErrorType::EditNoOccurrenceFound,
                                     format!(
-                                        "In file '{}': Could not find the specified text to replace \
-                                         (neither exact nor whitespace/Unicode-normalized match). \
-                                         The file may have changed or the old_string is incorrect.\n\n\
-                                         Recovery steps:\n\
-                                         1. Use read_file with offset/limit to read the exact section you want to edit\n\
-                                         2. Copy the EXACT text from the read_file output (after the line number prefix)\n\
-                                         3. Retry edit_file with the exact text as old_string\n\n\
-                                         Tip: provide start_line and end_line to enable line-range fallback \
-                                         when the text has drifted.\n\
-                                         DO NOT fall back to shell scripts or Python — always retry with edit_file.\n\n\
-                                         File preview (first 20 lines):\n{file_preview}",
-                                        args.file_path
+                                        "{}\n\nFile preview (first 20 lines):\n{file_preview}",
+                                        EditErrorCode::NotMatched.format_error(
+                                            &args.file_path,
+                                            &format!(
+                                                "Could not find old_string in '{}' (neither exact nor fuzzy match).",
+                                                args.file_path
+                                            ),
+                                        ),
                                     ),
                                 );
                             }
@@ -3299,10 +3479,12 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                                     LineRangeMatchResult::OutOfBounds { total_lines } => {
                                         return ToolResult::typed_err(
                                             ToolErrorType::EditNoOccurrenceFound,
-                                            format!(
-                                                "In file '{}': start_line={sl}/end_line={el} is out of bounds \
-                                                 (file has {total_lines} lines).",
-                                                args.file_path
+                                            EditErrorCode::NotMatched.format_error(
+                                                &args.file_path,
+                                                &format!(
+                                                    "start_line={sl}/end_line={el} out of bounds (file has {total_lines} lines) in '{}'.",
+                                                    args.file_path
+                                                ),
                                             ),
                                         );
                                     }
@@ -3310,13 +3492,12 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             } else {
                                 return ToolResult::typed_err(
                                     ToolErrorType::EditMultipleOccurrences,
-                                    format!(
-                                        "In file '{}': Found {n} whitespace-normalized matches \
-                                         (exact match found 0). Provide more surrounding context \
-                                         to uniquely identify the location to edit, \
-                                         or set replace_all=true to replace all occurrences. \
-                                         Tip: provide start_line/end_line to disambiguate.",
-                                        args.file_path
+                                    EditErrorCode::Ambiguous.format_error(
+                                        &args.file_path,
+                                        &format!(
+                                            "Found {n} fuzzy matches (exact found 0) in '{}'. Add more context or use replace_all=true.",
+                                            args.file_path
+                                        ),
                                     ),
                                 );
                             }
@@ -3326,18 +3507,15 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                     && args.expected_replacements.is_none()
                     && match_count > 1
                 {
+                    let kind = if unicode_match { "Unicode-normalized" } else { "exact" };
                     return ToolResult::typed_err(
                         ToolErrorType::EditMultipleOccurrences,
-                        format!(
-                            "In file '{}': Found {} {} matches. Provide more surrounding context \
-                             to uniquely identify the location, or set replace_all=true.",
-                            args.file_path,
-                            match_count,
-                            if unicode_match {
-                                "Unicode-normalized"
-                            } else {
-                                "exact"
-                            }
+                        EditErrorCode::Ambiguous.format_error(
+                            &args.file_path,
+                            &format!(
+                                "Found {match_count} {kind} matches in '{}'. Add more context or use replace_all=true.",
+                                args.file_path
+                            ),
                         ),
                     );
                 } else if unicode_match {
@@ -5792,6 +5970,219 @@ mod user_friendly_error_tests {
             workspace_msg.contains("Full (YOLO)"),
             "should guide user to YOLO mode: {workspace_msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod find_similar_files_tests {
+    use super::*;
+    use tempfile::tempdir_in;
+
+    #[test]
+    fn finds_matching_file_in_subdirectory() {
+        let tmp = tempdir_in(".").unwrap();
+        let sub = tmp.path().join("src").join("utils");
+        std::fs::create_dir_all(&sub).unwrap();
+        let target = sub.join("helper.rs");
+        std::fs::write(&target, "fn main() {}").unwrap();
+
+        let results = find_similar_files("helper.rs", tmp.path(), 3, 3);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], target);
+    }
+
+    #[test]
+    fn returns_empty_when_no_match() {
+        let tmp = tempdir_in(".").unwrap();
+        std::fs::write(tmp.path().join("other.rs"), "").unwrap();
+
+        let results = find_similar_files("missing.rs", tmp.path(), 3, 3);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn respects_max_results() {
+        let tmp = tempdir_in(".").unwrap();
+        for i in 0..5 {
+            let d = tmp.path().join(format!("d{i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("mod.rs"), "").unwrap();
+        }
+
+        let results = find_similar_files("mod.rs", tmp.path(), 3, 2);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn skips_ignored_directories() {
+        let tmp = tempdir_in(".").unwrap();
+        let git_dir = tmp.path().join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::write(git_dir.join("config.rs"), "").unwrap();
+
+        let node_dir = tmp.path().join("node_modules");
+        std::fs::create_dir_all(&node_dir).unwrap();
+        std::fs::write(node_dir.join("config.rs"), "").unwrap();
+
+        let src_dir = tmp.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("config.rs"), "valid").unwrap();
+
+        let results = find_similar_files("config.rs", tmp.path(), 3, 5);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].to_str().unwrap().contains("src"));
+    }
+
+    #[test]
+    fn format_message_with_suggestions() {
+        let suggestions = vec![
+            PathBuf::from("/workspace/src/main.rs"),
+            PathBuf::from("/workspace/tests/main.rs"),
+        ];
+        let msg = format_not_found_with_suggestions("main.rs", &suggestions);
+        assert!(msg.contains("Did you mean"));
+        assert!(msg.contains("/workspace/src/main.rs"));
+        assert!(msg.contains("/workspace/tests/main.rs"));
+    }
+
+    #[test]
+    fn format_message_without_suggestions() {
+        let msg = format_not_found_with_suggestions("main.rs", &[]);
+        assert!(msg.contains("does not exist"));
+        assert!(msg.contains("list_directory"));
+    }
+
+    #[tokio::test]
+    async fn format_message_includes_cwd_hint() {
+        with_work_dir(Some(PathBuf::from("/tmp/myrepo")), async {
+            let msg = format_not_found_with_suggestions("missing.rs", &[]);
+            assert!(msg.contains("Current working directory: /tmp/myrepo"));
+        }).await;
+    }
+}
+
+#[cfg(test)]
+mod suggest_path_under_cwd_tests {
+    use super::*;
+    use tempfile::tempdir_in;
+
+    #[tokio::test]
+    async fn corrects_path_missing_repo_dir() {
+        let tmp = tempdir_in(".").unwrap();
+        let repo = tmp.path().join("myrepo");
+        let src = repo.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "// code").unwrap();
+
+        let parent = tmp.path().to_path_buf();
+        let wrong_path = parent.join("src").join("lib.rs");
+        let expected = src.join("lib.rs");
+
+        with_work_dir(Some(repo), async move {
+            let result = suggest_path_under_cwd(&wrong_path);
+            assert!(result.is_some(), "should suggest correction");
+            assert_eq!(result.unwrap(), expected);
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn returns_none_when_path_already_under_cwd() {
+        let tmp = tempdir_in(".").unwrap();
+        let repo = tmp.path().join("myrepo");
+        let src = repo.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "// code").unwrap();
+
+        let already_correct = src.join("lib.rs");
+
+        with_work_dir(Some(repo), async move {
+            let result = suggest_path_under_cwd(&already_correct);
+            assert!(result.is_none(), "should return None for correct paths");
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn returns_none_when_corrected_path_does_not_exist() {
+        let tmp = tempdir_in(".").unwrap();
+        let repo = tmp.path().join("myrepo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let parent = tmp.path().to_path_buf();
+        let wrong_path = parent.join("nonexistent").join("file.rs");
+
+        with_work_dir(Some(repo), async move {
+            let result = suggest_path_under_cwd(&wrong_path);
+            assert!(result.is_none(), "should return None when correction doesn't exist");
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn returns_none_for_completely_unrelated_path() {
+        let tmp = tempdir_in(".").unwrap();
+        let repo = tmp.path().join("myrepo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        with_work_dir(Some(repo), async {
+            let result = suggest_path_under_cwd(Path::new("/etc/passwd"));
+            assert!(result.is_none(), "should return None for unrelated paths");
+        }).await;
+    }
+}
+
+#[cfg(test)]
+mod edit_error_code_tests {
+    use super::*;
+
+    #[test]
+    fn format_error_contains_json_fields() {
+        let msg = EditErrorCode::NoChange.format_error("/tmp/test.rs", "old == new");
+        assert!(msg.contains("\"errorCode\":1"));
+        assert!(msg.contains("\"errorType\":\"no_change\""));
+        assert!(msg.contains("\"recovery_hint\":"));
+        assert!(msg.contains("\"file\":\"/tmp/test.rs\""));
+    }
+
+    #[test]
+    fn all_error_codes_produce_valid_json() {
+        let codes = [
+            EditErrorCode::NoChange,
+            EditErrorCode::FileExists,
+            EditErrorCode::NotFound,
+            EditErrorCode::Stale,
+            EditErrorCode::NotMatched,
+            EditErrorCode::Ambiguous,
+        ];
+        for code in codes {
+            let msg = code.format_error("test.rs", "detail");
+            let parsed: serde_json::Value = serde_json::from_str(&msg)
+                .unwrap_or_else(|e| panic!("Invalid JSON for {:?}: {e}\n{msg}", code));
+            assert!(parsed.get("errorCode").unwrap().is_number());
+            assert!(parsed.get("errorType").unwrap().is_string());
+            assert!(parsed.get("recovery_hint").unwrap().is_string());
+            assert!(parsed.get("message").unwrap().is_string());
+            assert!(parsed.get("file").unwrap().is_string());
+        }
+    }
+
+    #[test]
+    fn error_code_numeric_values() {
+        assert_eq!(EditErrorCode::NoChange as u8, 1);
+        assert_eq!(EditErrorCode::FileExists as u8, 3);
+        assert_eq!(EditErrorCode::NotFound as u8, 4);
+        assert_eq!(EditErrorCode::Stale as u8, 7);
+        assert_eq!(EditErrorCode::NotMatched as u8, 8);
+        assert_eq!(EditErrorCode::Ambiguous as u8, 9);
+    }
+
+    #[test]
+    fn format_error_escapes_special_chars() {
+        let msg = EditErrorCode::NotMatched.format_error(
+            "test.rs",
+            "Line 1\nLine 2 with \"quotes\"",
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&msg)
+            .expect("should be valid JSON even with special chars");
+        assert!(parsed.get("message").unwrap().as_str().unwrap().contains("Line 1"));
     }
 }
 

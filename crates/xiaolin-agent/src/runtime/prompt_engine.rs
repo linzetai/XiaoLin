@@ -54,7 +54,7 @@ pub struct PromptSection {
     pub cache_break: bool,
 }
 
-const DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+pub(crate) const DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
 
 /// Layered, cacheable prompt engine that assembles system prompt from sections.
 ///

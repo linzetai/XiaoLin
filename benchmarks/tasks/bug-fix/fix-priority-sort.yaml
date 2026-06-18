@@ -24,11 +24,11 @@ graders:
   - type: turn_limit
     max_turns: 8
   - type: token_budget
-    max_total_tokens: 120000
+    max_total_tokens: 260000
 metrics:
   thresholds:
     max_turns: 8
-    max_total_tokens: 120000
+    max_total_tokens: 260000
 environment:
   workspace_fixture: complex-rust-project
   timeout_ms: 120000

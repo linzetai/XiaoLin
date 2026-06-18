@@ -1049,11 +1049,30 @@ impl AgentRuntime {
 
         let system_text = parts.join("\n\n");
 
-        messages.push(ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(system_text)),
-        ..Default::default()
-        });
+        if let Some((static_part_raw, dynamic_part_raw)) = system_text.split_once(prompt_engine::DYNAMIC_BOUNDARY) {
+            let static_part = static_part_raw.trim_end().to_string();
+            let dynamic_part = dynamic_part_raw.trim_start().to_string();
+            if !static_part.is_empty() {
+                messages.push(ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(static_part)),
+                    ..Default::default()
+                });
+            }
+            if !dynamic_part.is_empty() {
+                messages.push(ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(dynamic_part)),
+                    ..Default::default()
+                });
+            }
+        } else {
+            messages.push(ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(system_text)),
+                ..Default::default()
+            });
+        }
 
         messages.extend_from_slice(user_messages);
 

@@ -73,9 +73,10 @@ pub(crate) async fn setup_turn(
         "perf: inject_relevant_skills (stream)"
     );
 
-    // --- Context Assembly: inject project hints ---
+    // --- Context Assembly: inject project hints + git snapshot ---
     if let Some(ref wd) = request.work_dir {
-        let hints = context_assembly::detect_project_hints(std::path::Path::new(wd));
+        let work_path = std::path::Path::new(wd);
+        let hints = context_assembly::detect_project_hints(work_path);
         if !hints.is_empty() {
             let hints_block = format!(
                 "\n─── Project Context ───\n{}\n───────────────────────\n",
@@ -89,6 +90,18 @@ pub(crate) async fn setup_turn(
             tracing::info!(
                 hint_count = hints.len(),
                 "context_assembly: project hints injected"
+            );
+        }
+
+        if let Some(git_snap) = context_assembly::collect_git_snapshot(work_path) {
+            let git_block = format!(
+                "\n─── Git Context ───\n{}\n───────────────────\n",
+                git_snap
+            );
+            inject_system_block(&mut messages, &git_block);
+            tracing::info!(
+                chars = git_snap.len(),
+                "context_assembly: git snapshot injected"
             );
         }
     }
@@ -140,7 +153,8 @@ pub(crate) async fn setup_turn(
         .to_vec();
     let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
     all_tool_defs.extend(extra_tool_defs.iter().cloned());
-    let tool_defs = filter_tool_definitions(&all_tool_defs, config);
+    let mut tool_defs = filter_tool_definitions(&all_tool_defs, config);
+    tool_defs.sort_by(|a, b| a.function.name.cmp(&b.function.name));
     let tool_defs_json_chars: usize = tool_registry.estimated_json_chars(&tool_defs);
     let tool_defs_est_tokens = tool_defs_json_chars / 4;
     tracing::info!(

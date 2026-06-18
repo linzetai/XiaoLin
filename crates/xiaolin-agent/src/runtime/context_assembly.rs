@@ -13,6 +13,7 @@
 //! compensating for their limited planning/search capabilities.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::task_decomposer::TaskType;
 
@@ -107,6 +108,61 @@ impl AssembledContext {
         block.push_str("────────────────────────────────────────────────────\n");
         Some(block)
     }
+}
+
+const GIT_SNAPSHOT_MAX_CHARS: usize = 2000;
+
+/// Collect a lightweight git snapshot for initial context injection.
+///
+/// Returns a formatted block containing the current branch, `git status --short`
+/// (truncated), and the last 5 commit summaries. Returns `None` if the directory
+/// is not a git repo or git is unavailable.
+pub fn collect_git_snapshot(work_dir: &Path) -> Option<String> {
+    let branch = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(work_dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())?;
+
+    let mut snapshot = format!("Branch: {branch}\n");
+
+    if let Some(status) = run_git_cmd(work_dir, &["status", "--short"]) {
+        if !status.is_empty() {
+            snapshot.push_str("\nStatus:\n");
+            snapshot.push_str(&status);
+            snapshot.push('\n');
+        }
+    }
+
+    if let Some(log) = run_git_cmd(work_dir, &["log", "--oneline", "-5"]) {
+        if !log.is_empty() {
+            snapshot.push_str("\nRecent commits:\n");
+            snapshot.push_str(&log);
+            snapshot.push('\n');
+        }
+    }
+
+    if snapshot.len() > GIT_SNAPSHOT_MAX_CHARS {
+        snapshot.truncate(GIT_SNAPSHOT_MAX_CHARS);
+        if let Some(last_nl) = snapshot.rfind('\n') {
+            snapshot.truncate(last_nl);
+        }
+        snapshot.push_str("\n… (truncated)");
+    }
+
+    Some(snapshot)
+}
+
+fn run_git_cmd(work_dir: &Path, args: &[&str]) -> Option<String> {
+    Command::new("git")
+        .args(args)
+        .current_dir(work_dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
 /// Detect project characteristics from the working directory.
@@ -345,5 +401,41 @@ mod tests {
         // The file should be found if path parsing works
         // (depends on path format matching the heuristic)
         assert!(files.len() <= 5);
+    }
+
+    #[test]
+    fn git_snapshot_on_real_repo() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let snapshot = collect_git_snapshot(workspace_root);
+        assert!(snapshot.is_some(), "workspace root should be a git repo");
+        let text = snapshot.unwrap();
+        assert!(text.contains("Branch:"));
+    }
+
+    #[test]
+    fn git_snapshot_non_repo_returns_none() {
+        let tmp = std::env::temp_dir();
+        let result = collect_git_snapshot(&tmp);
+        // temp dir is almost certainly not a git repo
+        // but if it is (CI), just check it returned *something*
+        if !tmp.join(".git").exists() {
+            assert!(result.is_none());
+        }
+    }
+
+    #[test]
+    fn git_snapshot_truncation() {
+        let long = "x".repeat(GIT_SNAPSHOT_MAX_CHARS + 500);
+        let mut snapshot = format!("Branch: main\n\nStatus:\n{}\n", long);
+        if snapshot.len() > GIT_SNAPSHOT_MAX_CHARS {
+            snapshot.truncate(GIT_SNAPSHOT_MAX_CHARS);
+            if let Some(last_nl) = snapshot.rfind('\n') {
+                snapshot.truncate(last_nl);
+            }
+            snapshot.push_str("\n… (truncated)");
+        }
+        assert!(snapshot.len() <= GIT_SNAPSHOT_MAX_CHARS + 20);
+        assert!(snapshot.ends_with("… (truncated)"));
     }
 }
