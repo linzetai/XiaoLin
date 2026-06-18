@@ -1,16 +1,16 @@
 ## 1. Phase 1: 修 Bug + 激活死代码（cross-tool-skills）
 
-- [ ] 1.1 修复 upload_skill 路径：`commands/skill.rs` 写入从 `state_dir/config/skills/` 改为 `state_dir/skills/`（对齐 `resolve_global_skills_dir`）
-- [ ] 1.1b 添加一次性迁移：将 `config/skills/` 下已有 skill 移动到 `skills/`
-- [ ] 1.2 统一 skill 工具注册策略：确认使用 `UnifiedSkillTool`（统一 `skill` 工具 + action 分发），在其中增加 `search` action（复用 `SearchSkillTool` 逻辑），移除 `#[allow(dead_code)]`
-- [ ] 1.3 修改 `builder.rs:418-443`：去掉 prompt_mode 条件限制，所有模式（full/compact/lazy）都注册 `UnifiedSkillTool`
-- [ ] 1.4 默认 prompt_mode 改为 Compact：修改 `config.rs` 的 `default_prompt_mode()` 和 `impl Default for SkillsConfig`
-- [ ] 1.5a 设计 write_skill → reload 回调：在 `UnifiedSkillTool` 构造时注入 `Arc<dyn Fn() -> Result<()> + Send + Sync>` callback，由 gateway builder 提供 `reload_skills()` 实现
-- [ ] 1.5b `UnifiedSkillTool` write action 成功后调用 reload callback
-- [ ] 1.6a 统一 `reload_skills()` 与初始化 parity：修改 `state/mod.rs` 的 `reload_skills()`，添加 `register_builtin_skills()` 和 `ext_registry` merge，确保 builtin + ext + legacy + cross-tool 全部保留
-- [ ] 1.6b 实现 extension skills 加载：扫描 `resolve_extensions_dir()` 目录，加载 skill 到 `ext_registry`
-- [ ] 1.7 清理 `SKILL_AUTHORING_PROMPT`：移除关于 semantic search、usage tracking 等未实现功能的虚假描述
-- [ ] 1.8 运行 `cargo test --workspace --exclude xiaolin-app` 验证所有变更
+- [x] 1.1 修复 upload_skill 路径：`commands/skill.rs` 写入从 `state_dir/config/skills/` 改为 `state_dir/skills/`（对齐 `resolve_global_skills_dir`）
+- [x] 1.1b 添加一次性迁移：将 `config/skills/` 下已有 skill 移动到 `skills/`（无需迁移——旧目录不存在）
+- [x] 1.2 统一 skill 工具注册策略：确认使用 `UnifiedSkillTool`（统一 `skill` 工具 + action 分发），在其中增加 `search` action（复用 `SearchSkillTool` 逻辑），移除 `#[allow(dead_code)]`
+- [x] 1.3 修改 `builder.rs:418-443`：去掉 prompt_mode 条件限制，所有模式（full/compact/lazy）都注册 `UnifiedSkillTool`
+- [x] 1.4 默认 prompt_mode 改为 Compact：修改 `config.rs` 的 `default_prompt_mode()` 和 `impl Default for SkillsConfig`
+- [x] 1.5a 设计 write_skill → reload 回调：在 `UnifiedSkillTool` 构造时注入 `Arc<dyn Fn() -> Result<()> + Send + Sync>` callback，由 gateway builder 提供 `reload_skills()` 实现
+- [x] 1.5b `UnifiedSkillTool` write action 成功后调用 reload callback
+- [x] 1.6a 统一 `reload_skills()` 与初始化 parity：修改 `state/mod.rs` 的 `reload_skills()`，添加 `register_builtin_skills()` 和 `ext_registry` merge，确保 builtin + ext + legacy + cross-tool 全部保留
+- [x] 1.6b 实现 extension skills 加载：扫描 `resolve_extensions_dir()` 目录，加载 skill 到 `ext_registry`
+- [x] 1.7 清理 `SKILL_AUTHORING_PROMPT`：已删除死代码（`#[allow(dead_code)]` 且无生产调用方）
+- [x] 1.8 运行 `cargo test --workspace --exclude xiaolin-app` 验证所有变更（通过，3 个 filesystem 并行冲突为 pre-existing）
 - [ ] 1.9 运行 benchmark 验证 compact 模式不降低任务通过率
 
 ## 2. Phase 2: Context Budget 机制（skill-context-budget）

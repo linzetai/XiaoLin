@@ -559,113 +559,6 @@ Include concrete steps, expected outcomes, and error handling.>
 IMPORTANT: Do NOT save automatically. Always show the draft first and wait for user confirmation.
 "#;
 
-// ── Skill Authoring Prompt (180 lines) ───────────────────────────────
-
-/// Comprehensive prompt for skill authoring guidance.
-/// Included in the system prompt when skill creation is active.
-#[allow(dead_code)]
-pub const SKILL_AUTHORING_PROMPT: &str = r#"
-## Skill System Guide
-
-You have access to a skill system that stores reusable procedures as Markdown files (SKILL.md).
-Skills are runbooks—step-by-step instructions for completing specific tasks.
-
-### When to CREATE a New Skill
-
-Create a skill when:
-1. You just completed a multi-step task (3+ steps) that the user might repeat
-2. The user explicitly asks "remember how to..." or "save this as a skill"
-3. You notice a pattern: the same sequence of tool calls appeared ≥3 times
-4. The task involves project-specific knowledge not in the base prompt
-
-Do NOT create a skill for:
-- One-off tasks the user won't repeat
-- Simple operations (single tool call)
-- Tasks that are already covered by existing skills
-
-### When to SEARCH for Skills
-
-Before starting any non-trivial task:
-1. Use `skill` tool with `action: search, query: "<keywords>"` to find relevant skills
-2. Or use `action: list` to see all available skills
-3. If a skill matches, use `action: read, skill_id: "<id>"` to get the full procedure
-4. Follow the skill's steps unless the user explicitly contradicts them
-
-Decision tree:
-- User says "deploy" → search for deploy-related skills first
-- User references a workflow by name → search, don't guess the procedure
-- Task involves >3 steps → check if a skill already exists
-- Skill not found → complete the task, then consider creating one
-
-### Skill Quality Standards
-
-A good skill MUST have:
-1. **Clear trigger**: When should this skill be used? (tags + description)
-2. **Concrete steps**: Numbered steps with exact commands or tool calls
-3. **Parameters**: What varies between uses? (file paths, names, configs)
-4. **Validation**: How to verify success after execution
-5. **Error handling**: Common failure modes and recovery steps
-
-A good skill SHOULD have:
-- Prerequisites (required tools, permissions, environment)
-- Example invocations with expected output
-- Links to relevant documentation
-
-### SKILL.md Format
-
-```markdown
----
-name: Descriptive Name
-description: One-line summary of when to use this skill
-tags: [deploy, backend, database]
-tools: [shell, read_file, write_file]
-enabled: true
----
-
-# Skill Title
-
-## Prerequisites
-- Tool X must be installed
-- Environment variable Y must be set
-
-## Steps
-
-1. **Step name**: Description
-   ```bash
-   command here
-   ```
-
-2. **Verification**: Check that step 1 succeeded
-   - Expected: ...
-   - If failed: ...
-
-## Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `target`  | Deploy target | staging |
-
-## Common Issues
-
-- **Issue**: Description
-  **Fix**: How to resolve
-```
-
-### When to UPDATE an Existing Skill
-
-Update when:
-- The procedure changed (new steps, different commands)
-- Error handling can be improved based on new failure cases
-- Parameters or prerequisites changed
-
-### Skill Search Algorithm
-
-Skills are matched by keyword relevance:
-1. **Keyword match**: Skill name, description, tags, and content are searched
-2. **Tag filter**: Optionally restrict results to a specific tag
-3. **Relevance scoring**: Results are ranked by match quality (name > tags > description > content)
-"#;
-
 // ── Search Skill Tool ────────────────────────────────────────────────
 
 /// Search skills by keyword with optional tag filtering and semantic search.
@@ -1227,15 +1120,6 @@ mod skill_tool_tests {
     }
 
     // ── Search Skill Tests ──
-
-    #[test]
-    fn skill_authoring_prompt_is_substantial() {
-        assert!(SKILL_AUTHORING_PROMPT.len() > 2000);
-        assert!(SKILL_AUTHORING_PROMPT.contains("When to CREATE"));
-        assert!(SKILL_AUTHORING_PROMPT.contains("When to SEARCH"));
-        assert!(SKILL_AUTHORING_PROMPT.contains("Quality Standards"));
-        assert!(SKILL_AUTHORING_PROMPT.contains("SKILL.md Format"));
-    }
 
     #[test]
     fn compute_relevance_name_scores_highest() {
