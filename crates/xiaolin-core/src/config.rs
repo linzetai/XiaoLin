@@ -213,13 +213,13 @@ pub struct SkillsConfig {
 }
 
 fn default_prompt_mode() -> SkillPromptMode {
-    SkillPromptMode::Full
+    SkillPromptMode::Compact
 }
 
 impl Default for SkillsConfig {
     fn default() -> Self {
         Self {
-            prompt_mode: SkillPromptMode::Full,
+            prompt_mode: SkillPromptMode::Compact,
             allow: Vec::new(),
             deny: Vec::new(),
         }

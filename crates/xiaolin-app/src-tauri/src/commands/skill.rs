@@ -22,7 +22,7 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
     }
 
     let sd = state_dir();
-    let skills_dir = sd.join("config/skills");
+    let skills_dir = sd.join("skills");
 
     if src.is_dir() {
         let skill_md = src.join("SKILL.md");

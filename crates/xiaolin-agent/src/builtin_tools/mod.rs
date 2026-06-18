@@ -160,12 +160,12 @@ pub fn register_media_tools(registry: &ToolRegistry, base_url: &str, api_key: &s
     registry.register_deferred(Arc::new(TtsTool::new(base_url, api_key)));
 }
 
-/// Register the unified skill tool (read-only: list + read).
+/// Register the unified skill tool (read-only: list + read + search).
 pub fn register_skill_tools(registry: &ToolRegistry, skill_registry: Arc<SkillRegistry>) {
     registry.register(Arc::new(UnifiedSkillTool::readonly(skill_registry)));
 }
 
-/// Register the unified skill tool with write support (list + read + write).
+/// Register the unified skill tool with write support (list + read + search + write).
 pub fn register_skill_tools_full(
     registry: &ToolRegistry,
     skill_registry: Arc<SkillRegistry>,
@@ -175,6 +175,19 @@ pub fn register_skill_tools_full(
         skill_registry,
         Some(workspace),
     )));
+}
+
+/// Register the unified skill tool with write support and a reload callback
+/// that re-scans skills after every successful write.
+pub fn register_skill_tools_with_reload(
+    registry: &ToolRegistry,
+    skill_registry: Arc<SkillRegistry>,
+    workspace: Arc<AgentWorkspace>,
+    reload_callback: Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>,
+) {
+    let tool = UnifiedSkillTool::new(skill_registry, Some(workspace))
+        .with_reload_callback(reload_callback);
+    registry.register(Arc::new(tool));
 }
 
 /// Register the unified identity tool for reading/writing SOUL.md, USER.md, AGENTS.md.

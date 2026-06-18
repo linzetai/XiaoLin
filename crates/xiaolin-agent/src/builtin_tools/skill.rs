@@ -279,11 +279,13 @@ impl Tool for WriteSkillTool {
 
 // ─── Unified Skill Tool ──────────────────────────────────────────────
 
-/// Single tool that combines list, read, and write skill operations.
+/// Single tool that combines list, read, write, and search skill operations.
 pub struct UnifiedSkillTool {
     list: ListSkillsTool,
     read: ReadSkillTool,
     write: Option<WriteSkillTool>,
+    search: SearchSkillTool,
+    reload_callback: Option<Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>>,
 }
 
 impl UnifiedSkillTool {
@@ -293,17 +295,29 @@ impl UnifiedSkillTool {
     ) -> Self {
         Self {
             list: ListSkillsTool::new(registry.clone()),
-            read: ReadSkillTool::new(registry),
+            read: ReadSkillTool::new(registry.clone()),
+            search: SearchSkillTool::new(registry.clone()),
             write: workspace.map(WriteSkillTool::new),
+            reload_callback: None,
         }
     }
 
     pub fn readonly(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
         Self {
             list: ListSkillsTool::new(registry.clone()),
-            read: ReadSkillTool::new(registry),
+            read: ReadSkillTool::new(registry.clone()),
+            search: SearchSkillTool::new(registry.clone()),
             write: None,
+            reload_callback: None,
         }
+    }
+
+    pub fn with_reload_callback(
+        mut self,
+        callback: Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>,
+    ) -> Self {
+        self.reload_callback = Some(callback);
+        self
     }
 }
 
@@ -314,23 +328,37 @@ impl Tool for UnifiedSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Manage agent skills: list available skills, read a skill's full content, or write/update a skill. \
-         Actions: 'list' (no params needed), 'read' (requires skill_id), 'write' (requires skill_id + content). \
-         Always list before read to get valid ids. Skills are runbooks with instructions—obey them unless the user explicitly contradicts."
+        "Manage agent skills: list available skills, read a skill's full content, search by keyword, or write/update a skill. \
+         Actions: 'list' (no params needed), 'read' (requires skill_id), 'search' (requires query), 'write' (requires skill_id + content). \
+         Always list or search before read to get valid ids. Skills are runbooks with instructions—obey them unless the user explicitly contradicts."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
         let mut props = HashMap::new();
         props.insert("action".to_string(), serde_json::json!({
             "type": "string",
-            "enum": ["list", "read", "write"],
-            "description": "list: return all enabled skills; read: fetch one skill by id; write: create/overwrite a SKILL.md."
+            "enum": ["list", "read", "search", "write"],
+            "description": "list: return all enabled skills; read: fetch one skill by id; search: find skills by keyword; write: create/overwrite a SKILL.md."
         }));
         props.insert(
             "skill_id".to_string(),
             serde_json::json!({
                 "type": "string",
                 "description": "Required for read and write. Copy exactly from list output."
+            }),
+        );
+        props.insert(
+            "query".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Required for search. Keywords matched against name, description, tags, content."
+            }),
+        );
+        props.insert(
+            "tag".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional for search. Only return skills with this tag."
             }),
         );
         props.insert(
@@ -365,7 +393,7 @@ impl Tool for UnifiedSkillTool {
             Some(a) => a,
             None => {
                 return ToolResult::err(
-                    "skill requires 'action': 'list', 'read', or 'write'.".to_string(),
+                    "skill requires 'action': 'list', 'read', 'search', or 'write'.".to_string(),
                 )
             }
         };
@@ -379,14 +407,32 @@ impl Tool for UnifiedSkillTool {
                 .to_string();
                 self.read.execute(&inner).await
             }
+            "search" => {
+                let inner = serde_json::json!({
+                    "query": args.get("query"),
+                    "tag": args.get("tag"),
+                })
+                .to_string();
+                self.search.execute(&inner).await
+            }
             "write" => match &self.write {
-                Some(w) => w.execute(arguments).await,
+                Some(w) => {
+                    let result = w.execute(arguments).await;
+                    if result.success {
+                        if let Some(ref cb) = self.reload_callback {
+                            if let Err(e) = cb() {
+                                tracing::warn!(error = %e, "skill reload callback failed after write");
+                            }
+                        }
+                    }
+                    result
+                }
                 None => {
                     ToolResult::err("skill write is not available in read-only mode.".to_string())
                 }
             },
             other => ToolResult::err(format!(
-                "skill: unknown action '{other}'. Use 'list', 'read', or 'write'."
+                "skill: unknown action '{other}'. Use 'list', 'read', 'search', or 'write'."
             )),
         }
     }
@@ -419,9 +465,10 @@ Do NOT create a skill for:
 ### When to SEARCH for Skills
 
 Before starting any non-trivial task:
-1. Call `list_skills` to see available skills
-2. If a skill name/description matches, call `read_skill` to get the full procedure
-3. Follow the skill's steps unless the user explicitly contradicts them
+1. Use `skill` tool with `action: search, query: "<keywords>"` to find relevant skills
+2. Or use `action: list` to see all available skills
+3. If a skill matches, use `action: read, skill_id: "<id>"` to get the full procedure
+4. Follow the skill's steps unless the user explicitly contradicts them
 
 Decision tree:
 - User says "deploy" → search for deploy-related skills first
@@ -489,30 +536,22 @@ Update when:
 - The procedure changed (new steps, different commands)
 - Error handling can be improved based on new failure cases
 - Parameters or prerequisites changed
-- The skill's success rate dropped below 70%
 
 ### Skill Search Algorithm
 
-Skills are matched using a hybrid approach:
-1. **Keyword match**: Skill name, description, and tags are searched
-2. **Semantic match**: If available, vector similarity on skill content
-3. **Recency boost**: Recently used skills get a small relevance boost
-
-The system automatically:
-- Tracks skill usage patterns
-- Promotes well-performing candidates to active skills
-- Retires skills with low success rates (<50% over 10+ uses)
+Skills are matched by keyword relevance:
+1. **Keyword match**: Skill name, description, tags, and content are searched
+2. **Tag filter**: Optionally restrict results to a specific tag
+3. **Relevance scoring**: Results are ranked by match quality (name > tags > description > content)
 "#;
 
 // ── Search Skill Tool ────────────────────────────────────────────────
 
 /// Search skills by keyword with optional tag filtering.
-#[allow(dead_code)]
 pub struct SearchSkillTool {
     registry: Arc<xiaolin_core::skill::SkillRegistry>,
 }
 
-#[allow(dead_code)]
 impl SearchSkillTool {
     pub fn new(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
         Self { registry }
@@ -564,7 +603,6 @@ impl SearchSkillTool {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[allow(dead_code)]
 pub struct SkillSearchResult {
     pub id: String,
     pub name: String,
@@ -572,7 +610,6 @@ pub struct SkillSearchResult {
     pub score: f64,
 }
 
-#[allow(dead_code)]
 fn compute_relevance(keywords: &[&str], skill: &xiaolin_core::skill::SkillEntry) -> f64 {
     let mut score = 0.0;
     let name_lower = skill.name.to_lowercase();

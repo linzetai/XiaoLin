@@ -250,7 +250,7 @@ impl StateBuilder {
 
         let skills_dir = helpers::resolve_skills_dir(paths_cfg);
 
-        let ext_registry = SkillRegistry::new();
+        let ext_registry = super::AppState::load_extension_skills(paths_cfg);
         let cross_tool_registry =
             xiaolin_core::skill::load_skills_cross_tool(workspace_root.as_deref());
 
@@ -415,31 +415,25 @@ impl StateBuilder {
             None,
         ));
         xiaolin_core::workspace::set_skill_prompt_mode(config.skills.prompt_mode.clone());
-        if matches!(
-            config.skills.prompt_mode,
-            xiaolin_core::config::SkillPromptMode::Compact
-                | xiaolin_core::config::SkillPromptMode::Lazy
-        ) {
-            if let Some((_, ws)) = p3.workspaces.iter().next() {
-                xiaolin_agent::builtin_tools::register_skill_tools_full(
-                    &p3.tool_registry,
-                    base_skill_registry.clone(),
-                    Arc::new(ws.clone()),
-                );
-                tracing::info!(
-                    prompt_mode = ?config.skills.prompt_mode,
-                    "registered list_skills / read_skill / write_skill tools"
-                );
-            } else {
-                xiaolin_agent::builtin_tools::register_skill_tools(
-                    &p3.tool_registry,
-                    base_skill_registry.clone(),
-                );
-                tracing::info!(
-                    prompt_mode = ?config.skills.prompt_mode,
-                    "registered list_skills / read_skill tools (no workspace for write_skill)"
-                );
-            }
+        if let Some((_, ws)) = p3.workspaces.iter().next() {
+            xiaolin_agent::builtin_tools::register_skill_tools_full(
+                &p3.tool_registry,
+                base_skill_registry.clone(),
+                Arc::new(ws.clone()),
+            );
+            tracing::info!(
+                prompt_mode = ?config.skills.prompt_mode,
+                "registered skill tool (list/read/search/write)"
+            );
+        } else {
+            xiaolin_agent::builtin_tools::register_skill_tools(
+                &p3.tool_registry,
+                base_skill_registry.clone(),
+            );
+            tracing::info!(
+                prompt_mode = ?config.skills.prompt_mode,
+                "registered skill tool (list/read/search, no workspace for write)"
+            );
         }
 
         let multi_agent_identity = p3.workspaces.len() > 1;

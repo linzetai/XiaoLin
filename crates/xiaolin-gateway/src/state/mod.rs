@@ -2142,6 +2142,7 @@ impl AppState {
     }
 
     /// Rescan skill directories from disk and rebuild all registries.
+    /// Maintains parity with initialization: builtin + extension + legacy + cross-tool.
     pub fn reload_skills(&self) -> anyhow::Result<usize> {
         use xiaolin_core::skill::{load_skills_from_dirs_with_layer, SkillLayer};
 
@@ -2156,8 +2157,11 @@ impl AppState {
             load_skills_from_dirs_with_layer(&[skills_dir.as_path()], SkillLayer::Project);
         let cross_tool_registry =
             xiaolin_core::skill::load_skills_cross_tool(workspace_root.as_deref());
+        let ext_registry = Self::load_extension_skills(paths_cfg);
 
         let mut base = SkillRegistry::new();
+        xiaolin_core::skill::register_builtin_skills(&mut base);
+        base.merge_from(ext_registry);
         base.merge_from(legacy_project_registry);
         base.merge_from(cross_tool_registry);
 
@@ -2197,6 +2201,27 @@ impl AppState {
         self.rt.agent_skill_registries.store(Arc::new(per_agent));
         tracing::info!(base_skills = total, "skills hot-reloaded from disk");
         Ok(total)
+    }
+
+    /// Load skills from the extensions directory (if it exists).
+    fn load_extension_skills(
+        paths_cfg: &xiaolin_core::config::PathsConfig,
+    ) -> SkillRegistry {
+        use xiaolin_core::skill::{load_skills_from_dirs_with_layer, SkillLayer};
+        let ext_dir = xiaolin_core::paths::resolve_extensions_dir_from(Some(paths_cfg));
+        if ext_dir.exists() {
+            let reg = load_skills_from_dirs_with_layer(&[ext_dir.as_path()], SkillLayer::Extension);
+            if reg.count() > 0 {
+                tracing::info!(
+                    count = reg.count(),
+                    dir = %ext_dir.display(),
+                    "loaded extension skills"
+                );
+            }
+            reg
+        } else {
+            SkillRegistry::new()
+        }
     }
 
     /// Hot-reload agent configs from disk. Returns the number of agents loaded.
