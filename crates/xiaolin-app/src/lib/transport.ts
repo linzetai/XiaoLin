@@ -357,6 +357,15 @@ export interface SkillInfo {
   name: string;
   description: string | null;
   tags?: string[];
+  source?: string;
+  layer?: string;
+  enabled?: boolean;
+}
+
+export interface SkillDetail extends SkillInfo {
+  content: string;
+  tools?: string[];
+  source_path?: string;
 }
 
 export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
@@ -364,6 +373,31 @@ export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
     data?: { skills?: SkillInfo[] };
   };
   return resp?.data?.skills ?? [];
+}
+
+export async function readSkill(skillId: string, agentId?: string): Promise<SkillDetail | null> {
+  const resp = (await wsClient.send("skills.read", { skillId, ...(agentId ? { agentId } : {}) })) as {
+    data?: SkillDetail;
+    error?: { code: number; message: string };
+  };
+  if (resp?.error) return null;
+  return resp?.data ?? null;
+}
+
+export async function updateSkill(skillId: string, content: string): Promise<boolean> {
+  const resp = (await wsClient.send("skills.update", { skillId, content })) as {
+    data?: { updated?: boolean };
+    error?: { code: number; message: string };
+  };
+  return resp?.data?.updated ?? false;
+}
+
+export async function deleteSkill(skillId: string): Promise<boolean> {
+  const resp = (await wsClient.send("skills.delete", { skillId })) as {
+    data?: { deleted?: boolean };
+    error?: { code: number; message: string };
+  };
+  return resp?.data?.deleted ?? false;
 }
 
 export async function refreshSkills(): Promise<{ refreshed: boolean; count: number }> {

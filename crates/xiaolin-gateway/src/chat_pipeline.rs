@@ -64,6 +64,9 @@ pub struct ChatSetup {
     pub slash_intent_value: Option<String>,
     pub slash_exact_match: Option<bool>,
     pub slash_skill_loaded: Option<bool>,
+    /// When a skill activated via `/skill` has non-empty `frontmatter.tools`,
+    /// only these tools are allowed for this turn (intersected with agent config).
+    pub skill_tool_restrictions: Option<Vec<String>>,
     /// (estimated_context_tokens, effective_context_window). Window is 0 when unconfigured.
     pub context_tokens_estimate: Option<(u32, u32)>,
 }
@@ -257,7 +260,12 @@ pub async fn setup_chat(
         inject_slash_intent_context(state, request, &agent_id, &mut enriched_request.messages);
     let prompt_route_meta =
         apply_prompt_router(state, request, &agent_id, &mut enriched_request.messages);
-    inject_skills_prompt(state, &agent_id, &mut enriched_request.messages);
+    inject_skills_prompt(
+        state,
+        &agent_id,
+        agent_config.model.context_window,
+        &mut enriched_request.messages,
+    );
     inject_runtime_paths_prompt(
         state,
         &agent_id,
@@ -397,6 +405,29 @@ pub async fn setup_chat(
         );
     }
 
+    // Apply skill frontmatter.tools restriction to agent config
+    let skill_tool_restrictions = slash_meta.as_ref().and_then(|m| m.skill_tools.clone());
+    let mut agent_config = agent_config;
+    if let Some(ref allowed_tools) = skill_tool_restrictions {
+        if agent_config.behavior.tools_allow.is_empty() {
+            agent_config.behavior.tools_allow = allowed_tools.clone();
+        } else {
+            // Intersect: keep only tools in both lists
+            let skill_set: std::collections::HashSet<&str> =
+                allowed_tools.iter().map(|s| s.as_str()).collect();
+            agent_config.behavior.tools_allow.retain(|t| skill_set.contains(t.as_str()));
+        }
+        // Always allow the skill tool itself so agent can read other skills
+        if !agent_config.behavior.tools_allow.contains(&"skill".to_string()) {
+            agent_config.behavior.tools_allow.push("skill".to_string());
+        }
+        tracing::info!(
+            skill_tools = ?allowed_tools,
+            effective_allow = ?agent_config.behavior.tools_allow,
+            "skill frontmatter.tools restriction applied"
+        );
+    }
+
     Ok(ChatSetup {
         agent_config,
         agent_id: agent_id.to_string(),
@@ -419,6 +450,7 @@ pub async fn setup_chat(
         slash_intent_value: slash_meta.as_ref().map(|m| m.value.clone()),
         slash_exact_match: slash_meta.as_ref().map(|m| m.exact_match),
         slash_skill_loaded: slash_meta.as_ref().map(|m| m.skill_loaded),
+        skill_tool_restrictions,
         context_tokens_estimate,
     })
 }
@@ -429,6 +461,8 @@ struct SlashIntentMeta {
     value: String,
     exact_match: bool,
     skill_loaded: bool,
+    /// Non-empty frontmatter.tools from the activated skill (tool restriction).
+    skill_tools: Option<Vec<String>>,
 }
 
 fn inject_slash_intent_context(
@@ -442,6 +476,7 @@ fn inject_slash_intent_context(
     let value = slash.value.trim().to_string();
     let exact_match = slash.exact_match;
     let mut skill_loaded = false;
+    let mut skill_tools: Option<Vec<String>> = None;
 
     if intent_type == "skill" && exact_match {
         let normalized = value.trim_start_matches('/').trim();
@@ -461,6 +496,9 @@ fn inject_slash_intent_context(
                     },
                 );
                 skill_loaded = true;
+                if !skill.frontmatter.tools.is_empty() {
+                    skill_tools = Some(skill.frontmatter.tools.clone());
+                }
             }
         }
     } else {
@@ -483,6 +521,7 @@ fn inject_slash_intent_context(
         value,
         exact_match,
         skill_loaded,
+        skill_tools,
     })
 }
 
@@ -568,13 +607,41 @@ fn apply_prompt_router(
     })
 }
 
-fn inject_skills_prompt(state: &AppState, agent_id: &str, messages: &mut Vec<ChatMessage>) {
+fn inject_skills_prompt(
+    state: &AppState,
+    agent_id: &str,
+    context_window: Option<u32>,
+    messages: &mut Vec<ChatMessage>,
+) {
     let agent_skill_reg = state.skill_registry_for(agent_id);
-    let skills_prompt =
-        agent_skill_reg.format_for_prompt_mode(&state.cfg.config.skills.prompt_mode);
+    let skills_cfg = &state.cfg.config.skills;
+
+    let char_budget = if skills_cfg.context_budget_percent == 0 {
+        None
+    } else {
+        context_window.map(|cw| {
+            (cw as usize) * (skills_cfg.context_budget_percent as usize) / 100 * 4
+        })
+    };
+
+    let (skills_prompt, truncation) =
+        agent_skill_reg.format_with_budget(&skills_cfg.prompt_mode, char_budget);
+
     if skills_prompt.is_empty() {
         return;
     }
+
+    if let Some(ref info) = truncation {
+        tracing::warn!(
+            stage = ?info.stage,
+            total = info.total_skills,
+            included = info.included_skills,
+            omitted = info.omitted_skills,
+            budget_chars = char_budget.unwrap_or(0),
+            "skill context budget truncation applied"
+        );
+    }
+
     messages.insert(
         0,
         ChatMessage {

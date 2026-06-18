@@ -134,6 +134,8 @@ pub struct RuntimeState {
     pub runtime: Arc<AgentRuntime>,
     pub tool_registry: Arc<ToolRegistry>,
     pub base_skill_registry: Arc<ArcSwap<SkillRegistry>>,
+    /// Unfiltered registry for UI listing (includes deny-listed skills).
+    pub unfiltered_skill_registry: Arc<ArcSwap<SkillRegistry>>,
     pub agent_skill_registries: Arc<ArcSwap<std::collections::HashMap<String, Arc<SkillRegistry>>>>,
     pub workspaces: Arc<std::collections::HashMap<String, AgentWorkspace>>,
     pub prompt_guard: Arc<xiaolin_security::PromptGuard>,
@@ -2165,9 +2167,21 @@ impl AppState {
         base.merge_from(legacy_project_registry);
         base.merge_from(cross_tool_registry);
 
+        let deny_list: Vec<String> = {
+            let live = self.cfg.config_live.load();
+            live.get("skills")
+                .and_then(|s| s.get("deny"))
+                .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
+                .unwrap_or_default()
+        };
+
+        self.rt
+            .unfiltered_skill_registry
+            .store(Arc::new(base.clone()));
+
         let filtered_base = Arc::new(base.filtered(
             &self.cfg.config.skills.allow,
-            &self.cfg.config.skills.deny,
+            &deny_list,
             None,
         ));
 
@@ -2190,7 +2204,7 @@ impl AppState {
                 .and_then(|a| a.skills.as_deref());
             agent_reg = agent_reg.filtered(
                 &self.cfg.config.skills.allow,
-                &self.cfg.config.skills.deny,
+                &deny_list,
                 agent_allow,
             );
             per_agent.insert(agent_id.clone(), Arc::new(agent_reg));
@@ -2667,6 +2681,7 @@ impl AppState {
                 runtime: runtime.clone(),
                 tool_registry: tool_registry.clone(),
                 base_skill_registry: Arc::new(ArcSwap::new(Arc::new(SkillRegistry::new()))),
+                unfiltered_skill_registry: Arc::new(ArcSwap::new(Arc::new(SkillRegistry::new()))),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     std::collections::HashMap::new(),
                 ))),

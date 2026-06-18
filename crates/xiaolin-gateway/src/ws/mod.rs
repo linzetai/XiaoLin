@@ -561,6 +561,15 @@ async fn dispatch(
         ClientOp::SkillsList { params } => {
             skills::handle_skills_list(sender, state, id, params).await
         }
+        ClientOp::SkillsRead { params } => {
+            skills::handle_skills_read(sender, state, id, params).await
+        }
+        ClientOp::SkillsUpdate { params } => {
+            skills::handle_skills_update(sender, state, id, params).await
+        }
+        ClientOp::SkillsDelete { params } => {
+            skills::handle_skills_delete(sender, state, id, params).await
+        }
         ClientOp::SkillsRefresh => skills::handle_skills_refresh(sender, state, id).await,
         ClientOp::ExecutionSetMode { .. } => {
             execution::handle_execution_set_mode(sender, state, id, req.params, Some(bg_tx)).await

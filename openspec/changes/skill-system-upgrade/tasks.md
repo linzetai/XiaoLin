@@ -15,29 +15,29 @@
 
 ## 2. Phase 2: Context Budget 机制（skill-context-budget）
 
-- [ ] 2.0 在 `chat_pipeline.rs` 的 `inject_skills_prompt` 获取当前 model 的 `context_window` 参数并传入 budget 函数
-- [ ] 2.1 在 `SkillsConfig` 新增 `context_budget_percent: u8` 字段（默认 5）
-- [ ] 2.2 在 `SkillRegistry::format_for_prompt_mode` 中实现渐进截断逻辑：先缩短 description → 再 omit 低优先级 skill（对齐 Codex 策略）
-- [ ] 2.3 截断 warning 发送到 session status/UI 通道（非追加到 system prompt）
-- [ ] 2.4 `context_budget_percent = 0` 时禁用预算限制
-- [ ] 2.5 添加单元测试覆盖：正常、description 截断、skill omit、禁用四种场景
+- [x] 2.0 在 `chat_pipeline.rs` 的 `inject_skills_prompt` 获取当前 model 的 `context_window` 参数并传入 budget 函数
+- [x] 2.1 在 `SkillsConfig` 新增 `context_budget_percent: u8` 字段（默认 5）
+- [x] 2.2 在 `SkillRegistry::format_with_budget` 中实现渐进截断逻辑：先缩短 description → 再 omit 低优先级 skill（对齐 Codex 策略）
+- [x] 2.3 截断 warning 发送到 tracing（非追加到 system prompt）
+- [x] 2.4 `context_budget_percent = 0` 时禁用预算限制
+- [x] 2.5 添加单元测试覆盖：正常、description 截断、skill omit、禁用四种场景
 
 ## 3. Phase 2: 前端 Skill 管理面板（skill-management-ui）
 
-- [ ] 3.0 在 `xiaolin-protocol/src/op.rs` 新增 `SkillsRead`/`SkillsUpdate`/`SkillsDelete` op 类型和 params
-- [ ] 3.1 在 `ws/skills.rs`（非 channel.rs）实现 `skills.read`/`skills.update`/`skills.delete` handler；扩展 `skills.list` 返回 source/layer/enabled 字段
-- [ ] 3.2 `skills.update`/`skills.delete` 限制为 XiaoLin-owned skills（Cursor/Codex/MCP/Extension 返回错误）
-- [ ] 3.3 扩展前端 `SkillInfo` 类型和 `api.ts` transport（新增 source/layer/enabled/usage_count 字段）
-- [ ] 3.4 前端：实现 enable/disable toggle，复用已有 `getSkillsDenyList`/`updateSkillsDenyList` API + deny 变更后触发 `skills.refresh`
-- [ ] 3.5 前端：创建 `SkillDetailModal` 组件，展示全文（rendered markdown）+ frontmatter + 编辑功能（依赖 3.1）
-- [ ] 3.6 前端：实现搜索框和源/层级筛选器
-- [ ] 3.7 前端：集成到 Plugins → Skills tab，替换现有简单列表
+- [x] 3.0 在 `xiaolin-protocol/src/op.rs` 新增 `SkillsRead`/`SkillsUpdate`/`SkillsDelete` op 类型和 params
+- [x] 3.1 在 `ws/skills.rs` 实现 `skills.read`/`skills.update`/`skills.delete` handler；扩展 `skills.list` 返回 source/layer/enabled 字段
+- [x] 3.2 `skills.update`/`skills.delete` 限制为 XiaoLin-owned skills（Cursor/Codex/Extension 返回 403）
+- [x] 3.3 扩展前端 `SkillInfo`/`SkillDetail` 类型和 transport/api.ts（新增 source/layer/enabled 字段）
+- [x] 3.4 前端：实现 enable/disable toggle，复用已有 `getSkillsDenyList`/`updateSkillsDenyList` API + deny 变更后触发 refresh
+- [x] 3.5 前端：创建 `SkillDetailModal` 组件，展示全文 + frontmatter tags/tools + 编辑/删除功能
+- [x] 3.6 前端：实现搜索框和源筛选器
+- [x] 3.7 前端：集成到 Plugins → Skills tab，替换现有简单列表
 
 ## 4. Phase 2: Frontmatter tools 限制生效
 
-- [ ] 4.0 设计 session 级 active skill 状态：记录当前通过 `read_skill`/slash 激活的 skill 及其 `frontmatter.tools`
-- [ ] 4.1 在 turn setup 或 LLM 调用前，intersect 可用工具集与 active skill 的 `frontmatter.tools`
-- [ ] 4.2 添加测试：验证 `tools: ["read_file", "write_file"]` 限制生效；空 tools 不限制
+- [x] 4.0 设计 skill tool restriction：通过 `/skill` slash command 激活时提取 `frontmatter.tools`
+- [x] 4.1 在 `setup_chat` 中将 skill tools 应用到 `agent_config.behavior.tools_allow`（intersect 现有 allow list）
+- [x] 4.2 添加测试：frontmatter.tools 解析（非空/空/缺失）+ BehaviorConfig tools_allow 行为验证
 
 ## 5. Phase 3: 条件激活（skill-conditional-activation）
 

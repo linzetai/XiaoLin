@@ -142,6 +142,37 @@ pub struct SkillsListParams {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Typed parameters for SkillsRead.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct SkillsReadParams {
+    #[serde(default, alias = "skillId")]
+    pub skill_id: String,
+    #[serde(default, alias = "agentId", skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+}
+
+/// Typed parameters for SkillsUpdate.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct SkillsUpdateParams {
+    #[serde(default, alias = "skillId")]
+    pub skill_id: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+/// Typed parameters for SkillsDelete.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct SkillsDeleteParams {
+    #[serde(default, alias = "skillId")]
+    pub skill_id: String,
+}
+
 /// A single message in a steer request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -292,6 +323,18 @@ pub enum ClientOp {
     SkillsList {
         #[serde(flatten)]
         params: SkillsListParams,
+    },
+    SkillsRead {
+        #[serde(flatten)]
+        params: SkillsReadParams,
+    },
+    SkillsUpdate {
+        #[serde(flatten)]
+        params: SkillsUpdateParams,
+    },
+    SkillsDelete {
+        #[serde(flatten)]
+        params: SkillsDeleteParams,
     },
     SkillsRefresh,
 
@@ -753,6 +796,21 @@ impl ClientOp {
                 let list_params: SkillsListParams =
                     serde_json::from_value(params).unwrap_or_default();
                 Ok(Self::SkillsList { params: list_params })
+            }
+            "skills.read" => {
+                let read_params: SkillsReadParams =
+                    serde_json::from_value(params).unwrap_or_default();
+                Ok(Self::SkillsRead { params: read_params })
+            }
+            "skills.update" => {
+                let update_params: SkillsUpdateParams =
+                    serde_json::from_value(params).unwrap_or_default();
+                Ok(Self::SkillsUpdate { params: update_params })
+            }
+            "skills.delete" => {
+                let delete_params: SkillsDeleteParams =
+                    serde_json::from_value(params).unwrap_or_default();
+                Ok(Self::SkillsDelete { params: delete_params })
             }
             "skills.refresh" => Ok(Self::SkillsRefresh),
             "execution.set_mode" => Ok(Self::ExecutionSetMode {
@@ -1265,6 +1323,9 @@ mod tests {
         let _ = ClientOp::parse_request("tools.list", json!({})).unwrap();
         let _ = ClientOp::parse_request("tools.update", json!({})).unwrap();
         let _ = ClientOp::parse_request("skills.list", json!({})).unwrap();
+        let _ = ClientOp::parse_request("skills.read", json!({"skillId": "test"})).unwrap();
+        let _ = ClientOp::parse_request("skills.update", json!({"skillId": "test", "content": "# Test"})).unwrap();
+        let _ = ClientOp::parse_request("skills.delete", json!({"skillId": "test"})).unwrap();
         let _ = ClientOp::parse_request("skills.refresh", json!({})).unwrap();
     }
 

@@ -931,6 +931,9 @@ impl StateBuilder {
                 runtime: p5.phase2.phase4.phase3.runtime,
                 tool_registry: shared_tool_registry.clone(),
                 base_skill_registry: Arc::new(ArcSwap::new(p5.phase2.phase4.base_skill_registry)),
+                unfiltered_skill_registry: Arc::new(ArcSwap::new(Arc::new(
+                    p5.phase2.phase4.phase3.base_skill_registry,
+                ))),
                 agent_skill_registries: Arc::new(ArcSwap::new(Arc::new(
                     p5.phase2.phase4.phase3.agent_skill_registries,
                 ))),

@@ -3,7 +3,7 @@ import type { Icon } from "@phosphor-icons/react";
 import {
   PuzzlePiece, ToggleLeft, ToggleRight, ArrowsClockwise,
   CaretDown, CaretRight, WarningCircle, SpinnerGap,
-  Wrench, Globe, User, UploadSimple, FolderOpen, FileText,
+  Wrench, UploadSimple, FolderOpen, FileText,
   WifiHigh, WifiSlash, Link, LinkBreak,
   QrCode, CheckCircle, DeviceMobile, Key, Terminal,
   PencilSimple, ArrowCounterClockwise, FloppyDisk,
@@ -535,26 +535,31 @@ function McpEmptyState({ onExplore, onAdd }: { onExplore?: () => void; onAdd?: (
 // Skills Tab
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+type SkillSourceFilter = "all" | "xiaolin" | "cursor" | "codex" | "shared_agents" | "extension";
+
 function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => void }) {
   const { t } = useTranslation("plugins");
   const gatewayReady = useGatewayStore((s) => s.connected);
-  const [publicSkills, setPublicSkills] = useState<api.SkillInfo[]>([]);
-  const [agentSkillsMap, setAgentSkillsMap] = useState<Record<string, api.SkillInfo[]>>({});
+  const [allSkills, setAllSkills] = useState<api.SkillInfo[]>([]);
   const [tools, setTools] = useState<api.ToolInfo[]>([]);
+  const [denyList, setDenyList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"skills" | "tools">("skills");
+  const [sourceFilter, setSourceFilter] = useState<SkillSourceFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
 
   const loadAllSkills = useCallback(async () => {
     try {
-      const [globalSkills, mainSkills] = await Promise.all([
-        api.listSkills(),
+      const [skills, deny] = await Promise.all([
         api.listSkills("main"),
+        api.getSkillsDenyList(),
       ]);
-      setPublicSkills(globalSkills);
-      setAgentSkillsMap(mainSkills.length > 0 ? { main: mainSkills } : {});
+      setAllSkills(skills);
+      setDenyList(deny);
     } catch { /* silent */ }
   }, []);
 
@@ -571,14 +576,26 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     loadAll();
   }, [gatewayReady, loadAllSkills]);
 
-  const totalSkills = useMemo(
-    () => publicSkills.length + Object.values(agentSkillsMap).reduce((s, a) => s + a.length, 0),
-    [publicSkills, agentSkillsMap],
-  );
+  const filteredSkills = useMemo(() => {
+    let result = allSkills;
+    if (sourceFilter !== "all") {
+      result = result.filter((s) => s.source === sourceFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.description && s.description.toLowerCase().includes(q)) ||
+          s.id.toLowerCase().includes(q),
+      );
+    }
+    return result;
+  }, [allSkills, sourceFilter, searchQuery]);
 
   useEffect(() => {
-    onCountChange(filter === "skills" ? totalSkills : tools.length);
-  }, [totalSkills, tools.length, filter, onCountChange]);
+    onCountChange(filter === "skills" ? allSkills.length : tools.length);
+  }, [allSkills.length, tools.length, filter, onCountChange]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -586,6 +603,16 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     await loadAllSkills();
     setRefreshing(false);
   }, [loadAllSkills]);
+
+  const handleToggleSkill = useCallback(async (skillId: string, currentlyEnabled: boolean) => {
+    const newDeny = currentlyEnabled
+      ? [...denyList, skillId]
+      : denyList.filter((d) => d !== skillId);
+    setDenyList(newDeny);
+    await api.updateSkillsDenyList(newDeny);
+    await api.refreshSkills();
+    await loadAllSkills();
+  }, [denyList, loadAllSkills]);
 
   const handleUploadFolder = useCallback(async () => {
     setUploading(true);
@@ -624,6 +651,12 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     );
   }
 
+  const sourceCounts = allSkills.reduce<Record<string, number>>((acc, s) => {
+    const src = s.source || "xiaolin";
+    acc[src] = (acc[src] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
       {/* Sub-header: filter toggle + actions */}
@@ -642,7 +675,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                 border: "none",
               }}
             >
-              {f === "skills" ? `Skills (${totalSkills})` : `Tools (${tools.length})`}
+              {f === "skills" ? `Skills (${allSkills.length})` : `Tools (${tools.length})`}
             </button>
           ))}
         </div>
@@ -695,43 +728,76 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
         )}
       </div>
 
-      {filter === "skills" ? (
-        <div className="flex flex-col gap-4">
-          {/* Global skills */}
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-              <Globe size={ICON_SIZE.xs} />
-              Global Skills ({publicSkills.length})
+      {filter === "skills" && (
+        <>
+          {/* Search + source filter */}
+          <div className="mb-3 flex items-center gap-2">
+            <div className="relative flex-1">
+              <MagnifyingGlass
+                size={14}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2"
+                style={{ color: "var(--fill-quaternary)" }}
+              />
+              <input
+                type="text"
+                placeholder="Search skills..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-md py-1.5 pl-8 pr-3 text-[12px] outline-none"
+                style={{
+                  background: "var(--bg-primary)",
+                  border: "0.5px solid var(--separator)",
+                  color: "var(--fill-primary)",
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-quaternary)" }}
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
-            {publicSkills.length === 0 ? (
-              <p className="rounded-md px-4 py-3 text-center text-[12px]" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)", color: "var(--fill-tertiary)" }}>
-                No global skills installed
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
-                {publicSkills.map((skill, idx) => (
-                  <SkillRow key={skill.id} skill={skill} isLast={idx === publicSkills.length - 1} />
-                ))}
-              </div>
-            )}
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value as SkillSourceFilter)}
+              className="rounded-md px-2 py-1.5 text-[11px]"
+              style={{
+                background: "var(--bg-primary)",
+                border: "0.5px solid var(--separator)",
+                color: "var(--fill-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="all">All ({allSkills.length})</option>
+              {Object.entries(sourceCounts).map(([src, count]) => (
+                <option key={src} value={src}>{src} ({count})</option>
+              ))}
+            </select>
           </div>
-          {/* Per-agent skills */}
-          {Object.entries(agentSkillsMap).map(([agentId, skills]) =>
-            skills.length > 0 && (
-              <div key={agentId}>
-                <div className="mb-2 flex items-center gap-2 text-[11px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-                  <User size={ICON_SIZE.xs} />
-                  Agent: {agentId} ({skills.length})
-                </div>
-                <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
-                  {skills.map((skill, idx) => (
-                    <SkillRow key={`${agentId}-${skill.id}`} skill={skill} isLast={idx === skills.length - 1} />
-                  ))}
-                </div>
-              </div>
-            ),
-          )}
-        </div>
+        </>
+      )}
+
+      {filter === "skills" ? (
+        filteredSkills.length === 0 ? (
+          <p className="py-12 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
+            {searchQuery ? "No skills match your search" : "No skills installed"}
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
+            {filteredSkills.map((skill, idx) => (
+              <SkillRow
+                key={skill.id}
+                skill={skill}
+                isLast={idx === filteredSkills.length - 1}
+                onToggle={handleToggleSkill}
+                onDetail={setDetailSkillId}
+              />
+            ))}
+          </div>
+        )
       ) : (
         tools.length === 0 ? (
           <p className="py-12 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>No registered tools</p>
@@ -753,32 +819,293 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
           </div>
         )
       )}
+
+      {detailSkillId && (
+        <SkillDetailModal
+          skillId={detailSkillId}
+          onClose={() => setDetailSkillId(null)}
+          onSaved={loadAllSkills}
+        />
+      )}
     </div>
   );
 }
 
-function SkillRow({ skill, isLast }: { skill: api.SkillInfo; isLast: boolean }) {
+function SkillRow({
+  skill,
+  isLast,
+  onToggle,
+  onDetail,
+}: {
+  skill: api.SkillInfo;
+  isLast: boolean;
+  onToggle: (id: string, enabled: boolean) => void;
+  onDetail: (id: string) => void;
+}) {
+  const enabled = skill.enabled !== false;
   return (
     <div
-      className="px-4 py-2.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-      style={!isLast ? { borderBottom: "0.5px solid var(--separator)" } : undefined}
+      className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+      style={{
+        ...(!isLast ? { borderBottom: "0.5px solid var(--separator)" } : {}),
+        opacity: enabled ? 1 : 0.5,
+        cursor: "pointer",
+      }}
+      onClick={() => onDetail(skill.id)}
     >
-      <div className="flex items-baseline gap-2">
-        <span className="break-all text-[13px] font-semibold leading-snug" style={{ color: "var(--fill-primary)" }}>{skill.name}</span>
-        {skill.version && <span className="shrink-0 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>v{skill.version}</span>}
-      </div>
-      {skill.description && (
-        <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>{skill.description}</div>
-      )}
-      {skill.tags && skill.tags.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {skill.tags.map((tag) => (
-            <span key={tag} className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
-              {tag}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="break-all text-[13px] font-semibold leading-snug" style={{ color: "var(--fill-primary)" }}>
+            {skill.name}
+          </span>
+          {skill.source && skill.source !== "xiaolin" && (
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
+              style={{ background: "var(--bg-tertiary)", color: "var(--fill-quaternary)" }}
+            >
+              {skill.source}
             </span>
-          ))}
+          )}
+          {skill.layer && (
+            <span
+              className="shrink-0 text-[10px]"
+              style={{ color: "var(--fill-quaternary)" }}
+            >
+              {skill.layer}
+            </span>
+          )}
         </div>
-      )}
+        {skill.description && (
+          <div className="mt-0.5 line-clamp-1 text-[11px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
+            {skill.description}
+          </div>
+        )}
+        {skill.tags && skill.tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {skill.tags.map((tag) => (
+              <span key={tag} className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggle(skill.id, enabled); }}
+        className="shrink-0 rounded-md p-0.5"
+        style={{ background: "none", border: "none", cursor: "pointer", color: enabled ? "var(--accent)" : "var(--fill-quaternary)" }}
+        title={enabled ? "Disable skill" : "Enable skill"}
+      >
+        {enabled ? <ToggleRight size={22} weight="fill" /> : <ToggleLeft size={22} />}
+      </button>
+    </div>
+  );
+}
+
+function SkillDetailModal({
+  skillId,
+  onClose,
+  onSaved,
+}: {
+  skillId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [detail, setDetail] = useState<api.SkillDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const d = await api.readSkill(skillId);
+      if (!cancelled) {
+        setDetail(d);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [skillId]);
+
+  const isEditable = detail?.source === "xiaolin";
+
+  const handleSave = async () => {
+    if (!detail) return;
+    setSaving(true);
+    const ok = await api.updateSkill(detail.id, editContent);
+    setSaving(false);
+    if (ok) {
+      setEditing(false);
+      onSaved();
+      const refreshed = await api.readSkill(skillId);
+      if (refreshed) setDetail(refreshed);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!detail) return;
+    const ok = await api.deleteSkill(detail.id);
+    if (ok) {
+      onSaved();
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl shadow-2xl"
+        style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: "var(--separator)" }}>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+              {loading ? "Loading..." : detail?.name || skillId}
+            </h3>
+            {detail && (
+              <div className="mt-0.5 flex items-center gap-2 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+                <span>{detail.source || "xiaolin"}</span>
+                <span>&middot;</span>
+                <span>{detail.layer}</span>
+                {detail.source_path && (
+                  <>
+                    <span>&middot;</span>
+                    <span className="truncate font-mono text-[10px]" style={{ maxWidth: "250px" }}>
+                      {detail.source_path}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {isEditable && !editing && (
+              <>
+                <button
+                  onClick={() => { setEditing(true); setEditContent(detail?.content || ""); }}
+                  className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}
+                  title="Edit"
+                >
+                  <PencilSimple size={16} />
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red, #e53e3e)" }}
+                  title="Delete"
+                >
+                  <Trash size={16} />
+                </button>
+              </>
+            )}
+            {editing && (
+              <>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)" }}
+                  title="Save"
+                >
+                  <FloppyDisk size={16} />
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}
+                  title="Cancel"
+                >
+                  <ArrowCounterClockwise size={16} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <SpinnerGap size={24} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+            </div>
+          ) : detail ? (
+            <>
+              {/* Frontmatter metadata */}
+              {(detail.tags?.length || detail.tools?.length) && (
+                <div className="mb-4 flex flex-wrap gap-3">
+                  {detail.tags && detail.tags.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tags:</span>
+                      {detail.tags.map((tag) => (
+                        <span key={tag} className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {detail.tools && detail.tools.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tools:</span>
+                      {detail.tools.map((tool) => (
+                        <span key={tool} className="rounded-full px-1.5 py-0.5 font-mono text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Content */}
+              {editing ? (
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full rounded-md p-3 font-mono text-[12px] leading-relaxed outline-none"
+                  style={{
+                    background: "var(--bg-primary)",
+                    border: "0.5px solid var(--separator)",
+                    color: "var(--fill-primary)",
+                    minHeight: "300px",
+                    resize: "vertical",
+                  }}
+                />
+              ) : (
+                <pre
+                  className="whitespace-pre-wrap rounded-md p-3 text-[12px] leading-relaxed"
+                  style={{
+                    background: "var(--bg-primary)",
+                    border: "0.5px solid var(--separator)",
+                    color: "var(--fill-secondary)",
+                  }}
+                >
+                  {detail.content}
+                </pre>
+              )}
+            </>
+          ) : (
+            <p className="py-8 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
+              Skill not found
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -176,19 +176,29 @@ export interface SkillInfo {
   version?: string;
   scope?: string;
   tags?: string[];
+  source?: string;
+  layer?: string;
+  enabled?: boolean;
+}
+
+export interface SkillDetail extends SkillInfo {
+  content: string;
+  tools?: string[];
+  source_path?: string;
 }
 
 export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
   try {
     if (transport.isTauri) {
-      console.info("[api] listSkills via IPC, agent:", agentId);
-      const skills = await transport.listSkillsIpc(agentId);
-      console.info("[api] listSkills IPC result:", skills.length, "skills");
+      const skills = await transport.listSkills(agentId);
       return skills.map((s) => ({
         id: s.id,
         name: s.name,
         description: s.description ?? "",
         tags: s.tags,
+        source: s.source,
+        layer: s.layer,
+        enabled: s.enabled,
       }));
     }
     const url = agentId ? `/api/v1/skills?agentId=${encodeURIComponent(agentId)}` : "/api/v1/skills";
@@ -200,10 +210,48 @@ export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
   }
 }
 
+export async function readSkill(skillId: string, agentId?: string): Promise<SkillDetail | null> {
+  try {
+    if (transport.isTauri) {
+      const raw = await transport.readSkill(skillId, agentId);
+      if (!raw) return null;
+      return { ...raw, description: raw.description ?? "" };
+    }
+    return await httpGet<SkillDetail>(`/api/v1/skills/${encodeURIComponent(skillId)}`);
+  } catch (e) {
+    console.warn("[api] readSkill error:", e);
+    return null;
+  }
+}
+
+export async function updateSkill(skillId: string, content: string): Promise<boolean> {
+  try {
+    if (transport.isTauri) {
+      return await transport.updateSkill(skillId, content);
+    }
+    return false;
+  } catch (e) {
+    console.warn("[api] updateSkill error:", e);
+    return false;
+  }
+}
+
+export async function deleteSkill(skillId: string): Promise<boolean> {
+  try {
+    if (transport.isTauri) {
+      return await transport.deleteSkill(skillId);
+    }
+    return false;
+  } catch (e) {
+    console.warn("[api] deleteSkill error:", e);
+    return false;
+  }
+}
+
 export async function refreshSkills(): Promise<number> {
   try {
     if (transport.isTauri) {
-      const resp = await transport.refreshSkillsIpc();
+      const resp = await transport.refreshSkills();
       return resp.count;
     }
     const resp = await httpPost<{ count?: number }>("/api/v1/skills/refresh");
@@ -217,7 +265,7 @@ export async function refreshSkills(): Promise<number> {
 export async function uploadSkill(sourcePath: string): Promise<string | null> {
   try {
     if (transport.isTauri) {
-      const resp = await transport.uploadSkillIpc(sourcePath);
+      const resp = await transport.uploadSkill(sourcePath);
       return resp.installed ?? null;
     }
     return null;

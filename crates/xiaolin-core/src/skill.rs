@@ -175,21 +175,108 @@ impl SkillRegistry {
     /// - **Compact**: Name + one-line description only (~50% token savings)
     /// - **Lazy**: Minimal header only; model uses list_skills/read_skill tools
     pub fn format_for_prompt_mode(&self, mode: &crate::config::SkillPromptMode) -> String {
-        let enabled: Vec<&SkillEntry> = self
+        self.format_with_budget(mode, None).0
+    }
+
+    /// Format skills with an optional character budget.
+    ///
+    /// Returns `(prompt_text, truncation_info)`.
+    /// `truncation_info` is `Some(SkillTruncationInfo)` when any truncation occurred.
+    pub fn format_with_budget(
+        &self,
+        mode: &crate::config::SkillPromptMode,
+        char_budget: Option<usize>,
+    ) -> (String, Option<SkillTruncationInfo>) {
+        let mut enabled: Vec<&SkillEntry> = self
             .skills
             .values()
             .filter(|s| s.frontmatter.enabled.unwrap_or(true))
             .collect();
 
         if enabled.is_empty() {
-            return String::new();
+            return (String::new(), None);
         }
 
-        match mode {
+        // Sort by layer descending (highest priority first) for budget truncation
+        enabled.sort_by(|a, b| b.layer.cmp(&a.layer));
+
+        let budget = match char_budget {
+            Some(0) | None => {
+                let output = match mode {
+                    crate::config::SkillPromptMode::Full => self.format_full(&enabled),
+                    crate::config::SkillPromptMode::Compact => self.format_compact(&enabled),
+                    crate::config::SkillPromptMode::Lazy => self.format_lazy(&enabled),
+                };
+                return (output, None);
+            }
+            Some(b) => b,
+        };
+
+        let initial = match mode {
             crate::config::SkillPromptMode::Full => self.format_full(&enabled),
             crate::config::SkillPromptMode::Compact => self.format_compact(&enabled),
             crate::config::SkillPromptMode::Lazy => self.format_lazy(&enabled),
+        };
+
+        if initial.len() <= budget {
+            return (initial, None);
         }
+
+        // Stage 1: truncate descriptions to first line (compact/full only, lazy already minimal)
+        if !matches!(mode, crate::config::SkillPromptMode::Lazy) {
+            let truncated = self.format_compact_truncated(&enabled);
+            if truncated.len() <= budget {
+                return (
+                    truncated,
+                    Some(SkillTruncationInfo {
+                        stage: TruncationStage::DescriptionShortened,
+                        total_skills: enabled.len(),
+                        included_skills: enabled.len(),
+                        omitted_skills: 0,
+                    }),
+                );
+            }
+        }
+
+        // Stage 2: omit lowest-priority skills until within budget
+        let mut included = enabled.clone();
+        let mut omitted = 0usize;
+        while included.len() > 1 {
+            included.pop(); // remove lowest-priority (last after sort)
+            omitted += 1;
+            let candidate = if matches!(mode, crate::config::SkillPromptMode::Lazy) {
+                self.format_lazy(&included)
+            } else {
+                self.format_compact_truncated(&included)
+            };
+            if candidate.len() <= budget {
+                return (
+                    candidate,
+                    Some(SkillTruncationInfo {
+                        stage: TruncationStage::SkillsOmitted,
+                        total_skills: enabled.len(),
+                        included_skills: included.len(),
+                        omitted_skills: omitted,
+                    }),
+                );
+            }
+        }
+
+        // Even with 1 skill it exceeds budget — return it anyway with warning
+        let final_output = if matches!(mode, crate::config::SkillPromptMode::Lazy) {
+            self.format_lazy(&included)
+        } else {
+            self.format_compact_truncated(&included)
+        };
+        (
+            final_output,
+            Some(SkillTruncationInfo {
+                stage: TruncationStage::SkillsOmitted,
+                total_skills: enabled.len(),
+                included_skills: included.len(),
+                omitted_skills: omitted,
+            }),
+        )
     }
 
     fn format_full(&self, skills: &[&SkillEntry]) -> String {
@@ -225,6 +312,32 @@ impl SkillRegistry {
         buf
     }
 
+    /// Compact format with descriptions truncated to first line only (Stage 1 truncation).
+    fn format_compact_truncated(&self, skills: &[&SkillEntry]) -> String {
+        let mut buf = String::from("## Available Skills\n\n");
+        buf.push_str("You have the following skills. Use `read_skill` tool with the skill ID to get full instructions.\n\n");
+
+        for skill in skills {
+            let first_line = skill
+                .description
+                .as_deref()
+                .and_then(|d| d.lines().next())
+                .unwrap_or("(no description)");
+            let truncated = if first_line.chars().count() > 80 {
+                let s: String = first_line.chars().take(77).collect();
+                format!("{s}…")
+            } else {
+                first_line.to_string()
+            };
+            buf.push_str(&format!(
+                "- **{}** (`{}`): {}\n",
+                skill.name, skill.id, truncated
+            ));
+        }
+        buf.push('\n');
+        buf
+    }
+
     fn format_lazy(&self, skills: &[&SkillEntry]) -> String {
         let mut buf = String::from("## Skills\n\n");
         buf.push_str(&format!(
@@ -238,6 +351,23 @@ impl SkillRegistry {
         buf.push_str("\n\n");
         buf
     }
+}
+
+/// Information about skill prompt truncation due to context budget.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkillTruncationInfo {
+    pub stage: TruncationStage,
+    pub total_skills: usize,
+    pub included_skills: usize,
+    pub omitted_skills: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TruncationStage {
+    /// Descriptions were shortened to first line.
+    DescriptionShortened,
+    /// Some skills were omitted to fit budget.
+    SkillsOmitted,
 }
 
 /// Load all SKILL.md files from a list of directories.
@@ -692,6 +822,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_frontmatter_with_tools() {
+        let raw = "---\nname: Restricted\ntools:\n  - read_file\n  - write_file\n---\n# Body";
+        let (fm, _body) = parse_frontmatter(raw);
+        assert_eq!(fm.tools, vec!["read_file", "write_file"]);
+    }
+
+    #[test]
+    fn parse_frontmatter_empty_tools() {
+        let raw = "---\nname: Unrestricted\ntools: []\n---\n# Body";
+        let (fm, _body) = parse_frontmatter(raw);
+        assert!(fm.tools.is_empty());
+    }
+
+    #[test]
+    fn parse_frontmatter_no_tools_field() {
+        let raw = "---\nname: NoTools\n---\n# Body";
+        let (fm, _body) = parse_frontmatter(raw);
+        assert!(fm.tools.is_empty());
+    }
+
+    #[test]
     fn parse_frontmatter_empty_yaml_block() {
         let raw = "---\n---\n# Title\n\nContent";
         let (fm, body) = parse_frontmatter(raw);
@@ -1085,6 +1236,115 @@ mod tests {
         assert_eq!(reg.count(), 2);
         assert!(reg.get("pre").is_some());
         assert!(reg.get("new").is_some());
+    }
+
+    // ── format_with_budget ─────────────────────────────────────────
+
+    fn make_skill_with_layer(
+        id: &str,
+        name: &str,
+        desc: &str,
+        layer: SkillLayer,
+    ) -> SkillEntry {
+        SkillEntry {
+            id: id.into(),
+            name: name.into(),
+            description: Some(desc.into()),
+            content: format!("Content of {name}"),
+            source_path: PathBuf::from(format!("/fake/{id}/SKILL.md")),
+            frontmatter: SkillFrontmatter {
+                name: Some(name.into()),
+                description: Some(desc.into()),
+                ..Default::default()
+            },
+            layer,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn budget_none_returns_all_no_truncation() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("a", "Alpha", None));
+        reg.register(make_skill("b", "Beta", None));
+
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, None);
+        assert!(output.contains("Alpha"));
+        assert!(output.contains("Beta"));
+        assert!(info.is_none());
+    }
+
+    #[test]
+    fn budget_zero_returns_all_no_truncation() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("a", "Alpha", None));
+
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, Some(0));
+        assert!(output.contains("Alpha"));
+        assert!(info.is_none());
+    }
+
+    #[test]
+    fn budget_large_enough_no_truncation() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("a", "Alpha", None));
+
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, Some(100_000));
+        assert!(output.contains("Alpha"));
+        assert!(info.is_none());
+    }
+
+    #[test]
+    fn budget_triggers_description_shortening() {
+        let mut reg = SkillRegistry::new();
+        let long_desc = "A very long description that goes on and on. ".repeat(5);
+        reg.register(make_skill_with_layer("a", "Alpha", &long_desc, SkillLayer::Project));
+
+        let full_output = reg.format_for_prompt_mode(&SkillPromptMode::Compact);
+        // Budget just under the full compact output forces Stage 1 truncation
+        let budget = full_output.len() - 10;
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, Some(budget));
+        assert!(output.contains("Alpha"));
+        let info = info.expect("should have truncation info");
+        assert_eq!(info.stage, TruncationStage::DescriptionShortened);
+        assert_eq!(info.total_skills, 1);
+        assert_eq!(info.included_skills, 1);
+        assert_eq!(info.omitted_skills, 0);
+    }
+
+    #[test]
+    fn budget_triggers_skill_omission() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill_with_layer(
+            "ext", "Extension Skill", "Low priority", SkillLayer::Extension,
+        ));
+        reg.register(make_skill_with_layer(
+            "proj", "Project Skill", "Medium priority", SkillLayer::Project,
+        ));
+        reg.register(make_skill_with_layer(
+            "ws", "Workspace Skill", "High priority", SkillLayer::AgentWorkspace,
+        ));
+
+        // Very tight budget — only room for 1-2 skills
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, Some(200));
+        let info = info.expect("should have truncation info");
+        assert_eq!(info.stage, TruncationStage::SkillsOmitted);
+        assert!(info.omitted_skills > 0);
+        // Highest priority skill should be retained
+        assert!(output.contains("Workspace Skill"));
+    }
+
+    #[test]
+    fn budget_disabled_with_zero_percent() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("a", "Alpha", None));
+        reg.register(make_skill("b", "Beta", None));
+
+        // context_budget_percent=0 → char_budget=None → no truncation
+        let (output, info) = reg.format_with_budget(&SkillPromptMode::Compact, None);
+        assert!(output.contains("Alpha"));
+        assert!(output.contains("Beta"));
+        assert!(info.is_none());
     }
 
     // ── resolve_global_skills_dir ──────────────────────────────────
