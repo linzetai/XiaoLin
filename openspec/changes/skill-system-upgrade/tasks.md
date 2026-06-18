@@ -93,9 +93,9 @@
 
 ## 11. Phase 4: Evolution 统一视图
 
-- [ ] 11.1 前端合并展示静态 skill + evolution candidate/active skill
-- [ ] 11.2 实现 promote（evolution → `~/.xiaolin/skills/` 静态 skill）
-- [ ] 11.3 UI 展示 evolution skill 的来源、匹配会话数、置信度
+- [x] 11.1 前端合并展示静态 skill + evolution candidate/active skill
+- [x] 11.2 实现 promote（evolution → `~/.xiaolin/skills/` 静态 skill）
+- [x] 11.3 UI 展示 evolution skill 的来源、匹配会话数、置信度
 
 ## 12. 验证
 

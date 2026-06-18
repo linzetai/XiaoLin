@@ -118,6 +118,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "agents.get", "agents.create", "agents.update", "agents.delete",
                             "tools.list", "tools.update", "tools.submit_answer",
                             "skills.list", "skills.refresh",
+                            "evolution.list", "evolution.promote",
                             "marketplace.browse", "marketplace.search", "marketplace.install", "marketplace.uninstall",
                             "permissions.get_presets", "permissions.get_session", "permissions.set_session",
                             "automations.list", "automations.create", "automations.update", "automations.delete", "automations.runs", "automations.run_now",
@@ -573,6 +574,12 @@ async fn dispatch(
             skills::handle_skills_delete(sender, state, id, params).await
         }
         ClientOp::SkillsRefresh => skills::handle_skills_refresh(sender, state, id).await,
+        ClientOp::EvolutionList => {
+            skills::handle_evolution_list(sender, state, id).await
+        }
+        ClientOp::EvolutionPromote { skill_id } => {
+            skills::handle_evolution_promote(sender, state, id, &skill_id).await
+        }
         ClientOp::MarketplaceBrowse { query, limit } => {
             marketplace::handle_marketplace_browse(sender, state, id, query, limit).await
         }

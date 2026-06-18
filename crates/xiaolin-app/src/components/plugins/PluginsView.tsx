@@ -551,6 +551,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
   const { t } = useTranslation("plugins");
   const gatewayReady = useGatewayStore((s) => s.connected);
   const [allSkills, setAllSkills] = useState<api.SkillInfo[]>([]);
+  const [evolutionSkills, setEvolutionSkills] = useState<api.EvolutionSkill[]>([]);
   const [tools, setTools] = useState<api.ToolInfo[]>([]);
   const [denyList, setDenyList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -562,15 +563,19 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
   const [skillSubView, setSkillSubView] = useState<SkillSubView>("installed");
+  const [evoExpanded, setEvoExpanded] = useState(false);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
 
   const loadAllSkills = useCallback(async () => {
     try {
-      const [skills, deny] = await Promise.all([
+      const [skills, deny, evo] = await Promise.all([
         api.listSkills("main"),
         api.getSkillsDenyList(),
+        api.listEvolutionSkills(),
       ]);
       setAllSkills(skills);
       setDenyList(deny);
+      setEvolutionSkills(evo);
     } catch { /* silent */ }
   }, []);
 
@@ -625,6 +630,17 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     await loadAllSkills();
   }, [denyList, loadAllSkills]);
 
+  const handlePromote = useCallback(async (skillId: string) => {
+    setPromotingId(skillId);
+    try {
+      const result = await api.promoteEvolutionSkill(skillId);
+      if (result.promoted) {
+        await loadAllSkills();
+      }
+    } catch { /* silent */ }
+    setPromotingId(null);
+  }, [loadAllSkills]);
+
   const handleUploadFolder = useCallback(async () => {
     setUploading(true);
     try {
@@ -653,15 +669,6 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     setUploading(false);
   }, [loadAllSkills, t]);
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
-        <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-        <p className="text-xs" style={{ color: "var(--fill-quaternary)" }}>{t("loading_skills")}</p>
-      </div>
-    );
-  }
-
   const sourceCounts = allSkills.reduce<Record<string, number>>((acc, s) => {
     const src = s.source || "xiaolin";
     acc[src] = (acc[src] || 0) + 1;
@@ -672,6 +679,15 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     { value: "installed" as const, label: "Installed", count: allSkills.length },
     { value: "marketplace" as const, label: "Marketplace" },
   ], [allSkills.length]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 pv-fade-in">
+        <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+        <p className="text-xs" style={{ color: "var(--fill-quaternary)" }}>{t("loading_skills")}</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -866,6 +882,81 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
             ))}
           </div>
         )
+      )}
+
+      {/* Evolution Skills Section */}
+      {filter === "skills" && evolutionSkills.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => setEvoExpanded((v) => !v)}
+            className="mb-2 flex w-full items-center gap-1.5 text-[12px] font-semibold"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-secondary)" }}
+          >
+            {evoExpanded ? <CaretDown size={12} /> : <CaretRight size={12} />}
+            Evolved Skills ({evolutionSkills.length})
+          </button>
+          {evoExpanded && (
+            <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
+              {evolutionSkills.map((evo, idx) => (
+                <div
+                  key={evo.id}
+                  className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]"
+                  style={idx < evolutionSkills.length - 1 ? { borderBottom: "0.5px solid var(--separator)" } : undefined}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+                        {evo.name}
+                      </span>
+                      <span
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
+                        style={{
+                          background: evo.status === "active"
+                            ? "var(--status-success-bg, rgba(34, 197, 94, 0.15))"
+                            : "var(--status-info-bg, rgba(59, 130, 246, 0.15))",
+                          color: evo.status === "active"
+                            ? "var(--status-success, #16a34a)"
+                            : "var(--status-info, #2563eb)",
+                        }}
+                      >
+                        {evo.status}
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+                        v{evo.version}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 line-clamp-1 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+                      {evo.task_pattern}
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+                      <span>Success: {(evo.success_rate * 100).toFixed(0)}%</span>
+                      <span>Used: {evo.usage_count}×</span>
+                      <span>Sessions: {evo.source_trajectory_ids.length}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handlePromote(evo.id)}
+                    disabled={promotingId === evo.id}
+                    className="shrink-0 flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors"
+                    style={{
+                      background: "var(--tint)",
+                      border: "none",
+                      cursor: promotingId === evo.id ? "wait" : "pointer",
+                      color: "#fff",
+                      opacity: promotingId === evo.id ? 0.6 : 1,
+                    }}
+                  >
+                    {promotingId === evo.id ? (
+                      <><SpinnerGap size={12} className="animate-spin" /> Promoting…</>
+                    ) : (
+                      <><Star size={12} /> Promote</>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {detailSkillId && (

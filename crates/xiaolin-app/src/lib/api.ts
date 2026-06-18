@@ -181,6 +181,7 @@ export interface SkillInfo {
   enabled?: boolean;
   paths?: string[];
   conditional?: boolean;
+  usage_count?: number;
 }
 
 export interface SkillDetail extends SkillInfo {
@@ -203,6 +204,7 @@ export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
         enabled: s.enabled,
         paths: s.paths,
         conditional: s.conditional,
+        usage_count: s.usage_count,
       }));
     }
     const url = agentId ? `/api/v1/skills?agentId=${encodeURIComponent(agentId)}` : "/api/v1/skills";
@@ -276,6 +278,30 @@ export async function uploadSkill(sourcePath: string): Promise<string | null> {
   } catch (e) {
     console.warn("[api] uploadSkill error:", e);
     return null;
+  }
+}
+
+// ─── Evolution Skills ───
+
+export type EvolutionSkill = transport.EvolutionSkill;
+
+export async function listEvolutionSkills(): Promise<EvolutionSkill[]> {
+  try {
+    return await transport.listEvolutionSkills();
+  } catch (e) {
+    console.warn("[api] listEvolutionSkills error:", e);
+    return [];
+  }
+}
+
+export async function promoteEvolutionSkill(
+  skillId: string,
+): Promise<{ promoted: boolean; path?: string }> {
+  try {
+    return await transport.promoteEvolutionSkill(skillId);
+  } catch (e) {
+    console.warn("[api] promoteEvolutionSkill error:", e);
+    return { promoted: false };
   }
 }
 

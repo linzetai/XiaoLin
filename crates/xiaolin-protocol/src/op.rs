@@ -337,6 +337,10 @@ pub enum ClientOp {
         params: SkillsDeleteParams,
     },
     SkillsRefresh,
+    EvolutionList,
+    EvolutionPromote {
+        skill_id: String,
+    },
 
     // ── Marketplace ────────────────────────────────────────────────
     MarketplaceBrowse {
@@ -826,6 +830,16 @@ impl ClientOp {
                 Ok(Self::SkillsDelete { params: delete_params })
             }
             "skills.refresh" => Ok(Self::SkillsRefresh),
+            "evolution.list" => Ok(Self::EvolutionList),
+            "evolution.promote" => {
+                let skill_id = params
+                    .get("skill_id")
+                    .or_else(|| params.get("skillId"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Ok(Self::EvolutionPromote { skill_id })
+            }
             "marketplace.browse" | "marketplace.search" => Ok(Self::MarketplaceBrowse {
                 query: params
                     .get("query")

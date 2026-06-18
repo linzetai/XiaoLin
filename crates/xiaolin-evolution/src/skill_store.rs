@@ -381,6 +381,34 @@ impl SkillStore {
         Ok(())
     }
 
+    /// List all non-retired skills (candidate + active).
+    pub async fn list_all(&self) -> Result<Vec<ExtractedSkill>> {
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            f64,
+            i64,
+            i64,
+            String,
+            String,
+            i64,
+            Option<String>,
+        )> = sqlx::query_as(
+            "SELECT id, name, task_pattern, strategy_template, source_trajectory_ids,
+                    success_rate, usage_count, success_count, status, created_at, version, parent_id
+             FROM extracted_skills
+             WHERE status != 'retired'
+             ORDER BY status ASC, success_rate DESC, usage_count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        self.hydrate_skills(rows).await
+    }
+
     pub async fn get_active_skills(&self, limit: usize) -> Result<Vec<ExtractedSkill>> {
         let rows: Vec<(
             String,

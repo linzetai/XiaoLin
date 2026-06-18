@@ -344,3 +344,145 @@ pub async fn handle_skills_refresh(
         }
     }
 }
+
+/// List evolution skills (candidate + active from SkillStore).
+pub async fn handle_evolution_list(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+) {
+    let store = state.store.skill_store.clone();
+
+    match store.list_all().await {
+        Ok(skills) => {
+            let items: Vec<_> = skills
+                .iter()
+                .map(|s| {
+                    json!({
+                        "id": s.id,
+                        "name": s.name,
+                        "task_pattern": s.task_pattern,
+                        "strategy_template": s.strategy_template,
+                        "status": s.status,
+                        "success_rate": s.success_rate,
+                        "usage_count": s.usage_count,
+                        "source_trajectory_ids": s.source_trajectory_ids,
+                        "created_at": s.created_at,
+                        "version": s.version,
+                    })
+                })
+                .collect();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.list".into(),
+                    data: Some(json!({"skills": items, "count": items.len()})),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.list".into(),
+                    data: None,
+                    error: Some(json!({"code": 500, "message": format!("failed to list evolution skills: {}", e)})),
+                },
+            )
+            .await;
+        }
+    }
+}
+
+/// Promote an evolution skill to a static SKILL.md file.
+pub async fn handle_evolution_promote(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    skill_id: &str,
+) {
+    let store = state.store.skill_store.clone();
+
+    let skill = match store.get_skill(skill_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.promote".into(),
+                    data: None,
+                    error: Some(json!({"code": 404, "message": format!("evolution skill '{}' not found", skill_id)})),
+                },
+            )
+            .await;
+            return;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.promote".into(),
+                    data: None,
+                    error: Some(json!({"code": 500, "message": format!("failed to fetch skill: {}", e)})),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
+    let sanitized_name = skill
+        .name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect::<String>()
+        .to_lowercase();
+    let skill_dir_name = if sanitized_name.is_empty() {
+        skill_id.to_string()
+    } else {
+        sanitized_name
+    };
+
+    let content = format!(
+        "---\nname: {}\ndescription: \"Promoted from evolution skill\"\ntags:\n  - evolved\nenabled: true\n---\n\n# {}\n\n**Task Pattern:** {}\n\n## Strategy\n\n{}\n",
+        skill.name, skill.name, skill.task_pattern, skill.strategy_template
+    );
+
+    match xiaolin_core::workspace::write_global_skill(&skill_dir_name, &content) {
+        Ok(path) => {
+            let _ = state.reload_skills();
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.promote".into(),
+                    data: Some(json!({
+                        "promoted": true,
+                        "skill_id": skill_id,
+                        "path": path.display().to_string(),
+                    })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "evolution.promote".into(),
+                    data: None,
+                    error: Some(json!({"code": 500, "message": format!("failed to write promoted skill: {}", e)})),
+                },
+            )
+            .await;
+        }
+    }
+}

@@ -362,12 +362,26 @@ export interface SkillInfo {
   enabled?: boolean;
   paths?: string[];
   conditional?: boolean;
+  usage_count?: number;
 }
 
 export interface SkillDetail extends SkillInfo {
   content: string;
   tools?: string[];
   source_path?: string;
+}
+
+export interface EvolutionSkill {
+  id: string;
+  name: string;
+  task_pattern: string;
+  strategy_template: string;
+  status: "candidate" | "active" | "retired";
+  success_rate: number;
+  usage_count: number;
+  source_trajectory_ids: string[];
+  created_at: string;
+  version: number;
 }
 
 export async function listSkills(agentId?: string): Promise<SkillInfo[]> {
@@ -407,6 +421,21 @@ export async function refreshSkills(): Promise<{ refreshed: boolean; count: numb
     data?: { refreshed?: boolean; count?: number };
   };
   return { refreshed: resp?.data?.refreshed ?? false, count: resp?.data?.count ?? 0 };
+}
+
+export async function listEvolutionSkills(): Promise<EvolutionSkill[]> {
+  const resp = (await wsClient.send("evolution.list")) as {
+    data?: { skills?: EvolutionSkill[] };
+  };
+  return resp?.data?.skills ?? [];
+}
+
+export async function promoteEvolutionSkill(skillId: string): Promise<{ promoted: boolean; path?: string }> {
+  const resp = (await wsClient.send("evolution.promote", { skill_id: skillId })) as {
+    data?: { promoted?: boolean; path?: string };
+    error?: { code: number; message: string };
+  };
+  return { promoted: resp?.data?.promoted ?? false, path: resp?.data?.path };
 }
 
 // ─── Marketplace ───
