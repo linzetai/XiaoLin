@@ -338,6 +338,19 @@ pub enum ClientOp {
     },
     SkillsRefresh,
 
+    // ── Marketplace ────────────────────────────────────────────────
+    MarketplaceBrowse {
+        query: Option<String>,
+        limit: Option<usize>,
+    },
+    MarketplaceInstall {
+        skill_id: String,
+        version: Option<String>,
+    },
+    MarketplaceUninstall {
+        skill_id: String,
+    },
+
     // ── Execution ───────────────────────────────────────────────────
     ExecutionSetMode {
         session_id: SessionId,
@@ -813,6 +826,33 @@ impl ClientOp {
                 Ok(Self::SkillsDelete { params: delete_params })
             }
             "skills.refresh" => Ok(Self::SkillsRefresh),
+            "marketplace.browse" | "marketplace.search" => Ok(Self::MarketplaceBrowse {
+                query: params
+                    .get("query")
+                    .or_else(|| params.get("q"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                limit: params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize),
+            }),
+            "marketplace.install" => {
+                let skill_id = extract_string(&params, "skillId")
+                    .or_else(|_| extract_string(&params, "skill_id"))?;
+                Ok(Self::MarketplaceInstall {
+                    skill_id,
+                    version: params
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                })
+            }
+            "marketplace.uninstall" => {
+                let skill_id = extract_string(&params, "skillId")
+                    .or_else(|_| extract_string(&params, "skill_id"))?;
+                Ok(Self::MarketplaceUninstall { skill_id })
+            }
             "execution.set_mode" => Ok(Self::ExecutionSetMode {
                 session_id: extract_session_id(&params)?,
                 mode: serde_json::from_value(

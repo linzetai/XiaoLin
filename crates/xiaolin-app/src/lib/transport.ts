@@ -409,6 +409,71 @@ export async function refreshSkills(): Promise<{ refreshed: boolean; count: numb
   return { refreshed: resp?.data?.refreshed ?? false, count: resp?.data?.count ?? 0 };
 }
 
+// ─── Marketplace ───
+
+export interface MarketplaceSkill {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  tags: string[];
+  downloads: number;
+  repository?: string;
+  homepage?: string;
+  installed: boolean;
+}
+
+export interface MarketplaceBrowseResult {
+  skills: MarketplaceSkill[];
+  total: number;
+  installed_count: number;
+  offline?: boolean;
+}
+
+export async function marketplaceBrowse(
+  query?: string,
+  limit?: number,
+): Promise<MarketplaceBrowseResult> {
+  const params: Record<string, unknown> = {};
+  if (query) params.query = query;
+  if (limit) params.limit = limit;
+  const resp = (await wsClient.send("marketplace.browse", params)) as {
+    data?: MarketplaceBrowseResult;
+    error?: { code: number; message: string };
+  };
+  return resp?.data ?? { skills: [], total: 0, installed_count: 0 };
+}
+
+export async function marketplaceInstall(
+  skillId: string,
+  version?: string,
+): Promise<{ installed: boolean; skill_id?: string; version?: string; error?: string }> {
+  const params: Record<string, unknown> = { skillId };
+  if (version) params.version = version;
+  const resp = (await wsClient.send("marketplace.install", params)) as {
+    data?: { installed: boolean; skill_id: string; version: string };
+    error?: { code: number; message: string };
+  };
+  if (resp?.error) {
+    return { installed: false, error: resp.error.message };
+  }
+  return resp?.data ?? { installed: false };
+}
+
+export async function marketplaceUninstall(
+  skillId: string,
+): Promise<{ uninstalled: boolean; error?: string }> {
+  const resp = (await wsClient.send("marketplace.uninstall", { skillId })) as {
+    data?: { uninstalled: boolean };
+    error?: { code: number; message: string };
+  };
+  if (resp?.error) {
+    return { uninstalled: false, error: resp.error.message };
+  }
+  return resp?.data ?? { uninstalled: false };
+}
+
 export async function getAgent(agentId: string): Promise<unknown> {
   const resp = (await wsClient.send("agents.get", { agentId })) as {
     data?: unknown;

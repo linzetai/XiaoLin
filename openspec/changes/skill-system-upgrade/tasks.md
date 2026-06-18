@@ -51,14 +51,14 @@
 
 ## 6. Phase 3: Skill Marketplace（skill-marketplace）
 
-- [ ] 6.0 决策：复用已有 `HubClient`（`xiaolin-core/hub.rs`）还是新建 GitHub raw fetch——基于可用性选择
-- [ ] 6.1 定义 marketplace 目录索引格式（JSON schema：id, name, description, author, repo_url, skill_path, tags, version）
-- [ ] 6.2 后端：实现 marketplace index 获取（GitHub raw URL fetch + 本地缓存 1h TTL）
-- [ ] 6.3 后端：实现 skill 安装——下载**整个 skill 目录**（SKILL.md + scripts/ + 引用文件）→ 写入 `~/.xiaolin/skills/` → hot-reload
-- [ ] 6.4 后端：实现 skill 卸载（删除目录 → hot-reload）
-- [ ] 6.5 前端：创建 `SkillMarketplace` 组件（浏览、搜索、分类）
-- [ ] 6.6 前端：实现安装/卸载/更新按钮和确认流程；网络失败显示缓存数据
-- [ ] 6.7 前端：skill 预览面板（完整内容 + 安装按钮）
+- [x] 6.0 决策：复用已有 `HubClient`（`xiaolin-core/hub.rs`）——已具备 search/install/uninstall/GitHub fallback
+- [x] 6.1 定义 marketplace WS API ops (MarketplaceBrowse/Install/Uninstall) + parse_request 路由
+- [x] 6.2 后端：marketplace WS handlers (browse+search via HubClient, install+hot-reload, uninstall+hot-reload)
+- [x] 6.3 后端：HubClient 集成到 ExtensionState，install/uninstall 后自动 reload_skills()
+- [x] 6.4 前端 transport/api 类型和函数 (MarketplaceSkill, marketplaceBrowse/Install/Uninstall)
+- [x] 6.5 前端：SkillMarketplace 组件（Installed/Marketplace 子视图切换、搜索、卡片网格）
+- [x] 6.6 前端：安装/卸载按钮 + 加载状态 + 错误提示 + 离线降级
+- [x] 6.7 前端：skill 预览面板 (MarketplacePreviewModal: 描述、tags、repo 链接、安装/卸载)
 
 ## 7. Phase 3: Skillify 元技能（skillify-meta-skill）
 

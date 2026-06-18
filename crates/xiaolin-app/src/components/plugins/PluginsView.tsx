@@ -9,7 +9,8 @@ import {
   PencilSimple, ArrowCounterClockwise, FloppyDisk,
   MagnifyingGlass, CaretUp, X,
   ShieldWarning, CheckFat, XCircle,
-  Plus, Trash,
+  Plus, Trash, Storefront, DownloadSimple, TrashSimple,
+  Star, GithubLogo,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { usePluginStore, subscribePluginEvents } from "../../lib/stores/plugin-store";
@@ -544,6 +545,7 @@ function McpEmptyState({ onExplore, onAdd }: { onExplore?: () => void; onAdd?: (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 type SkillSourceFilter = "all" | "xiaolin" | "cursor" | "codex" | "shared_agents" | "extension";
+type SkillSubView = "installed" | "marketplace";
 
 function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => void }) {
   const { t } = useTranslation("plugins");
@@ -559,6 +561,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
   const [uploading, setUploading] = useState(false);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
+  const [skillSubView, setSkillSubView] = useState<SkillSubView>("installed");
 
   const loadAllSkills = useCallback(async () => {
     try {
@@ -665,7 +668,44 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
     return acc;
   }, {});
 
+  const subViewItems = useMemo(() => [
+    { value: "installed" as const, label: "Installed", count: allSkills.length },
+    { value: "marketplace" as const, label: "Marketplace" },
+  ], [allSkills.length]);
+
   return (
+    <div>
+      {/* Sub-view toggle */}
+      <div className="mx-auto w-full px-6 pt-4" style={{ maxWidth: "var(--content-max-w)" }}>
+        <div className="flex gap-1 rounded-lg p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+          {subViewItems.map((item) => {
+            const active = skillSubView === item.value;
+            return (
+              <button
+                key={item.value}
+                onClick={() => setSkillSubView(item.value)}
+                className="flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors"
+                style={{
+                  background: active ? "var(--bg-card)" : "transparent",
+                  color: active ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                {item.label}
+                {"count" in item && item.count != null && (
+                  <span className="ml-1 opacity-60">{item.count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {skillSubView === "marketplace" ? (
+        <SkillMarketplacePanel onInstalled={() => { loadAllSkills(); }} />
+      ) : (
     <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
       {/* Sub-header: filter toggle + actions */}
       <div className="mb-4 flex items-center justify-between">
@@ -835,6 +875,366 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
           onSaved={loadAllSkills}
         />
       )}
+    </div>
+      )}
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Skill Marketplace Panel
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
+  const [query, setQuery] = useState("");
+  const [skills, setSkills] = useState<api.MarketplaceSkill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [installingId, setInstallingId] = useState<string | null>(null);
+  const [uninstallingId, setUninstallingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [previewSkill, setPreviewSkill] = useState<api.MarketplaceSkill | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback(async (q?: string) => {
+    setLoading(true);
+    setError(null);
+    const result = await api.marketplaceBrowse(q, 50);
+    setSkills(result.skills);
+    if (result.offline) setError("Marketplace is offline. Showing cached data.");
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { doSearch(); }, [doSearch]);
+
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+  }, []);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => doSearch(value || undefined), 400);
+  }, [doSearch]);
+
+  const handleInstall = useCallback(async (skillId: string) => {
+    setInstallingId(skillId);
+    const result = await api.marketplaceInstall(skillId);
+    setInstallingId(null);
+    if (result.installed) {
+      setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, installed: true } : s));
+      onInstalled();
+    } else if (result.error) {
+      setError(`Install failed: ${result.error}`);
+    }
+  }, [onInstalled]);
+
+  const handleUninstall = useCallback(async (skillId: string) => {
+    setUninstallingId(skillId);
+    const result = await api.marketplaceUninstall(skillId);
+    setUninstallingId(null);
+    if (result.uninstalled) {
+      setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, installed: false } : s));
+      onInstalled();
+    } else if (result.error) {
+      setError(`Uninstall failed: ${result.error}`);
+    }
+  }, [onInstalled]);
+
+  return (
+    <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
+      {/* Search */}
+      <div className="relative mb-4">
+        <MagnifyingGlass
+          size={14}
+          className="absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: "var(--fill-quaternary)" }}
+        />
+        <input
+          type="text"
+          placeholder="Search marketplace skills..."
+          value={query}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="w-full rounded-lg py-2.5 pl-9 pr-3 text-[13px] outline-none"
+          style={{
+            background: "var(--bg-primary)",
+            border: "0.5px solid var(--separator)",
+            color: "var(--fill-primary)",
+          }}
+        />
+        {query && (
+          <button
+            onClick={() => { setQuery(""); doSearch(); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-quaternary)" }}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-[12px]"
+          style={{ background: "rgba(229,62,62,0.06)", color: "var(--red, #E53E3E)" }}>
+          <WarningCircle size={14} />
+          {error}
+          <button onClick={() => setError(null)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--fill-quaternary)" }}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+          <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading marketplace…</p>
+        </div>
+      ) : skills.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-4 py-16">
+          <div
+            className="flex h-14 w-14 items-center justify-center rounded-2xl"
+            style={{ background: "color-mix(in srgb, var(--tint) 6%, transparent)" }}
+          >
+            <Storefront size={28} style={{ color: "var(--tint)", opacity: 0.7 }} />
+          </div>
+          <div className="text-center">
+            <p className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+              {query ? "No skills found" : "Marketplace Empty"}
+            </p>
+            <p className="mt-1 text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
+              {query ? "Try a different search term" : "Check back later for community skills"}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+          {skills.map((skill) => (
+            <MarketplaceSkillCard
+              key={skill.id}
+              skill={skill}
+              installing={installingId === skill.id}
+              uninstalling={uninstallingId === skill.id}
+              onInstall={() => handleInstall(skill.id)}
+              onUninstall={() => handleUninstall(skill.id)}
+              onPreview={() => setPreviewSkill(skill)}
+            />
+          ))}
+        </div>
+      )}
+
+      {previewSkill && (
+        <MarketplacePreviewModal
+          skill={previewSkill}
+          installing={installingId === previewSkill.id}
+          uninstalling={uninstallingId === previewSkill.id}
+          onInstall={() => handleInstall(previewSkill.id)}
+          onUninstall={() => handleUninstall(previewSkill.id)}
+          onClose={() => setPreviewSkill(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function MarketplaceSkillCard({
+  skill, installing, uninstalling, onInstall, onUninstall, onPreview,
+}: {
+  skill: api.MarketplaceSkill;
+  installing: boolean;
+  uninstalling: boolean;
+  onInstall: () => void;
+  onUninstall: () => void;
+  onPreview: () => void;
+}) {
+  return (
+    <div
+      className="flex flex-col rounded-lg p-4 transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+      style={{ border: "0.5px solid var(--separator)", cursor: "pointer" }}
+      onClick={onPreview}
+    >
+      <div className="mb-2 flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          <h4 className="truncate text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>
+            {skill.name}
+          </h4>
+          {skill.author && (
+            <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+              by {skill.author}
+            </span>
+          )}
+        </div>
+        {skill.installed && (
+          <span
+            className="ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{ background: "rgba(72,187,120,0.1)", color: "var(--green)" }}
+          >
+            Installed
+          </span>
+        )}
+      </div>
+
+      {skill.description && (
+        <p className="mb-3 line-clamp-2 text-[12px] leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
+          {skill.description}
+        </p>
+      )}
+
+      {skill.tags.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1">
+          {skill.tags.slice(0, 4).map((tag) => (
+            <span key={tag} className="rounded-full px-1.5 py-0.5 text-[10px]"
+              style={{ background: "var(--bg-tertiary)", color: "var(--fill-quaternary)" }}>
+              {tag}
+            </span>
+          ))}
+          {skill.tags.length > 4 && (
+            <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+              +{skill.tags.length - 4}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="mt-auto flex items-center justify-between">
+        <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+          {skill.downloads > 0 && (
+            <span className="flex items-center gap-1">
+              <Star size={12} /> {skill.downloads}
+            </span>
+          )}
+          <span className="font-mono">{skill.version}</span>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); skill.installed ? onUninstall() : onInstall(); }}
+          disabled={installing || uninstalling}
+          className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-all disabled:opacity-50"
+          style={{
+            cursor: installing || uninstalling ? "wait" : "pointer",
+            background: skill.installed ? "transparent" : "var(--tint)",
+            border: skill.installed ? "0.5px solid var(--separator)" : "none",
+            color: skill.installed ? "var(--fill-tertiary)" : "#fff",
+          }}
+        >
+          {installing ? (
+            <><SpinnerGap size={12} className="animate-spin" /> Installing…</>
+          ) : uninstalling ? (
+            <><SpinnerGap size={12} className="animate-spin" /> Removing…</>
+          ) : skill.installed ? (
+            <><TrashSimple size={12} /> Remove</>
+          ) : (
+            <><DownloadSimple size={12} /> Install</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MarketplacePreviewModal({
+  skill, installing, uninstalling, onInstall, onUninstall, onClose,
+}: {
+  skill: api.MarketplaceSkill;
+  installing: boolean;
+  uninstalling: boolean;
+  onInstall: () => void;
+  onUninstall: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-xl shadow-2xl"
+        style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4" style={{ borderBottom: "0.5px solid var(--separator)" }}>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>{skill.name}</h3>
+            <div className="mt-1 flex items-center gap-2 text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+              {skill.author && <span>by {skill.author}</span>}
+              <span>&middot;</span>
+              <span className="font-mono">{skill.version}</span>
+              {skill.downloads > 0 && (
+                <>
+                  <span>&middot;</span>
+                  <span className="flex items-center gap-0.5"><Star size={11} /> {skill.downloads}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {skill.description && (
+            <p className="mb-4 text-[13px] leading-relaxed" style={{ color: "var(--fill-secondary)" }}>
+              {skill.description}
+            </p>
+          )}
+
+          {skill.tags.length > 0 && (
+            <div className="mb-4">
+              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tags</div>
+              <div className="flex flex-wrap gap-1.5">
+                {skill.tags.map((tag) => (
+                  <span key={tag} className="rounded-full px-2 py-0.5 text-[11px]"
+                    style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {skill.repository && (
+            <div className="mb-4">
+              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Repository</div>
+              <a
+                href={skill.repository}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[12px] hover:underline"
+                style={{ color: "var(--tint)" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <GithubLogo size={14} /> {skill.repository}
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: "0.5px solid var(--separator)" }}>
+          <button
+            onClick={skill.installed ? onUninstall : onInstall}
+            disabled={installing || uninstalling}
+            className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-semibold transition-all disabled:opacity-50"
+            style={{
+              cursor: installing || uninstalling ? "wait" : "pointer",
+              background: skill.installed ? "transparent" : "var(--tint)",
+              border: skill.installed ? "0.5px solid var(--separator)" : "none",
+              color: skill.installed ? "var(--red, #E53E3E)" : "#fff",
+            }}
+          >
+            {installing ? (
+              <><SpinnerGap size={14} className="animate-spin" /> Installing…</>
+            ) : uninstalling ? (
+              <><SpinnerGap size={14} className="animate-spin" /> Removing…</>
+            ) : skill.installed ? (
+              <><TrashSimple size={14} /> Uninstall</>
+            ) : (
+              <><DownloadSimple size={14} /> Install</>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -279,6 +279,46 @@ export async function uploadSkill(sourcePath: string): Promise<string | null> {
   }
 }
 
+// ─── Marketplace ───
+
+export type MarketplaceSkill = transport.MarketplaceSkill;
+export type MarketplaceBrowseResult = transport.MarketplaceBrowseResult;
+
+export async function marketplaceBrowse(
+  query?: string,
+  limit?: number,
+): Promise<MarketplaceBrowseResult> {
+  try {
+    return await transport.marketplaceBrowse(query, limit);
+  } catch (e) {
+    console.warn("[api] marketplaceBrowse error:", e);
+    return { skills: [], total: 0, installed_count: 0 };
+  }
+}
+
+export async function marketplaceInstall(
+  skillId: string,
+  version?: string,
+): Promise<{ installed: boolean; error?: string }> {
+  try {
+    return await transport.marketplaceInstall(skillId, version);
+  } catch (e) {
+    console.warn("[api] marketplaceInstall error:", e);
+    return { installed: false, error: String(e) };
+  }
+}
+
+export async function marketplaceUninstall(
+  skillId: string,
+): Promise<{ uninstalled: boolean; error?: string }> {
+  try {
+    return await transport.marketplaceUninstall(skillId);
+  } catch (e) {
+    console.warn("[api] marketplaceUninstall error:", e);
+    return { uninstalled: false, error: String(e) };
+  }
+}
+
 export interface ToolInfo {
   id: string;
   name: string;

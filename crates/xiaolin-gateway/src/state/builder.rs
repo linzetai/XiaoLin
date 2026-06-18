@@ -981,6 +981,7 @@ impl StateBuilder {
                 wechat_login_sessions: Arc::new(dashmap::DashMap::new()),
                 session_behavior_overrides: session_behavior_overrides.clone(),
                 session_preset_ids: Arc::new(dashmap::DashMap::new()),
+                hub_client: Arc::new(xiaolin_core::hub::HubClient::with_defaults()),
             },
             obs: super::ObserveState {
                 metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),

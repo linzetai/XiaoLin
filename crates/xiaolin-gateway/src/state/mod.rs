@@ -283,6 +283,8 @@ pub struct ExtensionState {
         Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>,
     /// Per-session active preset ID. Key is session_id, value is preset_id.
     pub session_preset_ids: Arc<dashmap::DashMap<String, String>>,
+    /// Skill marketplace client for browsing and installing community skills.
+    pub hub_client: Arc<xiaolin_core::hub::HubClient>,
 }
 
 /// Observability.

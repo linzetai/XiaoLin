@@ -7,6 +7,7 @@ mod cost_ws;
 mod cron;
 mod execution;
 mod git;
+mod marketplace;
 mod mcp;
 mod notifications;
 mod plugins;
@@ -117,6 +118,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "agents.get", "agents.create", "agents.update", "agents.delete",
                             "tools.list", "tools.update", "tools.submit_answer",
                             "skills.list", "skills.refresh",
+                            "marketplace.browse", "marketplace.search", "marketplace.install", "marketplace.uninstall",
                             "permissions.get_presets", "permissions.get_session", "permissions.set_session",
                             "automations.list", "automations.create", "automations.update", "automations.delete", "automations.runs", "automations.run_now",
                             "execution.set_mode", "execution.get_plan", "execution.approve_plan",
@@ -571,6 +573,22 @@ async fn dispatch(
             skills::handle_skills_delete(sender, state, id, params).await
         }
         ClientOp::SkillsRefresh => skills::handle_skills_refresh(sender, state, id).await,
+        ClientOp::MarketplaceBrowse { query, limit } => {
+            marketplace::handle_marketplace_browse(sender, state, id, query, limit).await
+        }
+        ClientOp::MarketplaceInstall { skill_id, version } => {
+            marketplace::handle_marketplace_install(
+                sender,
+                state,
+                id,
+                &skill_id,
+                version.as_deref(),
+            )
+            .await
+        }
+        ClientOp::MarketplaceUninstall { skill_id } => {
+            marketplace::handle_marketplace_uninstall(sender, state, id, &skill_id).await
+        }
         ClientOp::ExecutionSetMode { .. } => {
             execution::handle_execution_set_mode(sender, state, id, req.params, Some(bg_tx)).await
         }
