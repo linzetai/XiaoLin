@@ -85,11 +85,11 @@
 
 ## 10. Phase 4: 用量追踪（skill-usage-tracking）
 
-- [ ] 10.1 创建 `skill_usage` SQLite 表 migration（id, skill_id, event_type, session_id, timestamp）——注意与 `xiaolin-evolution` 的 `skill_usages` 隔离
-- [ ] 10.2 追踪 `read` 和 full body injection 事件（**不**追踪每轮 compact metadata 注入，避免数据爆炸）
-- [ ] 10.3 `skills.list` WS API 返回 `usage_count` 字段（last 30 days）
-- [ ] 10.4 prompt 注入时同 layer 内按 usage_count 降序排列（与 context budget 截断协同：先按 layer，再按 usage）
-- [ ] 10.5 实现 90 天数据自动清理
+- [x] 10.1 创建 `skill_usage` SQLite 表 migration（id, skill_id, event_type, session_id, timestamp）——注意与 `xiaolin-evolution` 的 `skill_usages` 隔离
+- [x] 10.2 追踪 `read` 和 full body injection 事件（**不**追踪每轮 compact metadata 注入，避免数据爆炸）
+- [x] 10.3 `skills.list` WS API 返回 `usage_count` 字段（last 30 days）
+- [x] 10.4 prompt 注入时同 layer 内按 usage_count 降序排列（与 context budget 截断协同：先按 layer，再按 usage）
+- [x] 10.5 实现 90 天数据自动清理
 
 ## 11. Phase 4: Evolution 统一视图
 

@@ -74,11 +74,20 @@ impl Tool for ListSkillsTool {
 /// Read the full content of a specific skill by ID.
 pub struct ReadSkillTool {
     registry: Arc<xiaolin_core::skill::SkillRegistry>,
+    usage_store: Option<Arc<xiaolin_core::skill_usage::SkillUsageStore>>,
 }
 
 impl ReadSkillTool {
     pub fn new(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            usage_store: None,
+        }
+    }
+
+    pub fn with_usage_store(mut self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) -> Self {
+        self.usage_store = Some(store);
+        self
     }
 }
 
@@ -139,16 +148,31 @@ impl Tool for ReadSkillTool {
         };
 
         match self.registry.get(skill_id) {
-            Some(skill) => ToolResult::ok(
-                serde_json::json!({
-                    "id": skill.id,
-                    "name": skill.name,
-                    "description": skill.description,
-                    "content": skill.content,
-                    "tools": skill.frontmatter.tools,
-                })
-                .to_string(),
-            ),
+            Some(skill) => {
+                if let Some(store) = &self.usage_store {
+                    let store = store.clone();
+                    let sid = skill_id.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) = store.record(
+                            &sid,
+                            xiaolin_core::skill_usage::UsageEventType::Read,
+                            None,
+                        ).await {
+                            tracing::warn!(skill_id = %sid, error = %e, "failed to record skill read event");
+                        }
+                    });
+                }
+                ToolResult::ok(
+                    serde_json::json!({
+                        "id": skill.id,
+                        "name": skill.name,
+                        "description": skill.description,
+                        "content": skill.content,
+                        "tools": skill.frontmatter.tools,
+                    })
+                    .to_string(),
+                )
+            }
             None => ToolResult::err(format!(
                 "read_skill: skill not found for id '{skill_id}'. \
                  What went wrong: no enabled skill matches that exact id string (typo, disabled entry, or not registered yet). \
@@ -335,6 +359,11 @@ impl UnifiedSkillTool {
         provider: Arc<dyn xiaolin_memory::EmbeddingProvider>,
     ) -> Self {
         self.search = self.search.with_semantic(store, provider);
+        self
+    }
+
+    pub fn with_usage_store(mut self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) -> Self {
+        self.read = self.read.with_usage_store(store);
         self
     }
 

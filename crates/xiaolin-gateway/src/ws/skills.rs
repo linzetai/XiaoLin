@@ -39,6 +39,15 @@ pub async fn handle_skills_list(
             .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
             .unwrap_or_default()
     };
+
+    let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
+        Ok(counts) => counts,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load skill usage counts for skills.list");
+            std::collections::HashMap::new()
+        }
+    };
+
     let registry: std::sync::Arc<xiaolin_core::skill::SkillRegistry> =
         (*state.rt.unfiltered_skill_registry.load()).clone();
     let skills: Vec<_> = registry
@@ -52,6 +61,7 @@ pub async fn handle_skills_list(
                 .as_ref()
                 .map(|src| origin_str(src.origin))
                 .unwrap_or("xiaolin");
+            let usage_count = usage_counts.get(&s.id).copied().unwrap_or(0);
             json!({
                 "id": s.id,
                 "name": s.name,
@@ -62,6 +72,7 @@ pub async fn handle_skills_list(
                 "enabled": enabled,
                 "paths": s.frontmatter.paths,
                 "conditional": s.is_conditional(),
+                "usage_count": usage_count,
             })
         })
         .collect();

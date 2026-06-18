@@ -74,6 +74,7 @@ struct BuildPhase2Memory {
     trajectory_store: TrajectoryStore,
     skill_store: SkillStore,
     skill_embedding_store: xiaolin_core::skill_embedding::SkillEmbeddingStore,
+    skill_usage_store: xiaolin_core::skill_usage::SkillUsageStore,
     context_engine: xiaolin_context::ContextEngine,
     tool_count: usize,
 }
@@ -582,14 +583,15 @@ impl StateBuilder {
             message_bus.clone(),
         );
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store) = {
+        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store, skill_usage_store) = {
             let shared_pool = p4.phase3.phase1.pool.clone();
             let fs = FeedbackStore::open(shared_pool.clone()).await?;
             let ts = TrajectoryStore::open(shared_pool.clone()).await?;
             let ss = SkillStore::open(shared_pool.clone()).await?;
             let pd = PromptDistiller::open(shared_pool.clone()).await?;
-            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(shared_pool).await?;
-            (fs, ts, ss, pd, ses)
+            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(shared_pool.clone()).await?;
+            let sus = xiaolin_core::skill_usage::SkillUsageStore::open(shared_pool).await?;
+            (fs, ts, ss, pd, ses, sus)
         };
 
         let mut context_engine =
@@ -674,6 +676,7 @@ impl StateBuilder {
             trajectory_store,
             skill_store,
             skill_embedding_store,
+            skill_usage_store,
             context_engine,
             tool_count,
         })
@@ -842,6 +845,7 @@ impl StateBuilder {
         let inbound_rx = p5.phase2.phase4.inbound_rx;
         let trajectory_store = Arc::new(p5.phase2.trajectory_store);
         let skill_store = Arc::new(p5.phase2.skill_store);
+        let skill_usage_store_arc = Arc::new(p5.phase2.skill_usage_store);
         let cost_store = Arc::new(
             xiaolin_session::CostStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
                 .await?,
@@ -851,6 +855,11 @@ impl StateBuilder {
             .phase3
             .runtime
             .attach_evolution_stores(skill_store.clone(), trajectory_store.clone());
+        p5.phase2
+            .phase4
+            .phase3
+            .runtime
+            .attach_skill_usage_store(skill_usage_store_arc.clone());
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
@@ -967,6 +976,7 @@ impl StateBuilder {
                 trajectory_store,
                 skill_store,
                 skill_embedding_store: Arc::new(p5.phase2.skill_embedding_store),
+                skill_usage_store: skill_usage_store_arc.clone(),
                 context_engine: Arc::new(p5.phase2.context_engine),
                 cost_store: cost_store.clone(),
                 search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
@@ -1245,6 +1255,7 @@ impl StateBuilder {
                 if let Some((store, provider)) = semantic {
                     tool = tool.with_semantic(store, provider);
                 }
+                tool = tool.with_usage_store(state.store.skill_usage_store.clone());
                 let tool = tool.with_reload_callback(reload_cb);
                 state.rt.tool_registry.register(Arc::new(tool));
                 tracing::info!("re-registered skill tool with hot-reload + semantic search");
@@ -1405,6 +1416,27 @@ impl StateBuilder {
                 }
             });
             tracing::info!(ttl_hours, "session TTL cleanup task started (runs hourly)");
+        }
+
+        {
+            let usage_store = state.store.skill_usage_store.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+                interval.tick().await;
+                loop {
+                    interval.tick().await;
+                    match usage_store.purge_old(90).await {
+                        Ok(purged) if purged > 0 => {
+                            tracing::info!(purged, "skill usage data cleanup: removed old entries (>90 days)");
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "skill usage data cleanup failed");
+                        }
+                        _ => {}
+                    }
+                }
+            });
+            tracing::info!("skill usage cleanup task started (runs daily, 90-day retention)");
         }
 
         Ok(state)

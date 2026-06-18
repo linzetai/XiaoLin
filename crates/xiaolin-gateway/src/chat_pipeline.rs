@@ -289,7 +289,8 @@ pub async fn setup_chat(
         &agent_id,
         agent_config.model.context_window,
         &mut enriched_request.messages,
-    );
+    )
+    .await;
     inject_runtime_paths_prompt(
         state,
         &agent_id,
@@ -631,7 +632,7 @@ fn apply_prompt_router(
     })
 }
 
-fn inject_skills_prompt(
+async fn inject_skills_prompt(
     state: &AppState,
     agent_id: &str,
     context_window: Option<u32>,
@@ -669,8 +670,15 @@ fn inject_skills_prompt(
         })
     };
 
+    let usage_counts = state
+        .store
+        .skill_usage_store
+        .usage_counts(30)
+        .await
+        .ok();
+
     let (skills_prompt, truncation) =
-        effective_reg.format_with_budget(&skills_cfg.prompt_mode, char_budget);
+        effective_reg.format_with_budget_ordered(&skills_cfg.prompt_mode, char_budget, usage_counts.as_ref());
 
     if skills_prompt.is_empty() {
         return;
@@ -685,6 +693,23 @@ fn inject_skills_prompt(
             budget_chars = char_budget.unwrap_or(0),
             "skill context budget truncation applied"
         );
+    }
+
+    let injected_ids: Vec<String> = effective_reg
+        .list()
+        .iter()
+        .filter(|s| s.frontmatter.enabled.unwrap_or(true))
+        .map(|s| s.id.clone())
+        .collect();
+
+    if !injected_ids.is_empty() {
+        let usage_store = state.store.skill_usage_store.clone();
+        tokio::spawn(async move {
+            let id_refs: Vec<&str> = injected_ids.iter().map(|s| s.as_str()).collect();
+            if let Err(e) = usage_store.record_injections(&id_refs, None).await {
+                tracing::warn!(error = %e, "failed to record registry skill injection events");
+            }
+        });
     }
 
     messages.insert(

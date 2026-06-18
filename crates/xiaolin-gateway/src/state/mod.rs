@@ -162,6 +162,7 @@ pub struct StorageState {
     pub trajectory_store: Arc<TrajectoryStore>,
     pub skill_store: Arc<SkillStore>,
     pub skill_embedding_store: Arc<xiaolin_core::skill_embedding::SkillEmbeddingStore>,
+    pub skill_usage_store: Arc<xiaolin_core::skill_usage::SkillUsageStore>,
     pub context_engine: Arc<xiaolin_context::ContextEngine>,
     pub cost_store: Arc<xiaolin_session::CostStore>,
     pub search_index: Arc<SearchIndex>,
@@ -2890,7 +2891,7 @@ impl AppState {
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store) = {
+        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store, skill_usage_store) = {
             let target = tmp.join("evolution.db");
             let opts = SqliteConnectOptions::new()
                 .filename(&target)
@@ -2905,8 +2906,9 @@ impl AppState {
             let ts = Arc::new(TrajectoryStore::open(evo_pool.clone()).await?);
             let ss = Arc::new(SkillStore::open(evo_pool.clone()).await?);
             let pd = PromptDistiller::open(evo_pool.clone()).await?;
-            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(evo_pool).await?;
-            (fs, ts, ss, pd, ses)
+            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(evo_pool.clone()).await?;
+            let sus = xiaolin_core::skill_usage::SkillUsageStore::open(evo_pool).await?;
+            (fs, ts, ss, pd, ses, sus)
         };
 
         let runtime = Arc::new({
@@ -3116,6 +3118,7 @@ impl AppState {
                 trajectory_store,
                 skill_store,
                 skill_embedding_store: Arc::new(skill_embedding_store),
+                skill_usage_store: Arc::new(skill_usage_store),
                 context_engine: context_engine.clone(),
                 cost_store: Arc::new(
                     xiaolin_session::CostStore::open(session_store.pool()).await?,

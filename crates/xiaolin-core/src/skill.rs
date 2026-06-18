@@ -241,6 +241,20 @@ impl SkillRegistry {
         mode: &crate::config::SkillPromptMode,
         char_budget: Option<usize>,
     ) -> (String, Option<SkillTruncationInfo>) {
+        self.format_with_budget_ordered(mode, char_budget, None)
+    }
+
+    /// Format skills with an optional character budget and usage-based ordering.
+    ///
+    /// When `usage_counts` is provided, skills within the same layer are sorted
+    /// by usage count descending (most-used first), giving frequently-used skills
+    /// priority when budget truncation drops lower-priority entries.
+    pub fn format_with_budget_ordered(
+        &self,
+        mode: &crate::config::SkillPromptMode,
+        char_budget: Option<usize>,
+        usage_counts: Option<&std::collections::HashMap<String, u64>>,
+    ) -> (String, Option<SkillTruncationInfo>) {
         let mut enabled: Vec<&SkillEntry> = self
             .skills
             .values()
@@ -251,8 +265,19 @@ impl SkillRegistry {
             return (String::new(), None);
         }
 
-        // Sort by layer descending (highest priority first) for budget truncation
-        enabled.sort_by(|a, b| b.layer.cmp(&a.layer));
+        enabled.sort_by(|a, b| {
+            let layer_cmp = b.layer.cmp(&a.layer);
+            if layer_cmp != std::cmp::Ordering::Equal {
+                return layer_cmp;
+            }
+            if let Some(counts) = usage_counts {
+                let ca = counts.get(&a.id).copied().unwrap_or(0);
+                let cb = counts.get(&b.id).copied().unwrap_or(0);
+                cb.cmp(&ca)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
 
         let budget = match char_budget {
             Some(0) | None => {

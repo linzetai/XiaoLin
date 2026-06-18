@@ -448,6 +448,7 @@ pub struct AgentRuntime {
     #[cfg(feature = "self-iter")]
     self_iter_max_recovery_attempts: u32,
     skill_store: ArcSwap<Option<Arc<SkillStore>>>,
+    skill_usage_store: ArcSwap<Option<Arc<xiaolin_core::skill_usage::SkillUsageStore>>>,
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
     cached_runtime_registry: Arc<runtimes::RuntimeRegistry>,
     self_handle: std::sync::OnceLock<std::sync::Weak<Self>>,
@@ -473,6 +474,7 @@ impl AgentRuntime {
             #[cfg(feature = "self-iter")]
             self_iter_max_recovery_attempts: 3,
             skill_store: ArcSwap::new(Arc::new(None)),
+            skill_usage_store: ArcSwap::new(Arc::new(None)),
             trajectory_store: ArcSwap::new(Arc::new(None)),
             cached_runtime_registry: Arc::new(runtimes::register_default_runtimes()),
             self_handle: std::sync::OnceLock::new(),
@@ -549,6 +551,10 @@ impl AgentRuntime {
     ) {
         self.skill_store.store(Arc::new(Some(skill)));
         self.trajectory_store.store(Arc::new(Some(trajectory)));
+    }
+
+    pub fn attach_skill_usage_store(&self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) {
+        self.skill_usage_store.store(Arc::new(Some(store)));
     }
 
     #[cfg(feature = "self-iter")]
@@ -1003,6 +1009,19 @@ impl AgentRuntime {
         {
             tracing::warn!(error = %e, "register_session_skills failed");
         }
+
+        if let Some(usage_store) = (*self.skill_usage_store.load()).as_ref() {
+            let ids: Vec<String> = injected_skill_ids.to_vec();
+            let usage_store = usage_store.clone();
+            let sess = request.session_id.clone();
+            tokio::spawn(async move {
+                let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+                if let Err(e) = usage_store.record_injections(&id_refs, sess.as_deref()).await {
+                    tracing::warn!(error = %e, "failed to record skill injection events");
+                }
+            });
+        }
+
         Ok(())
     }
 

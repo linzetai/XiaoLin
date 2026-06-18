@@ -24,6 +24,7 @@ pub mod migration;
 pub mod rules;
 pub mod skill;
 pub mod skill_embedding;
+pub mod skill_usage;
 pub mod tool;
 pub mod tool_runtime;
 pub mod types;
