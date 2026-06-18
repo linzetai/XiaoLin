@@ -67,6 +67,7 @@ png = "0.17"
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
+sqlx.workspace = true
 
 [[bench]]
 name = "prompt_token_budget"

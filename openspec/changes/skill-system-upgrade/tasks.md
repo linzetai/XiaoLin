@@ -77,11 +77,11 @@
 
 ## 9. Phase 4: 语义搜索（skill-semantic-search）
 
-- [ ] 9.1 扩展 `xiaolin-memory::EmbeddingProvider` trait，新增 skill embedding 表（复用 hypembed，不引入 fastembed-rs）
-- [ ] 9.2 skill 加载时生成 embedding 并存入 SQLite（content hash 校验避免重复计算）
-- [ ] 9.3 `search` action 支持语义搜索模式（cosine similarity 排序）；embedding 不可用时 fallback 到关键词匹配
-- [ ] 9.4 实现 embedding 缓存失效（skill 内容变更时重新生成）
-- [ ] 9.5 添加测试覆盖语义搜索精度、fallback、缓存失效
+- [x] 9.1 扩展 `xiaolin-memory::EmbeddingProvider` trait，新增 skill embedding 表（复用 hypembed，不引入 fastembed-rs）
+- [x] 9.2 skill 加载时生成 embedding 并存入 SQLite（content hash 校验避免重复计算）
+- [x] 9.3 `search` action 支持语义搜索模式（cosine similarity 排序）；embedding 不可用时 fallback 到关键词匹配
+- [x] 9.4 实现 embedding 缓存失效（skill 内容变更时重新生成）
+- [x] 9.5 添加测试覆盖语义搜索精度、fallback、缓存失效
 
 ## 10. Phase 4: 用量追踪（skill-usage-tracking）
 

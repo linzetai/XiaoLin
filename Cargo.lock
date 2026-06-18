@@ -10458,6 +10458,7 @@ dependencies = [
  "serde_json",
  "shell-words",
  "similar",
+ "sqlx",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

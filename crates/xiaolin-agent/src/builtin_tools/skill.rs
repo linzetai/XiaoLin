@@ -329,6 +329,15 @@ impl UnifiedSkillTool {
         self
     }
 
+    pub fn with_semantic(
+        mut self,
+        store: Arc<xiaolin_core::skill_embedding::SkillEmbeddingStore>,
+        provider: Arc<dyn xiaolin_memory::EmbeddingProvider>,
+    ) -> Self {
+        self.search = self.search.with_semantic(store, provider);
+        self
+    }
+
     pub fn readonly(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
         Self {
             list: ListSkillsTool::new(registry.clone()),
@@ -630,18 +639,34 @@ Skills are matched by keyword relevance:
 
 // ── Search Skill Tool ────────────────────────────────────────────────
 
-/// Search skills by keyword with optional tag filtering.
+/// Search skills by keyword with optional tag filtering and semantic search.
 pub struct SearchSkillTool {
     registry: Arc<xiaolin_core::skill::SkillRegistry>,
+    embedding_store: Option<Arc<xiaolin_core::skill_embedding::SkillEmbeddingStore>>,
+    embedding_provider: Option<Arc<dyn xiaolin_memory::EmbeddingProvider>>,
 }
 
 impl SearchSkillTool {
     pub fn new(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            embedding_store: None,
+            embedding_provider: None,
+        }
     }
 
-    /// Hybrid keyword + tag search across all enabled skills.
-    fn search(&self, query: &str, tag_filter: Option<&str>) -> Vec<SkillSearchResult> {
+    pub fn with_semantic(
+        mut self,
+        store: Arc<xiaolin_core::skill_embedding::SkillEmbeddingStore>,
+        provider: Arc<dyn xiaolin_memory::EmbeddingProvider>,
+    ) -> Self {
+        self.embedding_store = Some(store);
+        self.embedding_provider = Some(provider);
+        self
+    }
+
+    /// Keyword-only search (synchronous).
+    fn keyword_search(&self, query: &str, tag_filter: Option<&str>) -> Vec<SkillSearchResult> {
         let query_lower = query.to_lowercase();
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -682,6 +707,94 @@ impl SearchSkillTool {
         });
         results.truncate(10);
         results
+    }
+
+    /// Hybrid search: combine keyword scores with semantic similarity.
+    async fn hybrid_search(&self, query: &str, tag_filter: Option<&str>) -> Vec<SkillSearchResult> {
+        let keyword_results = self.keyword_search(query, tag_filter);
+
+        let semantic_scores = self.semantic_search(query, 20).await;
+        if semantic_scores.is_empty() {
+            return keyword_results;
+        }
+
+        let semantic_map: std::collections::HashMap<&str, f32> =
+            semantic_scores.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+
+        let registry_entries: std::collections::HashMap<&str, &xiaolin_core::skill::SkillEntry> =
+            self.registry.list().iter().map(|s| (s.id.as_str(), *s)).collect();
+
+        let mut combined: std::collections::HashMap<String, SkillSearchResult> =
+            std::collections::HashMap::new();
+
+        for r in &keyword_results {
+            let sem_boost = semantic_map.get(r.id.as_str()).copied().unwrap_or(0.0);
+            combined.insert(
+                r.id.clone(),
+                SkillSearchResult {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    description: r.description.clone(),
+                    score: r.score + (sem_boost as f64) * 5.0,
+                },
+            );
+        }
+
+        for (id, sim) in &semantic_scores {
+            if combined.contains_key(id.as_str()) {
+                continue;
+            }
+            if *sim < 0.3 {
+                continue;
+            }
+            if let Some(entry) = registry_entries.get(id.as_str()) {
+                if !entry.frontmatter.enabled.unwrap_or(true) {
+                    continue;
+                }
+                if let Some(tag) = tag_filter {
+                    if !entry.frontmatter.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                        continue;
+                    }
+                }
+                combined.insert(
+                    id.clone(),
+                    SkillSearchResult {
+                        id: id.clone(),
+                        name: entry.name.clone(),
+                        description: entry.description.clone().unwrap_or_default(),
+                        score: (*sim as f64) * 5.0,
+                    },
+                );
+            }
+        }
+
+        let mut results: Vec<SkillSearchResult> = combined.into_values().collect();
+        results.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(10);
+        results
+    }
+
+    /// Vector similarity search via embedding store.
+    async fn semantic_search(&self, query: &str, limit: usize) -> Vec<(String, f32)> {
+        let (Some(store), Some(provider)) = (&self.embedding_store, &self.embedding_provider) else {
+            return Vec::new();
+        };
+        let query_vec = match provider.embed(query).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "semantic skill search: embed query failed, falling back to keyword-only");
+                return Vec::new();
+            }
+        };
+        match store.search_by_vector(&query_vec, limit).await {
+            Ok(results) => results,
+            Err(e) => {
+                tracing::warn!(error = %e, "semantic skill search: vector search failed, falling back to keyword-only");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -780,7 +893,7 @@ impl Tool for SearchSkillTool {
         };
         let tag = args.get("tag").and_then(|v| v.as_str());
 
-        let results = self.search(query, tag);
+        let results = self.hybrid_search(query, tag).await;
         ToolResult::ok(
             serde_json::json!({
                 "results": results,
@@ -1178,5 +1291,64 @@ mod skill_tool_tests {
         let result = tool.execute(r#"{"query": "deploy"}"#).await;
         assert!(result.success);
         assert!(result.output.contains("deploy-backend"));
+    }
+
+    #[tokio::test]
+    async fn hybrid_search_boosts_semantic_matches() {
+        let mut registry = xiaolin_core::skill::SkillRegistry::new();
+        registry.register(xiaolin_core::skill::SkillEntry {
+            id: "ci-pipeline".into(),
+            name: "CI Pipeline".into(),
+            description: Some("Continuous integration setup".into()),
+            content: "# CI\nSetup GitHub Actions".into(),
+            source_path: std::path::PathBuf::from("/tmp/ci.md"),
+            frontmatter: xiaolin_core::skill::SkillFrontmatter {
+                enabled: Some(true),
+                ..Default::default()
+            },
+            layer: xiaolin_core::skill::SkillLayer::Project,
+            source: None,
+        });
+        registry.register(xiaolin_core::skill::SkillEntry {
+            id: "deploy-app".into(),
+            name: "Deploy App".into(),
+            description: Some("Deploy application".into()),
+            content: "# Deploy\n1. Ship it".into(),
+            source_path: std::path::PathBuf::from("/tmp/deploy.md"),
+            frontmatter: xiaolin_core::skill::SkillFrontmatter {
+                enabled: Some(true),
+                ..Default::default()
+            },
+            layer: xiaolin_core::skill::SkillLayer::Project,
+            source: None,
+        });
+
+        use std::str::FromStr;
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        let store = Arc::new(
+            xiaolin_core::skill_embedding::SkillEmbeddingStore::open(pool).await.unwrap(),
+        );
+        store.upsert("ci-pipeline", "h1", &[0.9, 0.1, 0.0]).await.unwrap();
+        store.upsert("deploy-app", "h2", &[0.1, 0.9, 0.0]).await.unwrap();
+
+        struct FakeEmbedder;
+        #[async_trait]
+        impl xiaolin_memory::EmbeddingProvider for FakeEmbedder {
+            async fn embed_batch(&self, _texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
+                Ok(vec![vec![0.85, 0.15, 0.0]])
+            }
+            fn dimensions(&self) -> usize { 3 }
+            fn name(&self) -> &str { "fake" }
+        }
+
+        let tool = SearchSkillTool::new(Arc::new(registry))
+            .with_semantic(store, Arc::new(FakeEmbedder));
+
+        let results = tool.hybrid_search("continuous integration", None).await;
+        assert!(!results.is_empty());
+        assert_eq!(results[0].id, "ci-pipeline", "semantic match should rank first");
     }
 }

@@ -73,6 +73,7 @@ struct BuildPhase2Memory {
     prompt_distiller: PromptDistiller,
     trajectory_store: TrajectoryStore,
     skill_store: SkillStore,
+    skill_embedding_store: xiaolin_core::skill_embedding::SkillEmbeddingStore,
     context_engine: xiaolin_context::ContextEngine,
     tool_count: usize,
 }
@@ -581,13 +582,14 @@ impl StateBuilder {
             message_bus.clone(),
         );
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
+        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store) = {
             let shared_pool = p4.phase3.phase1.pool.clone();
             let fs = FeedbackStore::open(shared_pool.clone()).await?;
             let ts = TrajectoryStore::open(shared_pool.clone()).await?;
             let ss = SkillStore::open(shared_pool.clone()).await?;
-            let pd = PromptDistiller::open(shared_pool).await?;
-            (fs, ts, ss, pd)
+            let pd = PromptDistiller::open(shared_pool.clone()).await?;
+            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(shared_pool).await?;
+            (fs, ts, ss, pd, ses)
         };
 
         let mut context_engine =
@@ -671,6 +673,7 @@ impl StateBuilder {
             prompt_distiller,
             trajectory_store,
             skill_store,
+            skill_embedding_store,
             context_engine,
             tool_count,
         })
@@ -951,6 +954,7 @@ impl StateBuilder {
                 goal_store: p5.phase2.phase4.goal_store,
                 plan_file_store,
                 permission_preset_registry: permission_preset_registry.clone(),
+                embedding_update_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             store: super::StorageState {
                 session_store: p5.phase2.phase4.phase3.phase1.session_store,
@@ -962,6 +966,7 @@ impl StateBuilder {
                 prompt_distiller: Arc::new(p5.phase2.prompt_distiller),
                 trajectory_store,
                 skill_store,
+                skill_embedding_store: Arc::new(p5.phase2.skill_embedding_store),
                 context_engine: Arc::new(p5.phase2.context_engine),
                 cost_store: cost_store.clone(),
                 search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
@@ -1211,31 +1216,43 @@ impl StateBuilder {
             .register(Arc::new(xiaolin_agent::TaskStopTool::new()));
         tracing::info!("registered sub-agent tools (spawn_subagent, subagent_get, subagent_list, list_agents, get_agent_info, resume_subagent, send_message, task_stop)");
 
-        // Re-register skill tool with hot-reload callback now that state is available.
+        // Re-register skill tool with hot-reload callback + semantic search.
         {
             let reload_state = state.clone();
             let reload_cb: Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync> =
                 Arc::new(move || {
                     reload_state.reload_skills()?;
+                    reload_state.spawn_skill_embedding_update();
                     Ok(())
                 });
             let ws_root = std::env::current_dir()
                 .ok()
                 .map(|cwd| xiaolin_core::workspace::detect_workspace_root(&cwd));
             let skill_reg = state.rt.base_skill_registry.load();
+            let semantic = state
+                .mem
+                .embedding_provider
+                .clone()
+                .map(|ep| (state.store.skill_embedding_store.clone(), ep));
             if let Some((_, ws)) = state.rt.workspaces.iter().next() {
-                xiaolin_agent::builtin_tools::register_skill_tools_with_reload(
-                    &state.rt.tool_registry,
+                let mut tool = xiaolin_agent::builtin_tools::skill::UnifiedSkillTool::new(
                     skill_reg.clone(),
-                    Arc::new(ws.clone()),
-                    ws_root,
-                    reload_cb,
+                    Some(Arc::new(ws.clone())),
                 );
-                tracing::info!("re-registered skill tool with hot-reload callback");
+                if let Some(root) = ws_root {
+                    tool = tool.with_workspace_root(root);
+                }
+                if let Some((store, provider)) = semantic {
+                    tool = tool.with_semantic(store, provider);
+                }
+                let tool = tool.with_reload_callback(reload_cb);
+                state.rt.tool_registry.register(Arc::new(tool));
+                tracing::info!("re-registered skill tool with hot-reload + semantic search");
             }
         }
 
         state.spawn_skill_evolution_tasks();
+        state.spawn_skill_embedding_update();
 
         {
             let mcp_state = state.clone();

@@ -146,6 +146,7 @@ pub struct RuntimeState {
     pub goal_store: Arc<xiaolin_agent::builtin_tools::GoalStore>,
     pub plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore,
     pub permission_preset_registry: Arc<xiaolin_core::agent_config::PermissionPresetRegistry>,
+    pub embedding_update_running: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Persistent stores.
@@ -160,6 +161,7 @@ pub struct StorageState {
     pub prompt_distiller: Arc<PromptDistiller>,
     pub trajectory_store: Arc<TrajectoryStore>,
     pub skill_store: Arc<SkillStore>,
+    pub skill_embedding_store: Arc<xiaolin_core::skill_embedding::SkillEmbeddingStore>,
     pub context_engine: Arc<xiaolin_context::ContextEngine>,
     pub cost_store: Arc<xiaolin_session::CostStore>,
     pub search_index: Arc<SearchIndex>,
@@ -682,6 +684,7 @@ impl AppState {
             if let Err(e) = self.reload_skills() {
                 tracing::warn!(error = %e, "failed to reload skills after MCP server removal");
             }
+            self.spawn_skill_embedding_update();
         }
 
         Ok(())
@@ -2316,6 +2319,142 @@ impl AppState {
         }
     }
 
+    /// Update skill embeddings after a skill reload. Computes embeddings for skills
+    /// whose content has changed (by content hash) and prunes stale entries.
+    pub async fn update_skill_embeddings(&self) {
+        let registry = (*self.rt.base_skill_registry.load()).clone();
+        let skills: Vec<_> = registry.list().into_iter().cloned().collect();
+        let store = &self.store.skill_embedding_store;
+
+        if skills.is_empty() {
+            let _ = store.prune(&[]).await;
+            return;
+        }
+        let skill_ids: Vec<&str> = skills.iter().map(|s| s.id.as_str()).collect();
+        let cached = match store.cached_hashes(&skill_ids).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load cached skill hashes");
+                return;
+            }
+        };
+
+        struct EmbedCandidate {
+            skill_id: String,
+            text: String,
+            hash: String,
+        }
+        let mut to_embed: Vec<EmbedCandidate> = Vec::new();
+        for skill in &skills {
+            let truncated_content = if skill.content.len() <= 1000 {
+                &skill.content
+            } else {
+                let mut end = 1000;
+                while end > 0 && !skill.content.is_char_boundary(end) {
+                    end -= 1;
+                }
+                &skill.content[..end]
+            };
+            let text = format!(
+                "{}\n{}\n{}",
+                skill.name,
+                skill.description.as_deref().unwrap_or(""),
+                truncated_content
+            );
+            let hash = xiaolin_core::skill_embedding::content_hash(&text);
+            if cached.get(&skill.id).map(|h| h.as_str()) == Some(hash.as_str()) {
+                continue;
+            }
+            to_embed.push(EmbedCandidate {
+                skill_id: skill.id.clone(),
+                text,
+                hash,
+            });
+        }
+
+        if to_embed.is_empty() {
+            let _ = store.prune(&skill_ids).await;
+            return;
+        }
+
+        let embedder = self.mem.embedding_provider.clone();
+        let Some(embedder) = embedder else {
+            tracing::debug!(
+                stale = to_embed.len(),
+                "skipping skill embedding update: no embedding provider configured"
+            );
+            let _ = store.prune(&skill_ids).await;
+            return;
+        };
+
+        let texts: Vec<&str> = to_embed.iter().map(|c| c.text.as_str()).collect();
+        let batch_size = 32;
+        let mut embedded = 0usize;
+        for chunk_start in (0..texts.len()).step_by(batch_size) {
+            let chunk_end = (chunk_start + batch_size).min(texts.len());
+            let batch = &texts[chunk_start..chunk_end];
+            match embedder.embed_batch(batch).await {
+                Ok(vecs) => {
+                    if vecs.len() != batch.len() {
+                        tracing::warn!(
+                            expected = batch.len(),
+                            got = vecs.len(),
+                            "embed_batch returned unexpected number of vectors"
+                        );
+                    }
+                    for (i, vec) in vecs.into_iter().enumerate() {
+                        let idx = chunk_start + i;
+                        if idx >= to_embed.len() {
+                            break;
+                        }
+                        let cand = &to_embed[idx];
+                        if let Err(e) = store.upsert(&cand.skill_id, &cand.hash, &vec).await {
+                            tracing::warn!(skill_id = %cand.skill_id, error = %e, "failed to store skill embedding");
+                        } else {
+                            embedded += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to compute skill embeddings batch");
+                    break;
+                }
+            }
+        }
+
+        let _ = store.prune(&skill_ids).await;
+        if embedded > 0 {
+            tracing::info!(embedded, total = skills.len(), "skill embeddings updated");
+        }
+    }
+
+    /// Fire-and-forget: spawn a background task to update skill embeddings.
+    /// Uses an `AtomicBool` flag to skip if an update is already in progress.
+    pub fn spawn_skill_embedding_update(&self) {
+        if self
+            .rt
+            .embedding_update_running
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            tracing::debug!("skill embedding update already in progress, skipping");
+            return;
+        }
+        let state = self.clone();
+        tokio::spawn(async move {
+            state.update_skill_embeddings().await;
+            state
+                .rt
+                .embedding_update_running
+                .store(false, std::sync::atomic::Ordering::Release);
+        });
+    }
+
     /// Scan all connected MCP servers for `skill://` resources, fetch their content,
     /// parse into `SkillEntry`, and store in `mcp_skill_registry`. Then triggers
     /// `reload_skills()` to rebuild the full merge chain.
@@ -2411,6 +2550,7 @@ impl AppState {
         if let Err(e) = self.reload_skills() {
             tracing::warn!(error = %e, "failed to reload skills after MCP skill discovery");
         }
+        self.spawn_skill_embedding_update();
     }
 
     /// Refresh MCP skills for a single server after reconnect.
@@ -2499,7 +2639,9 @@ impl AppState {
         if let Err(e) = self.reload_skills() {
             tracing::warn!(error = %e, "failed to reload skills after MCP skill refresh");
         }
+        self.spawn_skill_embedding_update();
     }
+
 
     /// Hot-reload agent configs from disk. Returns the number of agents loaded.
     /// Effective channel bindings: ephemeral API routes first, then config file rows.
@@ -2748,7 +2890,7 @@ impl AppState {
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller) = {
+        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store) = {
             let target = tmp.join("evolution.db");
             let opts = SqliteConnectOptions::new()
                 .filename(&target)
@@ -2762,8 +2904,9 @@ impl AppState {
             let fs = FeedbackStore::open(evo_pool.clone()).await?;
             let ts = Arc::new(TrajectoryStore::open(evo_pool.clone()).await?);
             let ss = Arc::new(SkillStore::open(evo_pool.clone()).await?);
-            let pd = PromptDistiller::open(evo_pool).await?;
-            (fs, ts, ss, pd)
+            let pd = PromptDistiller::open(evo_pool.clone()).await?;
+            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(evo_pool).await?;
+            (fs, ts, ss, pd, ses)
         };
 
         let runtime = Arc::new({
@@ -2960,6 +3103,7 @@ impl AppState {
                 permission_preset_registry: Arc::new(
                     xiaolin_core::agent_config::PermissionPresetRegistry::default(),
                 ),
+                embedding_update_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             store: StorageState {
                 session_store: session_store.clone(),
@@ -2971,6 +3115,7 @@ impl AppState {
                 prompt_distiller: Arc::new(prompt_distiller),
                 trajectory_store,
                 skill_store,
+                skill_embedding_store: Arc::new(skill_embedding_store),
                 context_engine: context_engine.clone(),
                 cost_store: Arc::new(
                     xiaolin_session::CostStore::open(session_store.pool()).await?,
