@@ -40,7 +40,8 @@ fn evaluate_one(
         GraderConfig::ToolTrace {
             must_include,
             must_not_include,
-        } => grade_tool_trace(must_include, must_not_include, &result.tool_names_used),
+            allowed_shell_patterns,
+        } => grade_tool_trace(must_include, must_not_include, allowed_shell_patterns, &result.tool_names_used),
         GraderConfig::TokenBudget { max_total_tokens } => {
             grade_token_budget(*max_total_tokens, &result.metrics)
         }
@@ -119,6 +120,7 @@ fn grade_output_not_contains(patterns: &[String], text: &str) -> GradeResult {
 fn grade_tool_trace(
     must_include: &[String],
     must_not_include: &[String],
+    allowed_shell_patterns: &[String],
     used_tools: &[String],
 ) -> GradeResult {
     for required in must_include {
@@ -131,6 +133,9 @@ fn grade_tool_trace(
         }
     }
     for forbidden in must_not_include {
+        if forbidden == "shell_exec" && !allowed_shell_patterns.is_empty() {
+            continue;
+        }
         if used_tools.iter().any(|t| t == forbidden) {
             return GradeResult {
                 grader_type: "tool_trace".into(),
@@ -311,6 +316,7 @@ mod tests {
         let grade = grade_tool_trace(
             &["read_file".into()],
             &["shell_exec".into()],
+            &[],
             &result.tool_names_used,
         );
         assert!(grade.pass);
@@ -321,6 +327,7 @@ mod tests {
         let result = mock_result("ok", &["shell_exec"], 100, 1);
         let grade = grade_tool_trace(
             &["read_file".into()],
+            &[],
             &[],
             &result.tool_names_used,
         );
@@ -334,10 +341,23 @@ mod tests {
         let grade = grade_tool_trace(
             &[],
             &["shell_exec".into()],
+            &[],
             &result.tool_names_used,
         );
         assert!(!grade.pass);
         assert!(grade.reason.contains("shell_exec"));
+    }
+
+    #[test]
+    fn tool_trace_allowed_shell_patterns_bypass() {
+        let result = mock_result("ok", &["read_file", "shell_exec"], 100, 1);
+        let grade = grade_tool_trace(
+            &[],
+            &["shell_exec".into()],
+            &["cargo".into()],
+            &result.tool_names_used,
+        );
+        assert!(grade.pass, "shell_exec should be allowed when allowed_shell_patterns is non-empty");
     }
 
     #[test]
@@ -378,6 +398,7 @@ mod tests {
             GraderConfig::ToolTrace {
                 must_include: vec!["read_file".into()],
                 must_not_include: vec!["shell_exec".into()],
+                allowed_shell_patterns: vec![],
             },
             GraderConfig::TokenBudget {
                 max_total_tokens: 10000,
@@ -397,6 +418,7 @@ mod tests {
             GraderConfig::ToolTrace {
                 must_include: vec![],
                 must_not_include: vec!["shell_exec".into()],
+                allowed_shell_patterns: vec![],
             },
         ];
         let grades = evaluate_graders(&configs, &result, Path::new("/tmp"));

@@ -99,6 +99,7 @@ async fn replay_executor_with_fixture() {
             xiaolin_benchmark::task::GraderConfig::ToolTrace {
                 must_include: vec!["read_file".into()],
                 must_not_include: vec!["shell_exec".into()],
+                allowed_shell_patterns: vec![],
             },
             xiaolin_benchmark::task::GraderConfig::TokenBudget {
                 max_total_tokens: 20000,

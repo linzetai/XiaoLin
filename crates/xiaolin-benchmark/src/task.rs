@@ -44,6 +44,8 @@ pub enum GraderConfig {
         must_include: Vec<String>,
         #[serde(default)]
         must_not_include: Vec<String>,
+        #[serde(default)]
+        allowed_shell_patterns: Vec<String>,
     },
     TokenBudget {
         max_total_tokens: u64,

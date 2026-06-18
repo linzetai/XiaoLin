@@ -197,6 +197,7 @@ mod tests {
                 GraderConfig::ToolTrace {
                     must_include: vec!["read_file".into()],
                     must_not_include: vec!["shell_exec".into()],
+                    allowed_shell_patterns: vec![],
                 },
             ],
             metrics: Default::default(),
