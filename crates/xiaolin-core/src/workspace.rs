@@ -521,6 +521,25 @@ pub fn detect_workspace_root(start: &Path) -> PathBuf {
     best.map(|(p, _)| p).unwrap_or(start)
 }
 
+/// Write a SKILL.md file into the project-level skills directory (`<workspace>/.xiaolin/skills/`).
+pub fn write_project_skill(
+    workspace_root: &Path,
+    skill_id: &str,
+    content: &str,
+) -> anyhow::Result<PathBuf> {
+    validate_skill_id(skill_id)?;
+    let skill_dir = workspace_root.join(".xiaolin").join("skills").join(skill_id);
+    std::fs::create_dir_all(&skill_dir)?;
+    let path = skill_dir.join("SKILL.md");
+    std::fs::write(&path, content)?;
+    tracing::info!(
+        skill_id = %skill_id,
+        path = %path.display(),
+        "wrote skill to project directory"
+    );
+    Ok(path)
+}
+
 /// Write a SKILL.md file into the global shared skills directory (`~/.xiaolin/skills/`).
 pub fn write_global_skill(skill_id: &str, content: &str) -> anyhow::Result<PathBuf> {
     validate_skill_id(skill_id)?;

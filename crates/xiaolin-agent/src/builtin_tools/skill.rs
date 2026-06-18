@@ -158,14 +158,23 @@ impl Tool for ReadSkillTool {
     }
 }
 
-/// Create or update a skill. Writes to agent workspace by default, or global directory.
+/// Create or update a skill. Writes to agent workspace by default, project, or global directory.
 pub struct WriteSkillTool {
     workspace: Arc<AgentWorkspace>,
+    workspace_root: Option<std::path::PathBuf>,
 }
 
 impl WriteSkillTool {
     pub fn new(workspace: Arc<AgentWorkspace>) -> Self {
-        Self { workspace }
+        Self {
+            workspace,
+            workspace_root: None,
+        }
+    }
+
+    pub fn with_workspace_root(mut self, root: std::path::PathBuf) -> Self {
+        self.workspace_root = Some(root);
+        self
     }
 }
 
@@ -181,11 +190,11 @@ impl Tool for WriteSkillTool {
 
     fn description(&self) -> &str {
         "Create or overwrite SKILL.md for a skill_id with the full Markdown document (optional YAML frontmatter included). \
-         Default target 'workspace' writes under the agent-private skills tree; use target 'global' only when the user asked for a shared skill under the operator-wide skills directory visible to other agents. \
+         Targets: 'workspace' (default) writes under agent-private tree; 'project' writes to <workspace>/.xiaolin/skills/ (shared within this project, preferred for /skillify); \
+         'global' writes to ~/.xiaolin/skills/ (shared across all projects). \
          Whole-file replace—identical contract to write_file: partial bodies delete the rest of the file. \
-         Hosts may require reload/restart before list_skills reflects changes—check product docs. \
          Anti-pattern: embedding API keys or tokens—reference env-based configuration instead. \
-         Example: {\"skill_id\": \"deploy-checklist\", \"content\": \"---\\nname: Deploy\\ntags: [ops]\\n---\\n# Steps\\n1. ...\", \"target\": \"workspace\"}."
+         Example: {\"skill_id\": \"deploy-checklist\", \"content\": \"---\\nname: Deploy\\ntags: [ops]\\n---\\n# Steps\\n1. ...\", \"target\": \"project\"}."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -194,7 +203,7 @@ impl Tool for WriteSkillTool {
             "skill_id".to_string(),
             serde_json::json!({
                 "type": "string",
-                "description": "Stable id for the skill folder (e.g. 'my-search-skill', 'team/onboarding'). Becomes the directory name under skills/; avoid spaces if you want simple shell paths."
+                "description": "Stable id for the skill folder (e.g. 'my-search-skill'). Becomes the directory name under skills/; only [a-zA-Z0-9._-] allowed."
             }),
         );
         props.insert(
@@ -208,8 +217,8 @@ impl Tool for WriteSkillTool {
             "target".to_string(),
             serde_json::json!({
                 "type": "string",
-                "enum": ["workspace", "global"],
-                "description": "'workspace' (default): agent-private skills root; 'global': shared ~/.xiaolin/skills/. Omit or null for workspace. Choose global only when the user asked for a team-wide skill."
+                "enum": ["workspace", "project", "global"],
+                "description": "'workspace' (default): agent-private; 'project': <workspace>/.xiaolin/skills/ (recommended for skillify); 'global': ~/.xiaolin/skills/."
             }),
         );
         ToolParameterSchema {
@@ -255,6 +264,17 @@ impl Tool for WriteSkillTool {
             .unwrap_or("workspace");
 
         let result = match target {
+            "project" => {
+                if let Some(ref root) = self.workspace_root {
+                    xiaolin_core::workspace::write_project_skill(root, skill_id, content)
+                } else {
+                    return ToolResult::err(
+                        "write_skill target 'project' requires a detected workspace root, \
+                         but none is available. Use target 'workspace' or 'global' instead."
+                            .to_string(),
+                    );
+                }
+            }
             "global" => xiaolin_core::workspace::write_global_skill(skill_id, content),
             _ => self.workspace.write_skill(skill_id, content),
         };
@@ -300,6 +320,13 @@ impl UnifiedSkillTool {
             write: workspace.map(WriteSkillTool::new),
             reload_callback: None,
         }
+    }
+
+    pub fn with_workspace_root(mut self, root: std::path::PathBuf) -> Self {
+        if let Some(ref mut w) = self.write {
+            w.workspace_root = Some(root);
+        }
+        self
     }
 
     pub fn readonly(registry: Arc<xiaolin_core::skill::SkillRegistry>) -> Self {
@@ -372,8 +399,8 @@ impl Tool for UnifiedSkillTool {
             "target".to_string(),
             serde_json::json!({
                 "type": "string",
-                "enum": ["workspace", "global"],
-                "description": "For write only. 'workspace' (default) or 'global'."
+                "enum": ["workspace", "project", "global"],
+                "description": "For write only. 'workspace' (default), 'project' (<workspace>/.xiaolin/skills/), or 'global'."
             }),
         );
         ToolParameterSchema {
@@ -437,6 +464,62 @@ impl Tool for UnifiedSkillTool {
         }
     }
 }
+
+// ── Skillify Prompt ──────────────────────────────────────────────────
+
+/// System prompt injected when the user invokes `/skillify`.
+/// Instructs the LLM to analyze recent conversation and generate a SKILL.md.
+pub const SKILLIFY_PROMPT: &str = r#"
+## Skillify — Convert This Conversation Into a Reusable Skill
+
+You are now in **skillify mode**. Your task is to analyze the conversation above and extract a reusable skill from the patterns you see.
+
+### What to Extract
+
+Look for:
+1. **Multi-step procedures** the user asked you to perform (3+ steps)
+2. **Tool usage patterns** — which tools were called, in what order, with what parameters
+3. **Constraints and rules** — things the user corrected or specified ("always do X", "never do Y")
+4. **Project-specific knowledge** — paths, configs, naming conventions unique to this codebase
+
+### Output Format
+
+Generate a complete SKILL.md with YAML frontmatter. The skill MUST follow this structure:
+
+```
+---
+name: <Descriptive Name>
+description: <One-line summary of when and why to use this skill>
+tags: [<relevant>, <tags>]
+tools: [<tools_used_in_the_procedure>]
+paths: [<glob_patterns_if_project_type_specific>]
+---
+
+# <Title>
+
+<Clear, actionable instructions that an agent can follow to reproduce the procedure.
+Include concrete steps, expected outcomes, and error handling.>
+```
+
+### Rules
+
+- `name` and `description` are REQUIRED in frontmatter
+- `tools` should list only tools actually used in the procedure (omit if not specific)
+- `paths` should include glob patterns if the skill only applies to certain file types (omit if universal)
+- The body must contain **concrete, numbered steps** — not vague guidelines
+- Include verification steps (how to confirm success)
+- Include common failure modes and recovery if observed in the conversation
+
+### Workflow
+
+1. **Analyze** the conversation history above
+2. **Draft** the complete SKILL.md content
+3. **Present** it to the user in a code block for review
+4. **Ask** the user to confirm, edit, or provide a skill_id name
+5. **Save** using the `skill` tool: `action: write, skill_id: "<user-chosen-id>", target: "project", content: "<the SKILL.md>"`
+
+IMPORTANT: Do NOT save automatically. Always show the draft first and wait for user confirmation.
+"#;
 
 // ── Skill Authoring Prompt (180 lines) ───────────────────────────────
 
@@ -917,7 +1000,7 @@ mod skill_tool_tests {
         ));
         let tool_reg = ToolRegistry::new();
 
-        register_skill_tools_full(&tool_reg, reg, ws);
+        register_skill_tools_full(&tool_reg, reg, ws, None);
 
         let defs = tool_reg.definitions();
         let names: Vec<&str> = defs.iter().map(|d| d.function.name.as_str()).collect();
@@ -1026,6 +1109,7 @@ mod skill_tool_tests {
                 tags: vec!["ops".into()],
                 tools: Vec::new(),
                 enabled: Some(true),
+                ..Default::default()
             },
             layer: xiaolin_core::skill::SkillLayer::Project,
             source: None,
@@ -1052,6 +1136,7 @@ mod skill_tool_tests {
                 tags: vec!["social".into()],
                 tools: Vec::new(),
                 enabled: Some(true),
+                ..Default::default()
             },
             layer: xiaolin_core::skill::SkillLayer::Project,
             source: None,
@@ -1084,6 +1169,7 @@ mod skill_tool_tests {
                 tags: vec!["ops".into(), "deploy".into()],
                 tools: vec!["shell".into()],
                 enabled: Some(true),
+                ..Default::default()
             },
             layer: xiaolin_core::skill::SkillLayer::Project,
             source: None,

@@ -336,6 +336,17 @@ async fn handle_slash_command(
         };
     }
 
+    if trimmed == "/skillify" {
+        return Some(
+            "💡 `/skillify` 需要在聊天中使用——它会分析当前会话上下文，从中提取可复用的模式并生成新的 Skill。\n\n\
+             请在对话中直接发送 `/skillify`，AI 会自动：\n\
+             1. 分析会话中的多步骤操作模式\n\
+             2. 生成 SKILL.md 草稿供你审查\n\
+             3. 确认后保存到项目 `.xiaolin/skills/` 目录"
+                .to_string(),
+        );
+    }
+
     if trimmed == "/help" {
         return Some(
             "可用命令:\n\
@@ -345,6 +356,7 @@ async fn handle_slash_command(
              • `/workspace` — 查看/设置工作区\n\
              • `/init` — 初始化 XiaoLin 项目配置\n\
              • `/skills` — 列出当前 agent 的所有 Skill\n\
+             • `/skillify` — 从当前会话提取可复用模式生成 Skill\n\
              • `/help` — 显示帮助"
                 .to_string(),
         );

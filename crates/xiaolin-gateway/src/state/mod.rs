@@ -2735,6 +2735,7 @@ impl AppState {
                 wechat_login_sessions: Arc::new(dashmap::DashMap::new()),
                 session_behavior_overrides: Arc::new(dashmap::DashMap::new()),
                 session_preset_ids: Arc::new(dashmap::DashMap::new()),
+                hub_client: Arc::new(xiaolin_core::hub::HubClient::with_defaults()),
             },
             obs: ObserveState {
                 metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),

@@ -14,6 +14,7 @@
   "slashExportMd": "Export current session as Markdown",
   "slashExportJson": "Export current session as JSON",
   "slashModel": "Specify model in message, e.g. /model gpt-4o",
+  "slashSkillify": "Extract reusable patterns from conversation into a Skill",
   "slashTools": "Specify tools in message, e.g. /tools search",
   "enterWorkDir": "Enter working directory path:",
   "planMode": "Plan Mode — Read-only exploration",

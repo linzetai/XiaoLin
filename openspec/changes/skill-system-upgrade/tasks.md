@@ -62,10 +62,10 @@
 
 ## 7. Phase 3: Skillify 元技能（skillify-meta-skill）
 
-- [ ] 7.1 创建 skillify prompt 模板：从会话上下文提取可复用模式生成 SKILL.md
-- [ ] 7.2 注册 `/skillify` slash command（与 `/skills` 并列），路由到 skillify workflow
-- [ ] 7.3 生成 skill 后展示预览，用户确认后保存——调用 `skill` tool `action: write, target: project` → `<workspace>/.xiaolin/skills/`
-- [ ] 7.4 保存后自动 hot-reload registry
+- [x] 7.1 创建 skillify prompt 模板：从会话上下文提取可复用模式生成 SKILL.md
+- [x] 7.2 注册 `/skillify` slash command（与 `/skills` 并列），路由到 skillify workflow
+- [x] 7.3 生成 skill 后展示预览，用户确认后保存——调用 `skill` tool `action: write, target: project` → `<workspace>/.xiaolin/skills/`
+- [x] 7.4 保存后自动 hot-reload registry
 
 ## 8. Phase 3: MCP Skill 资源（skill-mcp-resource）
 

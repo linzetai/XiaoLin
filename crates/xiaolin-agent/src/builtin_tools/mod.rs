@@ -12,7 +12,7 @@ pub mod plan_mode;
 mod request_permissions;
 mod screenshot;
 mod session;
-mod skill;
+pub mod skill;
 mod snip;
 mod task;
 pub mod team;
@@ -170,11 +170,13 @@ pub fn register_skill_tools_full(
     registry: &ToolRegistry,
     skill_registry: Arc<SkillRegistry>,
     workspace: Arc<AgentWorkspace>,
+    workspace_root: Option<std::path::PathBuf>,
 ) {
-    registry.register(Arc::new(UnifiedSkillTool::new(
-        skill_registry,
-        Some(workspace),
-    )));
+    let mut tool = UnifiedSkillTool::new(skill_registry, Some(workspace));
+    if let Some(root) = workspace_root {
+        tool = tool.with_workspace_root(root);
+    }
+    registry.register(Arc::new(tool));
 }
 
 /// Register the unified skill tool with write support and a reload callback
@@ -183,10 +185,14 @@ pub fn register_skill_tools_with_reload(
     registry: &ToolRegistry,
     skill_registry: Arc<SkillRegistry>,
     workspace: Arc<AgentWorkspace>,
+    workspace_root: Option<std::path::PathBuf>,
     reload_callback: Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>,
 ) {
-    let tool = UnifiedSkillTool::new(skill_registry, Some(workspace))
-        .with_reload_callback(reload_callback);
+    let mut tool = UnifiedSkillTool::new(skill_registry, Some(workspace));
+    if let Some(root) = workspace_root {
+        tool = tool.with_workspace_root(root);
+    }
+    let tool = tool.with_reload_callback(reload_callback);
     registry.register(Arc::new(tool));
 }
 

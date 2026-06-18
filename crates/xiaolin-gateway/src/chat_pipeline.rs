@@ -255,6 +255,30 @@ pub async fn setup_chat(
         });
     }
 
+    // Detect /skillify in user message text.
+    let is_skillify_request = user_messages.iter().any(|m| {
+        m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/skillify")
+    });
+    if is_skillify_request {
+        if let Some(last_user) = enriched_request.messages.iter_mut().rev().find(|m| {
+            m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/skillify")
+        }) {
+            last_user.content = Some(serde_json::Value::String(
+                "请从当前会话中提取可复用的模式，生成一个新的 Skill。".to_string(),
+            ));
+        }
+        enriched_request.messages.insert(
+            0,
+            ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(
+                    xiaolin_agent::builtin_tools::skill::SKILLIFY_PROMPT.to_string(),
+                )),
+                ..Default::default()
+            },
+        );
+    }
+
     let t0 = std::time::Instant::now();
     let slash_meta =
         inject_slash_intent_context(state, request, &agent_id, &mut enriched_request.messages);

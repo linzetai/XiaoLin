@@ -14,6 +14,7 @@
   "slashExportMd": "导出当前会话为 Markdown 文件",
   "slashExportJson": "导出当前会话为 JSON 文件",
   "slashModel": "在消息中指定模型，如 /model gpt-4o",
+  "slashSkillify": "从当前会话提取可复用模式生成 Skill",
   "slashTools": "在消息中指定工具，如 /tools search",
   "enterWorkDir": "输入工作目录路径:",
   "planMode": "Plan Mode — 只读探索模式",

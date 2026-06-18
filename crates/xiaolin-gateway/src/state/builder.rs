@@ -415,11 +415,15 @@ impl StateBuilder {
             None,
         ));
         xiaolin_core::workspace::set_skill_prompt_mode(config.skills.prompt_mode.clone());
+        let workspace_root_for_skills = std::env::current_dir()
+            .ok()
+            .map(|cwd| xiaolin_core::workspace::detect_workspace_root(&cwd));
         if let Some((_, ws)) = p3.workspaces.iter().next() {
             xiaolin_agent::builtin_tools::register_skill_tools_full(
                 &p3.tool_registry,
                 base_skill_registry.clone(),
                 Arc::new(ws.clone()),
+                workspace_root_for_skills.clone(),
             );
             tracing::info!(
                 prompt_mode = ?config.skills.prompt_mode,
@@ -1203,6 +1207,30 @@ impl StateBuilder {
             .tool_registry
             .register(Arc::new(xiaolin_agent::TaskStopTool::new()));
         tracing::info!("registered sub-agent tools (spawn_subagent, subagent_get, subagent_list, list_agents, get_agent_info, resume_subagent, send_message, task_stop)");
+
+        // Re-register skill tool with hot-reload callback now that state is available.
+        {
+            let reload_state = state.clone();
+            let reload_cb: Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync> =
+                Arc::new(move || {
+                    reload_state.reload_skills()?;
+                    Ok(())
+                });
+            let ws_root = std::env::current_dir()
+                .ok()
+                .map(|cwd| xiaolin_core::workspace::detect_workspace_root(&cwd));
+            let skill_reg = state.rt.base_skill_registry.load();
+            if let Some((_, ws)) = state.rt.workspaces.iter().next() {
+                xiaolin_agent::builtin_tools::register_skill_tools_with_reload(
+                    &state.rt.tool_registry,
+                    skill_reg.clone(),
+                    Arc::new(ws.clone()),
+                    ws_root,
+                    reload_cb,
+                );
+                tracing::info!("re-registered skill tool with hot-reload callback");
+            }
+        }
 
         state.spawn_skill_evolution_tasks();
 

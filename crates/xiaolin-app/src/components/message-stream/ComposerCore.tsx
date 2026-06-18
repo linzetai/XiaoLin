@@ -457,6 +457,11 @@ export function ComposerCore({
     handleMentionSend("/compact", []);
   }, [streaming, handleMentionSend]);
 
+  const handleSkillify = useCallback(() => {
+    if (streaming) return;
+    handleMentionSend("/skillify", []);
+  }, [streaming, handleMentionSend]);
+
   const handleSelectMode = useCallback(async (newMode: ComposerMode) => {
     if (streaming) return;
     if (newMode === "goal") {
@@ -508,12 +513,13 @@ export function ComposerCore({
     { id: "new", label: "new", desc: t("slashNew"), action: handleNewTopic },
     { id: "clear", label: "clear", desc: t("slashClear"), action: handleNewTopic },
     { id: "compact", label: "compact", desc: t("slashCompact"), action: handleCompact },
+    { id: "skillify", label: "skillify", desc: t("slashSkillify"), action: handleSkillify },
     { id: "plan", label: "plan", desc: executionMode === "plan" ? t("slashPlanToggle_toAgent") : t("slashPlanToggle_toPlan"), action: handlePlanSlash },
     { id: "export-md", label: "export md", desc: t("slashExportMd"), action: handleExportMd },
     { id: "export-json", label: "export json", desc: t("slashExportJson"), action: handleExportJson },
     { id: "model", label: "model", desc: t("slashModel") },
     { id: "tools", label: "tools", desc: t("slashTools") },
-  ], [t, handleNewTopic, handleCompact, handlePlanSlash, handleExportMd, handleExportJson, executionMode]);
+  ], [t, handleNewTopic, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson, executionMode]);
 
   const wrappedSend = useCallback((txt: string, mentions: InlineMention[]) => {
     setSendPending(true);
