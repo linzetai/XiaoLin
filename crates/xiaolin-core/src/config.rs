@@ -205,7 +205,7 @@ pub struct SkillsConfig {
     #[serde(default = "default_prompt_mode")]
     pub prompt_mode: SkillPromptMode,
     /// Percentage of the model context window reserved for skill injection (1-50).
-    /// 0 = no budget limit (inject all). Default 5 (= 5%).
+    /// 0 = no budget limit (inject all). Default 2 (= 2%).
     #[serde(default = "default_context_budget_percent")]
     pub context_budget_percent: u8,
     /// Explicit allowlist of skill IDs. Empty = allow all.
@@ -221,7 +221,7 @@ fn default_prompt_mode() -> SkillPromptMode {
 }
 
 fn default_context_budget_percent() -> u8 {
-    5
+    2
 }
 
 impl Default for SkillsConfig {

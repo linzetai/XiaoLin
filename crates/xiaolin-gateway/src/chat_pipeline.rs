@@ -677,7 +677,7 @@ async fn inject_skills_prompt(
         .await
         .ok();
 
-    let (skills_prompt, truncation) =
+    let (skills_prompt, truncation, injected_ids) =
         effective_reg.format_with_budget_ordered(&skills_cfg.prompt_mode, char_budget, usage_counts.as_ref());
 
     if skills_prompt.is_empty() {
@@ -694,13 +694,6 @@ async fn inject_skills_prompt(
             "skill context budget truncation applied"
         );
     }
-
-    let injected_ids: Vec<String> = effective_reg
-        .list()
-        .iter()
-        .filter(|s| s.frontmatter.enabled.unwrap_or(true))
-        .map(|s| s.id.clone())
-        .collect();
 
     if !injected_ids.is_empty() {
         let usage_store = state.store.skill_usage_store.clone();

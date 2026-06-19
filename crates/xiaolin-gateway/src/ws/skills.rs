@@ -398,6 +398,15 @@ pub async fn handle_evolution_list(
     }
 }
 
+/// Patterns in evolution skill strategy that indicate potentially unsafe content.
+/// Presence of these triggers a warning during `evolution.promote`.
+const UNSAFE_STRATEGY_PATTERNS: &[&str] = &[
+    "shell:",
+    "hooks:",
+    "shell_exec",
+    "execute_command",
+];
+
 /// Promote an evolution skill to a static SKILL.md file.
 pub async fn handle_evolution_promote(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
@@ -454,19 +463,39 @@ pub async fn handle_evolution_promote(
         skill.name, skill.name, skill.task_pattern, skill.strategy_template
     );
 
+    let strategy_lower = skill.strategy_template.to_lowercase();
+    let unsafe_indicators: Vec<&str> = UNSAFE_STRATEGY_PATTERNS
+        .iter()
+        .copied()
+        .filter(|pattern| strategy_lower.contains(pattern))
+        .collect();
+
+    let warning = if unsafe_indicators.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Promoted skill strategy contains potentially unsafe patterns: {}",
+            unsafe_indicators.join(", ")
+        ))
+    };
+
     match xiaolin_core::workspace::write_global_skill(&skill_dir_name, &content) {
         Ok(path) => {
             let _ = state.reload_skills();
+            let mut data = json!({
+                "promoted": true,
+                "skill_id": skill_id,
+                "path": path.display().to_string(),
+            });
+            if let Some(w) = &warning {
+                data["warning"] = json!(w);
+            }
             send_resp(
                 sender,
                 &WsResponse {
                     id: req_id,
                     msg_type: "evolution.promote".into(),
-                    data: Some(json!({
-                        "promoted": true,
-                        "skill_id": skill_id,
-                        "path": path.display().to_string(),
-                    })),
+                    data: Some(data),
                     error: None,
                 },
             )

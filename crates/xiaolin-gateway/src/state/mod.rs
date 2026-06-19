@@ -2300,24 +2300,38 @@ impl AppState {
     }
 
     /// Load skills from the extensions directory (if it exists).
+    /// Scans both `extensions/*/SKILL.md` (top-level) and `extensions/*/skills/*/SKILL.md` (nested).
     fn load_extension_skills(
         paths_cfg: &xiaolin_core::config::PathsConfig,
     ) -> SkillRegistry {
         use xiaolin_core::skill::{load_skills_from_dirs_with_layer, SkillLayer};
         let ext_dir = xiaolin_core::paths::resolve_extensions_dir_from(Some(paths_cfg));
-        if ext_dir.exists() {
-            let reg = load_skills_from_dirs_with_layer(&[ext_dir.as_path()], SkillLayer::Extension);
-            if reg.count() > 0 {
-                tracing::info!(
-                    count = reg.count(),
-                    dir = %ext_dir.display(),
-                    "loaded extension skills"
-                );
-            }
-            reg
-        } else {
-            SkillRegistry::new()
+        if !ext_dir.exists() {
+            return SkillRegistry::new();
         }
+
+        let mut scan_roots = vec![ext_dir.clone()];
+
+        if let Ok(entries) = std::fs::read_dir(&ext_dir) {
+            for entry in entries.flatten() {
+                let nested_skills = entry.path().join("skills");
+                if nested_skills.is_dir() {
+                    scan_roots.push(nested_skills);
+                }
+            }
+        }
+
+        let dirs: Vec<&std::path::Path> = scan_roots.iter().map(|p| p.as_path()).collect();
+        let reg = load_skills_from_dirs_with_layer(&dirs, SkillLayer::Extension);
+        if reg.count() > 0 {
+            tracing::info!(
+                count = reg.count(),
+                scan_roots = scan_roots.len(),
+                dir = %ext_dir.display(),
+                "loaded extension skills"
+            );
+        }
+        reg
     }
 
     /// Update skill embeddings after a skill reload. Computes embeddings for skills

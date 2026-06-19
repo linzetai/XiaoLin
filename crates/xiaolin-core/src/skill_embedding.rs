@@ -138,11 +138,9 @@ impl SkillEmbeddingStore {
 }
 
 /// Compute a stable hash of skill content for cache invalidation.
+/// Uses blake3 for deterministic output across Rust compiler versions.
 pub fn content_hash(content: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    blake3::hash(content.as_bytes()).to_hex().to_string()
 }
 
 fn embedding_to_blob(v: &[f32]) -> Vec<u8> {
