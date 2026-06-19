@@ -732,6 +732,12 @@ fn compute_relevance(keywords: &[&str], skill: &xiaolin_core::skill::SkillEntry)
     let mut score = 0.0;
     let name_lower = skill.name.to_lowercase();
     let desc_lower = skill.description.as_deref().unwrap_or("").to_lowercase();
+    let when_lower = skill
+        .frontmatter
+        .when_to_use
+        .as_deref()
+        .unwrap_or("")
+        .to_lowercase();
     let content_lower = skill.content.to_lowercase();
 
     for kw in keywords {
@@ -739,6 +745,9 @@ fn compute_relevance(keywords: &[&str], skill: &xiaolin_core::skill::SkillEntry)
             score += 3.0;
         }
         if desc_lower.contains(kw) {
+            score += 2.0;
+        }
+        if !when_lower.is_empty() && when_lower.contains(kw) {
             score += 2.0;
         }
         if skill

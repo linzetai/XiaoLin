@@ -90,6 +90,10 @@ pub struct SkillFrontmatter {
     /// Patterns are gitignore-style relative paths matched against workspace files.
     #[serde(default)]
     pub paths: Vec<String>,
+    /// Hint for when this skill should be used, shown in Compact listing
+    /// and weighted in search (2.0, same as description).
+    #[serde(default)]
+    pub when_to_use: Option<String>,
 }
 
 /// Registry of loaded skills keyed by id.
@@ -168,16 +172,22 @@ impl SkillRegistry {
         global_deny: &[String],
         agent_allow: Option<&[String]>,
     ) -> SkillRegistry {
+        use std::collections::HashSet;
+
+        let deny_set: HashSet<&str> = global_deny.iter().map(|s| s.as_str()).collect();
+        let allow_set: HashSet<&str> = global_allow.iter().map(|s| s.as_str()).collect();
+        let agent_set: Option<HashSet<&str>> = agent_allow.map(|list| list.iter().map(|s| s.as_str()).collect());
+
         let mut out = SkillRegistry::new();
         for (id, skill) in &self.skills {
-            if !global_deny.is_empty() && global_deny.iter().any(|d| d == id) {
+            if !deny_set.is_empty() && deny_set.contains(id.as_str()) {
                 continue;
             }
-            if !global_allow.is_empty() && !global_allow.iter().any(|a| a == id) {
+            if !allow_set.is_empty() && !allow_set.contains(id.as_str()) {
                 continue;
             }
-            if let Some(agent_list) = agent_allow {
-                if !agent_list.is_empty() && !agent_list.iter().any(|a| a == id) {
+            if let Some(ref agent) = agent_set {
+                if !agent.is_empty() && !agent.contains(id.as_str()) {
                     continue;
                 }
             }
@@ -241,7 +251,8 @@ impl SkillRegistry {
         mode: &crate::config::SkillPromptMode,
         char_budget: Option<usize>,
     ) -> (String, Option<SkillTruncationInfo>) {
-        self.format_with_budget_ordered(mode, char_budget, None)
+        let (text, info, _ids) = self.format_with_budget_ordered(mode, char_budget, None);
+        (text, info)
     }
 
     /// Format skills with an optional character budget and usage-based ordering.
@@ -254,7 +265,7 @@ impl SkillRegistry {
         mode: &crate::config::SkillPromptMode,
         char_budget: Option<usize>,
         usage_counts: Option<&std::collections::HashMap<String, u64>>,
-    ) -> (String, Option<SkillTruncationInfo>) {
+    ) -> (String, Option<SkillTruncationInfo>, Vec<String>) {
         let mut enabled: Vec<&SkillEntry> = self
             .skills
             .values()
@@ -262,7 +273,7 @@ impl SkillRegistry {
             .collect();
 
         if enabled.is_empty() {
-            return (String::new(), None);
+            return (String::new(), None, Vec::new());
         }
 
         enabled.sort_by(|a, b| {
@@ -279,14 +290,19 @@ impl SkillRegistry {
             }
         });
 
+        let collect_ids = |skills: &[&SkillEntry]| -> Vec<String> {
+            skills.iter().map(|s| s.id.clone()).collect()
+        };
+
         let budget = match char_budget {
             Some(0) | None => {
+                let ids = collect_ids(&enabled);
                 let output = match mode {
                     crate::config::SkillPromptMode::Full => self.format_full(&enabled),
                     crate::config::SkillPromptMode::Compact => self.format_compact(&enabled),
                     crate::config::SkillPromptMode::Lazy => self.format_lazy(&enabled),
                 };
-                return (output, None);
+                return (output, None, ids);
             }
             Some(b) => b,
         };
@@ -298,13 +314,15 @@ impl SkillRegistry {
         };
 
         if initial.len() <= budget {
-            return (initial, None);
+            let ids = collect_ids(&enabled);
+            return (initial, None, ids);
         }
 
         // Stage 1: truncate descriptions to first line (compact/full only, lazy already minimal)
         if !matches!(mode, crate::config::SkillPromptMode::Lazy) {
             let truncated = self.format_compact_truncated(&enabled);
             if truncated.len() <= budget {
+                let ids = collect_ids(&enabled);
                 return (
                     truncated,
                     Some(SkillTruncationInfo {
@@ -313,48 +331,57 @@ impl SkillRegistry {
                         included_skills: enabled.len(),
                         omitted_skills: 0,
                     }),
+                    ids,
                 );
             }
         }
 
-        // Stage 2: omit lowest-priority skills until within budget
-        let mut included = enabled.clone();
-        let mut omitted = 0usize;
-        while included.len() > 1 {
-            included.pop(); // remove lowest-priority (last after sort)
-            omitted += 1;
-            let candidate = if matches!(mode, crate::config::SkillPromptMode::Lazy) {
-                self.format_lazy(&included)
-            } else {
-                self.format_compact_truncated(&included)
-            };
-            if candidate.len() <= budget {
-                return (
-                    candidate,
-                    Some(SkillTruncationInfo {
-                        stage: TruncationStage::SkillsOmitted,
-                        total_skills: enabled.len(),
-                        included_skills: included.len(),
-                        omitted_skills: omitted,
-                    }),
-                );
-            }
-        }
-
-        // Even with 1 skill it exceeds budget — return it anyway with warning
-        let final_output = if matches!(mode, crate::config::SkillPromptMode::Lazy) {
-            self.format_lazy(&included)
+        // Stage 2: omit lowest-priority skills using precomputed per-skill sizes.
+        // Instead of O(N²) re-formatting after each pop, compute each skill's
+        // contribution once, then find the max prefix that fits via linear scan.
+        let is_lazy = matches!(mode, crate::config::SkillPromptMode::Lazy);
+        let per_skill_sizes: Vec<usize> = if is_lazy {
+            enabled.iter().map(|s| s.id.len() + 2).collect() // ", " separator
         } else {
-            self.format_compact_truncated(&included)
+            enabled.iter().map(|s| self.format_compact_truncated_one(s).len()).collect()
         };
+
+        let header_overhead = if is_lazy {
+            self.lazy_header_overhead(enabled.len())
+        } else {
+            Self::COMPACT_TRUNCATED_HEADER.len()
+        };
+
+        // Find max k (1..=enabled.len()) where header + sum(sizes[0..k]) <= budget.
+        // Skills are already sorted high-priority first, so we keep the top k.
+        let mut cumulative = header_overhead;
+        let mut keep = 0usize;
+        for size in &per_skill_sizes {
+            if cumulative + size > budget && keep > 0 {
+                break;
+            }
+            cumulative += size;
+            keep += 1;
+        }
+        keep = keep.max(1);
+
+        let included = &enabled[..keep];
+        let omitted = enabled.len() - keep;
+        let final_output = if is_lazy {
+            self.format_lazy(included)
+        } else {
+            self.format_compact_truncated(included)
+        };
+        let ids = collect_ids(included);
         (
             final_output,
             Some(SkillTruncationInfo {
                 stage: TruncationStage::SkillsOmitted,
                 total_skills: enabled.len(),
-                included_skills: included.len(),
+                included_skills: keep,
                 omitted_skills: omitted,
             }),
+            ids,
         )
     }
 
@@ -386,35 +413,51 @@ impl SkillRegistry {
                 "- **{}** (`{}`): {}\n",
                 skill.name, skill.id, one_line
             ));
+            if let Some(when) = &skill.frontmatter.when_to_use {
+                buf.push_str(&format!("  when: {when}\n"));
+            }
         }
         buf.push('\n');
         buf
     }
 
+    const COMPACT_TRUNCATED_HEADER: &'static str =
+        "## Available Skills\n\nYou have the following skills. Use `read_skill` tool with the skill ID to get full instructions.\n\n";
+
+    /// Format a single skill entry in compact-truncated style (no header/footer).
+    fn format_compact_truncated_one(&self, skill: &SkillEntry) -> String {
+        let first_line = skill
+            .description
+            .as_deref()
+            .and_then(|d| d.lines().next())
+            .unwrap_or("(no description)");
+        let truncated = if first_line.chars().count() > 80 {
+            let s: String = first_line.chars().take(77).collect();
+            format!("{s}…")
+        } else {
+            first_line.to_string()
+        };
+        format!("- **{}** (`{}`): {}\n", skill.name, skill.id, truncated)
+    }
+
     /// Compact format with descriptions truncated to first line only (Stage 1 truncation).
     fn format_compact_truncated(&self, skills: &[&SkillEntry]) -> String {
-        let mut buf = String::from("## Available Skills\n\n");
-        buf.push_str("You have the following skills. Use `read_skill` tool with the skill ID to get full instructions.\n\n");
-
+        let mut buf = String::from(Self::COMPACT_TRUNCATED_HEADER);
         for skill in skills {
-            let first_line = skill
-                .description
-                .as_deref()
-                .and_then(|d| d.lines().next())
-                .unwrap_or("(no description)");
-            let truncated = if first_line.chars().count() > 80 {
-                let s: String = first_line.chars().take(77).collect();
-                format!("{s}…")
-            } else {
-                first_line.to_string()
-            };
-            buf.push_str(&format!(
-                "- **{}** (`{}`): {}\n",
-                skill.name, skill.id, truncated
-            ));
+            buf.push_str(&self.format_compact_truncated_one(skill));
         }
         buf.push('\n');
         buf
+    }
+
+    /// Estimate the lazy format header overhead for a given skill count.
+    fn lazy_header_overhead(&self, count: usize) -> usize {
+        let count_str = count.to_string();
+        "## Skills\n\nYou have ".len()
+            + count_str.len()
+            + " skills available. Use the `list_skills` tool to see them, \
+               and `read_skill` tool with a skill ID to get detailed instructions.\n\nSkill IDs: ".len()
+            + "\n\n".len()
     }
 
     fn format_lazy(&self, skills: &[&SkillEntry]) -> String {
@@ -850,7 +893,10 @@ fn parse_frontmatter(raw: &str) -> (SkillFrontmatter, String) {
 
         match serde_yaml_ng::from_str::<SkillFrontmatter>(yaml_str) {
             Ok(fm) => (fm, body),
-            Err(_) => (SkillFrontmatter::default(), raw.to_string()),
+            Err(e) => {
+                tracing::warn!(error = %e, "invalid YAML frontmatter in SKILL.md, falling back to raw content");
+                (SkillFrontmatter::default(), raw.to_string())
+            }
         }
     } else {
         (SkillFrontmatter::default(), raw.to_string())
@@ -936,10 +982,22 @@ fn skill_matches_paths(skill: &SkillEntry, touched: &[&str]) -> bool {
     touched.iter().any(|path| globset.is_match(path))
 }
 
+/// Tool call argument keys that typically contain file paths.
+/// When adding a new tool with path-bearing parameters, update this list.
+const PATH_PARAM_KEYS: &[&str] = &[
+    "path",
+    "file_path",
+    "target_path",
+    "directory",
+    "file",
+    "filename",
+    "working_directory",
+];
+
 /// Extract file paths mentioned in conversation messages' tool calls.
 ///
-/// Scans tool call arguments for common path-bearing parameters (`path`, `file_path`,
-/// `target_path`, `directory`) and returns them as a deduplicated list.
+/// Scans tool call arguments for common path-bearing parameters
+/// (see [`PATH_PARAM_KEYS`]) and returns them as a deduplicated list.
 pub fn extract_touched_paths(messages: &[crate::types::ChatMessage]) -> Vec<String> {
     use std::collections::HashSet;
     let mut paths = HashSet::new();
@@ -950,7 +1008,7 @@ pub fn extract_touched_paths(messages: &[crate::types::ChatMessage]) -> Vec<Stri
                 if let Ok(args) = serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
                 {
                     if let Some(obj) = args.as_object() {
-                        for key in &["path", "file_path", "target_path", "directory", "file", "filename"] {
+                        for key in PATH_PARAM_KEYS {
                             if let Some(serde_json::Value::String(p)) = obj.get(*key) {
                                 if !p.is_empty() {
                                     paths.insert(p.clone());
@@ -1029,6 +1087,20 @@ mod tests {
         let raw = "---\nname: NoTools\n---\n# Body";
         let (fm, _body) = parse_frontmatter(raw);
         assert!(fm.tools.is_empty());
+    }
+
+    #[test]
+    fn parse_frontmatter_with_when_to_use() {
+        let raw = "---\nname: Deploy\nwhen_to_use: Use when deploying backend services\n---\n# Body";
+        let (fm, _body) = parse_frontmatter(raw);
+        assert_eq!(fm.when_to_use.as_deref(), Some("Use when deploying backend services"));
+    }
+
+    #[test]
+    fn parse_frontmatter_without_when_to_use() {
+        let raw = "---\nname: Basic\n---\n# Body";
+        let (fm, _body) = parse_frontmatter(raw);
+        assert!(fm.when_to_use.is_none());
     }
 
     #[test]
@@ -1190,6 +1262,26 @@ mod tests {
         assert!(output.contains("`my-tool`"));
         assert!(output.contains("read_skill"));
         assert!(!output.contains("Content of My Tool"));
+    }
+
+    #[test]
+    fn format_compact_includes_when_to_use() {
+        let mut reg = SkillRegistry::new();
+        let mut skill = make_skill("deploy", "Deploy Tool", None);
+        skill.frontmatter.when_to_use = Some("Use when deploying services".into());
+        reg.register(skill);
+
+        let output = reg.format_for_prompt_mode(&SkillPromptMode::Compact);
+        assert!(output.contains("when: Use when deploying services"));
+    }
+
+    #[test]
+    fn format_compact_omits_when_to_use_if_absent() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("basic", "Basic Tool", None));
+
+        let output = reg.format_for_prompt_mode(&SkillPromptMode::Compact);
+        assert!(!output.contains("when:"));
     }
 
     #[test]
@@ -1521,6 +1613,40 @@ mod tests {
         assert!(info.omitted_skills > 0);
         // Highest priority skill should be retained
         assert!(output.contains("Workspace Skill"));
+    }
+
+    #[test]
+    fn budget_ordered_returns_injected_ids() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill_with_layer(
+            "ext", "Extension Skill", "Low priority", SkillLayer::Extension,
+        ));
+        reg.register(make_skill_with_layer(
+            "ws", "Workspace Skill", "High priority", SkillLayer::AgentWorkspace,
+        ));
+
+        // Tight budget: only room for 1 skill
+        let (output, info, ids) = reg.format_with_budget_ordered(
+            &SkillPromptMode::Compact, Some(200), None,
+        );
+        let info = info.expect("should have truncation");
+        assert!(info.omitted_skills > 0);
+        assert!(output.contains("Workspace Skill"));
+        assert!(ids.contains(&"ws".to_string()));
+        assert!(!ids.contains(&"ext".to_string()));
+    }
+
+    #[test]
+    fn budget_ordered_returns_all_ids_when_no_truncation() {
+        let mut reg = SkillRegistry::new();
+        reg.register(make_skill("a", "Alpha", None));
+        reg.register(make_skill("b", "Beta", None));
+
+        let (_output, info, ids) = reg.format_with_budget_ordered(
+            &SkillPromptMode::Compact, None, None,
+        );
+        assert!(info.is_none());
+        assert_eq!(ids.len(), 2);
     }
 
     #[test]

@@ -136,8 +136,13 @@ fn parse_frontmatter(raw: &str) -> (RuleFrontmatter, String) {
     if let Some(end) = raw[3..].find("---") {
         let yaml_str = &raw[3..3 + end];
         let rest = &raw[3 + end + 3..];
-        let fm: RuleFrontmatter = serde_yaml_ng::from_str(yaml_str.trim()).unwrap_or_default();
-        (fm, rest.trim_start().to_string())
+        match serde_yaml_ng::from_str::<RuleFrontmatter>(yaml_str.trim()) {
+            Ok(fm) => (fm, rest.trim_start().to_string()),
+            Err(e) => {
+                tracing::warn!(error = %e, "invalid YAML frontmatter in rule file, falling back to defaults");
+                (RuleFrontmatter::default(), raw.to_string())
+            }
+        }
     } else {
         (RuleFrontmatter::default(), raw.to_string())
     }
