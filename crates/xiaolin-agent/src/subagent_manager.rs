@@ -282,6 +282,7 @@ impl SubAgentManager {
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
         parent_queue: Option<Arc<MessageQueue>>,
+        max_result_chars: Option<usize>,
     ) -> anyhow::Result<String> {
         if !policy.enabled {
             anyhow::bail!("sub-agent delegation is disabled for this agent");
@@ -352,6 +353,9 @@ impl SubAgentManager {
         let controller = self.controller.clone();
         let orchestrator = self.orchestrator.clone();
         let completion_channels = self.completion_channels.clone();
+        let result_char_limit = max_result_chars
+            .unwrap_or(crate::sidechain::MAX_RESULT_CHARS);
+
         let timeout = Duration::from_secs(policy.timeout_seconds);
         let slot_timeout = controller.config().slot_acquire_timeout;
         // Hard wall-clock limit: covers both slot reservation + execution + buffer
@@ -472,7 +476,7 @@ impl SubAgentManager {
             match result {
                 Ok((response_text, tool_calls_made, iterations, usage)) => {
                     let truncated_result =
-                        crate::sidechain::truncate_result(&response_text);
+                        crate::sidechain::truncate_result(&response_text, result_char_limit);
                     let _ = parent_tx
                         .send(AgentEvent::SubAgentComplete {
                             turn_id: complete_turn_id.clone(),
@@ -703,6 +707,7 @@ impl SubAgentManager {
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
         parent_queue: Option<Arc<MessageQueue>>,
+        max_result_chars: Option<usize>,
     ) -> anyhow::Result<(String, String)> {
         let session_pool = self
             .controller
@@ -727,6 +732,7 @@ impl SubAgentManager {
                 initial_messages,
                 permission_mode,
                 parent_queue,
+                max_result_chars,
             )
             .await?;
 
@@ -795,6 +801,7 @@ impl SubAgentManager {
         initial_messages: Option<Vec<ChatMessage>>,
         permission_mode: xiaolin_core::agent_config::PermissionMode,
         parent_queue: Option<Arc<MessageQueue>>,
+        max_result_chars: Option<usize>,
     ) -> anyhow::Result<(String, String)> {
         self.spawn_and_wait(
             agent_config,
@@ -813,6 +820,7 @@ impl SubAgentManager {
             initial_messages,
             permission_mode,
             parent_queue,
+            max_result_chars,
         )
         .await
     }
@@ -1205,6 +1213,7 @@ impl SubAgentManager {
     /// Should be called when a session is destroyed or the session actor is dropped.
     pub fn cleanup_session(&self, session_id: &str) {
         self.completion_channels.remove(session_id);
+        self.session_event_senders.remove(session_id);
         self.runs
             .retain(|_, r| r.parent_session_id != session_id || !r.status.is_terminal());
     }
@@ -1296,6 +1305,7 @@ mod tests {
                 None,
                 xiaolin_core::agent_config::PermissionMode::AutoApprove,
                 None,
+                None,
             )
             .await;
         assert!(err.is_err());
@@ -1329,6 +1339,7 @@ mod tests {
                 None,
                 None,
                 xiaolin_core::agent_config::PermissionMode::AutoApprove,
+                None,
                 None,
             )
             .await;
@@ -1410,5 +1421,19 @@ mod tests {
     async fn cancel_nonexistent_run_returns_false() {
         let mgr = make_manager(vec![]);
         assert!(!mgr.cancel("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn cleanup_session_removes_event_senders() {
+        let mgr = make_manager(vec![]);
+        let (tx, _rx) = mpsc::channel(16);
+        mgr.register_session_tx("s1", tx.clone());
+        mgr.register_session_tx("s2", tx);
+        assert!(mgr.get_session_tx("s1").is_some());
+        assert!(mgr.get_session_tx("s2").is_some());
+
+        mgr.cleanup_session("s1");
+        assert!(mgr.get_session_tx("s1").is_none(), "s1 sender should be removed");
+        assert!(mgr.get_session_tx("s2").is_some(), "s2 sender should remain");
     }
 }

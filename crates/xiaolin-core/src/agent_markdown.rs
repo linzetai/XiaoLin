@@ -95,6 +95,7 @@ pub fn parse_agent_markdown(content: &str, path: &Path) -> Result<SubAgentDef, S
         background: fm.background,
         concurrency_safe: fm.concurrency_safe,
         max_context_messages: fm.max_context_messages,
+        max_result_chars: None,
         permission_mode: fm.permission_mode,
         mode: fm.mode,
         source: SubAgentDefSource::MarkdownFile(path.to_path_buf()),

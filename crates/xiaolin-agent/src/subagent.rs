@@ -441,6 +441,13 @@ impl Tool for SubAgentTool {
             }
         };
 
+        let mut agent_config = agent_config;
+        if let Some(ref d) = def {
+            if let Some(ref model_override) = d.model {
+                agent_config.model = model_override.clone();
+            }
+        }
+
         let concurrency_safe = def.as_ref().map(|d| d.concurrency_safe).unwrap_or(true);
         let permission_mode = def
             .as_ref()
@@ -526,6 +533,7 @@ impl Tool for SubAgentTool {
             if let Some(t) = params.timeout_seconds.filter(|&t| (60..=1800).contains(&t)) {
                 effective_policy.timeout_seconds = t;
             }
+            let max_result_chars = def.as_ref().and_then(|d| d.max_result_chars);
             let run_id = match self
                 .manager
                 .spawn(
@@ -545,6 +553,7 @@ impl Tool for SubAgentTool {
                     initial_messages,
                     permission_mode,
                     None,
+                    max_result_chars,
                 )
                 .await
             {
@@ -563,6 +572,7 @@ impl Tool for SubAgentTool {
             if let Some(t) = params.timeout_seconds.filter(|&t| (60..=1800).contains(&t)) {
                 effective_policy.timeout_seconds = t;
             }
+            let max_result_chars = def.as_ref().and_then(|d| d.max_result_chars);
             #[allow(deprecated)]
             match self
                 .manager
@@ -583,6 +593,7 @@ impl Tool for SubAgentTool {
                     initial_messages,
                     permission_mode,
                     None,
+                    max_result_chars,
                 )
                 .await
             {
@@ -1165,6 +1176,7 @@ impl Tool for ResumeSubagentTool {
                 None,
                 Some(initial_messages),
                 xiaolin_core::agent_config::PermissionMode::AutoApprove,
+                None,
                 None,
             )
             .await

@@ -193,18 +193,23 @@ impl SidechainReader {
 /// through without truncation, while still bounding context window usage.
 pub const MAX_RESULT_CHARS: usize = 32768;
 
-/// Truncates a sub-agent result if it exceeds the maximum length.
+/// Hard upper bound for `max_result_chars` to prevent context window exhaustion.
+const MAX_RESULT_CHARS_CEILING: usize = 131072;
+
+/// Truncates a sub-agent result if it exceeds the given limit.
 /// Keeps the head and tail of the result for maximum context preservation.
 /// Uses char boundaries to avoid panicking on multi-byte UTF-8 text.
-pub fn truncate_result(text: &str) -> String {
+/// `max_chars` is clamped to `MAX_RESULT_CHARS_CEILING` (128 KB).
+pub fn truncate_result(text: &str, max_chars: usize) -> String {
+    let limit = max_chars.min(MAX_RESULT_CHARS_CEILING);
     if text.is_empty() {
         return "[subagent terminated without producing a result]".to_string();
     }
-    if text.len() <= MAX_RESULT_CHARS {
+    if text.len() <= limit {
         return text.to_string();
     }
-    let head_target = MAX_RESULT_CHARS * 3 / 4;
-    let tail_target = MAX_RESULT_CHARS / 4;
+    let head_target = limit * 3 / 4;
+    let tail_target = limit / 4;
     let head_end = floor_char_boundary(text, head_target);
     let tail_start = ceil_char_boundary(text, text.len().saturating_sub(tail_target));
     let head = &text[..head_end];
@@ -338,13 +343,13 @@ mod tests {
     #[test]
     fn test_truncate_result_short() {
         let text = "Hello world";
-        assert_eq!(truncate_result(text), "Hello world");
+        assert_eq!(truncate_result(text, MAX_RESULT_CHARS), "Hello world");
     }
 
     #[test]
     fn test_truncate_result_empty() {
         assert_eq!(
-            truncate_result(""),
+            truncate_result("", MAX_RESULT_CHARS),
             "[subagent terminated without producing a result]"
         );
     }
@@ -352,7 +357,7 @@ mod tests {
     #[test]
     fn test_truncate_result_long() {
         let text = "x".repeat(50_000);
-        let result = truncate_result(&text);
+        let result = truncate_result(&text, MAX_RESULT_CHARS);
         assert!(result.len() < 50_000);
         assert!(result.contains("chars omitted"));
         assert!(result.contains("subagent_get"));

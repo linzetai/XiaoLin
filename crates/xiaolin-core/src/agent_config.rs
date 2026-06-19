@@ -881,6 +881,10 @@ pub struct SubAgentDef {
     /// Defaults to 20.
     #[serde(default = "default_max_context_messages")]
     pub max_context_messages: usize,
+    /// Maximum characters in the sub-agent result returned to the parent.
+    /// `None` uses the global default (32768). Clamped to 131072.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_result_chars: Option<usize>,
     /// How tool approvals are handled for this sub-agent type.
     #[serde(default)]
     pub permission_mode: PermissionMode,
@@ -912,6 +916,7 @@ impl Default for SubAgentDef {
             background: false,
             concurrency_safe: true,
             max_context_messages: 20,
+            max_result_chars: None,
             permission_mode: PermissionMode::default(),
             mode: SubAgentMode::default(),
             source: SubAgentDefSource::default(),
@@ -1106,6 +1111,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             background: false,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
+            max_result_chars: None,
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
@@ -1128,6 +1134,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             background: false,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
+            max_result_chars: None,
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
@@ -1159,6 +1166,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             background: false,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
+            max_result_chars: None,
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
@@ -1196,6 +1204,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             background: false,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
+            max_result_chars: None,
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Normal,
             source: SubAgentDefSource::Builtin,
@@ -1226,6 +1235,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
             background: true,
             concurrency_safe: false,
             max_context_messages: default_max_context_messages(),
+            max_result_chars: None,
             permission_mode: PermissionMode::AutoApprove,
             mode: SubAgentMode::Coordinator,
             source: SubAgentDefSource::Builtin,
