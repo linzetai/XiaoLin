@@ -591,6 +591,7 @@ impl SearchSkillTool {
     fn keyword_search(&self, query: &str, tag_filter: Option<&str>) -> Vec<SkillSearchResult> {
         let query_lower = query.to_lowercase();
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
+        let cache = self.registry.lowercase_cache();
 
         let mut results: Vec<SkillSearchResult> = self
             .registry
@@ -608,7 +609,7 @@ impl SearchSkillTool {
                 }
             })
             .filter_map(|s| {
-                let score = compute_relevance(&keywords, s);
+                let score = compute_relevance(&keywords, s, cache.get(&s.id));
                 if score > 0.0 {
                     Some(SkillSearchResult {
                         id: s.id.clone(),
@@ -728,26 +729,35 @@ pub struct SkillSearchResult {
     pub score: f64,
 }
 
-fn compute_relevance(keywords: &[&str], skill: &xiaolin_core::skill::SkillEntry) -> f64 {
+fn compute_relevance(
+    keywords: &[&str],
+    skill: &xiaolin_core::skill::SkillEntry,
+    cached: Option<&xiaolin_core::skill::CachedLowercase>,
+) -> f64 {
     let mut score = 0.0;
-    let name_lower = skill.name.to_lowercase();
-    let desc_lower = skill.description.as_deref().unwrap_or("").to_lowercase();
-    let when_lower = skill
-        .frontmatter
-        .when_to_use
-        .as_deref()
-        .unwrap_or("")
-        .to_lowercase();
-    let content_lower = skill.content.to_lowercase();
+
+    let fallback;
+    let lc = match cached {
+        Some(c) => c,
+        None => {
+            fallback = xiaolin_core::skill::CachedLowercase {
+                name: skill.name.to_lowercase(),
+                description: skill.description.as_deref().unwrap_or("").to_lowercase(),
+                when_to_use: skill.frontmatter.when_to_use.as_deref().unwrap_or("").to_lowercase(),
+                content: skill.content.to_lowercase(),
+            };
+            &fallback
+        }
+    };
 
     for kw in keywords {
-        if name_lower.contains(kw) {
+        if lc.name.contains(kw) {
             score += 3.0;
         }
-        if desc_lower.contains(kw) {
+        if lc.description.contains(kw) {
             score += 2.0;
         }
-        if !when_lower.is_empty() && when_lower.contains(kw) {
+        if !lc.when_to_use.is_empty() && lc.when_to_use.contains(kw) {
             score += 2.0;
         }
         if skill
@@ -758,7 +768,7 @@ fn compute_relevance(keywords: &[&str], skill: &xiaolin_core::skill::SkillEntry)
         {
             score += 2.5;
         }
-        if content_lower.contains(kw) {
+        if lc.content.contains(kw) {
             score += 1.0;
         }
     }

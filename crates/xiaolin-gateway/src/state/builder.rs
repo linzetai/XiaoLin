@@ -1019,6 +1019,7 @@ impl StateBuilder {
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
                 agent_def_watcher: None,
+                skill_watcher: None,
                 pending_elicitations: Arc::new(dashmap::DashMap::new()),
             },
             svc: super::SharedServices {
@@ -1264,6 +1265,33 @@ impl StateBuilder {
 
         state.spawn_skill_evolution_tasks();
         state.spawn_skill_embedding_update();
+
+        // Start filesystem watcher for skill directories
+        {
+            let paths_cfg = &state.cfg.config.paths;
+            let mut watch_dirs = vec![
+                helpers::resolve_skills_dir(paths_cfg),
+                xiaolin_core::skill::resolve_global_skills_dir(),
+            ];
+            let ext_dir = xiaolin_core::paths::resolve_extensions_dir_from(Some(paths_cfg));
+            if ext_dir.exists() {
+                watch_dirs.push(ext_dir);
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
+                let project_skills = ws_root.join(".xiaolin").join("skills");
+                if project_skills.exists() {
+                    watch_dirs.push(project_skills);
+                }
+            }
+            match crate::skill_watcher::SkillWatcher::start(watch_dirs, state.clone()) {
+                Ok(watcher) => {
+                    state.strm.skill_watcher = Some(Arc::new(watcher));
+                    tracing::info!("skill directory hot-reload watcher started");
+                }
+                Err(e) => tracing::warn!(error = %e, "failed to start skill watcher"),
+            }
+        }
 
         {
             let mcp_state = state.clone();

@@ -96,22 +96,45 @@ pub struct SkillFrontmatter {
     pub when_to_use: Option<String>,
 }
 
+/// Pre-lowercased text fields for a single skill, used by keyword search.
+#[derive(Debug, Clone)]
+pub struct CachedLowercase {
+    pub name: String,
+    pub description: String,
+    pub when_to_use: String,
+    pub content: String,
+}
+
 /// Registry of loaded skills keyed by id.
 #[derive(Debug, Clone, Default)]
 pub struct SkillRegistry {
     skills: HashMap<String, SkillEntry>,
+    lowercase_cache: HashMap<String, CachedLowercase>,
 }
 
 impl SkillRegistry {
     pub fn new() -> Self {
         Self {
             skills: HashMap::new(),
+            lowercase_cache: HashMap::new(),
         }
     }
 
     pub fn register(&mut self, skill: SkillEntry) {
         tracing::debug!(skill_id = %skill.id, name = %skill.name, "registered skill");
+        let cached = CachedLowercase {
+            name: skill.name.to_lowercase(),
+            description: skill.description.as_deref().unwrap_or("").to_lowercase(),
+            when_to_use: skill.frontmatter.when_to_use.as_deref().unwrap_or("").to_lowercase(),
+            content: skill.content.to_lowercase(),
+        };
+        self.lowercase_cache.insert(skill.id.clone(), cached);
         self.skills.insert(skill.id.clone(), skill);
+    }
+
+    /// Get the pre-computed lowercase cache for search.
+    pub fn lowercase_cache(&self) -> &HashMap<String, CachedLowercase> {
+        &self.lowercase_cache
     }
 
     pub fn get(&self, id: &str) -> Option<&SkillEntry> {
@@ -129,6 +152,9 @@ impl SkillRegistry {
     /// Merge another registry into this one. Skills from `other` override
     /// those already present with the same ID (regardless of layer).
     pub fn merge_from(&mut self, other: SkillRegistry) {
+        for (id, cached) in other.lowercase_cache {
+            self.lowercase_cache.insert(id, cached);
+        }
         for (id, skill) in other.skills {
             self.skills.insert(id, skill);
         }
@@ -137,6 +163,7 @@ impl SkillRegistry {
     /// Remove all skills whose ID starts with the given prefix.
     pub fn remove_by_prefix(&mut self, prefix: &str) {
         self.skills.retain(|id, _| !id.starts_with(prefix));
+        self.lowercase_cache.retain(|id, _| !id.starts_with(prefix));
     }
 
     /// Return true if the registry contains a skill with the given ID.

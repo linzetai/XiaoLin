@@ -337,6 +337,7 @@ pub struct StreamState {
     pub git_watcher_manager: crate::git_watcher::SharedGitWatcherManager,
     pub pty_manager: Arc<xiaolin_pty::PtySessionManager>,
     pub agent_def_watcher: Option<Arc<crate::agent_def_watcher::AgentDefWatcher>>,
+    pub skill_watcher: Option<Arc<crate::skill_watcher::SkillWatcher>>,
     pub pending_elicitations: Arc<DashMap<String, PendingElicitation>>,
 }
 

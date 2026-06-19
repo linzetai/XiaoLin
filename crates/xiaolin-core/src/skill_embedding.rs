@@ -1,14 +1,22 @@
 use anyhow::Result;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use tokio::sync::RwLock;
+
+type EmbeddingVec = Vec<(String, Vec<f32>)>;
 
 /// Persistent cache of skill embedding vectors, keyed by `(skill_id, content_hash)`.
 ///
 /// When a skill's content changes (different hash), the old embedding is stale and
 /// must be recomputed. The store itself does not depend on any embedding provider;
 /// the gateway layer computes vectors and passes them in.
+///
+/// Maintains an in-memory cache of all embeddings for fast vector search.
+/// The cache is lazily populated on first `search_by_vector` call and
+/// invalidated on `upsert` / `prune`.
 pub struct SkillEmbeddingStore {
     pool: SqlitePool,
+    embedding_cache: RwLock<Option<EmbeddingVec>>,
 }
 
 impl SkillEmbeddingStore {
@@ -26,10 +34,14 @@ impl SkillEmbeddingStore {
         )
         .execute(&pool)
         .await?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            embedding_cache: RwLock::new(None),
+        })
     }
 
     /// Upsert an embedding for a skill. Replaces any existing row for that `skill_id`.
+    /// Invalidates the in-memory cache.
     pub async fn upsert(
         &self,
         skill_id: &str,
@@ -55,6 +67,7 @@ impl SkillEmbeddingStore {
         .bind(norm)
         .execute(&self.pool)
         .await?;
+        *self.embedding_cache.write().await = None;
         Ok(())
     }
 
@@ -93,31 +106,56 @@ impl SkillEmbeddingStore {
     }
 
     /// Search by cosine similarity against all stored embeddings.
+    /// Uses an in-memory cache to avoid repeated SQLite reads.
     /// Returns `(skill_id, similarity_score)` sorted by descending score.
     pub async fn search_by_vector(
         &self,
         query_vec: &[f32],
         limit: usize,
     ) -> Result<Vec<(String, f32)>> {
+        {
+            let guard = self.embedding_cache.read().await;
+            if let Some(ref cached) = *guard {
+                return Ok(Self::score_and_rank(query_vec, cached, limit));
+            }
+        }
+
         let all = self.all_embeddings().await?;
-        let mut scored: Vec<(String, f32)> = all
-            .into_iter()
+        let result = Self::score_and_rank(query_vec, &all, limit);
+        let mut guard = self.embedding_cache.write().await;
+        if guard.is_none() {
+            *guard = Some(all);
+        }
+        Ok(result)
+    }
+
+    fn score_and_rank(
+        query_vec: &[f32],
+        embeddings: &[(String, Vec<f32>)],
+        limit: usize,
+    ) -> Vec<(String, f32)> {
+        let mut scored: Vec<(String, f32)> = embeddings
+            .iter()
             .map(|(id, emb)| {
-                let sim = cosine_similarity(query_vec, &emb);
-                (id, sim)
+                let sim = cosine_similarity(query_vec, emb);
+                (id.clone(), sim)
             })
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(limit);
-        Ok(scored)
+        scored
     }
 
     /// Remove embeddings for skills no longer in the registry.
+    /// Invalidates the in-memory cache.
     pub async fn prune(&self, active_skill_ids: &[&str]) -> Result<u64> {
         if active_skill_ids.is_empty() {
             let r = sqlx::query("DELETE FROM skill_embeddings")
                 .execute(&self.pool)
                 .await?;
+            if r.rows_affected() > 0 {
+                *self.embedding_cache.write().await = None;
+            }
             return Ok(r.rows_affected());
         }
         let placeholders = active_skill_ids
@@ -133,6 +171,9 @@ impl SkillEmbeddingStore {
             query = query.bind(*id);
         }
         let r = query.execute(&self.pool).await?;
+        if r.rows_affected() > 0 {
+            *self.embedding_cache.write().await = None;
+        }
         Ok(r.rows_affected())
     }
 }

@@ -14,6 +14,7 @@ mod memory_scope;
 pub mod notification_store;
 pub mod routes;
 mod scoped_tool;
+pub mod skill_watcher;
 mod state;
 mod ws;
 
