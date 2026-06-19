@@ -3176,6 +3176,7 @@ impl AppState {
                 session_manager: session_manager.clone(),
                 pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
                 agent_def_watcher: None,
+                skill_watcher: None,
                 pending_elicitations: Arc::new(DashMap::new()),
             },
             svc: SharedServices {

@@ -1160,7 +1160,7 @@ mod skill_tool_tests {
             source: None,
         };
         let keywords = vec!["deploy"];
-        let score = compute_relevance(&keywords, &skill);
+        let score = compute_relevance(&keywords, &skill, None);
         assert!(
             score >= 6.0,
             "name + desc + content should score high: {score}"
@@ -1187,7 +1187,7 @@ mod skill_tool_tests {
             source: None,
         };
         let keywords = vec!["deploy"];
-        let score = compute_relevance(&keywords, &skill);
+        let score = compute_relevance(&keywords, &skill, None);
         assert_eq!(score, 0.0);
     }
 
