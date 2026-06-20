@@ -1094,14 +1094,29 @@ export async function setExecutionMode(
 export async function approvePlan(
   sessionId: string,
   mode: "agent" | "plan" = "agent",
-): Promise<{ ok: boolean; from: string; to: string }> {
-  const resp = (await wsClient.send("execution.approve_plan", { sessionId, mode })) as {
-    data?: { ok?: boolean; from?: string; to?: string };
+  options?: { feedback?: string; clearContext?: boolean },
+): Promise<{ ok: boolean; from: string; to: string; newSessionId?: string }> {
+  const resp = (await wsClient.send("execution.approve_plan", { sessionId, mode, ...options })) as {
+    data?: { ok?: boolean; from?: string; to?: string; newSessionId?: string };
   };
   return {
     ok: resp?.data?.ok ?? false,
     from: resp?.data?.from ?? "",
     to: resp?.data?.to ?? "",
+    newSessionId: resp?.data?.newSessionId,
+  };
+}
+
+export async function rejectPlan(
+  sessionId: string,
+  feedback?: string,
+): Promise<{ ok: boolean; feedbackInjected: boolean }> {
+  const resp = (await wsClient.send("execution.reject_plan", { sessionId, feedback })) as {
+    data?: { ok?: boolean; feedbackInjected?: boolean };
+  };
+  return {
+    ok: resp?.data?.ok ?? false,
+    feedbackInjected: resp?.data?.feedbackInjected ?? false,
   };
 }
 

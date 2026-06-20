@@ -367,6 +367,10 @@ pub enum ClientOp {
         session_id: SessionId,
         mode: ExecutionMode,
     },
+    ExecutionRejectPlan {
+        session_id: SessionId,
+        feedback: Option<String>,
+    },
 
     // ── Pub/Sub ─────────────────────────────────────────────────────
     Subscribe {
@@ -889,6 +893,10 @@ impl ClientOp {
                         .unwrap_or(serde_json::json!("agent")),
                 )
                 .map_err(|e| e.to_string())?,
+            }),
+            "execution.reject_plan" => Ok(Self::ExecutionRejectPlan {
+                session_id: extract_session_id(&params)?,
+                feedback: params.get("feedback").and_then(|v| v.as_str()).map(String::from),
             }),
             "subscribe" => Ok(Self::Subscribe {
                 events: params

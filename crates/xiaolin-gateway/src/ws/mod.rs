@@ -605,6 +605,9 @@ async fn dispatch(
         ClientOp::ExecutionApprovePlan { .. } => {
             execution::handle_execution_approve_plan(sender, state, id, req.params, bg_tx).await
         }
+        ClientOp::ExecutionRejectPlan { .. } => {
+            execution::handle_execution_reject_plan(sender, state, id, req.params, bg_tx).await
+        }
         ClientOp::ChatCompact { session_id } => {
             chat::handle_chat_compact(sender, state, id, &session_id, bg_tx).await;
         }
