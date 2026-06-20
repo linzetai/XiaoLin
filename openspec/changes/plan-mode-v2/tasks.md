@@ -1,137 +1,101 @@
-## Milestone 规划
+## Milestone 规划 (Revised — post update_plan)
 
-| Milestone | 包含 Groups | 任务数 | 预估 | 评分目标 |
-|-----------|------------|--------|------|----------|
-| **M1: 基础修复 + 即时提升** | 1, 2, 6, 8 | 19 | ~3d | 30→50 |
-| **M2: 流式渲染 + 视觉完善** | 3, 4, 7 | 25 | ~5d | 50→70 |
-| **M3: 审批增强 + 执行追踪** | 5, 10 | 24 | ~6d | 70→85 |
-| **M4: 容错 + 发现 + 测试** | 11, 12, 9 | 29 | ~4d | 85→95+ |
+| Milestone | 包含内容 | 任务数 | 预估 | 评分目标 |
+|-----------|---------|--------|------|----------|
+| **M1: 审批增强** | Approval Gate v2 + reject_plan | 10 | ~3d | 50→70 |
+| **M2: 视觉完善** | Plan 色彩系统 + Mode 切换动画 | 16 | ~3d | 70→80 |
+| **M3: 状态恢复** | Plan Recovery + 持久化 | 13 | ~3d | 80→88 |
+| **M4: 发现 + Prompt + 测试** | Nudge + Prompt 升级 + E2E | 14 | ~3d | 88→95+ |
+| **执行追踪增强** | 可与 M1-M2 交叉进行 | 8 | ~2d | — |
 
-**依赖关系**: M1 → M2 → M3 → M4 (整体顺序)
-**最高风险**: 3.2-3.3 (JSON 状态机), 5.10 (clearContext session), 10.4 (路径匹配准确率)
+**依赖关系**: M1 → M2 (色彩被审批卡片使用) → M3 → M4
+**已完成基础**: update_plan 结构化步骤, PlanArgInterceptor 流式推送, PlanPanel Markdown+Checklist, 基础审批 (2 按钮)
 
 ---
 
-## 1. Protocol and Bug Fixes
+## DONE: 已完成的基础设施 (Groups 1-4, 13)
 
-- [ ] 1.1 Add AgentEvent::PlanDelta variant in event.rs
-- [ ] 1.2 Add AgentStep::PlanDelta in agent_step.rs
-- [ ] 1.3 Add ClientOp::ExecutionRejectPlan in op.rs
-- [ ] 1.4 Fix PlanFileStore::new(None) in llm_call.rs → use shared instance
-- [ ] 1.5 Fix PlanFileStore::new(None) in end_turn.rs → use shared instance
-- [ ] 1.6 Add optional `content` field to PlanFileUpdate event
-- [ ] 1.7 Update frontend TypeScript types for PlanDelta + PlanFileUpdate content
+以下任务已在 update_plan 实现和之前的 Milestone 1 中完成：
 
-## 2. Phase 1 Content Push
+- [x] ~~1.1~~ AgentEvent::PlanDelta — 已存在于 event.rs
+- [x] ~~1.2~~ AgentStep::PlanDelta — 已存在
+- [x] ~~1.4~~ PlanFileStore shared instance — 已通过 PlanContext 解决
+- [x] ~~1.5~~ PlanFileStore shared instance — 同上
+- [x] ~~1.6~~ PlanFileUpdate.content 字段 — 已存在
+- [x] ~~1.7~~ Frontend types — 已在 types.ts 中定义
+- [x] ~~2.1~~ Backend content push — agent runtime 已发送 content
+- [x] ~~2.2~~ Frontend PlanPanel 使用 content — 通过 onWsEvent 直接消费
+- [x] ~~2.3~~ Fallback to getPlanFile() — 已实现
+- [x] ~~3.1~~ plan_arg_interceptor.rs — 已创建并集成
+- [x] ~~3.2~~ JSON state machine — 已实现
+- [x] ~~3.3~~ JSON string unescaping — 已实现
+- [x] ~~3.4~~ Path-first streaming — 已实现
+- [x] ~~3.5~~ Content-first buffer — 已实现
+- [x] ~~3.6~~ Unit tests — 已有
+- [x] ~~3.7~~ Integrate into llm_call.rs — 已集成
+- [x] ~~4.1~~ Plan delta state — 已在 PlanPanel 中
+- [x] ~~4.2~~ plan_delta WS handler — 已注册
+- [x] ~~4.3~~ Line-commit strategy — 已实现
+- [x] ~~4.4~~ Streaming cursor — 已实现
+- [x] ~~4.5~~ Line fadeSlideIn — 已实现
+- [x] ~~4.6~~ Auto-scroll — 已实现
+- [x] ~~4.7~~ Stream-complete transition — 已实现
+- [x] 13.1–13.12 update_plan 全部完成
 
-- [ ] 2.1 Backend: populate PlanFileUpdate.content after write_file completes
-- [ ] 2.2 Frontend: PlanPanel uses content field from WS event without HTTP refetch
-- [ ] 2.3 Frontend: PlanPanel fallback to getPlanFile() when content field absent
+## CANCELLED: 被 update_plan 替代
 
-## 3. Phase 2 Streaming Interceptor
+- [~] ~~10.1~~ parsePlanSteps from Markdown — 被 update_plan 结构化步骤替代
+- [~] ~~10.2~~ PlanPanel 追踪视图 (markdown checklist) — 被 PlanChecklist 组件替代
+- [~] ~~10.3~~ 文件路径模糊匹配 — 被 update_plan step status 替代
+- [~] ~~10.4~~ write_file 事件自动标记 — 被 LLM 主动调 update_plan 替代
+- [~] ~~10.11~~ 无 Changes 章节降级 — 不再需要 markdown 解析
 
-- [ ] 3.1 Create plan_arg_interceptor.rs module
-- [ ] 3.2 Implement JSON state machine for key/value boundary tracking
-- [ ] 3.3 Implement JSON string unescaping (\n, \t, \", \\, \uXXXX)
-- [ ] 3.4 Implement path-first streaming (path known → emit content deltas)
-- [ ] 3.5 Implement content-first buffer (200 char cap, flush on path match)
-- [ ] 3.6 Unit tests: all escape sequences, cross-chunk boundaries, path order
-- [ ] 3.7 Integrate PlanArgInterceptor into llm_call.rs tool call accumulation loop
+---
 
-## 4. Frontend Streaming
+## M1: 审批增强 (Approval Gate v2)
 
-- [ ] 4.1 Plan delta state in stream-store.ts (buffer, stableContent, isStreaming)
-- [ ] 4.2 plan_delta WS handler in useMessageStreamChat.ts
-- [ ] 4.3 PlanPanel line-commit strategy (commit on \n, buffer otherwise)
-- [ ] 4.4 PlanPanel streaming cursor (2px blink animation, 0.8s cycle)
-- [ ] 4.5 PlanPanel new-line fadeSlideIn animation (0.15s ease-out)
-- [ ] 4.6 PlanPanel auto-scroll with user-interrupt detection
-- [ ] 4.7 PlanPanel stream-complete → static transition (remove cursor, use final content)
+核心目标：将 2 按钮审批升级为完整 5 选项交互
 
-## 5. Approval Gate Enhancement
-
+- [ ] 1.3 Backend: ClientOp::ExecutionRejectPlan in op.rs
 - [ ] 5.1 PlanApprovalCard: Plan 全文 Markdown 默认展开 (max-h 600px)
-- [ ] 5.2 PlanApprovalCard: 「开始实施」按钮 + 发送引导消息
-- [ ] 5.3 PlanApprovalCard: 「清除上下文并实施」按钮 + 上下文使用率 % 显示
-- [ ] 5.4 PlanApprovalCard: 「继续规划」按钮
-- [ ] 5.5 PlanApprovalCard: 「给反馈后继续」→ 展开多行输入框 (Enter/Shift+Enter/Esc)
-- [ ] 5.6 PlanApprovalCard: 「在编辑器中打开」→ Tauri opener 集成
-- [ ] 5.7 PlanApprovalCard: 「记住选择」复选框 + localStorage 持久化
+- [ ] 5.3 PlanApprovalCard:「清除上下文并实施」按钮 + 上下文使用率 % 显示
+- [ ] 5.5 PlanApprovalCard:「给反馈后继续」→ 展开多行输入框 (Enter/Shift+Enter/Esc)
+- [ ] 5.6 PlanApprovalCard:「在编辑器中打开」→ Tauri opener 集成
+- [ ] 5.7 PlanApprovalCard:「记住选择」复选框 + localStorage 持久化
 - [ ] 5.8 PlanApprovalCard: 审批后卡片状态更新 (已审批 + 操作描述 + 按钮禁用)
 - [ ] 5.9 Backend: approvePlan API 新增 feedback 参数 → 注入用户消息
 - [ ] 5.10 Backend: approvePlan API 新增 clearContext 参数 → 新建 session + plan 注入
 - [ ] 5.11 Backend: gateway reject_plan handler (保持 Plan + 发送反馈消息)
-- [ ] 5.12 PlanApprovalCard: 使用 --plan-tint-* 替代 var(--tint)
 
-## 6. Plan 色系统
+## M2: 视觉完善 (Color System + Mode Entry)
+
+核心目标：Plan 模式有独立视觉身份，切换体验流畅
+
+### 色彩系统
 
 - [ ] 6.1 index.css: 定义 --plan-tint-* CSS tokens (light theme)
 - [ ] 6.2 index.css: 定义 --plan-tint-* CSS tokens (dark theme)
 - [ ] 6.3 ModeSelector: Plan 选项色从 oklch(56% 0.18 310) 改为 var(--plan-tint)
 - [ ] 6.4 Plan Banner: 样式从 var(--tint) 改为 var(--plan-tint-*)
 - [ ] 6.5 PlanPanel: 头部样式从 var(--tint) 改为 var(--plan-tint-*)
+- [ ] 5.12 PlanApprovalCard: 使用 --plan-tint-* 替代 var(--tint)
 
-## 7. Mode Entry and Visual
+### Mode Entry & Visual
 
 - [ ] 7.1 Synthetic user message on UI mode switch (ModeSelector → Plan)
 - [ ] 7.2 Plan mode message left border (2px --plan-tint-border)
-- [ ] 7.3 Plan mode message badge (🧭 Plan, 8px font, --plan-tint)
+- [ ] 7.3 Plan mode message badge (Plan, 8px font, --plan-tint)
 - [ ] 7.4 Composer border color: transition to --plan-tint-border in Plan mode (300ms)
 - [ ] 7.5 Mode switch animation: Plan Banner slideDown/fadeOut (200ms/150ms)
 - [ ] 7.6 PlanPanel auto-open on first plan_file_update (with slideFromRight)
 - [ ] 7.7 PlanPanel no auto-open after user manual close
-- [ ] 7.8 enter_plan_mode tool result: 简洁状态行 (● 已进入 Plan 模式)
-- [ ] 7.9 exit_plan_mode tool result (no plan): 简洁状态行 (● 已退出 Plan 模式)
-- [ ] 7.10 write_file plan: 工具结果简化为「方案已更新」hint + 查看链接
+- [ ] 7.8 enter_plan_mode tool result: 简洁状态行 (已进入 Plan 模式)
+- [ ] 7.9 exit_plan_mode tool result (no plan): 简洁状态行 (已退出 Plan 模式)
 - [ ] 7.11 Plan mode Composer placeholder: "探索代码、讨论方案...（只读模式）"
 
-## 8. Prompt Upgrade
+## M3: 状态恢复 (Plan Recovery)
 
-- [ ] 8.1 mode_attachments.rs: plan_full_en rewrite (three-phase workflow)
-- [ ] 8.2 mode_attachments.rs: plan_sparse_en rewrite (concise reminder)
-- [ ] 8.3 Plan mode tool prompts update (enter/exit_plan_mode)
-- [ ] 8.4 Demote todo_write in plan mode tool profile
-
-## 9. Integration Tests
-
-- [ ] 9.1 E2E: PlanDelta events flow (backend → WS → frontend)
-- [ ] 9.2 E2E: Phase 1 content push (plan_file_update with content)
-- [ ] 9.3 E2E: Approval gate 5 options (implement, clear+implement, continue, feedback, editor)
-- [ ] 9.4 E2E: PlanFileStore path consistency across crate boundaries
-- [ ] 9.5 E2E: todo_write unavailability in plan mode
-- [ ] 9.6 E2E: Plan color system consistency (--plan-tint applied everywhere)
-
-## 10. Plan Execution Tracking
-
-- [ ] 10.1 Frontend: parsePlanSteps() — 从 `## Changes` 章节自动提取步骤到 checklist
-- [ ] 10.2 Frontend: PlanPanel 追踪视图 — checklist + 进度条 + 折叠方案全文
-- [ ] 10.3 Frontend: 文件路径模糊匹配逻辑（相对路径 vs 绝对路径尾部匹配）
-- [ ] 10.4 Frontend: write_file/edit_file 工具结果事件 → 自动标记步骤完成
-- [ ] 10.5 Frontend: 手动点击步骤状态图标切换（○ → ✅ → ○）
-- [ ] 10.6 Frontend: 全部步骤完成 → 显示 "🎉 方案已全部实施" + 建议运行测试
-- [ ] 10.7 Frontend: PlanPanel 模式切换时保持可见（Agent 模式 + plan 存在时不关闭）
-- [ ] 10.8 Backend: compact_boundary_plan_reference — Compact 后重注入 plan 全文
-- [ ] 10.9 Backend: sparse_implementation_reminder — 每 5 轮注入 plan 进度提醒
-- [ ] 10.10 Backend: approvePlan 审批后注入引导消息（保持上下文 / 清除上下文两种路径）
-- [ ] 10.11 Frontend: checklist 无 Changes 章节时降级为纯 Markdown 展示
-- [ ] 10.12 E2E: 执行追踪全流程（审批 → checklist 显示 → write_file → 步骤标记 → 完成检测）
-
-## 13. update_plan 结构化步骤工具（替代 Markdown 解析方案）
-
-- [x] 13.1 Protocol: PlanStepStatus 枚举 + PlanStep 结构体 (xiaolin-protocol/src/event.rs)
-- [x] 13.2 Protocol: AgentEvent::PlanUpdate 事件变体 + turn_id() 匹配
-- [x] 13.3 Protocol: pub use PlanStep, PlanStepStatus (lib.rs)
-- [x] 13.4 Backend: UpdatePlanTool 实现 (builtin_tools/update_plan.rs)
-- [x] 13.5 Backend: PlanStepStore 内存存储 (update/snapshot)
-- [x] 13.6 Backend: 工具注册到 ToolRegistry (mod.rs + builder.rs)
-- [x] 13.7 Backend: plan_mode.rs prompt 更新 (update_plan 列入可用工具)
-- [x] 13.8 Frontend: PlanStep/PlanStepStatus/PlanUpdateData 类型 (types.ts)
-- [x] 13.9 Frontend: "plan_update" 事件注册 (transport.ts + useMessageStreamChat.ts)
-- [x] 13.10 Frontend: PlanChecklist 组件 (进度条 + 步骤列表 + 状态图标)
-- [x] 13.11 Frontend: StepIcon 组件 (Circle/CircleNotch/CheckCircle)
-- [x] 13.12 E2E: dev 测试验证 update_plan → PlanPanel checklist 渲染
-
-## 11. Plan Recovery
+核心目标：页面刷新、断线重连后 plan 状态完整恢复
 
 - [ ] 11.1 Backend: execution.get_plan_meta RPC handler (查 PlanFileStore + 检查文件 + 查 Registry)
 - [ ] 11.2 Backend: infer_mode_from_last_message fallback (从最近消息推断模式)
@@ -147,15 +111,40 @@
 - [ ] 11.12 E2E: 页面刷新后 PlanPanel + mode 恢复验证
 - [ ] 11.13 E2E: Session 删除后 plan 文件不存在验证
 
-## 12. Plan Nudge / Discovery
+## M4: 发现 + Prompt + 测试
+
+### Prompt 升级
+
+- [ ] 8.1 mode_attachments.rs: plan_full_en rewrite (three-phase workflow, reference update_plan)
+- [ ] 8.2 mode_attachments.rs: plan_sparse_en rewrite (concise reminder)
+- [ ] 8.3 Plan mode tool prompts update (enter/exit_plan_mode descriptions)
+- [ ] 8.4 Demote todo_write in plan mode tool profile
+
+### Plan Discovery (Nudge)
 
 - [ ] 12.1 Frontend: usePlanNudge hook (关键词检测 + 复杂度启发式 + 首次使用教育)
 - [ ] 12.2 Frontend: containsPlanKeyword() — 中英文关键词匹配 (word boundary)
 - [ ] 12.3 Frontend: detectComplexity() — 多维度启发式 (长度 + 列表 + @引用 + 动词)
 - [ ] 12.4 Frontend: PlanNudge 内联提示条组件 (plan-tint 样式 + slideDown/fadeOut 动画)
-- [ ] 12.5 Frontend: Nudge dismiss 逻辑 (Esc/✕/发送/清空/超时消退)
-- [ ] 12.6 Frontend: Nudge localStorage 持久化 (dismissed rules, ever-used, last-shown, education-count)
-- [ ] 12.7 Frontend: Nudge 频率控制 (per-session + 全局限制 + 5分钟间隔)
-- [ ] 12.8 Frontend: Ctrl+Shift+P 快捷键注册 (MentionInput handleKeyDown)
-- [ ] 12.9 Frontend: Plan 模式进入时标记 "xiaolin:plan-mode-ever-used"
-- [ ] 12.10 E2E: 关键词输入 → nudge 显示 → 点击切换 → 进入 Plan 模式
+- [ ] 12.5 Frontend: Nudge dismiss + 频率控制
+- [ ] 12.8 Frontend: Ctrl+Shift+P 快捷键注册
+
+### E2E 集成测试
+
+- [ ] 9.1 E2E: update_plan → plan_update event → PlanChecklist 渲染
+- [ ] 9.2 E2E: PlanDelta streaming (write_file → plan_delta → PlanPanel 实时更新)
+- [ ] 9.3 E2E: Approval gate 5 options 完整交互
+- [ ] 9.4 E2E: Plan mode 恢复 (刷新 + 重连)
+
+## 执行追踪增强 (可与 M1-M2 交叉)
+
+这些任务增强 update_plan 的执行追踪体验：
+
+- [ ] 10.5 Frontend: 手动点击步骤状态图标切换（○ → ✅ → ○）
+- [ ] 10.6 Frontend: 全部步骤完成 → 显示 "方案已全部实施" + 建议运行测试
+- [ ] 10.7 Frontend: PlanPanel 模式切换时保持可见（Agent 模式 + plan 存在时不关闭）
+- [ ] 10.8 Backend: compact_boundary_plan_reference — Compact 后重注入 plan 全文
+- [ ] 10.9 Backend: sparse_implementation_reminder — 每 5 轮注入 plan 进度提醒
+- [ ] 10.10 Backend: approvePlan 审批后注入引导消息（保持上下文 / 清除上下文两种路径）
+- [ ] 10.12 E2E: 执行追踪全流程（update_plan → checklist 显示 → 步骤标记 → 完成检测）
+- [ ] 7.10 write_file plan: 工具结果简化为「方案已更新」hint + 查看链接
