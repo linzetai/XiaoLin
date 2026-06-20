@@ -300,6 +300,7 @@ impl Tool for EnterPlanModeTool {
 - shell_exec with READONLY commands only (ls, cat, grep, git status, cargo check)\n\
 - web_search, web_fetch (research)\n\
 - todo_write (planning)\n\
+- update_plan (structured step tracking with status)\n\
 - task_create (delegate exploration)\n\n\
 **Blocked tools (write/edit/execute):**\n\
 - write_file, edit_file, multi_edit, apply_patch (file modifications)\n\

@@ -116,6 +116,21 @@
 - [ ] 10.11 Frontend: checklist 无 Changes 章节时降级为纯 Markdown 展示
 - [ ] 10.12 E2E: 执行追踪全流程（审批 → checklist 显示 → write_file → 步骤标记 → 完成检测）
 
+## 13. update_plan 结构化步骤工具（替代 Markdown 解析方案）
+
+- [x] 13.1 Protocol: PlanStepStatus 枚举 + PlanStep 结构体 (xiaolin-protocol/src/event.rs)
+- [x] 13.2 Protocol: AgentEvent::PlanUpdate 事件变体 + turn_id() 匹配
+- [x] 13.3 Protocol: pub use PlanStep, PlanStepStatus (lib.rs)
+- [x] 13.4 Backend: UpdatePlanTool 实现 (builtin_tools/update_plan.rs)
+- [x] 13.5 Backend: PlanStepStore 内存存储 (update/snapshot)
+- [x] 13.6 Backend: 工具注册到 ToolRegistry (mod.rs + builder.rs)
+- [x] 13.7 Backend: plan_mode.rs prompt 更新 (update_plan 列入可用工具)
+- [x] 13.8 Frontend: PlanStep/PlanStepStatus/PlanUpdateData 类型 (types.ts)
+- [x] 13.9 Frontend: "plan_update" 事件注册 (transport.ts + useMessageStreamChat.ts)
+- [x] 13.10 Frontend: PlanChecklist 组件 (进度条 + 步骤列表 + 状态图标)
+- [x] 13.11 Frontend: StepIcon 组件 (Circle/CircleNotch/CheckCircle)
+- [x] 13.12 E2E: dev 测试验证 update_plan → PlanPanel checklist 渲染
+
 ## 11. Plan Recovery
 
 - [ ] 11.1 Backend: execution.get_plan_meta RPC handler (查 PlanFileStore + 检查文件 + 查 Registry)

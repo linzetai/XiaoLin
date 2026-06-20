@@ -635,6 +635,8 @@ const CHAT_EVENT_TYPES = [
   "compact_boundary",
   "mode_change",
   "plan_file_update",
+  "plan_delta",
+  "plan_update",
   "sub_agent_start",
   "sub_agent_delta",
   "sub_agent_tool_executing",

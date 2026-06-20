@@ -21,7 +21,7 @@
   "notCreated": "(not created) ",
   "planFile": "Plan file: {{path}}",
   "placeholderStreaming": "Append instructions...",
-  "placeholderPlan": "Describe planning task, or type /plan to switch to Agent...",
+  "placeholderPlan": "Explore code, discuss approach... (read-only mode)",
   "placeholderDefault": "Describe a task, or type @ to reference files, / for commands...",
   "attachFile": "Attach file ({{shortcut}})",
   "stopGenerate": "Stop generating",

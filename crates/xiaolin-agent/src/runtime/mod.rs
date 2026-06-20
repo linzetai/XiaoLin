@@ -24,6 +24,7 @@ use crate::llm::LlmProvider;
 use base64::Engine as _;
 
 mod accumulator;
+pub(crate) mod plan_arg_interceptor;
 pub mod agent_context;
 pub mod agent_step;
 pub mod api_errors;

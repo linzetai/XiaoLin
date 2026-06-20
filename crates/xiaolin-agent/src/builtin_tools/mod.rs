@@ -19,6 +19,7 @@ pub mod team;
 pub mod terminal;
 mod todo;
 mod tool_search;
+pub mod update_plan;
 mod utility;
 pub mod worker;
 pub mod workflow;
@@ -35,6 +36,7 @@ use xiaolin_core::workspace::AgentWorkspace;
 use xiaolin_session::SessionStore;
 
 pub use ask_question::{with_interaction_handle, with_steer_inbox, with_stream_context, AskQuestionTool, SteerInbox, STEER_INBOX};
+pub(crate) use ask_question::{ASK_QUESTION_STREAM_KEY, TASK_INTERACTION_HANDLE};
 pub use brief::BriefTool;
 pub use xiaolin_tools_code::code_intel::{
     CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
@@ -85,6 +87,7 @@ pub use task::{
 pub use xiaolin_tools_fs::terminal::TerminalCaptureTool;
 pub use todo::{TodoItem, TodoReadTool, TodoStatus, TodoStore, TodoWriteTool};
 pub use tool_search::ToolSearchTool;
+pub use update_plan::{PlanStepStore, UpdatePlanTool};
 pub use utility::{CurrentTimeTool, SleepTool};
 pub use workflow::{WorkflowDefinition, WorkflowRun, WorkflowStatus, WorkflowStore, WorkflowTool};
 pub use xiaolin_tools_fs::worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
@@ -230,6 +233,16 @@ pub fn register_brief_tool(
 pub fn register_todo_tools(registry: &ToolRegistry, store: TodoStore) {
     registry.register(Arc::new(TodoWriteTool::new(store.clone())));
     registry.register(Arc::new(TodoReadTool::new(store)));
+}
+
+pub fn register_update_plan_tool(
+    registry: &ToolRegistry,
+    stream_event_txs: std::sync::Arc<
+        dashmap::DashMap<String, tokio::sync::mpsc::Sender<xiaolin_protocol::AgentEvent>>,
+    >,
+    store: PlanStepStore,
+) {
+    registry.register(Arc::new(UpdatePlanTool::new(stream_event_txs, store)));
 }
 
 /// Register task management tools (create, list, get, stop).

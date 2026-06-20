@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { GitBranch, Crosshair, Terminal, Robot } from "@phosphor-icons/react";
+import { GitBranch, Crosshair, Terminal, Robot, FileText } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -9,6 +9,7 @@ import { ReviewTabContent, ReviewTabFooter } from "./ReviewTabContent";
 import { GoalTabContent } from "./GoalPanel";
 import { TerminalTabContent } from "./TerminalTabContent";
 import { SubAgentsTabContent } from "./CoordinatorPanel";
+import { PlanTabContent } from "../message-stream/PlanPanel";
 import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const terminalSessions = useTerminalStore((s) => s.sessions);
   const subAgentRuns = useActiveSubAgentRuns();
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
+  const activeChat = useChatMetaStore((s) => s.chats[s.activeChatId]);
   const prevChatRef = useRef(activeChatId);
 
   useEffect(() => {
@@ -73,6 +75,27 @@ export function AppShell({ children }: { children: ReactNode }) {
       unregisterTab("subagents");
     }
   }, [subAgentRuns, registerTab, unregisterTab]);
+
+  // Plan tab — show when plan mode is active or plan file exists
+  const isPlanMode = activeChat?.executionMode === "plan";
+  const hasPlanFile = activeChat?.planFileExists === true;
+  useEffect(() => {
+    if (isPlanMode || hasPlanFile) {
+      registerTab({
+        id: "plan",
+        label: "Plan",
+        icon: FileText,
+        component: PlanTabContent,
+        order: 0,
+      });
+      const { activeTabId: currentTab, panelOpen } = useWorkspaceTabs.getState();
+      if (currentTab !== "plan" && !panelOpen) {
+        useWorkspaceTabs.getState().setActiveTab("plan");
+      }
+    } else {
+      unregisterTab("plan");
+    }
+  }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
 
   useEffect(() => {
     if (!gitStatus?.isGitRepo) return;

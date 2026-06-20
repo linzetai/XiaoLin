@@ -589,20 +589,21 @@ export function ComposerCore({
       <div
         className="input-box overflow-hidden"
         style={{
-          border: "1.5px solid var(--bg-input-border)",
+          border: `1.5px solid ${executionMode === "plan" ? "var(--plan-tint-border)" : "var(--bg-input-border)"}`,
           borderRadius: 12,
           background: "var(--bg-card)",
-          transition: "border-color 0.15s, box-shadow 0.15s",
+          transition: "border-color 0.3s, box-shadow 0.15s",
         }}
         onFocusCapture={(e) => {
           const box = e.currentTarget;
-          box.style.borderColor = "var(--accent, var(--tint))";
-          box.style.boxShadow = "0 0 0 3px color-mix(in srgb, var(--accent, var(--tint)) 8%, transparent)";
+          const tint = executionMode === "plan" ? "var(--plan-tint)" : "var(--accent, var(--tint))";
+          box.style.borderColor = tint;
+          box.style.boxShadow = `0 0 0 3px color-mix(in srgb, ${tint} 8%, transparent)`;
         }}
         onBlurCapture={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             const box = e.currentTarget;
-            box.style.borderColor = "var(--bg-input-border)";
+            box.style.borderColor = executionMode === "plan" ? "var(--plan-tint-border)" : "var(--bg-input-border)";
             box.style.boxShadow = "none";
           }
         }}
@@ -636,7 +637,12 @@ export function ComposerCore({
           <button
             type="button" onClick={onTogglePlanPanel}
             className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:brightness-110"
-            style={{ background: "var(--plan-tint-bg)", borderBottom: "0.5px solid var(--plan-tint-border)", color: "var(--plan-tint)" }}
+            style={{
+              background: "var(--plan-tint-bg)",
+              borderBottom: "0.5px solid var(--plan-tint-border)",
+              color: "var(--plan-tint)",
+              animation: "slide-down var(--duration-normal, 200ms) var(--ease-out, ease-out)",
+            }}
           >
             <Compass size={ICON_SIZE.md} className="shrink-0" />
             <span className="min-w-0 truncate">

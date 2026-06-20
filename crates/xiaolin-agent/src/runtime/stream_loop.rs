@@ -31,11 +31,21 @@ impl AgentRuntime {
     ) -> impl Stream<Item = AgentStep> + Send + 'static {
         // Capture task-locals before tokio::spawn so they survive the
         // task boundary. The session_bridge wraps the call site with
-        // with_session_mode / SUBAGENT_SESSION_ID, but tokio::spawn
-        // creates a fresh task that loses all task-locals.
+        // with_session_mode / SUBAGENT_SESSION_ID / with_stream_context /
+        // with_interaction_handle, but tokio::spawn creates a fresh task
+        // that loses all task-locals.
         let captured_mode_state = crate::builtin_tools::current_session_mode();
         let captured_plan_ctx = crate::builtin_tools::current_plan_context();
         let captured_session_id = crate::subagent::SUBAGENT_SESSION_ID
+            .try_with(|s| s.clone())
+            .ok();
+        let captured_stream_key = crate::builtin_tools::ASK_QUESTION_STREAM_KEY
+            .try_with(|k| k.clone())
+            .ok();
+        let captured_interaction_handle = crate::builtin_tools::TASK_INTERACTION_HANDLE
+            .try_with(|h| h.clone())
+            .ok();
+        let captured_steer_inbox = crate::builtin_tools::STEER_INBOX
             .try_with(|s| s.clone())
             .ok();
 
@@ -64,10 +74,31 @@ impl AgentRuntime {
                     file_cache,
                     with_mode,
                 );
-                if let Some(sid) = captured_session_id {
-                    crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_fsc).await
+                let with_sid = if let Some(sid) = captured_session_id {
+                    futures::future::Either::Left(
+                        crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_fsc),
+                    )
                 } else {
-                    with_fsc.await
+                    futures::future::Either::Right(with_fsc)
+                };
+                let with_ih = if let Some(ih) = captured_interaction_handle {
+                    futures::future::Either::Left(
+                        crate::builtin_tools::TASK_INTERACTION_HANDLE.scope(ih, with_sid),
+                    )
+                } else {
+                    futures::future::Either::Right(with_sid)
+                };
+                let with_steer = if let Some(inbox) = captured_steer_inbox {
+                    futures::future::Either::Left(
+                        crate::builtin_tools::STEER_INBOX.scope(inbox, with_ih),
+                    )
+                } else {
+                    futures::future::Either::Right(with_ih)
+                };
+                if let Some(key) = captured_stream_key {
+                    crate::builtin_tools::ASK_QUESTION_STREAM_KEY.scope(key, with_steer).await
+                } else {
+                    with_steer.await
                 }
             });
 

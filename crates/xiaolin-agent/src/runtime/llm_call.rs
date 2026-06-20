@@ -192,6 +192,15 @@ pub(crate) async fn perform_llm_call(
     let mut last_finish_reason: Option<String> = None;
     let mut withheld_prompt_too_long: Option<String> = None;
 
+    // PlanArgInterceptor: extracts plan content deltas from write_file arguments
+    let mut plan_interceptor = svc.plan_file_path.as_ref().and_then(|pfp| {
+        if svc.mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
+            Some(super::plan_arg_interceptor::PlanArgInterceptor::new(pfp.clone()))
+        } else {
+            None
+        }
+    });
+
     // Streaming tool execution: create executor and track submission state.
     // A new executor is created per iteration since it's consumed via drain_remaining().
     let streaming_exec_enabled = svc.config.behavior.streaming_tool_execution;
@@ -556,6 +565,45 @@ pub(crate) async fn perform_llm_call(
                             }
                         }
                         accumulate_tool_call(&mut tool_call_accum, tc_delta);
+
+                        // Feed argument deltas to the PlanArgInterceptor
+                        if let Some(ref mut interceptor) = plan_interceptor {
+                            let idx = tc_delta.index as usize;
+                            // Notify interceptor when tool name becomes known
+                            if let Some(ref func) = tc_delta.function {
+                                if let Some(ref name) = func.name {
+                                    if !name.is_empty() {
+                                        interceptor.on_tool_start(name);
+                                    }
+                                }
+                                // Feed argument chunk
+                                if let Some(ref args) = func.arguments {
+                                    if !args.is_empty() {
+                                        let deltas = interceptor.feed(args);
+                                        for d in deltas {
+                                            let _ = send_step(
+                                                &svc.step_tx,
+                                                AgentStep::PlanDelta {
+                                                    turn_id: svc.turn_id.clone(),
+                                                    delta: d,
+                                                },
+                                                true,
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                }
+                            }
+                            // Reset interceptor when a new tool index starts
+                            if idx > 0 && tool_call_accum.len() == idx + 1 {
+                                interceptor.reset();
+                                if let Some(acc) = tool_call_accum.get(idx) {
+                                    if !acc.name.is_empty() {
+                                        interceptor.on_tool_start(&acc.name);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

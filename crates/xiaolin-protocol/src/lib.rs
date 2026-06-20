@@ -13,7 +13,8 @@ pub use approval::{ApprovalDecision, PendingAction};
 pub use envelope::Envelope;
 pub use event::{
     AbortReason, AgentEvent, CompletionSummary, ContextWarningLevel, ErrorCode, GuardianOutcome,
-    RiskLevel, ToolCallData, ToolCallFunction, TurnContextItem, TurnSummary, WarningCategory,
+    PlanStep, PlanStepStatus, RiskLevel, ToolCallData, ToolCallFunction, TurnContextItem,
+    TurnSummary, WarningCategory,
 };
 pub use history::HistoryItem;
 pub use id::{AgentId, MessageId, SessionId, SubmissionId, ToolCallId, TurnId};

@@ -504,9 +504,11 @@ export function AppSidebar() {
   }, [filteredChats, projects]);
 
   const handleNewChat = useCallback(() => {
-    newChat();
+    const activeChat = chatList.find((c) => c.id === activeChatId);
+    const defaultWorkDir = activeChat?.workDir ?? projects[0]?.rootPath ?? undefined;
+    newChat(defaultWorkDir);
     setMainView("chat");
-  }, [newChat, setMainView]);
+  }, [newChat, setMainView, chatList, activeChatId, projects]);
 
   const handleSelectChat = useCallback((chatId: string) => {
     setActiveChat(chatId);

@@ -147,6 +147,12 @@ impl StreamingToolExecutor {
 
         let captured_mode_state = crate::builtin_tools::current_session_mode();
         let captured_plan_ctx = crate::builtin_tools::current_plan_context();
+        let captured_stream_key = crate::builtin_tools::ASK_QUESTION_STREAM_KEY
+            .try_with(|k| k.clone())
+            .ok();
+        let captured_interaction_handle = crate::builtin_tools::TASK_INTERACTION_HANDLE
+            .try_with(|h| h.clone())
+            .ok();
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
@@ -207,10 +213,24 @@ impl StreamingToolExecutor {
                     } else {
                         futures::future::Either::Right(tool_fut)
                     };
-                    if let Some(sid) = captured_session_id {
-                        crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode).await
+                    let with_sid = if let Some(sid) = captured_session_id {
+                        futures::future::Either::Left(
+                            crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode),
+                        )
                     } else {
-                        with_mode.await
+                        futures::future::Either::Right(with_mode)
+                    };
+                    let with_ih = if let Some(ih) = captured_interaction_handle {
+                        futures::future::Either::Left(
+                            crate::builtin_tools::TASK_INTERACTION_HANDLE.scope(ih, with_sid),
+                        )
+                    } else {
+                        futures::future::Either::Right(with_sid)
+                    };
+                    if let Some(key) = captured_stream_key {
+                        crate::builtin_tools::ASK_QUESTION_STREAM_KEY.scope(key, with_ih).await
+                    } else {
+                        with_ih.await
                     }
                 } => r,
             };

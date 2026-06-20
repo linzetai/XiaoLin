@@ -30,6 +30,26 @@ pub enum AbortReason {
     BudgetLimited,
 }
 
+/// Status of a plan step (used by `update_plan` tool).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+/// A single step in a structured plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct PlanStep {
+    pub step: String,
+    pub status: PlanStepStatus,
+}
+
 /// Structured error codes for agent events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -310,6 +330,14 @@ pub enum AgentEvent {
         turn_id: TurnId,
         delta: String,
     },
+    /// Structured plan update from `update_plan` tool.
+    PlanUpdate {
+        turn_id: TurnId,
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        explanation: Option<String>,
+        steps: Vec<PlanStep>,
+    },
 
     // ── Sub-agent events ────────────────────────────────────────────
     SubAgentStart {
@@ -463,6 +491,7 @@ impl AgentEvent {
             | Self::ModeChange { turn_id, .. }
             | Self::PlanFileUpdate { turn_id, .. }
             | Self::PlanDelta { turn_id, .. }
+            | Self::PlanUpdate { turn_id, .. }
             | Self::SubAgentStart { turn_id, .. }
             | Self::SubAgentDelta { turn_id, .. }
             | Self::SubAgentToolExecuting { turn_id, .. }

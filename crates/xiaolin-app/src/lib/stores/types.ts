@@ -113,6 +113,18 @@ export interface ChatUsage {
 
 export type ExecutionMode = "agent" | "plan";
 
+export type PlanStepStatus = "pending" | "in_progress" | "completed";
+
+export interface PlanStep {
+  step: string;
+  status: PlanStepStatus;
+}
+
+export interface PlanUpdateData {
+  explanation?: string;
+  steps: PlanStep[];
+}
+
 export type GoalStatus =
   | "active"
   | "completed"

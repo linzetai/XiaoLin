@@ -700,6 +700,14 @@ export function useMessageStreamChat({
             }
             break;
           }
+          case "plan_delta": {
+            // Handled directly by PlanPanel via onWsEvent subscription
+            break;
+          }
+          case "plan_update": {
+            // Handled directly by PlanPanel via onWsEvent subscription
+            break;
+          }
           case "goal_updated": {
             handleGoalUpdatedForChat(event, capturedChatId);
             break;

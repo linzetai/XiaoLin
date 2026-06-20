@@ -1538,3 +1538,18 @@ mark[data-search-highlight="current"] {
 .ansi-green { color: var(--ansi-green); }
 .ansi-yellow { color: var(--ansi-yellow); }
 .ansi-blue { color: var(--ansi-blue); }
+
+/* Plan panel streaming cursor blink */
+@keyframes plan-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Plan panel new line fadeSlideIn */
+.plan-panel-content > * {
+  animation: plan-line-in 0.15s ease-out;
+}
+@keyframes plan-line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

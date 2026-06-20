@@ -20,7 +20,6 @@ import { MessageRendererRow } from "./MessageRenderer";
 
 import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
-import { PlanPanel } from "./PlanPanel";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
@@ -32,6 +31,7 @@ import { StickyContextBar } from "./StickyContextBar";
 import { GoalStatusCard } from "../chat/GoalStatusCard";
 import { parseTodoResult, type TodoSummary } from "./TodoCard";
 import { ICON_SIZE } from "../../lib/ui-tokens";
+import { useWorkspaceTabs } from "../shell/workspace-tabs";
 
 interface MessageStreamProps {
   onToggleDetail?: () => void;
@@ -631,8 +631,16 @@ export function MessageStream(_props: MessageStreamProps) {
   }, [lastUserMessage, handleMentionSend]);
 
   const isEmpty = stream.length === 0 && !streaming;
-  const [showPlanPanel, setShowPlanPanel] = useState(false);
-  const togglePlanPanel = useCallback(() => setShowPlanPanel((v) => !v), []);
+  const togglePlanPanel = useCallback(() => {
+    const { tabs, panelOpen, activeTabId: curTab } = useWorkspaceTabs.getState();
+    const hasPlanTab = tabs.some((t) => t.id === "plan");
+    if (!hasPlanTab) return;
+    if (panelOpen && curTab === "plan") {
+      useWorkspaceTabs.getState().togglePanel();
+    } else {
+      useWorkspaceTabs.getState().setActiveTab("plan");
+    }
+  }, []);
 
   const chatSessionId = activeChatMeta?.id ?? "";
   const planFilePath = activeChatMeta?.planFilePath;
@@ -942,16 +950,6 @@ export function MessageStream(_props: MessageStreamProps) {
       )}
     </div>
 
-    {showPlanPanel && chatSessionId && (
-      <div style={{ width: 360, minWidth: 360 }} className="shrink-0">
-        <PlanPanel
-          sessionId={chatSessionId}
-          planFilePath={planFilePath}
-          planFileExists={planFileExists}
-          onClose={() => setShowPlanPanel(false)}
-        />
-      </div>
-    )}
     </div>
     </div>
   );

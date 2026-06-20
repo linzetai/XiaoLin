@@ -21,7 +21,7 @@
   "notCreated": "(未创建) ",
   "planFile": "计划文件: {{path}}",
   "placeholderStreaming": "追加指令...",
-  "placeholderPlan": "描述规划任务，或输入 /plan 切换到 Agent...",
+  "placeholderPlan": "探索代码、讨论方案...（只读模式）",
   "placeholderDefault": "描述任务，或输入 @ 引用文件、/ 命令...",
   "attachFile": "附加文件 ({{shortcut}})",
   "stopGenerate": "停止生成",
