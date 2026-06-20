@@ -75,9 +75,9 @@ impl Default for TimeoutConfig {
     }
 }
 
-fn build_openai_http_client(timeouts: &TimeoutConfig) -> reqwest::Client {
+fn build_openai_http_client_with_ua(timeouts: &TimeoutConfig, user_agent: &str) -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("XiaoLin/0.1.0")
+        .user_agent(user_agent.to_string())
         .connect_timeout(Duration::from_millis(timeouts.connect_timeout_ms))
         .timeout(Duration::from_millis(timeouts.request_timeout_ms))
         .build()
@@ -298,6 +298,27 @@ pub struct OpenAiProvider {
     retry: RetryConfig,
     /// Limits concurrent in-flight HTTP requests for this provider instance.
     pub concurrency_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    /// Provider-specific quirks (e.g. Kimi requires temperature=1).
+    quirks: ProviderQuirks,
+}
+
+/// Provider-specific behavior overrides detected from base_url at construction time.
+#[derive(Debug, Clone, Default)]
+struct ProviderQuirks {
+    /// Force temperature to this value (Kimi requires 1.0).
+    force_temperature: Option<f32>,
+}
+
+impl ProviderQuirks {
+    fn detect(base_url: &str) -> Self {
+        if base_url.contains("kimi.com") {
+            Self {
+                force_temperature: Some(1.0),
+            }
+        } else {
+            Self::default()
+        }
+    }
 }
 
 impl OpenAiProvider {
@@ -328,13 +349,20 @@ impl OpenAiProvider {
             request_timeout_ms: timeouts.stream_timeout_ms,
             stream_timeout_ms: timeouts.stream_timeout_ms,
         };
+        let quirks = ProviderQuirks::detect(base_url);
+        let ua = if base_url.contains("kimi.com") {
+            "claude-code/1.0.0"
+        } else {
+            "XiaoLin/0.1.0"
+        };
         Self {
-            client: build_openai_http_client(&timeouts),
-            stream_client: build_openai_http_client(&stream_timeouts),
+            client: build_openai_http_client_with_ua(&timeouts, ua),
+            stream_client: build_openai_http_client_with_ua(&stream_timeouts, ua),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             retry,
             concurrency_semaphore,
+            quirks,
         }
     }
 
@@ -347,10 +375,14 @@ impl OpenAiProvider {
         } else {
             None
         };
+        let temperature = self
+            .quirks
+            .force_temperature
+            .unwrap_or(params.temperature);
         OpenAiRequest {
             model: params.model,
             messages: params.messages,
-            temperature: params.temperature,
+            temperature,
             max_tokens: params.max_tokens,
             stream,
             stream_options,
@@ -417,6 +449,12 @@ impl OpenAiProvider {
                         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                         continue;
                     }
+                    tracing::error!(
+                        status = %status,
+                        error_code = ?classified.error_code,
+                        technical_detail = %classified.technical_detail,
+                        "OpenAI chat stream connection failed (non-retryable)"
+                    );
                     return Err(classified.into());
                 }
                 Err(e) => {
@@ -628,10 +666,10 @@ impl LlmProvider for OpenAiProvider {
                     while let Some(pos) = line_buf.find('\n') {
                         let line: String = line_buf.drain(..=pos).collect();
                         let line = line.trim().to_string();
-                        if line.is_empty() || !line.starts_with("data: ") {
+                        if line.is_empty() || !line.starts_with("data:") {
                             continue;
                         }
-                        let data = &line[6..];
+                        let data = line.strip_prefix("data: ").unwrap_or(&line[5..]);
                         if data == "[DONE]" {
                             continue;
                         }
@@ -809,8 +847,13 @@ impl AnthropicProvider {
         max_concurrent_requests: Option<u32>,
     ) -> Self {
         let n = max_concurrent_requests.unwrap_or(10).max(1) as usize;
+        let ua = if base_url.contains("kimi.com") {
+            "claude-code/1.0.0"
+        } else {
+            "XiaoLin/0.1.0"
+        };
         let client = reqwest::Client::builder()
-            .user_agent("XiaoLin/0.1.0")
+            .user_agent(ua)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
@@ -1188,10 +1231,10 @@ impl LlmProvider for AnthropicProvider {
                             continue;
                         }
 
-                        if !line.starts_with("data: ") {
+                        if !line.starts_with("data:") {
                             continue;
                         }
-                        let data = &line[6..];
+                        let data = line.strip_prefix("data: ").unwrap_or(&line[5..]);
 
                         match current_event.as_str() {
                             "message_start" => {

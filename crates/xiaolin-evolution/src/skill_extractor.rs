@@ -191,6 +191,7 @@ impl SkillExtractor {
         llm: &dyn LlmExtractionCallback,
     ) -> Result<Vec<ExtractedSkill>> {
         let mut base = self.extract_skills(trajectories);
+        let mut consecutive_failures = 0u32;
         for sk in &mut base {
             let cluster: Vec<&Trajectory> = trajectories
                 .iter()
@@ -199,17 +200,27 @@ impl SkillExtractor {
             let summary = summarize_trajectory_cluster(&sk.task_pattern, &cluster);
             match llm.extract_pattern(&summary).await {
                 Ok(p) => {
+                    consecutive_failures = 0;
                     sk.name = p.name;
                     sk.task_pattern = p.task_pattern;
                     sk.strategy_template = p.strategy_template;
                     sk.parameters = p.parameters;
                 }
                 Err(e) => {
+                    consecutive_failures += 1;
                     tracing::warn!(
                         error = %e,
                         skill_id = %sk.id,
                         "LLM skill pattern extraction failed; keeping rule-based fields"
                     );
+                    if consecutive_failures >= 3 {
+                        tracing::warn!(
+                            consecutive_failures,
+                            remaining = base.len().saturating_sub(1),
+                            "aborting LLM skill extraction: too many consecutive failures (likely quota exhausted)"
+                        );
+                        break;
+                    }
                 }
             }
         }
