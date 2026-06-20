@@ -169,27 +169,51 @@ pub struct TracingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvolutionRuntimeConfig {
+    /// Master switch for LLM-enhanced skill extraction. Default: disabled.
+    #[serde(default)]
+    pub skill_extraction_enabled: bool,
     /// How often to scan recent trajectories and extract candidate skills (seconds). Zero disables.
     #[serde(default = "default_skill_extraction_interval_secs")]
     pub skill_extraction_interval_secs: u64,
     /// How often to run skill store maintenance (promote / retire) (seconds). Zero disables.
     #[serde(default = "default_skill_maintenance_interval_secs")]
     pub skill_maintenance_interval_secs: u64,
+    /// Model to use for skill extraction LLM calls. None = use the system default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_extraction_model: Option<String>,
+    /// Max LLM calls per calendar day for skill extraction. Default: 50.
+    #[serde(default = "default_skill_extraction_daily_limit")]
+    pub skill_extraction_daily_limit: u32,
+    /// Number of new successful trajectories before triggering extraction. Default: 10.
+    #[serde(default = "default_skill_extraction_trigger_count")]
+    pub skill_extraction_trigger_count: u32,
 }
 
 fn default_skill_extraction_interval_secs() -> u64 {
-    600
+    3600
 }
 
 fn default_skill_maintenance_interval_secs() -> u64 {
     300
 }
 
+fn default_skill_extraction_daily_limit() -> u32 {
+    50
+}
+
+fn default_skill_extraction_trigger_count() -> u32 {
+    10
+}
+
 impl Default for EvolutionRuntimeConfig {
     fn default() -> Self {
         Self {
+            skill_extraction_enabled: false,
             skill_extraction_interval_secs: default_skill_extraction_interval_secs(),
             skill_maintenance_interval_secs: default_skill_maintenance_interval_secs(),
+            skill_extraction_model: None,
+            skill_extraction_daily_limit: default_skill_extraction_daily_limit(),
+            skill_extraction_trigger_count: default_skill_extraction_trigger_count(),
         }
     }
 }

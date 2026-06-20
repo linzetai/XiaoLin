@@ -831,39 +831,93 @@ impl AppState {
 
         let skill_store_ex = self.store.skill_store.clone();
         let trajectory_store_ex = self.store.trajectory_store.clone();
+        let extraction_model = self
+            .cfg
+            .config
+            .evolution
+            .skill_extraction_model
+            .clone()
+            .unwrap_or_else(|| {
+                self.cfg
+                    .config
+                    .agents
+                    .list
+                    .first()
+                    .and_then(|a| a.model.clone())
+                    .or_else(|| {
+                        self.cfg.config.models.values().next().map(|m| m.model.clone())
+                    })
+                    .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string())
+            });
+        let extraction_provider: Arc<dyn xiaolin_agent::LlmProvider> = self
+            .resolve_extraction_provider(&extraction_model)
+            .unwrap_or_else(|| self.rt.runtime.default_provider_arc());
         let llm_for_extraction = Arc::new(LlmSkillExtraction {
-            provider: self.rt.runtime.default_provider_arc(),
-            model: self
-                .cfg
-                .config
-                .agents
-                .list
-                .first()
-                .and_then(|a| a.model.clone())
-                .or_else(|| {
-                    self.cfg.config.models.values().next().map(|m| m.model.clone())
-                })
-                .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string()),
+            provider: extraction_provider,
+            model: extraction_model,
         });
+        let extraction_enabled = self.cfg.config.evolution.skill_extraction_enabled;
         let extraction_secs = self.cfg.config.evolution.skill_extraction_interval_secs;
-        if extraction_secs > 0 {
+        let daily_limit = self.cfg.config.evolution.skill_extraction_daily_limit;
+        let trigger_count = self.cfg.config.evolution.skill_extraction_trigger_count as usize;
+        if extraction_enabled && extraction_secs > 0 {
             tokio::spawn(async move {
                 let mut interval =
                     tokio::time::interval(std::time::Duration::from_secs(extraction_secs.max(1)));
                 interval.tick().await;
+                let mut daily_calls: u32 = 0;
+                let mut last_reset_day = chrono::Utc::now().date_naive();
+                let mut seen_fingerprints: std::collections::HashSet<u64> =
+                    std::collections::HashSet::new();
+                let mut last_seen_trajectory_ids: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 loop {
                     interval.tick().await;
+                    // Reset daily counter at day boundary
+                    let today = chrono::Utc::now().date_naive();
+                    if today != last_reset_day {
+                        daily_calls = 0;
+                        last_reset_day = today;
+                    }
+                    if daily_calls >= daily_limit {
+                        tracing::debug!(daily_calls, daily_limit, "skill extraction: daily limit reached, skipping");
+                        continue;
+                    }
                     match trajectory_store_ex.get_recent_successful_global(200).await {
                         Ok(trajs) if !trajs.is_empty() => {
+                            // Skip if no new trajectories since last extraction
+                            let current_ids: std::collections::HashSet<String> =
+                                trajs.iter().map(|t| t.id.clone()).collect();
+                            let new_count = current_ids.difference(&last_seen_trajectory_ids).count();
+                            if new_count == 0 {
+                                tracing::debug!("skill extraction: no new trajectories, skipping");
+                                continue;
+                            }
+                            if new_count < trigger_count {
+                                tracing::debug!(new_count, trigger_count, "skill extraction: below trigger threshold, skipping");
+                                continue;
+                            }
+                            last_seen_trajectory_ids = current_ids;
                             let extractor = SkillExtractor::default();
+                            let remaining_budget = daily_limit.saturating_sub(daily_calls);
                             let extracted = match extractor
-                                .extract_skills_with_llm(&trajs, llm_for_extraction.as_ref())
+                                .extract_skills_with_llm_budgeted(
+                                    &trajs,
+                                    llm_for_extraction.as_ref(),
+                                    remaining_budget,
+                                    &seen_fingerprints,
+                                )
                                 .await
                             {
-                                Ok(skills) => {
+                                Ok((skills, calls_made, new_fps)) => {
+                                    daily_calls += calls_made;
+                                    seen_fingerprints.extend(new_fps);
                                     tracing::info!(
                                         trajectories = trajs.len(),
                                         candidates = skills.len(),
+                                        llm_calls = calls_made,
+                                        daily_calls,
+                                        daily_limit,
                                         "skill extraction pass (LLM-enhanced)"
                                     );
                                     skills
@@ -910,7 +964,14 @@ impl AppState {
             });
             tracing::info!(
                 interval_secs = extraction_secs,
+                daily_limit,
                 "skill extraction background task started"
+            );
+        } else {
+            tracing::info!(
+                enabled = extraction_enabled,
+                interval_secs = extraction_secs,
+                "skill extraction background task disabled"
             );
         }
     }
@@ -2867,6 +2928,59 @@ impl AppState {
             default_refreshed,
             "agent hot-reload: refreshed runtime provider map"
         );
+    }
+
+    /// Resolve the correct LLM provider for a given extraction model name.
+    /// Looks up the model in `config.models` and creates a provider with matching credentials.
+    /// Returns `None` if the model maps to the default provider or cannot be resolved.
+    fn resolve_extraction_provider(
+        &self,
+        model_name: &str,
+    ) -> Option<Arc<dyn xiaolin_agent::LlmProvider>> {
+        let credentials = self.current_credentials_snapshot();
+        for (key, cfg) in &self.cfg.config.models {
+            if cfg.model != model_name {
+                continue;
+            }
+            let provider_type = if cfg.provider.is_empty() {
+                key.as_str()
+            } else {
+                cfg.provider.as_str()
+            };
+            let base_url = cfg.base_url.as_deref();
+            let api_key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
+                .or_else(|| credentials.get_api_key(key))
+                .or_else(|| credentials.get_api_key(provider_type));
+            let base_url_resolved = base_url
+                .or_else(|| credentials.get_base_url(key))
+                .or_else(|| credentials.get_base_url(provider_type));
+            match create_provider_with_credentials(
+                provider_type,
+                base_url_resolved,
+                api_key,
+                Some(&credentials),
+                None,
+            ) {
+                Ok(p) => {
+                    tracing::info!(
+                        model = model_name,
+                        provider = provider_type,
+                        "skill extraction: resolved dedicated provider"
+                    );
+                    return Some(Arc::from(p));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        model = model_name,
+                        provider = provider_type,
+                        "skill extraction: failed to create provider, falling back to default"
+                    );
+                    return None;
+                }
+            }
+        }
+        None
     }
 
     pub(crate) fn current_credentials_snapshot(&self) -> xiaolin_core::config::CredentialsConfig {

@@ -190,14 +190,42 @@ impl SkillExtractor {
         trajectories: &[Trajectory],
         llm: &dyn LlmExtractionCallback,
     ) -> Result<Vec<ExtractedSkill>> {
+        let (skills, _, _) = self
+            .extract_skills_with_llm_budgeted(trajectories, llm, u32::MAX, &std::collections::HashSet::new())
+            .await?;
+        Ok(skills)
+    }
+
+    /// Like [`Self::extract_skills_with_llm`] but respects a call budget and skips clusters
+    /// whose fingerprint is already in `seen_fingerprints`.
+    ///
+    /// Returns `(skills, llm_calls_made, new_fingerprints)`.
+    pub async fn extract_skills_with_llm_budgeted(
+        &self,
+        trajectories: &[Trajectory],
+        llm: &dyn LlmExtractionCallback,
+        budget: u32,
+        seen_fingerprints: &std::collections::HashSet<u64>,
+    ) -> Result<(Vec<ExtractedSkill>, u32, Vec<u64>)> {
         let mut base = self.extract_skills(trajectories);
         let mut consecutive_failures = 0u32;
+        let mut calls_made = 0u32;
+        let mut new_fingerprints = Vec::new();
         for sk in &mut base {
+            let fp = cluster_fingerprint(&sk.source_trajectory_ids);
+            if seen_fingerprints.contains(&fp) {
+                continue;
+            }
+            if calls_made >= budget {
+                tracing::debug!(calls_made, budget, "skill extraction: budget exhausted");
+                break;
+            }
             let cluster: Vec<&Trajectory> = trajectories
                 .iter()
                 .filter(|t| sk.source_trajectory_ids.contains(&t.id))
                 .collect();
             let summary = summarize_trajectory_cluster(&sk.task_pattern, &cluster);
+            calls_made += 1;
             match llm.extract_pattern(&summary).await {
                 Ok(p) => {
                     consecutive_failures = 0;
@@ -205,6 +233,7 @@ impl SkillExtractor {
                     sk.task_pattern = p.task_pattern;
                     sk.strategy_template = p.strategy_template;
                     sk.parameters = p.parameters;
+                    new_fingerprints.push(fp);
                 }
                 Err(e) => {
                     consecutive_failures += 1;
@@ -224,7 +253,7 @@ impl SkillExtractor {
                 }
             }
         }
-        Ok(base)
+        Ok((base, calls_made, new_fingerprints))
     }
 }
 
@@ -346,6 +375,16 @@ fn infer_parameters(cluster: &[&Trajectory], pattern: &[String]) -> Vec<SkillPar
     }
 
     params
+}
+
+/// Compute a stable fingerprint for a set of trajectory IDs to enable deduplication.
+pub fn cluster_fingerprint(trajectory_ids: &[String]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut sorted = trajectory_ids.to_vec();
+    sorted.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    sorted.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn lcs_len(a: &[String], b: &[String]) -> usize {

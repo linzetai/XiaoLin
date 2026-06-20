@@ -511,6 +511,15 @@ impl StateBuilder {
         );
         tracing::info!("registered plan mode tools (enter/exit_plan_mode)");
 
+        // Structured plan step tracking (update_plan)
+        let plan_step_store = xiaolin_agent::builtin_tools::PlanStepStore::new();
+        xiaolin_agent::builtin_tools::register_update_plan_tool(
+            &p3.tool_registry,
+            stream_event_tx.clone(),
+            plan_step_store.clone(),
+        );
+        tracing::info!("registered update_plan tool");
+
         // Legacy PTY interactive terminal tools (deprecated)
         let legacy_pty_manager = Arc::new(
             xiaolin_agent::builtin_tools::exec_command::PtySessionManager::with_default_timeout(),

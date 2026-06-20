@@ -15,6 +15,7 @@ pub use feedback::{Feedback, FeedbackKind, FeedbackStore, InteractionSignal};
 pub use skill_extractor::{
     ExtractedSkill, LlmExtractedPattern, LlmExtractionCallback, PatternObservation, PatternTracker,
     QualityVerdict, SkillExtractor, SkillParam, SkillQualityValidator, SkillStatus,
+    cluster_fingerprint,
 };
 pub use skill_store::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, MaintenanceReport, SkillStore,

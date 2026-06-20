@@ -130,6 +130,8 @@ export function GeneralTab() {
           </div>
         </div>
       )}
+
+      <SkillExtractionSection />
     </div>
   );
 }
@@ -258,6 +260,110 @@ function DisplaySection() {
             ))}
           </div>
         </SettingRow>
+      </div>
+    </div>
+  );
+}
+
+function SkillExtractionSection() {
+  const { t } = useTranslation("settings");
+  const [enabled, setEnabled] = useState(false);
+  const [model, setModel] = useState("");
+  const [dailyLimit, setDailyLimit] = useState(50);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.getConfig("evolution").then((data) => {
+      const cfg = (data as { value?: Record<string, unknown> })?.value ?? data;
+      if (cfg && typeof cfg === "object") {
+        const c = cfg as Record<string, unknown>;
+        if ("skillExtractionEnabled" in c) setEnabled(!!c.skillExtractionEnabled);
+        if ("skillExtractionModel" in c && typeof c.skillExtractionModel === "string") setModel(c.skillExtractionModel);
+        if ("skillExtractionDailyLimit" in c && typeof c.skillExtractionDailyLimit === "number") setDailyLimit(c.skillExtractionDailyLimit);
+      }
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+
+  const saveEnabled = useCallback(async (val: boolean) => {
+    setEnabled(val);
+    await api.setConfig("evolution.skillExtractionEnabled", val);
+  }, []);
+
+  const saveModel = useCallback(async (val: string) => {
+    setModel(val);
+    await api.setConfig("evolution.skillExtractionModel", val || null);
+  }, []);
+
+  const saveLimit = useCallback(async (val: number) => {
+    const n = Math.max(1, Math.min(500, val));
+    setDailyLimit(n);
+    await api.setConfig("evolution.skillExtractionDailyLimit", n);
+  }, []);
+
+  if (!loaded) return null;
+
+  return (
+    <div>
+      <SectionTitle>{t("skillExtraction", "技能学习")}</SectionTitle>
+      <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
+        <SettingRow
+          label={t("skillExtractionEnabled", "自动提取技能")}
+          description={t("skillExtractionEnabledDesc", "从对话历史中自动学习使用模式（消耗 LLM 额度）")}
+        >
+          <Toggle enabled={enabled} onChange={() => saveEnabled(!enabled)} />
+        </SettingRow>
+        {enabled && (
+          <>
+            <SettingRow
+              label={t("skillExtractionModel", "提取模型")}
+              description={t("skillExtractionModelDesc", "留空则使用系统默认模型")}
+            >
+              <input
+                type="text"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                onBlur={() => saveModel(model)}
+                placeholder="deepseek/deepseek-v4-flash"
+                className="w-[180px] rounded-[var(--radius-xs)] border px-2 py-1 text-[12px]"
+                style={{
+                  borderColor: "var(--separator)",
+                  background: "var(--bg-tertiary)",
+                  color: "var(--fill-primary)",
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("skillExtractionDailyLimit", "每日上限")}
+              description={t("skillExtractionDailyLimitDesc", "每天最多 LLM 调用次数")}
+              isLast
+            >
+              <input
+                type="number"
+                value={dailyLimit}
+                onChange={(e) => setDailyLimit(Number(e.target.value))}
+                onBlur={() => saveLimit(dailyLimit)}
+                min={1}
+                max={500}
+                className="w-[80px] rounded-[var(--radius-xs)] border px-2 py-1 text-center text-[12px]"
+                style={{
+                  borderColor: "var(--separator)",
+                  background: "var(--bg-tertiary)",
+                  color: "var(--fill-primary)",
+                }}
+              />
+            </SettingRow>
+          </>
+        )}
+        {!enabled && (
+          <SettingRow
+            label=""
+            description={t("skillExtractionDisabledHint", "开启后将定期从对话历史中提取可复用的操作模式")}
+            isLast
+          >
+            <span />
+          </SettingRow>
+        )}
       </div>
     </div>
   );
