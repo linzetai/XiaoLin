@@ -19,7 +19,7 @@
 - [x] 3.1 在 trajectory 写入时递增计数器
 - [x] 3.2 计数器达到阈值时触发提取（替代纯定时器）
 - [x] 3.3 保留定时器作为 fallback（3600s），但仅在有新轨迹时执行
-- [ ] 3.4 `evolution.skill_extraction_trigger_count: u32`（默认 10）
+- [x] 3.4 `evolution.skill_extraction_trigger_count: u32`（默认 10）
 
 ## 4. 模型路由
 
@@ -43,5 +43,5 @@
 ## 7. 闭环验证
 
 - [x] 7.1 dev 测试：默认关闭时无后台 LLM 调用
-- [ ] 7.2 dev 测试：开启后仅新 cluster 触发 LLM
-- [ ] 7.3 dev 测试：达到日限额后停止 LLM 调用
+- [x] 7.2 dev 测试：开启后仅新 cluster 触发 LLM
+- [x] 7.3 dev 测试：达到日限额后停止 LLM 调用
