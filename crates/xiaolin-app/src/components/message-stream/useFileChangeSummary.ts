@@ -10,16 +10,17 @@ export function useFileChangeSummary(
   return useMemo(() => {
     const results: string[] = [];
 
+    const FILE_TOOLS = new Set(["edit_file", "write_file", "create_file", "multi_edit", "apply_patch", "str_replace_editor"]);
     if (savedSegments && savedSegments.length > 0) {
       for (const seg of savedSegments) {
         const tc = seg.toolCall;
-        if (tc?.name === "edit_file" && tc.result) {
+        if (tc && FILE_TOOLS.has(tc.name) && tc.result) {
           results.push(tc.result);
         }
       }
     } else if (toolCalls) {
       for (const tc of toolCalls) {
-        if (tc.name === "edit_file" && tc.result) {
+        if (FILE_TOOLS.has(tc.name) && tc.result) {
           results.push(tc.result);
         }
       }

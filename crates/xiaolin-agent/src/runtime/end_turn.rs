@@ -251,16 +251,14 @@ pub(crate) async fn handle_end_turn(
     // but exit_plan_mode was never called (so frontend can show approval card).
     if let Some(ref mode_state) = svc.mode_state {
         if mode_state.current_mode() == ExecutionMode::Plan {
-            let ps = crate::builtin_tools::PlanFileStore::new(None);
-            let has_plan = svc.session_id.as_ref().is_some_and(|sid| ps.plan_exists(sid));
+            let has_plan = svc.plan_file_path.as_ref().is_some_and(|p| p.exists());
             if !has_plan {
                 mode_state.transition(ExecutionMode::Agent);
                 tracing::info!(
                     agent_id = %svc.config.agent_id,
                     "auto-exited Plan mode — no plan file produced, returning to Agent mode"
                 );
-            } else if let Some(sid) = svc.session_id.as_ref() {
-                let path = ps.plan_path(sid);
+            } else if let (Some(sid), Some(path)) = (svc.session_id.as_ref(), svc.plan_file_path.as_ref()) {
                 tracing::info!(
                     agent_id = %svc.config.agent_id,
                     path = %path.display(),
@@ -273,6 +271,7 @@ pub(crate) async fn handle_end_turn(
                         session_id: sid.clone(),
                         path: path.to_string_lossy().to_string(),
                         exists: true,
+                        content: tokio::fs::read_to_string(path).await.ok(),
                     },
                     false,
                 )

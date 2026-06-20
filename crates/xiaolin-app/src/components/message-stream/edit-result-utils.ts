@@ -11,7 +11,7 @@ export interface EditResult {
 export function parseEditResult(result: string): EditResult | null {
   try {
     const parsed = JSON.parse(result);
-    if (parsed.edited === true) {
+    if (parsed.edited === true || parsed.created === true || parsed.written === true || parsed.patched === true) {
       const path = parsed.file_path || parsed.path;
       if (!path) return null;
 
@@ -29,7 +29,7 @@ export function parseEditResult(result: string): EditResult | null {
       return {
         edited: true,
         path,
-        replacements: parsed.replacements ?? 1,
+        replacements: parsed.replacements ?? parsed.edits_applied ?? 1,
         bytes: parsed.bytes ?? 0,
         diffStat: parsed.diffStat ?? "",
         linesAdded,

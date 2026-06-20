@@ -303,6 +303,12 @@ pub enum AgentEvent {
         session_id: String,
         path: String,
         exists: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        content: Option<String>,
+    },
+    PlanDelta {
+        turn_id: TurnId,
+        delta: String,
     },
 
     // ── Sub-agent events ────────────────────────────────────────────
@@ -456,6 +462,7 @@ impl AgentEvent {
             | Self::CompactBoundary { turn_id, .. }
             | Self::ModeChange { turn_id, .. }
             | Self::PlanFileUpdate { turn_id, .. }
+            | Self::PlanDelta { turn_id, .. }
             | Self::SubAgentStart { turn_id, .. }
             | Self::SubAgentDelta { turn_id, .. }
             | Self::SubAgentToolExecuting { turn_id, .. }

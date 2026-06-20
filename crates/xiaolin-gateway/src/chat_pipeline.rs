@@ -641,7 +641,23 @@ async fn inject_skills_prompt(
     let agent_skill_reg = state.skill_registry_for(agent_id);
     let skills_cfg = &state.cfg.config.skills;
 
-    let touched = xiaolin_core::skill::extract_touched_paths(messages);
+    let mut touched = xiaolin_core::skill::extract_touched_paths(messages);
+    if touched.is_empty() {
+        let state_dir = xiaolin_core::paths::resolve_state_dir_from(Some(&state.cfg.config.paths));
+        let ws_root = state
+            .rt
+            .workspaces
+            .get(agent_id)
+            .map(|ws| ws.root.clone())
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or(state_dir)
+            });
+        let ws_files = xiaolin_core::skill::scan_workspace_top_files(&ws_root, 50);
+        if !ws_files.is_empty() {
+            tracing::debug!(count = ws_files.len(), "first-turn workspace file scan for conditional skills");
+        }
+        touched = ws_files;
+    }
     let touched_refs: Vec<&str> = touched.iter().map(|s| s.as_str()).collect();
     let effective_reg = agent_skill_reg.filter_for_paths(&touched_refs);
 

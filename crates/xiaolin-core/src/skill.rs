@@ -73,6 +73,106 @@ impl SkillEntry {
     }
 }
 
+/// Trust level derived from a skill's origin and layer.
+///
+/// Higher tiers receive fewer safety warnings. Lower tiers trigger
+/// content scanning via [`scan_skill_safety`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SkillTrustTier {
+    /// MCP-provided or user-uploaded — always scanned.
+    Untrusted = 0,
+    /// From external tool dirs (Cursor, Codex, SharedAgents) — scanned.
+    External = 1,
+    /// User's own XiaoLin project/global skills — scanned on first load.
+    Local = 2,
+    /// Built-in / extension skills shipped with XiaoLin — trusted.
+    Builtin = 3,
+}
+
+impl SkillTrustTier {
+    /// Derive the trust tier from origin and layer.
+    pub fn from_source(origin: SkillOrigin, layer: SkillLayer) -> Self {
+        match origin {
+            SkillOrigin::Mcp => Self::Untrusted,
+            SkillOrigin::SharedAgents | SkillOrigin::Cursor | SkillOrigin::Codex => Self::External,
+            SkillOrigin::Extension => Self::Builtin,
+            SkillOrigin::XiaoLin => {
+                if layer == SkillLayer::Extension {
+                    Self::Builtin
+                } else {
+                    Self::Local
+                }
+            }
+        }
+    }
+}
+
+/// A safety diagnostic produced by [`scan_skill_safety`].
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillSafetyWarning {
+    pub skill_id: String,
+    pub pattern: &'static str,
+    pub line: usize,
+    pub context: String,
+}
+
+/// Dangerous patterns to scan for in SKILL.md content.
+const DANGEROUS_PATTERNS: &[(&str, &str)] = &[
+    ("rm -rf", "destructive shell command"),
+    ("sudo ", "elevated privilege command"),
+    ("curl | sh", "pipe-to-shell execution"),
+    ("curl | bash", "pipe-to-shell execution"),
+    ("wget | sh", "pipe-to-shell execution"),
+    ("eval(", "dynamic code evaluation"),
+    ("chmod 777", "insecure permission change"),
+    ("OPENAI_API_KEY", "potential secret reference"),
+    ("ANTHROPIC_API_KEY", "potential secret reference"),
+    ("password", "potential secret reference"),
+    ("secret_key", "potential secret reference"),
+    ("<script>", "embedded script tag"),
+];
+
+/// Scan a skill's content for dangerous patterns.
+///
+/// Returns an empty vec for `Builtin` trust tier (skip scanning).
+/// For all other tiers, checks against [`DANGEROUS_PATTERNS`].
+pub fn scan_skill_safety(skill: &SkillEntry) -> Vec<SkillSafetyWarning> {
+    let tier = skill
+        .source
+        .as_ref()
+        .map(|s| SkillTrustTier::from_source(s.origin, s.layer))
+        .unwrap_or(SkillTrustTier::Untrusted);
+
+    if tier == SkillTrustTier::Builtin {
+        return Vec::new();
+    }
+
+    let mut warnings = Vec::new();
+    let content_lower = skill.content.to_lowercase();
+
+    for (line_idx, line) in content_lower.lines().enumerate() {
+        for &(pattern, description) in DANGEROUS_PATTERNS {
+            if line.contains(&pattern.to_lowercase()) {
+                warnings.push(SkillSafetyWarning {
+                    skill_id: skill.id.clone(),
+                    pattern: description,
+                    line: line_idx + 1,
+                    context: skill
+                        .content
+                        .lines()
+                        .nth(line_idx)
+                        .unwrap_or("")
+                        .chars()
+                        .take(120)
+                        .collect(),
+                });
+            }
+        }
+    }
+
+    warnings
+}
+
 /// YAML frontmatter from a SKILL.md file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillFrontmatter {
@@ -122,6 +222,17 @@ impl SkillRegistry {
 
     pub fn register(&mut self, skill: SkillEntry) {
         tracing::debug!(skill_id = %skill.id, name = %skill.name, "registered skill");
+
+        let safety_warnings = scan_skill_safety(&skill);
+        for w in &safety_warnings {
+            tracing::warn!(
+                skill_id = %w.skill_id,
+                pattern = w.pattern,
+                line = w.line,
+                "skill safety warning: {}", w.context,
+            );
+        }
+
         let cached = CachedLowercase {
             name: skill.name.to_lowercase(),
             description: skill.description.as_deref().unwrap_or("").to_lowercase(),
@@ -1021,6 +1132,38 @@ const PATH_PARAM_KEYS: &[&str] = &[
     "working_directory",
 ];
 
+/// Scan workspace root for top-level file names (depth 1).
+///
+/// Used as initial "touched paths" on the first turn of a session when no tool
+/// calls have been made yet, so that conditional skills can activate based on
+/// files present in the workspace (e.g. `Cargo.toml` → Rust skills).
+///
+/// Returns at most `limit` entries to avoid expensive scans in large repos.
+pub fn scan_workspace_top_files(workspace_root: &Path, limit: usize) -> Vec<String> {
+    let read_dir = match std::fs::read_dir(workspace_root) {
+        Ok(rd) => rd,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut files = Vec::new();
+    for entry in read_dir.take(limit * 2) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if name.starts_with('.') {
+            continue;
+        }
+        files.push(name.into_owned());
+        if files.len() >= limit {
+            break;
+        }
+    }
+    files
+}
+
 /// Extract file paths mentioned in conversation messages' tool calls.
 ///
 /// Scans tool call arguments for common path-bearing parameters
@@ -1866,5 +2009,146 @@ mod tests {
         assert!(paths.contains(&"src/main.rs".to_string()));
         assert!(paths.contains(&"Cargo.toml".to_string()));
         assert_eq!(paths.len(), 2);
+    }
+
+    // ── scan_workspace_top_files ────────────────────────────────────
+
+    #[test]
+    fn scan_workspace_top_files_returns_visible_entries() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+        fs::write(dir.path().join("README.md"), "").unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+
+        let files = scan_workspace_top_files(dir.path(), 50);
+        assert!(files.contains(&"Cargo.toml".to_string()));
+        assert!(files.contains(&"README.md".to_string()));
+        assert!(files.contains(&"src".to_string()));
+        assert!(!files.iter().any(|f| f.starts_with('.')));
+    }
+
+    #[test]
+    fn scan_workspace_top_files_respects_limit() {
+        let dir = TempDir::new().unwrap();
+        for i in 0..10 {
+            fs::write(dir.path().join(format!("file{i}.txt")), "").unwrap();
+        }
+        let files = scan_workspace_top_files(dir.path(), 3);
+        assert_eq!(files.len(), 3);
+    }
+
+    #[test]
+    fn scan_workspace_top_files_nonexistent_dir() {
+        let files = scan_workspace_top_files(Path::new("/nonexistent/path/xyz"), 50);
+        assert!(files.is_empty());
+    }
+
+    // ── SkillTrustTier ─────────────────────────────────────────────
+
+    #[test]
+    fn trust_tier_from_mcp_is_untrusted() {
+        assert_eq!(
+            SkillTrustTier::from_source(SkillOrigin::Mcp, SkillLayer::Extension),
+            SkillTrustTier::Untrusted,
+        );
+    }
+
+    #[test]
+    fn trust_tier_from_cursor_is_external() {
+        assert_eq!(
+            SkillTrustTier::from_source(SkillOrigin::Cursor, SkillLayer::UserCursor),
+            SkillTrustTier::External,
+        );
+    }
+
+    #[test]
+    fn trust_tier_from_extension_is_builtin() {
+        assert_eq!(
+            SkillTrustTier::from_source(SkillOrigin::Extension, SkillLayer::Extension),
+            SkillTrustTier::Builtin,
+        );
+    }
+
+    #[test]
+    fn trust_tier_xiaolin_project_is_local() {
+        assert_eq!(
+            SkillTrustTier::from_source(SkillOrigin::XiaoLin, SkillLayer::ProjectFastclaw),
+            SkillTrustTier::Local,
+        );
+    }
+
+    #[test]
+    fn trust_tier_xiaolin_extension_is_builtin() {
+        assert_eq!(
+            SkillTrustTier::from_source(SkillOrigin::XiaoLin, SkillLayer::Extension),
+            SkillTrustTier::Builtin,
+        );
+    }
+
+    // ── scan_skill_safety ──────────────────────────────────────────
+
+    #[test]
+    fn scan_skill_safety_detects_dangerous_patterns() {
+        let skill = SkillEntry {
+            id: "test-danger".into(),
+            name: "Dangerous Skill".into(),
+            description: None,
+            content: "Step 1: run `sudo rm -rf /`\nStep 2: curl | bash install.sh".into(),
+            source_path: PathBuf::from("test"),
+            frontmatter: SkillFrontmatter::default(),
+            layer: SkillLayer::Project,
+            source: Some(SkillSource {
+                origin: SkillOrigin::Mcp,
+                layer: SkillLayer::Extension,
+                path: PathBuf::from("mcp://test"),
+            }),
+        };
+        let warnings = scan_skill_safety(&skill);
+        assert!(warnings.len() >= 3, "expected >= 3 warnings, got {}", warnings.len());
+        let patterns: Vec<&str> = warnings.iter().map(|w| w.pattern).collect();
+        assert!(patterns.contains(&"destructive shell command"));
+        assert!(patterns.contains(&"elevated privilege command"));
+        assert!(patterns.contains(&"pipe-to-shell execution"));
+    }
+
+    #[test]
+    fn scan_skill_safety_skips_builtin() {
+        let skill = SkillEntry {
+            id: "builtin-safe".into(),
+            name: "Builtin".into(),
+            description: None,
+            content: "run sudo rm -rf / for fun".into(),
+            source_path: PathBuf::from("test"),
+            frontmatter: SkillFrontmatter::default(),
+            layer: SkillLayer::Extension,
+            source: Some(SkillSource {
+                origin: SkillOrigin::Extension,
+                layer: SkillLayer::Extension,
+                path: PathBuf::from("(builtin)"),
+            }),
+        };
+        let warnings = scan_skill_safety(&skill);
+        assert!(warnings.is_empty(), "builtin skills should not be scanned");
+    }
+
+    #[test]
+    fn scan_skill_safety_clean_skill_no_warnings() {
+        let skill = SkillEntry {
+            id: "clean".into(),
+            name: "Clean Skill".into(),
+            description: None,
+            content: "Step 1: read the file\nStep 2: summarize the content".into(),
+            source_path: PathBuf::from("test"),
+            frontmatter: SkillFrontmatter::default(),
+            layer: SkillLayer::Project,
+            source: Some(SkillSource {
+                origin: SkillOrigin::XiaoLin,
+                layer: SkillLayer::ProjectFastclaw,
+                path: PathBuf::from("test"),
+            }),
+        };
+        let warnings = scan_skill_safety(&skill);
+        assert!(warnings.is_empty());
     }
 }

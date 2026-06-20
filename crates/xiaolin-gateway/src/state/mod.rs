@@ -2902,6 +2902,7 @@ impl AppState {
     ) -> anyhow::Result<Self> {
         let mut config = XiaoLinConfig::default();
         config.memory.enabled = true;
+        config.agents.defaults.model = Some("mock/test-model".to_string());
         let agents = vec![helpers::builtin_default_agent(&config)];
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());

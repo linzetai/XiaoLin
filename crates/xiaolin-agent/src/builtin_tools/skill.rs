@@ -162,16 +162,28 @@ impl Tool for ReadSkillTool {
                         }
                     });
                 }
-                ToolResult::ok(
-                    serde_json::json!({
-                        "id": skill.id,
-                        "name": skill.name,
-                        "description": skill.description,
-                        "content": skill.content,
-                        "tools": skill.frontmatter.tools,
-                    })
-                    .to_string(),
-                )
+                let mut result = serde_json::json!({
+                    "id": skill.id,
+                    "name": skill.name,
+                    "description": skill.description,
+                    "content": skill.content,
+                    "tools": skill.frontmatter.tools,
+                });
+                if !skill.frontmatter.tools.is_empty() {
+                    result["_tool_restriction_notice"] = serde_json::json!(format!(
+                        "This skill declares tools: [{}]. You MUST only use these tools (plus 'skill') while following this skill's instructions. Do not call other tools unless the user explicitly asks.",
+                        skill.frontmatter.tools.join(", ")
+                    ));
+                }
+                let safety_warnings = xiaolin_core::skill::scan_skill_safety(skill);
+                if !safety_warnings.is_empty() {
+                    let warnings: Vec<String> = safety_warnings
+                        .iter()
+                        .map(|w| format!("line {}: {} — {}", w.line, w.pattern, w.context))
+                        .collect();
+                    result["_safety_warnings"] = serde_json::json!(warnings);
+                }
+                ToolResult::ok(result.to_string())
             }
             None => ToolResult::err(format!(
                 "read_skill: skill not found for id '{skill_id}'. \

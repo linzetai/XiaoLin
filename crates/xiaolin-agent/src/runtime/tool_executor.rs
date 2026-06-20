@@ -1448,6 +1448,14 @@ pub(crate) fn filter_tool_definitions(
         .collect()
 }
 
+/// Tools to hide from the model when in Plan mode (avoids conflicting with plan file).
+const PLAN_MODE_DEMOTED_TOOLS: &[&str] = &["todo_write"];
+
+/// Remove tools that are demoted in Plan mode.
+pub(crate) fn demote_tools_for_plan_mode(defs: &mut Vec<ToolDefinition>) {
+    defs.retain(|td| !PLAN_MODE_DEMOTED_TOOLS.contains(&td.function.name.as_str()));
+}
+
 // ─── Auto-Recall Registry ─────────────────────────────────────────────
 //
 // Stores metadata for cleared tool results so they can be re-executed

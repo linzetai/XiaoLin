@@ -18,7 +18,7 @@ use super::query_state::{self, ESCALATED_MAX_TOKENS};
 use super::stream_engine::{send_step, send_stream_event};
 use super::streaming_tool_executor::{StreamingExecutorConfig, StreamingToolExecutor};
 use super::task_decomposer;
-use super::tool_executor::filter_tool_definitions;
+use super::tool_executor::{filter_tool_definitions, demote_tools_for_plan_mode};
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::{
     apply_message_budget, classify_stream_error_code, inject_tool_recovery_guidance,
@@ -95,6 +95,9 @@ pub(crate) async fn perform_llm_call(
         let mut all_defs = svc.tool_registry.definitions_with_profile(&mode_profile);
         all_defs.extend(ms.extra_tool_defs.iter().cloned());
         ms.tool_defs = filter_tool_definitions(&all_defs, &svc.config);
+        if svc.mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
+            demote_tools_for_plan_mode(&mut ms.tool_defs);
+        }
         ms.tool_defs_est_tokens = svc.tool_registry.estimated_json_chars(&ms.tool_defs) / 4;
         ms.registry_version_at_setup = current_reg_version;
         tracing::info!(
@@ -119,6 +122,7 @@ pub(crate) async fn perform_llm_call(
 
     const MAX_STREAM_RESUME_ATTEMPTS: u32 = 5;
     const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+    const STREAM_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
     let mut stream_resume_attempts: u32 = 0;
 
     let newly_replaced = apply_message_budget(
@@ -138,14 +142,10 @@ pub(crate) async fn perform_llm_call(
     if let Some(ref mode_state) = svc.mode_state {
         if mode_state.current_mode() == ExecutionMode::Plan {
             let turn_count = mode_state.plan_turn_count();
-            let plan_path_str = svc.session_id.as_ref().map(|sid| {
-                let ps = crate::builtin_tools::PlanFileStore::new(None);
-                ps.plan_path(sid).display().to_string()
-            });
-            let plan_exists = svc.session_id.as_ref().is_some_and(|sid| {
-                let ps = crate::builtin_tools::PlanFileStore::new(None);
-                ps.plan_exists(sid)
-            });
+            let plan_path_str = svc.plan_file_path.as_ref()
+                .map(|p| p.display().to_string());
+            let plan_exists = svc.plan_file_path.as_ref()
+                .is_some_and(|p| p.exists());
             let lang: Option<&str> = None;
             let attachment = mode_attachments::plan_mode_attachment(
                 plan_path_str.as_deref(),
@@ -291,13 +291,32 @@ pub(crate) async fn perform_llm_call(
         let mut first_chunk = true;
         let mut should_resume = false;
         let mut delta_count: u64 = 0;
+        let stream_deadline = tokio::time::Instant::now() + STREAM_TOTAL_TIMEOUT;
         loop {
+            let remaining = stream_deadline
+                .checked_duration_since(tokio::time::Instant::now())
+                .unwrap_or_default();
+            if remaining.is_zero() {
+                tracing::error!(
+                    delta_count,
+                    total_secs = STREAM_TOTAL_TIMEOUT.as_secs(),
+                    "stream total timeout — generation exceeded maximum wall-clock time"
+                );
+                return LlmCallOutcome::FatalError(anyhow::anyhow!(
+                    "stream total timeout: generation exceeded {}s after {} chunks",
+                    STREAM_TOTAL_TIMEOUT.as_secs(),
+                    delta_count
+                ));
+            }
+            let idle_dur = if first_chunk {
+                std::time::Duration::from_secs(180)
+            } else {
+                STREAM_IDLE_TIMEOUT
+            };
+            let effective_timeout = idle_dur.min(remaining);
+
             let maybe_result = tokio::time::timeout(
-                if first_chunk {
-                    std::time::Duration::from_secs(180)
-                } else {
-                    STREAM_IDLE_TIMEOUT
-                },
+                effective_timeout,
                 stream.next(),
             )
             .await;
@@ -306,6 +325,18 @@ pub(crate) async fn perform_llm_call(
                 Ok(Some(r)) => r,
                 Ok(None) => break,
                 Err(_elapsed) => {
+                    if remaining <= idle_dur {
+                        tracing::error!(
+                            delta_count,
+                            total_secs = STREAM_TOTAL_TIMEOUT.as_secs(),
+                            "stream total timeout — generation exceeded maximum wall-clock time"
+                        );
+                        return LlmCallOutcome::FatalError(anyhow::anyhow!(
+                            "stream total timeout: generation exceeded {}s after {} chunks",
+                            STREAM_TOTAL_TIMEOUT.as_secs(),
+                            delta_count
+                        ));
+                    }
                     tracing::error!(
                         delta_count,
                         idle_secs = if first_chunk { 180 } else { 90 },

@@ -20,7 +20,7 @@ use super::runtime_services;
 use super::session_memory;
 use super::task_decomposer;
 use super::token_budget;
-use super::tool_executor::filter_tool_definitions;
+use super::tool_executor::{filter_tool_definitions, demote_tools_for_plan_mode};
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::undo_engine;
 use super::validation_pipeline;
@@ -154,6 +154,9 @@ pub(crate) async fn setup_turn(
     let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
     all_tool_defs.extend(extra_tool_defs.iter().cloned());
     let mut tool_defs = filter_tool_definitions(&all_tool_defs, config);
+    if mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
+        demote_tools_for_plan_mode(&mut tool_defs);
+    }
     tool_defs.sort_by(|a, b| a.function.name.cmp(&b.function.name));
     let tool_defs_json_chars: usize = tool_registry.estimated_json_chars(&tool_defs);
     let tool_defs_est_tokens = tool_defs_json_chars / 4;

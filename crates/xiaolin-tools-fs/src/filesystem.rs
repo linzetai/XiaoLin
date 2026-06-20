@@ -1600,6 +1600,22 @@ fn apply_line_range_fallback(
     }
 }
 
+/// Count actual added/removed lines using Myers diff, not just total line count difference.
+fn count_diff_lines(old_text: &str, new_text: &str) -> (usize, usize) {
+    use similar::{ChangeTag, TextDiff};
+    let text_diff = TextDiff::from_lines(old_text, new_text);
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    for change in text_diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Insert => added += 1,
+            ChangeTag::Delete => removed += 1,
+            ChangeTag::Equal => {}
+        }
+    }
+    (added, removed)
+}
+
 /// Build a unified-diff style snippet using a proper Myers diff algorithm.
 fn build_diff_snippet(old_text: &str, new_text: &str, file_path: &str) -> String {
     use similar::{ChangeTag, TextDiff};
@@ -2949,10 +2965,7 @@ impl EditFileTool {
                     cache.update(&validated, &current);
                 }
 
-                let old_lines = original.lines().count();
-                let new_lines = current.lines().count();
-                let added = new_lines.saturating_sub(old_lines);
-                let removed = old_lines.saturating_sub(new_lines);
+                let (added, removed) = count_diff_lines(&original, &current);
 
                 ToolResult::ok(
                     serde_json::json!({
@@ -3558,10 +3571,7 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             }
         };
 
-        let old_lines = normalized.lines().count();
-        let new_lines = updated_normalized.lines().count();
-        let added = new_lines.saturating_sub(old_lines);
-        let removed = old_lines.saturating_sub(new_lines);
+        let (added, removed) = count_diff_lines(&normalized, &updated_normalized);
 
         let snippet = build_edit_snippet(&updated_normalized, &new_normalized, 4);
         let diff = build_diff_snippet(&old_normalized, &new_normalized, &args.file_path);
@@ -3607,7 +3617,7 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 result.metadata = Some(serde_json::json!({
                     "lineEnding": enc_meta.line_ending,
                     "encoding": enc_meta.encoding,
-                    "totalLines": new_lines,
+                    "totalLines": updated_normalized.lines().count(),
                     "fuzzyMatch": fuzzy_used,
                 }));
                 result
@@ -5884,7 +5894,7 @@ mod new_feature_tests {
             "path": tmp.path().to_string_lossy()
         })
         .to_string();
-        let out = Tool::execute(&tool, &args).await;
+        let out = with_work_dir(Some(cwd), Tool::execute(&tool, &args)).await;
         assert!(out.success, "search should succeed: {}", out.output);
         // Should find all 3 lines (case-insensitive default)
         assert!(

@@ -41,9 +41,16 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
 
   useEffect(() => {
     const unsub = onWsEvent("plan_file_update", (msg: unknown) => {
-      const data = (msg as { data?: { sessionId?: string } })?.data;
-      if (data?.sessionId === sessionId) {
-        fetchContent();
+      const data = (msg as { data?: { sessionId?: string; session_id?: string; content?: string } })?.data;
+      const evtSessionId = data?.sessionId ?? data?.session_id;
+      if (evtSessionId === sessionId) {
+        if (typeof data?.content === "string") {
+          setContent(data.content);
+          setLoading(false);
+          setError(null);
+        } else {
+          fetchContent();
+        }
       }
     });
     return unsub;
@@ -63,11 +70,11 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
         className="flex shrink-0 items-center gap-2 px-3 py-2"
         style={{
           borderBottom: "0.5px solid var(--separator)",
-          background: "color-mix(in srgb, var(--tint, #4299E1) 4%, transparent)",
+          background: "var(--plan-tint-bg)",
         }}
       >
-        <FileText size={ICON_SIZE.md} style={{ color: "var(--tint, #4299E1)" }} />
-        <span className="flex-1 text-[12px] font-semibold" style={{ color: "var(--tint, #4299E1)" }}>
+        <FileText size={ICON_SIZE.md} style={{ color: "var(--plan-tint)" }} />
+        <span className="flex-1 text-[12px] font-semibold" style={{ color: "var(--plan-tint)" }}>
           {t("plan_file")}
         </span>
         <button

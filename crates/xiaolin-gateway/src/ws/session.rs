@@ -147,6 +147,11 @@ pub async fn handle_sessions_messages(
                         "name": m.name, "toolCallId": m.tool_call_id, "createdAt": m.created_at,
                         "toolCallsJson": m.tool_calls_json.as_ref().and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()),
                     });
+                    if let Some(ref rc) = m.reasoning_content {
+                        if !rc.is_empty() {
+                            obj["reasoningContent"] = json!(rc);
+                        }
+                    }
                     if m.prompt_tokens > 0 || m.completion_tokens > 0 || m.elapsed_ms > 0 {
                         obj["promptTokens"] = json!(m.prompt_tokens);
                         obj["completionTokens"] = json!(m.completion_tokens);

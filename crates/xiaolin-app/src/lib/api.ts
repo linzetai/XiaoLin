@@ -751,7 +751,10 @@ export async function listFiles(dirPath: string): Promise<{ files: string[]; dir
       dirs.sort();
       return { files, dirs };
     } catch (e) {
-      console.warn("[api] listFiles error:", e);
+      const msg = String(e);
+      if (!msg.includes("os error 2") && !msg.includes("No such file")) {
+        console.warn("[api] listFiles error:", e);
+      }
       return { files: [], dirs: [] };
     }
   }

@@ -136,32 +136,6 @@ impl RestorationState {
         }
     }
 
-    /// Populate plan content from PlanFileStore if a plan exists.
-    /// This should be called before context compression to ensure plan content
-    /// is available for restoration.
-    pub fn populate_plan_from_store(
-        &mut self,
-        session_id: &str,
-        store: &crate::builtin_tools::PlanFileStore,
-    ) {
-        // Check if plan exists for this session
-        if store.plan_exists(session_id) {
-            if let Some(content) = store.read_plan(session_id) {
-                let path = store.plan_path(session_id);
-                self.set_plan(path, content);
-                tracing::debug!(
-                    session_id,
-                    path = %self.plan_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
-                    content_len = self.plan_content.as_ref().map(|c| c.len()).unwrap_or(0),
-                    "populated plan content for post-compact restoration"
-                );
-            }
-        } else {
-            // Plan doesn't exist, clear any stale state
-            self.clear_plan();
-        }
-    }
-
     /// Generate restoration messages to inject after compaction.
     /// Returns system messages that restore the preserved state.
     pub fn generate_restoration_messages(&self) -> Vec<ChatMessage> {

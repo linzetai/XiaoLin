@@ -521,14 +521,27 @@ impl SessionActor {
             let f = self.fanout.lock().unwrap();
             f.subscriber_senders()
         };
+        let mut had_closed = false;
         for tx in &senders {
-            if let Err(e) = tx.try_send(event.clone()) {
-                warn!(
-                    session_id = %self.session_id,
-                    error = %e,
-                    "emit_sync: subscriber channel full or closed, event dropped"
-                );
+            if tx.is_closed() {
+                had_closed = true;
+                continue;
             }
+            if let Err(e) = tx.try_send(event.clone()) {
+                if tx.is_closed() {
+                    had_closed = true;
+                } else {
+                    warn!(
+                        session_id = %self.session_id,
+                        error = %e,
+                        "emit_sync: subscriber channel full, event dropped"
+                    );
+                }
+            }
+        }
+        if had_closed {
+            let mut f = self.fanout.lock().unwrap();
+            f.gc();
         }
     }
 

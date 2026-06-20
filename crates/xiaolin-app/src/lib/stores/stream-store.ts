@@ -247,8 +247,66 @@ export const useStreamStore = create<StreamState>((set) => ({
           },
         };
       });
+    const lastSegmentsMap: Record<string, ChatStreamSegment[]> = {};
+    const assistantMessages = messages.filter((m) => m.role === "assistant");
+    const lastAssistant = assistantMessages[assistantMessages.length - 1];
+    if (lastAssistant) {
+      const segments: ChatStreamSegment[] = [];
+      if (lastAssistant.reasoningContent) {
+        segments.push({
+          id: `reasoning-restored`,
+          type: "reasoning",
+          content: lastAssistant.reasoningContent,
+        });
+      }
+      if (lastAssistant.toolCallsJson && Array.isArray(lastAssistant.toolCallsJson)) {
+        for (const tc of lastAssistant.toolCallsJson) {
+          const hasEnriched = tc.output !== undefined || tc.display_output !== undefined;
+          const matched = toolResultMap.get(tc.id);
+          const result = hasEnriched
+            ? (tc.display_output ?? tc.output)
+            : (matched?.content ?? (tc.output as string | undefined));
+          const success = hasEnriched
+            ? (tc.success !== false)
+            : (matched ? matched.success : true);
+          segments.push({
+            id: `tool-${tc.id}`,
+            type: "tool",
+            toolCall: {
+              id: tc.id,
+              name: tc.function?.name ?? "unknown",
+              status: (success ? "success" : "error") as "success" | "error",
+              args: tc.function?.arguments,
+              result,
+              displayOutput: tc.display_output,
+              duration: tc.duration_ms,
+              metadata: tc.metadata,
+            },
+          });
+        }
+      }
+      let textContent: string;
+      if (Array.isArray(lastAssistant.content)) {
+        textContent = (lastAssistant.content as Array<Record<string, unknown>>)
+          .filter((p) => p.type === "text" && typeof p.text === "string")
+          .map((p) => p.text as string)
+          .join("\n");
+      } else {
+        textContent = typeof lastAssistant.content === "string"
+          ? lastAssistant.content
+          : JSON.stringify(lastAssistant.content ?? "");
+      }
+      if (textContent) {
+        segments.push({ id: `text-restored`, type: "text", content: textContent });
+      }
+      if (segments.length > 0) {
+        lastSegmentsMap[chatId] = segments;
+      }
+    }
+
     set((state) => ({
       streams: { ...state.streams, [chatId]: items },
+      lastSegments: { ...state.lastSegments, ...lastSegmentsMap },
     }));
   },
 

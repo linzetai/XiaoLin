@@ -98,14 +98,14 @@ export function PlanApprovalCard({
     <div
       className="overflow-hidden rounded-lg"
       style={{
-        border: "0.5px solid color-mix(in srgb, var(--tint, #4299E1) 30%, transparent)",
-        borderLeft: "3px solid var(--tint, #4299E1)",
-        background: "color-mix(in srgb, var(--tint, #4299E1) 4%, transparent)",
+        border: "0.5px solid var(--plan-tint-border)",
+        borderLeft: "3px solid var(--plan-tint)",
+        background: "var(--plan-tint-bg)",
       }}
     >
       <div className="flex items-center gap-2 px-3 py-2">
-        <Compass size={ICON_SIZE.md} style={{ color: "var(--tint, #4299E1)" }} className="shrink-0" />
-        <span className="text-[12px] font-semibold" style={{ color: "var(--tint, #4299E1)" }}>
+        <Compass size={ICON_SIZE.md} style={{ color: "var(--plan-tint)" }} className="shrink-0" />
+        <span className="text-[12px] font-semibold" style={{ color: "var(--plan-tint)" }}>
           {isPending ? t("plan_pendingApproval") : t("plan_completed")}
         </span>
         {planPath && (
@@ -122,7 +122,7 @@ export function PlanApprovalCard({
       {inlinePreview && (
         <button
           onClick={handleExpand}
-          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] font-medium transition-colors duration-100 hover:bg-[color-mix(in_srgb,var(--tint,#4299E1)_8%,transparent)]"
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] font-medium transition-colors duration-100 hover:bg-[var(--plan-tint-subtle)]"
           style={{ color: "var(--fill-tertiary)", borderTop: "0.5px solid var(--separator)" }}
         >
           <FileText />
@@ -186,8 +186,8 @@ export function PlanApprovalCard({
             disabled={approving}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all duration-150 hover:scale-[1.02] active:scale-95 disabled:opacity-50"
             style={{
-              background: "color-mix(in srgb, var(--tint, #4299E1) 15%, transparent)",
-              color: "var(--tint, #4299E1)",
+              background: "var(--plan-tint-bg)",
+              color: "var(--plan-tint)",
             }}
           >
             <ArrowsClockwise />

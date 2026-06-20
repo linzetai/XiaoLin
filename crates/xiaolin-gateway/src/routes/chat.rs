@@ -357,9 +357,13 @@ async fn handle_stream(
     let sse_stream = async_stream::stream! {
         let mut streamed_chars: usize = 0;
         let mut assistant_content = String::new();
+        let mut assistant_reasoning = String::new();
         while let Some(se) = event_rx.recv().await {
             let event = se.msg;
             state_for_persist.store.event_log.append(&session_id, &event);
+            if let AgentEvent::ReasoningDelta { ref content, .. } = event {
+                assistant_reasoning.push_str(content);
+            }
             match event {
                 AgentEvent::ContentDelta {
                     delta,
@@ -459,6 +463,11 @@ async fn handle_stream(
                             } else {
                                 Some(serde_json::Value::String(assistant_content.clone()))
                             },
+                            reasoning_content: if assistant_reasoning.is_empty() {
+                                None
+                            } else {
+                                Some(assistant_reasoning.clone())
+                            },
                             tool_calls: core_tool_calls,
                         ..Default::default()
                         };
@@ -516,6 +525,11 @@ async fn handle_stream(
                         let assistant_msg = xiaolin_core::types::ChatMessage {
                             role: xiaolin_core::types::Role::Assistant,
                             content: Some(serde_json::Value::String(assistant_content.clone())),
+                            reasoning_content: if assistant_reasoning.is_empty() {
+                                None
+                            } else {
+                                Some(assistant_reasoning.clone())
+                            },
                         ..Default::default()
                         };
                         let _ = after_chat(

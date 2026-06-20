@@ -200,6 +200,7 @@ export interface BackendMessage {
     metadata?: Record<string, unknown>;
   }> | null;
   createdAt: string;
+  reasoningContent?: string | null;
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;

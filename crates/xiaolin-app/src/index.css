@@ -39,6 +39,12 @@
   --tint-subtle: rgba(37, 99, 235, 0.03);
   --selection-bg: rgba(37, 99, 235, 0.20);
 
+  --plan-tint: #0D9488;
+  --plan-tint-bg: rgba(13, 148, 136, 0.06);
+  --plan-tint-subtle: rgba(13, 148, 136, 0.03);
+  --plan-tint-border: rgba(13, 148, 136, 0.3);
+  --plan-tint-text: #115E59;
+
   --bg-selected: #EBF2FF;
 
   --separator: rgba(60, 60, 67, 0.12);
@@ -237,6 +243,12 @@
   --tint-bg: rgba(96, 165, 250, 0.12);
   --tint-subtle: rgba(96, 165, 250, 0.06);
   --selection-bg: rgba(96, 165, 250, 0.30);
+
+  --plan-tint: #2DD4BF;
+  --plan-tint-bg: rgba(45, 212, 191, 0.12);
+  --plan-tint-subtle: rgba(45, 212, 191, 0.06);
+  --plan-tint-border: rgba(45, 212, 191, 0.3);
+  --plan-tint-text: #99F6E4;
 
   --separator: rgba(84, 84, 88, 0.40);
   --separator-opaque: #2C2C2E;

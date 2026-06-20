@@ -789,6 +789,7 @@ pub async fn spawn_chat(
         // Forward stream events → WsResponse → bg_tx, collect assistant content.
         // On Done: persist assistant message BEFORE forwarding to client.
         let mut assistant_content = String::new();
+        let mut assistant_reasoning = String::new();
         let mut stream_ended = false;
         let mut after_chat_called = false;
         let mut current_turn_id: Option<xiaolin_protocol::TurnId> = None;
@@ -955,6 +956,11 @@ pub async fn spawn_chat(
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
+                        reasoning_content: if assistant_reasoning.is_empty() {
+                            None
+                        } else {
+                            Some(assistant_reasoning.clone())
+                        },
                         enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
                         ..Default::default()
                     };
@@ -985,6 +991,9 @@ pub async fn spawn_chat(
                     }
                 }
             }
+            if let AgentEvent::ReasoningDelta { ref content, .. } = event {
+                assistant_reasoning.push_str(content);
+            }
             let is_done = matches!(&event, AgentEvent::TurnEnd { .. });
             if is_done || matches!(&event, AgentEvent::Error { .. }) {
                 stream_ended = true;
@@ -1001,6 +1010,11 @@ pub async fn spawn_chat(
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
+                    reasoning_content: if assistant_reasoning.is_empty() {
+                        None
+                    } else {
+                        Some(assistant_reasoning.clone())
+                    },
                     enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
                     ..Default::default()
                 };

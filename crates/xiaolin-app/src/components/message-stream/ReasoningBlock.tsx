@@ -1,5 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+
+const LEAKED_TAG_RE =
+  /<\/?(?:mcp_instructions|mcp_server_instructions|user_provided_context|session_guidance|session_memory|code_context|goal_context|untrusted_objective|security|memory|system|system_prompt|instructions|tool_instructions)(?:\s[^>]*)?\s*\/?>/gi;
+
+function sanitizeReasoning(raw: string): string {
+  return raw.replace(LEAKED_TAG_RE, "").replace(/^\s*---\s*\n/, "").trimStart();
+}
 
 interface ReasoningBlockProps {
   content: string;
@@ -32,6 +39,8 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
     if (!el || userScrolledUp.current) return;
     el.scrollTop = el.scrollHeight;
   }, [content, isStreaming, expanded]);
+
+  const cleaned = useMemo(() => sanitizeReasoning(content), [content]);
 
   const isActive = isStreaming && !autoCollapse;
 
@@ -121,7 +130,7 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
             opacity: 0.75,
           }}
         >
-          {content}
+          {cleaned}
         </div>
       </div>
     </div>

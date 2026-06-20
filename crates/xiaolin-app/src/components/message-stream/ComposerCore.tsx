@@ -327,7 +327,7 @@ function ModeSelector({
 
   const options: Array<{ id: ComposerMode; icon: typeof Code; label: string; color: string }> = [
     { id: "agent", icon: Code, label: "Agent", color: "var(--tint)" },
-    { id: "plan", icon: Compass, label: "Plan", color: "oklch(56% 0.18 310)" },
+    { id: "plan", icon: Compass, label: "Plan", color: "var(--plan-tint)" },
     { id: "goal", icon: Crosshair, label: "Goal", color: "var(--orange, #ED8936)" },
   ];
 
@@ -636,7 +636,7 @@ export function ComposerCore({
           <button
             type="button" onClick={onTogglePlanPanel}
             className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:brightness-110"
-            style={{ background: "color-mix(in srgb, var(--tint, #4299E1) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--tint, #4299E1) 15%, transparent)", color: "var(--tint, #4299E1)" }}
+            style={{ background: "var(--plan-tint-bg)", borderBottom: "0.5px solid var(--plan-tint-border)", color: "var(--plan-tint)" }}
           >
             <Compass size={ICON_SIZE.md} className="shrink-0" />
             <span className="min-w-0 truncate">
@@ -659,7 +659,7 @@ export function ComposerCore({
           <button
             type="button" onClick={onTogglePlanPanel}
             className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-[10px] transition-colors hover:brightness-110"
-            style={{ background: "color-mix(in srgb, var(--tint, #4299E1) 3%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--tint, #4299E1) 10%, transparent)", color: "var(--fill-tertiary)" }}
+            style={{ background: "var(--plan-tint-subtle)", borderBottom: "0.5px solid var(--plan-tint-border)", color: "var(--fill-tertiary)" }}
           >
             <FileText className="shrink-0" style={{ color: "var(--tint, #4299E1)", opacity: 0.7 }} />
             <span className="min-w-0 truncate">{t("planFile", { path: planFilePath.replace(/^\/home\/[^/]+\//, "~/") })}</span>

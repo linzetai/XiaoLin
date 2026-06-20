@@ -128,6 +128,11 @@ pub(crate) async fn post_tool_processing(
             if let Some(pc) = crate::builtin_tools::plan_mode::current_plan_context() {
                 let path = pc.store.plan_path(&pc.session_id);
                 let exists = pc.store.plan_exists(&pc.session_id);
+                let content = if exists {
+                    tokio::fs::read_to_string(&path).await.ok()
+                } else {
+                    None
+                };
                 let _ = send_step(
                     &svc.step_tx,
                     AgentStep::PlanFileUpdate {
@@ -135,6 +140,7 @@ pub(crate) async fn post_tool_processing(
                         session_id: pc.session_id.clone(),
                         path: path.to_string_lossy().to_string(),
                         exists,
+                        content,
                     },
                     false,
                 )

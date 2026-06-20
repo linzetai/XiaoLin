@@ -84,6 +84,12 @@ pub enum AgentStep {
         session_id: String,
         path: String,
         exists: bool,
+        content: Option<String>,
+    },
+
+    PlanDelta {
+        turn_id: TurnId,
+        delta: String,
     },
 
     GoalUpdated {
@@ -199,8 +205,12 @@ impl AgentStep {
                 vec![AgentEvent::ModeChange { turn_id, from, to }]
             }
 
-            Self::PlanFileUpdate { turn_id, session_id, path, exists } => {
-                vec![AgentEvent::PlanFileUpdate { turn_id, session_id, path, exists }]
+            Self::PlanFileUpdate { turn_id, session_id, path, exists, content } => {
+                vec![AgentEvent::PlanFileUpdate { turn_id, session_id, path, exists, content }]
+            }
+
+            Self::PlanDelta { turn_id, delta } => {
+                vec![AgentEvent::PlanDelta { turn_id, delta }]
             }
 
             Self::GoalUpdated { turn_id, goal } => {

@@ -157,11 +157,18 @@ pub(crate) async fn iteration_pre_check(
         .push((ms.messages.len(), std::time::Instant::now()));
 
     // ── 5. Populate plan content for restoration ───────────────────────
-    if let Some(ref session_id) = svc.session_id {
-        let plan_store = crate::builtin_tools::PlanFileStore::new(None);
-        ms.query_loop
-            .restoration_state
-            .populate_plan_from_store(session_id, &plan_store);
+    if let Some(ref plan_path) = svc.plan_file_path {
+        if plan_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(plan_path) {
+                ms.query_loop
+                    .restoration_state
+                    .set_plan(plan_path.clone(), content);
+                tracing::debug!(
+                    path = %plan_path.display(),
+                    "populated plan content for post-compact restoration"
+                );
+            }
+        }
     }
 
     // ── 6. Unified context compaction ──────────────────────────────────
