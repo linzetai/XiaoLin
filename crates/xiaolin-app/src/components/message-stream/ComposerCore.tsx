@@ -7,6 +7,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption, type SlashCommand } from "./MentionInput";
+import { usePlanNudge } from "./usePlanNudge";
 import {
   useChatMetaStore,
   useQueueStore,
@@ -425,6 +426,8 @@ export function ComposerCore({
 }: ComposerCoreProps) {
   const { t } = useTranslation("chat");
   const [inputHasContent, setInputHasContent] = useState(false);
+  const [inputText, setInputText] = useState("");
+  const [inputMentions, setInputMentions] = useState<InlineMention[]>([]);
   const [sendPending, setSendPending] = useState(false);
   const [queueExpanded, setQueueExpanded] = useState(false);
 
@@ -498,6 +501,9 @@ export function ComposerCore({
         if (resp.ok) {
           const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
           setChatExecutionMode(chatId, backendMode);
+          if (backendMode === "plan") {
+            try { localStorage.setItem("xiaolin:plan-mode-ever-used", String(Date.now())); } catch {}
+          }
           if (chatId) {
             useStreamStore.getState().addBriefMessage(chatId, {
               id: `mode-switch-${Date.now()}`,
@@ -510,6 +516,25 @@ export function ComposerCore({
       }
     }
   }, [streaming, executionMode, activeChat?.id, activeChatId, t]);
+
+  const messageCount = useStreamStore((s) => (activeChatId ? (s.streams[activeChatId]?.length ?? 0) : 0));
+  const discoveryNudge = usePlanNudge(inputText, inputMentions, executionMode, activeChatId ?? "", messageCount);
+
+  const planShortcutHandler = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const isMod = e.metaKey || e.ctrlKey;
+    if (isMod && e.shiftKey && (e.key === "P" || e.key === "p")) {
+      e.preventDefault();
+      if (!streaming) {
+        handleSelectMode(executionMode === "plan" ? "agent" : "plan");
+      }
+      return true;
+    }
+    if (e.key === "Escape" && discoveryNudge.visible) {
+      discoveryNudge.dismiss();
+      return true;
+    }
+    return false;
+  }, [streaming, executionMode, handleSelectMode, discoveryNudge]);
 
   const handlePlanSlash = useCallback(() => {
     if (streaming) return;
@@ -540,9 +565,16 @@ export function ComposerCore({
     { id: "tools", label: "tools", desc: t("slashTools") },
   ], [t, handleNewTopic, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson, executionMode]);
 
+  const handleInputTextChange = useCallback((text: string, mentions: InlineMention[]) => {
+    setInputText(text);
+    setInputMentions(mentions);
+  }, []);
+
   const wrappedSend = useCallback((txt: string, mentions: InlineMention[]) => {
     setSendPending(true);
     setInputHasContent(false);
+    setInputText("");
+    setInputMentions([]);
     const storeState = useGoalStore.getState();
     const currentGoalMode = activeChatId ? !!storeState.goalMode[activeChatId] : false;
     const currentGoal = activeChatId ? storeState.goals[activeChatId] : undefined;
@@ -622,6 +654,15 @@ export function ComposerCore({
     });
   }, [activeChatId]);
 
+  const [nudgeHovered, setNudgeHovered] = useState(false);
+  useEffect(() => {
+    if (!discoveryNudge.visible || nudgeHovered) return;
+    const timer = setTimeout(() => discoveryNudge.dismiss(), 10_000);
+    return () => clearTimeout(timer);
+  }, [discoveryNudge.visible, discoveryNudge.dismiss, nudgeHovered]);
+
+  const showDiscoveryNudge = discoveryNudge.visible && !showPlanNudge && executionMode !== "plan";
+
   return (
     <>
       {showPlanNudge && (
@@ -644,6 +685,37 @@ export function ComposerCore({
           <button
             className="flex-shrink-0 rounded p-0.5 transition-opacity hover:opacity-60"
             onClick={dismissNudge}
+            style={{ color: "var(--plan-tint)" }}
+          >
+            <X size={10} weight="bold" />
+          </button>
+        </div>
+      )}
+
+      {showDiscoveryNudge && (
+        <div
+          className="flex w-full items-center gap-1.5 px-3 py-1 text-[11px]"
+          style={{
+            color: "var(--plan-tint)",
+            background: "var(--plan-tint-subtle, rgba(13,148,136,0.03))",
+            borderRadius: "8px 8px 0 0",
+            marginBottom: -1,
+          }}
+          onMouseEnter={() => setNudgeHovered(true)}
+          onMouseLeave={() => setNudgeHovered(false)}
+        >
+          <Compass size={12} weight="bold" style={{ color: "var(--plan-tint)", flexShrink: 0 }} />
+          <span className="flex-1 truncate">{t(discoveryNudge.messageKey)}</span>
+          <button
+            className="flex-shrink-0 rounded px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80"
+            style={{ background: "var(--plan-tint)", color: "#fff", borderRadius: 4 }}
+            onClick={() => { handleSelectMode("plan"); discoveryNudge.dismiss(); }}
+          >
+            {t("plan_nudge_switch")}
+          </button>
+          <button
+            className="flex-shrink-0 rounded p-0.5 transition-opacity hover:opacity-60"
+            onClick={() => discoveryNudge.dismiss()}
             style={{ color: "var(--plan-tint)" }}
           >
             <X size={10} weight="bold" />
@@ -750,6 +822,8 @@ export function ComposerCore({
             onPasteFiles={processFiles}
             onRecallLastMessage={handleRecallLastMessage}
             onContentChange={setInputHasContent}
+            onTextChange={handleInputTextChange}
+            extraKeyHandler={planShortcutHandler}
           />
         </div>
 

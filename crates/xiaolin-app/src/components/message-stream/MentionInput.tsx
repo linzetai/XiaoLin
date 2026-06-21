@@ -67,6 +67,7 @@ interface MentionInputProps {
   onPasteFiles?: (files: File[]) => void;
   onRecallLastMessage?: () => string | null;
   onContentChange?: (hasContent: boolean) => void;
+  onTextChange?: (text: string, mentions: InlineMention[]) => void;
   extraKeyHandler?: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean;
 }
 
@@ -341,11 +342,13 @@ function HighlightOverlay({ text, mentions }: { text: string; mentions: InlineMe
 /* ─── MentionInput ─── */
 export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
   function MentionInput(
-    { disabled, placeholder, options, slashCommands, onSend, onNewTopic, onAttach, onPasteFiles, onRecallLastMessage, onContentChange, extraKeyHandler },
+    { disabled, placeholder, options, slashCommands, onSend, onNewTopic, onAttach, onPasteFiles, onRecallLastMessage, onContentChange, onTextChange, extraKeyHandler },
     ref,
   ) {
     const [text, setText] = useState("");
     const [mentions, setMentions] = useState<InlineMention[]>([]);
+
+    useEffect(() => { onTextChange?.(text, mentions); }, [text, mentions, onTextChange]);
 
     const [popupActive, setPopupActive] = useState(false);
     const [popupQuery, setPopupQuery] = useState("");
