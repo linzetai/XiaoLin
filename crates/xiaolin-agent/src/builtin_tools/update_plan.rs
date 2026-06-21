@@ -4,7 +4,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde::Deserialize;
-use tokio::sync::RwLock;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use xiaolin_protocol::{AgentEvent, PlanStep, PlanStepStatus, TurnId};
 
@@ -13,11 +12,10 @@ use super::plan_mode::current_plan_context;
 
 type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 
-/// Shared plan step state (global, keyed by stream_key internally via EventTxMap).
+/// Per-session plan step state.
 #[derive(Debug, Clone, Default)]
 pub struct PlanStepStore {
-    steps: Arc<RwLock<Vec<PlanStep>>>,
-    explanation: Arc<RwLock<Option<String>>>,
+    sessions: Arc<DashMap<String, (Option<String>, Vec<PlanStep>)>>,
 }
 
 impl PlanStepStore {
@@ -25,15 +23,19 @@ impl PlanStepStore {
         Self::default()
     }
 
-    pub async fn update(&self, explanation: Option<String>, steps: Vec<PlanStep>) {
-        *self.explanation.write().await = explanation;
-        *self.steps.write().await = steps;
+    pub fn update(&self, session_id: &str, explanation: Option<String>, steps: Vec<PlanStep>) {
+        self.sessions.insert(session_id.to_string(), (explanation, steps));
     }
 
-    pub async fn snapshot(&self) -> (Option<String>, Vec<PlanStep>) {
-        let explanation = self.explanation.read().await.clone();
-        let steps = self.steps.read().await.clone();
-        (explanation, steps)
+    pub fn snapshot(&self, session_id: &str) -> (Option<String>, Vec<PlanStep>) {
+        self.sessions
+            .get(session_id)
+            .map(|r| r.value().clone())
+            .unwrap_or_default()
+    }
+
+    pub fn remove(&self, session_id: &str) {
+        self.sessions.remove(session_id);
     }
 }
 
@@ -151,10 +153,6 @@ impl Tool for UpdatePlanTool {
 
         let plan_steps: Vec<PlanStep> = input.steps.iter().map(|s| s.to_plan_step()).collect();
 
-        self.store
-            .update(input.explanation.clone(), plan_steps.clone())
-            .await;
-
         let stream_key = match ASK_QUESTION_STREAM_KEY.try_with(|k| k.clone()) {
             Ok(k) => k,
             Err(_) => {
@@ -163,6 +161,9 @@ impl Tool for UpdatePlanTool {
                 );
             }
         };
+
+        self.store
+            .update(&stream_key, input.explanation.clone(), plan_steps.clone());
 
         if let Some(tx) = self.stream_event_txs.get(&stream_key).map(|r| r.value().clone()) {
             let _ = tx

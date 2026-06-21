@@ -62,6 +62,7 @@ export interface ChatMetaState {
   updateChatBackendId: (localChatId: string, backendSessionId: string) => void;
   setChatExecutionMode: (chatId: string, mode: ExecutionMode) => void;
   setChatPlanFile: (chatId: string, path: string, exists: boolean) => void;
+  setChatPlanApprovalPending: (chatId: string, pending: boolean) => void;
   hydratePlanMeta: (sessionId: string) => Promise<void>;
 
   syncAgentsFromBackend: (backendAgents: Array<{ agentId: string; name: string; model: string; avatar?: string | null }>) => void;
@@ -371,6 +372,14 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
       const chat = state.chats[chatId];
       if (!chat) return state;
       return { chats: { ...state.chats, [chatId]: { ...chat, planFilePath: path, planFileExists: exists } } };
+    });
+  },
+
+  setChatPlanApprovalPending: (chatId, pending) => {
+    set((state) => {
+      const chat = state.chats[chatId];
+      if (!chat) return state;
+      return { chats: { ...state.chats, [chatId]: { ...chat, planApprovalPending: pending } } };
     });
   },
 

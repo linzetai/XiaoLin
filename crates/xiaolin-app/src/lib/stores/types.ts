@@ -159,6 +159,7 @@ export interface ChatMeta {
   executionMode: ExecutionMode;
   planFilePath?: string;
   planFileExists?: boolean;
+  planApprovalPending?: boolean;
 }
 
 export interface Chat {

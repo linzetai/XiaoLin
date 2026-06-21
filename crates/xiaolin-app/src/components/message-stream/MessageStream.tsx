@@ -646,6 +646,7 @@ export function MessageStream(_props: MessageStreamProps) {
   const planFilePath = activeChatMeta?.planFilePath;
   const planFileExists = activeChatMeta?.planFileExists ?? false;
   const executionMode = activeChatMeta?.executionMode ?? "agent";
+  const planApprovalPending = activeChatMeta?.planApprovalPending ?? false;
 
   const togglePlanPanel = useCallback(() => {
     const { tabs, panelOpen, activeTabId: curTab } = useWorkspaceTabs.getState();
@@ -664,14 +665,15 @@ export function MessageStream(_props: MessageStreamProps) {
     }
   }, [chatSessionId]);
 
-  const showFallbackPlanApproval = planFileExists && executionMode === "plan" && !streaming;
+  const showFallbackPlanApproval = planApprovalPending && planFileExists && executionMode === "plan" && !streaming;
 
   const handleFallbackPlanApprove = useCallback(async (mode: "agent" | "plan") => {
     const chatId = activeChatMeta?.id;
     if (!chatId) return;
-    const { setChatExecutionMode } = useChatMetaStore.getState();
+    const { setChatExecutionMode, setChatPlanApprovalPending } = useChatMetaStore.getState();
     await transport.approvePlan(chatId, mode);
     setChatExecutionMode(chatId, mode);
+    setChatPlanApprovalPending(chatId, false);
     if (mode === "agent") {
       const planPath = activeChatMeta?.planFilePath ?? "";
       handleMentionSend(

@@ -54,6 +54,7 @@ export function useMessageStreamChat({
   const updateChatBackendId = useChatMetaStore((s) => s.updateChatBackendId);
   const setChatExecutionMode = useChatMetaStore((s) => s.setChatExecutionMode);
   const setChatPlanFile = useChatMetaStore((s) => s.setChatPlanFile);
+  const setChatPlanApprovalPending = useChatMetaStore((s) => s.setChatPlanApprovalPending);
   const updateChatUsage = useStreamStore((s) => s.updateChatUsage);
   const subAgentStart = useStreamStore((s) => s.subAgentStart);
   const subAgentDelta = useStreamStore((s) => s.subAgentDelta);
@@ -364,6 +365,7 @@ export function useMessageStreamChat({
             if (startSid && capturedChatId !== startSid) {
               updateChatBackendId(capturedChatId, startSid);
             }
+            setChatPlanApprovalPending(capturedChatId, false);
             break;
           }
           case "content_delta": {
@@ -511,6 +513,9 @@ export function useMessageStreamChat({
             }
 
             const turnEndReason = d?.reason as string | undefined;
+            if (turnEndReason === "plan_approval_pending") {
+              setChatPlanApprovalPending(sid ?? capturedChatId, true);
+            }
             if (turnEndReason === "token_budget_reached") {
               const budgetUsage = summary?.usage;
               const completionTokens = budgetUsage?.completion_tokens ?? 0;
