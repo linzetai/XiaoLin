@@ -189,6 +189,7 @@
   "plan_notCreated": "(not created)",
   "plan_notCreatedYet": "Plan file not created yet",
   "plan_emptyHint": "Send a message in Plan mode and the AI will create a structured execution plan",
+  "plan_nudge_hasUnfinished": "You have an unfinished plan. Click to switch back to Plan mode.",
   "loadFailed": "Load failed",
   "todo_list": "Tasks",
   "todo_inProgress": "{{count}} in progress",

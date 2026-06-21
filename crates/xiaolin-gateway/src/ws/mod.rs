@@ -122,7 +122,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                             "marketplace.browse", "marketplace.search", "marketplace.install", "marketplace.uninstall",
                             "permissions.get_presets", "permissions.get_session", "permissions.set_session",
                             "automations.list", "automations.create", "automations.update", "automations.delete", "automations.runs", "automations.run_now",
-                            "execution.set_mode", "execution.get_plan", "execution.approve_plan",
+                            "execution.set_mode", "execution.get_plan", "execution.get_plan_meta", "execution.approve_plan", "execution.reject_plan",
                             "resolve_approval", "approval.resolve",
                             "chat.compact", "compact",
                             "chat.steer", "steer",
@@ -601,6 +601,9 @@ async fn dispatch(
         }
         ClientOp::ExecutionGetPlan { .. } => {
             execution::handle_execution_get_plan(sender, state, id, req.params).await
+        }
+        ClientOp::ExecutionGetPlanMeta { .. } => {
+            execution::handle_execution_get_plan_meta(sender, state, id, req.params).await
         }
         ClientOp::ExecutionApprovePlan { .. } => {
             execution::handle_execution_approve_plan(sender, state, id, req.params, bg_tx).await

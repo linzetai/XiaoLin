@@ -1046,6 +1046,28 @@ impl SessionStore {
         Ok(messages)
     }
 
+    /// Load the last `limit` messages for a session, returned in ASC order.
+    pub async fn load_tail_messages(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> anyhow::Result<Vec<SessionMessage>> {
+        let messages = sqlx::query_as::<_, SessionMessage>(
+            "SELECT * FROM (
+                SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
+                       prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
+                       reasoning_content, compact_metadata_json
+                FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?
+             ) sub ORDER BY id ASC",
+        )
+        .bind(session_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(messages)
+    }
+
     /// Convert stored messages back into ChatMessage format for the LLM.
     /// Uses an in-memory cache to avoid re-reading from SQLite on every turn.
     /// Returns `Arc<Vec<ChatMessage>>` so callers share the same allocation.

@@ -1131,6 +1131,23 @@ export async function getPlanFile(sessionId?: string): Promise<{ path: string; c
   };
 }
 
+export interface PlanMeta {
+  executionMode: "agent" | "plan";
+  planFilePath?: string;
+  planFileExists: boolean;
+}
+
+export async function getPlanMeta(sessionId: string): Promise<PlanMeta> {
+  const resp = (await wsClient.send("execution.get_plan_meta", { sessionId })) as {
+    data?: { executionMode?: string; planFilePath?: string | null; planFileExists?: boolean };
+  };
+  return {
+    executionMode: (resp?.data?.executionMode === "plan" ? "plan" : "agent") as "agent" | "plan",
+    planFilePath: resp?.data?.planFilePath ?? undefined,
+    planFileExists: resp?.data?.planFileExists ?? false,
+  };
+}
+
 export async function chatCancel(sessionId: string): Promise<{ ok: boolean }> {
   const resp = (await wsClient.send("cancel", { sessionId })) as {
     data?: { cancelled?: boolean };

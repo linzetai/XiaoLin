@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import i18n from "../../i18n";
 import * as api from "../api";
-import { createProject } from "../transport";
+import { createProject, getPlanMeta } from "../transport";
 import { DEFAULT_AGENT_ID, INITIAL_AGENTS, formatTime } from "./chat-helpers";
 import { _persisted } from "./persistence";
 import { useProjectStore } from "./project-store";
@@ -62,6 +62,7 @@ export interface ChatMetaState {
   updateChatBackendId: (localChatId: string, backendSessionId: string) => void;
   setChatExecutionMode: (chatId: string, mode: ExecutionMode) => void;
   setChatPlanFile: (chatId: string, path: string, exists: boolean) => void;
+  hydratePlanMeta: (sessionId: string) => Promise<void>;
 
   syncAgentsFromBackend: (backendAgents: Array<{ agentId: string; name: string; model: string; avatar?: string | null }>) => void;
   updateAgentProps: (props: Partial<Pick<Agent, "name" | "model" | "avatar">>) => void;
@@ -70,6 +71,7 @@ export interface ChatMetaState {
 }
 
 const initialChat = createChatMeta();
+const _hydrating = new Set<string>();
 
 export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
   chats: { [initialChat.id]: initialChat },
@@ -370,6 +372,26 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
       if (!chat) return state;
       return { chats: { ...state.chats, [chatId]: { ...chat, planFilePath: path, planFileExists: exists } } };
     });
+  },
+
+  hydratePlanMeta: async (sessionId) => {
+    if (_hydrating.has(sessionId)) return;
+    _hydrating.add(sessionId);
+    try {
+      const meta = await getPlanMeta(sessionId);
+      set((state) => {
+        const chat = state.chats[sessionId];
+        if (!chat) return state;
+        const updates: Partial<ChatMeta> = { executionMode: meta.executionMode };
+        if (meta.planFilePath) updates.planFilePath = meta.planFilePath;
+        updates.planFileExists = meta.planFileExists;
+        return { chats: { ...state.chats, [sessionId]: { ...chat, ...updates } } };
+      });
+    } catch (e) {
+      console.warn("hydratePlanMeta failed for", sessionId, e);
+    } finally {
+      _hydrating.delete(sessionId);
+    }
   },
 
   syncAgentsFromBackend: (backendAgents) => {

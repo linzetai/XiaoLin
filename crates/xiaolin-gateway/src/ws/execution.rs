@@ -97,20 +97,21 @@ pub async fn handle_execution_set_mode(
                 .await;
 
             let plan_store = &state.rt.plan_file_store;
-            let plan_path = plan_store.plan_path(session_id);
-            let plan_exists = plan_path.exists();
-            let _ = tx
-                .send(WsResponse {
-                    id: None,
-                    msg_type: "plan_file_update".into(),
-                    data: Some(json!({
-                        "sessionId": session_id,
-                        "path": plan_path.to_string_lossy().to_string(),
-                        "exists": plan_exists,
-                    })),
-                    error: None,
-                })
-                .await;
+            if let Some(plan_path) = plan_store.plan_path_if_exists(session_id) {
+                let plan_exists = plan_path.exists();
+                let _ = tx
+                    .send(WsResponse {
+                        id: None,
+                        msg_type: "plan_file_update".into(),
+                        data: Some(json!({
+                            "sessionId": session_id,
+                            "path": plan_path.to_string_lossy().to_string(),
+                            "exists": plan_exists,
+                        })),
+                        error: None,
+                    })
+                    .await;
+            }
         }
     }
 }
@@ -265,20 +266,21 @@ pub async fn handle_execution_approve_plan(
             .await;
 
         let plan_store = &state.rt.plan_file_store;
-        let plan_path = plan_store.plan_path(session_id);
-        let plan_exists = plan_path.exists();
-        let _ = bg_tx
-            .send(WsResponse {
-                id: None,
-                msg_type: "plan_file_update".into(),
-                data: Some(json!({
-                    "sessionId": session_id,
-                    "path": plan_path.to_string_lossy().to_string(),
-                    "exists": plan_exists,
-                })),
-                error: None,
-            })
-            .await;
+        if let Some(plan_path) = plan_store.plan_path_if_exists(session_id) {
+            let plan_exists = plan_path.exists();
+            let _ = bg_tx
+                .send(WsResponse {
+                    id: None,
+                    msg_type: "plan_file_update".into(),
+                    data: Some(json!({
+                        "sessionId": session_id,
+                        "path": plan_path.to_string_lossy().to_string(),
+                        "exists": plan_exists,
+                    })),
+                    error: None,
+                })
+                .await;
+        }
     }
 }
 
@@ -295,12 +297,13 @@ pub async fn handle_execution_get_plan(
         .unwrap_or("default");
 
     let plan_store = &state.rt.plan_file_store;
-    let path = plan_store.plan_path(session_id);
-    let exists = path.exists();
-    let content = if exists {
-        std::fs::read_to_string(&path).ok()
-    } else {
-        None
+    let (path_str, exists, content) = match plan_store.plan_path_if_exists(session_id) {
+        Some(path) => {
+            let e = path.exists();
+            let c = if e { std::fs::read_to_string(&path).ok() } else { None };
+            (path.to_string_lossy().to_string(), e, c)
+        }
+        None => (String::new(), false, None),
     };
 
     send_resp(
@@ -309,7 +312,7 @@ pub async fn handle_execution_get_plan(
             id: req_id,
             msg_type: "execution.get_plan".into(),
             data: Some(json!({
-                "path": path.to_string_lossy().to_string(),
+                "path": path_str,
                 "content": content,
                 "exists": exists,
             })),
@@ -370,4 +373,107 @@ pub async fn handle_execution_reject_plan(
         },
     )
     .await;
+}
+
+/// Return plan metadata for a session: execution mode, plan file path/exists.
+/// Used by the frontend to hydrate state after refresh/reconnect/session switch.
+pub async fn handle_execution_get_plan_meta(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    params: serde_json::Value,
+) {
+    let session_id = params
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
+
+    let registry_mode = state.rt.session_modes.current_mode(session_id);
+
+    let mode = if registry_mode == xiaolin_core::types::ExecutionMode::Agent {
+        let inferred = infer_mode_from_messages(&state.store.session_store, session_id).await;
+        if inferred != xiaolin_core::types::ExecutionMode::Agent {
+            state.rt.session_modes.transition(session_id, inferred);
+        }
+        inferred
+    } else {
+        registry_mode
+    };
+
+    let plan_store = &state.rt.plan_file_store;
+    let (plan_file_path, plan_file_exists) = match plan_store.plan_path_if_exists(session_id) {
+        Some(path) => {
+            let exists = path.exists();
+            (Some(path.to_string_lossy().to_string()), exists)
+        }
+        None => (None, false),
+    };
+
+    let mode_str = match mode {
+        xiaolin_core::types::ExecutionMode::Plan => "plan",
+        xiaolin_core::types::ExecutionMode::Coordinator => "coordinator",
+        _ => "agent",
+    };
+
+    send_resp(
+        sender,
+        &WsResponse {
+            id: req_id,
+            msg_type: "execution.get_plan_meta".into(),
+            data: Some(json!({
+                "executionMode": mode_str,
+                "planFilePath": plan_file_path,
+                "planFileExists": plan_file_exists,
+            })),
+            error: None,
+        },
+    )
+    .await;
+}
+
+/// Infer execution mode from the most recent messages in a session.
+/// Scans the last few messages for synthetic mode-switch markers or
+/// plan tool calls to determine the mode the session was likely in.
+async fn infer_mode_from_messages(
+    session_store: &xiaolin_session::SessionStore,
+    session_id: &str,
+) -> xiaolin_core::types::ExecutionMode {
+    let tail = match session_store.load_tail_messages(session_id, 10).await {
+        Ok(msgs) => msgs,
+        Err(e) => {
+            tracing::warn!(error = %e, session_id, "failed to load messages for mode inference");
+            return xiaolin_core::types::ExecutionMode::Agent;
+        }
+    };
+
+    for msg in tail.iter().rev() {
+        if let Some(text) = &msg.content {
+            if text.contains("[系统: 用户已切换到规划模式]") {
+                return xiaolin_core::types::ExecutionMode::Plan;
+            }
+            if text.contains("[系统: 用户已切换到执行模式]") {
+                return xiaolin_core::types::ExecutionMode::Agent;
+            }
+        }
+
+        if let Some(tc_json) = &msg.tool_calls_json {
+            if let Ok(tool_calls) = serde_json::from_str::<Vec<serde_json::Value>>(tc_json) {
+                for tc in &tool_calls {
+                    let name = tc
+                        .get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("");
+                    if name == "enter_plan_mode" {
+                        return xiaolin_core::types::ExecutionMode::Plan;
+                    }
+                    if name == "exit_plan_mode" {
+                        return xiaolin_core::types::ExecutionMode::Agent;
+                    }
+                }
+            }
+        }
+    }
+
+    xiaolin_core::types::ExecutionMode::Agent
 }

@@ -80,8 +80,10 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
   // Handle plan_delta: streaming content
   useEffect(() => {
     const unsub = onWsEvent("plan_delta", (msg: unknown) => {
-      const data = (msg as { data?: { delta?: string } })?.data;
+      const data = (msg as { data?: { delta?: string; sessionId?: string; session_id?: string } })?.data;
       if (!data?.delta) return;
+      const evtSid = data.sessionId ?? data.session_id;
+      if (evtSid && evtSid !== sessionId) return;
 
       setIsStreaming(true);
       setLoading(false);
@@ -89,7 +91,6 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
 
       bufferRef.current += data.delta;
 
-      // Line-commit strategy: commit up to the last newline
       const lastNewline = bufferRef.current.lastIndexOf("\n");
       if (lastNewline >= 0) {
         const toCommit = bufferRef.current.slice(0, lastNewline + 1);
@@ -98,18 +99,20 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
       }
     });
     return unsub;
-  }, []);
+  }, [sessionId]);
 
   // Handle plan_update: structured step updates
   useEffect(() => {
     const unsub = onWsEvent("plan_update", (msg: unknown) => {
-      const data = (msg as { data?: PlanUpdateData })?.data;
+      const data = (msg as { data?: PlanUpdateData & { sessionId?: string; session_id?: string } })?.data;
       if (!data?.steps) return;
+      const evtSid = data.sessionId ?? data.session_id;
+      if (evtSid && evtSid !== sessionId) return;
       setPlanSteps(data.steps);
       setPlanExplanation(data.explanation ?? undefined);
     });
     return unsub;
-  }, []);
+  }, [sessionId]);
 
   // Auto-scroll on content update
   useEffect(() => {

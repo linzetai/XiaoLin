@@ -602,8 +602,55 @@ export function ComposerCore({
     e.currentTarget.style.background = "transparent";
     e.currentTarget.style.color = "var(--fill-tertiary)";
   };
+  const [nudgeDismissed, setNudgeDismissed] = useState(() => {
+    try {
+      const raw = localStorage.getItem("xiaolin:plan-nudge-dismissed");
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+
+  const showPlanNudge = planFileExists && executionMode !== "plan" && !streaming
+    && activeChatId != null && !nudgeDismissed.has(activeChatId);
+
+  const dismissNudge = useCallback(() => {
+    if (!activeChatId) return;
+    setNudgeDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(activeChatId);
+      try { localStorage.setItem("xiaolin:plan-nudge-dismissed", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }, [activeChatId]);
+
   return (
     <>
+      {showPlanNudge && (
+        <div
+          className="flex w-full items-center gap-1.5 px-3 py-1 text-[11px]"
+          style={{
+            color: "var(--plan-tint)",
+            background: "var(--plan-tint-subtle, rgba(13,148,136,0.03))",
+            borderRadius: "8px 8px 0 0",
+            marginBottom: -1,
+          }}
+        >
+          <button
+            className="flex flex-1 items-center gap-1.5 transition-opacity hover:opacity-80"
+            onClick={() => handleSelectMode("plan")}
+          >
+            <FileText size={12} weight="bold" />
+            {t("plan_nudge_hasUnfinished")}
+          </button>
+          <button
+            className="flex-shrink-0 rounded p-0.5 transition-opacity hover:opacity-60"
+            onClick={dismissNudge}
+            style={{ color: "var(--plan-tint)" }}
+          >
+            <X size={10} weight="bold" />
+          </button>
+        </div>
+      )}
+
       {/* ═══ input-box container ═══ */}
       <div
         className="input-box overflow-hidden"

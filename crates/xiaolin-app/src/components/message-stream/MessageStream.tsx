@@ -142,6 +142,17 @@ export function MessageStream(_props: MessageStreamProps) {
     });
   }, [activeChatMeta?.id, activeChatMeta?.messageCount, stream.length, loadChatStream]);
 
+  const hydratedSessions = useRef(new Set<string>());
+  useEffect(() => {
+    if (!activeChatMeta) return;
+    const sid = activeChatMeta.id;
+    if (sid.startsWith("new-") || hydratedSessions.current.has(sid)) return;
+    const chat = useChatMetaStore.getState().chats[sid];
+    if (chat?.planFilePath) return;
+    hydratedSessions.current.add(sid);
+    useChatMetaStore.getState().hydratePlanMeta(sid);
+  }, [activeChatMeta?.id]);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef<Record<string, number>>({});

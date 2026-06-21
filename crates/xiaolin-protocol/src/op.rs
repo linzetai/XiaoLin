@@ -371,6 +371,9 @@ pub enum ClientOp {
         session_id: SessionId,
         feedback: Option<String>,
     },
+    ExecutionGetPlanMeta {
+        session_id: SessionId,
+    },
 
     // ── Pub/Sub ─────────────────────────────────────────────────────
     Subscribe {
@@ -897,6 +900,9 @@ impl ClientOp {
             "execution.reject_plan" => Ok(Self::ExecutionRejectPlan {
                 session_id: extract_session_id(&params)?,
                 feedback: params.get("feedback").and_then(|v| v.as_str()).map(String::from),
+            }),
+            "execution.get_plan_meta" => Ok(Self::ExecutionGetPlanMeta {
+                session_id: extract_session_id(&params)?,
             }),
             "subscribe" => Ok(Self::Subscribe {
                 events: params

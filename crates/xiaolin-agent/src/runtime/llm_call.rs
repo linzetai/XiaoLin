@@ -146,16 +146,15 @@ pub(crate) async fn perform_llm_call(
                 .map(|p| p.display().to_string());
             let plan_exists = svc.plan_file_path.as_ref()
                 .is_some_and(|p| p.exists());
-            let lang: Option<&str> = None;
             let attachment = mode_attachments::plan_mode_attachment(
                 plan_path_str.as_deref(),
                 plan_exists,
-                lang,
+                svc.language_preference.as_deref(),
             );
             if let Some(text) = attachment.text_for_turn(turn_count) {
                 let mut inject_text = String::new();
                 if turn_count == 0 && mode_state.has_exited_plan() {
-                    inject_text.push_str(&mode_attachments::plan_reentry_notice(lang));
+                    inject_text.push_str(&mode_attachments::plan_reentry_notice(svc.language_preference.as_deref()));
                     inject_text.push('\n');
                 }
                 inject_text.push_str(text);

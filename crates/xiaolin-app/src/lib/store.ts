@@ -63,6 +63,11 @@ async function syncBackendData() {
       } catch {
         /* storage full or unavailable */
       }
+
+      const activeId = useChatMetaStore.getState().activeChatId;
+      if (activeId && !activeId.startsWith("new-")) {
+        metaStore.hydratePlanMeta(activeId).catch(() => {});
+      }
     }
     useProjectStore.getState().syncProjects();
     initGitStore();

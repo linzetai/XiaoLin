@@ -113,6 +113,33 @@ impl PlanFileStore {
         self.slugs.remove(session_id);
     }
 
+    /// Check if a slug mapping exists for the given session without creating one.
+    pub fn has_slug(&self, session_id: &str) -> bool {
+        self.slugs.contains_key(session_id)
+    }
+
+    /// Remove slug mapping, delete the plan `.md` file on disk, and persist
+    /// the updated index. Silently ignores missing files.
+    pub fn remove_slug(&self, session_id: &str) {
+        if let Some((_, slug)) = self.slugs.remove(session_id) {
+            let path = self.plans_dir.join(format!("{slug}.md"));
+            if path.exists() {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!(session_id, ?path, error = %e, "failed to delete plan file");
+                }
+            }
+            if let Err(e) = self.save_index() {
+                tracing::warn!(session_id, error = %e, "failed to persist plan index after remove");
+            }
+        }
+    }
+
+    /// Get plan path for a session only if a slug already exists (no side effects).
+    pub fn plan_path_if_exists(&self, session_id: &str) -> Option<PathBuf> {
+        self.get_slug(session_id)
+            .map(|slug| self.plans_dir.join(format!("{slug}.md")))
+    }
+
     pub fn plan_path(&self, session_id: &str) -> PathBuf {
         let slug = self.get_or_create_slug(session_id);
         self.plans_dir.join(format!("{slug}.md"))
@@ -130,12 +157,13 @@ impl PlanFileStore {
     }
 
     pub fn read_plan(&self, session_id: &str) -> Option<String> {
-        let path = self.plan_path(session_id);
+        let path = self.plan_path_if_exists(session_id)?;
         std::fs::read_to_string(&path).ok()
     }
 
     pub fn plan_exists(&self, session_id: &str) -> bool {
-        self.plan_path(session_id).exists()
+        self.plan_path_if_exists(session_id)
+            .is_some_and(|p| p.exists())
     }
 
     fn index_path(&self) -> PathBuf {
@@ -240,5 +268,39 @@ mod tests {
         assert!(store.get_slug("sess-1").is_some());
         store.clear_slug("sess-1");
         assert!(store.get_slug("sess-1").is_none());
+    }
+
+    #[test]
+    fn has_slug_reflects_state() {
+        let store = PlanFileStore::new(Some(PathBuf::from("/tmp/plans")));
+        assert!(!store.has_slug("sess-x"));
+        store.get_or_create_slug("sess-x");
+        assert!(store.has_slug("sess-x"));
+    }
+
+    #[test]
+    fn remove_slug_deletes_file_and_mapping() {
+        let dir = std::env::temp_dir().join(format!("xiaolin-rm-test-{}", std::process::id()));
+        let store = PlanFileStore::new(Some(dir.clone()));
+        store.set_slug("rm-test", "to-remove");
+        store.write_plan("rm-test", "# temp").unwrap();
+        assert!(store.plan_exists("rm-test"));
+
+        store.remove_slug("rm-test");
+        assert!(!store.has_slug("rm-test"));
+        assert!(!dir.join("to-remove.md").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn plan_path_if_exists_no_side_effects() {
+        let store = PlanFileStore::new(Some(PathBuf::from("/tmp/plans")));
+        assert!(store.plan_path_if_exists("no-slug").is_none());
+        store.set_slug("has-slug", "cool-hawk");
+        assert_eq!(
+            store.plan_path_if_exists("has-slug"),
+            Some(PathBuf::from("/tmp/plans/cool-hawk.md"))
+        );
     }
 }

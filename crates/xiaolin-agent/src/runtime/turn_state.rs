@@ -99,6 +99,7 @@ pub(crate) struct TurnServices {
     pub todo_store: Option<TodoStore>,
     pub goal_store: Option<Arc<GoalStore>>,
     pub plan_file_path: Option<std::path::PathBuf>,
+    pub language_preference: Option<String>,
 
     // --- Streaming channels ---
     /// Main-loop events (Delta, ToolResult, TurnEnd, etc.) — yielded as AgentStep from the stream.

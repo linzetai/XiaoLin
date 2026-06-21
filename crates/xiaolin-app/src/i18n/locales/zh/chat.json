@@ -189,6 +189,7 @@
   "plan_notCreated": "(未创建)",
   "plan_notCreatedYet": "计划文件尚未创建",
   "plan_emptyHint": "在 Plan 模式下发送消息，AI 会创建结构化的执行计划",
+  "plan_nudge_hasUnfinished": "有未完成的计划方案，点击切回 Plan 模式查看",
   "loadFailed": "加载失败",
   "todo_list": "任务列表",
   "todo_inProgress": "{{count}} 进行中",
