@@ -50,11 +50,13 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
     <div style={cardStyle}>
       <div style={topStyle}>
         <span>{summary.totalFiles} file{summary.totalFiles > 1 ? "s" : ""} changed</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginLeft: 6 }}>
-          <span style={{ color: "var(--green-text, var(--green))" }}>+{summary.totalAdded}</span>
-          {" "}
-          <span style={{ color: "var(--red-text, var(--red))" }}>-{summary.totalRemoved}</span>
-        </span>
+        {(summary.totalAdded > 0 || summary.totalRemoved > 0) && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginLeft: 6 }}>
+            <span style={{ color: "var(--green-text, var(--green))" }}>+{summary.totalAdded}</span>
+            {" "}
+            <span style={{ color: "var(--red-text, var(--red))" }}>-{summary.totalRemoved}</span>
+          </span>
+        )}
         <button
           type="button"
           onClick={handleUndo}
@@ -98,11 +100,13 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {fileName}
             </span>
-            <span style={{ fontSize: 11, flexShrink: 0 }}>
-              <span style={{ color: "var(--green-text, var(--green))" }}>+{file.linesAdded}</span>
-              {" "}
-              <span style={{ color: "var(--red-text, var(--red))" }}>-{file.linesRemoved}</span>
-            </span>
+            {(file.linesAdded > 0 || file.linesRemoved > 0) && (
+              <span style={{ fontSize: 11, flexShrink: 0 }}>
+                <span style={{ color: "var(--green-text, var(--green))" }}>+{file.linesAdded}</span>
+                {" "}
+                <span style={{ color: "var(--red-text, var(--red))" }}>-{file.linesRemoved}</span>
+              </span>
+            )}
             <CaretRight style={{ color: "var(--fill-quaternary)", flexShrink: 0 }} />
           </div>
         );

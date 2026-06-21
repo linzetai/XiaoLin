@@ -28,10 +28,9 @@ export interface PlanApprovalMetadata {
   plan_exists?: boolean;
 }
 
-export function isPlanExitResult(toolName: string, result: string, metadata?: PlanApprovalMetadata | null): boolean {
+export function isPlanExitResult(toolName: string, _result: string, metadata?: PlanApprovalMetadata | null): boolean {
   if (toolName !== "exit_plan_mode") return false;
-  if (metadata?.approval_pending) return true;
-  return result.includes("approval") || result.includes("agent mode");
+  return metadata?.approval_pending === true;
 }
 
 type ActionKey = "implement" | "clear_implement" | "feedback" | "continue" | "open_editor";

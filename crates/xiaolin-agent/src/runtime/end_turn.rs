@@ -258,6 +258,30 @@ pub(crate) async fn handle_end_turn(
                     agent_id = %svc.config.agent_id,
                     "auto-exited Plan mode — no plan file produced, returning to Agent mode"
                 );
+                let _ = send_step(
+                    &svc.step_tx,
+                    AgentStep::ModeChange {
+                        turn_id: svc.turn_id.clone(),
+                        from: ExecutionMode::Plan,
+                        to: ExecutionMode::Agent,
+                    },
+                    false,
+                )
+                .await;
+                if let (Some(sid), Some(path)) = (svc.session_id.as_ref(), svc.plan_file_path.as_ref()) {
+                    let _ = send_step(
+                        &svc.step_tx,
+                        AgentStep::PlanFileUpdate {
+                            turn_id: svc.turn_id.clone(),
+                            session_id: sid.clone(),
+                            path: path.to_string_lossy().to_string(),
+                            exists: false,
+                            content: None,
+                        },
+                        false,
+                    )
+                    .await;
+                }
             } else if let (Some(sid), Some(path)) = (svc.session_id.as_ref(), svc.plan_file_path.as_ref()) {
                 tracing::info!(
                     agent_id = %svc.config.agent_id,

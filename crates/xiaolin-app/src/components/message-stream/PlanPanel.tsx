@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { X, FileText, ArrowsClockwise, Circle, CircleNotch, CheckCircle } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
@@ -142,6 +142,14 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
     ? stableContent + bufferRef.current
     : content;
 
+  const filteredContent = useMemo(() => {
+    if (!renderContent || planSteps.length === 0) return renderContent;
+    const lines = renderContent.split("\n");
+    const kept = lines.filter(line => !/^\s*-\s*\[[ x~]\]\s/i.test(line));
+    const result = kept.join("\n").trim();
+    return result || null;
+  }, [renderContent, planSteps.length]);
+
   return (
     <div
       className="flex h-full flex-col"
@@ -227,12 +235,12 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
             {error}
           </div>
         )}
-        {renderContent && (
+        {filteredContent && (
           <div
             className="plan-panel-content text-[12px] leading-[1.6]"
             style={{ color: "var(--fill-secondary)" }}
           >
-            <Markdown remarkPlugins={remarkPlugins}>{renderContent}</Markdown>
+            <Markdown remarkPlugins={remarkPlugins}>{filteredContent}</Markdown>
             {isStreaming && <StreamingCursor />}
           </div>
         )}

@@ -9,6 +9,7 @@ use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use xiaolin_protocol::{AgentEvent, PlanStep, PlanStepStatus, TurnId};
 
 use super::ask_question::ASK_QUESTION_STREAM_KEY;
+use super::plan_mode::current_plan_context;
 
 type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
 
@@ -172,6 +173,36 @@ impl Tool for UpdatePlanTool {
                     steps: plan_steps.clone(),
                 })
                 .await;
+        }
+
+        // Persist plan to disk so end_turn.rs sees the file and doesn't auto-exit plan mode
+        if let Some(pc) = current_plan_context() {
+            let mut md = String::new();
+            if let Some(ref expl) = input.explanation {
+                md.push_str(&format!("# {}\n\n", expl));
+            }
+            for step in &plan_steps {
+                let marker = match step.status {
+                    PlanStepStatus::Completed => "[x]",
+                    PlanStepStatus::InProgress => "[~]",
+                    PlanStepStatus::Pending => "[ ]",
+                };
+                md.push_str(&format!("- {} {}\n", marker, step.step));
+            }
+            if let Err(e) = pc.store.write_plan(&pc.session_id, &md) {
+                tracing::warn!(error = %e, "failed to persist plan file");
+            } else if let Some(tx) = self.stream_event_txs.get(&stream_key).map(|r| r.value().clone()) {
+                let path = pc.store.plan_path(&pc.session_id);
+                let _ = tx
+                    .send(AgentEvent::PlanFileUpdate {
+                        turn_id: TurnId::new("builtin"),
+                        session_id: stream_key.clone(),
+                        path: path.to_string_lossy().to_string(),
+                        exists: true,
+                        content: Some(md),
+                    })
+                    .await;
+            }
         }
 
         let in_progress_count = plan_steps

@@ -2741,16 +2741,16 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
             }
         }
 
-        let existing_meta = if validated.exists() && mode == "overwrite" {
+        let (existing_text, existing_meta) = if validated.exists() && mode == "overwrite" {
             match tokio::fs::read(&validated).await {
                 Ok(raw) => {
-                    let (_, meta) = detect_file_encoding_meta(&raw);
-                    Some(meta)
+                    let (text, meta) = detect_file_encoding_meta(&raw);
+                    (Some(text), Some(meta))
                 }
-                Err(_) => None,
+                Err(_) => (None, None),
             }
         } else {
-            None
+            (None, None)
         };
 
         let write_result = match mode {
@@ -2817,6 +2817,16 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                     Err(_) => content.len(),
                 };
                 let enc_info = existing_meta.as_ref().map_or("utf-8", |m| m.encoding);
+                let (lines_added, lines_removed) = match mode {
+                    "overwrite" => {
+                        let old = existing_text.as_deref().unwrap_or("");
+                        count_diff_lines(old, content)
+                    }
+                    "append" => (content.lines().count(), 0),
+                    "create_new" => count_diff_lines("", content),
+                    _ => (0, 0),
+                };
+                let diff_stat = format!("+{lines_added} -{lines_removed} lines");
                 ToolResult::ok(
                     serde_json::json!({
                         "written": true,
@@ -2824,6 +2834,9 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
                         "mode": mode,
                         "bytes": final_bytes,
                         "encoding": enc_info,
+                        "diffStat": diff_stat,
+                        "linesAdded": lines_added,
+                        "linesRemoved": lines_removed,
                     })
                     .to_string(),
                 )
@@ -4600,6 +4613,10 @@ impl Tool for ApplyPatchTool {
             }));
         }
 
+        let original_normalized = current.replace("\r\n", "\n");
+        let (lines_added, lines_removed) = count_diff_lines(&original_normalized, &working);
+        let diff_stat = format!("+{lines_added} -{lines_removed} lines");
+
         let write_bytes = encode_with_meta(&working, &enc_meta);
 
         match atomic_write_bytes(&validated, &write_bytes).await {
@@ -4610,6 +4627,9 @@ impl Tool for ApplyPatchTool {
                     "edits_applied": applied,
                     "bytes": write_bytes.len(),
                     "encoding": enc_meta.encoding,
+                    "diffStat": diff_stat,
+                    "linesAdded": lines_added,
+                    "linesRemoved": lines_removed,
                 })
                 .to_string(),
             ),
@@ -5019,7 +5039,7 @@ impl Tool for MultiEditTool {
             return ToolResult::err("multi_edit requires at least one file entry.".to_string());
         }
 
-        let mut staged: Vec<(PathBuf, String, Vec<u8>, Vec<serde_json::Value>)> = Vec::new();
+        let mut staged: Vec<(PathBuf, String, Vec<u8>, Vec<serde_json::Value>, usize, usize)> = Vec::new();
 
         for (file_idx, entry) in args.edits.iter().enumerate() {
             let validated = match ensure_within_workspace(Path::new(&entry.file_path), true) {
@@ -5089,19 +5109,23 @@ impl Tool for MultiEditTool {
                 }
             }
 
+            let original_normalized = original.replace("\r\n", "\n");
+            let (lines_added, lines_removed) = count_diff_lines(&original_normalized, &current);
             let final_bytes = encode_with_meta(&current, &enc_meta);
 
-            staged.push((validated, entry.file_path.clone(), final_bytes, change_log));
+            staged.push((validated, entry.file_path.clone(), final_bytes, change_log, lines_added, lines_removed));
         }
 
         if args.dry_run {
             let results: Vec<serde_json::Value> = staged
                 .iter()
-                .map(|(_, fp, bytes, log)| {
+                .map(|(_, fp, bytes, log, added, removed)| {
                     serde_json::json!({
                         "file_path": fp,
                         "changes_applied": log,
                         "result_bytes": bytes.len(),
+                        "linesAdded": added,
+                        "linesRemoved": removed,
                     })
                 })
                 .collect();
@@ -5133,7 +5157,7 @@ impl Tool for MultiEditTool {
 
         // Back up original bytes for each file before writing, for rollback.
         let mut backups: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for (validated_path, _, _, _) in &staged {
+        for (validated_path, _, _, _, _, _) in &staged {
             match tokio::fs::read(validated_path).await {
                 Ok(original_bytes) => backups.push((validated_path.clone(), original_bytes)),
                 Err(e) => {
@@ -5146,7 +5170,7 @@ impl Tool for MultiEditTool {
         }
 
         let mut written = Vec::new();
-        for (validated_path, display_path, bytes, change_log) in &staged {
+        for (validated_path, display_path, bytes, change_log, lines_added, lines_removed) in &staged {
             match atomic_write_bytes(validated_path, bytes).await {
                 Ok(()) => {
                     if let Some(cache) = get_file_state_cache() {
@@ -5158,6 +5182,8 @@ impl Tool for MultiEditTool {
                         "file_path": display_path,
                         "changes_applied": change_log,
                         "bytes": bytes.len(),
+                        "linesAdded": lines_added,
+                        "linesRemoved": lines_removed,
                     }));
                 }
                 Err(e) => {
