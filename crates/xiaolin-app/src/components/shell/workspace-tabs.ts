@@ -69,6 +69,8 @@ interface WorkspaceTabsState {
   prePanelWidth: number | null;
   /** Per-session tab memory: sessionId → last activeTabId */
   sessionTabMap: Record<string, string>;
+  /** True when user manually closed the Plan tab — suppresses auto-open until session switch */
+  planClosedByUser: boolean;
 
   registerTab: (tab: WorkspaceTab) => void;
   unregisterTab: (id: string) => void;
@@ -76,6 +78,7 @@ interface WorkspaceTabsState {
   setPanelOpen: (open: boolean) => void;
   togglePanel: () => void;
   setPanelWidth: (width: number) => void;
+  setPlanClosedByUser: (closed: boolean) => void;
   /** Call when active session changes to save/restore tab state */
   switchSession: (newSessionId: string, oldSessionId?: string) => void;
 }
@@ -98,6 +101,7 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   panelWidth: loadPanelWidth(),
   prePanelWidth: null,
   sessionTabMap: {},
+  planClosedByUser: false,
 
   registerTab: (tab) => {
     set((s) => {
@@ -160,6 +164,8 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
     }
   },
 
+  setPlanClosedByUser: (closed) => set({ planClosedByUser: closed }),
+
   setPanelWidth: (width) => {
     const clamped = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width));
     set({ panelWidth: clamped });
@@ -170,7 +176,7 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
 
   switchSession: (newSessionId, oldSessionId) => {
     const { activeTabId, tabs, sessionTabMap } = get();
-    const updates: Partial<WorkspaceTabsState> = {};
+    const updates: Partial<WorkspaceTabsState> = { planClosedByUser: false };
 
     if (oldSessionId && activeTabId) {
       updates.sessionTabMap = { ...sessionTabMap, [oldSessionId]: activeTabId };
@@ -181,8 +187,6 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
       updates.activeTabId = savedTab;
     }
 
-    if (Object.keys(updates).length > 0) {
-      set(updates as WorkspaceTabsState);
-    }
+    set(updates as WorkspaceTabsState);
   },
 }));

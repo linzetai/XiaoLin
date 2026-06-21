@@ -54,6 +54,22 @@ pub async fn handle_execution_set_mode(
 
     let (from, to) = state.rt.session_modes.transition(session_id, target);
 
+    if from != to {
+        let synthetic = match to {
+            ExecutionMode::Plan => "[系统: 用户已切换到规划模式]",
+            ExecutionMode::Agent => "[系统: 用户已切换到执行模式]",
+            ExecutionMode::Coordinator => "[系统: 用户已切换到协调模式]",
+        };
+        let msg = xiaolin_core::types::ChatMessage {
+            role: xiaolin_core::types::Role::User,
+            content: Some(serde_json::Value::String(synthetic.to_string())),
+            ..Default::default()
+        };
+        if let Err(e) = state.store.session_store.append_message(session_id, &msg).await {
+            tracing::warn!(error = %e, session_id, "failed to inject synthetic mode switch message");
+        }
+    }
+
     send_resp(
         sender,
         &WsResponse {

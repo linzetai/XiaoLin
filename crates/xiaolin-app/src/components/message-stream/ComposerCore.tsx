@@ -21,6 +21,7 @@ import { PermissionSelector } from "./PermissionSelector";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { useConfigStore } from "../../lib/stores/config-store";
+import { useStreamStore } from "../../lib/stores/stream-store";
 import type { Chat } from "../../lib/stores/types";
 import { openLightbox } from "../common/ImageLightbox";
 
@@ -331,6 +332,8 @@ function ModeSelector({
     { id: "goal", icon: Crosshair, label: "Goal", color: "var(--orange, #ED8936)" },
   ];
 
+  const activeColor = options.find((o) => o.id === mode)?.color ?? "var(--fill-quaternary)";
+
   return (
     <div className="relative">
       <button
@@ -338,11 +341,11 @@ function ModeSelector({
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
         className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ color: "var(--fill-quaternary)" }}
+        style={{ color: activeColor }}
       >
         <Icon size={12} />
         <span>{label}</span>
-        <span style={{ fontSize: 8, opacity: 0.4 }}>▾</span>
+        <span style={{ fontSize: 8, opacity: 0.6 }}>▾</span>
       </button>
       {open && createPortal(
         <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)}>
@@ -474,6 +477,14 @@ export function ComposerCore({
         if (resp.ok) {
           const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
           setChatExecutionMode(chatId, "agent");
+          if (chatId) {
+            useStreamStore.getState().addBriefMessage(chatId, {
+              id: `mode-switch-${Date.now()}`,
+              content: t("slashPlanToggle_toAgent"),
+              mode: "normal",
+              timestamp: Date.now(),
+            });
+          }
         }
       }
     } else {
@@ -487,10 +498,18 @@ export function ComposerCore({
         if (resp.ok) {
           const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
           setChatExecutionMode(chatId, backendMode);
+          if (chatId) {
+            useStreamStore.getState().addBriefMessage(chatId, {
+              id: `mode-switch-${Date.now()}`,
+              content: backendMode === "plan" ? t("slashPlanToggle_toPlan") : t("slashPlanToggle_toAgent"),
+              mode: "normal",
+              timestamp: Date.now(),
+            });
+          }
         }
       }
     }
-  }, [streaming, executionMode, activeChat?.id, activeChatId]);
+  }, [streaming, executionMode, activeChat?.id, activeChatId, t]);
 
   const handlePlanSlash = useCallback(() => {
     if (streaming) return;

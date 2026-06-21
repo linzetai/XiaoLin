@@ -88,8 +88,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         component: PlanTabContent,
         order: 0,
       });
-      const { activeTabId: currentTab, panelOpen } = useWorkspaceTabs.getState();
-      if (currentTab !== "plan" && !panelOpen) {
+      const { activeTabId: currentTab, panelOpen, planClosedByUser } = useWorkspaceTabs.getState();
+      if (currentTab !== "plan" && !panelOpen && !planClosedByUser) {
         useWorkspaceTabs.getState().setActiveTab("plan");
       }
     } else {

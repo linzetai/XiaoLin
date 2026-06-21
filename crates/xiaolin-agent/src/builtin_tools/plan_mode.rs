@@ -349,36 +349,19 @@ steps (commands, file writes) for after exit_plan_mode.\n\n\
             return ToolResult::ok("Already in plan mode.");
         }
 
-        let plan_info = if let Some(pc) = current_plan_context() {
+        let plan_hint = if let Some(pc) = current_plan_context() {
             let path = pc.store.plan_path(&pc.session_id);
             if pc.store.plan_exists(&pc.session_id) {
-                format!(
-                    "\n\n## Re-entering Plan Mode\n\
-                     A plan file already exists at: {}\n\
-                     Read it first to understand what was previously planned. Then decide:\n\
-                     - **Different task**: Overwrite with a fresh plan\n\
-                     - **Same task, continuing**: Update the existing plan incrementally",
-                    path.display()
-                )
+                format!(" (existing plan at {})", path.display())
             } else {
-                format!("\n\nPlan file will be saved to: {}", path.display())
+                format!(" (plan → {})", path.display())
             }
         } else {
             String::new()
         };
 
         ToolResult::ok(format!(
-            "Entered plan mode (was: {from}).\n\n\
-             In plan mode:\n\
-             1. Explore the codebase with read/search tools\n\
-             2. Identify patterns and approaches\n\
-             3. Design an implementation strategy\n\
-             4. Write your plan to the plan file\n\
-             5. Use exit_plan_mode when ready to start coding\n\n\
-             DO NOT write or edit any files except the plan file. This is a read-only phase.\n\
-             DO NOT attempt shell commands that modify the file system (mkdir, npm install, \
-             npm create, git add, etc.) — they will be blocked and waste iterations.\
-             {plan_info}"
+            "已进入 Plan 模式 (read-only){plan_hint}"
         ))
     }
 }
@@ -562,10 +545,7 @@ impl Tool for ExitPlanModeTool {
         if !plan_exists {
             ms.transition(ExecutionMode::Agent);
             return ToolResult::ok(format!(
-                "Switched back to agent mode — full tool access restored.\
-                 {verify_msg}\n\n\
-                 No plan file was written during this session. \
-                 You now have full tool access to proceed."
+                "已退出 Plan 模式 → Agent 模式{verify_msg}"
             ));
         }
 
@@ -775,7 +755,7 @@ mod tests {
 
         let result = tool.execute("{}").await;
         assert!(result.success);
-        assert!(result.output.contains("Entered plan mode"));
+        assert!(result.output.contains("Plan 模式"));
         assert!(result.output.contains("read-only"));
         assert_eq!(state.current_mode(), ExecutionMode::Plan);
     }
@@ -800,7 +780,7 @@ mod tests {
         let result = tool.execute("{}").await;
         assert!(result.success);
         assert!(
-            result.output.contains("agent mode") && result.output.contains("No plan file"),
+            result.output.contains("Agent 模式"),
             "without plan file, should directly switch to agent mode, got: {}",
             result.output
         );

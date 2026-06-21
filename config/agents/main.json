@@ -3,11 +3,11 @@
   "name": "小林助手",
   "description": "通用型 AI 助手，具备飞书 IM 工具调用能力",
   "model": {
-    "provider": "plugin:wps-llm",
-    "model": "zhipu/glm-5",
+    "provider": "openai_compatible",
+    "model": "kimi-k2-0711-preview",
     "temperature": 0.7,
     "maxTokens": null,
-    "contextWindow": 128000,
+    "contextWindow": 300000,
     "costPer1kInput": null,
     "costPer1kOutput": null,
     "supportsReasoning": null,
@@ -16,7 +16,7 @@
       "output": ["text", "tool_calls"]
     },
     "fallbacks": [],
-    "maxConcurrentRequests": 10
+    "maxConcurrentRequests": 5
   },
   "systemPrompt": null,
   "tools": [

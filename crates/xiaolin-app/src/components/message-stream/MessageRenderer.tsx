@@ -610,6 +610,7 @@ export interface MessageRendererRowProps {
   onToggleSelect?: (fullIdx: number) => void;
   lastSegments?: StreamSegment[];
   highlightTurnId?: string | null;
+  executionMode?: "agent" | "plan";
 }
 
 export const MessageRendererRow = memo(function MessageRendererRow({
@@ -627,6 +628,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   onToggleSelect,
   lastSegments,
   highlightTurnId,
+  executionMode,
 }: MessageRendererRowProps) {
   if (item.type === "brief") {
     return <BriefMessageCard data={item.data as BriefMessageData} />;
@@ -804,6 +806,9 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     );
   }
 
+  const isPlanMode = executionMode === "plan";
+  const isAssistant = cm.role === "assistant";
+
   return (
     <MessageErrorBoundary>
     <div
@@ -811,14 +816,26 @@ export const MessageRendererRow = memo(function MessageRendererRow({
       className="msg-row"
       data-turn-id={String(cm.id)}
       style={{
-        padding: "0 clamp(24px, 5%, 80px)",
+        paddingTop: 0,
+        paddingRight: "clamp(24px, 5%, 80px)",
+        paddingBottom: 0,
+        paddingLeft: isPlanMode && isAssistant ? "calc(clamp(24px, 5%, 80px) - 2px)" : "clamp(24px, 5%, 80px)",
         borderRadius: isHighlighted ? 8 : undefined,
         background: isHighlighted ? "color-mix(in srgb, var(--tint) 12%, transparent)" : undefined,
         boxShadow: isHighlighted ? "inset 0 0 0 1px color-mix(in srgb, var(--tint) 30%, transparent)" : undefined,
         animation: isHighlighted ? "search-highlight-fade 2.5s ease-out forwards" : undefined,
         transition: "background 0.3s, box-shadow 0.3s",
+        borderLeft: isPlanMode && isAssistant ? "2px solid var(--plan-tint-border)" : undefined,
       }}
     >
+      {isPlanMode && isAssistant && (
+        <span
+          className="mb-1 inline-block rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider"
+          style={{ color: "var(--plan-tint)", background: "var(--plan-tint-bg)" }}
+        >
+          Plan
+        </span>
+      )}
       {cm.role === "user" ? (
         <UserInput
           msg={cm}
@@ -852,6 +869,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     prev.lastSegments === next.lastSegments &&
     prev.selectMode === next.selectMode &&
     prev.isSelected === next.isSelected &&
-    prev.highlightTurnId === next.highlightTurnId
+    prev.highlightTurnId === next.highlightTurnId &&
+    prev.executionMode === next.executionMode
   );
 });

@@ -443,6 +443,26 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
 
+  if (!isRunning && (tool.name === "enter_plan_mode" || (tool.name === "exit_plan_mode" && !isPlanExitResult(tool.name, tool.result ?? "", tool.metadata as PlanApprovalMetadata | undefined)))) {
+    const isPlanEnter = tool.name === "enter_plan_mode";
+    return (
+      <div
+        className="flex items-center gap-1.5 px-1 py-1 text-[11px]"
+        style={{ color: "var(--plan-tint)", marginBottom: "var(--step-gap)" }}
+      >
+        <Compass size={12} />
+        <span className="font-medium">
+          {isPlanEnter ? t("tool_enter_plan_mode") : t("tool_exit_plan_mode")}
+        </span>
+        {tool.duration && (
+          <span className="text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+            {formatDuration(tool.duration)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const progressData = useStreamStore((s) => s.toolProgress[tool.id]);
 
   const resultImages = tool.result ? extractImages(tool.result).images : [];

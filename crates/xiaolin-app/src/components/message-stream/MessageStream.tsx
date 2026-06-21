@@ -631,21 +631,27 @@ export function MessageStream(_props: MessageStreamProps) {
   }, [lastUserMessage, handleMentionSend]);
 
   const isEmpty = stream.length === 0 && !streaming;
+  const chatSessionId = activeChatMeta?.id ?? "";
+  const planFilePath = activeChatMeta?.planFilePath;
+  const planFileExists = activeChatMeta?.planFileExists ?? false;
+  const executionMode = activeChatMeta?.executionMode ?? "agent";
+
   const togglePlanPanel = useCallback(() => {
     const { tabs, panelOpen, activeTabId: curTab } = useWorkspaceTabs.getState();
     const hasPlanTab = tabs.some((t) => t.id === "plan");
     if (!hasPlanTab) return;
     if (panelOpen && curTab === "plan") {
       useWorkspaceTabs.getState().togglePanel();
+      if (chatSessionId) {
+        sessionStorage.setItem(`xiaolin:plan-panel-dismissed:${chatSessionId}`, "1");
+      }
     } else {
       useWorkspaceTabs.getState().setActiveTab("plan");
+      if (chatSessionId) {
+        sessionStorage.removeItem(`xiaolin:plan-panel-dismissed:${chatSessionId}`);
+      }
     }
-  }, []);
-
-  const chatSessionId = activeChatMeta?.id ?? "";
-  const planFilePath = activeChatMeta?.planFilePath;
-  const planFileExists = activeChatMeta?.planFileExists ?? false;
-  const executionMode = activeChatMeta?.executionMode ?? "agent";
+  }, [chatSessionId]);
 
   const showFallbackPlanApproval = planFileExists && executionMode === "plan" && !streaming;
 
@@ -881,6 +887,7 @@ export function MessageStream(_props: MessageStreamProps) {
                     bottomRef={bottomRef}
                     lastSegments={virtualItem.index === lastAssistantDisplayIdx ? lastSegments as import("./types").StreamSegment[] | undefined : undefined}
                     highlightTurnId={highlightTurnId}
+                    executionMode={executionMode}
                   />
                 </div>
               ))}

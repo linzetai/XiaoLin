@@ -170,6 +170,8 @@ pub fn run() {
         .plugin({
             tauri_plugin_connector::ConnectorBuilder::new()
                 .bind_address("127.0.0.1")
+                .port_range(9555, 9556)
+                .mcp_port_range(9556, 9557)
                 .build()
         })
         .plugin(tauri_plugin_updater::Builder::new().build())

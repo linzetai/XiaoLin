@@ -8,6 +8,7 @@ import type { MentionInputHandle, InlineMention } from "./MentionInput";
 import type { AttachedFile } from "./StreamFooter";
 import * as transport from "../../lib/transport";
 import type { StreamSegment } from "./types";
+import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { detachedStreams, MAX_DETACHED_STREAMS } from "./messageStreamRegistry";
 import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -696,7 +697,16 @@ export function useMessageStreamChat({
           case "plan_file_update": {
             const d = event.data;
             if (d?.path) {
-              setChatPlanFile(capturedChatId, d.path as string, (d.exists as boolean) ?? false);
+              const exists = (d.exists as boolean) ?? false;
+              setChatPlanFile(capturedChatId, d.path as string, exists);
+              if (exists) {
+                const { panelOpen, activeTabId, tabs } = useWorkspaceTabs.getState();
+                const hasPlanTab = tabs.some((t) => t.id === "plan");
+                const manuallyDismissed = sessionStorage.getItem(`xiaolin:plan-panel-dismissed:${capturedChatId}`);
+                if (hasPlanTab && !manuallyDismissed && !(panelOpen && activeTabId === "plan")) {
+                  useWorkspaceTabs.getState().setActiveTab("plan");
+                }
+              }
             }
             break;
           }

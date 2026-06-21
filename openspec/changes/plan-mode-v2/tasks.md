@@ -56,16 +56,16 @@
 
 核心目标：将 2 按钮审批升级为完整 5 选项交互
 
-- [ ] 1.3 Backend: ClientOp::ExecutionRejectPlan in op.rs
-- [ ] 5.1 PlanApprovalCard: Plan 全文 Markdown 默认展开 (max-h 600px)
-- [ ] 5.3 PlanApprovalCard:「清除上下文并实施」按钮 + 上下文使用率 % 显示
-- [ ] 5.5 PlanApprovalCard:「给反馈后继续」→ 展开多行输入框 (Enter/Shift+Enter/Esc)
-- [ ] 5.6 PlanApprovalCard:「在编辑器中打开」→ Tauri opener 集成
-- [ ] 5.7 PlanApprovalCard:「记住选择」复选框 + localStorage 持久化
-- [ ] 5.8 PlanApprovalCard: 审批后卡片状态更新 (已审批 + 操作描述 + 按钮禁用)
-- [ ] 5.9 Backend: approvePlan API 新增 feedback 参数 → 注入用户消息
-- [ ] 5.10 Backend: approvePlan API 新增 clearContext 参数 → 新建 session + plan 注入
-- [ ] 5.11 Backend: gateway reject_plan handler (保持 Plan + 发送反馈消息)
+- [x] 1.3 Backend: ClientOp::ExecutionRejectPlan in op.rs
+- [x] 5.1 PlanApprovalCard: Plan 全文 Markdown 默认展开 (max-h 600px)
+- [x] 5.3 PlanApprovalCard:「清除上下文并实施」按钮 + 上下文使用率 % 显示
+- [x] 5.5 PlanApprovalCard:「给反馈后继续」→ 展开多行输入框 (Enter/Shift+Enter/Esc)
+- [x] 5.6 PlanApprovalCard:「在编辑器中打开」→ Tauri opener 集成
+- [x] 5.7 PlanApprovalCard:「记住选择」复选框 + localStorage 持久化
+- [x] 5.8 PlanApprovalCard: 审批后卡片状态更新 (已审批 + 操作描述 + 按钮禁用)
+- [x] 5.9 Backend: approvePlan API 新增 feedback 参数 → 注入用户消息
+- [x] 5.10 Backend: approvePlan API 新增 clearContext 参数 → 新建 session + plan 注入
+- [x] 5.11 Backend: gateway reject_plan handler (保持 Plan + 发送反馈消息)
 
 ## M2: 视觉完善 (Color System + Mode Entry)
 
@@ -73,25 +73,25 @@
 
 ### 色彩系统
 
-- [ ] 6.1 index.css: 定义 --plan-tint-* CSS tokens (light theme)
-- [ ] 6.2 index.css: 定义 --plan-tint-* CSS tokens (dark theme)
-- [ ] 6.3 ModeSelector: Plan 选项色从 oklch(56% 0.18 310) 改为 var(--plan-tint)
-- [ ] 6.4 Plan Banner: 样式从 var(--tint) 改为 var(--plan-tint-*)
-- [ ] 6.5 PlanPanel: 头部样式从 var(--tint) 改为 var(--plan-tint-*)
-- [ ] 5.12 PlanApprovalCard: 使用 --plan-tint-* 替代 var(--tint)
+- [x] 6.1 index.css: 定义 --plan-tint-* CSS tokens (light theme)
+- [x] 6.2 index.css: 定义 --plan-tint-* CSS tokens (dark theme)
+- [x] 6.3 ModeSelector: Plan 选项色从 oklch(56% 0.18 310) 改为 var(--plan-tint)
+- [x] 6.4 Plan Banner: 样式从 var(--tint) 改为 var(--plan-tint-*)
+- [x] 6.5 PlanPanel: 头部样式从 var(--tint) 改为 var(--plan-tint-*)
+- [x] 5.12 PlanApprovalCard: 使用 --plan-tint-* 替代 var(--tint)
 
 ### Mode Entry & Visual
 
-- [ ] 7.1 Synthetic user message on UI mode switch (ModeSelector → Plan)
-- [ ] 7.2 Plan mode message left border (2px --plan-tint-border)
-- [ ] 7.3 Plan mode message badge (Plan, 8px font, --plan-tint)
-- [ ] 7.4 Composer border color: transition to --plan-tint-border in Plan mode (300ms)
-- [ ] 7.5 Mode switch animation: Plan Banner slideDown/fadeOut (200ms/150ms)
-- [ ] 7.6 PlanPanel auto-open on first plan_file_update (with slideFromRight)
-- [ ] 7.7 PlanPanel no auto-open after user manual close
-- [ ] 7.8 enter_plan_mode tool result: 简洁状态行 (已进入 Plan 模式)
-- [ ] 7.9 exit_plan_mode tool result (no plan): 简洁状态行 (已退出 Plan 模式)
-- [ ] 7.11 Plan mode Composer placeholder: "探索代码、讨论方案...（只读模式）"
+- [x] 7.1 Synthetic user message on UI mode switch (ModeSelector → Plan)
+- [x] 7.2 Plan mode message left border (2px --plan-tint-border)
+- [x] 7.3 Plan mode message badge (Plan, 8px font, --plan-tint)
+- [x] 7.4 Composer border color: transition to --plan-tint-border in Plan mode (300ms)
+- [x] 7.5 Mode switch animation: Plan Banner slideDown/fadeOut (200ms/150ms)
+- [x] 7.6 PlanPanel auto-open on first plan_file_update (with slideFromRight)
+- [x] 7.7 PlanPanel no auto-open after user manual close
+- [x] 7.8 enter_plan_mode tool result: 简洁状态行 (已进入 Plan 模式)
+- [x] 7.9 exit_plan_mode tool result (no plan): 简洁状态行 (已退出 Plan 模式)
+- [x] 7.11 Plan mode Composer placeholder: "探索代码、讨论方案...（只读模式）"
 
 ## M3: 状态恢复 (Plan Recovery)
 

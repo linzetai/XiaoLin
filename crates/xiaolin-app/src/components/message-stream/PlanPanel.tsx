@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { X, FileText, ArrowsClockwise, Circle, CircleNotch, CheckCircle } from "@phosphor-icons/react";
+import { X, FileText, ArrowsClockwise, Circle, CircleNotch, CheckCircle, Compass } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as transport from "../../lib/transport";
@@ -245,8 +245,14 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
           </div>
         )}
         {!loading && !isStreaming && !error && !content && (
-          <div className="py-4 text-center text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-            {t("plan_notCreatedYet")}
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Compass size={32} weight="light" style={{ color: "var(--plan-tint)", opacity: 0.5 }} />
+            <div className="text-center text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+              {t("plan_notCreatedYet")}
+            </div>
+            <div className="text-center text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+              {t("plan_emptyHint")}
+            </div>
           </div>
         )}
       </div>
@@ -375,6 +381,12 @@ export function PlanTabContent() {
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
   const chat = useChatMetaStore((s) => s.chats[s.activeChatId]);
   const togglePanel = useWorkspaceTabs((s) => s.togglePanel);
+  const setPlanClosedByUser = useWorkspaceTabs((s) => s.setPlanClosedByUser);
+
+  const handleClose = useCallback(() => {
+    setPlanClosedByUser(true);
+    togglePanel();
+  }, [setPlanClosedByUser, togglePanel]);
 
   if (!activeChatId || !chat) return null;
 
@@ -383,7 +395,7 @@ export function PlanTabContent() {
       sessionId={activeChatId}
       planFilePath={chat.planFilePath}
       planFileExists={chat.planFileExists}
-      onClose={togglePanel}
+      onClose={handleClose}
     />
   );
 }

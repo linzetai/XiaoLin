@@ -378,14 +378,17 @@ export function PlanApprovalCard({
                 onKeyDown={handleFeedbackKeyDown}
                 placeholder={t("plan_feedbackPlaceholder")}
                 disabled={isDisabled}
-                className="w-full resize-none rounded-md p-2 text-[11px] leading-[1.5] outline-none disabled:opacity-40"
+                className="w-full resize-none rounded-md p-2 text-[11px] leading-[1.5] disabled:opacity-40"
                 style={{
                   background: "var(--bg-primary)",
                   border: "0.5px solid var(--separator)",
                   color: "var(--fill-primary)",
                   minHeight: "60px",
                   maxHeight: "120px",
+                  outline: "none",
                 }}
+                onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--plan-tint)"; e.currentTarget.style.borderColor = "var(--plan-tint)"; }}
+                onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "var(--separator)"; }}
                 rows={3}
               />
               <div className="mt-0.5 text-[9px]" style={{ color: "var(--fill-quaternary)" }}>
@@ -398,7 +401,7 @@ export function PlanApprovalCard({
           <button
             onClick={() => executeAction("continue")}
             disabled={isDisabled}
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all duration-150 hover:bg-[var(--plan-tint-subtle)] active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all duration-150 hover:bg-[var(--plan-tint-bg)] active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
             style={{ color: "var(--fill-tertiary)" }}
           >
             <ArrowsClockwise size={14} />
@@ -410,7 +413,7 @@ export function PlanApprovalCard({
             <button
               onClick={() => executeAction("open_editor")}
               disabled={isDisabled}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all duration-150 hover:bg-[var(--plan-tint-subtle)] active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-all duration-150 hover:bg-[var(--plan-tint-bg)] active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               style={{ color: "var(--fill-tertiary)" }}
             >
               <ArrowSquareOut size={14} />
