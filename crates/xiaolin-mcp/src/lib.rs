@@ -2241,7 +2241,9 @@ impl McpClient {
             let _ = writer.close().await;
         };
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let _ = handle.block_on(tokio::time::timeout(Duration::from_secs(2), close));
+            handle.spawn(async move {
+                let _ = tokio::time::timeout(Duration::from_secs(2), close).await;
+            });
         }
     }
 }

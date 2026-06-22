@@ -851,6 +851,7 @@ async fn feishu_plugin_url_verification_challenge() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let payload = json!({
@@ -881,6 +882,7 @@ async fn feishu_plugin_parses_text_message() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let payload = json!({
@@ -943,6 +945,7 @@ async fn feishu_plugin_ignores_non_text_messages() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let payload = json!({
@@ -982,6 +985,7 @@ async fn feishu_plugin_rejects_bad_token() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let payload = json!({
@@ -1023,6 +1027,7 @@ async fn feishu_plugin_ignores_unknown_event_types() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let payload = json!({
@@ -1055,6 +1060,7 @@ async fn feishu_plugin_capabilities_and_meta() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let meta = plugin.meta();
@@ -1084,6 +1090,7 @@ async fn feishu_plugin_provides_tools() {
         domain: "https://open.feishu.cn".into(),
         reply_mode: "mention_only".into(),
         user_access_token: None,
+        allow_insecure_webhook: false,
     });
 
     let tools = plugin.tools();
