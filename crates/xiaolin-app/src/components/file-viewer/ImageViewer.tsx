@@ -24,6 +24,7 @@ export interface ImageViewerProps {
   workDir: string;
   viewMode?: "preview" | "code";
   svgContent?: string;
+  reloadToken?: number;
   onViewModeChange?: (mode: "preview" | "code") => void;
 }
 
@@ -57,6 +58,7 @@ export const ImageViewer = memo(function ImageViewer({
   workDir,
   viewMode = "preview",
   svgContent = "",
+  reloadToken,
   onViewModeChange,
 }: ImageViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -163,7 +165,7 @@ export const ImageViewer = memo(function ImageViewer({
         blobUrlRef.current = null;
       }
     };
-  }, [filePath, workDir, isSvg, svgContent]);
+  }, [filePath, workDir, isSvg, svgContent, reloadToken]);
 
   useEffect(() => {
     if (!naturalSize) return;

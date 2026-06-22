@@ -1,19 +1,16 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useMemo } from "react";
 import {
   CaretLeft,
   CaretRight,
-  File,
-  Folder,
   FolderOpen,
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import type { FileArtifact } from "../../lib/transport";
-import { listDirectory, type DirEntry } from "../../lib/transport";
 import { resolveFilePath } from "../../lib/stores/file-viewer-store";
+import { FileTree } from "./FileTree";
 
 const FILE_LIST_WIDTH = 180;
 const FILE_LIST_COLLAPSED = 36;
-const MAX_DIR_ENTRIES = 500;
 
 const opColor: Record<FileArtifact["operation"], string> = {
   created: "var(--green-text)",
@@ -166,71 +163,6 @@ const ArtifactRow = memo(function ArtifactRow({ artifact, active, onOpen }: Arti
   );
 });
 
-interface DirRowProps {
-  entry: DirEntry;
-  parentPath: string;
-  onOpenFile: (path: string) => void;
-  onNavigate: (path: string) => void;
-}
-
-const DirRow = memo(function DirRow({ entry, parentPath, onOpenFile, onNavigate }: DirRowProps) {
-  const fullPath = `${parentPath.replace(/\/+$/, "")}/${entry.name}`;
-
-  const handleClick = useCallback(() => {
-    if (entry.isDir) {
-      onNavigate(fullPath);
-    } else {
-      onOpenFile(fullPath);
-    }
-  }, [entry.isDir, fullPath, onNavigate, onOpenFile]);
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "4px 8px 4px 20px",
-        fontSize: 11,
-        fontFamily: "var(--font-mono)",
-        cursor: "pointer",
-        transition: "background 0.1s",
-      }}
-      onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleClick();
-        }
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--bg-hover)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-      }}
-    >
-      {entry.isDir ? (
-        <Folder size={12} style={{ flexShrink: 0, color: "var(--fill-tertiary)" }} />
-      ) : (
-        <File size={12} style={{ flexShrink: 0, color: "var(--fill-tertiary)" }} />
-      )}
-      <span
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: "var(--fill-primary)",
-        }}
-      >
-        {entry.name}
-      </span>
-    </div>
-  );
-});
 
 function FileListPanel({
   workDir,
@@ -242,42 +174,6 @@ function FileListPanel({
   onBrowseActivate,
 }: Omit<FileListSidebarProps, "collapsed" | "overlayMode" | "overlayOpen" | "onOpenOverlay">) {
   const { t } = useTranslation("sidebar");
-  const [browsePath, setBrowsePath] = useState<string | null>(null);
-  const [entries, setEntries] = useState<DirEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [dirError, setDirError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!browseActive || !workDir) {
-      setBrowsePath(null);
-      setEntries([]);
-      return;
-    }
-    setBrowsePath(workDir);
-  }, [browseActive, workDir]);
-
-  useEffect(() => {
-    if (!browsePath || !workDir) return;
-    let cancelled = false;
-    setLoading(true);
-    setDirError(null);
-    void listDirectory(browsePath, workDir)
-      .then((list) => {
-        if (!cancelled) setEntries(list.slice(0, MAX_DIR_ENTRIES));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEntries([]);
-          setDirError(t("dirLoadError", { defaultValue: "Unable to load directory" }));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [browsePath, workDir]);
 
   const handleOpenArtifact = useCallback(
     (path: string) => {
@@ -408,47 +304,8 @@ function FileListPanel({
               )}
             </div>
 
-            {browseActive && browsePath && (
-              <>
-                {browsePath !== workDir && (
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    style={{
-                      padding: "4px 8px",
-                      fontSize: 10,
-                      color: "var(--fill-tertiary)",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => {
-                      const parent = browsePath.slice(0, browsePath.lastIndexOf("/"));
-                      setBrowsePath(parent || workDir);
-                    }}
-                  >
-                    ..
-                  </div>
-                )}
-                {loading && (
-                  <div style={{ padding: "8px", fontSize: 11, color: "var(--fill-quaternary)" }}>
-                    {t("loading", { defaultValue: "Loading…" })}
-                  </div>
-                )}
-                {dirError && !loading && (
-                  <div style={{ padding: "8px", fontSize: 11, color: "var(--red-text)" }}>
-                    {dirError}
-                  </div>
-                )}
-                {!loading && !dirError &&
-                  entries.map((entry) => (
-                    <DirRow
-                      key={entry.name}
-                      entry={entry}
-                      parentPath={browsePath}
-                      onOpenFile={onOpenFile}
-                      onNavigate={setBrowsePath}
-                    />
-                  ))}
-              </>
+            {browseActive && (
+              <FileTree workDir={workDir} onOpenFile={onOpenFile} />
             )}
           </>
         )}

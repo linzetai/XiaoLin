@@ -39,7 +39,11 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
   const hiddenCount = summary.files.length - VISIBLE_LIMIT;
 
   const handleFileClick = useCallback((path: string) => {
-    window.dispatchEvent(new CustomEvent("xiaolin:open-review", { detail: { path } }));
+    window.dispatchEvent(
+      new CustomEvent("xiaolin:open-file", {
+        detail: { path, source: "file-changes-card" },
+      }),
+    );
   }, []);
 
   const handleUndo = useCallback(() => {
@@ -83,8 +87,16 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
         return (
           <div
             key={file.path}
+            role="button"
+            tabIndex={0}
             style={rowStyle}
             onClick={() => handleFileClick(file.path)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleFileClick(file.path);
+              }
+            }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >

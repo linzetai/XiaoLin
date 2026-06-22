@@ -75,25 +75,25 @@
 
 ## 8. 文件树浏览器
 
-- [ ] 8.1 创建 `FileTree.tsx`：递归树组件，懒加载子目录
-- [ ] 8.2 实现 Session Artifacts 区域：在文件树上方显示 agent 操作过的文件列表，带操作类型标识（C/M）
-- [ ] 8.3 实现隐藏文件/大型目录过滤逻辑
-- [ ] 8.4 实现文件类型图标映射（扩展名 → Phosphor 图标 + 颜色）
-- [ ] 8.5 点击文件时调用 `fileViewerStore.openFile()`
+- [x] 8.1 创建 `FileTree.tsx`：递归树组件，懒加载子目录
+- [x] 8.2 实现 Session Artifacts 区域：在文件树上方显示 agent 操作过的文件列表，带操作类型标识（C/M）
+- [x] 8.3 实现隐藏文件/大型目录过滤逻辑
+- [x] 8.4 实现文件类型图标映射（扩展名 → Phosphor 图标 + 颜色）
+- [x] 8.5 点击文件时调用 `fileViewerStore.openFile()`
 
 ## 9. Chat 集成
 
-- [ ] 9.1 修改 `FileChangesCard.tsx`：`xiaolin:open-review` → `xiaolin:open-file`
-- [ ] 9.2 修改 `MarkdownContent.tsx` 中的 `CodeBlock`：`.md-file-path` 添加 `onClick` handler，dispatch `xiaolin:open-file`
-- [ ] 9.3 修改 `DiffCard.tsx`：文件名行添加"查看完整文件"图标按钮
-- [ ] 9.4 实现 `file_artifact` WS event 触发 Files tab auto-open：`AppShell.tsx` 中监听事件 → 自动 `setActiveTab("files")`
-- [ ] 9.5 Files tab badge：agent 操作文件时非活跃状态显示 badge 计数
+- [x] 9.1 修改 `FileChangesCard.tsx`：`xiaolin:open-review` → `xiaolin:open-file`
+- [x] 9.2 修改 `MarkdownContent.tsx` 中的 `CodeBlock`：`.md-file-path` 添加 `onClick` handler，dispatch `xiaolin:open-file`
+- [x] 9.3 修改 `DiffCard.tsx`：文件名行添加"查看完整文件"图标按钮
+- [x] 9.4 实现 `file_artifact` WS event 触发 Files tab auto-open：`AppShell.tsx` 中监听事件 → 自动 `setActiveTab("files")`
+- [x] 9.5 Files tab badge：agent 操作文件时非活跃状态显示 badge 计数
 
 ## 10. 文件变更通知和刷新
 
-- [ ] 10.1 实现"文件已被修改"横幅通知：当 `file_artifact` event 的 path 匹配已打开文件时，在查看器上方显示横幅
-- [ ] 10.2 实现"重新加载"按钮：重新读取文件内容并更新 CM6 EditorView（保留滚动位置）
-- [ ] 10.3 实现二进制文件检测：读取前 8KB 检测 NUL 字节，二进制文件显示"无法预览"提示
+- [x] 10.1 实现"文件已被修改"横幅通知：当 `file_artifact` event 的 path 匹配已打开文件时，在查看器上方显示横幅
+- [x] 10.2 实现"重新加载"按钮：重新读取文件内容并更新 CM6 EditorView（保留滚动位置）
+- [x] 10.3 实现二进制文件检测：读取前 8KB 检测 NUL 字节，二进制文件显示"无法预览"提示
 
 ## 11. 集成测试和优化
 

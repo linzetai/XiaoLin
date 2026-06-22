@@ -114,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       const chatId = useChatMetaStore.getState().activeChatId;
       const chat = useChatMetaStore.getState().chats[chatId];
-      const resolvedWorkDir = chat?.workDir ?? "";
+      const resolvedWorkDir = detail.workDir ?? chat?.workDir ?? "";
       if (!resolvedWorkDir) return;
 
       void useFileViewerStore.getState().openFile(detail.path, resolvedWorkDir, detail.line);

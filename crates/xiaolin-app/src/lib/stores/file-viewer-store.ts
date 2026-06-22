@@ -17,6 +17,8 @@ export interface OpenFile {
   viewMode: "code" | "preview";
   lastAccessed: number;
   line?: number;
+  /** Incremented to force viewers (especially images) to refetch content. */
+  reloadToken?: number;
 }
 
 export interface FileViewerState {
@@ -25,6 +27,8 @@ export interface FileViewerState {
   artifacts: FileArtifact[];
   fileListCollapsed: boolean;
   lastOpenError: string | null;
+  /** Paths of open files that have been modified externally (by agent). */
+  staleFiles: Set<string>;
 
   sessionArtifacts: Record<string, FileArtifact[]>;
   sessionOpenFiles: Record<string, Record<string, OpenFile>>;
@@ -34,7 +38,8 @@ export interface FileViewerState {
   setActiveFile: (path: string) => void;
   setViewMode: (path: string, mode: "code" | "preview") => void;
   toggleFileList: () => void;
-  addArtifact: (artifact: FileArtifact) => void;
+  reloadFile: (path: string, workDir: string) => Promise<void>;
+  dismissStale: (path: string) => void;
   switchSession: (newSessionId: string, oldSessionId: string | null) => void;
   clearOpenError: () => void;
 }
@@ -133,6 +138,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   artifacts: [],
   fileListCollapsed: false,
   lastOpenError: null,
+  staleFiles: new Set(),
   sessionArtifacts: {},
   sessionOpenFiles: {},
 
@@ -156,6 +162,9 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
           },
         },
       });
+      if (get().staleFiles.has(resolved)) {
+        void get().reloadFile(resolved, workDir);
+      }
       return;
     }
 
@@ -229,7 +238,11 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         const next = paths[idx + 1] ?? paths[idx - 1] ?? null;
         activeFilePath = next && openFiles[next] ? next : pickMostRecentOpenFile(openFiles);
       }
-      return { openFiles, activeFilePath };
+
+      const staleFiles = new Set(state.staleFiles);
+      staleFiles.delete(path);
+
+      return { openFiles, activeFilePath, staleFiles };
     });
   },
 
@@ -258,11 +271,53 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
 
   toggleFileList: () => set((s) => ({ fileListCollapsed: !s.fileListCollapsed })),
 
-  addArtifact: (artifact) => {
-    set((state) => {
-      const updated = prependArtifact(state.artifacts, artifact);
-      if (updated === state.artifacts) return state;
-      return { artifacts: updated };
+  reloadFile: async (path, workDir) => {
+    const resolved = resolveFilePath(path, workDir);
+    if (!resolved) return;
+    try {
+      if (isImagePath(resolved) && !isSvgPath(resolved)) {
+        set((s) => {
+          const existing = s.openFiles[resolved];
+          if (!existing) return s;
+          const next = new Set(s.staleFiles);
+          next.delete(resolved);
+          return {
+            staleFiles: next,
+            openFiles: {
+              ...s.openFiles,
+              [resolved]: {
+                ...existing,
+                lastAccessed: Date.now(),
+                reloadToken: (existing.reloadToken ?? 0) + 1,
+              },
+            },
+          };
+        });
+        return;
+      }
+      const result = await transport.readFileForViewer(resolved, workDir);
+      const content = result.content;
+      set((s) => {
+        const existing = s.openFiles[resolved];
+        if (!existing) return s;
+        const next = new Set(s.staleFiles);
+        next.delete(resolved);
+        return {
+          staleFiles: next,
+          openFiles: { ...s.openFiles, [resolved]: { ...existing, content, lastAccessed: Date.now() } },
+        };
+      });
+    } catch (err) {
+      console.warn("[file-viewer] failed to reload:", resolved, err);
+      set({ lastOpenError: "文件重新加载失败" });
+    }
+  },
+
+  dismissStale: (path) => {
+    set((s) => {
+      const next = new Set(s.staleFiles);
+      next.delete(path);
+      return { staleFiles: next };
     });
   },
 
@@ -300,6 +355,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         artifacts,
         activeFilePath,
         lastOpenError: null,
+        staleFiles: new Set<string>(),
       };
     });
 
@@ -349,11 +405,32 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
     useFileViewerStore.setState((s) => {
       const updated = prependArtifact(s.artifacts, artifact);
       if (updated === s.artifacts) return s;
+
+      const resolvedPath = resolveFilePath(artifact.path, useChatMetaStore.getState().chats[chatId]?.workDir ?? "");
+      const shouldMarkStale = artifact.operation === "modified" && resolvedPath && s.openFiles[resolvedPath];
+      const nextStale = shouldMarkStale
+        ? new Set([...s.staleFiles, resolvedPath])
+        : s.staleFiles;
+
       return {
         artifacts: updated,
         sessionArtifacts: { ...s.sessionArtifacts, [chatId]: updated },
+        staleFiles: nextStale,
       };
     });
+
+    void import("../../components/shell/workspace-tabs").then(({ useWorkspaceTabs }) => {
+      const tabState = useWorkspaceTabs.getState();
+      if (tabState.activeTabId !== "files") {
+        if (!tabState.filesClosedByUser && tabState.panelOpen) {
+          tabState.setActiveTab("files");
+        } else {
+          const existing = tabState.tabs.find((t) => t.id === "files")?.badge;
+          const count = typeof existing === "number" ? existing + 1 : 1;
+          tabState.setTabBadge("files", count);
+        }
+      }
+    }).catch((e) => { console.debug("[file-viewer] workspace-tabs not available:", e); });
   });
 }
 

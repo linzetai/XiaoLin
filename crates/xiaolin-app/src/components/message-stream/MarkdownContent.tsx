@@ -120,7 +120,33 @@ function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"c
   if (isInline) {
     const text = children as string;
     if (FILE_PATH_RE.test(text) || CODE_EXT.test(text)) {
-      return <code className="md-file-path" {...rest}><span className="md-fp-dot" aria-hidden>■</span>{text}</code>;
+      return (
+        <code
+          className="md-file-path"
+          {...rest}
+          role="link"
+          tabIndex={0}
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("xiaolin:open-file", {
+                detail: { path: text, source: "markdown-inline" },
+              }),
+            );
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              window.dispatchEvent(
+                new CustomEvent("xiaolin:open-file", {
+                  detail: { path: text, source: "markdown-inline" },
+                }),
+              );
+            }
+          }}
+        >
+          <span className="md-fp-dot" aria-hidden>■</span>{text}
+        </code>
+      );
     }
     return <code className="md-inline-code" {...rest}>{children}</code>;
   }

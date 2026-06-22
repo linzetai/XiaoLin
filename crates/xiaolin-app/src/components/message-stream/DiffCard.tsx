@@ -3,9 +3,9 @@
  * Compact file row with expandable inline diff.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Minus, CaretRight } from "@phosphor-icons/react";
+import { Plus, Minus, CaretRight, ArrowSquareOut } from "@phosphor-icons/react";
 import { parseEditResult } from "./edit-result-utils";
 
 function DiffStatBadge({ added, removed }: { added: number; removed: number }) {
@@ -151,6 +151,20 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
   const { t } = useTranslation("chat");
   const [diffOpen, setDiffOpen] = useState(false);
   const editResult = parseEditResult(result);
+
+  const editArgs = args ? parseEditArgs(args) : null;
+  const hasDiff = !!(editArgs?.oldString && editArgs?.newString && editArgs.oldString !== editArgs.newString);
+
+  const handleViewFile = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editResult) return;
+    window.dispatchEvent(
+      new CustomEvent("xiaolin:open-file", {
+        detail: { path: editResult.path, source: "diff-card" },
+      }),
+    );
+  }, [editResult?.path]);
+
   if (!editResult) return null;
 
   const fileName = editResult.path.split("/").pop() || editResult.path;
@@ -158,15 +172,19 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
     ? editResult.path.slice(0, editResult.path.lastIndexOf("/"))
     : "";
 
-  const editArgs = args ? parseEditArgs(args) : null;
-  const hasDiff = !!(editArgs?.oldString && editArgs?.newString && editArgs.oldString !== editArgs.newString);
-
   return (
     <div>
       {/* File info row — clickable to toggle diff */}
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => hasDiff && setDiffOpen(!diffOpen)}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && hasDiff) {
+            e.preventDefault();
+            setDiffOpen(!diffOpen);
+          }
+        }}
         className="flex w-full items-center justify-between py-1.5 text-left transition-colors"
         style={{ cursor: hasDiff ? "pointer" : "default" }}
       >
@@ -191,6 +209,24 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
             </span>
           )}
           <DiffStatBadge added={editResult.linesAdded} removed={editResult.linesRemoved} />
+          <button
+            type="button"
+            title={t("viewFile", { defaultValue: "View file" })}
+            onClick={handleViewFile}
+            className="shrink-0"
+            style={{
+              color: "var(--fill-quaternary)",
+              cursor: "pointer",
+              display: "inline-flex",
+              background: "none",
+              border: "none",
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--tint)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; }}
+          >
+            <ArrowSquareOut size={12} />
+          </button>
           {hasDiff && (
             <CaretRight
               size={12}
@@ -202,7 +238,7 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
             />
           )}
         </div>
-      </button>
+      </div>
 
       {/* Expandable inline diff */}
       {diffOpen && hasDiff && (

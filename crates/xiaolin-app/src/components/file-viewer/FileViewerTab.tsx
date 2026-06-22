@@ -133,11 +133,14 @@ export function FileViewerTab() {
   const artifacts = useFileViewerStore((s) => s.artifacts);
   const fileListCollapsed = useFileViewerStore((s) => s.fileListCollapsed);
   const lastOpenError = useFileViewerStore((s) => s.lastOpenError);
+  const staleFiles = useFileViewerStore((s) => s.staleFiles);
   const openFile = useFileViewerStore((s) => s.openFile);
   const closeFile = useFileViewerStore((s) => s.closeFile);
   const setActiveFile = useFileViewerStore((s) => s.setActiveFile);
   const setViewMode = useFileViewerStore((s) => s.setViewMode);
   const toggleFileList = useFileViewerStore((s) => s.toggleFileList);
+  const reloadFile = useFileViewerStore((s) => s.reloadFile);
+  const dismissStale = useFileViewerStore((s) => s.dismissStale);
   const clearOpenError = useFileViewerStore((s) => s.clearOpenError);
 
   const [wordWrap, setWordWrap] = useState(false);
@@ -146,6 +149,7 @@ export function FileViewerTab() {
 
   const openCount = Object.keys(openFiles).length;
   const activeFile = activeFilePath ? openFiles[activeFilePath] : null;
+  const isActiveStale = activeFilePath ? staleFiles.has(activeFilePath) : false;
   const autoCollapsed = panelWidth < NARROW_PANEL_THRESHOLD;
   const effectiveCollapsed = fileListCollapsed || autoCollapsed;
   const overlayMode = autoCollapsed;
@@ -154,6 +158,17 @@ export function FileViewerTab() {
     if (_hasExpandedPanel) return;
     _hasExpandedPanel = true;
     void tryExpandPanelWidth(FIRST_OPEN_TARGET_WIDTH);
+  }, []);
+
+  useEffect(() => {
+    useWorkspaceTabs.getState().setTabBadge("files", undefined);
+    let prevTabId = useWorkspaceTabs.getState().activeTabId;
+    return useWorkspaceTabs.subscribe((state) => {
+      if (state.activeTabId === "files" && prevTabId !== "files") {
+        state.setTabBadge("files", undefined);
+      }
+      prevTabId = state.activeTabId;
+    });
   }, []);
 
   useEffect(() => {
@@ -279,6 +294,56 @@ export function FileViewerTab() {
                 onWordWrapChange={setWordWrap}
                 onViewModeChange={handleViewModeChange}
               />
+            )}
+            {isActiveStale && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  background: "var(--warning-bg, rgba(237,137,54,0.12))",
+                  color: "var(--warning-text, #ed8936)",
+                  borderBottom: "1px solid var(--border-primary)",
+                  flexShrink: 0,
+                }}
+              >
+                <span>{t("fileModified", { defaultValue: "This file has been modified by the agent." })}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "inherit",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      textDecoration: "underline",
+                    }}
+                    onClick={() => {
+                      if (activeFilePath && workDir) void reloadFile(activeFilePath, workDir);
+                    }}
+                  >
+                    {t("reloadFile", { defaultValue: "Reload" })}
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "inherit",
+                      cursor: "pointer",
+                      fontSize: 11,
+                    }}
+                    onClick={() => {
+                      if (activeFilePath) dismissStale(activeFilePath);
+                    }}
+                  >
+                    {t("dismiss", { defaultValue: "Dismiss" })}
+                  </button>
+                </div>
+              </div>
             )}
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <FileViewer

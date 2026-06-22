@@ -23,6 +23,7 @@ export const FileViewer = memo(function FileViewer({
         workDir={workDir}
         viewMode={file.viewMode}
         svgContent={file.content}
+        reloadToken={file.reloadToken}
         onViewModeChange={onViewModeChange}
       />
     );

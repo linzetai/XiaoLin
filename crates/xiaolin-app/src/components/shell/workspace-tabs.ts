@@ -82,6 +82,7 @@ interface WorkspaceTabsState {
   setPanelWidth: (width: number) => void;
   setPlanClosedByUser: (closed: boolean) => void;
   setFilesClosedByUser: (closed: boolean) => void;
+  setTabBadge: (id: string, badge: number | boolean | undefined) => void;
   /** Call when active session changes to save/restore tab state */
   switchSession: (newSessionId: string, oldSessionId?: string) => void;
 }
@@ -171,6 +172,12 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   setPlanClosedByUser: (closed) => set({ planClosedByUser: closed }),
 
   setFilesClosedByUser: (closed) => set({ filesClosedByUser: closed }),
+
+  setTabBadge: (id, badge) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, badge } : t)),
+    }));
+  },
 
   setPanelWidth: (width) => {
     const clamped = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width));
