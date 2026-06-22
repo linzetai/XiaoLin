@@ -947,7 +947,7 @@
 
 #### BUG-089 🔴 Network Proxy HTTP/SOCKS 绕过完整策略链
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/http_proxy.rs` L424–449；`src/socks5.rs` L188–208
 - **问题**：HTTP/SOCKS 使用简化的 `evaluate_policy`（静态 glob），未走 `NetworkProxyState::evaluate()` 完整链路。运行时 `add_allowed_domain`/`add_denied_domain` 不生效、`Limited` 模式默认 deny 不生效。
 - **建议**：统一调用 `state.evaluate()`，与 MITM 路径对齐。
@@ -956,7 +956,7 @@
 
 #### BUG-090 🔴 SOCKS5 CONNECT 可绕过 Limited 模式
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/socks5.rs` L119–186
 - **问题**：`Limited` 模式下 HTTP CONNECT 无 MITM 被拒，但 SOCKS5 CONNECT 可直连 HTTPS。
 - **建议**：SOCKS5 在 `Limited` 模式同样要求 MITM 或拒绝。
@@ -965,7 +965,7 @@
 
 #### BUG-091 🔴 upstream 直连绕过 TargetCheckedTcpConnector
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/upstream.rs` L165–178
 - **问题**：直连分支直接 `TcpStream::connect`，MITM 上游仍可连内网。
 - **建议**：复用 `TargetCheckedTcpConnector`。
@@ -1021,7 +1021,7 @@
 
 #### BUG-097 🔴 外部沙箱 CLI 三套接口互不兼容
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-sandbox/src/landlock.rs` L106–152；`crates/xiaolin-linux-sandbox/src/linux_run_main.rs` L127–154
 - **问题**：生产路径传 `--sandbox-policy-cwd` + `--fs-policy`，但 `xiaolin-linux-sandbox` 只接受 `--policy`。外部沙箱模式运行时参数不匹配。
 - **建议**：统一 CLI 接口，补集成测试。
@@ -1030,7 +1030,7 @@
 
 #### BUG-098 🔴 Legacy Landlock 不 enforce deny-read 规则
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-sandbox/src/landlock.rs` L243–281
 - **问题**：Legacy in-process Landlock 仅施加 `/` RO + writable_roots RW，不 enforce deny-read globs。`.env` 等 deny 规则可被读取。
 - **建议**：Landlock 层实现 deny 规则，或禁止在有 deny 条目时使用 legacy 路径。
@@ -1039,7 +1039,7 @@
 
 #### BUG-099 🔴 ProxyRouted seccomp 不限制 connect/bind
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: seccomp arg 过滤复杂，已添加 warn
 - **文件**：`crates/xiaolin-sandbox/src/landlock.rs` L338–371
 - **问题**：仅限制 `socket()` 的 address family，不限制 `connect`/`bind`/`listen`，managed network 可被绕过。
 - **建议**：deny `connect`/`bind`/`listen`，仅允许连 localhost 代理端口。
@@ -1048,7 +1048,7 @@
 
 #### BUG-100 🔴 linux-sandbox seccomp 声明但未安装
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-linux-sandbox/src/linux_run_main.rs` L29–32, L59–124
 - **问题**：`seccomp_mode` 字段反序列化和日志打印但从未调用安装逻辑。
 - **建议**：复用 `xiaolin-sandbox` 的 `install_network_seccomp_filter`。
@@ -1057,7 +1057,7 @@
 
 #### BUG-101 🔴 find_bwrap 无 PATH hijacking 防护
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-linux-sandbox/src/bwrap.rs` L1271–1283
 - **问题**：回退 `which::which("bwrap")` 无 cwd 跳过逻辑。
 - **建议**：复用 `find_system_bwrap_in_path` 或硬编码 `/usr/bin/bwrap` 优先。

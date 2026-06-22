@@ -1,5 +1,8 @@
+use crate::config::NetworkMode;
 use crate::connect_policy::TargetCheckedTcpConnector;
-use crate::network_policy::{NetworkDecision, NetworkDecisionSource};
+use crate::network_policy::{
+    NetworkDecision, NetworkPolicyRequest, NetworkPolicyRequestArgs, NetworkProtocol,
+};
 use crate::policy::normalize_host;
 use crate::reasons::*;
 use crate::runtime::{BlockedRequestArgs, ConfigSnapshot, NetworkProxyState};
@@ -129,8 +132,23 @@ async fn handle_connect_cmd(
         return Ok(());
     }
 
-    let decision = evaluate_socks_policy(snap, host);
-    if let NetworkDecision::Deny { reason, .. } = &decision {
+    let decision = state
+        .evaluate(&NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::Socks5Tcp,
+            host: host.to_string(),
+            port,
+            client_addr: Some(client_addr.to_string()),
+            method: None,
+            command: Some("CONNECT".to_string()),
+            exec_policy_hint: None,
+        }))
+        .await;
+    if let NetworkDecision::Deny {
+        reason,
+        source: _,
+        decision: _,
+    } = &decision
+    {
         let _ = state
             .record_blocked(BlockedRequestArgs {
                 host: host.to_string(),
@@ -142,6 +160,25 @@ async fn handle_connect_cmd(
             })
             .await;
         warn!("SOCKS5 blocked (host={host}, reason={reason})");
+        send_reply(stream, REP_NOT_ALLOWED, "0.0.0.0", 0).await?;
+        return Ok(());
+    }
+
+    let use_mitm = snap.mitm_enabled
+        && snap.mode == NetworkMode::Limited
+        && state.mitm_state().is_some();
+    if snap.mode == NetworkMode::Limited && !use_mitm {
+        let _ = state
+            .record_blocked(BlockedRequestArgs {
+                host: host.to_string(),
+                reason: REASON_MODE_GUARD.to_string(),
+                client: Some(client_addr.to_string()),
+                method: None,
+                protocol: "socks5".to_string(),
+                port: Some(port),
+            })
+            .await;
+        warn!("SOCKS5 CONNECT blocked; MITM required for limited mode (host={host})");
         send_reply(stream, REP_NOT_ALLOWED, "0.0.0.0", 0).await?;
         return Ok(());
     }
@@ -183,28 +220,6 @@ async fn handle_connect_cmd(
 
     let _ = tokio::io::copy_bidirectional(stream, &mut upstream).await;
     Ok(())
-}
-
-fn evaluate_socks_policy(snap: &ConfigSnapshot, host: &str) -> NetworkDecision {
-    if let Some(ref deny_set) = snap.deny_globset {
-        if deny_set.is_match(host) {
-            return NetworkDecision::deny_with_source(
-                REASON_DENIED,
-                NetworkDecisionSource::BaselinePolicy,
-            );
-        }
-    }
-
-    if let Some(ref allow_set) = snap.allow_globset {
-        if !allow_set.is_match(host) {
-            return NetworkDecision::deny_with_source(
-                REASON_CONNECT_BLOCKED,
-                NetworkDecisionSource::BaselinePolicy,
-            );
-        }
-    }
-
-    NetworkDecision::allow()
 }
 
 async fn read_address(stream: &mut TcpStream, atyp: u8) -> Result<(String, u16)> {

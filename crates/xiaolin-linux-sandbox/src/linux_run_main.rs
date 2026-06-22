@@ -1,14 +1,25 @@
 use anyhow::{Context, Result, bail};
-use xiaolin_security::FileSystemSandboxPolicy;
-use serde::Deserialize;
 use std::ffi::CString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
+use xiaolin_security::{FileSystemSandboxPolicy, NetworkSandboxPolicy};
 
 use crate::bwrap::{BwrapNetworkMode, BwrapOptions, create_bwrap_command_args};
 
-/// JSON policy passed via --policy flag.
-#[derive(Debug, Deserialize)]
+/// Parsed CLI matching `create_linux_sandbox_command_args` in xiaolin-sandbox.
+#[derive(Debug)]
+struct ParsedCli {
+    sandbox_policy_cwd: PathBuf,
+    command_cwd: PathBuf,
+    fs_policy: FileSystemSandboxPolicy,
+    net_policy: NetworkSandboxPolicy,
+    use_legacy_landlock: bool,
+    allow_network_for_proxy: bool,
+    child_args: Vec<String>,
+}
+
+/// Legacy JSON policy passed via `--policy` (backward compatibility).
+#[derive(Debug, serde::Deserialize)]
 pub struct SandboxPolicy {
     #[serde(default)]
     pub file_system: Option<FileSystemSandboxPolicy>,
@@ -38,119 +49,228 @@ pub struct SandboxPolicy {
 
 pub fn run_main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    let parsed = parse_args(&args)?;
 
-    let (policy_json, child_args) = parse_args(&args)?;
-    let policy: SandboxPolicy =
-        serde_json::from_str(&policy_json).context("parse sandbox policy JSON")?;
-
-    if child_args.is_empty() {
+    if parsed.child_args.is_empty() {
         bail!("no command specified after '--'");
     }
 
     info!(
-        "sandbox policy: use_bwrap={} use_landlock={} writable_roots={} seccomp={:?} program={}",
-        policy.use_bwrap,
-        policy.use_landlock,
-        policy.writable_roots.len(),
-        policy.seccomp_mode,
-        child_args[0],
+        "sandbox: legacy_landlock={} allow_network_for_proxy={} net={:?} program={}",
+        parsed.use_legacy_landlock,
+        parsed.allow_network_for_proxy,
+        parsed.net_policy,
+        parsed.child_args[0],
     );
 
     set_no_new_privs()?;
 
-    if policy.use_landlock {
-        crate::landlock_rules::apply_landlock_rules(&policy)?;
-    }
-
-    if policy.use_bwrap {
-        let cwd = policy
-            .cwd
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
-
-        let network_mode = match policy.bwrap_network_mode.as_deref() {
-            Some("isolated") => BwrapNetworkMode::Isolated,
-            Some("proxy_only") => BwrapNetworkMode::ProxyOnly,
-            _ => {
-                if policy.network_namespace {
-                    BwrapNetworkMode::Isolated
-                } else {
-                    BwrapNetworkMode::FullAccess
-                }
-            }
-        };
-
-        let options = BwrapOptions {
-            mount_proc: true,
-            network_mode,
-            glob_scan_max_depth: None,
-        };
-
-        let fs_policy = policy
-            .file_system
-            .clone()
-            .unwrap_or_else(|| {
-                let writable_abs: Vec<xiaolin_core::path::AbsolutePathBuf> = policy
-                    .writable_roots
-                    .iter()
-                    .filter_map(|p| xiaolin_core::path::AbsolutePathBuf::from_absolute_path(p).ok())
-                    .collect();
-                FileSystemSandboxPolicy::workspace_write(
-                    &writable_abs,
-                    false,
-                    false,
-                )
-            });
-
-        let bwrap_args = create_bwrap_command_args(
-            child_args,
-            &fs_policy,
-            &cwd,
-            &cwd,
-            options,
-        )?;
-
-        return crate::bwrap::exec_with_bwrap(bwrap_args, None);
-    }
-
-    // Apply proxy routing if configured
-    if let Some(proxy_port) = policy.proxy_port {
-        if policy.network_namespace {
-            crate::proxy_routing::setup_proxy_routing(proxy_port)?;
+    if parsed.use_legacy_landlock {
+        if xiaolin_sandbox::landlock::policy_has_deny_read_restrictions(
+            &parsed.fs_policy,
+            &parsed.sandbox_policy_cwd,
+        ) {
+            bail!(
+                "legacy Landlock cannot enforce deny-read rules; remove --use-legacy-landlock \
+                 and use bubblewrap instead"
+            );
         }
+
+        let setup = build_legacy_landlock_setup(&parsed)?;
+        xiaolin_sandbox::landlock::apply_sandbox_to_current_process(&setup)
+            .context("apply legacy landlock sandbox")?;
+        return fork_exec_wait_in_cwd(&parsed.child_args, &parsed.command_cwd);
     }
 
-    // Fork + exec with signal forwarding and wait4 loop
-    fork_exec_wait(&child_args)
+    if let Some(mode) = xiaolin_sandbox::landlock::network_seccomp_mode_for_policy(
+        parsed.net_policy,
+        parsed.allow_network_for_proxy,
+    ) {
+        xiaolin_sandbox::landlock::install_network_seccomp_filter(mode)
+            .context("install network seccomp filter")?;
+    }
+
+    let network_mode = if parsed.allow_network_for_proxy {
+        BwrapNetworkMode::ProxyOnly
+    } else if parsed.net_policy.is_enabled() {
+        BwrapNetworkMode::FullAccess
+    } else {
+        BwrapNetworkMode::Isolated
+    };
+
+    let options = BwrapOptions {
+        mount_proc: true,
+        network_mode,
+        glob_scan_max_depth: None,
+    };
+
+    let bwrap_args = create_bwrap_command_args(
+        parsed.child_args,
+        &parsed.fs_policy,
+        &parsed.sandbox_policy_cwd,
+        &parsed.command_cwd,
+        options,
+    )?;
+
+    crate::bwrap::exec_with_bwrap(bwrap_args, None)
 }
 
-fn parse_args(args: &[String]) -> Result<(String, Vec<String>)> {
-    let mut policy_json = None;
-    let mut i = 1;
+fn build_legacy_landlock_setup(
+    parsed: &ParsedCli,
+) -> Result<xiaolin_sandbox::LinuxSandboxSetup> {
+    let writable_roots: Vec<PathBuf> = parsed
+        .fs_policy
+        .get_writable_roots_with_cwd(&parsed.sandbox_policy_cwd)
+        .into_iter()
+        .map(|abs| abs.to_path_buf())
+        .collect();
+
+    Ok(xiaolin_sandbox::LinuxSandboxSetup {
+        writable_roots: Some(writable_roots),
+        network_seccomp: xiaolin_sandbox::landlock::network_seccomp_mode_for_policy(
+            parsed.net_policy,
+            parsed.allow_network_for_proxy,
+        ),
+    })
+}
+
+fn parse_args(args: &[String]) -> Result<ParsedCli> {
+    let mut sandbox_policy_cwd = None;
+    let mut command_cwd = None;
+    let mut fs_policy_json = None;
+    let mut net_policy_json = None;
+    let mut use_legacy_landlock = false;
+    let mut allow_network_for_proxy = false;
+    let mut legacy_policy_json = None;
     let mut child_args = Vec::new();
 
+    let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--sandbox-policy-cwd" => {
+                i += 1;
+                sandbox_policy_cwd = Some(next_value(args, i, "--sandbox-policy-cwd")?);
+            }
+            "--command-cwd" => {
+                i += 1;
+                command_cwd = Some(next_value(args, i, "--command-cwd")?);
+            }
+            "--fs-sandbox-policy" | "--fs-policy" => {
+                let flag = args[i].as_str();
+                i += 1;
+                fs_policy_json = Some(next_value(args, i, flag)?);
+            }
+            "--net-sandbox-policy" => {
+                i += 1;
+                net_policy_json = Some(next_value(args, i, "--net-sandbox-policy")?);
+            }
+            "--use-legacy-landlock" => {
+                use_legacy_landlock = true;
+            }
+            "--allow-network-for-proxy" => {
+                allow_network_for_proxy = true;
+            }
             "--policy" => {
                 i += 1;
-                if i >= args.len() {
-                    bail!("--policy requires a value");
-                }
-                policy_json = Some(args[i].clone());
+                legacy_policy_json = Some(next_value(args, i, "--policy")?);
             }
             "--" => {
                 child_args = args[i + 1..].to_vec();
                 break;
             }
-            _ => {
-                bail!("unknown argument: {}", args[i]);
-            }
+            other => bail!("unknown argument: {other}"),
         }
         i += 1;
     }
 
-    let policy = policy_json.unwrap_or_else(|| "{}".to_string());
-    Ok((policy, child_args))
+    if let Some(legacy_json) = legacy_policy_json {
+        return parse_legacy_policy(
+            legacy_json,
+            sandbox_policy_cwd,
+            command_cwd,
+            child_args,
+        );
+    }
+
+    let fs_policy: FileSystemSandboxPolicy = match fs_policy_json {
+        Some(json) => serde_json::from_str(&json).context("parse --fs-sandbox-policy JSON")?,
+        None => bail!("missing --fs-sandbox-policy"),
+    };
+    let net_policy: NetworkSandboxPolicy = match net_policy_json {
+        Some(json) => serde_json::from_str(&json).context("parse --net-sandbox-policy JSON")?,
+        None => NetworkSandboxPolicy::Restricted,
+    };
+
+    let sandbox_policy_cwd = sandbox_policy_cwd
+        .map(PathBuf::from)
+        .context("missing --sandbox-policy-cwd")?;
+    let command_cwd = command_cwd
+        .map(PathBuf::from)
+        .unwrap_or_else(|| sandbox_policy_cwd.clone());
+
+    Ok(ParsedCli {
+        sandbox_policy_cwd,
+        command_cwd,
+        fs_policy,
+        net_policy,
+        use_legacy_landlock,
+        allow_network_for_proxy,
+        child_args,
+    })
+}
+
+fn parse_legacy_policy(
+    legacy_json: String,
+    sandbox_policy_cwd: Option<String>,
+    command_cwd: Option<String>,
+    child_args: Vec<String>,
+) -> Result<ParsedCli> {
+    let policy: SandboxPolicy =
+        serde_json::from_str(&legacy_json).context("parse legacy --policy JSON")?;
+
+    let sandbox_policy_cwd = sandbox_policy_cwd
+        .map(PathBuf::from)
+        .or_else(|| policy.cwd.clone())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
+    let command_cwd = command_cwd
+        .map(PathBuf::from)
+        .unwrap_or_else(|| sandbox_policy_cwd.clone());
+
+    let fs_policy = policy.file_system.clone().unwrap_or_else(|| {
+        let writable_abs: Vec<xiaolin_core::path::AbsolutePathBuf> = policy
+            .writable_roots
+            .iter()
+            .filter_map(|p| xiaolin_core::path::AbsolutePathBuf::from_absolute_path(p).ok())
+            .collect();
+        FileSystemSandboxPolicy::workspace_write(&writable_abs, false, false)
+    });
+
+    let allow_network_for_proxy = policy.bwrap_network_mode.as_deref() == Some("proxy_only")
+        || policy.proxy_port.is_some();
+    let use_legacy_landlock = policy.use_landlock && !policy.use_bwrap;
+    let net_policy = if policy.network_namespace && !allow_network_for_proxy {
+        NetworkSandboxPolicy::Restricted
+    } else if allow_network_for_proxy {
+        NetworkSandboxPolicy::Restricted
+    } else {
+        NetworkSandboxPolicy::Enabled
+    };
+
+    Ok(ParsedCli {
+        sandbox_policy_cwd,
+        command_cwd,
+        fs_policy,
+        net_policy,
+        use_legacy_landlock,
+        allow_network_for_proxy,
+        child_args,
+    })
+}
+
+fn next_value(args: &[String], index: usize, flag: &str) -> Result<String> {
+    args.get(index)
+        .cloned()
+        .with_context(|| format!("{flag} requires a value"))
 }
 
 fn set_no_new_privs() -> Result<()> {
@@ -164,16 +284,13 @@ fn set_no_new_privs() -> Result<()> {
     Ok(())
 }
 
-/// Fork, exec the child, and wait with signal forwarding.
-///
-/// This avoids zombies and properly forwards SIGINT/SIGTERM to the child,
-/// translating child exit codes (including signal kills) back to the parent.
-fn fork_exec_wait(args: &[String]) -> Result<()> {
+fn fork_exec_wait_in_cwd(args: &[String], cwd: &Path) -> Result<()> {
     use nix::sys::wait::{WaitStatus, waitpid};
     use nix::unistd::{ForkResult, fork};
 
     let child_pid = match unsafe { fork() } {
         Ok(ForkResult::Child) => {
+            std::env::set_current_dir(cwd).ok();
             exec_child(args)?;
             unreachable!()
         }
@@ -181,25 +298,18 @@ fn fork_exec_wait(args: &[String]) -> Result<()> {
         Err(e) => bail!("fork failed: {e}"),
     };
 
-    // Install signal handlers that forward to the child
     install_signal_forwarder(child_pid);
 
-    // wait4-style loop: wait until the child exits
     loop {
         match waitpid(child_pid, None) {
             Ok(WaitStatus::Exited(_, code)) => {
                 std::process::exit(code);
             }
             Ok(WaitStatus::Signaled(_, sig, _)) => {
-                // Mirror the signal exit convention: 128 + signal number
                 std::process::exit(128 + sig as i32);
             }
-            Ok(_) => {
-                continue;
-            }
-            Err(nix::errno::Errno::EINTR) => {
-                continue;
-            }
+            Ok(_) => continue,
+            Err(nix::errno::Errno::EINTR) => continue,
             Err(e) => bail!("waitpid failed: {e}"),
         }
     }
@@ -208,22 +318,10 @@ fn fork_exec_wait(args: &[String]) -> Result<()> {
 fn install_signal_forwarder(child: nix::unistd::Pid) {
     use nix::sys::signal::{Signal, kill};
 
-    let forward = move |sig: Signal| {
-        let _ = kill(child, sig);
-    };
-
-    // We use a simple approach: set up SIGINT and SIGTERM forwarding
-    // via ctrlc handler (for SIGINT) and signal hook for SIGTERM.
     let child_pid = child;
     let _ = ctrlc::set_handler(move || {
         let _ = kill(child_pid, Signal::SIGINT);
     });
-
-    // For SIGTERM, we can't easily set a handler from safe Rust without
-    // a crate, so we rely on the default behavior: the parent is killed,
-    // and --die-with-parent on bwrap ensures the child dies too.
-    // This is acceptable for the current implementation.
-    let _ = forward; // suppress unused warning on the closure
 }
 
 fn exec_child(args: &[String]) -> Result<()> {
@@ -243,7 +341,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_args_with_policy_and_command() {
+    fn parse_unified_cli_args() {
+        let args = vec![
+            "xiaolin-linux-sandbox".into(),
+            "--sandbox-policy-cwd".into(),
+            "/home/user/project".into(),
+            "--command-cwd".into(),
+            "/home/user".into(),
+            "--fs-sandbox-policy".into(),
+            r#"{"kind":"unrestricted","entries":[]}"#.into(),
+            "--net-sandbox-policy".into(),
+            r#""enabled""#.into(),
+            "--".into(),
+            "/bin/ls".into(),
+        ];
+        let parsed = parse_args(&args).unwrap();
+        assert_eq!(parsed.sandbox_policy_cwd, PathBuf::from("/home/user/project"));
+        assert_eq!(parsed.command_cwd, PathBuf::from("/home/user"));
+        assert!(parsed.net_policy.is_enabled());
+        assert_eq!(parsed.child_args, vec!["/bin/ls"]);
+    }
+
+    #[test]
+    fn parse_transform_external_compat_args() {
+        let args = vec![
+            "xiaolin-linux-sandbox".into(),
+            "--sandbox-policy-cwd".into(),
+            "/tmp".into(),
+            "--fs-sandbox-policy".into(),
+            r#"{"kind":"restricted","entries":[]}"#.into(),
+            "--allow-network-for-proxy".into(),
+            "--".into(),
+            "bash".into(),
+            "-c".into(),
+            "echo hi".into(),
+        ];
+        let parsed = parse_args(&args).unwrap();
+        assert!(parsed.allow_network_for_proxy);
+        assert_eq!(parsed.command_cwd, PathBuf::from("/tmp"));
+        assert_eq!(
+            parsed.child_args,
+            vec!["bash", "-c", "echo hi"]
+        );
+    }
+
+    #[test]
+    fn parse_legacy_policy_flag() {
         let args = vec![
             "xiaolin-linux-sandbox".into(),
             "--policy".into(),
@@ -252,22 +395,9 @@ mod tests {
             "/bin/ls".into(),
             "/tmp".into(),
         ];
-        let (policy, child) = parse_args(&args).unwrap();
-        assert!(policy.contains("use_landlock"));
-        assert_eq!(child, vec!["/bin/ls", "/tmp"]);
-    }
-
-    #[test]
-    fn parse_args_no_policy() {
-        let args = vec![
-            "xiaolin-linux-sandbox".into(),
-            "--".into(),
-            "/bin/echo".into(),
-            "hello".into(),
-        ];
-        let (policy, child) = parse_args(&args).unwrap();
-        assert_eq!(policy, "{}");
-        assert_eq!(child, vec!["/bin/echo", "hello"]);
+        let parsed = parse_args(&args).unwrap();
+        assert!(parsed.use_legacy_landlock);
+        assert_eq!(parsed.child_args, vec!["/bin/ls", "/tmp"]);
     }
 
     #[test]
@@ -283,23 +413,5 @@ mod tests {
         assert!(!policy.use_landlock);
         assert!(policy.writable_roots.is_empty());
         assert!(policy.proxy_port.is_none());
-    }
-
-    #[test]
-    fn sandbox_policy_deserialize_full() {
-        let json = r#"{
-            "use_bwrap": true,
-            "use_landlock": true,
-            "writable_roots": ["/home/user/project"],
-            "readable_roots": ["/usr"],
-            "deny_read_paths": ["/etc/shadow"],
-            "proxy_port": 8080,
-            "network_namespace": true
-        }"#;
-        let policy: SandboxPolicy = serde_json::from_str(json).unwrap();
-        assert!(policy.use_bwrap);
-        assert!(policy.use_landlock);
-        assert_eq!(policy.writable_roots.len(), 1);
-        assert_eq!(policy.proxy_port, Some(8080));
     }
 }

@@ -291,6 +291,14 @@ impl SandboxManager {
 
         #[cfg(target_os = "linux")]
         {
+            let cwd = request.sandbox_policy_cwd.unwrap_or(Path::new("/"));
+            let has_deny_read =
+                landlock::policy_has_deny_read_restrictions(&effective_fs, cwd);
+
+            if has_deny_read && request.use_legacy_landlock {
+                return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
+            }
+
             let explicit_exe = request.linux_sandbox_exe.map(Path::to_path_buf);
             let resolved_exe = explicit_exe.or_else(|| {
                 if request.use_legacy_landlock {
@@ -300,16 +308,19 @@ impl SandboxManager {
                 }
             });
 
-            if self.sandbox_type == SandboxType::ExternalBinary
+            if has_deny_read && resolved_exe.is_none() {
+                return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
+            }
+
+            let prefer_external = self.sandbox_type == SandboxType::ExternalBinary
                 || (self.sandbox_type == SandboxType::Landlock
                     && resolved_exe.is_some()
                     && !request.use_legacy_landlock)
-            {
+                || (has_deny_read && resolved_exe.is_some());
+
+            if prefer_external {
                 let exe = resolved_exe
                     .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
-                let cwd = request
-                    .sandbox_policy_cwd
-                    .unwrap_or(Path::new("/"));
                 return landlock::transform_external(
                     request.command,
                     request.shell,
@@ -319,6 +330,10 @@ impl SandboxManager {
                     cwd,
                     request.enforce_managed_network,
                 );
+            }
+
+            if has_deny_read {
+                return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
             }
         }
 
@@ -403,6 +418,9 @@ pub enum SandboxTransformError {
     /// WSL1 does not support bubblewrap.
     #[cfg(target_os = "linux")]
     Wsl1Unsupported,
+    /// Deny-read rules require bubblewrap; legacy Landlock cannot enforce them.
+    #[cfg(target_os = "linux")]
+    DenyReadRequiresExternalSandbox,
     /// Seatbelt is only available on macOS.
     #[cfg(not(target_os = "macos"))]
     SeatbeltUnavailable,
@@ -419,6 +437,12 @@ impl std::fmt::Display for SandboxTransformError {
             }
             #[cfg(target_os = "linux")]
             Self::Wsl1Unsupported => write!(f, "{}", bwrap::WSL1_BWRAP_WARNING),
+            #[cfg(target_os = "linux")]
+            Self::DenyReadRequiresExternalSandbox => write!(
+                f,
+                "deny-read filesystem rules require the external Linux sandbox (bubblewrap); \
+                 legacy Landlock cannot enforce them"
+            ),
             #[cfg(not(target_os = "macos"))]
             Self::SeatbeltUnavailable => {
                 write!(f, "seatbelt sandbox is only available on macOS")

@@ -2,8 +2,8 @@ use crate::config::NetworkMode;
 use crate::connect_policy::TargetCheckedTcpConnector;
 use crate::mitm;
 use crate::network_policy::{
-    NetworkDecision, NetworkDecisionSource, NetworkPolicyDecision,
-    NetworkProtocol,
+    NetworkDecision, NetworkDecisionSource, NetworkPolicyDecision, NetworkPolicyRequest,
+    NetworkPolicyRequestArgs, NetworkProtocol,
 };
 use crate::policy::normalize_host;
 use crate::reasons::*;
@@ -154,7 +154,17 @@ async fn handle_connect(
         return Ok(blocked_response(&details));
     }
 
-    let decision = evaluate_policy(snap, &host, port, NetworkProtocol::HttpsConnect);
+    let decision = state
+        .evaluate(&NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::HttpsConnect,
+            host: host.clone(),
+            port,
+            client_addr: Some(client_addr.to_string()),
+            method: Some("CONNECT".to_string()),
+            command: None,
+            exec_policy_hint: None,
+        }))
+        .await;
     if let NetworkDecision::Deny {
         reason,
         source,
@@ -315,7 +325,17 @@ async fn handle_plain_proxy(
         return Ok(blocked_response(&details));
     }
 
-    let decision = evaluate_policy(snap, &host, port, NetworkProtocol::Http);
+    let decision = state
+        .evaluate(&NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::Http,
+            host: host.clone(),
+            port,
+            client_addr: Some(client_addr.to_string()),
+            method: Some(method.as_str().to_string()),
+            command: None,
+            exec_policy_hint: None,
+        }))
+        .await;
     if let NetworkDecision::Deny {
         reason,
         source,
@@ -419,33 +439,6 @@ async fn handle_plain_proxy(
         resp_builder = resp_builder.header(name, value);
     }
     Ok(resp_builder.body(Full::new(body_bytes))?)
-}
-
-fn evaluate_policy(
-    snap: &ConfigSnapshot,
-    host: &str,
-    _port: u16,
-    _protocol: NetworkProtocol,
-) -> NetworkDecision {
-    if let Some(ref deny_set) = snap.deny_globset {
-        if deny_set.is_match(host) {
-            return NetworkDecision::deny_with_source(
-                REASON_DENIED,
-                NetworkDecisionSource::BaselinePolicy,
-            );
-        }
-    }
-
-    if let Some(ref allow_set) = snap.allow_globset {
-        if !allow_set.is_match(host) {
-            return NetworkDecision::deny_with_source(
-                REASON_CONNECT_BLOCKED,
-                NetworkDecisionSource::BaselinePolicy,
-            );
-        }
-    }
-
-    NetworkDecision::allow()
 }
 
 fn parse_authority(authority: &str) -> Result<(String, u16)> {

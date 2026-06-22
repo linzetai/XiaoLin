@@ -10807,6 +10807,7 @@ dependencies = [
  "url",
  "which 7.0.3",
  "xiaolin-core",
+ "xiaolin-sandbox",
  "xiaolin-security",
 ]
 

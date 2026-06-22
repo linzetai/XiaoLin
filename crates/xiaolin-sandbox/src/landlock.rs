@@ -98,6 +98,32 @@ pub fn discover_linux_sandbox_exe() -> Option<PathBuf> {
     None
 }
 
+/// Whether the filesystem policy contains deny-read entries that legacy
+/// in-process Landlock cannot enforce (Landlock is allow-list only).
+pub fn policy_has_deny_read_restrictions(
+    fs_policy: &FileSystemSandboxPolicy,
+    cwd: &Path,
+) -> bool {
+    !fs_policy.get_unreadable_roots_with_cwd(cwd).is_empty()
+        || !fs_policy.get_unreadable_globs_with_cwd(cwd).is_empty()
+}
+
+/// Resolve seccomp mode from network policy and proxy routing flag.
+pub fn network_seccomp_mode_for_policy(
+    net_policy: NetworkSandboxPolicy,
+    allow_network_for_proxy: bool,
+) -> Option<crate::NetworkSeccompMode> {
+    use crate::NetworkSeccompMode;
+
+    if net_policy.is_enabled() && !allow_network_for_proxy {
+        None
+    } else if allow_network_for_proxy {
+        Some(NetworkSeccompMode::ProxyRouted)
+    } else {
+        Some(NetworkSeccompMode::Restricted)
+    }
+}
+
 /// Transform a command into one that delegates to an external sandbox binary.
 ///
 /// The sandbox binary receives the full `FileSystemSandboxPolicy` as
@@ -112,30 +138,20 @@ pub fn transform_external(
     sandbox_policy_cwd: &std::path::Path,
     enforce_managed_network: bool,
 ) -> Result<SandboxedCommand, SandboxTransformError> {
-    let policy_json = serde_json::to_string(fs_policy).map_err(|err| {
-        tracing::error!(error = %err, "failed to serialize filesystem policy for external sandbox");
-        SandboxTransformError::PolicySerializationFailed(err.to_string())
-    })?;
-    let cwd_str = sandbox_policy_cwd
-        .to_str()
-        .unwrap_or_else(|| panic!("sandbox policy cwd must be valid UTF-8"))
-        .to_string();
-
-    let mut sandbox_args: Vec<String> = vec![
-        "--sandbox-policy-cwd".into(),
-        cwd_str,
-        "--fs-policy".into(),
-        policy_json,
-    ];
-
-    if !net_policy.is_enabled() || enforce_managed_network {
-        sandbox_args.push("--allow-network-for-proxy".into());
-    }
-
-    sandbox_args.push("--".into());
-    sandbox_args.push(shell.into());
-    sandbox_args.push("-c".into());
-    sandbox_args.push(command.into());
+    let allow_network = !net_policy.is_enabled() || enforce_managed_network;
+    let sandbox_args = create_linux_sandbox_command_args(
+        vec![
+            shell.to_string(),
+            "-c".to_string(),
+            command.to_string(),
+        ],
+        sandbox_policy_cwd,
+        fs_policy,
+        net_policy,
+        sandbox_policy_cwd,
+        false,
+        allow_network,
+    );
 
     let mut env = HashMap::new();
     env.insert("XIAOLIN_SANDBOXED".to_string(), "1".to_string());
@@ -286,7 +302,7 @@ fn install_filesystem_landlock_rules(writable_roots: &[PathBuf]) -> std::io::Res
 /// - `ProxyRouted`: allows AF_INET/AF_INET6 (for local TCP proxy bridge),
 ///   blocks AF_UNIX new sockets, does not block connect/bind/listen.
 #[cfg(target_os = "linux")]
-fn install_network_seccomp_filter(mode: crate::NetworkSeccompMode) -> std::io::Result<()> {
+pub fn install_network_seccomp_filter(mode: crate::NetworkSeccompMode) -> std::io::Result<()> {
     use std::collections::BTreeMap;
 
     use seccompiler::{
@@ -336,6 +352,14 @@ fn install_network_seccomp_filter(mode: crate::NetworkSeccompMode) -> std::io::R
             rules.insert(libc::SYS_socketpair, vec![unix_only_rule]);
         }
         crate::NetworkSeccompMode::ProxyRouted => {
+            // TODO(BUG-099): restrict connect()/bind() to localhost proxy endpoints via
+            // seccomp argument inspection. Today only socket() AF is filtered; a process
+            // could still connect/bind to arbitrary addresses after creating an AF_INET socket.
+            tracing::warn!(
+                "ProxyRouted seccomp only restricts socket() address families; \
+                 connect/bind/listen are not limited to localhost proxy ports"
+            );
+
             let deny_unix_socket = SeccompRule::new(vec![SeccompCondition::new(
                 0,
                 SeccompCmpArgLen::Dword,
@@ -630,6 +654,17 @@ mod tests {
     fn allow_network_for_proxy_returns_flag() {
         assert!(allow_network_for_proxy(true));
         assert!(!allow_network_for_proxy(false));
+    }
+
+    #[test]
+    fn policy_has_deny_read_detects_glob_entries() {
+        let fs = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
+            path: FileSystemPath::GlobPattern {
+                pattern: "**/.env".into(),
+            },
+            access: FileSystemAccessMode::None,
+        }]);
+        assert!(policy_has_deny_read_restrictions(&fs, &test_cwd()));
     }
 
     #[test]

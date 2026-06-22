@@ -1268,19 +1268,50 @@ pub fn exec_with_bwrap(
     unreachable!()
 }
 
+const SYSTEM_BWRAP_PROGRAM: &str = "bwrap";
+
 fn find_bwrap() -> Result<String> {
-    let candidates = ["/usr/bin/bwrap", "/usr/local/bin/bwrap"];
-    for path in &candidates {
-        if Path::new(path).exists() {
+    const KNOWN_PATHS: &[&str] = &["/usr/bin/bwrap", "/usr/local/bin/bwrap", "/bin/bwrap"];
+    for path in KNOWN_PATHS {
+        if Path::new(path).is_file() {
             return Ok(path.to_string());
         }
     }
 
-    if let Ok(found) = which::which("bwrap") {
-        return Ok(found.to_string_lossy().to_string());
+    if let Some(path) = find_system_bwrap_in_path() {
+        return Ok(path.to_string_lossy().to_string());
     }
 
     bail!("bubblewrap (bwrap) not found; install it or use landlock-only mode")
+}
+
+/// Search PATH for `bwrap`, skipping any found under the current directory
+/// to defend against PATH hijacking.
+fn find_system_bwrap_in_path() -> Option<PathBuf> {
+    let search_path = std::env::var_os("PATH")?;
+    let cwd = std::env::current_dir().ok()?;
+    find_system_bwrap_in_search_paths(std::env::split_paths(&search_path), &cwd)
+}
+
+fn find_system_bwrap_in_search_paths(
+    search_paths: impl IntoIterator<Item = PathBuf>,
+    cwd: &Path,
+) -> Option<PathBuf> {
+    let search_path = std::env::join_paths(search_paths).ok()?;
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let cwd_is_root = cwd.parent().is_none();
+    let candidates: Vec<PathBuf> =
+        which::which_in_all(SYSTEM_BWRAP_PROGRAM, Some(search_path), &cwd)
+            .ok()?
+            .collect();
+    candidates.into_iter().find_map(|path| {
+        let path = std::fs::canonicalize(path).ok()?;
+        if !cwd_is_root && path.starts_with(&cwd) {
+            None
+        } else {
+            Some(path)
+        }
+    })
 }
 
 /// Clean up synthetic mount targets created for bwrap after the sandbox exits.
@@ -1424,6 +1455,24 @@ mod tests {
         let result =
             find_first_non_existent_component(Path::new("/tmp/definitely_does_not_exist_12345"));
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn find_bwrap_skips_cwd() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let fake_bwrap = tmpdir.path().join("bwrap");
+        std::fs::write(&fake_bwrap, "#!/bin/sh\ntrue").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_bwrap, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let result = find_system_bwrap_in_search_paths(
+            vec![tmpdir.path().to_path_buf()],
+            tmpdir.path(),
+        );
+        assert!(result.is_none(), "should skip bwrap under cwd");
     }
 
     #[test]

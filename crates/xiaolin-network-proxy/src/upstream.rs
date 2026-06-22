@@ -4,8 +4,10 @@
 //! HTTPS_PROXY, ALL_PROXY) and routes outgoing requests through the
 //! configured upstream proxy when available.
 
+use crate::connect_policy::TargetCheckedTcpConnector;
 use anyhow::{Context as _, Result, anyhow};
 use std::fmt::Write as _;
+use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{info, warn};
@@ -171,10 +173,16 @@ impl UpstreamClient {
             connect_via_http_proxy(proxy, host, port).await
         } else {
             info!("direct connect: target={host}:{port}");
-            let addr = format!("{host}:{port}");
-            TcpStream::connect(&addr)
+            let connector = TargetCheckedTcpConnector::new(self.allow_local_binding);
+            let target_addr: SocketAddr = tokio::net::lookup_host(format!("{host}:{port}"))
                 .await
-                .with_context(|| format!("failed to connect to {addr}"))
+                .with_context(|| format!("failed to resolve {host}:{port}"))?
+                .next()
+                .ok_or_else(|| anyhow!("failed to resolve {host}:{port}"))?;
+            connector
+                .connect(target_addr)
+                .await
+                .with_context(|| format!("failed to connect to {host}:{port}"))
         }
     }
 
