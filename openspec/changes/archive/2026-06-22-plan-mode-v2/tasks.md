@@ -11,6 +11,8 @@
 **依赖关系**: M1 → M2 (色彩被审批卡片使用) → M3 → M4
 **已完成基础**: update_plan 结构化步骤, PlanArgInterceptor 流式推送, PlanPanel Markdown+Checklist, 基础审批 (2 按钮)
 
+**状态: 全部完成 (2026-06-22)**
+
 ---
 
 ## DONE: 已完成的基础设施 (Groups 1-4, 13)
@@ -97,54 +99,54 @@
 
 核心目标：页面刷新、断线重连后 plan 状态完整恢复
 
-- [ ] 11.1 Backend: execution.get_plan_meta RPC handler (查 PlanFileStore + 检查文件 + 查 Registry)
-- [ ] 11.2 Backend: infer_mode_from_last_message fallback (从最近消息推断模式)
-- [ ] 11.3 Frontend: activateSession 中调用 get_plan_meta hydrate plan/mode 状态
-- [ ] 11.4 Frontend: syncBackendData 后 hydrate 当前活跃 session
-- [ ] 11.5 Frontend: WS "reconnected" 事件后 hydrate 当前活跃 session
-- [ ] 11.6 Frontend: syncSessionsForAgent 不再硬编码 executionMode: "agent"（保留已知值）
-- [ ] 11.7 Frontend: PlanPanel 自动恢复 (planFileExists + plan mode → 自动展开)
-- [ ] 11.8 Frontend: "未完成方案" 提示卡片 (planFileExists + agent mode → 小提示)
-- [ ] 11.9 Backend: plan_mode_reentry attachment 实现 (重入 Plan + 已有 plan → 注入)
-- [ ] 11.10 Backend: handle_sessions_delete 中调用 plan 文件 + 索引 + registry 清理
-- [ ] 11.11 Backend: PlanFileStore 新增 remove_slug() / has_slug() 方法
-- [ ] 11.12 E2E: 页面刷新后 PlanPanel + mode 恢复验证
-- [ ] 11.13 E2E: Session 删除后 plan 文件不存在验证
+- [x] 11.1 Backend: execution.get_plan_meta RPC handler (查 PlanFileStore + 检查文件 + 查 Registry)
+- [x] 11.2 Backend: infer_mode_from_last_message fallback (从最近消息推断模式)
+- [x] 11.3 Frontend: activateSession 中调用 get_plan_meta hydrate plan/mode 状态
+- [x] 11.4 Frontend: syncBackendData 后 hydrate 当前活跃 session
+- [x] 11.5 Frontend: WS "reconnected" 事件后 hydrate 当前活跃 session
+- [x] 11.6 Frontend: syncSessionsForAgent 不再硬编码 executionMode: "agent"（保留已知值）
+- [x] 11.7 Frontend: PlanPanel 自动恢复 (planFileExists + plan mode → 自动展开)
+- [x] 11.8 Frontend: "未完成方案" 提示卡片 (planFileExists + agent mode → 小提示)
+- [x] 11.9 Backend: plan_mode_reentry attachment 实现 (重入 Plan + 已有 plan → 注入)
+- [x] 11.10 Backend: handle_sessions_delete 中调用 plan 文件 + 索引 + registry 清理
+- [x] 11.11 Backend: PlanFileStore 新增 remove_slug() / has_slug() 方法
+- [x] 11.12 E2E: 页面刷新后 PlanPanel + mode 恢复验证
+- [x] 11.13 E2E: Session 删除后 plan 文件不存在验证
 
 ## M4: 发现 + Prompt + 测试
 
 ### Prompt 升级
 
-- [ ] 8.1 mode_attachments.rs: plan_full_en rewrite (three-phase workflow, reference update_plan)
-- [ ] 8.2 mode_attachments.rs: plan_sparse_en rewrite (concise reminder)
-- [ ] 8.3 Plan mode tool prompts update (enter/exit_plan_mode descriptions)
-- [ ] 8.4 Demote todo_write in plan mode tool profile
+- [x] 8.1 mode_attachments.rs: plan_full_en rewrite (three-phase workflow, reference update_plan)
+- [x] 8.2 mode_attachments.rs: plan_sparse_en rewrite (concise reminder)
+- [x] 8.3 Plan mode tool prompts update (enter/exit_plan_mode descriptions)
+- [x] 8.4 Demote todo_write in plan mode tool profile
 
 ### Plan Discovery (Nudge)
 
-- [ ] 12.1 Frontend: usePlanNudge hook (关键词检测 + 复杂度启发式 + 首次使用教育)
-- [ ] 12.2 Frontend: containsPlanKeyword() — 中英文关键词匹配 (word boundary)
-- [ ] 12.3 Frontend: detectComplexity() — 多维度启发式 (长度 + 列表 + @引用 + 动词)
-- [ ] 12.4 Frontend: PlanNudge 内联提示条组件 (plan-tint 样式 + slideDown/fadeOut 动画)
-- [ ] 12.5 Frontend: Nudge dismiss + 频率控制
-- [ ] 12.8 Frontend: Ctrl+Shift+P 快捷键注册
+- [x] 12.1 Frontend: usePlanNudge hook (关键词检测 + 复杂度启发式 + 首次使用教育)
+- [x] 12.2 Frontend: containsPlanKeyword() — 中英文关键词匹配 (word boundary)
+- [x] 12.3 Frontend: detectComplexity() — 多维度启发式 (长度 + 列表 + @引用 + 动词)
+- [x] 12.4 Frontend: PlanNudge 内联提示条组件 (plan-tint 样式 + slideDown/fadeOut 动画)
+- [x] 12.5 Frontend: Nudge dismiss + 频率控制
+- [x] 12.8 Frontend: Ctrl+Shift+P 快捷键注册
 
 ### E2E 集成测试
 
-- [ ] 9.1 E2E: update_plan → plan_update event → PlanChecklist 渲染
-- [ ] 9.2 E2E: PlanDelta streaming (write_file → plan_delta → PlanPanel 实时更新)
-- [ ] 9.3 E2E: Approval gate 5 options 完整交互
-- [ ] 9.4 E2E: Plan mode 恢复 (刷新 + 重连)
+- [x] 9.1 E2E: update_plan → plan_update event → PlanChecklist 渲染
+- [x] 9.2 E2E: PlanDelta streaming (write_file → plan_delta → PlanPanel 实时更新)
+- [x] 9.3 E2E: Approval gate 5 options 完整交互
+- [x] 9.4 E2E: Plan mode 恢复 (刷新 + 重连)
 
 ## 执行追踪增强 (可与 M1-M2 交叉)
 
 这些任务增强 update_plan 的执行追踪体验：
 
-- [ ] 10.5 Frontend: 手动点击步骤状态图标切换（○ → ✅ → ○）
-- [ ] 10.6 Frontend: 全部步骤完成 → 显示 "方案已全部实施" + 建议运行测试
-- [ ] 10.7 Frontend: PlanPanel 模式切换时保持可见（Agent 模式 + plan 存在时不关闭）
-- [ ] 10.8 Backend: compact_boundary_plan_reference — Compact 后重注入 plan 全文
-- [ ] 10.9 Backend: sparse_implementation_reminder — 每 5 轮注入 plan 进度提醒
-- [ ] 10.10 Backend: approvePlan 审批后注入引导消息（保持上下文 / 清除上下文两种路径）
-- [ ] 10.12 E2E: 执行追踪全流程（update_plan → checklist 显示 → 步骤标记 → 完成检测）
-- [ ] 7.10 write_file plan: 工具结果简化为「方案已更新」hint + 查看链接
+- [x] 10.5 Frontend: 手动点击步骤状态图标切换（○ → ✅ → ○）
+- [x] 10.6 Frontend: 全部步骤完成 → 显示 "方案已全部实施" + 建议运行测试
+- [x] 10.7 Frontend: PlanPanel 模式切换时保持可见（Agent 模式 + plan 存在时不关闭）
+- [x] 10.8 Backend: compact_boundary_plan_reference — Compact 后重注入 plan 全文
+- [x] 10.9 Backend: sparse_implementation_reminder — 每 5 轮注入 plan 进度提醒
+- [x] 10.10 Backend: approvePlan 审批后注入引导消息（保持上下文 / 清除上下文两种路径）
+- [x] 10.12 E2E: 执行追踪全流程（update_plan → checklist 显示 → 步骤标记 → 完成检测）
+- [x] 7.10 write_file plan: 工具结果简化为「方案已更新」hint + 查看链接
