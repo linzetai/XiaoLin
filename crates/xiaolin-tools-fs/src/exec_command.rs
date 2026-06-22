@@ -295,8 +295,9 @@ impl Tool for WriteStdinTool {
 /// Manages the lifecycle of PTY sessions with automatic timeout cleanup.
 pub mod pty_session {
     use std::collections::HashMap;
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::process::{Command, Stdio};
+    use std::sync::{Arc, Mutex as StdMutex};
     use std::time::{Duration, Instant};
 
     use tokio::sync::Mutex;
@@ -304,9 +305,21 @@ pub mod pty_session {
     pub struct PtySession {
         child: std::process::Child,
         output_buffer: Vec<u8>,
+        stderr_buf: Arc<StdMutex<Vec<u8>>>,
+        stderr_thread: Option<std::thread::JoinHandle<()>>,
         #[allow(dead_code)]
         created_at: Instant,
         last_activity: Instant,
+    }
+
+    impl Drop for PtySession {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            if let Some(handle) = self.stderr_thread.take() {
+                let _ = handle.join();
+            }
+        }
     }
 
     pub struct PtySessionManager {
@@ -344,13 +357,40 @@ pub mod pty_session {
                 command.current_dir(dir);
             }
 
-            let child = command
+            let mut child = command
                 .spawn()
                 .map_err(|e| format!("Failed to spawn process: {e}"))?;
+
+            let stderr_buf = Arc::new(StdMutex::new(Vec::<u8>::new()));
+            let stderr_thread = if let Some(mut stderr) = child.stderr.take() {
+                let buf = Arc::clone(&stderr_buf);
+                Some(std::thread::spawn(move || {
+                    let mut tmp = [0u8; 4096];
+                    loop {
+                        match stderr.read(&mut tmp) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                if let Ok(mut b) = buf.lock() {
+                                    const MAX_STDERR: usize = 256 * 1024;
+                                    if b.len() + n > MAX_STDERR {
+                                        let drain = (b.len() + n).saturating_sub(MAX_STDERR);
+                                        b.drain(..drain);
+                                    }
+                                    b.extend_from_slice(&tmp[..n]);
+                                }
+                            }
+                        }
+                    }
+                }))
+            } else {
+                None
+            };
 
             let session = PtySession {
                 child,
                 output_buffer: Vec::new(),
+                stderr_buf,
+                stderr_thread,
                 created_at: Instant::now(),
                 last_activity: Instant::now(),
             };
@@ -386,12 +426,17 @@ pub mod pty_session {
 
             session.last_activity = Instant::now();
 
-            // Read available output from stdout
             let mut buf = vec![0u8; max_chars.min(65536)];
             if let Some(stdout) = session.child.stdout.as_mut() {
-                use std::io::Read;
                 let n = stdout.read(&mut buf).unwrap_or(0);
                 session.output_buffer.extend_from_slice(&buf[..n]);
+            }
+
+            if let Ok(mut stderr) = session.stderr_buf.lock() {
+                if !stderr.is_empty() {
+                    session.output_buffer.extend_from_slice(&stderr);
+                    stderr.clear();
+                }
             }
 
             let output = String::from_utf8_lossy(&session.output_buffer).to_string();
@@ -408,12 +453,7 @@ pub mod pty_session {
 
         pub async fn close_session(&self, session_id: &str) -> bool {
             let mut sessions = self.sessions.lock().await;
-            if let Some(mut session) = sessions.remove(session_id) {
-                let _ = session.child.kill();
-                true
-            } else {
-                false
-            }
+            sessions.remove(session_id).is_some()
         }
 
         pub async fn cleanup_expired(&self) -> usize {
@@ -425,23 +465,12 @@ pub mod pty_session {
                 .map(|(id, _)| id.clone())
                 .collect();
 
-            for id in expired {
-                if let Some(mut session) = sessions.remove(&id) {
-                    match session.child.kill() {
-                        Ok(()) => {
-                            tracing::info!(
-                                session_id = %id,
-                                "exec_command session cleaned up (expired)"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                session_id = %id,
-                                error = %e,
-                                "failed to kill expired exec_command session"
-                            );
-                        }
-                    }
+            for id in &expired {
+                if sessions.remove(id).is_some() {
+                    tracing::info!(
+                        session_id = %id,
+                        "exec_command session cleaned up (expired)"
+                    );
                 }
             }
 

@@ -911,10 +911,11 @@
 
 #### BUG-085 🔴 exec_command stderr 从未读取导致管道死锁
 
-- **状态**：⬜ OPEN（需 PTY 架构改造）
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-fs/src/exec_command.rs` L337–349, L383–406
 - **问题**：stderr 从未被读取，verbose 命令 stderr 填满 OS 管道 buffer 后子进程阻塞（经典 deadlock）。
 - **建议**：用真 PTY 或 spawn 线程持续 drain stderr。
+- **修复记录**：2026-06-22 spawn 后台线程持续 drain stderr 到共享 buffer（256KB 上限），read_output 合并 stdout+stderr；PtySession 实现 Drop 清理子进程和线程
 
 ---
 
