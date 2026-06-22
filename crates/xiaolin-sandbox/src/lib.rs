@@ -178,7 +178,19 @@ impl SandboxManager {
                     sandbox_type: SandboxType::Noop,
                 })
             }
-            SandboxPreference::Auto => Ok(Self::detect()),
+            SandboxPreference::Auto => {
+                let detected = Self::detect_platform();
+                if detected == SandboxType::Noop {
+                    tracing::warn!(
+                        "no real sandbox backend available; falling back to noop sandbox"
+                    );
+                } else {
+                    tracing::info!(sandbox = %detected, "sandbox backend selected");
+                }
+                Ok(Self {
+                    sandbox_type: detected,
+                })
+            }
             SandboxPreference::Require => {
                 let detected = Self::detect_platform();
                 if detected == SandboxType::Noop {
@@ -205,14 +217,28 @@ impl SandboxManager {
         fs_policy: &FileSystemSandboxPolicy,
         net_policy: NetworkSandboxPolicy,
     ) -> Result<Self, SandboxSelectionError> {
-        let effective = if preference == SandboxPreference::Auto
-            && policy_transforms::should_require_platform_sandbox(fs_policy, net_policy)
-        {
-            SandboxPreference::Require
-        } else {
-            preference
-        };
-        Self::select(effective)
+        let requires_sandbox =
+            policy_transforms::should_require_platform_sandbox(fs_policy, net_policy);
+        if preference == SandboxPreference::Auto {
+            let detected = Self::detect_platform();
+            if detected == SandboxType::Noop {
+                tracing::warn!(
+                    "no real sandbox backend available; falling back to noop sandbox"
+                );
+                if requires_sandbox {
+                    return Err(SandboxSelectionError {
+                        message: "sandbox required by policy but no backend is available on this platform"
+                            .into(),
+                    });
+                }
+            } else {
+                tracing::info!(sandbox = %detected, "sandbox backend selected");
+            }
+            return Ok(Self {
+                sandbox_type: detected,
+            });
+        }
+        Self::select(preference)
     }
 
     /// Create a manager with an explicit backend (for testing).

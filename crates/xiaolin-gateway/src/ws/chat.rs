@@ -1081,7 +1081,7 @@ pub async fn spawn_chat(
                     let elapsed_ms = chat_start.elapsed().as_millis() as u64;
                     data.insert("elapsedMs".into(), json!(elapsed_ms));
                     data.insert("inputTokensEstimate".into(), json!(input_estimate));
-                    let output_estimate = assistant_content.len() / 4;
+                    let output_estimate = assistant_content.chars().count() / 2;
                     data.insert("outputTokensEstimate".into(), json!(output_estimate));
 
                     let mode_now = state

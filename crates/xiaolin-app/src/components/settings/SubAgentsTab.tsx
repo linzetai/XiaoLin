@@ -36,7 +36,7 @@ export function SubAgentsTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchDefs();

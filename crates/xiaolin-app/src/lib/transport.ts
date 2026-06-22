@@ -57,8 +57,8 @@ export async function uploadAgentAvatar(
 
 export async function readIdentityFiles(
   agentId: string,
-): Promise<{ soul: string | null; user: string | null; agents: string | null; tools: string | null }> {
-  if (!isTauri) return { soul: null, user: null, agents: null, tools: null };
+): Promise<{ soul: string | null; identity: string | null; user: string | null; agents: string | null; tools: string | null }> {
+  if (!isTauri) return { soul: null, identity: null, user: null, agents: null, tools: null };
   return tauriInvoke("read_identity_files", { agentId });
 }
 

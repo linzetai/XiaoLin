@@ -9,6 +9,9 @@ use xiaolin_treesitter::{
 
 static GLOBAL_CACHE: OnceLock<CodeGraphCache> = OnceLock::new();
 
+/// Max cached file contexts before evicting the oldest half.
+const MAX_CODE_GRAPH_CACHE: usize = 500;
+
 #[derive(Debug, Clone)]
 pub struct FileCodeContext {
     pub pub_symbols: Vec<(String, SymbolKind)>,
@@ -88,7 +91,28 @@ impl CodeGraphCache {
         }
     }
 
+    fn evict_oldest_half(&self) {
+        let mut entries: Vec<(PathBuf, Instant)> = self
+            .cache
+            .iter()
+            .map(|r| (r.key().clone(), r.value().updated_at))
+            .collect();
+        entries.sort_by_key(|(_, ts)| *ts);
+        let remove_count = entries.len() / 2;
+        for (key, _) in entries.into_iter().take(remove_count) {
+            self.cache.remove(&key);
+        }
+        tracing::warn!(
+            removed = remove_count,
+            remaining = self.cache.len(),
+            "CodeGraphCache evicted oldest half of entries"
+        );
+    }
+
     pub fn extract_and_store(&self, path: &Path, source: &str, language: &str) {
+        if self.cache.len() > MAX_CODE_GRAPH_CACHE {
+            self.evict_oldest_half();
+        }
         let ctx = Self::extract_context(path, source, language);
         self.cache.insert(path.to_path_buf(), ctx);
     }

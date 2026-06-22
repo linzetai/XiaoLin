@@ -579,6 +579,7 @@ export async function uploadAgentAvatar(agentId: string, sourcePath: string): Pr
 
 export interface IdentityFiles {
   soul: string | null;
+  identity: string | null;
   user: string | null;
   agents: string | null;
   tools: string | null;
@@ -589,7 +590,7 @@ export async function getIdentityFiles(agentId: string): Promise<IdentityFiles> 
     return await transport.readIdentityFilesIpc(agentId);
   } catch (e) {
     console.warn("[api] getIdentityFiles error:", e);
-    return { soul: null, user: null, agents: null, tools: null };
+    return { soul: null, identity: null, user: null, agents: null, tools: null };
   }
 }
 

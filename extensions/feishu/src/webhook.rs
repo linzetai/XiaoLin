@@ -1,4 +1,5 @@
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -63,31 +64,43 @@ pub async fn feishu_webhook_handler(
     State(state): State<Arc<FeishuWebhookState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    // URL verification challenge
-    if let Some(challenge) = payload.get("challenge").and_then(|v| v.as_str()) {
-        return Json(ChallengeResponse {
-            challenge: challenge.to_string(),
-        })
-        .into_response();
-    }
-
     let callback: EventCallback = match serde_json::from_value(payload.clone()) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "failed to parse Feishu event");
-            return Json(serde_json::json!({"code": 0})).into_response();
+            return Json(serde_json::json!({"code": -1, "msg": "invalid payload"})).into_response();
         }
     };
 
-    // Token verification
+    // Token verification (required before challenge or event handling)
     let token = callback
         .token
         .as_deref()
         .or_else(|| callback.header.as_ref().and_then(|h| h.token.as_deref()))
         .unwrap_or("");
-    if !state.config.verification_token.is_empty() && token != state.config.verification_token {
+    if state.config.verification_token.is_empty() {
+        tracing::warn!("Feishu webhook verification_token not configured, rejecting");
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"code": -1, "msg": "token not configured"})),
+        )
+            .into_response();
+    }
+    if token != state.config.verification_token {
         tracing::warn!("Feishu webhook token mismatch");
-        return Json(serde_json::json!({"code": 0})).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"code": -1, "msg": "token mismatch"})),
+        )
+            .into_response();
+    }
+
+    // URL verification challenge (after token verification)
+    if let Some(challenge) = payload.get("challenge").and_then(|v| v.as_str()) {
+        return Json(ChallengeResponse {
+            challenge: challenge.to_string(),
+        })
+        .into_response();
     }
 
     // Determine event type

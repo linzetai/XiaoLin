@@ -5,7 +5,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use globset::GlobSet;
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use tokio::sync::{RwLock, Semaphore};
 
 use crate::config::{NetworkMode, NetworkProxySettings};
@@ -125,7 +125,17 @@ impl ConfigSnapshot {
                 None
             } else {
                 let patterns: Vec<String> = allowed.into_iter().map(String::from).collect();
-                crate::policy::compile_allowlist_globset(&patterns).ok()
+                match crate::policy::compile_allowlist_globset(&patterns) {
+                    Ok(set) => Some(set),
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            ?patterns,
+                            "failed to compile allowlist globset; denying all hosts"
+                        );
+                        Some(empty_globset())
+                    }
+                }
             }
         };
         let deny_globset = {
@@ -134,7 +144,17 @@ impl ConfigSnapshot {
                 None
             } else {
                 let patterns: Vec<String> = denied.into_iter().map(String::from).collect();
-                crate::policy::compile_denylist_globset(&patterns).ok()
+                match crate::policy::compile_denylist_globset(&patterns) {
+                    Ok(set) => Some(set),
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            ?patterns,
+                            "failed to compile denylist globset; denying all hosts"
+                        );
+                        Some(deny_all_globset())
+                    }
+                }
             }
         };
         let allowed_unix_socket_paths = settings
@@ -518,6 +538,26 @@ impl NetworkProxyState {
 }
 
 // ── Helper functions ────────────────────────────────────────────────────────
+
+/// Empty globset: when used as allowlist, no host matches → deny all.
+fn empty_globset() -> GlobSet {
+    GlobSetBuilder::new()
+        .build()
+        .expect("empty globset always compiles")
+}
+
+/// Match-all globset: when used as denylist, every host is denied.
+fn deny_all_globset() -> GlobSet {
+    GlobSetBuilder::new()
+        .add(
+            GlobBuilder::new("*")
+                .case_insensitive(true)
+                .build()
+                .expect("wildcard glob always compiles"),
+        )
+        .build()
+        .expect("deny-all globset always compiles")
+}
 
 fn host_matches(pattern: &str, host: &str) -> bool {
     if pattern == host {

@@ -10,6 +10,9 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
 
+/// Maximum LSP JSON-RPC message body size (10 MiB).
+const MAX_LSP_CONTENT_LENGTH: usize = 10 * 1024 * 1024;
+
 const LSP_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const LSP_MAX_SESSIONS: usize = 4;
 const LSP_GC_INTERVAL: Duration = Duration::from_secs(60);
@@ -680,6 +683,11 @@ impl PersistentLspSession {
         }
         if content_length == 0 {
             return Err(anyhow::anyhow!("invalid lsp content-length"));
+        }
+        if content_length > MAX_LSP_CONTENT_LENGTH {
+            return Err(anyhow::anyhow!(
+                "lsp content-length {content_length} exceeds maximum {MAX_LSP_CONTENT_LENGTH} bytes; session terminated"
+            ));
         }
         let mut buf = vec![0u8; content_length];
         tokio::time::timeout(Duration::from_secs(2), self.stdout.read_exact(&mut buf)).await??;

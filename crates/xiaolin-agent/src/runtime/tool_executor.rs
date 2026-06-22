@@ -340,6 +340,7 @@ fn summarize_search_result(
 pub(crate) struct ClearedToolMeta {
     pub tool_name: String,
     pub arguments_json: String,
+    pub registered_at: std::time::Instant,
 }
 
 pub(crate) const RECALL_HINT_MARKER: &str = "[recall-available]";
@@ -1468,13 +1469,38 @@ use std::sync::OnceLock;
 /// Global registry mapping tool_call_id → recall metadata.
 static AUTO_RECALL_REGISTRY: OnceLock<DashMap<String, ClearedToolMeta>> = OnceLock::new();
 
+/// Max entries in the global auto-recall registry before evicting oldest half.
+const MAX_AUTO_RECALL_ENTRIES: usize = 1000;
+
 fn recall_registry() -> &'static DashMap<String, ClearedToolMeta> {
     AUTO_RECALL_REGISTRY.get_or_init(DashMap::new)
 }
 
+fn evict_oldest_auto_recall_entries(registry: &DashMap<String, ClearedToolMeta>) {
+    let mut entries: Vec<(String, std::time::Instant)> = registry
+        .iter()
+        .map(|r| (r.key().clone(), r.value().registered_at))
+        .collect();
+    entries.sort_by_key(|(_, ts)| *ts);
+    let remove_count = entries.len() / 2;
+    for (key, _) in entries.into_iter().take(remove_count) {
+        registry.remove(&key);
+    }
+    tracing::warn!(
+        removed = remove_count,
+        remaining = registry.len(),
+        "AUTO_RECALL_REGISTRY evicted oldest half of entries"
+    );
+}
+
 /// Register a cleared tool result for potential auto-recall.
-pub(crate) fn register_for_recall(tool_call_id: &str, meta: ClearedToolMeta) {
-    recall_registry().insert(tool_call_id.to_string(), meta);
+pub(crate) fn register_for_recall(tool_call_id: &str, mut meta: ClearedToolMeta) {
+    let registry = recall_registry();
+    if registry.len() > MAX_AUTO_RECALL_ENTRIES {
+        evict_oldest_auto_recall_entries(registry);
+    }
+    meta.registered_at = std::time::Instant::now();
+    registry.insert(tool_call_id.to_string(), meta);
 }
 
 /// Look up recall metadata for a tool_call_id.
@@ -1518,6 +1544,7 @@ pub(crate) fn rebuild_recall_registry(messages: &[xiaolin_core::types::ChatMessa
             ClearedToolMeta {
                 tool_name,
                 arguments_json: args.unwrap_or_default(),
+                registered_at: std::time::Instant::now(),
             },
         );
     }

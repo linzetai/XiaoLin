@@ -837,17 +837,25 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
 
     let total = eager_tools.len() + deferred_names.len();
 
+    let configured_mcp_count = {
+        let live = state.cfg.config_live.load();
+        live.get("mcpServers")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or_else(|| state.cfg.config.mcp_servers.len())
+    };
+
     tracing::debug!(
         eager = eager_tools.len(),
         deferred = deferred_names.len(),
-        global_mcp_configured = state.cfg.config.mcp_servers.len(),
+        global_mcp_configured = configured_mcp_count,
         "inject_mcp_tools_prompt check"
     );
 
     if total == 0 {
-        if !state.cfg.config.mcp_servers.is_empty() {
+        if configured_mcp_count > 0 {
             tracing::warn!(
-                configured = state.cfg.config.mcp_servers.len(),
+                configured = configured_mcp_count,
                 "MCP servers configured but no mcp__ tools in registry (connection may have failed at startup)"
             );
         }

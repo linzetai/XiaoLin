@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+/// Maximum base64-encoded audio payload (~25 MiB raw audio at ~1.33x encoding overhead).
+const MAX_AUDIO_BASE64_LEN: usize = 35_000_000;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SttResult {
     pub text: String,
@@ -12,6 +15,9 @@ pub async fn transcribe_audio(
     mime_type: String,
     state: tauri::State<'_, crate::AppData>,
 ) -> Result<SttResult, String> {
+    if audio_base64.len() > MAX_AUDIO_BASE64_LEN {
+        return Err("Audio data too large (max 25MB)".to_string());
+    }
     let audio_data = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         &audio_base64,

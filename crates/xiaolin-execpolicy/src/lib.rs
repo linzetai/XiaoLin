@@ -170,7 +170,7 @@ impl PolicyEngine {
         Self {
             layers: Vec::new(),
             host_executables_by_name: HashMap::new(),
-            defaults_fallback: "prompt".to_string(),
+            defaults_fallback: "forbidden".to_string(),
         }
     }
 
@@ -444,9 +444,9 @@ impl PolicyEngine {
             }
         }
 
-        PolicyDecision::Prompt {
+        PolicyDecision::Forbidden {
             rule_id: None,
-            reason: "no matching network rule".to_string(),
+            justification: "no matching network rule (deny by default)".to_string(),
         }
     }
 

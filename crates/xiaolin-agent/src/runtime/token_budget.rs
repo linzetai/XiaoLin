@@ -11,21 +11,74 @@
 
 use dashmap::DashMap;
 use regex::Regex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 /// Global per-session budget registry. Survives across turns within the same
-/// gateway process. Keyed by session_id → target_tokens.
-static SESSION_BUDGETS: LazyLock<Arc<DashMap<String, u64>>> =
+/// gateway process. Keyed by session_id → budget + last update time.
+static SESSION_BUDGETS: LazyLock<Arc<DashMap<String, SessionBudgetEntry>>> =
     LazyLock::new(|| Arc::new(DashMap::new()));
+
+/// Max session budget entries before stale cleanup runs.
+const MAX_SESSION_BUDGET_ENTRIES: usize = 1000;
+
+/// Run stale budget cleanup every N registry mutations.
+const SESSION_BUDGET_CLEANUP_INTERVAL: u64 = 100;
+
+static SESSION_BUDGET_MUTATIONS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy)]
+struct SessionBudgetEntry {
+    target_tokens: u64,
+    updated_at: Instant,
+}
+
+fn maybe_cleanup_stale_budgets() {
+    let n = SESSION_BUDGET_MUTATIONS.fetch_add(1, Ordering::Relaxed);
+    if n % SESSION_BUDGET_CLEANUP_INTERVAL != 0 {
+        return;
+    }
+    cleanup_stale_budgets();
+}
+
+/// Remove stale session budget entries when the map grows too large.
+pub fn cleanup_stale_budgets() {
+    let len = SESSION_BUDGETS.len();
+    if len <= MAX_SESSION_BUDGET_ENTRIES {
+        return;
+    }
+    tracing::warn!(
+        entries = len,
+        max = MAX_SESSION_BUDGET_ENTRIES,
+        "SESSION_BUDGETS exceeded capacity; evicting oldest half"
+    );
+    let mut entries: Vec<(String, Instant)> = SESSION_BUDGETS
+        .iter()
+        .map(|r| (r.key().clone(), r.value().updated_at))
+        .collect();
+    entries.sort_by_key(|(_, ts)| *ts);
+    let remove_count = entries.len() / 2;
+    for (key, _) in entries.into_iter().take(remove_count) {
+        SESSION_BUDGETS.remove(&key);
+    }
+}
 
 /// Store a token budget for a session (persists across turns).
 pub fn set_session_budget(session_id: &str, target_tokens: u64) {
-    SESSION_BUDGETS.insert(session_id.to_string(), target_tokens);
+    maybe_cleanup_stale_budgets();
+    SESSION_BUDGETS.insert(
+        session_id.to_string(),
+        SessionBudgetEntry {
+            target_tokens,
+            updated_at: Instant::now(),
+        },
+    );
 }
 
 /// Get the inherited budget for a session (if any).
 pub fn get_session_budget(session_id: &str) -> Option<u64> {
-    SESSION_BUDGETS.get(session_id).map(|v| *v)
+    SESSION_BUDGETS.get(session_id).map(|v| v.target_tokens)
 }
 
 /// Clear the budget for a session (called when budget is reached or user

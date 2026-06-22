@@ -10,6 +10,7 @@ use xiaolin_core::channel::InboundMessage;
 
 use crate::api::client::WechatApiClient;
 use crate::api::types::*;
+use crate::dedup::MessageDedup;
 use crate::message::{enrich_inbound_media, outbound_to_weixin, weixin_to_inbound};
 use crate::plugin::{ContextTokenCache, ReplyCache};
 
@@ -36,6 +37,7 @@ pub struct WechatMonitor {
     reply_cache: Arc<ReplyCache>,
     context_tokens: Arc<ContextTokenCache>,
     cdn_base_url: String,
+    dedup: MessageDedup,
 }
 
 impl WechatMonitor {
@@ -64,6 +66,7 @@ impl WechatMonitor {
             reply_cache,
             context_tokens,
             cdn_base_url,
+            dedup: MessageDedup::new(),
         }
     }
 
@@ -310,6 +313,14 @@ impl WechatMonitor {
             if let Some(mut inbound) =
                 weixin_to_inbound(&msg, "wechat", Some(&self.account_id))
             {
+                if !self.dedup.accept(&inbound.message_id) {
+                    tracing::debug!(
+                        message_id = %inbound.message_id,
+                        "wechat: duplicate message skipped"
+                    );
+                    continue;
+                }
+
                 let ctx_token = msg.context_token.as_deref();
 
                 if let Some(token) = ctx_token {

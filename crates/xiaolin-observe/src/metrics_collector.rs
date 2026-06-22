@@ -8,6 +8,9 @@ use dashmap::DashMap;
 
 const MAX_HISTOGRAM_SAMPLES: usize = 10_240;
 
+/// Max distinct counter/histogram keys retained in memory.
+const MAX_METRIC_KEYS: usize = 500;
+
 fn push_histogram_sample(vec: &mut Vec<f64>, sample: f64) {
     if vec.len() >= MAX_HISTOGRAM_SAMPLES {
         vec.remove(0);
@@ -40,6 +43,54 @@ impl MetricsCollector {
             counters: DashMap::new(),
             histograms: DashMap::new(),
         }
+    }
+
+    fn counter_at_capacity(&self) -> bool {
+        self.counters.len() >= MAX_METRIC_KEYS
+    }
+
+    fn histogram_at_capacity(&self) -> bool {
+        self.histograms.len() >= MAX_METRIC_KEYS
+    }
+
+    fn try_counter_entry(
+        &self,
+        key: String,
+    ) -> Option<dashmap::mapref::one::RefMut<'_, String, AtomicU64>> {
+        if !self.counters.contains_key(&key) && self.counter_at_capacity() {
+            tracing::warn!(
+                keys = self.counters.len(),
+                max = MAX_METRIC_KEYS,
+                new_key = %key,
+                "metrics collector at capacity; rejecting new counter key"
+            );
+            return None;
+        }
+        Some(
+            self.counters
+                .entry(key)
+                .or_insert_with(|| AtomicU64::new(0)),
+        )
+    }
+
+    fn try_histogram_entry(
+        &self,
+        key: String,
+    ) -> Option<dashmap::mapref::one::RefMut<'_, String, Mutex<Vec<f64>>>> {
+        if !self.histograms.contains_key(&key) && self.histogram_at_capacity() {
+            tracing::warn!(
+                keys = self.histograms.len(),
+                max = MAX_METRIC_KEYS,
+                new_key = %key,
+                "metrics collector at capacity; rejecting new histogram key"
+            );
+            return None;
+        }
+        Some(
+            self.histograms
+                .entry(key)
+                .or_insert_with(|| Mutex::new(Vec::new())),
+        )
     }
 
     fn request_counter_key(agent: &str, channel: &str) -> String {
@@ -76,18 +127,16 @@ impl MetricsCollector {
 
     pub fn record_request(&self, agent: &str, channel: &str) {
         let key = Self::request_counter_key(agent, channel);
-        self.counters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0))
-            .fetch_add(1, Ordering::Relaxed);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     pub fn record_latency_ms(&self, endpoint: &str, ms: f64) {
         let key = format!("latency|{}", escape_label_value(endpoint));
-        let entry = self
-            .histograms
-            .entry(key)
-            .or_insert_with(|| Mutex::new(Vec::new()));
+        let Some(entry) = self.try_histogram_entry(key) else {
+            return;
+        };
         let mut vec = match entry.lock() {
             Ok(g) => g,
             Err(e) => e.into_inner(),
@@ -97,36 +146,32 @@ impl MetricsCollector {
 
     pub fn record_error(&self, error_type: &str) {
         let key = Self::error_counter_key(error_type);
-        self.counters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0))
-            .fetch_add(1, Ordering::Relaxed);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     pub fn record_tokens(&self, model: &str, tokens: u64) {
         let key = Self::token_counter_key(model);
-        self.counters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0))
-            .fetch_add(tokens, Ordering::Relaxed);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(tokens, Ordering::Relaxed);
+        }
     }
 
     /// Record a provider-level request (provider name + model).
     pub fn record_provider_request(&self, provider: &str, model: &str) {
         let key = Self::provider_request_key(provider, model);
-        self.counters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0))
-            .fetch_add(1, Ordering::Relaxed);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record tokens with provider+model breakdown.
     pub fn record_provider_tokens(&self, provider: &str, model: &str, tokens: u64) {
         let key = Self::provider_token_key(provider, model);
-        self.counters
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0))
-            .fetch_add(tokens, Ordering::Relaxed);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(tokens, Ordering::Relaxed);
+        }
     }
 
     /// Record provider-level latency.
@@ -136,10 +181,9 @@ impl MetricsCollector {
             escape_label_value(provider),
             escape_label_value(model)
         );
-        let entry = self
-            .histograms
-            .entry(key)
-            .or_insert_with(|| Mutex::new(Vec::new()));
+        let Some(entry) = self.try_histogram_entry(key) else {
+            return;
+        };
         let mut vec = match entry.lock() {
             Ok(g) => g,
             Err(e) => e.into_inner(),

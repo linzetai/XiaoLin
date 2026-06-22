@@ -314,6 +314,7 @@ pub struct PendingElicitation {
     pub mcp_request_id: serde_json::Value,
     pub client: xiaolin_mcp::SharedMcpClient,
     pub reply_tx: tokio::sync::oneshot::Sender<ElicitationReply>,
+    pub created_at: std::time::Instant,
 }
 
 /// The frontend's reply to an elicitation request.
@@ -1855,6 +1856,7 @@ impl AppState {
                                     mcp_request_id: req.id.clone(),
                                     client: client.clone(),
                                     reply_tx,
+                                    created_at: std::time::Instant::now(),
                                 });
 
                                 let server_name = client.server_name();
@@ -2322,6 +2324,14 @@ impl AppState {
         // prune completion channels for dead sessions.
         self.strm.subagent_manager.gc(std::time::Duration::from_secs(300));
 
+        // GC pending MCP elicitations ignored by the frontend (TTL safety net).
+        const ELICITATION_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+        let elicitations_before = self.strm.pending_elicitations.len();
+        self.strm.pending_elicitations.retain(|_, pe| {
+            pe.created_at.elapsed() < ELICITATION_TTL
+        });
+        let elicitations_removed = elicitations_before - self.strm.pending_elicitations.len();
+
         // GC plan-related stores: remove entries for sessions no longer active.
         // Acts as a safety net for TTL expiry and any delete path that missed cleanup.
         let plan_steps_before = self.rt.plan_step_store.len();
@@ -2332,7 +2342,7 @@ impl AppState {
         self.rt.session_modes.retain(|k| active_ids.contains(k));
         let modes_removed = modes_before - self.rt.session_modes.len();
 
-        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed + plan_steps_removed + modes_removed;
+        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed + plan_steps_removed + modes_removed + elicitations_removed;
         if gc_stats.removed > 0 || total_removed > 0 || idle_unloaded > 0 {
             tracing::info!(
                 sessions_removed = gc_stats.removed,
@@ -2344,6 +2354,7 @@ impl AppState {
                 cancels_removed,
                 plan_steps_removed,
                 modes_removed,
+                elicitations_removed,
                 "resource GC completed"
             );
         }

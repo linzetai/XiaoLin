@@ -331,7 +331,7 @@ impl CollapseEngine {
             }
         };
 
-        let summary_tokens = summary.len() / 4; // chars/4 heuristic
+        let summary_tokens = summary.chars().count() / 2; // chars / chars_per_token (CJK-friendly)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

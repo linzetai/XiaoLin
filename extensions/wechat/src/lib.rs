@@ -1,6 +1,7 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod dedup;
 pub mod media;
 pub mod message;
 pub mod monitor;

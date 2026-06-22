@@ -580,8 +580,7 @@ impl SearchEngine for GoogleEngine {
             .send()
             .await
             .map_err(|e| format!("Google request failed: {e}"))?;
-        let html = resp
-            .text()
+        let html = read_response_body_limited(resp, HTTP_FETCH_MAX_BODY_BYTES)
             .await
             .map_err(|e| format!("Google body read failed: {e}"))?;
         let mut results = Vec::new();
@@ -702,8 +701,7 @@ impl SearchEngine for BaiduEngine {
             .send()
             .await
             .map_err(|e| format!("Baidu request failed: {e}"))?;
-        let html = resp
-            .text()
+        let html = read_response_body_limited(resp, HTTP_FETCH_MAX_BODY_BYTES)
             .await
             .map_err(|e| format!("Baidu body read failed: {e}"))?;
         let mut results = Vec::new();
@@ -825,8 +823,7 @@ impl SearchEngine for BingEngine {
             .send()
             .await
             .map_err(|e| format!("Bing request failed: {e}"))?;
-        let html = resp
-            .text()
+        let html = read_response_body_limited(resp, HTTP_FETCH_MAX_BODY_BYTES)
             .await
             .map_err(|e| format!("Bing body read failed: {e}"))?;
         let mut results = Vec::new();

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { IconContext } from "@phosphor-icons/react";
 import { AppLayout } from "./components/layout/AppLayout";
+import { AppErrorBoundary } from "./components/common/AppErrorBoundary";
 import { ContextMenuProvider } from "./components/common/ContextMenu";
 import { TooltipProvider } from "./components/common/Tooltip";
 import { ImageLightbox } from "./components/common/ImageLightbox";
@@ -22,11 +23,13 @@ export default function App() {
   }, [initGateway]);
 
   return (
-    <IconContext.Provider value={iconContextValue}>
-      <AppLayout />
-      <ContextMenuProvider />
-      <TooltipProvider />
-      <ImageLightbox />
-    </IconContext.Provider>
+    <AppErrorBoundary>
+      <IconContext.Provider value={iconContextValue}>
+        <AppLayout />
+        <ContextMenuProvider />
+        <TooltipProvider />
+        <ImageLightbox />
+      </IconContext.Provider>
+    </AppErrorBoundary>
   );
 }

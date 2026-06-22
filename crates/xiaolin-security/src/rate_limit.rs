@@ -7,6 +7,7 @@ use axum::{
 use dashmap::DashMap;
 use serde::Deserialize;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -48,12 +49,19 @@ struct TokenBucket {
     last_refill: Instant,
 }
 
+/// Remove rate-limit buckets idle longer than this duration.
+const BUCKET_IDLE_TTL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Run bucket GC every N check calls across all dimensions.
+const BUCKET_GC_INTERVAL: u64 = 100;
+
 /// Multi-dimension rate limiter: per-IP, per-API-key, and per-agent token buckets.
 #[derive(Clone)]
 pub struct RateLimiter {
     ip_buckets: Arc<DashMap<IpAddr, TokenBucket>>,
     key_buckets: Arc<DashMap<String, TokenBucket>>,
     agent_buckets: Arc<DashMap<String, TokenBucket>>,
+    check_count: Arc<AtomicU64>,
     max_tokens: u32,
     window: std::time::Duration,
     enabled: bool,
@@ -66,6 +74,7 @@ impl RateLimiter {
             ip_buckets: Arc::new(DashMap::new()),
             key_buckets: Arc::new(DashMap::new()),
             agent_buckets: Arc::new(DashMap::new()),
+            check_count: Arc::new(AtomicU64::new(0)),
             max_tokens: config.max_requests,
             window: std::time::Duration::from_secs(config.window_secs),
             enabled: config.enabled,
@@ -73,12 +82,26 @@ impl RateLimiter {
         }
     }
 
+    fn maybe_gc_buckets<K: std::hash::Hash + Eq>(
+        buckets: &DashMap<K, TokenBucket>,
+        check_count: &AtomicU64,
+    ) {
+        let n = check_count.fetch_add(1, Ordering::Relaxed);
+        if n % BUCKET_GC_INTERVAL != 0 {
+            return;
+        }
+        let now = Instant::now();
+        buckets.retain(|_, bucket| now.duration_since(bucket.last_refill) < BUCKET_IDLE_TTL);
+    }
+
     fn check_bucket<K: std::hash::Hash + Eq + Clone>(
         buckets: &DashMap<K, TokenBucket>,
+        check_count: &AtomicU64,
         key: K,
         max_tokens: u32,
         window: std::time::Duration,
     ) -> bool {
+        Self::maybe_gc_buckets(buckets, check_count);
         let now = Instant::now();
         let mut entry = buckets.entry(key).or_insert_with(|| TokenBucket {
             tokens: max_tokens,
@@ -98,13 +121,20 @@ impl RateLimiter {
     }
 
     fn check_ip(&self, ip: IpAddr) -> bool {
-        Self::check_bucket(&self.ip_buckets, ip, self.max_tokens, self.window)
+        Self::check_bucket(
+            &self.ip_buckets,
+            &self.check_count,
+            ip,
+            self.max_tokens,
+            self.window,
+        )
     }
 
     /// Check rate limit for an API key (uses same window/max as IP).
     pub fn check_api_key(&self, key: &str) -> bool {
         Self::check_bucket(
             &self.key_buckets,
+            &self.check_count,
             key.to_string(),
             self.max_tokens,
             self.window,
@@ -115,6 +145,7 @@ impl RateLimiter {
     pub fn check_agent(&self, agent_id: &str) -> bool {
         Self::check_bucket(
             &self.agent_buckets,
+            &self.check_count,
             agent_id.to_string(),
             self.max_tokens * 2,
             self.window,

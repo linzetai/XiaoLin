@@ -260,11 +260,18 @@ async fn handle_non_stream(
     let mut resp_json = serde_json::to_value(&result.response)
         .map_err(|e| anyhow::anyhow!("serialization error: {e}"))?;
     if let Some(obj) = resp_json.as_object_mut() {
+        let memory_enabled = {
+            let live = state.cfg.config_live.load();
+            live.get("memory")
+                .and_then(|m| m.get("enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(state.cfg.config.memory.enabled)
+        };
         let mut meta = json!({
             "sessionId": &setup.session_id,
             "toolCallsMade": result.tool_calls_made,
             "iterations": result.iterations,
-            "memoryInjected": state.cfg.config.memory.enabled,
+            "memoryInjected": memory_enabled,
             "resolvedAgent": &setup.agent_id,
             "resolveReason": setup.resolve_reason,
         });

@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+/// Max queued steering messages per agent run; excess low-priority messages are dropped.
+const MAX_QUEUE_SIZE: usize = 100;
+
 /// Priority levels for queued messages. Higher priority messages are drained first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Priority {
@@ -39,6 +42,9 @@ impl MessageQueue {
     }
 
     /// Push a message into the queue.
+    ///
+    /// When at capacity, drops the oldest low-priority message first; if the queue
+    /// remains full and the incoming message is low priority, the new message is dropped.
     pub fn push(&self, priority: Priority, source: impl Into<String>, content: impl Into<String>) {
         let msg = QueuedMessage {
             priority,
@@ -49,7 +55,35 @@ impl MessageQueue {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
         };
-        self.inner.lock().expect("message queue lock poisoned").push_back(msg);
+        let mut guard = self.inner.lock().expect("message queue lock poisoned");
+        if guard.len() >= MAX_QUEUE_SIZE {
+            let low_idx = guard
+                .iter()
+                .position(|m| m.priority == Priority::Low)
+                .or_else(|| guard.iter().position(|m| m.priority == Priority::Normal));
+            if let Some(idx) = low_idx {
+                if let Some(dropped) = guard.remove(idx) {
+                    tracing::warn!(
+                        max = MAX_QUEUE_SIZE,
+                        dropped_priority = ?dropped.priority,
+                        "message queue at capacity; dropped lower-priority message"
+                    );
+                }
+            } else if priority == Priority::Low {
+                tracing::warn!(
+                    max = MAX_QUEUE_SIZE,
+                    "message queue at capacity; dropping incoming low-priority message"
+                );
+                return;
+            } else {
+                guard.pop_front();
+                tracing::warn!(
+                    max = MAX_QUEUE_SIZE,
+                    "message queue at capacity; dropped oldest message"
+                );
+            }
+        }
+        guard.push_back(msg);
     }
 
     /// Drain all messages up to (and including) `max_priority`.

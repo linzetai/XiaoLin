@@ -155,6 +155,8 @@ pub trait GuardianLlm: Send + Sync {
 pub const MAX_CONSECUTIVE_DENIALS_PER_TURN: u32 = 3;
 pub const MAX_RECENT_DENIALS_PER_TURN: u32 = 10;
 pub const DENIAL_WINDOW_SIZE: usize = 50;
+/// Max distinct turn IDs tracked by the circuit breaker before evicting oldest.
+pub const MAX_CIRCUIT_BREAKER_TURNS: usize = 100;
 
 /// Action to take after recording a denial.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,12 +192,31 @@ impl CircuitBreaker {
         }
     }
 
+    fn evict_oldest_turn_if_needed(&mut self) {
+        if self.turns.len() < MAX_CIRCUIT_BREAKER_TURNS {
+            return;
+        }
+        if let Some(oldest) = self.turns.keys().next().cloned() {
+            self.turns.remove(&oldest);
+            tracing::warn!(
+                max = MAX_CIRCUIT_BREAKER_TURNS,
+                removed = %oldest,
+                remaining = self.turns.len(),
+                "circuit breaker turns map at capacity; evicted oldest entry"
+            );
+        }
+    }
+
+    fn turn_state(&mut self, turn_id: &str) -> &mut CircuitBreakerTurnState {
+        if !self.turns.contains_key(turn_id) {
+            self.evict_oldest_turn_if_needed();
+        }
+        self.turns.entry(turn_id.to_string()).or_default()
+    }
+
     /// Record a denial and check whether the turn should be interrupted.
     pub fn record_denial(&mut self, turn_id: &str) -> CircuitBreakerAction {
-        let state = self
-            .turns
-            .entry(turn_id.to_string())
-            .or_default();
+        let state = self.turn_state(turn_id);
 
         if state.interrupt_triggered {
             state.consecutive_denials = 0;
@@ -239,10 +260,7 @@ impl CircuitBreaker {
 
     /// Record a non-denial (allow), resetting the consecutive counter.
     pub fn record_non_denial(&mut self, turn_id: &str) {
-        let state = self
-            .turns
-            .entry(turn_id.to_string())
-            .or_default();
+        let state = self.turn_state(turn_id);
 
         if state.interrupt_triggered {
             state.consecutive_denials = 0;

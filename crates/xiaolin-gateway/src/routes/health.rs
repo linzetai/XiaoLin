@@ -60,7 +60,14 @@ pub(super) async fn readiness(
 pub(super) async fn auth_status(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> impl IntoResponse {
-    let auth_required = !state.cfg.config.security.api_keys.is_empty();
+    let auth_required = {
+        let live = state.cfg.config_live.load();
+        live.get("security")
+            .and_then(|s| s.get("apiKeys"))
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+            .map(|keys| !keys.is_empty())
+            .unwrap_or(!state.cfg.config.security.api_keys.is_empty())
+    };
     Json(json!({ "authRequired": auth_required }))
 }
 

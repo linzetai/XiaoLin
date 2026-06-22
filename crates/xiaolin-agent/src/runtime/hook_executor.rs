@@ -178,7 +178,10 @@ async fn run_shell_hook(
 ) -> HookResult {
     let event_json = match serde_json::to_string(event) {
         Ok(j) => j,
-        Err(_) => return HookResult::allow(),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to serialize hook event to JSON");
+            return HookResult::block(format!("hook event serialization failed: {e}"));
+        }
     };
 
     let mut cmd = tokio::process::Command::new("sh");
@@ -194,12 +197,18 @@ async fn run_shell_hook(
 
     let child = match cmd.spawn() {
         Ok(c) => c,
-        Err(_) => return HookResult::allow(),
+        Err(e) => {
+            tracing::error!(error = %e, command, "failed to spawn hook command");
+            return HookResult::block(format!("hook command spawn failed: {e}"));
+        }
     };
 
     let output = match child.wait_with_output().await {
         Ok(o) => o,
-        Err(_) => return HookResult::allow(),
+        Err(e) => {
+            tracing::error!(error = %e, command, "failed to wait for hook command");
+            return HookResult::block(format!("hook command wait failed: {e}"));
+        }
     };
 
     if !output.status.success() {
@@ -212,7 +221,10 @@ async fn run_shell_hook(
         return HookResult::allow();
     }
 
-    serde_json::from_str(stdout.trim()).unwrap_or_else(|_| HookResult::allow())
+    serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        tracing::error!(error = %e, stdout = %stdout, "failed to parse hook command stdout as JSON");
+        HookResult::block(format!("hook command returned invalid JSON: {e}"))
+    })
 }
 
 /// Simple glob matching supporting `*` and `?`.

@@ -43,10 +43,13 @@ pub const IMPORTANCE_TOOL_RESULTS: u32 = 30;
 /// The context engine’s default compaction trigger uses the same value so one pass usually suffices.
 pub const DEFAULT_IMPORTANCE_MAX_MESSAGES: usize = 60;
 
-const DEFAULT_CHARS_PER_TOKEN: usize = 4;
+/// Default chars-per-token ratio for heuristic estimates.
+/// Use 2 (not 4) because CJK text is often ~1 token per character in BPE tokenizers;
+/// byte-length / 4 severely underestimates Chinese context usage.
+const DEFAULT_CHARS_PER_TOKEN: usize = 2;
 const PER_MESSAGE_OVERHEAD: usize = 4;
 
-/// Estimate the total token count for a slice of messages using the chars/4 heuristic.
+/// Estimate the total token count for a slice of messages using the chars-per-token heuristic.
 /// Includes per-message overhead (~4 tokens for role/separators) and counts content + tool_call JSON.
 pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
     messages.iter().map(estimate_single_message_tokens).sum()
@@ -334,7 +337,7 @@ impl ContextCompactor {
     pub fn new(strategy: CompactionStrategy) -> Self {
         Self {
             strategy,
-            chars_per_token: 4,
+            chars_per_token: DEFAULT_CHARS_PER_TOKEN,
         }
     }
 

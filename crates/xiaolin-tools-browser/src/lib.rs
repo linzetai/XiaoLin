@@ -455,12 +455,14 @@ impl BrowserTool {
     fn validate_url_scheme(url: &str) -> Result<(), String> {
         let trimmed = url.trim();
         let lower = trimmed.to_ascii_lowercase();
-        if lower.starts_with("https://") || lower.starts_with("http://") {
-            return Ok(());
+        if !lower.starts_with("https://") && !lower.starts_with("http://") {
+            return Err(format!(
+                "browser: URL scheme not allowed for '{trimmed}'. Only http:// and https:// are permitted."
+            ));
         }
-        Err(format!(
-            "browser: URL scheme not allowed for '{trimmed}'. Only http:// and https:// are permitted."
-        ))
+        xiaolin_security::ssrf::ssrf_check_url(trimmed).map_err(|e| {
+            format!("browser: URL blocked for '{trimmed}': {e}")
+        })
     }
 
     fn workspace_root_for_paths() -> std::path::PathBuf {

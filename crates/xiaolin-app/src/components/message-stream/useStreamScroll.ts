@@ -38,6 +38,17 @@ export function useStreamScroll({
   suppressScrollTrackingUntilRef: MutableRefObject<number>;
   runProgrammaticScroll: (action: () => void, suppressMs?: number) => void;
 }) {
+  const loadingMore = useRef(false);
+  const handleStartReached = useCallback(() => {
+    if (!hasMore || loadingMore.current) return;
+    loadingMore.current = true;
+    setVisibleCount((prev) => {
+      const next = Math.min(prev + STREAM_PAGE_SIZE, streamLength);
+      loadingMore.current = false;
+      return next;
+    });
+  }, [hasMore, streamLength, setVisibleCount]);
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (Date.now() < suppressScrollTrackingUntilRef.current) return;
     if (!e.nativeEvent.isTrusted) return;
@@ -54,7 +65,7 @@ export function useStreamScroll({
     if (hasMore && top < 200) {
       handleStartReached();
     }
-  }, [chatKey, scrollPositions, atBottomRef, suppressScrollTrackingUntilRef, hasMore]);
+  }, [chatKey, scrollPositions, atBottomRef, suppressScrollTrackingUntilRef, hasMore, handleStartReached]);
 
   const prevChatKey = useRef(chatKey);
 
@@ -94,17 +105,6 @@ export function useStreamScroll({
       });
     });
   }, [chatKey, displayDataLength, runProgrammaticScroll, scrollContainerRef, pendingRestoreScrollTopRef]);
-
-  const loadingMore = useRef(false);
-  const handleStartReached = useCallback(() => {
-    if (!hasMore || loadingMore.current) return;
-    loadingMore.current = true;
-    setVisibleCount((prev) => {
-      const next = Math.min(prev + STREAM_PAGE_SIZE, streamLength);
-      loadingMore.current = false;
-      return next;
-    });
-  }, [hasMore, streamLength, setVisibleCount]);
 
   useEffect(() => {
     if (searchResults.length > 0 && virtualizer) {

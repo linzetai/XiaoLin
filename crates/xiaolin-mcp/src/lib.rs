@@ -2454,8 +2454,8 @@ pub async fn connect_mcp_server(
 ) -> anyhow::Result<SharedMcpClient> {
     cfg.validate().map_err(|e| anyhow::anyhow!(e))?;
 
-    if let Ok(cache) = NEEDS_AUTH_CACHE.lock() {
-        if let Some(&ts) = cache.get(&cfg.id) {
+    if let Ok(mut cache) = NEEDS_AUTH_CACHE.lock() {
+        if let Some(ts) = cache.get(&cfg.id).copied() {
             if ts.elapsed() < NEEDS_AUTH_TTL {
                 return Err(NeedsOAuth {
                     server_id: cfg.id.clone(),
@@ -2463,6 +2463,7 @@ pub async fn connect_mcp_server(
                 }
                 .into());
             }
+            cache.remove(&cfg.id);
         }
     }
     let timeout_secs = cfg.startup_timeout_sec.unwrap_or(30);

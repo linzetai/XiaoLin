@@ -1,6 +1,9 @@
 use xiaolin_core::migration::{self, ExportOptions, ImportOptions};
 use serde::{Deserialize, Serialize};
 
+/// Maximum import blob size accepted via IPC (512 MiB).
+const MAX_IMPORT_BYTES: usize = 512 * 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportOptionsDto {
     pub include_sessions: bool,
@@ -63,6 +66,9 @@ pub async fn export_data(options: ExportOptionsDto) -> Result<Vec<u8>, String> {
 /// This is a local file operation - writes to local state directory.
 #[tauri::command]
 pub async fn import_data(data: Vec<u8>, options: ImportOptionsDto) -> Result<(), String> {
+    if data.len() > MAX_IMPORT_BYTES {
+        return Err("Import file too large (max 512MB)".to_string());
+    }
     let mode = config_mode();
     let migration_data = migration::deserialize_migration_data(&data)
         .map_err(|e| format!("Failed to deserialize migration data: {}", e))?;

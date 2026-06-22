@@ -37,6 +37,16 @@ pub async fn run_event_bridge(
 
                 // Try parsing as a card action first
                 if let Some(card_msg) = parse_card_action_payload(&evt) {
+                    {
+                        let mut guard = dedup.lock().await;
+                        if !guard.check(&card_msg.message_id) {
+                            tracing::debug!(
+                                request_id = %card_msg.message_id,
+                                "feishu ws: duplicate card action skipped"
+                            );
+                            continue;
+                        }
+                    }
                     tracing::info!(
                         request_id = %card_msg.message_id,
                         option = %card_msg.text,

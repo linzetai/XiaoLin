@@ -333,6 +333,9 @@ pub fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result
     ))
 }
 
+/// Maximum file size for full `read_file` loads (50 MiB). Larger files require offset/limit.
+const MAX_READ_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
 const DEFAULT_READ_FILE_MAX_CHARS: usize = 32_768;
 const ABSOLUTE_READ_FILE_MAX_CHARS: usize = 256_000;
 /// Default maximum lines to return when no offset/limit is specified.
@@ -2366,6 +2369,31 @@ it provides structured output with line numbers, handles encoding detection, and
                 }));
                 return result;
             }
+        }
+
+        let meta = match tokio::fs::metadata(&validated).await {
+            Ok(m) => m,
+            Err(e) => {
+                let err_type = if e.kind() == std::io::ErrorKind::NotFound {
+                    ToolErrorType::FileNotFound
+                } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    ToolErrorType::PermissionDenied
+                } else {
+                    ToolErrorType::ReadContentFailure
+                };
+                return ToolResult::typed_err(
+                    err_type,
+                    create_user_friendly_error(err_type, path),
+                );
+            }
+        };
+        if meta.len() > MAX_READ_FILE_BYTES {
+            return ToolResult::err(format!(
+                "read_file: file '{path}' is too large ({} bytes, max {} bytes). \
+                 Use offset and limit parameters to read a portion of the file.",
+                meta.len(),
+                MAX_READ_FILE_BYTES
+            ));
         }
 
         let raw_bytes = match tokio::fs::read(&validated).await {

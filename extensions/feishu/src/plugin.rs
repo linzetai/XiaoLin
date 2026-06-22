@@ -307,7 +307,10 @@ impl FeishuPlugin {
     }
 
     /// Parse a `card.action.trigger` webhook event into a card_action InboundMessage.
-    fn handle_card_action(&self, payload: &serde_json::Value) -> anyhow::Result<WebhookResult> {
+    async fn handle_card_action(
+        &self,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<WebhookResult> {
         let event = payload.get("event").unwrap_or(payload);
 
         let action = event.get("action").unwrap_or(&serde_json::Value::Null);
@@ -331,6 +334,9 @@ impl FeishuPlugin {
 
         if request_id.is_empty() {
             tracing::debug!("card action without request_id (message_id), ignoring");
+            return Ok(WebhookResult::Ignored);
+        }
+        if !self.accept_inbound_message(&request_id).await {
             return Ok(WebhookResult::Ignored);
         }
 
@@ -446,7 +452,7 @@ impl ChannelPlugin for FeishuPlugin {
 
         // Handle interactive card callbacks (ask_question button clicks)
         if event_type == "card.action.trigger" {
-            return self.handle_card_action(&payload);
+            return self.handle_card_action(&payload).await;
         }
 
         if event_type != "im.message.receive_v1" {

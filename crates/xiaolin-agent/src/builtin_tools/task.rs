@@ -51,6 +51,9 @@ pub struct TaskManager {
     running_count: Arc<AtomicUsize>,
 }
 
+/// Remove terminal tasks finished more than this many seconds ago.
+const TASK_GC_MAX_AGE_SECS: u64 = 300;
+
 impl TaskManager {
     pub fn new(max_concurrency: usize) -> Self {
         Self {
@@ -71,6 +74,23 @@ impl TaskManager {
         uuid::Uuid::new_v4().to_string()
     }
 
+    /// Drop completed/failed/cancelled tasks older than [`TASK_GC_MAX_AGE_SECS`].
+    fn gc_completed_tasks(&self) {
+        let now = Self::now_ms();
+        let max_age_ms = TASK_GC_MAX_AGE_SECS * 1000;
+        self.tasks.retain(|_, handle| {
+            match handle.info.status {
+                TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => {
+                    handle
+                        .info
+                        .finished_at
+                        .is_some_and(|finished| now.saturating_sub(finished) <= max_age_ms)
+                }
+                _ => true,
+            }
+        });
+    }
+
     /// Spawn a new background task. Returns the task_id on success,
     /// or an error if the concurrency limit is reached.
     ///
@@ -86,6 +106,8 @@ impl TaskManager {
     where
         F: Future<Output = Result<String, String>> + Send + 'static,
     {
+        self.gc_completed_tasks();
+
         let current = self.running_count.load(Ordering::Acquire);
         if current >= self.max_concurrency {
             return Err(TaskManagerError::ConcurrencyLimitReached {

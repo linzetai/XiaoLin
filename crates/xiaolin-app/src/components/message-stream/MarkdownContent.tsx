@@ -114,6 +114,7 @@ const CODE_EXT = /\.(py|js|ts|tsx|jsx|rs|go|java|c|cpp|h|hpp|rb|php|sh|sql|css|h
 const FILE_PATH_RE = /^\.{0,2}\/[\w./-]+\.\w+$|^[\w-]+(?:\/[\w./-]+)+\.\w+$|^[A-Z]:\\[\w.\\ -]+\.\w+$/;
 
 function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"code">) {
+  const showLineNumbers = useConfigStore((s) => s.display.showLineNumbers);
   const isInline = !className && typeof children === "string" && !children.includes("\n");
   if (isInline) {
     const text = children as string;
@@ -122,7 +123,6 @@ function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"c
     }
     return <code className="md-inline-code" {...rest}>{children}</code>;
   }
-  const showLineNumbers = useConfigStore((s) => s.display.showLineNumbers);
   if (!showLineNumbers) {
     return <code className={className} {...rest}>{children}</code>;
   }
