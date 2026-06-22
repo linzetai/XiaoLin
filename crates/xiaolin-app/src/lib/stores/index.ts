@@ -11,6 +11,13 @@ export * from "./types";
 
 export { useChatMetaStore } from "./chat-meta-store";
 export { useGoalStore, initGoalListener, teardownGoalListener } from "./goal-store";
+export {
+  useFileViewerStore,
+  initFileArtifactListener,
+  teardownFileArtifactListener,
+  resolveFilePath,
+} from "./file-viewer-store";
+export type { OpenFile, FileViewerState } from "./file-viewer-store";
 export { useStreamStore, EMPTY_STREAM } from "./stream-store";
 export { useQueueStore } from "./queue-store";
 export { useProjectStore } from "./project-store";

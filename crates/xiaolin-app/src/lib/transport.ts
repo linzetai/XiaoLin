@@ -143,6 +143,20 @@ export async function saveSessionFile(
   return tauriInvoke("export_session_content", { content, filename, mimeType });
 }
 
+export interface ReadFileForViewerResult {
+  content: string;
+  size: number;
+  isReadonly: boolean;
+}
+
+export async function readFileForViewer(
+  path: string,
+  workDir: string,
+): Promise<ReadFileForViewerResult> {
+  if (!isTauri) throw new Error("read_file_for_viewer only available in desktop mode");
+  return tauriInvoke<ReadFileForViewerResult>("read_file_for_viewer", { path, workDir });
+}
+
 // ─── WebSocket Connection ───
 
 export function connectWs(url: string, token?: string): Promise<void> {

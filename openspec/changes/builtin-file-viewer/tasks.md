@@ -24,14 +24,14 @@
 
 ## 3. 前端 Store 和事件系统
 
-- [ ] 3.1 创建 `file-viewer-store.ts`（Zustand）：`openFiles: Map<string, OpenFile>`, `activeFilePath`, `artifacts: FileArtifact[]`, `viewMode: "code" | "preview"`, `fileListCollapsed: boolean`
-- [ ] 3.2 实现 `openFile(path, line?)` action：解析路径 → `invoke("read_file_for_viewer")` → 添加到 openFiles → 设为 active
-- [ ] 3.3 实现 `closeFile(path)` action：移除 tab + LRU 选择下一个 active
-- [ ] 3.4 注册 `file_artifact` WS event 监听，更新 artifacts 列表
-- [ ] 3.5 实现 `xiaolin:open-file` 全局 CustomEvent 监听，调用 `openFile` + `setActiveTab("files")`
-- [ ] 3.6 实现路径解析工具函数 `resolveFilePath(path, workDir)`：处理绝对/相对路径
-- [ ] 3.7 实现 session 切换时 store 隔离：`switchSession` 时保存当前 openFiles/artifacts，加载新 session 的 artifacts（调用 `artifacts.list` WS op）
-- [ ] 3.8 实现 `filesClosedByUser` 标志：用户手动关闭 Files tab 后 suppress auto-open（类似 `planClosedByUser`），session 切换时重置
+- [x] 3.1 创建 `file-viewer-store.ts`（Zustand）：`openFiles: Map<string, OpenFile>`, `activeFilePath`, `artifacts: FileArtifact[]`, `viewMode: "code" | "preview"`, `fileListCollapsed: boolean`
+- [x] 3.2 实现 `openFile(path, line?)` action：解析路径 → `invoke("read_file_for_viewer")` → 添加到 openFiles → 设为 active
+- [x] 3.3 实现 `closeFile(path)` action：移除 tab + LRU 选择下一个 active
+- [x] 3.4 注册 `file_artifact` WS event 监听，更新 artifacts 列表
+- [x] 3.5 实现 `xiaolin:open-file` 全局 CustomEvent 监听，调用 `openFile` + `setActiveTab("files")`
+- [x] 3.6 实现路径解析工具函数 `resolveFilePath(path, workDir)`：处理绝对/相对路径
+- [x] 3.7 实现 session 切换时 store 隔离：`switchSession` 时保存当前 openFiles/artifacts，加载新 session 的 artifacts（调用 `artifacts.list` WS op）
+- [x] 3.8 实现 `filesClosedByUser` 标志：用户手动关闭 Files tab 后 suppress auto-open（类似 `planClosedByUser`），session 切换时重置
 
 ## 4. CodeMirror 6 代码查看器
 

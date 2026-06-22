@@ -6,6 +6,7 @@ import { useProjectStore } from "./stores/project-store";
 import { initGitStore } from "./stores/git-store";
 import { initPermissionListener } from "./stores/permission-store";
 import { initAutomationListener } from "./stores/automation-store";
+import { initFileArtifactListener } from "./stores/file-viewer-store";
 
 export interface GatewayInfo {
   port: number;
@@ -164,6 +165,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         initPermissionListener();
         initAutomationListener();
         initGoalListener(() => useChatMetaStore.getState().activeChatId);
+        initFileArtifactListener(() => useChatMetaStore.getState().activeChatId);
         await syncBackendData();
       } else {
         // Browser mode: check for gateway health endpoint
@@ -214,6 +216,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
 
           initPermissionListener();
           initAutomationListener();
+          initFileArtifactListener(() => useChatMetaStore.getState().activeChatId);
           await syncBackendData();
         } catch (e) {
           console.warn("WS connect failed:", e);

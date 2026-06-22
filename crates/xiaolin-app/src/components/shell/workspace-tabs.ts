@@ -71,6 +71,8 @@ interface WorkspaceTabsState {
   sessionTabMap: Record<string, string>;
   /** True when user manually closed the Plan tab — suppresses auto-open until session switch */
   planClosedByUser: boolean;
+  /** True when user manually closed the Files tab — suppresses auto-open until session switch */
+  filesClosedByUser: boolean;
 
   registerTab: (tab: WorkspaceTab) => void;
   unregisterTab: (id: string) => void;
@@ -79,6 +81,7 @@ interface WorkspaceTabsState {
   togglePanel: () => void;
   setPanelWidth: (width: number) => void;
   setPlanClosedByUser: (closed: boolean) => void;
+  setFilesClosedByUser: (closed: boolean) => void;
   /** Call when active session changes to save/restore tab state */
   switchSession: (newSessionId: string, oldSessionId?: string) => void;
 }
@@ -102,6 +105,7 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   prePanelWidth: null,
   sessionTabMap: {},
   planClosedByUser: false,
+  filesClosedByUser: false,
 
   registerTab: (tab) => {
     set((s) => {
@@ -166,6 +170,8 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
 
   setPlanClosedByUser: (closed) => set({ planClosedByUser: closed }),
 
+  setFilesClosedByUser: (closed) => set({ filesClosedByUser: closed }),
+
   setPanelWidth: (width) => {
     const clamped = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, width));
     set({ panelWidth: clamped });
@@ -176,7 +182,10 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
 
   switchSession: (newSessionId, oldSessionId) => {
     const { activeTabId, tabs, sessionTabMap } = get();
-    const updates: Partial<WorkspaceTabsState> = { planClosedByUser: false };
+    const updates: Partial<WorkspaceTabsState> = {
+      planClosedByUser: false,
+      filesClosedByUser: false,
+    };
 
     if (oldSessionId && activeTabId) {
       updates.sessionTabMap = { ...sessionTabMap, [oldSessionId]: activeTabId };

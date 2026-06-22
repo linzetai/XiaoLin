@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { GitBranch, Crosshair, Terminal, Robot, FileText } from "@phosphor-icons/react";
+import { GitBranch, Crosshair, Terminal, Robot, FileText, FolderOpen } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -10,8 +10,10 @@ import { GoalTabContent } from "./GoalPanel";
 import { TerminalTabContent } from "./TerminalTabContent";
 import { SubAgentsTabContent } from "./CoordinatorPanel";
 import { PlanTabContent } from "../message-stream/PlanPanel";
+import { FilesTabContent } from "./FilesTabContent";
 import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
@@ -28,6 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeChatId !== prevChatRef.current) {
       useWorkspaceTabs.getState().switchSession(activeChatId, prevChatRef.current);
+      useFileViewerStore.getState().switchSession(activeChatId, prevChatRef.current);
       prevChatRef.current = activeChatId;
     }
   }, [activeChatId]);
@@ -42,18 +45,25 @@ export function AppShell({ children }: { children: ReactNode }) {
       order: 1,
     });
     registerTab({
+      id: "files",
+      label: "Files",
+      icon: FolderOpen,
+      component: FilesTabContent,
+      order: 2,
+    });
+    registerTab({
       id: "goal",
       label: "Goal",
       icon: Crosshair,
       component: GoalTabContent,
-      order: 2,
+      order: 3,
     });
     registerTab({
       id: "terminal",
       label: t("terminal"),
       icon: Terminal,
       component: TerminalTabContent,
-      order: 3,
+      order: 4,
     });
   }, [registerTab, t]);
 
@@ -65,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         label: "SubAgents",
         icon: Robot,
         component: SubAgentsTabContent,
-        order: 4,
+        order: 5,
       });
       const { activeTabId: currentTab, panelOpen } = useWorkspaceTabs.getState();
       if (currentTab !== "subagents" && !panelOpen) {
