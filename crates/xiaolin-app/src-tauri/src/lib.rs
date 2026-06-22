@@ -338,6 +338,10 @@ pub fn run() {
             commands::audio_capture::native_audio_available,
             commands::audio_capture::start_native_recording,
             commands::audio_capture::stop_native_recording,
+            commands::file_viewer::read_file_for_viewer,
+            commands::file_viewer::list_directory,
+            commands::file_viewer::file_metadata,
+            commands::file_viewer::read_binary_for_viewer,
         ])
         .build(tauri::generate_context!());
 

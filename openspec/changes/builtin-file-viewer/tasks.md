@@ -15,12 +15,12 @@
 
 ## 2. Tauri IPC 命令
 
-- [ ] 2.1 实现 `read_file_for_viewer` IPC 命令：`canonicalize(path)` + `canonicalize(workDir)` → `starts_with(canonical_workDir)` + 大小检查（>5MB 拒绝）+ 8KB NUL 字节检测（二进制拒绝）+ `std::fs::read_to_string`
-- [ ] 2.2 实现 `list_directory` IPC 命令：路径安全校验 + readDir + 过滤隐藏文件和大型目录（node_modules/target/.git 等）+ 排序（目录优先）
-- [ ] 2.3 实现 `file_metadata` IPC 命令：路径安全校验 + stat（size, modifiedAt, isDirectory）
-- [ ] 2.4 实现 `artifacts.list` WS op（gateway 侧）：查询 gateway SQLite 返回 artifact 列表（注：artifact 在 gateway 进程中，不走 IPC）
-- [ ] 2.5 实现 `read_binary_for_viewer` IPC 命令：与 `read_file_for_viewer` 共享路径安全校验，返回 base64 编码的二进制内容（用于图片预览）
-- [ ] 2.6 更新 `capabilities/default.json`：确认权限覆盖，注册新 IPC commands
+- [x] 2.1 实现 `read_file_for_viewer` IPC 命令：`canonicalize(path)` + `canonicalize(workDir)` → `starts_with(canonical_workDir)` + 大小检查（>5MB 拒绝）+ 8KB NUL 字节检测（二进制拒绝）+ `std::fs::read_to_string`
+- [x] 2.2 实现 `list_directory` IPC 命令：路径安全校验 + readDir + 过滤隐藏文件和大型目录（node_modules/target/.git 等）+ 排序（目录优先）
+- [x] 2.3 实现 `file_metadata` IPC 命令：路径安全校验 + stat（size, modifiedAt, isDirectory）
+- [x] 2.4 实现 `artifacts.list` WS op（gateway 侧）：查询 gateway SQLite 返回 artifact 列表（注：artifact 在 gateway 进程中，不走 IPC）
+- [x] 2.5 实现 `read_binary_for_viewer` IPC 命令：与 `read_file_for_viewer` 共享路径安全校验，返回 base64 编码的二进制内容（用于图片预览）
+- [x] 2.6 更新 `capabilities/default.json`：确认权限覆盖，注册新 IPC commands（自定义 command 无需 capabilities 注册；现有 fs:scope 已覆盖 $HOME/**）
 
 ## 3. 前端 Store 和事件系统
 
