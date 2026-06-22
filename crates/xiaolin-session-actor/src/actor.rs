@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use parking_lot::Mutex;
+
 use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, info_span, warn, Instrument};
@@ -74,7 +76,7 @@ impl SessionActor {
             async_channel::bounded::<Submission>(config.submission_queue_capacity);
         let (status_tx, status_rx) = watch::channel(AgentStatus::Idle);
         let cancellation_token = CancellationToken::new();
-        let fanout = std::sync::Arc::new(std::sync::Mutex::new(EventFanout::new()));
+        let fanout = Arc::new(Mutex::new(EventFanout::new()));
 
         let session_approvals = Arc::new(std::sync::Mutex::new(HashMap::new()));
 
@@ -122,7 +124,8 @@ impl SessionActor {
             }
 
             // Periodically GC closed fanout subscribers.
-            if let Ok(mut f) = self.fanout.lock() {
+            {
+                let mut f = self.fanout.lock();
                 f.gc();
             }
 
@@ -217,11 +220,25 @@ impl SessionActor {
                 false
             }
             SessionOp::ForkSession { .. } => {
-                debug!("ForkSession: session forking requires SessionManager coordination");
+                self.emit_sync(
+                    &sub.id,
+                    AgentEvent::Error {
+                        turn_id: TurnId::new("fork"),
+                        message: "ForkSession is not yet implemented".into(),
+                        error_code: Some(xiaolin_protocol::event::ErrorCode::BadRequest),
+                    },
+                );
                 false
             }
             SessionOp::RollbackTurns { .. } => {
-                debug!("RollbackTurns: history rollback requires persistence integration");
+                self.emit_sync(
+                    &sub.id,
+                    AgentEvent::Error {
+                        turn_id: TurnId::new("rollback"),
+                        message: "RollbackTurns is not yet implemented".into(),
+                        error_code: Some(xiaolin_protocol::event::ErrorCode::BadRequest),
+                    },
+                );
                 false
             }
             SessionOp::UpdateSettings { .. } => {
@@ -296,7 +313,7 @@ impl SessionActor {
                     msg: event,
                 };
                 let senders = {
-                    let f = relay_fanout.lock().unwrap();
+                    let f = relay_fanout.lock();
                     f.subscriber_senders()
                 };
                 for tx in &senders {
@@ -518,7 +535,7 @@ impl SessionActor {
             msg,
         };
         let senders = {
-            let f = self.fanout.lock().unwrap();
+            let f = self.fanout.lock();
             f.subscriber_senders()
         };
         let mut had_closed = false;
@@ -540,7 +557,7 @@ impl SessionActor {
             }
         }
         if had_closed {
-            let mut f = self.fanout.lock().unwrap();
+            let mut f = self.fanout.lock();
             f.gc();
         }
     }

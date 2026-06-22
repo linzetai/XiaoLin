@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     body::Body,
     extract::{Query, State},
@@ -9,6 +11,7 @@ use serde_json::json;
 
 use xiaolin_agent::{build_subagent_prompt_block, SubAgentPromptContext};
 use xiaolin_core::agent_config::AgentConfig;
+use xiaolin_core::skill::SkillOrigin;
 use xiaolin_core::types::ChatRequest;
 
 use crate::chat_pipeline::{
@@ -62,27 +65,68 @@ pub(super) struct SkillsQuery {
     agent_id: Option<String>,
 }
 
+fn skill_origin_str(origin: SkillOrigin) -> &'static str {
+    match origin {
+        SkillOrigin::XiaoLin => "xiaolin",
+        SkillOrigin::Cursor => "cursor",
+        SkillOrigin::Codex => "codex",
+        SkillOrigin::SharedAgents => "shared_agents",
+        SkillOrigin::Extension => "extension",
+        SkillOrigin::Mcp => "mcp",
+    }
+}
+
 pub(super) async fn list_skills(
     State(state): State<AppState>,
     Query(query): Query<SkillsQuery>,
 ) -> impl IntoResponse {
-    let agent_id = query.agent_id.unwrap_or_else(|| "main".to_string());
-    let registry = state.skill_registry_for(&agent_id);
+    let _agent_id = query.agent_id.unwrap_or_else(|| "main".to_string());
+
+    let deny_list: Vec<String> = {
+        let live = state.cfg.config_live.load();
+        live.get("skills")
+            .and_then(|s| s.get("deny"))
+            .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
+            .unwrap_or_default()
+    };
+    let deny_set: HashSet<&str> = deny_list.iter().map(String::as_str).collect();
+
+    let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
+        Ok(counts) => counts,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load skill usage counts for HTTP skills list");
+            std::collections::HashMap::new()
+        }
+    };
+
+    let registry = (*state.rt.unfiltered_skill_registry.load()).clone();
     let skills: Vec<_> = registry
         .list()
         .into_iter()
-        .filter(|s| s.frontmatter.enabled.unwrap_or(true))
         .map(|s| {
+            let enabled = s.frontmatter.enabled.unwrap_or(true)
+                && !deny_set.contains(s.id.as_str());
+            let origin = s
+                .source
+                .as_ref()
+                .map(|src| skill_origin_str(src.origin))
+                .unwrap_or("xiaolin");
+            let usage_count = usage_counts.get(&s.id).copied().unwrap_or(0);
             json!({
                 "id": s.id,
                 "name": s.name,
                 "description": s.description,
                 "tags": s.frontmatter.tags,
+                "source": origin,
+                "layer": format!("{:?}", s.layer),
+                "enabled": enabled,
+                "paths": s.frontmatter.paths,
+                "conditional": s.is_conditional(),
+                "usage_count": usage_count,
             })
         })
         .collect();
     Json(json!({
-        "agentId": agent_id,
         "skills": skills,
         "count": skills.len(),
     }))

@@ -2339,6 +2339,7 @@ impl AppState {
                 .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
                 .unwrap_or_default()
         };
+        self.rt.runtime.set_skills_deny(deny_list.clone());
 
         self.rt
             .unfiltered_skill_registry

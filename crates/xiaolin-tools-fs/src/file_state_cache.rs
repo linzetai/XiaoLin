@@ -1,5 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -216,9 +214,8 @@ impl FileStateCache {
 }
 
 fn compute_hash(content: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
+    let hash = blake3::hash(content.as_bytes());
+    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
 }
 
 #[cfg(test)]

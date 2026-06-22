@@ -21,8 +21,6 @@ const isTauri =
 const RESIZE_HIT = 3;
 
 function WindowResizeHandles() {
-  if (!isTauri) return null;
-
   const start = useCallback(
     async (e: React.MouseEvent, direction: string) => {
       e.preventDefault();
@@ -32,6 +30,8 @@ function WindowResizeHandles() {
     },
     [],
   );
+
+  if (!isTauri) return null;
 
   const S = RESIZE_HIT;
   const abs = (extra: React.CSSProperties): React.CSSProperties => ({

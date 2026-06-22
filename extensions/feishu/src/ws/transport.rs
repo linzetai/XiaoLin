@@ -7,10 +7,11 @@
 
 use xiaolin_core::channel::InboundMessage;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::client::{EventReceiver, WsEvent};
 
-/// Runs the event→InboundMessage bridge until the receiver is closed.
+/// Runs the event→InboundMessage bridge until the receiver is closed or cancelled.
 ///
 /// - `bot_open_id`: the bot's open_id for precise @mention detection.
 /// - `reply_mode`: "mention_only" (skip non-mentioned group msgs) or "always".
@@ -19,53 +20,67 @@ pub async fn run_event_bridge(
     inbound_tx: mpsc::UnboundedSender<InboundMessage>,
     bot_open_id: Option<String>,
     reply_mode: String,
+    cancel: CancellationToken,
 ) {
-    while let Some(evt) = event_rx.recv().await {
-        // Try parsing as a card action first
-        if let Some(card_msg) = parse_card_action_payload(&evt) {
-            tracing::info!(
-                request_id = %card_msg.message_id,
-                option = %card_msg.text,
-                "feishu ws: dispatching card action callback"
-            );
-            if inbound_tx.send(card_msg).is_err() {
-                tracing::warn!("feishu ws: inbound channel closed");
-                break;
-            }
-            continue;
-        }
+    loop {
+        tokio::select! {
+            evt = event_rx.recv() => {
+                let Some(evt) = evt else {
+                    tracing::info!("feishu ws: event channel closed");
+                    break;
+                };
 
-        match parse_event_payload(&evt, bot_open_id.as_deref()) {
-            Some(msg) => {
-                if msg.chat_type == "group" && reply_mode == "mention_only" && !msg.bot_mentioned {
-                    tracing::debug!(
-                        chat_id = %msg.chat_id,
-                        msg_id = %msg.message_id,
-                        "feishu ws: group message without @mention, skipped"
+                // Try parsing as a card action first
+                if let Some(card_msg) = parse_card_action_payload(&evt) {
+                    tracing::info!(
+                        request_id = %card_msg.message_id,
+                        option = %card_msg.text,
+                        "feishu ws: dispatching card action callback"
                     );
+                    if inbound_tx.send(card_msg).is_err() {
+                        tracing::warn!("feishu ws: inbound channel closed");
+                        break;
+                    }
                     continue;
                 }
 
-                tracing::info!(
-                    chat_id = %msg.chat_id,
-                    chat_type = %msg.chat_type,
-                    sender_id = %msg.sender_id,
-                    msg_id = %msg.message_id,
-                    bot_mentioned = msg.bot_mentioned,
-                    text_len = msg.text.len(),
-                    "feishu ws: dispatching inbound message"
-                );
-                if inbound_tx.send(msg).is_err() {
-                    tracing::warn!("feishu ws: inbound channel closed");
-                    break;
+                match parse_event_payload(&evt, bot_open_id.as_deref()) {
+                    Some(msg) => {
+                        if msg.chat_type == "group" && reply_mode == "mention_only" && !msg.bot_mentioned {
+                            tracing::debug!(
+                                chat_id = %msg.chat_id,
+                                msg_id = %msg.message_id,
+                                "feishu ws: group message without @mention, skipped"
+                            );
+                            continue;
+                        }
+
+                        tracing::info!(
+                            chat_id = %msg.chat_id,
+                            chat_type = %msg.chat_type,
+                            sender_id = %msg.sender_id,
+                            msg_id = %msg.message_id,
+                            bot_mentioned = msg.bot_mentioned,
+                            text_len = msg.text.len(),
+                            "feishu ws: dispatching inbound message"
+                        );
+                        if inbound_tx.send(msg).is_err() {
+                            tracing::warn!("feishu ws: inbound channel closed");
+                            break;
+                        }
+                    }
+                    None => {
+                        tracing::debug!(
+                            msg_type = %evt.message_type,
+                            msg_id = %evt.message_id,
+                            "feishu ws: event ignored (not a parseable IM message)"
+                        );
+                    }
                 }
             }
-            None => {
-                tracing::debug!(
-                    msg_type = %evt.message_type,
-                    msg_id = %evt.message_id,
-                    "feishu ws: event ignored (not a parseable IM message)"
-                );
+            _ = cancel.cancelled() => {
+                tracing::info!("feishu ws: event bridge cancelled");
+                break;
             }
         }
     }

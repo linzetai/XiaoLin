@@ -81,13 +81,13 @@ impl SessionHandle {
     /// Returns a subscriber ID (for later `unsubscribe`) and the receiving end.
     /// Uses `BackpressurePolicy::Drop` — full buffers silently discard events.
     pub fn subscribe(&self, buffer: usize) -> (u64, mpsc::Receiver<SessionEvent>) {
-        let mut f = self.fanout.lock().unwrap();
+        let mut f = self.fanout.lock();
         f.subscribe(buffer, BackpressurePolicy::Drop)
     }
 
     /// Remove a previously registered subscriber.
     pub fn unsubscribe(&self, subscriber_id: u64) {
-        let mut f = self.fanout.lock().unwrap();
+        let mut f = self.fanout.lock();
         f.unsubscribe(subscriber_id);
     }
 

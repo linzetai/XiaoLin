@@ -686,15 +686,16 @@ async fn inject_skills_prompt(
         })
     };
 
-    let usage_counts = state
-        .store
-        .skill_usage_store
-        .usage_counts(30)
-        .await
-        .ok();
+    let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
+        Ok(counts) => counts,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load usage counts");
+            std::collections::HashMap::new()
+        }
+    };
 
     let (skills_prompt, truncation, injected_ids) =
-        effective_reg.format_with_budget_ordered(&skills_cfg.prompt_mode, char_budget, usage_counts.as_ref());
+        effective_reg.format_with_budget_ordered(&skills_cfg.prompt_mode, char_budget, Some(&usage_counts));
 
     if skills_prompt.is_empty() {
         return;

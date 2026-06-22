@@ -10626,6 +10626,7 @@ dependencies = [
  "hmac",
  "json5",
  "libc",
+ "parking_lot",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -10665,6 +10666,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "chrono",
  "serde",
  "serde_json",
@@ -10709,6 +10711,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-tungstenite 0.24.0",
+ "tokio-util",
  "tracing",
  "uuid",
  "xiaolin-agent",
@@ -11005,6 +11008,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "async-trait",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -11037,6 +11041,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "dashmap",
  "dirs 5.0.1",
  "notify",
@@ -11060,6 +11065,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "blake3",
  "chardetng",
  "dashmap",
  "dirs 5.0.1",

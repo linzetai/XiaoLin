@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use xiaolin_core::channel::{
     ChannelCapabilities, ChannelMeta, ChannelPlugin, InboundMessage, OutboundMessage, WebhookResult,
@@ -37,6 +38,9 @@ pub struct FeishuPluginConfig {
     /// User access token for user-scoped Open APIs (tasks, bitable, docx, calendar, media).
     #[serde(default)]
     pub user_access_token: Option<String>,
+    /// When true, allow webhooks without a configured verification_token (dev/test only).
+    #[serde(default)]
+    pub allow_insecure_webhook: bool,
 }
 
 fn default_agent_id() -> String {
@@ -79,6 +83,7 @@ impl FeishuPluginConfig {
                 .clone()
                 .unwrap_or_else(|| "mention_only".to_string()),
             user_access_token: cfg.user_access_token.clone(),
+            allow_insecure_webhook: cfg.allow_insecure_webhook.unwrap_or(false),
         })
     }
 }
@@ -95,6 +100,8 @@ pub struct FeishuPlugin {
     client: Arc<FeishuClient>,
     /// WebSocket client for long-connection mode (None in webhook mode)
     ws_client: Arc<Mutex<Option<Arc<ws::FeishuWsClient>>>>,
+    /// Cancels the event bridge task on stop
+    ws_bridge_cancel: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 impl FeishuPlugin {
@@ -128,6 +135,7 @@ impl FeishuPlugin {
             config,
             client,
             ws_client: Arc::new(Mutex::new(None)),
+            ws_bridge_cancel: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -247,7 +255,19 @@ impl FeishuPlugin {
     fn verify_token(&self, token: &str) -> bool {
         match &self.config.verification_token {
             Some(vt) if !vt.is_empty() => vt == token,
-            _ => true,
+            _ => {
+                if self.config.allow_insecure_webhook {
+                    tracing::warn!(
+                        "feishu: verification_token not configured, allowing webhook (allow_insecure_webhook=true)"
+                    );
+                    true
+                } else {
+                    tracing::warn!(
+                        "feishu: verification_token not configured, rejecting webhook (fail-closed)"
+                    );
+                    false
+                }
+            }
         }
     }
 
@@ -356,7 +376,8 @@ impl ChannelPlugin for FeishuPlugin {
         _headers: &BTreeMap<String, String>,
         raw_body: &[u8],
     ) -> anyhow::Result<()> {
-        let payload: serde_json::Value = serde_json::from_slice(raw_body).unwrap_or_default();
+        let payload: serde_json::Value = serde_json::from_slice(raw_body)
+            .map_err(|e| anyhow::anyhow!("invalid webhook payload: {e}"))?;
         let token = payload
             .get("token")
             .and_then(|v| v.as_str())
@@ -551,9 +572,21 @@ impl ChannelPlugin for FeishuPlugin {
 
         let bot_open_id = self.get_bot_open_id().await;
         let reply_mode = self.config.reply_mode.clone();
+        let bridge_cancel = CancellationToken::new();
+        {
+            let mut guard = self.ws_bridge_cancel.lock().await;
+            *guard = Some(bridge_cancel.clone());
+        }
         tracing::info!(reply_mode = %reply_mode, "feishu ws: event bridge configured");
         tokio::spawn(async move {
-            ws::run_event_bridge(event_rx, inbound_tx, bot_open_id, reply_mode).await;
+            ws::run_event_bridge(
+                event_rx,
+                inbound_tx,
+                bot_open_id,
+                reply_mode,
+                bridge_cancel,
+            )
+            .await;
         });
 
         Ok(())
@@ -570,6 +603,9 @@ impl ChannelPlugin for FeishuPlugin {
         if let Some(ws) = ws {
             tracing::info!("feishu channel: stopping WebSocket connection");
             ws.stop();
+        }
+        if let Some(cancel) = self.ws_bridge_cancel.lock().await.take() {
+            cancel.cancel();
         }
         Ok(())
     }
@@ -631,6 +667,7 @@ mod tests {
             domain: DEFAULT_FEISHU_DOMAIN.into(),
             reply_mode: "mention_only".into(),
             user_access_token: None,
+            allow_insecure_webhook: false,
         }
     }
 

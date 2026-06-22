@@ -29,6 +29,16 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
   const [isStreaming, setIsStreaming] = useState(false);
   const [stableContent, setStableContent] = useState("");
   const bufferRef = useRef("");
+  const rafIdRef = useRef(0);
+  const [bufferTick, setBufferTick] = useState(0);
+
+  const scheduleBufferFlush = useCallback(() => {
+    if (rafIdRef.current) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = 0;
+      setBufferTick((n) => n + 1);
+    });
+  }, []);
 
   // Structured plan steps
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
@@ -56,6 +66,12 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
     fetchContent();
   }, [fetchContent]);
 
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    };
+  }, []);
+
   // Handle plan_file_update: finalize streaming mode
   useEffect(() => {
     const unsub = onWsEvent("plan_file_update", (msg: unknown) => {
@@ -64,6 +80,10 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
       if (evtSessionId === sessionId) {
         setIsStreaming(false);
         bufferRef.current = "";
+        if (rafIdRef.current) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = 0;
+        }
         if (typeof data?.content === "string") {
           setContent(data.content);
           setStableContent("");
@@ -97,9 +117,10 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
         bufferRef.current = bufferRef.current.slice(lastNewline + 1);
         setStableContent((prev) => prev + toCommit);
       }
+      scheduleBufferFlush();
     });
     return unsub;
-  }, [sessionId]);
+  }, [sessionId, scheduleBufferFlush]);
 
   // Handle plan_update: structured step updates
   useEffect(() => {
@@ -121,7 +142,7 @@ export function PlanPanel({ sessionId, planFilePath, planFileExists, onClose }: 
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [stableContent, isStreaming]);
+  }, [stableContent, bufferTick, isStreaming]);
 
   // Detect user scroll
   const handleScroll = useCallback(() => {
@@ -352,7 +373,7 @@ function PlanChecklist({ steps, explanation }: { steps: PlanStep[]; explanation?
       {/* Steps list */}
       <ul className="list-none px-3 py-2">
         {effectiveSteps.map((step, idx) => (
-          <li key={idx} className="flex items-start gap-2 py-1">
+          <li key={`${step.step}-${step.status}`} className="flex items-start gap-2 py-1">
             <StepIcon status={step.status} onClick={() => toggleStep(idx)} />
             <span
               className="text-[12px] leading-[1.5]"

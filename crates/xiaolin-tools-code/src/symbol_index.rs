@@ -247,10 +247,7 @@ fn should_skip_dir(name: &str) -> bool {
 }
 
 fn compute_file_hash(content: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    blake3::hash(content.as_bytes()).to_hex().to_string()
 }
 
 pub fn start_background_scan(root: PathBuf, index: Arc<SymbolIndex>) {

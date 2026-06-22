@@ -21,20 +21,31 @@ const DEFAULT_BOT_AGENT: &str = "XiaoLin";
 #[derive(Clone)]
 pub struct WechatApiClient {
     http: reqwest::Client,
+    long_poll_client: reqwest::Client,
     base_url: String,
     token: String,
     bot_agent: String,
 }
 
 impl WechatApiClient {
-    pub fn new(base_url: &str, token: &str, bot_agent: Option<&str>) -> Self {
+    pub fn new(
+        base_url: &str,
+        token: &str,
+        bot_agent: Option<&str>,
+        long_poll_timeout: Duration,
+    ) -> Self {
         let http = reqwest::Client::builder()
             .timeout(DEFAULT_API_TIMEOUT)
             .build()
             .expect("failed to build reqwest client");
+        let long_poll_client = reqwest::Client::builder()
+            .timeout(long_poll_timeout + Duration::from_secs(5))
+            .build()
+            .expect("failed to build long-poll reqwest client");
 
         Self {
             http,
+            long_poll_client,
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
             bot_agent: sanitize_bot_agent(bot_agent.unwrap_or(DEFAULT_BOT_AGENT)),
@@ -84,7 +95,7 @@ impl WechatApiClient {
     pub async fn get_updates(
         &self,
         cursor: &str,
-        timeout: Duration,
+        _timeout: Duration,
         cancel: &CancellationToken,
     ) -> anyhow::Result<GetUpdatesResp> {
         let body = serde_json::to_string(&GetUpdatesReq {
@@ -92,11 +103,8 @@ impl WechatApiClient {
             base_info: self.build_base_info(),
         })?;
 
-        let client = reqwest::Client::builder()
-            .timeout(timeout + Duration::from_secs(5))
-            .build()?;
-
-        let req = client
+        let req = self
+            .long_poll_client
             .post(self.url("ilink/bot/getupdates"))
             .headers(self.build_headers())
             .body(body);
@@ -121,6 +129,7 @@ impl WechatApiClient {
     pub async fn send_message(&self, msg: WeixinMessage) -> anyhow::Result<()> {
         let to = msg.to_user_id.clone().unwrap_or_default();
         let has_ctx = msg.context_token.is_some();
+        let message_type = msg.message_type;
 
         let req = SendMessageReq {
             msg,
@@ -128,8 +137,13 @@ impl WechatApiClient {
         };
         let body = serde_json::to_string(&req)?;
 
-        tracing::debug!(to = %to, has_context_token = has_ctx, body_len = body.len(), "sendMessage request");
-        tracing::debug!(body = %body, "sendMessage body");
+        tracing::debug!(
+            to = %to,
+            has_context_token = has_ctx,
+            message_type = ?message_type,
+            body_len = body.len(),
+            "sendMessage request"
+        );
 
         let resp = self
             .http

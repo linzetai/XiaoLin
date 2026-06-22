@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -413,36 +414,36 @@ pub trait Tool: Send + Sync {
 ///
 /// Tool definitions are cached and only rebuilt when the registry changes (version bump).
 pub struct ToolRegistry {
-    tools: std::sync::RwLock<HashMap<String, Arc<dyn Tool>>>,
-    deferred: std::sync::RwLock<HashSet<String>>,
-    channel_scoped: std::sync::RwLock<HashSet<String>>,
+    tools: RwLock<HashMap<String, Arc<dyn Tool>>>,
+    deferred: RwLock<HashSet<String>>,
+    channel_scoped: RwLock<HashSet<String>>,
     version: std::sync::atomic::AtomicU64,
-    def_cache: std::sync::RwLock<(u64, Arc<Vec<ToolDefinition>>)>,
+    def_cache: RwLock<(u64, Arc<Vec<ToolDefinition>>)>,
     /// Per-MCP-server instructions captured from `InitializeResult`.
     /// Key: server ID, Value: instructions text (if provided).
-    mcp_instructions: std::sync::RwLock<HashMap<String, String>>,
+    mcp_instructions: RwLock<HashMap<String, String>>,
     /// Cache of per-tool serialized JSON char counts, keyed by registry version.
     /// Avoids re-serializing tool definitions just to estimate token counts.
-    json_sizes_cache: std::sync::RwLock<(u64, HashMap<String, usize>)>,
+    json_sizes_cache: RwLock<(u64, HashMap<String, usize>)>,
 }
 
 impl Clone for ToolRegistry {
     fn clone(&self) -> Self {
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
+        let guard = self.tools.read();
+        let deferred = self.deferred.read();
+        let ch_scoped = self.channel_scoped.read();
         let ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
-        let cache = self.def_cache.read().expect("def_cache poisoned");
-        let mcp_instr = self.mcp_instructions.read().expect("mcp_instructions poisoned");
-        let json_sizes = self.json_sizes_cache.read().expect("json_sizes_cache poisoned");
+        let cache = self.def_cache.read();
+        let mcp_instr = self.mcp_instructions.read();
+        let json_sizes = self.json_sizes_cache.read();
         Self {
-            tools: std::sync::RwLock::new(guard.clone()),
-            deferred: std::sync::RwLock::new(deferred.clone()),
-            channel_scoped: std::sync::RwLock::new(ch_scoped.clone()),
+            tools: RwLock::new(guard.clone()),
+            deferred: RwLock::new(deferred.clone()),
+            channel_scoped: RwLock::new(ch_scoped.clone()),
             version: std::sync::atomic::AtomicU64::new(ver),
-            def_cache: std::sync::RwLock::new(cache.clone()),
-            mcp_instructions: std::sync::RwLock::new(mcp_instr.clone()),
-            json_sizes_cache: std::sync::RwLock::new(json_sizes.clone()),
+            def_cache: RwLock::new(cache.clone()),
+            mcp_instructions: RwLock::new(mcp_instr.clone()),
+            json_sizes_cache: RwLock::new(json_sizes.clone()),
         }
     }
 }
@@ -450,13 +451,13 @@ impl Clone for ToolRegistry {
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
-            tools: std::sync::RwLock::new(HashMap::new()),
-            deferred: std::sync::RwLock::new(HashSet::new()),
-            channel_scoped: std::sync::RwLock::new(HashSet::new()),
+            tools: RwLock::new(HashMap::new()),
+            deferred: RwLock::new(HashSet::new()),
+            channel_scoped: RwLock::new(HashSet::new()),
             version: std::sync::atomic::AtomicU64::new(0),
-            def_cache: std::sync::RwLock::new((u64::MAX, Arc::new(Vec::new()))),
-            mcp_instructions: std::sync::RwLock::new(HashMap::new()),
-            json_sizes_cache: std::sync::RwLock::new((u64::MAX, HashMap::new())),
+            def_cache: RwLock::new((u64::MAX, Arc::new(Vec::new()))),
+            mcp_instructions: RwLock::new(HashMap::new()),
+            json_sizes_cache: RwLock::new((u64::MAX, HashMap::new())),
         }
     }
 
@@ -474,13 +475,13 @@ impl ToolRegistry {
     pub fn register(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         let is_deferred = tool.exposure() == ToolExposure::Deferred;
-        let mut guard = self.tools.write().expect("ToolRegistry poisoned");
+        let mut guard = self.tools.write();
         if guard.contains_key(&name) {
             tracing::warn!(tool = %name, "duplicate tool name – overwriting previous registration");
         }
         guard.insert(name.clone(), tool);
         drop(guard);
-        let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+        let mut def_guard = self.deferred.write();
         if is_deferred {
             def_guard.insert(name);
         } else {
@@ -495,7 +496,7 @@ impl ToolRegistry {
     /// Also cleans the `deferred` and `channel_scoped` sets so stale entries
     /// don't accumulate across hot-reloads.
     pub fn unregister_by_prefix(&self, prefix: &str) -> usize {
-        let mut guard = self.tools.write().expect("ToolRegistry poisoned");
+        let mut guard = self.tools.write();
         let before = guard.len();
         let removed_names: Vec<String> = guard
             .keys()
@@ -506,15 +507,12 @@ impl ToolRegistry {
         let removed = before - guard.len();
         drop(guard);
         if removed > 0 {
-            let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+            let mut def_guard = self.deferred.write();
             for name in &removed_names {
                 def_guard.remove(name);
             }
             drop(def_guard);
-            let mut ch_guard = self
-                .channel_scoped
-                .write()
-                .expect("channel_scoped poisoned");
+            let mut ch_guard = self.channel_scoped.write();
             for name in &removed_names {
                 ch_guard.remove(name);
             }
@@ -525,13 +523,13 @@ impl ToolRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let guard = self.tools.read();
         guard.get(name).cloned()
     }
 
     /// Store instructions for an MCP server. Overwrites any previous value.
     pub fn set_mcp_instructions(&self, server_id: &str, instructions: Option<&str>) {
-        let mut guard = self.mcp_instructions.write().expect("mcp_instructions poisoned");
+        let mut guard = self.mcp_instructions.write();
         match instructions {
             Some(instr) if !instr.trim().is_empty() => {
                 guard.insert(server_id.to_string(), instr.trim().to_string());
@@ -544,13 +542,13 @@ impl ToolRegistry {
 
     /// Remove MCP instructions for a server (e.g. on disconnect).
     pub fn remove_mcp_instructions(&self, server_id: &str) {
-        let mut guard = self.mcp_instructions.write().expect("mcp_instructions poisoned");
+        let mut guard = self.mcp_instructions.write();
         guard.remove(server_id);
     }
 
     /// Get a snapshot of all MCP server instructions. Sorted by key.
     pub fn mcp_instructions_snapshot(&self) -> Vec<(String, String)> {
-        let guard = self.mcp_instructions.read().expect("mcp_instructions poisoned");
+        let guard = self.mcp_instructions.read();
         let mut pairs: Vec<(String, String)> = guard
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -563,15 +561,16 @@ impl ToolRegistry {
     pub fn definitions(&self) -> Arc<Vec<ToolDefinition>> {
         let current_ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
         {
-            let cache = self.def_cache.read().expect("def_cache poisoned");
+            let cache = self.def_cache.read();
             if cache.0 == current_ver {
                 return cache.1.clone();
             }
         }
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let guard = self.tools.read();
         let defs: Vec<ToolDefinition> = guard.values().map(|t| t.to_definition()).collect();
         let arc = Arc::new(defs);
-        if let Ok(mut cache) = self.def_cache.write() {
+        {
+            let mut cache = self.def_cache.write();
             *cache = (current_ver, arc.clone());
         }
         arc
@@ -585,7 +584,7 @@ impl ToolRegistry {
     pub fn estimated_json_chars(&self, defs: &[ToolDefinition]) -> usize {
         let current_ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
         {
-            let cache = self.json_sizes_cache.read().expect("json_sizes_cache poisoned");
+            let cache = self.json_sizes_cache.read();
             if cache.0 == current_ver {
                 let total: usize = defs
                     .iter()
@@ -605,7 +604,8 @@ impl ToolRegistry {
             total += size;
         }
 
-        if let Ok(mut cache) = self.json_sizes_cache.write() {
+        {
+            let mut cache = self.json_sizes_cache.write();
             if cache.0 != current_ver {
                 *cache = (current_ver, new_sizes);
             } else {
@@ -625,18 +625,18 @@ impl ToolRegistry {
     }
 
     pub fn is_empty(&self) -> bool {
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let guard = self.tools.read();
         guard.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let guard = self.tools.read();
         guard.len()
     }
 
     /// Return the names of all registered tools (eager + deferred).
     pub fn tool_names(&self) -> HashSet<String> {
-        let guard = self.tools.read().expect("ToolRegistry poisoned");
+        let guard = self.tools.read();
         guard.keys().cloned().collect()
     }
 
@@ -646,7 +646,7 @@ impl ToolRegistry {
     pub fn register_deferred(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         self.register(tool);
-        let mut guard = self.deferred.write().expect("deferred set poisoned");
+        let mut guard = self.deferred.write();
         guard.insert(name);
     }
 
@@ -657,17 +657,14 @@ impl ToolRegistry {
     pub fn register_channel_scoped(&self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         self.register(tool);
-        let mut guard = self
-            .channel_scoped
-            .write()
-            .expect("channel_scoped poisoned");
+        let mut guard = self.channel_scoped.write();
         guard.insert(name);
     }
 
     /// Returns definitions for channel-scoped tools only.
     pub fn channel_scoped_definitions(&self) -> Vec<ToolDefinition> {
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let ch_scoped = self.channel_scoped.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| ch_scoped.contains(t.name()))
@@ -677,9 +674,9 @@ impl ToolRegistry {
 
     /// Returns definitions for tools that are **not** deferred and **not** channel-scoped.
     pub fn eager_definitions(&self) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let ch_scoped = self.channel_scoped.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| {
@@ -693,9 +690,9 @@ impl ToolRegistry {
     /// Returns eager tool definitions filtered to only include tools from the specified groups.
     /// Useful for reducing the tool set exposed to the model based on task context.
     pub fn eager_definitions_for_groups(&self, groups: &[ToolGroup]) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let ch_scoped = self.channel_scoped.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| {
@@ -708,9 +705,9 @@ impl ToolRegistry {
 
     /// Returns the set of all groups present among eager (non-deferred, non-channel-scoped) tools.
     pub fn available_groups(&self) -> HashSet<ToolGroup> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let ch_scoped = self.channel_scoped.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| {
@@ -731,8 +728,8 @@ impl ToolRegistry {
     ///
     /// Results are sorted by score descending; tools with zero matches are excluded.
     pub fn search_deferred(&self, query: &str) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let tools = self.tools.read();
         let q = query.to_lowercase();
         let query_words: Vec<&str> = q.split_whitespace().collect();
         if query_words.is_empty() {
@@ -840,9 +837,9 @@ impl ToolRegistry {
     /// - Tools in `profile.demote` are excluded even if normally direct.
     /// - Channel-scoped tools are always excluded (injected separately).
     pub fn definitions_with_profile(&self, profile: &ToolProfile) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let ch_scoped = self.channel_scoped.read().expect("channel_scoped poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let ch_scoped = self.channel_scoped.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| {
@@ -868,7 +865,7 @@ impl ToolRegistry {
     /// Used by the deferred pipeline to bulk-defer an MCP server's tools when
     /// the total tool token budget exceeds the threshold.
     pub fn demote_to_deferred_by_prefix(&self, prefix: &str) -> usize {
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let tools = self.tools.read();
         let to_demote: Vec<String> = tools
             .iter()
             .filter(|(name, tool)| name.starts_with(prefix) && !tool.force_eager())
@@ -879,7 +876,7 @@ impl ToolRegistry {
         if to_demote.is_empty() {
             return 0;
         }
-        let mut def_guard = self.deferred.write().expect("deferred set poisoned");
+        let mut def_guard = self.deferred.write();
         let mut count = 0;
         for name in &to_demote {
             if def_guard.insert(name.clone()) {
@@ -895,7 +892,7 @@ impl ToolRegistry {
 
     /// Names of all tools currently in the deferred set.
     pub fn deferred_tool_names(&self) -> Vec<String> {
-        let guard = self.deferred.read().expect("deferred set poisoned");
+        let guard = self.deferred.read();
         guard.iter().cloned().collect()
     }
 
@@ -903,8 +900,8 @@ impl ToolRegistry {
     /// **not** in the deferred set. Used by prompt injection to describe only
     /// the eager MCP tools available to the model.
     pub fn eager_mcp_definitions(&self) -> Vec<ToolDefinition> {
-        let deferred = self.deferred.read().expect("deferred set poisoned");
-        let tools = self.tools.read().expect("ToolRegistry poisoned");
+        let deferred = self.deferred.read();
+        let tools = self.tools.read();
         tools
             .values()
             .filter(|t| {
@@ -919,7 +916,7 @@ impl ToolRegistry {
     /// `eager_definitions()` going forward. Returns `true` if the tool
     /// was found in the deferred set.
     pub fn activate_deferred(&self, name: &str) -> bool {
-        let mut guard = self.deferred.write().expect("deferred set poisoned");
+        let mut guard = self.deferred.write();
         let removed = guard.remove(name);
         if removed {
             drop(guard);
@@ -930,7 +927,7 @@ impl ToolRegistry {
 
     /// Number of tools currently in the deferred set.
     pub fn deferred_count(&self) -> usize {
-        let guard = self.deferred.read().expect("deferred set poisoned");
+        let guard = self.deferred.read();
         guard.len()
     }
 
@@ -939,7 +936,7 @@ impl ToolRegistry {
     /// Returns [`XiaoLinError::ToolNotFound`] when the name is missing.
     pub async fn execute_named(&self, name: &str, arguments: &str) -> XiaoLinResult<ToolResult> {
         let tool = {
-            let guard = self.tools.read().expect("ToolRegistry poisoned");
+            let guard = self.tools.read();
             guard
                 .get(name)
                 .cloned()

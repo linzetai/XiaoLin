@@ -410,6 +410,9 @@ pub struct ChannelConfig {
     /// User OAuth access token for user-scoped channel APIs (e.g. Feishu tasks, docs, calendar).
     #[serde(default)]
     pub user_access_token: Option<String>,
+    /// Allow webhooks without verification_token (dev/test only; Feishu channel).
+    #[serde(default)]
+    pub allow_insecure_webhook: Option<bool>,
     /// Per-account overrides. Each key is an account ID used in bindings.
     #[serde(default)]
     pub accounts: std::collections::HashMap<String, ChannelAccountConfig>,

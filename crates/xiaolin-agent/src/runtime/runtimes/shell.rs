@@ -124,6 +124,9 @@ impl ToolRuntime for ShellRuntime {
             sandbox.sandbox_type
         };
 
+        let preference = self.sandbox_preference();
+        let mut without_sandbox_isolation = false;
+
         let mut cmd = match effective_sandbox {
             SandboxBackend::None => {
                 build_plain_command(command, &cwd)
@@ -143,11 +146,25 @@ impl ToolRuntime for ShellRuntime {
                     );
                     sandboxed.into_tokio_command()
                 } else {
-                    tracing::warn!(
-                        sandbox = %effective_sandbox,
-                        "sandbox requested but not available, falling back to plain execution"
-                    );
-                    build_plain_command(command, &cwd)
+                    match preference {
+                        SandboxPreference::Required => {
+                            return Err(ToolRuntimeError::SandboxDenied {
+                                reason: format!(
+                                    "sandbox {} is required but not available on this system",
+                                    effective_sandbox
+                                ),
+                            });
+                        }
+                        SandboxPreference::Auto => {
+                            tracing::warn!(
+                                sandbox = %effective_sandbox,
+                                "sandbox requested but not available, executing without sandbox isolation"
+                            );
+                            without_sandbox_isolation = true;
+                            build_plain_command(command, &cwd)
+                        }
+                        SandboxPreference::Skip => build_plain_command(command, &cwd),
+                    }
                 }
             }
         };
@@ -292,6 +309,10 @@ impl ToolRuntime for ShellRuntime {
         let mut result = format!(
             "exit_code={exit_code_str}\nduration_ms={duration_ms}\ncwd={cwd_display}\n---\n"
         );
+
+        if without_sandbox_isolation {
+            result = format!("[⚠️ 无沙箱隔离]\n{result}");
+        }
 
         if stderr_str.is_empty() {
             result.push_str(&stdout_str);

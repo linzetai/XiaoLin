@@ -310,7 +310,7 @@ impl SandboxManager {
                 let cwd = request
                     .sandbox_policy_cwd
                     .unwrap_or(Path::new("/"));
-                return Ok(landlock::transform_external(
+                return landlock::transform_external(
                     request.command,
                     request.shell,
                     &effective_fs,
@@ -318,7 +318,7 @@ impl SandboxManager {
                     &exe,
                     cwd,
                     request.enforce_managed_network,
-                ));
+                );
             }
         }
 
@@ -398,6 +398,8 @@ pub struct SandboxTransformRequest<'a> {
 pub enum SandboxTransformError {
     /// A Linux sandbox executable was required but not provided.
     MissingLinuxSandboxExecutable,
+    /// Failed to serialize sandbox policy JSON for the external helper.
+    PolicySerializationFailed(String),
     /// WSL1 does not support bubblewrap.
     #[cfg(target_os = "linux")]
     Wsl1Unsupported,
@@ -411,6 +413,9 @@ impl std::fmt::Display for SandboxTransformError {
         match self {
             Self::MissingLinuxSandboxExecutable => {
                 write!(f, "missing linux-sandbox executable path")
+            }
+            Self::PolicySerializationFailed(msg) => {
+                write!(f, "failed to serialize sandbox policy: {msg}")
             }
             #[cfg(target_os = "linux")]
             Self::Wsl1Unsupported => write!(f, "{}", bwrap::WSL1_BWRAP_WARNING),

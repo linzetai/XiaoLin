@@ -1864,11 +1864,11 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
   const [sessionKey, setSessionKey] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
   const [message, setMessage] = useState("");
-  const pollRef = useState<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cleanup = useCallback(() => {
-    if (pollRef[0]) { clearInterval(pollRef[0]); pollRef[0] = null; }
-  }, [pollRef]);
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -1891,7 +1891,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
       setSessionKey(resp.sessionKey);
       setQrUrl(resp.qrUrl);
       setStep("scanning");
-      pollRef[0] = setInterval(async () => {
+      pollRef.current = setInterval(async () => {
         try {
           const poll = await api.channelsWechatPoll(resp.sessionKey);
           switch (poll.status) {
@@ -1914,7 +1914,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
     await api.channelsWechatVerify(sessionKey, verifyCode.trim());
     setStep("scanning");
     setVerifyCode("");
-    pollRef[0] = setInterval(async () => {
+    pollRef.current = setInterval(async () => {
       try {
         const poll = await api.channelsWechatPoll(sessionKey);
         if (poll.status === "confirmed") {

@@ -247,6 +247,15 @@ pub async fn handle_config_set(
                     state.refresh_runtime_agent_providers(&agents);
                     tracing::info!(key, "config.set: hot-reloaded LLM providers");
                 }
+                if top_key == "skills" {
+                    state
+                        .rt
+                        .runtime
+                        .set_skills_deny(new_config.skills.deny.clone());
+                    if let Err(e) = state.reload_skills() {
+                        tracing::warn!(key, error = %e, "config.set: failed to hot-reload skills");
+                    }
+                }
             }
             send_resp(
                 sender,

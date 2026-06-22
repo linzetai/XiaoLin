@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -450,6 +450,8 @@ pub struct AgentRuntime {
     self_iter_max_recovery_attempts: u32,
     skill_store: ArcSwap<Option<Arc<SkillStore>>>,
     skill_usage_store: ArcSwap<Option<Arc<xiaolin_core::skill_usage::SkillUsageStore>>>,
+    /// Live skills deny list (synced from gateway `config_live.skills.deny`).
+    skills_deny: ArcSwap<Vec<String>>,
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
     cached_runtime_registry: Arc<runtimes::RuntimeRegistry>,
     self_handle: std::sync::OnceLock<std::sync::Weak<Self>>,
@@ -476,6 +478,7 @@ impl AgentRuntime {
             self_iter_max_recovery_attempts: 3,
             skill_store: ArcSwap::new(Arc::new(None)),
             skill_usage_store: ArcSwap::new(Arc::new(None)),
+            skills_deny: ArcSwap::new(Arc::new(Vec::new())),
             trajectory_store: ArcSwap::new(Arc::new(None)),
             cached_runtime_registry: Arc::new(runtimes::register_default_runtimes()),
             self_handle: std::sync::OnceLock::new(),
@@ -556,6 +559,11 @@ impl AgentRuntime {
 
     pub fn attach_skill_usage_store(&self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) {
         self.skill_usage_store.store(Arc::new(Some(store)));
+    }
+
+    /// Update the live skills deny list used by evolution skill injection.
+    pub fn set_skills_deny(&self, deny: Vec<String>) {
+        self.skills_deny.store(Arc::new(deny));
     }
 
     #[cfg(feature = "self-iter")]
@@ -971,15 +979,18 @@ impl AgentRuntime {
             return Ok(());
         }
         let skills = store.find_similar(&task, 16).await?;
+        let deny_set: HashSet<String> = self.skills_deny.load().iter().cloned().collect();
         let active: Vec<_> = skills
             .iter()
             .filter(|s| matches!(s.status, SkillStatus::Active))
+            .filter(|s| !deny_set.contains(&s.id))
             .take(5)
             .cloned()
             .collect();
         let candidates: Vec<_> = skills
             .iter()
             .filter(|s| matches!(s.status, SkillStatus::Candidate))
+            .filter(|s| !deny_set.contains(&s.id))
             .take(2)
             .cloned()
             .collect();

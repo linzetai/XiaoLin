@@ -56,6 +56,7 @@ export function PlanApprovalCard({
   );
   const [countdown, setCountdown] = useState<number | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoApprovedRef = useRef(false);
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
 
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
@@ -204,8 +205,12 @@ export function PlanApprovalCard({
 
   useEffect(() => {
     if (countdown === 0 && !isDisabled) {
+      if (autoApprovedRef.current) return;
       const savedPref = localStorage.getItem(PREF_KEY) as ActionKey | null;
-      if (savedPref) executeActionRef.current(savedPref);
+      if (savedPref) {
+        autoApprovedRef.current = true;
+        executeActionRef.current(savedPref);
+      }
     }
   }, [countdown, isDisabled]);
 

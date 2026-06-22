@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use crate::submission::SessionEvent;

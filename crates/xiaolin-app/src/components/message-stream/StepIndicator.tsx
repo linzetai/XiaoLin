@@ -276,7 +276,7 @@ function StreamingDiffPreview({ args }: { args: string }) {
       >
         {isCreate ? (
           newStr.split("\n").slice(0, 20).map((line: string, i: number) => (
-            <div key={i} className="px-2" style={{ background: "color-mix(in srgb, var(--green, #48BB78) 8%, transparent)", color: "var(--green, #48BB78)" }}>
+            <div key={`create-${i}-${line}`} className="px-2" style={{ background: "color-mix(in srgb, var(--green, #48BB78) 8%, transparent)", color: "var(--green, #48BB78)" }}>
               <span className="mr-2 inline-block w-3 select-none text-right opacity-50">+</span>
               {line || " "}
             </div>
@@ -347,8 +347,8 @@ function OutputBlock({ content, error }: { content: string; error?: boolean }) {
 
   return (
     <div className="mt-1 space-y-2">
-      {images.map((src, i) => (
-        <ImageViewer key={i} src={src} />
+      {images.map((src) => (
+        <ImageViewer key={src} src={src} />
       ))}
       {formatted && (
         <>
@@ -574,8 +574,8 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
       {/* Auto-display images from tool results */}
       {resultImages.length > 0 && (
         <div className="px-2.5 pb-2 space-y-1.5">
-          {resultImages.map((src, i) => (
-            <ImageViewer key={i} src={src} />
+          {resultImages.map((src) => (
+            <ImageViewer key={src} src={src} />
           ))}
         </div>
       )}

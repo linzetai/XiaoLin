@@ -31,6 +31,8 @@ struct AccountState {
 
 /// Maps a message_id → (chat_id, context_token) so that reply_message can
 /// look up the correct recipient and context from a numeric message ID.
+const REPLY_CACHE_MAX_ENTRIES: usize = 10_000;
+
 pub struct ReplyCache {
     entries: DashMap<String, (String, Option<String>)>,
 }
@@ -49,6 +51,14 @@ impl ReplyCache {
     }
 
     pub fn insert(&self, message_id: &str, chat_id: &str, context_token: Option<&str>) {
+        if self.entries.len() > REPLY_CACHE_MAX_ENTRIES {
+            tracing::warn!(
+                len = self.entries.len(),
+                max = REPLY_CACHE_MAX_ENTRIES,
+                "wechat reply cache exceeded capacity, clearing"
+            );
+            self.entries.clear();
+        }
         self.entries.insert(
             message_id.to_string(),
             (chat_id.to_string(), context_token.map(String::from)),
@@ -57,6 +67,10 @@ impl ReplyCache {
 
     pub fn get(&self, message_id: &str) -> Option<(String, Option<String>)> {
         self.entries.get(message_id).map(|v| v.clone())
+    }
+
+    pub fn remove(&self, message_id: &str) {
+        self.entries.remove(message_id);
     }
 }
 
@@ -250,6 +264,7 @@ impl ChannelPlugin for WechatPlugin {
                 &cred.base_url,
                 &cred.token,
                 self.config.bot_agent.as_deref(),
+                poll_timeout,
             );
 
             let cancel = CancellationToken::new();
@@ -422,6 +437,7 @@ impl ChannelPlugin for WechatPlugin {
 
         let weixin_msg = outbound_to_weixin(&msg, context_token.as_deref());
         client.send_message(weixin_msg).await?;
+        self.reply_cache.remove(message_id);
 
         tracing::info!(message_id, chat_id = %chat_id, "reply_message: sent OK");
         Ok(json!({"ok": true}))

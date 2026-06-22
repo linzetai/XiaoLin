@@ -6,7 +6,7 @@ use xiaolin_security::{
     NetworkSandboxPolicy,
 };
 
-use crate::{LinuxSandboxSetup, SandboxType, SandboxedCommand};
+use crate::{LinuxSandboxSetup, SandboxTransformError, SandboxType, SandboxedCommand};
 
 /// Check if Landlock is available on this Linux kernel.
 ///
@@ -111,9 +111,11 @@ pub fn transform_external(
     sandbox_exe: &std::path::Path,
     sandbox_policy_cwd: &std::path::Path,
     enforce_managed_network: bool,
-) -> SandboxedCommand {
-    let policy_json = serde_json::to_string(fs_policy)
-        .unwrap_or_else(|err| panic!("failed to serialize filesystem policy: {err}"));
+) -> Result<SandboxedCommand, SandboxTransformError> {
+    let policy_json = serde_json::to_string(fs_policy).map_err(|err| {
+        tracing::error!(error = %err, "failed to serialize filesystem policy for external sandbox");
+        SandboxTransformError::PolicySerializationFailed(err.to_string())
+    })?;
     let cwd_str = sandbox_policy_cwd
         .to_str()
         .unwrap_or_else(|| panic!("sandbox policy cwd must be valid UTF-8"))
@@ -138,7 +140,7 @@ pub fn transform_external(
     let mut env = HashMap::new();
     env.insert("XIAOLIN_SANDBOXED".to_string(), "1".to_string());
 
-    SandboxedCommand {
+    Ok(SandboxedCommand {
         program: sandbox_exe.to_string_lossy().into_owned(),
         args: sandbox_args,
         working_dir: Some(sandbox_policy_cwd.to_path_buf()),
@@ -146,7 +148,7 @@ pub fn transform_external(
         env_remove: build_env_remove_list(fs_policy, net_policy),
         sandbox_type: SandboxType::ExternalBinary,
         linux_sandbox: None,
-    }
+    })
 }
 
 fn build_linux_sandbox_setup(

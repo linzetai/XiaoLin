@@ -90,7 +90,8 @@ pub fn weixin_to_inbound(
     let message_id = msg
         .message_id
         .map(|id| id.to_string())
-        .unwrap_or_default();
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     Some(InboundMessage {
         channel_id: channel_id.to_string(),

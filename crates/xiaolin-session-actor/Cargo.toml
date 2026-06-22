@@ -6,6 +6,7 @@ description = "Session Actor engine — SQ/EQ queue-pair per session for ordered
 
 [dependencies]
 xiaolin-protocol = { path = "../xiaolin-protocol" }
+parking_lot = "0.12"
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 async-channel.workspace = true
 async-trait.workspace = true

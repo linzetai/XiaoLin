@@ -871,6 +871,11 @@ impl StateBuilder {
             .phase3
             .runtime
             .attach_skill_usage_store(skill_usage_store_arc.clone());
+        p5.phase2
+            .phase4
+            .phase3
+            .runtime
+            .set_skills_deny(config.skills.deny.clone());
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
@@ -1055,6 +1060,9 @@ impl StateBuilder {
             state.strm.pty_manager.clone(),
         );
         tracing::info!("registered agent terminal tools (terminal_open/input/close)");
+
+        state.strm.pty_manager.start_cleanup_task();
+        tracing::info!("PTY idle session cleanup task started (runs every 60s)");
 
         state
             .rt

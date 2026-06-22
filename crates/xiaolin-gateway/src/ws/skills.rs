@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::extract::ws::{Message, WebSocket};
 use serde_json::json;
 
@@ -39,6 +41,7 @@ pub async fn handle_skills_list(
             .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
             .unwrap_or_default()
     };
+    let deny_set: HashSet<&str> = deny_list.iter().map(String::as_str).collect();
 
     let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
         Ok(counts) => counts,
@@ -55,7 +58,7 @@ pub async fn handle_skills_list(
         .into_iter()
         .map(|s| {
             let enabled = s.frontmatter.enabled.unwrap_or(true)
-                && !deny_list.iter().any(|d| d == &s.id);
+                && !deny_set.contains(s.id.as_str());
             let origin = s
                 .source
                 .as_ref()
@@ -105,6 +108,7 @@ pub async fn handle_skills_read(
             .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
             .unwrap_or_default()
     };
+    let deny_set: HashSet<&str> = deny_list.iter().map(String::as_str).collect();
 
     match registry.get(&params.skill_id) {
         Some(skill) => {
@@ -114,7 +118,7 @@ pub async fn handle_skills_read(
                 .map(|src| origin_str(src.origin))
                 .unwrap_or("xiaolin");
             let enabled = skill.frontmatter.enabled.unwrap_or(true)
-                && !deny_list.iter().any(|d| d == &skill.id);
+                && !deny_set.contains(skill.id.as_str());
             send_resp(
                 sender,
                 &WsResponse {

@@ -7,7 +7,20 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolResult};
 
+use crate::shell_security::{SecurityVerdict, ShellSecurityChecker};
+
 pub use self::pty_session::PtySessionManager;
+
+/// Reject commands that fail shell injection / substitution checks.
+fn reject_unsafe_command(cmd: &str) -> Option<String> {
+    match ShellSecurityChecker::check(cmd) {
+        SecurityVerdict::Safe => None,
+        SecurityVerdict::Blocked { pattern, reason }
+        | SecurityVerdict::NeedsConfirmation { pattern, reason } => Some(format!(
+            "Command rejected by shell security check ({pattern}): {reason}"
+        )),
+    }
+}
 
 fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| {
@@ -119,6 +132,10 @@ impl Tool for ExecCommandTool {
             Some(c) => c.to_string(),
             None => return ToolResult::err("Missing required parameter: cmd"),
         };
+
+        if let Some(reason) = reject_unsafe_command(&cmd) {
+            return ToolResult::err(reason);
+        }
 
         let workdir = args.get("workdir").and_then(|v| v.as_str()).map(String::from);
         let shell = args
@@ -380,8 +397,8 @@ pub mod pty_session {
             let output = String::from_utf8_lossy(&session.output_buffer).to_string();
             session.output_buffer.clear();
 
-            let truncated = if output.len() > max_chars {
-                output[..max_chars].to_string()
+            let truncated = if output.chars().count() > max_chars {
+                output.chars().take(max_chars).collect::<String>()
             } else {
                 output
             };
@@ -402,7 +419,32 @@ pub mod pty_session {
         pub async fn cleanup_expired(&self) -> usize {
             let mut sessions = self.sessions.lock().await;
             let before = sessions.len();
-            sessions.retain(|_, s| s.last_activity.elapsed() < self.timeout);
+            let expired: Vec<String> = sessions
+                .iter()
+                .filter(|(_, s)| s.last_activity.elapsed() >= self.timeout)
+                .map(|(id, _)| id.clone())
+                .collect();
+
+            for id in expired {
+                if let Some(mut session) = sessions.remove(&id) {
+                    match session.child.kill() {
+                        Ok(()) => {
+                            tracing::info!(
+                                session_id = %id,
+                                "exec_command session cleaned up (expired)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                session_id = %id,
+                                error = %e,
+                                "failed to kill expired exec_command session"
+                            );
+                        }
+                    }
+                }
+            }
+
             before - sessions.len()
         }
 

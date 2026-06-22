@@ -304,10 +304,14 @@ export const useStreamStore = create<StreamState>((set) => ({
       }
     }
 
-    set((state) => ({
-      streams: { ...state.streams, [chatId]: items },
-      lastSegments: { ...state.lastSegments, ...lastSegmentsMap },
-    }));
+    set((state) => {
+      const existing = state.streams[chatId];
+      if (existing && existing.length > 0) return state;
+      return {
+        streams: { ...state.streams, [chatId]: items },
+        lastSegments: { ...state.lastSegments, ...lastSegmentsMap },
+      };
+    });
   },
 
   subAgentStart: (chatId, run) => {

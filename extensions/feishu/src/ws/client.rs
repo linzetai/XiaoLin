@@ -20,6 +20,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_util::sync::CancellationToken;
 
 use super::frame::*;
 
@@ -96,7 +97,7 @@ pub struct FeishuWsClient {
     app_secret: String,
     domain: String,
     http: reqwest::Client,
-    event_tx: EventSender,
+    event_tx: Arc<Mutex<Option<EventSender>>>,
 
     writer: Arc<Mutex<Option<WsWriter>>>,
     service_id: Arc<Mutex<i32>>,
@@ -108,6 +109,7 @@ pub struct FeishuWsClient {
     reconnect_count: Arc<Mutex<i32>>,
 
     shutdown: Arc<Notify>,
+    cancel: CancellationToken,
     #[allow(clippy::type_complexity)]
     fragment_cache: Arc<Mutex<HashMap<String, Vec<Option<Vec<u8>>>>>>,
 }
@@ -128,7 +130,7 @@ impl FeishuWsClient {
             app_secret: app_secret.to_string(),
             domain: domain.trim_end_matches('/').to_string(),
             http,
-            event_tx,
+            event_tx: Arc::new(Mutex::new(Some(event_tx))),
             writer: Arc::new(Mutex::new(None)),
             service_id: Arc::new(Mutex::new(0)),
             conn_id: Arc::new(Mutex::new(String::new())),
@@ -137,6 +139,7 @@ impl FeishuWsClient {
             reconnect_nonce: Arc::new(Mutex::new(DEFAULT_RECONNECT_NONCE)),
             reconnect_count: Arc::new(Mutex::new(-1)),
             shutdown: Arc::new(Notify::new()),
+            cancel: CancellationToken::new(),
             fragment_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -153,7 +156,22 @@ impl FeishuWsClient {
 
     /// Stop the client gracefully.
     pub fn stop(&self) {
+        self.cancel.cancel();
         self.shutdown.notify_waiters();
+
+        let event_tx = Arc::clone(&self.event_tx);
+        let writer = Arc::clone(&self.writer);
+        let conn_id = Arc::clone(&self.conn_id);
+        tokio::spawn(async move {
+            *event_tx.lock().await = None;
+            let mut w = writer.lock().await;
+            if let Some(ref mut ws_writer) = *w {
+                let _ = ws_writer.close().await;
+            }
+            *w = None;
+            *conn_id.lock().await = String::new();
+            tracing::info!("feishu ws: stopped (writer closed, event channel dropped)");
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -183,7 +201,7 @@ impl FeishuWsClient {
             anyhow::bail!(
                 "feishu ws endpoint HTTP {}: {}",
                 status,
-                &text[..text.len().min(500)]
+                &text[..text.floor_char_boundary(text.len().min(500))]
             );
         }
 
@@ -191,7 +209,7 @@ impl FeishuWsClient {
             anyhow::anyhow!(
                 "feishu ws endpoint parse error: {} — body: {}",
                 e,
-                &text[..text.len().min(500)]
+                &text[..text.floor_char_boundary(text.len().min(500))]
             )
         })?;
 
@@ -292,6 +310,9 @@ impl FeishuWsClient {
                 _ = self.shutdown.notified() => {
                     return Ok(());
                 }
+                _ = self.cancel.cancelled() => {
+                    return Ok(());
+                }
             }
         }
     }
@@ -319,6 +340,7 @@ impl FeishuWsClient {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(interval)) => {}
                     _ = this.shutdown.notified() => break,
+                    _ = this.cancel.cancelled() => break,
                 }
 
                 let sid = *this.service_id.lock().await;
@@ -343,6 +365,10 @@ impl FeishuWsClient {
                 tracing::error!(error = %e, "feishu ws: receive loop ended");
             }
             this.disconnect().await;
+            if this.cancel.is_cancelled() {
+                tracing::info!("feishu ws: receive loop exit, stop requested");
+                return;
+            }
             if let Err(e) = this.reconnect().await {
                 tracing::error!(error = %e, "feishu ws: reconnect failed after receive loop exit");
             }
@@ -350,20 +376,29 @@ impl FeishuWsClient {
     }
 
     async fn receive_loop(&self, mut reader: WsReader) -> anyhow::Result<()> {
-        while let Some(msg) = reader.next().await {
-            match msg {
-                Ok(WsMessage::Binary(data)) => {
-                    if let Err(e) = self.handle_message(&data).await {
-                        tracing::warn!(error = %e, "feishu ws: handle message error");
+        loop {
+            tokio::select! {
+                msg = reader.next() => {
+                    match msg {
+                        Some(Ok(WsMessage::Binary(data))) => {
+                            if let Err(e) = self.handle_message(&data).await {
+                                tracing::warn!(error = %e, "feishu ws: handle message error");
+                            }
+                        }
+                        Some(Ok(WsMessage::Close(_))) => {
+                            tracing::info!("feishu ws: server closed connection");
+                            break;
+                        }
+                        Some(Ok(_)) => {} // ignore text, ping, pong at ws level
+                        Some(Err(e)) => {
+                            tracing::error!(error = %e, "feishu ws: read error");
+                            break;
+                        }
+                        None => break,
                     }
                 }
-                Ok(WsMessage::Close(_)) => {
-                    tracing::info!("feishu ws: server closed connection");
-                    break;
-                }
-                Ok(_) => {} // ignore text, ping, pong at ws level
-                Err(e) => {
-                    tracing::error!(error = %e, "feishu ws: read error");
+                _ = self.cancel.cancelled() => {
+                    tracing::info!("feishu ws: receive loop cancelled");
                     break;
                 }
             }
@@ -440,12 +475,17 @@ impl FeishuWsClient {
 
         // Dispatch event asynchronously
         if msg_type == MSG_TYPE_EVENT {
-            let _ = self.event_tx.send(WsEvent {
-                message_type: msg_type,
-                message_id: msg_id,
-                trace_id,
-                payload,
-            });
+            if self.cancel.is_cancelled() {
+                return Ok(());
+            }
+            if let Some(tx) = self.event_tx.lock().await.as_ref() {
+                let _ = tx.send(WsEvent {
+                    message_type: msg_type,
+                    message_id: msg_id,
+                    trace_id,
+                    payload,
+                });
+            }
         }
 
         Ok(())

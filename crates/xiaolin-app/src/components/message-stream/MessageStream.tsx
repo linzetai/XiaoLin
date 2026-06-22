@@ -79,6 +79,8 @@ export function MessageStream(_props: MessageStreamProps) {
   );
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
     (window as any).__xiaolin_setWorkDir = (path: string | null) => {
       const state = useChatMetaStore.getState();
       const chatId = state.activeChatId;
@@ -127,19 +129,33 @@ export function MessageStream(_props: MessageStreamProps) {
   const loadedChats = useRef(new Set<string>());
   useEffect(() => {
     if (!activeChatMeta) return;
+    const chatId = activeChatMeta.id;
     if (activeChatMeta.messageCount === 0 && stream.length === 0) return;
-    if (loadingChats.current.has(activeChatMeta.id)) return;
-    if (loadedChats.current.has(activeChatMeta.id)) return;
+    if (stream.length > 0) return;
+    if (loadingChats.current.has(chatId)) return;
+    if (loadedChats.current.has(chatId)) return;
 
-    loadingChats.current.add(activeChatMeta.id);
-    transport.getSessionMessages(activeChatMeta.id).then((messages) => {
-      if (messages && messages.length > 0 && messages.length > stream.length) {
-        loadChatStream(activeChatMeta.id, messages);
+    const ac = new AbortController();
+    loadingChats.current.add(chatId);
+    transport.getSessionMessages(chatId).then((messages) => {
+      if (ac.signal.aborted) return;
+      const currentActiveId = useChatMetaStore.getState().activeChatId;
+      if (currentActiveId !== chatId) return;
+      const currentStream = useStreamStore.getState().streams[chatId] ?? [];
+      if (currentStream.length > 0) return;
+      if (messages && messages.length > 0) {
+        loadChatStream(chatId, messages);
       }
-      loadedChats.current.add(activeChatMeta.id);
-    }).catch(() => {}).finally(() => {
-      loadingChats.current.delete(activeChatMeta.id);
+      loadedChats.current.add(chatId);
+    }).catch(() => {
+      if (ac.signal.aborted) return;
+    }).finally(() => {
+      loadingChats.current.delete(chatId);
     });
+
+    return () => {
+      ac.abort();
+    };
   }, [activeChatMeta?.id, activeChatMeta?.messageCount, stream.length, loadChatStream]);
 
   const hydratedSessions = useRef(new Set<string>());
@@ -374,6 +390,19 @@ export function MessageStream(_props: MessageStreamProps) {
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       return prev.filter((_, i) => i !== index);
     });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const f of attachedFilesRef.current) {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      }
+      for (const draft of Object.values(draftsRef.current)) {
+        for (const f of draft.files) {
+          if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+        }
+      }
+    };
   }, []);
 
   const chatKey = activeChatMeta?.localKey ?? activeChatId ?? "";

@@ -30,6 +30,7 @@ globset = "0.4"
 sqlx.workspace = true
 tar = "0.4"
 tempfile = "3"
+parking_lot = "0.12"
 blake3 = "1.8.5"
 
 [target.'cfg(unix)'.dependencies]

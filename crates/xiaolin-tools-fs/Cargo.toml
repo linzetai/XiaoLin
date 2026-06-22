@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 xiaolin-core = { path = "../xiaolin-core" }
 xiaolin-treesitter = { path = "../xiaolin-treesitter" }
+blake3 = "1.8.5"
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -100,7 +100,7 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }) {
     >
       {display.map((line, i) => (
         <div
-          key={i}
+          key={`${line.type}-${i}-${line.text}`}
           className="px-2"
           style={{
             background:

@@ -203,7 +203,8 @@ impl SubAgentManager {
             };
             let result_preview = r.result.as_ref().map(|text| {
                 if text.len() > 2000 {
-                    format!("{}…", &text[..2000])
+                    let end = text.floor_char_boundary(2000);
+                    format!("{}…", &text[..end])
                 } else {
                     text.clone()
                 }
@@ -511,7 +512,8 @@ impl SubAgentManager {
                     }
 
                     let result_preview = if response_text.len() > 2000 {
-                        Some(format!("{}…", &response_text[..2000]))
+                        let end = response_text.floor_char_boundary(2000);
+                        Some(format!("{}…", &response_text[..end]))
                     } else {
                         Some(response_text)
                     };
@@ -536,7 +538,12 @@ impl SubAgentManager {
                              elapsed={}ms, tools_used={}\nResult: {}",
                             rid,
                             subagent_type,
-                            if task.len() > 100 { &task[..100] } else { &task },
+                            if task.len() > 100 {
+                                let end = task.floor_char_boundary(100);
+                                format!("{}…", &task[..end])
+                            } else {
+                                task.clone()
+                            },
                             elapsed_ms,
                             tool_calls_made,
                             result_preview.as_deref().unwrap_or("(no result)"),
@@ -606,7 +613,12 @@ impl SubAgentManager {
                             status_str,
                             rid,
                             subagent_type,
-                            if task.len() > 100 { &task[..100] } else { &task },
+                            if task.len() > 100 {
+                                let end = task.floor_char_boundary(100);
+                                format!("{}…", &task[..end])
+                            } else {
+                                task.clone()
+                            },
                             elapsed_ms,
                             msg,
                         );

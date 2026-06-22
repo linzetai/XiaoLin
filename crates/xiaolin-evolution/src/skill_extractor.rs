@@ -379,12 +379,11 @@ fn infer_parameters(cluster: &[&Trajectory], pattern: &[String]) -> Vec<SkillPar
 
 /// Compute a stable fingerprint for a set of trajectory IDs to enable deduplication.
 pub fn cluster_fingerprint(trajectory_ids: &[String]) -> u64 {
-    use std::hash::{Hash, Hasher};
     let mut sorted = trajectory_ids.to_vec();
     sorted.sort();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    sorted.hash(&mut hasher);
-    hasher.finish()
+    let joined = sorted.join("\0");
+    let hash = blake3::hash(joined.as_bytes());
+    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
 }
 
 fn lcs_len(a: &[String], b: &[String]) -> usize {
