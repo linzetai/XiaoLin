@@ -426,13 +426,15 @@ fn inject_system_block(messages: &mut Vec<ChatMessage>, block: &str) {
     );
 }
 
-/// Extract file path from tool arguments JSON (looks for "path" or "file_path" fields).
+/// When adding tools with file path parameters, keep this list in sync.
+const PATH_PARAM_KEYS: &[&str] = &["path", "file_path", "file", "target_path", "filename"];
+
+/// Extract file path from tool arguments JSON.
 fn extract_file_path_from_args(arguments: &str) -> Option<std::path::PathBuf> {
     let v: serde_json::Value = serde_json::from_str(arguments).ok()?;
-    v.get("path")
-        .or_else(|| v.get("file_path"))
-        .or_else(|| v.get("file"))
-        .and_then(|p| p.as_str())
+    PATH_PARAM_KEYS
+        .iter()
+        .find_map(|key| v.get(*key).and_then(|p| p.as_str()))
         .map(std::path::PathBuf::from)
 }
 
@@ -453,10 +455,9 @@ pub(crate) fn extract_file_paths_from_args(
                 entries
                     .iter()
                     .filter_map(|entry| {
-                        entry
-                            .get("path")
-                            .or_else(|| entry.get("file_path"))
-                            .and_then(|p| p.as_str())
+                        PATH_PARAM_KEYS
+                            .iter()
+                            .find_map(|key| entry.get(*key).and_then(|p| p.as_str()))
                             .map(std::path::PathBuf::from)
                     })
                     .collect()

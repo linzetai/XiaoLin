@@ -126,15 +126,19 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   },
 
   setActiveTab: (id) => {
-    const { tabs, panelOpen, panelWidth } = get();
+    const { tabs, panelOpen, panelWidth, activeTabId } = get();
     if (tabs.some((t) => t.id === id)) {
+      const patch: Partial<WorkspaceTabsState> = { activeTabId: id };
+      if (activeTabId === "files" && id !== "files") {
+        patch.filesClosedByUser = true;
+      }
       if (!panelOpen) {
-        set({ activeTabId: id, panelOpen: true });
+        set({ ...patch, panelOpen: true });
         resizeWindowForPanel(true, null, panelWidth).then((saved) => {
           if (saved != null) set({ prePanelWidth: saved });
         });
       } else {
-        set({ activeTabId: id });
+        set(patch);
       }
     }
   },
@@ -155,9 +159,13 @@ export const useWorkspaceTabs = create<WorkspaceTabsState>((set, get) => ({
   },
 
   togglePanel: () => {
-    const { panelOpen, prePanelWidth, panelWidth } = get();
+    const { panelOpen, prePanelWidth, panelWidth, activeTabId } = get();
     const next = !panelOpen;
-    set({ panelOpen: next });
+    const patch: Partial<WorkspaceTabsState> = { panelOpen: next };
+    if (!next && activeTabId === "files") {
+      patch.filesClosedByUser = true;
+    }
+    set(patch);
     if (next) {
       resizeWindowForPanel(true, null, panelWidth).then((saved) => {
         if (saved != null) set({ prePanelWidth: saved });

@@ -1,11 +1,8 @@
 use base64::Engine;
-use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-
 const MAX_TEXT_FILE_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_BINARY_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const BINARY_PROBE_BYTES: usize = 8192;
@@ -28,14 +25,6 @@ pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileMetadata {
-    pub size: u64,
-    pub modified_at: String,
-    pub is_directory: bool,
 }
 
 #[derive(Serialize)]
@@ -116,11 +105,6 @@ fn is_readonly(path: &Path) -> bool {
     }
 }
 
-fn system_time_to_rfc3339(time: SystemTime) -> String {
-    let datetime: DateTime<Utc> = time.into();
-    datetime.to_rfc3339()
-}
-
 fn has_nul_bytes(path: &Path) -> Result<bool, String> {
     let mut file = fs::File::open(path).map_err(|_| "failed to open file".to_string())?;
     let mut buf = vec![0u8; BINARY_PROBE_BYTES];
@@ -162,7 +146,7 @@ pub fn read_file_for_viewer(path: String, work_dir: String) -> Result<ReadFileRe
 
     let size = file_size(&canonical)?;
     if size > MAX_TEXT_FILE_BYTES {
-        return Err("文件过大".into());
+        return Err("file too large".into());
     }
 
     if has_nul_bytes(&canonical)? {
@@ -186,10 +170,15 @@ pub fn list_directory(path: String, work_dir: String) -> Result<Vec<DirEntry>, S
         return Err("path is not a directory".into());
     }
 
+    const MAX_DIR_ENTRIES: usize = 2000;
+
     let mut entries = Vec::new();
     let read_dir = fs::read_dir(&canonical).map_err(|_| "failed to read directory".to_string())?;
 
     for entry in read_dir {
+        if entries.len() >= MAX_DIR_ENTRIES {
+            break;
+        }
         let entry = entry.map_err(|_| "failed to read directory entry".to_string())?;
         let file_type = entry
             .file_type()
@@ -229,23 +218,6 @@ pub fn list_directory(path: String, work_dir: String) -> Result<Vec<DirEntry>, S
 }
 
 #[tauri::command]
-pub fn file_metadata(path: String, work_dir: String) -> Result<FileMetadata, String> {
-    let canonical = validate_path(&path, &work_dir)?;
-    let meta = fs::metadata(&canonical).map_err(|_| "failed to read file metadata".to_string())?;
-
-    let modified_at = meta
-        .modified()
-        .map(system_time_to_rfc3339)
-        .unwrap_or_else(|_| String::new());
-
-    Ok(FileMetadata {
-        size: meta.len(),
-        modified_at,
-        is_directory: meta.is_dir(),
-    })
-}
-
-#[tauri::command]
 pub fn read_binary_for_viewer(path: String, work_dir: String) -> Result<BinaryFileResult, String> {
     let canonical = validate_path(&path, &work_dir)?;
 
@@ -255,7 +227,7 @@ pub fn read_binary_for_viewer(path: String, work_dir: String) -> Result<BinaryFi
 
     let size = file_size(&canonical)?;
     if size > MAX_BINARY_FILE_BYTES {
-        return Err("文件过大".into());
+        return Err("file too large".into());
     }
 
     let bytes = fs::read(&canonical).map_err(|_| "failed to read file".to_string())?;

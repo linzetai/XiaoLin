@@ -61,20 +61,33 @@ fn record_successful_file_artifacts(
 
     for path in paths {
         let resolved = resolve_artifact_path(svc.work_dir.as_deref(), &path);
-        let op = match tool_name {
-            "edit_file" | "multi_edit" | "str_replace_editor" | "apply_patch" => FileOp::Modified,
-            "create_file" => FileOp::Created,
-            _ => {
-                let file_existed = file_pre_snapshots
-                    .get(&path)
-                    .map(|(_, exists)| *exists)
-                    .unwrap_or_else(|| resolved.exists());
-                if file_existed { FileOp::Modified } else { FileOp::Created }
+        let file_exists_now = resolved.exists();
+        let file_existed_before = file_pre_snapshots
+            .get(&path)
+            .map(|(_, exists)| *exists)
+            .unwrap_or(false);
+
+        let op = if !file_exists_now && file_existed_before {
+            FileOp::Deleted
+        } else {
+            match tool_name {
+                "edit_file" | "multi_edit" | "str_replace_editor" | "apply_patch" => {
+                    FileOp::Modified
+                }
+                "create_file" => FileOp::Created,
+                _ => {
+                    if file_existed_before {
+                        FileOp::Modified
+                    } else {
+                        FileOp::Created
+                    }
+                }
             }
         };
         let bytes = std::fs::metadata(&resolved).map(|m| m.len()).unwrap_or(0);
         let artifact = FileArtifact::new(session_id, resolved, op, call_id, bytes);
-        svc.services.record_file_artifact(&svc.event_tx, &svc.turn_id, artifact);
+        svc.services
+            .record_file_artifact(&svc.event_tx, &svc.turn_id, artifact);
     }
 }
 
@@ -384,27 +397,26 @@ pub(crate) async fn execute_tool_round(
         }
 
         // ── UndoEngine + FilePersistence: capture file snapshot before edit ──
-        if matches!(
-            tool_name.as_str(),
-            "edit_file" | "write_file" | "create_file" | "str_replace_editor"
-        ) {
-            if let Some(file_path) = extract_file_path_from_args(&arguments) {
+        if is_file_artifact_tool(&tool_name) {
+            let raw_paths = extract_file_paths_from_args(&tool_name, &arguments);
+            for raw_path in raw_paths {
+                let resolved = resolve_artifact_path(svc.work_dir.as_deref(), &raw_path);
                 let (file_exists, content) = if let Some((snap_content, snap_exists)) =
-                    file_pre_snapshots.get(&file_path)
+                    file_pre_snapshots.get(&raw_path)
                 {
                     (*snap_exists, snap_content.clone())
                 } else {
-                    (file_path.exists(), tokio::fs::read_to_string(&file_path).await.ok())
+                    (resolved.exists(), tokio::fs::read_to_string(&resolved).await.ok())
                 };
                 if let Some(ref c) = content {
-                    ms.undo_engine.capture_before_edit(&file_path, c);
+                    ms.undo_engine.capture_before_edit(&resolved, c);
                 }
                 let op = if file_exists {
                     FileOp::Modified
                 } else {
                     FileOp::Created
                 };
-                ms.file_tracker.record(file_path, op, &tool_name);
+                ms.file_tracker.record(resolved, op, &tool_name);
             }
         }
 

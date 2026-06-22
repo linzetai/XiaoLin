@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   Copy,
   ArrowSquareOut,
@@ -51,6 +51,8 @@ export const FileToolbar = memo(function FileToolbar({
   const fileName = file.path.split("/").pop() ?? file.path;
   const showViewToggle = supportsViewModeToggle(file.path, file.language);
   const isPreview = file.viewMode === "preview";
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   const handleCopy = useCallback(async () => {
     try {

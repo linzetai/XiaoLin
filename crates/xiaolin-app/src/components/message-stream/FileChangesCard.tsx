@@ -46,10 +46,6 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
     );
   }, []);
 
-  const handleUndo = useCallback(() => {
-    console.warn("Undo not yet implemented");
-  }, []);
-
   return (
     <div style={cardStyle}>
       <div style={topStyle}>
@@ -63,20 +59,19 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
         )}
         <button
           type="button"
-          onClick={handleUndo}
+          disabled
+          title="Undo is not yet available"
           style={{
             marginLeft: "auto",
             fontSize: 11,
-            color: "var(--fill-tertiary)",
+            color: "var(--fill-quaternary)",
             background: "none",
             border: "none",
-            cursor: "pointer",
+            cursor: "not-allowed",
             padding: "2px 4px",
             borderRadius: 4,
-            transition: "color 0.12s",
+            opacity: 0.5,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--tint)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-tertiary)"; }}
         >
           Undo
         </button>

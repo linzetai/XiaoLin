@@ -112,7 +112,7 @@ function splitChildrenByLines(node: React.ReactNode): React.ReactNode[][] {
 }
 
 const CODE_EXT = /\.(py|js|ts|tsx|jsx|rs|go|java|c|cpp|h|hpp|rb|php|sh|sql|css|html|vue|svelte|toml|json|ya?ml|xml|md|txt|env|cfg|ini|lock|log|conf|dockerfile)$/i;
-const FILE_PATH_RE = /^\.{0,2}\/[\w./-]+\.\w+$|^[\w-]+(?:\/[\w./-]+)+\.\w+$|^[A-Z]:\\[\w.\\ -]+\.\w+$/;
+const FILE_PATH_RE = /^\.{0,2}\/[\w./-]+\.\w{1,10}$|^[\w-]+(?:\/[\w./-]+)+\.\w{1,10}$|^[A-Z]:\\[\w.\\ -]+\.\w{1,10}$/;
 
 function CodeBlock({ children, className, ...rest }: ComponentPropsWithoutRef<"code">) {
   const showLineNumbers = useConfigStore((s) => s.display.showLineNumbers);

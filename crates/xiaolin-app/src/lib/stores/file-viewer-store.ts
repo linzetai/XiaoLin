@@ -45,14 +45,19 @@ export interface FileViewerState {
 }
 
 
+/** Normalize path separators to forward slashes (handles Windows backslashes). */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 /** Resolve absolute or relative paths against a work directory. */
 export function resolveFilePath(path: string, workDir: string): string {
-  const trimmed = path.trim();
+  const trimmed = normalizePath(path.trim());
   if (!trimmed) return "";
-  if (trimmed.startsWith("/") || /^[A-Za-z]:[\\/]/.test(trimmed)) {
+  if (trimmed.startsWith("/") || /^[A-Za-z]:\//.test(trimmed)) {
     return trimmed;
   }
-  const base = workDir.replace(/\/+$/, "");
+  const base = normalizePath(workDir).replace(/\/+$/, "");
   const relative = trimmed.replace(/^\.?\//, "");
   return `${base}/${relative}`;
 }
@@ -94,7 +99,8 @@ function pickLruPath(openFiles: Record<string, OpenFile>, excludePath?: string):
   return lru;
 }
 
-/** Merge server-fetched artifacts with locally-buffered ones (from WS events). */
+/** Merge server-fetched artifacts with locally-buffered ones (from WS events),
+ *  dedup by path+timestamp, then sort newest-first. */
 function mergeArtifacts(local: FileArtifact[], server: FileArtifact[]): FileArtifact[] {
   const seen = new Set<string>();
   const merged: FileArtifact[] = [];
@@ -104,6 +110,7 @@ function mergeArtifacts(local: FileArtifact[], server: FileArtifact[]): FileArti
     seen.add(key);
     merged.push(a);
   }
+  merged.sort((a, b) => (b.timestamp > a.timestamp ? 1 : b.timestamp < a.timestamp ? -1 : 0));
   return merged.length > MAX_ARTIFACTS_PER_SESSION
     ? merged.slice(0, MAX_ARTIFACTS_PER_SESSION)
     : merged;
@@ -124,7 +131,7 @@ function parseArtifactData(data: Record<string, unknown>): FileArtifact | null {
   const op = data.operation;
   if (op !== "created" && op !== "modified" && op !== "deleted") return null;
   return {
-    path: data.path,
+    path: normalizePath(data.path),
     operation: op,
     timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date().toISOString(),
     toolCallId: typeof data.toolCallId === "string" ? data.toolCallId : "",
@@ -397,7 +404,7 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
         : typeof data.session_id === "string"
           ? data.session_id
           : null;
-    if (sessionId && sessionId !== chatId) return;
+    if (!sessionId || sessionId !== chatId) return;
 
     const artifact = parseArtifactData(data);
     if (!artifact) return;
@@ -407,15 +414,29 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
       if (updated === s.artifacts) return s;
 
       const resolvedPath = resolveFilePath(artifact.path, useChatMetaStore.getState().chats[chatId]?.workDir ?? "");
-      const shouldMarkStale = artifact.operation === "modified" && resolvedPath && s.openFiles[resolvedPath];
-      const nextStale = shouldMarkStale
-        ? new Set([...s.staleFiles, resolvedPath])
-        : s.staleFiles;
+      const isOpenFile = !!(resolvedPath && s.openFiles[resolvedPath]);
+      let nextStale = s.staleFiles;
+      let nextOpenFiles = s.openFiles;
+      let nextActive = s.activeFilePath;
+
+      if (isOpenFile && artifact.operation === "modified") {
+        nextStale = new Set([...s.staleFiles, resolvedPath]);
+      } else if (isOpenFile && artifact.operation === "deleted") {
+        const { [resolvedPath]: _, ...rest } = s.openFiles;
+        nextOpenFiles = rest;
+        nextStale = new Set(s.staleFiles);
+        nextStale.delete(resolvedPath);
+        if (nextActive === resolvedPath) {
+          nextActive = pickMostRecentOpenFile(nextOpenFiles);
+        }
+      }
 
       return {
         artifacts: updated,
         sessionArtifacts: { ...s.sessionArtifacts, [chatId]: updated },
         staleFiles: nextStale,
+        openFiles: nextOpenFiles,
+        activeFilePath: nextActive,
       };
     });
 

@@ -97,11 +97,11 @@
 
 ## 11. 集成测试和优化
 
-- [ ] 11.1 验证 CM6 lazy import 不影响应用启动速度（检查 main chunk 大小）
-- [ ] 11.2 验证大文件处理：500KB / 1MB / 5MB / >5MB 各级别文件的加载行为
-- [ ] 11.3 验证路径安全：尝试读取 workDir 外的文件被拒绝
-- [ ] 11.4 验证 tab 切换时 CM6 EditorView 状态保持（滚动位置、折叠、搜索）
-- [ ] 11.5 验证页面刷新后 artifact 列表从 SQLite 恢复
-- [ ] 11.6 验证 light/dark 主题切换时 CM6 主题跟随
-- [ ] 11.7 内存泄漏检查：反复打开/关闭文件 tab，检查 EditorView 是否正确 destroy
-- [ ] 11.8 验证二进制文件检测正确（不把二进制内容加载到 CM6）
+- [x] 11.1 验证 CM6 lazy import 不影响应用启动速度（检查 main chunk 大小）
+- [x] 11.2 验证大文件处理：500KB / 1MB / 5MB / >5MB 各级别文件的加载行为
+- [x] 11.3 验证路径安全：尝试读取 workDir 外的文件被拒绝
+- [x] 11.4 验证 tab 切换时 CM6 EditorView 状态保持（滚动位置、折叠、搜索）
+- [x] 11.5 验证页面刷新后 artifact 列表从 SQLite 恢复
+- [x] 11.6 验证 light/dark 主题切换时 CM6 主题跟随
+- [x] 11.7 内存泄漏检查：反复打开/关闭文件 tab，检查 EditorView 是否正确 destroy
+- [x] 11.8 验证二进制文件检测正确（不把二进制内容加载到 CM6）
