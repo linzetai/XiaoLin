@@ -7,6 +7,7 @@ use axum::{
 use arc_swap::ArcSwap;
 use constant_time_eq::constant_time_eq;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -53,9 +54,58 @@ impl ApiKeyAuth {
         if !snap.enabled {
             return true;
         }
-        snap.valid_keys
-            .iter()
-            .any(|k| constant_time_eq(k.as_bytes(), key.as_bytes()))
+        let key_hash = hash_api_key(key);
+        let mut ok = 0u8;
+        for k in &snap.valid_keys {
+            ok |= constant_time_eq(&key_hash, &hash_api_key(k)) as u8;
+        }
+        ok == 1
+    }
+
+    /// Extract an API key for WebSocket upgrade requests.
+    ///
+    /// Priority: `Authorization: Bearer`, `Sec-WebSocket-Protocol` subprotocol
+    /// (`bearer.<key>` or `api-key.<key>`), then deprecated query `token` /
+    /// `api_key`.
+    pub fn extract_ws_key(
+        headers: &axum::http::HeaderMap,
+        query_token: Option<&str>,
+        query_api_key: Option<&str>,
+    ) -> Option<(String, WsKeySource)> {
+        if let Some(auth) = headers.get("authorization") {
+            if let Ok(value) = auth.to_str() {
+                if let Some(token) = value.strip_prefix("Bearer ") {
+                    let token = token.trim();
+                    if !token.is_empty() {
+                        return Some((token.to_string(), WsKeySource::AuthorizationHeader));
+                    }
+                }
+            }
+        }
+
+        if let Some(proto) = headers.get("sec-websocket-protocol") {
+            if let Ok(value) = proto.to_str() {
+                for part in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Some(token) = part
+                        .strip_prefix("bearer.")
+                        .or_else(|| part.strip_prefix("api-key."))
+                    {
+                        if !token.is_empty() {
+                            return Some((token.to_string(), WsKeySource::WebSocketProtocol));
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(token) = query_token.map(str::trim).filter(|t| !t.is_empty()) {
+            return Some((token.to_string(), WsKeySource::QueryString));
+        }
+        if let Some(token) = query_api_key.map(str::trim).filter(|t| !t.is_empty()) {
+            return Some((token.to_string(), WsKeySource::QueryString));
+        }
+
+        None
     }
 
     fn extract_key(req: &Request) -> Option<String> {
@@ -94,6 +144,17 @@ impl ApiKeyAuth {
 
         None
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WsKeySource {
+    AuthorizationHeader,
+    WebSocketProtocol,
+    QueryString,
+}
+
+fn hash_api_key(key: &str) -> [u8; 32] {
+    Sha256::digest(key.as_bytes()).into()
 }
 
 fn snapshot_from_config(config: &AuthConfig) -> AuthSnapshot {

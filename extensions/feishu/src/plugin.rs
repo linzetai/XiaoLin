@@ -104,6 +104,8 @@ pub struct FeishuPlugin {
     client: Arc<FeishuClient>,
     /// WebSocket client for long-connection mode (None in webhook mode)
     ws_client: Arc<Mutex<Option<Arc<ws::FeishuWsClient>>>>,
+    /// Cached bot open_id resolved once at startup
+    bot_open_id_cache: Arc<Mutex<Option<String>>>,
     /// Cancels the event bridge task on stop
     ws_bridge_cancel: Arc<Mutex<Option<CancellationToken>>>,
     dedup: Arc<Mutex<MessageDedup>>,
@@ -140,6 +142,7 @@ impl FeishuPlugin {
             config,
             client,
             ws_client: Arc::new(Mutex::new(None)),
+            bot_open_id_cache: Arc::new(Mutex::new(None)),
             ws_bridge_cancel: Arc::new(Mutex::new(None)),
             dedup: Arc::new(Mutex::new(MessageDedup::new(Duration::from_secs(300)))),
         }
@@ -233,6 +236,21 @@ impl FeishuPlugin {
     }
 
     async fn get_bot_open_id(&self) -> Option<String> {
+        {
+            let guard = self.bot_open_id_cache.lock().await;
+            if let Some(ref id) = *guard {
+                return Some(id.clone());
+            }
+        }
+
+        let open_id = self.fetch_bot_open_id_from_api().await;
+        if let Some(ref id) = open_id {
+            *self.bot_open_id_cache.lock().await = Some(id.clone());
+        }
+        open_id
+    }
+
+    async fn fetch_bot_open_id_from_api(&self) -> Option<String> {
         match self.client.get_tenant_token().await {
             Ok(token) => {
                 let url = format!(
@@ -593,10 +611,27 @@ impl ChannelPlugin for FeishuPlugin {
         }
 
         let ws_client_clone = Arc::clone(&ws_client);
+        let connect_cancel = ws_client.cancellation_token();
         tokio::spawn(async move {
-            tracing::info!("feishu ws: background task started, connecting...");
-            if let Err(e) = ws_client_clone.start().await {
-                tracing::error!(error = %e, "feishu ws client start failed");
+            let mut delay = Duration::from_secs(1);
+            const MAX_DELAY: Duration = Duration::from_secs(60);
+            loop {
+                if connect_cancel.is_cancelled() {
+                    break;
+                }
+                tracing::info!("feishu ws: background task started, connecting...");
+                match Arc::clone(&ws_client_clone).start().await {
+                    Ok(()) => break,
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            retry_in_secs = delay.as_secs(),
+                            "feishu ws client start failed"
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay = (delay * 2).min(MAX_DELAY);
+                    }
+                }
             }
         });
 

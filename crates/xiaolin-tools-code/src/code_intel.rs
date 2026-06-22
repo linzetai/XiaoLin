@@ -63,19 +63,22 @@ fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
+/// Keyword → symbol kind mapping for line-based detection.
+/// When adding new language constructs, update this list.
+const SYMBOL_KIND_KEYWORDS: &[(&str, &str)] = &[
+    ("fn", "function"),
+    ("struct", "struct"),
+    ("enum", "enum"),
+    ("trait", "trait"),
+    ("impl", "impl"),
+    ("class", "class"),
+    ("interface", "interface"),
+    ("type", "type"),
+];
+
 fn detect_symbol_kind_from_line(line: &str, query: &str) -> String {
-    let kinds = [
-        ("fn", "function"),
-        ("struct", "struct"),
-        ("enum", "enum"),
-        ("trait", "trait"),
-        ("impl", "impl"),
-        ("class", "class"),
-        ("interface", "interface"),
-        ("type", "type"),
-    ];
     let lowered = line.to_lowercase();
-    for (kw, kind) in kinds {
+    for (kw, kind) in SYMBOL_KIND_KEYWORDS {
         if lowered.contains(&format!("{kw} {query}")) {
             return kind.to_string();
         }

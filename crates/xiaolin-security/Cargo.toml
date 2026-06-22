@@ -13,6 +13,7 @@ serde_json.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 constant_time_eq.workspace = true
+sha2.workspace = true
 arc-swap.workspace = true
 regex.workspace = true
 url = "2"

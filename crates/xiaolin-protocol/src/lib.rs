@@ -28,9 +28,9 @@ pub use search::{
 };
 #[allow(deprecated)]
 pub use op::{
-    ChatParams, ChatSteerMessage, ChatSubmitParams, ClientOp, McpAddParams, SessionsListParams,
-    SessionsNewParams, SkillsDeleteParams, SkillsListParams, SkillsReadParams,
-    SkillsUpdateParams, ToolsListParams, ToolsUpdateParams,
+    all_ws_method_names, ChatParams, ChatSteerMessage, ChatSubmitParams, ClientOp,
+    ClientOpParseError, McpAddParams, SessionsListParams, SessionsNewParams, SkillsDeleteParams,
+    SkillsListParams, SkillsReadParams, SkillsUpdateParams, ToolsListParams, ToolsUpdateParams,
 };
 pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
 pub use usage::TokenUsage;

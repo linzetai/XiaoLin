@@ -6,7 +6,14 @@ use std::sync::{Mutex, OnceLock};
 
 use dashmap::DashMap;
 
-const MAX_HISTOGRAM_SAMPLES: usize = 50_000;
+const MAX_HISTOGRAM_SAMPLES: usize = 10_240;
+
+fn push_histogram_sample(vec: &mut Vec<f64>, sample: f64) {
+    if vec.len() >= MAX_HISTOGRAM_SAMPLES {
+        vec.remove(0);
+    }
+    vec.push(sample);
+}
 
 fn escape_label_value(value: &str) -> String {
     value
@@ -85,9 +92,7 @@ impl MetricsCollector {
             Ok(g) => g,
             Err(e) => e.into_inner(),
         };
-        if vec.len() < MAX_HISTOGRAM_SAMPLES {
-            vec.push(ms);
-        }
+        push_histogram_sample(&mut vec, ms);
     }
 
     pub fn record_error(&self, error_type: &str) {
@@ -139,9 +144,7 @@ impl MetricsCollector {
             Ok(g) => g,
             Err(e) => e.into_inner(),
         };
-        if vec.len() < MAX_HISTOGRAM_SAMPLES {
-            vec.push(ms);
-        }
+        push_histogram_sample(&mut vec, ms);
     }
 
     /// Compute percentiles (p50, p95, p99) from a histogram key.

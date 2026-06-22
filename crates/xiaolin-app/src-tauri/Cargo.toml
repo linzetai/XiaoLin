@@ -55,6 +55,7 @@ arboard = "3"
 png = "0.17"
 cpal = "0.15"
 hound = "3.5"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 xiaolin-gateway = { path = "../../xiaolin-gateway", features = ["test-helpers"] }

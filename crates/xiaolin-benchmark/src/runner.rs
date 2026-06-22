@@ -2,14 +2,24 @@ use crate::grader;
 use crate::metrics::{CollectedResult, MetricsCollector, RunMetrics};
 use crate::report::{RunReport, TaskReport};
 use crate::task::BenchmarkTask;
+use std::collections::HashMap;
 use std::path::Path;
 use xiaolin_protocol::event::AgentEvent;
+
+/// Metadata captured before agent execution for filesystem unchanged checks.
+#[derive(Debug, Clone, Default)]
+pub struct FileSnapshot {
+    pub size: u64,
+    pub modified_secs: u64,
+}
 
 /// Execution result from running a single benchmark task.
 pub struct TaskExecution {
     pub collected: CollectedResult,
     /// The temp workspace used for execution. Kept alive so graders can inspect files.
     pub workspace: Option<tempfile::TempDir>,
+    /// Pre-run file metadata for `FilesystemCheck.unchanged` graders.
+    pub pre_run_files: HashMap<String, FileSnapshot>,
 }
 
 /// Trait for executing benchmark tasks. Implementations provide the actual
@@ -86,6 +96,7 @@ impl BenchmarkRunner {
                     &task.graders,
                     &execution.collected,
                     &grading_dir,
+                    &execution.pre_run_files,
                 );
                 let pass = grader::all_passed(&grades);
 
@@ -150,6 +161,7 @@ impl BenchmarkExecutor for ReplayExecutor {
         Ok(TaskExecution {
             collected: collector.finalize(),
             workspace: None,
+            pre_run_files: HashMap::new(),
         })
     }
 }
@@ -169,6 +181,7 @@ mod tests {
             Ok(TaskExecution {
                 collected: self.result.clone(),
                 workspace: None,
+                pre_run_files: HashMap::new(),
             })
         }
     }

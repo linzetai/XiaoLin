@@ -3,9 +3,42 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use xiaolin_security::ssrf::{ssrf_check_url, ssrf_safe_redirect_policy};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+const HTTP_FETCH_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+async fn read_response_body_limited(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, reqwest::Error> {
+    let mut body = String::new();
+    let mut total = 0usize;
+    let mut truncated = false;
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        total += chunk.len();
+        if total > max_bytes {
+            let already = body.len();
+            let remaining = max_bytes.saturating_sub(already);
+            if remaining > 0 {
+                body.push_str(&String::from_utf8_lossy(&chunk[..remaining.min(chunk.len())]));
+            }
+            truncated = true;
+            break;
+        }
+        body.push_str(&String::from_utf8_lossy(&chunk));
+    }
+
+    if truncated {
+        body.push_str(&format!("... [truncated, >={total} bytes total]"));
+    }
+    Ok(body)
+}
 
 /// HTTP fetch tool — performs one HTTP request to a URL.
 pub struct HttpFetchTool {
@@ -241,7 +274,7 @@ impl Tool for HttpFetchTool {
                         serde_json::json!({ "status": status, "body": "" }).to_string(),
                     );
                 }
-                match resp.text().await {
+                match read_response_body_limited(resp, HTTP_FETCH_MAX_BODY_BYTES).await {
                     Ok(body) => {
                         let truncated = if body.len() > 4096 {
                             let end = body
@@ -1458,7 +1491,7 @@ impl Tool for WebFetchTool {
             .to_string();
         let final_url = resp.url().to_string();
 
-        let body = match resp.text().await {
+        let body = match read_response_body_limited(resp, self.max_content_bytes).await {
             Ok(t) => t,
             Err(e) => {
                 return ToolResult::err(format!(
@@ -1472,18 +1505,10 @@ impl Tool for WebFetchTool {
 
         let extracted = match mode {
             "raw" => {
-                if body.len() > self.max_content_bytes {
-                    let end = body
-                        .char_indices()
-                        .map(|(i, _)| i)
-                        .take_while(|&i| i <= self.max_content_bytes)
-                        .last()
-                        .unwrap_or(0);
-                    format!(
-                        "{}... [truncated, {} bytes total]",
-                        &body[..end],
-                        body.len()
-                    )
+                if body.contains("[truncated,") {
+                    body
+                } else if body.len() > self.max_content_bytes {
+                    truncate_text(&body, self.max_content_bytes)
                 } else {
                     body
                 }

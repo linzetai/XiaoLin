@@ -237,6 +237,35 @@ impl SkillStore {
         Ok(())
     }
 
+    /// Returns true when a candidate with the same task pattern and trajectory fingerprint exists.
+    pub async fn has_duplicate_candidate(
+        &self,
+        task_pattern: &str,
+        fingerprint: u64,
+    ) -> Result<bool> {
+        use crate::skill_extractor::cluster_fingerprint;
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT source_trajectory_ids, status FROM extracted_skills WHERE task_pattern = ?",
+        )
+        .bind(task_pattern)
+        .fetch_all(&self.pool)
+        .await?;
+
+        for (sources_json, status) in rows {
+            if status != "candidate" {
+                continue;
+            }
+            let Ok(source_ids) = serde_json::from_str::<Vec<String>>(&sources_json) else {
+                continue;
+            };
+            if cluster_fingerprint(&source_ids) == fingerprint {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub async fn find_by_task_type(
         &self,
         task_type: &str,

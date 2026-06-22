@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use globset::GlobSet;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 use crate::config::{NetworkMode, NetworkProxySettings};
 use crate::mitm::MitmState;
@@ -16,6 +16,7 @@ use crate::network_policy::{
 };
 
 const MAX_BLOCKED_EVENTS: usize = 200;
+pub const DEFAULT_MAX_CONNECTIONS: usize = 1024;
 
 /// Metadata attached to proxy audit events.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -172,6 +173,7 @@ pub struct NetworkProxyState {
     network_mode: Arc<RwLock<Option<NetworkMode>>>,
     dynamic_domains: Arc<RwLock<DynamicDomains>>,
     mitm_state: Option<Arc<MitmState>>,
+    connection_limit: Arc<Semaphore>,
 }
 
 impl std::fmt::Debug for NetworkProxyState {
@@ -199,7 +201,12 @@ impl NetworkProxyState {
             network_mode: Arc::new(RwLock::new(None)),
             dynamic_domains: Arc::new(RwLock::new(DynamicDomains::default())),
             mitm_state: None,
+            connection_limit: Arc::new(Semaphore::new(DEFAULT_MAX_CONNECTIONS)),
         }
+    }
+
+    pub fn connection_limit(&self) -> Arc<Semaphore> {
+        Arc::clone(&self.connection_limit)
     }
 
     pub fn for_settings(settings: NetworkProxySettings) -> Self {

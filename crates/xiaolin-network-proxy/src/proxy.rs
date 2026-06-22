@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 use crate::http_proxy::run_http_proxy_on_listener;
-use crate::network_policy::NetworkDecision;
 use crate::runtime::{BlockedRequestObserver, NetworkProxyState};
 use crate::socks5::run_socks5_proxy_on_listener;
 
@@ -146,16 +145,7 @@ pub struct NetworkProxyBuilder {
     state: Option<Arc<NetworkProxyState>>,
     http_addr: Option<SocketAddr>,
     socks_addr: Option<SocketAddr>,
-    policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     blocked_request_observer: Option<Arc<dyn BlockedRequestObserver>>,
-}
-
-/// Trait for custom synchronous network policy decisions.
-pub trait NetworkPolicyDecider: Send + Sync + 'static {
-    fn decide(
-        &self,
-        request: &crate::network_policy::NetworkPolicyRequest,
-    ) -> NetworkDecision;
 }
 
 impl NetworkProxyBuilder {
@@ -175,11 +165,6 @@ impl NetworkProxyBuilder {
 
     pub fn with_socks_addr(mut self, addr: SocketAddr) -> Self {
         self.socks_addr = Some(addr);
-        self
-    }
-
-    pub fn with_policy_decider(mut self, decider: Arc<dyn NetworkPolicyDecider>) -> Self {
-        self.policy_decider = Some(decider);
         self
     }
 

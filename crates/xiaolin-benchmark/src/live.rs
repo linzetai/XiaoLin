@@ -10,8 +10,8 @@ use xiaolin_core::types::{ChatMessage, ChatRequest, Role};
 use xiaolin_protocol::event::AgentEvent;
 
 use crate::metrics::MetricsCollector;
-use crate::runner::{BenchmarkExecutor, TaskExecution};
-use crate::task::BenchmarkTask;
+use crate::runner::{BenchmarkExecutor, FileSnapshot, TaskExecution};
+use crate::task::{BenchmarkTask, GraderConfig};
 
 /// Executes benchmark tasks using a real LLM provider and full agent runtime.
 pub struct LiveExecutor {
@@ -61,6 +61,7 @@ impl LiveExecutor {
 impl BenchmarkExecutor for LiveExecutor {
     async fn execute(&self, task: &BenchmarkTask) -> anyhow::Result<TaskExecution> {
         let workspace = self.setup_workspace(task)?;
+        let pre_run_files = snapshot_unchanged_files(workspace.path(), &task.graders);
 
         let timeout_ms = task.environment.timeout_ms.unwrap_or(120_000);
 
@@ -95,10 +96,7 @@ impl BenchmarkExecutor for LiveExecutor {
         let registry = self.tool_registry.clone();
         let orchestrator = self.orchestrator.clone();
 
-        let original_dir = std::env::current_dir().ok();
-        let ws_path = workspace.path().to_path_buf();
         let exec_handle = tokio::spawn(async move {
-            std::env::set_current_dir(&ws_path).ok();
             runtime
                 .execute_unified(
                     &config,
@@ -139,14 +137,11 @@ impl BenchmarkExecutor for LiveExecutor {
         })
         .await;
 
-        if let Some(orig) = original_dir {
-            std::env::set_current_dir(&orig).ok();
-        }
-
         match result {
             Ok(Ok(collected)) => Ok(TaskExecution {
                 collected,
                 workspace: Some(workspace),
+                pre_run_files,
             }),
             Ok(Err(e)) => anyhow::bail!("Collection task panicked: {e}"),
             Err(_) => anyhow::bail!("Task timed out after {timeout_ms}ms"),
@@ -167,4 +162,50 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> anyhow::R
         }
     }
     Ok(())
+}
+
+fn unchanged_paths(graders: &[GraderConfig]) -> Vec<String> {
+    graders
+        .iter()
+        .filter_map(|g| match g {
+            GraderConfig::FilesystemCheck { unchanged, .. } if !unchanged.is_empty() => {
+                Some(unchanged.clone())
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+fn snapshot_unchanged_files(
+    workspace_dir: &std::path::Path,
+    graders: &[GraderConfig],
+) -> std::collections::HashMap<String, FileSnapshot> {
+    use std::collections::HashMap;
+    use std::time::UNIX_EPOCH;
+
+    let mut out = HashMap::new();
+    for rel in unchanged_paths(graders) {
+        let path = workspace_dir.join(&rel);
+        if !path.exists() {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let modified_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        out.insert(
+            rel,
+            FileSnapshot {
+                size: meta.len(),
+                modified_secs,
+            },
+        );
+    }
+    out
 }

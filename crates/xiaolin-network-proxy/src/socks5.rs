@@ -49,7 +49,11 @@ pub async fn run_socks5_proxy_on_listener(
         };
 
         let state = Arc::clone(&state);
+        let connection_limit = state.connection_limit();
         tokio::spawn(async move {
+            let Ok(_permit) = connection_limit.acquire_owned().await else {
+                return;
+            };
             if let Err(e) = handle_socks5_connection(state, stream, client_addr).await {
                 warn!("SOCKS5 error from {client_addr}: {e}");
             }

@@ -41,6 +41,7 @@ static HOP_BY_HOP_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
 const X_PROXY_ERROR: &str = "x-proxy-error";
 const X_UNIX_SOCKET: &str = "x-unix-socket";
+const MAX_BODY_BYTES: usize = 100 * 1024 * 1024;
 
 /// Run the HTTP proxy engine on a pre-bound listener.
 pub async fn run_http_proxy_on_listener(
@@ -60,7 +61,11 @@ pub async fn run_http_proxy_on_listener(
         };
 
         let state = Arc::clone(&state);
+        let connection_limit = state.connection_limit();
         tokio::spawn(async move {
+            let Ok(_permit) = connection_limit.acquire_owned().await else {
+                return;
+            };
             if let Err(e) = handle_connection(state, stream, client_addr).await {
                 warn!("connection error from {client_addr}: {e}");
             }
@@ -426,12 +431,28 @@ async fn handle_plain_proxy(
         builder = builder.header(name, value);
     }
 
-    let body = req.collect().await?.to_bytes();
+    let body = match collect_body_with_limit(req.into_body(), MAX_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return Ok(text_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request body too large",
+            ));
+        }
+    };
     let upstream_req = builder.body(Full::new(body))?;
     let upstream_resp = sender.send_request(upstream_req).await?;
 
     let (parts, body) = upstream_resp.into_parts();
-    let body_bytes = body.collect().await?.to_bytes();
+    let body_bytes = match collect_body_with_limit(body, MAX_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return Ok(text_response(
+                StatusCode::BAD_GATEWAY,
+                "upstream response body too large",
+            ));
+        }
+    };
 
     let mut resp_builder = Response::builder().status(parts.status);
     for (name, value) in &parts.headers {
@@ -529,6 +550,14 @@ fn text_response(status: StatusCode, body: &str) -> HttpResponse {
         .header("content-type", "text/plain; charset=utf-8")
         .body(Full::new(Bytes::from(body.to_string())))
         .unwrap()
+}
+
+async fn collect_body_with_limit(body: Incoming, max_bytes: usize) -> Result<Bytes, ()> {
+    let collected = body.collect().await.map_err(|_| ())?.to_bytes();
+    if collected.len() > max_bytes {
+        return Err(());
+    }
+    Ok(collected)
 }
 
 #[cfg(test)]

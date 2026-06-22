@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use xiaolin_core::path::AbsolutePathBuf;
+use xiaolin_core::PROTECTED_METADATA_PATH_NAMES;
 use xiaolin_security::{FileSystemSandboxKind, FileSystemSandboxPolicy};
 
 /// High-level network access mode for sandbox policy decisions.
@@ -18,9 +19,6 @@ impl NetworkAccess {
         matches!(self, Self::Enabled)
     }
 }
-
-/// Protected path prefixes that indicate repository metadata.
-const PROTECTED_METADATA_NAMES: &[&str] = &[".git", ".hg", ".svn"];
 
 /// A writable root with optional read-only subdirectories.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -57,7 +55,7 @@ impl WritableRoot {
 
         let relative = target.strip_prefix(&self.path).unwrap_or(target);
 
-        for protected_name in PROTECTED_METADATA_NAMES {
+        for protected_name in PROTECTED_METADATA_PATH_NAMES {
             if Self::path_contains_component(relative, protected_name) {
                 return false;
             }

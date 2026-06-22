@@ -7,7 +7,7 @@ pub mod rate_limit;
 pub mod read_deny_matcher;
 pub mod ssrf;
 
-pub use auth::{ApiKeyAuth, AuthConfig};
+pub use auth::{ApiKeyAuth, AuthConfig, WsKeySource};
 pub use permission_profile::{
     forbidden_agent_metadata_write, is_protected_metadata_name, project_roots_glob_pattern,
     ActivePermissionProfile, AdditionalPermissionProfile, FileSystemAccessMode, FileSystemPath,

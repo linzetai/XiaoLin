@@ -179,13 +179,16 @@ impl SelfIterEngine {
             };
         }
 
-        let mut best_prompt = current_prompt.to_string();
+        let base_prompt = current_prompt.to_string();
+        let mut best_prompt = base_prompt.clone();
         let mut best_pass_rate = 0.0;
         let all_diagnoses = diagnoses;
         let mut last_test_results = Vec::new();
+        let mut feedback_history: Vec<String> = Vec::new();
 
         const HARD_MAX_ROUNDS: u32 = 20;
         const MAX_PROMPT_CHARS: usize = 100_000;
+        const MAX_FEEDBACK_ROUNDS: usize = 3;
         let effective_max = self.config.max_rounds.min(HARD_MAX_ROUNDS);
 
         let mut rounds_executed = 0u32;
@@ -224,7 +227,14 @@ impl SelfIterEngine {
             let failures: Vec<_> = last_test_results.iter().filter(|r| !r.passed).collect();
 
             let fix_hint = generate_fix_hint(&failures, &all_diagnoses);
-            let candidate = format!("{best_prompt}\n\n{fix_hint}");
+            feedback_history.push(fix_hint);
+            if feedback_history.len() > MAX_FEEDBACK_ROUNDS {
+                feedback_history.remove(0);
+            }
+            let candidate = format!(
+                "{base_prompt}\n\n{}",
+                feedback_history.join("\n\n")
+            );
             if candidate.len() > MAX_PROMPT_CHARS {
                 tracing::warn!(
                     agent = agent_id,

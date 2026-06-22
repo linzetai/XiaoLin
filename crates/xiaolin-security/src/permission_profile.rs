@@ -6,19 +6,11 @@ use xiaolin_core::path::AbsolutePathBuf;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// Protected metadata constants
+// Protected metadata constants (canonical list lives in xiaolin-core)
 // ---------------------------------------------------------------------------
 
-const PROTECTED_METADATA_GIT_PATH_NAME: &str = ".git";
-const PROTECTED_METADATA_AGENTS_PATH_NAME: &str = ".agents";
-const PROTECTED_METADATA_XIAOLIN_PATH_NAME: &str = ".xiaolin";
-
-/// Top-level workspace metadata paths that stay protected under writable roots.
-pub const PROTECTED_METADATA_PATH_NAMES: &[&str] = &[
-    PROTECTED_METADATA_GIT_PATH_NAME,
-    PROTECTED_METADATA_AGENTS_PATH_NAME,
-    PROTECTED_METADATA_XIAOLIN_PATH_NAME,
-];
+/// Re-export of [`xiaolin_core::PROTECTED_METADATA_PATH_NAMES`].
+pub use xiaolin_core::PROTECTED_METADATA_PATH_NAMES;
 
 const PROJECT_ROOTS_GLOB_PATTERN_PREFIX: &str = "xiaolin-project-roots://";
 
@@ -1423,15 +1415,15 @@ fn default_read_only_subpaths_for_writable_root(
     writable_root: &AbsolutePathBuf,
 ) -> Vec<AbsolutePathBuf> {
     let mut subpaths = Vec::new();
-    let top_level_git = writable_root.join(PROTECTED_METADATA_GIT_PATH_NAME);
+    let top_level_git = writable_root.join(".git");
     if top_level_git.as_path().exists() {
         subpaths.push(top_level_git);
     }
-    let top_level_agents = writable_root.join(PROTECTED_METADATA_AGENTS_PATH_NAME);
+    let top_level_agents = writable_root.join(".agents");
     if top_level_agents.as_path().is_dir() {
         subpaths.push(top_level_agents);
     }
-    let top_level_xiaolin = writable_root.join(PROTECTED_METADATA_XIAOLIN_PATH_NAME);
+    let top_level_xiaolin = writable_root.join(".xiaolin");
     if top_level_xiaolin.as_path().is_dir() {
         subpaths.push(top_level_xiaolin);
     }

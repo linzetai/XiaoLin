@@ -189,10 +189,6 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
 
     let message = event.get("message")?;
     let msg_type = message.get("message_type")?.as_str()?;
-    if msg_type != "text" {
-        return None;
-    }
-
     let message_id = message.get("message_id")?.as_str()?.to_string();
     let chat_id = message
         .get("chat_id")
@@ -212,12 +208,25 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
         .unwrap_or("")
         .to_string();
 
-    let content_str = message.get("content")?.as_str()?;
-    let text = serde_json::from_str::<serde_json::Value>(content_str)
-        .ok()?
-        .get("text")?
-        .as_str()?
-        .to_string();
+    let content_str = message.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
+    let text = match msg_type {
+        "text" => {
+            let parsed = serde_json::from_str::<serde_json::Value>(content_str).ok()?;
+            parsed.get("text")?.as_str()?.to_string()
+        }
+        "image" => "[收到一张图片]".to_string(),
+        "file" => {
+            let file_name = serde_json::from_str::<serde_json::Value>(content_str)
+                .ok()
+                .and_then(|v| v.get("file_name").and_then(|n| n.as_str()).map(String::from))
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("[收到一个文件: {file_name}]")
+        }
+        "audio" => "[收到一条语音消息]".to_string(),
+        "media" | "video" => "[收到一条媒体消息]".to_string(),
+        "sticker" => "[收到一张表情]".to_string(),
+        other => format!("[收到一条{other}消息]"),
+    };
 
     let (bot_mentioned, text) =
         parse_im_mentions_from_message(message, text, bot_open_id);
@@ -341,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_non_text_ignored() {
+    fn parse_non_text_produces_placeholder() {
         let payload = serde_json::json!({
             "header": { "event_type": "im.message.receive_v1" },
             "event": {
@@ -360,6 +369,31 @@ mod tests {
             trace_id: "t1".into(),
             payload: serde_json::to_vec(&payload).unwrap(),
         };
-        assert!(parse_event_payload(&evt, None).is_none());
+        let msg = parse_event_payload(&evt, None).unwrap();
+        assert_eq!(msg.text, "[收到一张图片]");
+    }
+
+    #[test]
+    fn parse_file_produces_placeholder_with_name() {
+        let payload = serde_json::json!({
+            "header": { "event_type": "im.message.receive_v1" },
+            "event": {
+                "sender": { "sender_id": { "open_id": "ou_test" } },
+                "message": {
+                    "message_id": "om_2",
+                    "chat_id": "oc_1",
+                    "message_type": "file",
+                    "content": "{\"file_name\":\"report.pdf\"}"
+                }
+            }
+        });
+        let evt = WsEvent {
+            message_type: "event".into(),
+            message_id: "m2".into(),
+            trace_id: "t2".into(),
+            payload: serde_json::to_vec(&payload).unwrap(),
+        };
+        let msg = parse_event_payload(&evt, None).unwrap();
+        assert_eq!(msg.text, "[收到一个文件: report.pdf]");
     }
 }

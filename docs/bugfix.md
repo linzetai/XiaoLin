@@ -929,7 +929,7 @@
 
 #### BUG-087 🔴 WS 认证通过 query string 传递密钥
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-security/src/auth.rs` L76–93
 - **问题**：密钥出现在 URL、反向代理/浏览器日志、Referer 中。
 - **建议**：仅接受 header 传递；WebSocket 场景改用短期一次性 ticket。
@@ -938,7 +938,7 @@
 
 #### BUG-088 🔴 API Key 验证存在 timing side-channel
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-security/src/auth.rs` L51–58
 - **问题**：`iter().any()` 短路比较多个 key，整体不是恒定时间。
 - **建议**：固定时间比较所有 key（OR 聚合），或 hash 后比较固定长度 digest。
@@ -1196,7 +1196,7 @@
 
 #### BUG-116 🔴 Benchmark FilesystemCheck.unchanged 空实现
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-benchmark/src/grader.rs` L217–219
 - **问题**：空实现（TODO）但 grader 可能返回 pass，导致假阳性。
 - **建议**：实现对比，或未实现时直接 fail/skip。
@@ -1259,7 +1259,7 @@
 
 #### BUG-123 🔴 Browser 无 Drop/shutdown，Chrome 子进程残留
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-browser/src/lib.rs` L31–34, L940–971
 - **问题**：gateway 退出后 Chrome 子进程可能残留。
 - **建议**：实现 `Drop` 或注册 shutdown hook。
@@ -1290,7 +1290,7 @@
 
 #### BUG-126 🟡 /model 命令读取启动快照
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/routes/channel.rs` L185–240
 - **建议**：从 `config_live` 读取 models。
 
@@ -1298,7 +1298,7 @@
 
 #### BUG-127 🟡 auto_record_episode 读静态 memory.enabled
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/routes/memory.rs` L181–182
 - **建议**：从 `config_live` 读取。
 
@@ -1306,7 +1306,7 @@
 
 #### BUG-128 🟡 prompt_router 配置运行时修改不生效
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/chat_pipeline.rs` L566–568
 - **建议**：从 `config_live` 读取。
 
@@ -1316,7 +1316,7 @@
 
 #### BUG-129 🟡 gateway notifications DB 错误被吞掉
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/ws/notifications.rs` L86–92, L111–117
 - **建议**：DB 失败时返回 error 帧 + `tracing::warn!`。
 
@@ -1324,7 +1324,7 @@
 
 #### BUG-130 🟡 gateway chat 用量统计静默丢失
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/routes/chat.rs` L530–531
 - **建议**：至少 `tracing::warn!`。
 
@@ -1332,7 +1332,7 @@
 
 #### BUG-131 🟡 symbol_index DB 错误静默返回空
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-code/src/symbol_index.rs` L116–145
 - **建议**：失败时 `tracing::warn!`。
 
@@ -1340,7 +1340,7 @@
 
 #### BUG-132 🟡 memory extract semantic upsert 错误被丢弃
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-memory/src/manager.rs` L149–152
 - **建议**：`warn!` 记录。
 
@@ -1348,7 +1348,7 @@
 
 #### BUG-133 🟡 MCP RwLock poison 时 panic
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-mcp/src/lib.rs` L1610, L1671–1672, L1877
 - **建议**：改用 `parking_lot::RwLock` 或 `map_err` 降级。
 
@@ -1356,7 +1356,7 @@
 
 #### BUG-134 🟡 MCP retry exhausted unwrap
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-mcp/src/lib.rs` L1474–1476
 - **建议**：`last_err.ok_or_else(|| anyhow!("..."))?`。
 
@@ -1364,7 +1364,7 @@
 
 #### BUG-135 🟡 gateway semaphore expect on close
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/state/mod.rs` L596, L1365
 - **建议**：用 `if let Ok` 替代 `expect`。
 
@@ -1374,7 +1374,7 @@
 
 #### BUG-136 🟡 network-proxy 无连接数限制
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/http_proxy.rs` L50–65；`src/socks5.rs` L39–54
 - **建议**：使用 `Semaphore` 限制并发。
 
@@ -1382,7 +1382,7 @@
 
 #### BUG-137 🟡 network-proxy 请求/响应全量读入内存
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/http_proxy.rs` L406–411
 - **建议**：流式转发 + body 大小上限。
 
@@ -1390,7 +1390,7 @@
 
 #### BUG-138 🟡 cron scheduler 无并发限制
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-cron/src/scheduler.rs` L108–118
 - **建议**：用 `Semaphore` 限制最大并发执行数。
 
@@ -1398,7 +1398,7 @@
 
 #### BUG-139 🟡 cron due_jobs next_run NULL 每秒触发
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-cron/src/store.rs` L281–289
 - **建议**：upsert 时强制计算 next_run。
 
@@ -1406,7 +1406,7 @@
 
 #### BUG-140 🟡 PTY reader 线程无 join/Drop 清理
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-pty/src/session.rs` L92–106
 - **建议**：用 `Arc<AtomicBool>` 通知退出，kill 后 join。
 
@@ -1414,7 +1414,7 @@
 
 #### BUG-141 🟡 observe histogram 内存不释放
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-observe/src/metrics_collector.rs` L78–91
 - **建议**：改用 reservoir sampling 或环形缓冲区。
 
@@ -1424,7 +1424,7 @@
 
 #### BUG-142 🟡 WS dispatch `_ =>` 通配分支
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/ws/mod.rs` L987–999
 - **建议**：移除 `_ =>`，依赖穷尽性检查。
 
@@ -1432,7 +1432,7 @@
 
 #### BUG-143 🟡 connected 帧 methods 列表不完整
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/ws/mod.rs` L108–132
 - **建议**：与 `op.rs` 对齐或自动生成。
 
@@ -1440,7 +1440,7 @@
 
 #### BUG-144 🟡 subscribe events 缺失默认空 Vec
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-protocol/src/op.rs` L907–917
 - **建议**：events 缺失时返回 `-32602`。
 
@@ -1448,7 +1448,7 @@
 
 #### BUG-145 🟡 with_policy_decider 为死代码
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/proxy.rs` L149–151, L181–184
 - **建议**：接入或删除。
 
@@ -1456,7 +1456,7 @@
 
 #### BUG-146 🟡 model-router Fallback 策略未真正实现重试
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要 agent/gateway 层协同实现 fallback 重试
 - **文件**：`crates/xiaolin-model-router/src/router.rs` L222–267
 - **建议**：gateway/agent 层实现失败重试，或重命名策略。
 
@@ -1464,7 +1464,7 @@
 
 #### BUG-147 🟡 model-router budget 竞态
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-model-router/src/router.rs` L272–290
 - **建议**：改用 `try_reserve()` 原子操作。
 
@@ -1474,7 +1474,7 @@
 
 #### BUG-148 🟡 skill 提取无去重，重复写入 candidate
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-evolution/src/promotion.rs` L80–93
 - **建议**：保存前按 `task_pattern` + fingerprint 查重。
 
@@ -1482,7 +1482,7 @@
 
 #### BUG-149 🟡 apply_feedback 成功率计算语义错误
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-evolution/src/skill_store.rs` L558–564
 - **问题**：ThumbsDown 只减 success_count 不增 usage_count。
 - **建议**：差评时也 `usage_count += 1`。
@@ -1491,7 +1491,7 @@
 
 #### BUG-150 🟡 memory forget Phase 2 全表扫描 O(N²)
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-memory/src/episodic.rs` L412–473
 - **建议**：SQL `ORDER BY retention_score LIMIT ?` 分批删除。
 
@@ -1499,7 +1499,7 @@
 
 #### BUG-151 🟡 dreaming fact 分类不准确
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-memory/src/dreaming.rs` L58–68
 - **问题**：`prefers` 应归 `UserPreference` 而非 `DomainKnowledge`。
 
@@ -1507,7 +1507,7 @@
 
 #### BUG-152 🟡 context truncate_system_messages 字节 vs 字符混用
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-context/src/engine.rs` L1195–1208
 - **建议**：统一用 `chars().count()`。
 
@@ -1517,7 +1517,7 @@
 
 #### BUG-153 🟡 PROTECTED_METADATA_NAMES 跨 crate 不一致
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-sandbox/src/sandbox_policy.rs` L23 vs `crates/xiaolin-security/src/permission_profile.rs`
 - **建议**：单一来源导出常量。
 
@@ -1525,7 +1525,7 @@
 
 #### BUG-154 🟡 bwrap 探测失败 fail-open
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-sandbox/src/bwrap.rs` L65–125
 - **建议**：探测失败应 warn 并返回 false。
 
@@ -1533,7 +1533,7 @@
 
 #### BUG-155 🟡 Landlock NotEnforced 继续 exec（fail-open）
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-linux-sandbox/src/landlock_rules.rs` L86–95
 - **建议**：NotEnforced 时 bail。
 
@@ -1541,7 +1541,7 @@
 
 #### BUG-156 🟡 /tmp 无条件赋予写权限
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-linux-sandbox/src/landlock_rules.rs` L66–71
 - **建议**：仅当 policy 含 Tmpdir 时才加。
 
@@ -1551,7 +1551,7 @@
 
 #### BUG-157 🟡 tool_args_summary 硬编码在函数体内
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/routes/channel.rs` L865–918
 - **建议**：提取为模块级 const。
 
@@ -1559,7 +1559,7 @@
 
 #### BUG-158 🟡 browser snapshot 截断用 String::truncate 不安全
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-browser/src/lib.rs` L585–587
 - **建议**：使用 `chars().take(n).collect()`。
 
@@ -1567,7 +1567,7 @@
 
 #### BUG-159 🟡 web_fetch/http_fetch 先读完整响应再截断
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-network/src/lib.rs` L1461–1498
 - **建议**：流式限长读取。
 
@@ -1575,7 +1575,7 @@
 
 #### BUG-160 🟡 scraper redirect 未用 ssrf_safe_redirect_policy
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-network/src/lib.rs` L498–505
 - **建议**：统一使用 `ssrf_safe_redirect_policy()`。
 
@@ -1583,7 +1583,7 @@
 
 #### BUG-161 🟡 LSP manager request 可能无限循环
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-code/src/lsp_manager.rs` L546–571
 - **建议**：加总超时/最大迭代次数。
 
@@ -1591,7 +1591,7 @@
 
 #### BUG-162 🟡 code symbol_kind 关键字硬编码在函数体内
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-tools-code/src/code_intel.rs` L65–82
 - **建议**：提取为模块级 const。
 
@@ -1599,7 +1599,7 @@
 
 #### BUG-163 🟡 guardian prompt injection 风险
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-guardian/src/prompt.rs` L10–42
 - **建议**：使用结构化 JSON user message 或转义。
 
@@ -1607,7 +1607,7 @@
 
 #### BUG-164 🟡 self-iter prompt 无限膨胀
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-self-iter/src/engine.rs` L191–244
 - **建议**：仅追加与失败 test 相关的 hint，或每轮替换而非追加。
 
@@ -1615,7 +1615,7 @@
 
 #### BUG-165 🟡 self-iter OutputQualityLow 用字节长度
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-self-iter/src/diagnosis.rs` L193–208
 - **建议**：改用 `chars().count()`。
 
@@ -1623,7 +1623,7 @@
 
 #### BUG-166 🟡 feishu WS 只解析 text，图片/文件静默丢弃
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/feishu/src/ws/transport.rs` L191–194
 - **建议**：WS 复用 `extract_inbound_text`。
 
@@ -1631,7 +1631,7 @@
 
 #### BUG-167 🟡 feishu bot_open_id 热路径外部 API 调用
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/feishu/src/plugin.rs` L482
 - **建议**：启动时缓存。
 
@@ -1639,7 +1639,7 @@
 
 #### BUG-168 🟡 feishu WS client start 失败无重连
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/feishu/src/plugin.rs` L596–601
 - **建议**：暴露健康状态，指数退避重连。
 
@@ -1647,7 +1647,7 @@
 
 #### BUG-169 🟡 wechat client builder expect 可能 panic
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/wechat/src/api/client.rs` L37–44
 - **建议**：改为返回 `Result`。
 
@@ -1655,7 +1655,7 @@
 
 #### BUG-170 🟡 wechat ReplyCache 超限 clear 可能丢失进行中回复
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/wechat/src/plugin.rs` L54–60
 - **建议**：LRU 逐出而非全清。
 
@@ -1663,7 +1663,7 @@
 
 #### BUG-171 🟡 benchmark set_current_dir 修改进程全局 cwd
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-benchmark/src/live.rs` L98–144
 - **建议**：传 `work_dir` 参数，避免改全局 cwd。
 
@@ -1671,7 +1671,7 @@
 
 #### BUG-172 🟡 audio_capture 实时线程 Mutex + 无上限 samples
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-app/src-tauri/src/commands/audio_capture.rs` L55–134
 - **建议**：无锁队列 + 最大采样数。
 
@@ -1679,7 +1679,7 @@
 
 #### BUG-173 🟡 HOP_BY_HOP_HEADERS Vec 线性查找
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-network-proxy/src/http_proxy.rs` L400
 - **建议**：改为 `LazyLock<HashSet<&str>>`。
 

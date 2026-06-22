@@ -1,5 +1,7 @@
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use parking_lot::Mutex;
@@ -37,10 +39,25 @@ pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     broadcast_tx: broadcast::Sender<Vec<u8>>,
+    reader_shutdown: Arc<AtomicBool>,
+    reader_handle: Option<JoinHandle<()>>,
     cols: u16,
     rows: u16,
     pub created_at: Instant,
     pub last_activity: Arc<Mutex<Instant>>,
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        self.reader_shutdown.store(true, Ordering::SeqCst);
+        {
+            let mut child = self.child.lock();
+            let _ = child.kill();
+        }
+        if let Some(handle) = self.reader_handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 impl PtySession {
@@ -90,12 +107,17 @@ impl PtySession {
 
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
 
+        let reader_shutdown = Arc::new(AtomicBool::new(false));
         let tx_clone = broadcast_tx.clone();
         let child_for_reader = Arc::clone(&child);
-        std::thread::spawn(move || {
+        let shutdown_for_reader = Arc::clone(&reader_shutdown);
+        let reader_handle = std::thread::spawn(move || {
             let mut reader = reader;
             let mut buf = [0u8; 4096];
             loop {
+                if shutdown_for_reader.load(Ordering::SeqCst) {
+                    break;
+                }
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
@@ -118,6 +140,8 @@ impl PtySession {
             writer: Arc::new(Mutex::new(writer)),
             child,
             broadcast_tx,
+            reader_shutdown,
+            reader_handle: Some(reader_handle),
             cols: config.cols,
             rows: config.rows,
             created_at: now,

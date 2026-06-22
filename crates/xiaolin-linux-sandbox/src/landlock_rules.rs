@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
+use std::path::Path;
 use tracing::info;
 
 use crate::linux_run_main::SandboxPolicy;
+use xiaolin_security::{FileSystemPath, FileSystemSpecialPath};
 
 /// Apply Landlock LSM rules based on the sandbox policy.
 pub fn apply_landlock_rules(policy: &SandboxPolicy) -> Result<()> {
@@ -63,11 +65,13 @@ fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
         }
     }
 
-    // /tmp is always writable
-    if let Ok(fd) = PathFd::new("/tmp") {
-        ruleset = ruleset
-            .add_rule(PathBeneath::new(fd, write_access))
-            .context("add /tmp write rule")?;
+    // /tmp write only when policy explicitly grants tmp access
+    if policy_allows_tmp_write(policy) {
+        if let Ok(fd) = PathFd::new("/tmp") {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(fd, write_access))
+                .context("add /tmp write rule")?;
+        }
     }
 
     // /dev/null, /dev/zero, /dev/random, /dev/urandom
@@ -96,6 +100,35 @@ fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// True when the sandbox policy grants write access to /tmp or TMPDIR.
+fn policy_allows_tmp_write(policy: &SandboxPolicy) -> bool {
+    if policy.writable_roots.iter().any(|root| {
+        root == Path::new("/tmp")
+            || std::env::var_os("TMPDIR")
+                .is_some_and(|tmpdir| root.as_os_str() == tmpdir)
+    }) {
+        return true;
+    }
+
+    if let Some(ref fs) = policy.file_system {
+        for entry in &fs.entries {
+            if !entry.access.can_write() {
+                continue;
+            }
+            if let FileSystemPath::Special { value } = &entry.path {
+                if matches!(
+                    value,
+                    FileSystemSpecialPath::Tmpdir | FileSystemSpecialPath::SlashTmp
+                ) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(not(target_os = "linux"))]

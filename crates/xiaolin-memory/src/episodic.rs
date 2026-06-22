@@ -408,7 +408,8 @@ impl EpisodicMemory {
             removed += r.rows_affected() as usize;
         }
 
-        // Phase 2 — capacity by retention score
+        // Phase 2 — capacity by retention score (batched; no full-table load)
+        const PHASE2_BATCH: i64 = 500;
         loop {
             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM episodes")
                 .fetch_one(&self.pool)
@@ -417,21 +418,27 @@ impl EpisodicMemory {
                 break;
             }
 
-            let survivors: Vec<(String, f32, String)> =
-                sqlx::query_as("SELECT id, importance, created_at FROM episodes")
-                    .fetch_all(&self.pool)
-                    .await?;
-
             let need = (count as usize) - policy.max_episodes;
-            let mut scored: Vec<(String, f64)> = Vec::new();
-            for (id, imp, created_at) in survivors {
+
+            let candidates: Vec<(String, f32, String)> = sqlx::query_as(
+                "SELECT id, importance, created_at FROM episodes WHERE created_at < ? \
+                 ORDER BY importance ASC, created_at ASC LIMIT ?",
+            )
+            .bind(&cutoff)
+            .bind(PHASE2_BATCH)
+            .fetch_all(&self.pool)
+            .await?;
+
+            if candidates.is_empty() {
+                break;
+            }
+
+            let mut scored: Vec<(String, f64)> = Vec::with_capacity(candidates.len());
+            for (id, imp, created_at) in candidates {
                 let Some(ts) = parse_sqlite_datetime(&created_at) else {
                     continue;
                 };
                 let age = now.signed_duration_since(ts);
-                if age < protect {
-                    continue;
-                }
                 let age_days = age.num_seconds().max(0) as f64 / 86_400.0;
                 let decay = if policy.decay_half_life_days > 1e-9 {
                     (-std::f64::consts::LN_2 * age_days / policy.decay_half_life_days).exp()
@@ -443,15 +450,14 @@ impl EpisodicMemory {
             }
 
             if scored.is_empty() {
-                // Only protected-by-age rows remain; cannot shrink further.
                 break;
             }
 
             scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             let take = need.min(scored.len());
-            let victims: Vec<String> = scored.into_iter().take(take).map(|(id, _)| id).collect();
+            let victim_ids: Vec<String> = scored.into_iter().take(take).map(|(id, _)| id).collect();
 
-            for chunk in victims.chunks(500) {
+            for chunk in victim_ids.chunks(500) {
                 if chunk.is_empty() {
                     continue;
                 }

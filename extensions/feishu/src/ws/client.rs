@@ -180,6 +180,11 @@ impl FeishuWsClient {
         });
     }
 
+    /// Clone of the shutdown token — poll `is_cancelled()` before reconnect retries.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
+
     // -----------------------------------------------------------------------
     // Connection lifecycle
     // -----------------------------------------------------------------------

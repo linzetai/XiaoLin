@@ -229,9 +229,10 @@ impl ModelRouter {
                 let mut selected: Option<ModelCandidate> = None;
                 for model_name in &chain {
                     if let Some(c) = candidates.iter().find(|c| c.model == *model_name) {
-                        if self.budget.within_budget(c.estimated_cost)? {
+                        if self.budget.try_reserve(c.estimated_cost)? {
                             let mut s = c.clone();
                             s.reason = "fallback chain (position in chain)".into();
+                            self.budget.release_reservation(c.estimated_cost)?;
                             selected = Some(s);
                             break;
                         }
@@ -275,9 +276,11 @@ fn select_within_budget(
     reason: &str,
 ) -> anyhow::Result<ModelCandidate> {
     for c in candidates.iter_mut() {
-        if budget.within_budget(c.estimated_cost)? {
+        if budget.try_reserve(c.estimated_cost)? {
             c.reason = reason.into();
-            return Ok(c.clone());
+            let selected = c.clone();
+            budget.release_reservation(c.estimated_cost)?;
+            return Ok(selected);
         }
     }
     tracing::warn!(

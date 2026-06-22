@@ -4,6 +4,9 @@ use std::sync::{
     Arc, Mutex,
 };
 
+/// ~10 MiB of f32 PCM samples (4 bytes each).
+const MAX_AUDIO_SAMPLES: usize = 10 * 1024 * 1024 / 4;
+
 pub struct AudioCaptureState {
     recording: Arc<AtomicBool>,
     samples: Arc<Mutex<Vec<f32>>>,
@@ -25,6 +28,14 @@ impl Default for AudioCaptureState {
 impl AudioCaptureState {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+fn append_samples_capped(buf: &mut Vec<f32>, chunk: &[f32]) {
+    buf.extend_from_slice(chunk);
+    if buf.len() > MAX_AUDIO_SAMPLES {
+        let excess = buf.len() - MAX_AUDIO_SAMPLES;
+        buf.drain(0..excess);
     }
 }
 
@@ -79,31 +90,27 @@ pub fn start_native_recording(
             *v = ch;
         }
 
-        let samples_clone = samples.clone();
+        let (sample_tx, sample_rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    if let Ok(mut buf) = samples_clone.lock() {
-                        buf.extend_from_slice(data);
-                    }
+                    let _ = sample_tx.send(data.to_vec());
                 },
                 |err| tracing::error!("audio capture error: {err}"),
                 None,
             ),
-            cpal::SampleFormat::I16 => {
-                let sc = samples.clone();
-                device.build_input_stream(
-                    &config.into(),
-                    move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        if let Ok(mut buf) = sc.lock() {
-                            buf.extend(data.iter().map(|&s| s as f32 / i16::MAX as f32));
-                        }
-                    },
-                    |err| tracing::error!("audio capture error: {err}"),
-                    None,
-                )
-            }
+            cpal::SampleFormat::I16 => device.build_input_stream(
+                &config.into(),
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    let converted: Vec<f32> =
+                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                    let _ = sample_tx.send(converted);
+                },
+                |err| tracing::error!("audio capture error: {err}"),
+                None,
+            ),
             other => {
                 tracing::error!("unsupported sample format: {other:?}");
                 recording.store(false, Ordering::SeqCst);
@@ -127,7 +134,18 @@ pub fn start_native_recording(
         }
 
         while recording.load(Ordering::SeqCst) {
+            while let Ok(chunk) = sample_rx.try_recv() {
+                if let Ok(mut buf) = samples.lock() {
+                    append_samples_capped(&mut buf, &chunk);
+                }
+            }
             std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        while let Ok(chunk) = sample_rx.try_recv() {
+            if let Ok(mut buf) = samples.lock() {
+                append_samples_capped(&mut buf, &chunk);
+            }
         }
 
         drop(stream);

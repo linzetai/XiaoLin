@@ -4,7 +4,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::skill_extractor::{SkillExtractor, SkillStatus};
+use crate::skill_extractor::{cluster_fingerprint, SkillExtractor, SkillStatus};
 use crate::skill_gap::{detect_gaps, GapReport};
 use crate::skill_store::{MaintenanceReport, SkillStore};
 use crate::trajectory::TrajectoryStore;
@@ -80,8 +80,23 @@ pub async fn run_pipeline(
     let new_skills = extractor.extract_skills(&trajectories);
     let new_skills_extracted = new_skills.len();
 
-    // Step 3: Save new candidates
+    // Step 3: Save new candidates (dedupe by task_pattern + trajectory fingerprint)
     for mut skill in new_skills {
+        let fingerprint = cluster_fingerprint(&skill.source_trajectory_ids);
+        match skill_store
+            .has_duplicate_candidate(&skill.task_pattern, fingerprint)
+            .await
+        {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(
+                    task_pattern = %skill.task_pattern,
+                    error = %e,
+                    "failed to check duplicate skill candidate"
+                );
+            }
+        }
         skill.status = SkillStatus::Candidate;
         if let Err(e) = skill_store.save_skill(&skill).await {
             tracing::warn!(

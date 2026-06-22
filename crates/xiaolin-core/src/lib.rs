@@ -13,10 +13,12 @@ pub mod path;
 
 pub use complexity::ComplexityTier;
 pub use error::{XiaoLinError, XiaoLinResult};
+pub use protected_metadata::PROTECTED_METADATA_PATH_NAMES;
 pub mod hub;
 pub mod paths;
 pub mod project;
 pub mod project_mcp_approval;
+pub mod protected_metadata;
 pub mod routing;
 
 pub use routing::Router;

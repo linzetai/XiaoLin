@@ -67,6 +67,14 @@ impl BrowserTool {
         Self::default()
     }
 
+    /// Shut down the browser process and release profile locks.
+    pub fn shutdown(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = None;
+        }
+        Self::kill_orphan_chrome(&Self::profile_dir());
+    }
+
     fn is_headless() -> bool {
         std::env::var("XIAOLIN_BROWSER_HEADLESS")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -1919,6 +1927,12 @@ impl BrowserTool {
 
             other => Err(format!("browser: unhandled action '{other}'.")),
         }
+    }
+}
+
+impl Drop for BrowserTool {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

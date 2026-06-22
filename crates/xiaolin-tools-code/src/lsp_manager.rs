@@ -557,8 +557,18 @@ impl PersistentLspSession {
             "params": params
         });
         self.write_message(&req).await?;
+        const MAX_LSP_REQUEST_ITERATIONS: u32 = 100;
+        let mut iterations = 0u32;
         loop {
-            let msg = self.read_message().await?;
+            iterations += 1;
+            if iterations > MAX_LSP_REQUEST_ITERATIONS {
+                return Err(anyhow::anyhow!(
+                    "lsp request timed out after {MAX_LSP_REQUEST_ITERATIONS} messages without matching response id {id}"
+                ));
+            }
+            let msg = tokio::time::timeout(Duration::from_secs(30), self.read_message())
+                .await
+                .map_err(|_| anyhow::anyhow!("lsp request timed out waiting for response id {id}"))??;
             if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
                 if let Some(err) = msg.get("error") {
                     return Err(anyhow::anyhow!("lsp error: {}", err));

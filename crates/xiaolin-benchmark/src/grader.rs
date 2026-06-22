@@ -1,6 +1,8 @@
 use crate::metrics::CollectedResult;
+use crate::runner::FileSnapshot;
 use crate::task::GraderConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,10 +16,11 @@ pub fn evaluate_graders(
     configs: &[GraderConfig],
     result: &CollectedResult,
     workspace_dir: &Path,
+    pre_run_files: &HashMap<String, FileSnapshot>,
 ) -> Vec<GradeResult> {
     configs
         .iter()
-        .map(|config| evaluate_one(config, result, workspace_dir))
+        .map(|config| evaluate_one(config, result, workspace_dir, pre_run_files))
         .collect()
 }
 
@@ -29,6 +32,7 @@ fn evaluate_one(
     config: &GraderConfig,
     result: &CollectedResult,
     workspace_dir: &Path,
+    pre_run_files: &HashMap<String, FileSnapshot>,
 ) -> GradeResult {
     match config {
         GraderConfig::OutputContains { patterns } => {
@@ -53,7 +57,7 @@ fn evaluate_one(
             must_not_exist,
             unchanged,
             files,
-        } => grade_filesystem(must_exist, must_not_exist, unchanged, files, workspace_dir),
+        } => grade_filesystem(must_exist, must_not_exist, unchanged, files, workspace_dir, pre_run_files),
     }
 }
 
@@ -195,6 +199,7 @@ fn grade_filesystem(
     unchanged: &[String],
     files: &[crate::task::FileCheck],
     workspace_dir: &Path,
+    pre_run_files: &HashMap<String, FileSnapshot>,
 ) -> GradeResult {
     for path in must_exist {
         if !workspace_dir.join(path).exists() {
@@ -214,8 +219,54 @@ fn grade_filesystem(
             };
         }
     }
-    for _path in unchanged {
-        // TODO: compare with pre-run snapshot when filesystem snapshotting is implemented
+    for path in unchanged {
+        let file_path = workspace_dir.join(path);
+        if !file_path.exists() {
+            return GradeResult {
+                grader_type: "filesystem_check".into(),
+                pass: false,
+                reason: format!("Expected unchanged file '{path}' does not exist"),
+            };
+        }
+        let baseline = match pre_run_files.get(path) {
+            Some(snapshot) => snapshot,
+            None => {
+                return GradeResult {
+                    grader_type: "filesystem_check".into(),
+                    pass: false,
+                    reason: format!("No pre-run snapshot for unchanged file '{path}'"),
+                };
+            }
+        };
+        let meta = match std::fs::metadata(&file_path) {
+            Ok(m) => m,
+            Err(e) => {
+                return GradeResult {
+                    grader_type: "filesystem_check".into(),
+                    pass: false,
+                    reason: format!("Cannot read metadata for '{path}': {e}"),
+                };
+            }
+        };
+        let modified_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if meta.len() != baseline.size || modified_secs != baseline.modified_secs {
+            return GradeResult {
+                grader_type: "filesystem_check".into(),
+                pass: false,
+                reason: format!(
+                    "File '{path}' changed (size {} -> {}, mtime {} -> {})",
+                    baseline.size,
+                    meta.len(),
+                    baseline.modified_secs,
+                    modified_secs
+                ),
+            };
+        }
     }
     for check in files {
         let file_path = workspace_dir.join(&check.path);
@@ -404,7 +455,7 @@ mod tests {
                 max_total_tokens: 10000,
             },
         ];
-        let grades = evaluate_graders(&configs, &result, Path::new("/tmp"));
+        let grades = evaluate_graders(&configs, &result, Path::new("/tmp"), &HashMap::new());
         assert!(all_passed(&grades));
     }
 
@@ -421,7 +472,7 @@ mod tests {
                 allowed_shell_patterns: vec![],
             },
         ];
-        let grades = evaluate_graders(&configs, &result, Path::new("/tmp"));
+        let grades = evaluate_graders(&configs, &result, Path::new("/tmp"), &HashMap::new());
         assert!(!all_passed(&grades));
     }
 }

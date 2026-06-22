@@ -27,6 +27,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Extension, Query, State,
     },
+    http::HeaderMap,
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
@@ -40,7 +41,7 @@ use tokio_util::sync::CancellationToken;
 use crate::state::AppState;
 
 use xiaolin_protocol::ClientOp;
-use xiaolin_security::ApiKeyAuth;
+use xiaolin_security::{ApiKeyAuth, WsKeySource};
 
 static CONN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -53,10 +54,26 @@ pub async fn ws_handler(
     State(state): State<AppState>,
     Extension(auth): Extension<ApiKeyAuth>,
     Query(params): Query<WsQueryParams>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let pre_authed = match &params.token {
-        Some(token) => auth.validate_key(token),
-        None => !auth.is_enabled(),
+    let pre_authed = if auth.is_enabled() {
+        match ApiKeyAuth::extract_ws_key(
+            &headers,
+            params.token.as_deref(),
+            params.api_key.as_deref(),
+        ) {
+            Some((token, source)) => {
+                if source == WsKeySource::QueryString {
+                    tracing::warn!(
+                        "deprecated: passing WS api_key/token via query string; use Authorization: Bearer or Sec-WebSocket-Protocol (bearer.<key>)"
+                    );
+                }
+                auth.validate_key(&token)
+            }
+            None => false,
+        }
+    } else {
+        true
     };
     ws.max_message_size(MAX_MESSAGE_SIZE)
         .on_upgrade(move |socket| handle_socket(socket, state, auth, pre_authed))
@@ -105,31 +122,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, auth: ApiKeyAuth, pre
                 "connId": conn_id,
                 "protocol": "xiaolin-ws/2",
                 "capabilities": ["approval", "history_items", "turn_coordinator", "structured_errors"],
-                "methods": ["ping", "chat", "agents", "auth",
-                            "sessions.list", "sessions.get", "sessions.messages", "sessions.delete",
-                            "sessions.new", "sessions.claim", "sessions.update_title",
-                            "cancel", "answer", "set_mode",
-                            "models.list", "config.get", "config.set",
-                            "mcp.status", "mcp.reload", "mcp.add", "mcp.remove", "mcp.detail",
-                            "plugins.list", "plugins.enable", "plugins.disable", "plugins.restart", "plugins.tools", "plugins.approve", "plugins.reject", "plugins.oauth_login",
-                            "channels.list", "channels.detail", "channels.connect", "channels.update", "channels.restore",
-                            "channels.wechat_login", "channels.wechat_poll", "channels.wechat_verify", "channels.disconnect",
-                            "sub_agents.list",
-                            "agents.get", "agents.create", "agents.update", "agents.delete",
-                            "tools.list", "tools.update", "tools.submit_answer",
-                            "skills.list", "skills.refresh",
-                            "evolution.list", "evolution.promote",
-                            "marketplace.browse", "marketplace.search", "marketplace.install", "marketplace.uninstall",
-                            "permissions.get_presets", "permissions.get_session", "permissions.set_session",
-                            "automations.list", "automations.create", "automations.update", "automations.delete", "automations.runs", "automations.run_now",
-                            "execution.set_mode", "execution.get_plan", "execution.get_plan_meta", "execution.approve_plan", "execution.reject_plan",
-                            "resolve_approval", "approval.resolve",
-                            "chat.compact", "compact",
-                            "chat.steer", "steer",
-                            "projects.list", "projects.create", "projects.update", "projects.delete", "projects.detect",
-                            "git.status", "git.diff", "git.branches", "git.log", "git.stage", "git.unstage", "git.commit", "git.revert",
-                            "search.query", "search.index_status",
-                            "subscribe", "unsubscribe"],
+                "methods": xiaolin_protocol::all_ws_method_names(),
                 "authRequired": auth_required && !authenticated,
             })),
             error: None,
@@ -318,7 +311,7 @@ async fn dispatch(
                     id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": -32601, "message": e})),
+                    error: Some(json!({"code": e.code, "message": e.message})),
                 },
             )
             .await;
@@ -981,20 +974,6 @@ async fn dispatch(
                 &session_id,
                 "add_budget",
                 Some(&params),
-            )
-            .await;
-        }
-        _ => {
-            send_resp(
-                sender,
-                &WsResponse {
-                    id,
-                    msg_type: "error".into(),
-                    data: None,
-                    error: Some(
-                        json!({"code": -32601, "message": format!("unsupported operation: {}", req.method)}),
-                    ),
-                },
             )
             .await;
         }

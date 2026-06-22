@@ -191,7 +191,6 @@ pub struct ChatSteerMessage {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 #[serde(tag = "op", rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum ClientOp {
     // ── Dialogue ────────────────────────────────────────────────────
     Chat {
@@ -673,19 +672,186 @@ fn default_git_log_limit() -> u32 {
     20
 }
 
+/// JSON-RPC style parse error for WS `ClientOp` requests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientOpParseError {
+    pub code: i32,
+    pub message: String,
+}
+
+impl ClientOpParseError {
+    pub fn invalid_params(message: impl Into<String>) -> Self {
+        Self {
+            code: -32602,
+            message: message.into(),
+        }
+    }
+
+    pub fn unknown_method(message: impl Into<String>) -> Self {
+        Self {
+            code: -32601,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ClientOpParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+/// All wire-level WS method names supported by [`ClientOp::parse_request`], plus `auth`.
+pub fn all_ws_method_names() -> &'static [&'static str] {
+    const METHODS: &[&str] = &[
+        "auth",
+        "ping",
+        "chat",
+        "cancel",
+        "answer",
+        "set_mode",
+        "sessions.list",
+        "sessions.get",
+        "sessions.messages",
+        "sessions.delete",
+        "sessions.new",
+        "sessions.claim",
+        "sessions.update_title",
+        "sessions.set_work_dir",
+        "models.list",
+        "config.get",
+        "config.set",
+        "mcp.status",
+        "mcp.reload",
+        "mcp.add",
+        "mcp.remove",
+        "mcp.detail",
+        "sub_agents.list",
+        "sub_agents.runs",
+        "subagents.runs",
+        "sub_agents.concurrency",
+        "subagents.cancel",
+        "sub_agents.cancel",
+        "agents",
+        "agents.list",
+        "agents.get",
+        "agents.create",
+        "agents.update",
+        "agents.delete",
+        "tools.list",
+        "tools.update",
+        "tools.submit_answer",
+        "skills.list",
+        "skills.read",
+        "skills.update",
+        "skills.delete",
+        "skills.refresh",
+        "evolution.list",
+        "evolution.promote",
+        "marketplace.browse",
+        "marketplace.search",
+        "marketplace.install",
+        "marketplace.uninstall",
+        "execution.set_mode",
+        "execution.get_plan",
+        "execution.approve_plan",
+        "execution.reject_plan",
+        "execution.get_plan_meta",
+        "subscribe",
+        "unsubscribe",
+        "chat.compact",
+        "compact",
+        "chat.steer",
+        "steer",
+        "subagent.steer",
+        "steering_message",
+        "resolve_approval",
+        "approval.resolve",
+        "cron.list_jobs",
+        "cron.get_job",
+        "cron.upsert_job",
+        "cron.delete_job",
+        "cron.list_runs",
+        "cost.summary",
+        "cost.daily",
+        "cost.tools",
+        "cost.sessions",
+        "search.query",
+        "search.index_status",
+        "automations.list",
+        "automations.create",
+        "automations.update",
+        "automations.delete",
+        "automations.runs",
+        "automations.run_now",
+        "notifications.unread_count",
+        "notifications.list",
+        "notifications.mark_read",
+        "notifications.mark_all_read",
+        "notifications.delete",
+        "channels.list",
+        "channels.detail",
+        "channels.wechat_login",
+        "channels.wechat_poll",
+        "channels.wechat_verify",
+        "channels.connect",
+        "channels.update",
+        "channels.restore",
+        "channels.disconnect",
+        "projects.list",
+        "projects.create",
+        "projects.update",
+        "projects.delete",
+        "projects.detect",
+        "permissions.get_presets",
+        "permissions.get_session",
+        "permissions.set_session",
+        "plugins.list",
+        "plugins.enable",
+        "plugins.disable",
+        "plugins.restart",
+        "plugins.tools",
+        "plugins.approve",
+        "plugins.reject",
+        "plugins.oauth_login",
+        "plugins.resources",
+        "plugins.prompts",
+        "plugins.get_prompt",
+        "plugins.elicitation_reply",
+        "workspace.init",
+        "git.status",
+        "git.diff",
+        "git.branches",
+        "git.log",
+        "git.stage",
+        "git.unstage",
+        "git.commit",
+        "git.revert",
+        "git.init",
+        "goal.pause",
+        "goal.resume",
+        "goal.clear",
+        "goal.edit",
+        "goal.add_budget",
+    ];
+    METHODS
+}
+
 impl ClientOp {
     /// Parse a WS request into a typed `ClientOp`.
     ///
     /// Accepts `method` + `params` from the wire format `{ "method": "...", "params": {...} }`.
-    pub fn parse_request(method: &str, params: serde_json::Value) -> Result<Self, String> {
+    pub fn parse_request(method: &str, params: serde_json::Value) -> Result<Self, ClientOpParseError> {
         match method {
             "ping" => Ok(Self::Ping),
             "chat" => {
                 let chat_params: ChatParams = serde_json::from_value(params)
-                    .map_err(|e| format!("invalid chat params: {e}"))?;
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid chat params: {e}")))?;
                 Ok(Self::Chat { params: chat_params })
             }
-            "submit" => Err("the 'submit' method has been removed; use 'chat' instead".into()),
+            "submit" => Err(ClientOpParseError::unknown_method(
+                "the 'submit' method has been removed; use 'chat' instead",
+            )),
             "cancel" => Ok(Self::ChatCancel {
                 request_id: extract_string(&params, "requestId")
                     .or_else(|_| extract_string(&params, "request_id"))
@@ -718,9 +884,9 @@ impl ClientOp {
                     params
                         .get("mode")
                         .cloned()
-                        .ok_or("missing 'mode'")?,
+                        .ok_or_else(|| ClientOpParseError::invalid_params("missing 'mode'"))?,
                 )
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?,
             }),
             "sessions.list" => {
                 let list_params: SessionsListParams =
@@ -763,13 +929,13 @@ impl ClientOp {
                 value: params
                     .get("value")
                     .cloned()
-                    .ok_or("missing 'value'")?,
+                    .ok_or_else(|| ClientOpParseError::invalid_params("missing 'value'"))?,
             }),
             "mcp.status" => Ok(Self::McpStatus),
             "mcp.reload" => Ok(Self::McpReload),
             "mcp.add" => {
                 let mcp_params: McpAddParams = serde_json::from_value(params)
-                    .map_err(|e| format!("invalid mcp.add params: {e}"))?;
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid mcp.add params: {e}")))?;
                 Ok(Self::McpAdd { params: mcp_params })
             }
             "mcp.remove" => Ok(Self::McpRemove {
@@ -823,25 +989,31 @@ impl ClientOp {
             }
             "skills.read" => {
                 let read_params: SkillsReadParams = serde_json::from_value(params)
-                    .map_err(|e| format!("invalid params: {e}"))?;
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid params: {e}")))?;
                 if read_params.skill_id.is_empty() {
-                    return Err("invalid params: skillId is required".into());
+                    return Err(ClientOpParseError::invalid_params(
+                        "invalid params: skillId is required",
+                    ));
                 }
                 Ok(Self::SkillsRead { params: read_params })
             }
             "skills.update" => {
                 let update_params: SkillsUpdateParams = serde_json::from_value(params)
-                    .map_err(|e| format!("invalid params: {e}"))?;
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid params: {e}")))?;
                 if update_params.skill_id.is_empty() {
-                    return Err("invalid params: skillId is required".into());
+                    return Err(ClientOpParseError::invalid_params(
+                        "invalid params: skillId is required",
+                    ));
                 }
                 Ok(Self::SkillsUpdate { params: update_params })
             }
             "skills.delete" => {
                 let delete_params: SkillsDeleteParams = serde_json::from_value(params)
-                    .map_err(|e| format!("invalid params: {e}"))?;
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid params: {e}")))?;
                 if delete_params.skill_id.is_empty() {
-                    return Err("invalid params: skillId is required".into());
+                    return Err(ClientOpParseError::invalid_params(
+                        "invalid params: skillId is required",
+                    ));
                 }
                 Ok(Self::SkillsDelete { params: delete_params })
             }
@@ -854,7 +1026,7 @@ impl ClientOp {
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(str::to_string)
-                    .ok_or_else(|| "invalid params: skillId is required".to_string())?;
+                    .ok_or_else(|| ClientOpParseError::invalid_params("invalid params: skillId is required"))?;
                 Ok(Self::EvolutionPromote { skill_id })
             }
             "marketplace.browse" | "marketplace.search" => Ok(Self::MarketplaceBrowse {
@@ -890,9 +1062,9 @@ impl ClientOp {
                     params
                         .get("mode")
                         .cloned()
-                        .ok_or("missing 'mode'")?,
+                        .ok_or_else(|| ClientOpParseError::invalid_params("missing 'mode'"))?,
                 )
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?,
             }),
             "execution.get_plan" => Ok(Self::ExecutionGetPlan {
                 session_id: extract_session_id(&params)?,
@@ -905,7 +1077,7 @@ impl ClientOp {
                         .cloned()
                         .unwrap_or(serde_json::json!("agent")),
                 )
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?,
             }),
             "execution.reject_plan" => Ok(Self::ExecutionRejectPlan {
                 session_id: extract_session_id(&params)?,
@@ -914,12 +1086,14 @@ impl ClientOp {
             "execution.get_plan_meta" => Ok(Self::ExecutionGetPlanMeta {
                 session_id: extract_session_id(&params)?,
             }),
-            "subscribe" => Ok(Self::Subscribe {
-                events: params
-                    .get("events")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_default(),
-            }),
+            "subscribe" => {
+                let events_val = params.get("events").ok_or_else(|| {
+                    ClientOpParseError::invalid_params("missing 'events'")
+                })?;
+                let events: Vec<String> = serde_json::from_value(events_val.clone())
+                    .map_err(|e| ClientOpParseError::invalid_params(format!("invalid 'events': {e}")))?;
+                Ok(Self::Subscribe { events })
+            }
             "unsubscribe" => Ok(Self::Unsubscribe {
                 events: params
                     .get("events")
@@ -938,7 +1112,7 @@ impl ClientOp {
                     .get("messages")
                     .cloned()
                     .and_then(|v| serde_json::from_value(v).ok())
-                    .ok_or("missing or invalid 'messages'")?;
+                    .ok_or_else(|| ClientOpParseError::invalid_params("missing or invalid 'messages'"))?;
                 Ok(Self::ChatSteer {
                     session_id,
                     messages,
@@ -963,15 +1137,15 @@ impl ClientOp {
                     .get("approvalId")
                     .or_else(|| params.get("approval_id"))
                     .and_then(|v| v.as_str())
-                    .ok_or("approvalId required")?
+                    .ok_or_else(|| ClientOpParseError::invalid_params("approvalId required"))?
                     .to_string();
                 let decision: crate::approval::ApprovalDecision = serde_json::from_value(
                     params
                         .get("decision")
                         .cloned()
-                        .ok_or("decision required")?,
+                        .ok_or_else(|| ClientOpParseError::invalid_params("decision required"))?,
                 )
-                .map_err(|e| format!("invalid decision: {e}"))?;
+                .map_err(|e| ClientOpParseError::invalid_params(format!("invalid decision: {e}")))?;
                 let session_id = params
                     .get("sessionId")
                     .or_else(|| params.get("session_id"))
@@ -1039,7 +1213,7 @@ impl ClientOp {
             "search.query" => {
                 let search_params: crate::search::SearchQueryRequest =
                     serde_json::from_value(params)
-                        .map_err(|e| format!("invalid search.query params: {e}"))?;
+                        .map_err(|e| ClientOpParseError::invalid_params(format!("invalid search.query params: {e}")))?;
                 Ok(Self::SearchQuery {
                     params: search_params,
                 })
@@ -1103,7 +1277,7 @@ impl ClientOp {
                 config: params
                     .get("config")
                     .cloned()
-                    .ok_or("missing 'config'")?,
+                    .ok_or_else(|| ClientOpParseError::invalid_params("missing 'config'"))?,
             }),
             "channels.restore" => Ok(Self::ChannelsRestore {
                 id: extract_string(&params, "id")?,
@@ -1270,22 +1444,24 @@ impl ClientOp {
                 amount: params
                     .get("amount")
                     .and_then(|v| v.as_u64())
-                    .ok_or_else(|| "missing or invalid 'amount'".to_string())?,
+                    .ok_or_else(|| ClientOpParseError::invalid_params("missing or invalid 'amount'"))?,
             }),
-            other => Err(format!("unknown method: {other}")),
+            other => Err(ClientOpParseError::unknown_method(format!(
+                "unknown method: {other}"
+            ))),
         }
     }
 }
 
-fn extract_string(params: &serde_json::Value, key: &str) -> Result<String, String> {
+fn extract_string(params: &serde_json::Value, key: &str) -> Result<String, ClientOpParseError> {
     params
         .get(key)
         .and_then(|v| v.as_str())
         .map(String::from)
-        .ok_or_else(|| format!("missing '{key}'"))
+        .ok_or_else(|| ClientOpParseError::invalid_params(format!("missing '{key}'")))
 }
 
-fn extract_session_id(params: &serde_json::Value) -> Result<SessionId, String> {
+fn extract_session_id(params: &serde_json::Value) -> Result<SessionId, ClientOpParseError> {
     extract_string(params, "sessionId")
         .or_else(|_| extract_string(params, "session_id"))
         .map(SessionId::new)
@@ -1361,6 +1537,15 @@ mod tests {
         } else {
             panic!("wrong variant");
         }
+    }
+
+    #[test]
+    fn parse_subscribe_missing_events() {
+        let result = ClientOp::parse_request("subscribe", json!({}));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, -32602);
+        assert!(err.message.contains("events"));
     }
 
     #[test]

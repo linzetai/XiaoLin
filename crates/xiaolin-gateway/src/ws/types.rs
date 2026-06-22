@@ -27,4 +27,6 @@ pub(crate) struct WsResponse {
 pub struct WsQueryParams {
     #[serde(default)]
     pub(crate) token: Option<String>,
+    #[serde(default, alias = "apiKey")]
+    pub(crate) api_key: Option<String>,
 }

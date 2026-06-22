@@ -58,9 +58,9 @@ impl DreamingPipeline<'_> {
                 let fact = Fact {
                     id: fact_id,
                     subject: subj,
-                    predicate: pred,
+                    predicate: pred.clone(),
                     object: obj,
-                    category: FactCategory::DomainKnowledge.as_str().to_string(),
+                    category: classify_fact_predicate(&pred).as_str().to_string(),
                     confidence: ep.importance.clamp(0.0, 1.0),
                     source_session: Some(ep.session_id.clone()),
                     created_at: now.clone(),
@@ -222,6 +222,8 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
     }
 
     static PREFERS_RE: OnceLock<Regex> = OnceLock::new();
+    static LIKES_RE: OnceLock<Regex> = OnceLock::new();
+    static WANTS_RE: OnceLock<Regex> = OnceLock::new();
     static CHOSE_RE: OnceLock<Regex> = OnceLock::new();
     static SELECTED_RE: OnceLock<Regex> = OnceLock::new();
 
@@ -229,6 +231,10 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
 
     let prefers_re = PREFERS_RE
         .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+prefers?\s+({ent})")).expect("regex"));
+    let likes_re =
+        LIKES_RE.get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+likes?\s+({ent})")).expect("regex"));
+    let wants_re =
+        WANTS_RE.get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+wants?\s+({ent})")).expect("regex"));
     let chose_re = CHOSE_RE
         .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+chose\s+({ent})")).expect("regex"));
     let selected_re = SELECTED_RE
@@ -236,6 +242,8 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
 
     for (re, pred) in [
         (prefers_re, "prefers"),
+        (likes_re, "likes"),
+        (wants_re, "wants"),
         (chose_re, "chose"),
         (selected_re, "selected"),
     ] {
@@ -277,6 +285,13 @@ fn is_procedural_episode(summary: &str) -> bool {
     let word_count = summary.split_whitespace().count();
 
     (word_count > 30 || has_steps) && has_actions
+}
+
+fn classify_fact_predicate(predicate: &str) -> FactCategory {
+    match predicate.to_lowercase().as_str() {
+        "prefers" | "likes" | "wants" | "chose" | "selected" => FactCategory::UserPreference,
+        _ => FactCategory::DomainKnowledge,
+    }
 }
 
 fn normalize_entity(s: &str) -> String {
