@@ -53,6 +53,17 @@ fn resolve_config_mode() -> xiaolin_core::config::ConfigMode {
     }
 }
 
+fn sanitize_profile_for_js(raw: &str) -> String {
+    if raw
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        raw.to_string()
+    } else {
+        "default".to_string()
+    }
+}
+
 fn local_storage_isolation_plugin() -> impl tauri::plugin::Plugin<tauri::Wry> {
     struct StorageIsolation {
         script: Option<String>,
@@ -70,6 +81,7 @@ fn local_storage_isolation_plugin() -> impl tauri::plugin::Plugin<tauri::Wry> {
         .ok()
         .filter(|s| !s.is_empty() && s != "dev" && s != "development")
         .map(|profile| {
+            let profile = sanitize_profile_for_js(&profile);
             format!(
                 r#"const __P="xiaolin:{profile}:";const __S=window.localStorage;
 Object.defineProperty(window,'localStorage',{{value:new Proxy(__S,{{get(t,p){{

@@ -197,7 +197,7 @@ fn format_allowed_locations(root: &Path) -> String {
     locs.join("\n")
 }
 
-fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<PathBuf> {
+pub fn ensure_within_workspace(path: &Path, must_exist: bool) -> std::io::Result<PathBuf> {
     let mode = current_file_access_mode();
     match mode {
         FileAccessMode::None => {

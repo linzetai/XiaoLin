@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use base64::Engine;
@@ -6,6 +6,40 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 
 use crate::api::types::CDNMedia;
 use crate::media::crypto::aes128_ecb_decrypt;
+
+/// Strip directory components and reject traversal sequences in a download filename.
+pub fn sanitize_download_filename(name: &str) -> anyhow::Result<String> {
+    let basename = Path::new(name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("invalid or empty file name"))?;
+    if basename.contains("..") {
+        anyhow::bail!("file name contains forbidden '..' sequence");
+    }
+    if Path::new(basename)
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+    {
+        anyhow::bail!("file name contains forbidden path component");
+    }
+    Ok(basename.to_string())
+}
+
+fn resolve_download_dest(dest_dir: &Path, filename: &str) -> anyhow::Result<PathBuf> {
+    let safe_filename = sanitize_download_filename(filename)?;
+    let canon_dir = if dest_dir.exists() {
+        dest_dir.canonicalize()?
+    } else {
+        std::fs::create_dir_all(dest_dir)?;
+        dest_dir.canonicalize()?
+    };
+    let dest_path = canon_dir.join(&safe_filename);
+    if !dest_path.starts_with(&canon_dir) {
+        anyhow::bail!("resolved download path escapes destination directory");
+    }
+    Ok(dest_path)
+}
 
 /// Download and decrypt a CDN media file to a local path.
 /// Uses `full_url` or falls back to `cdn_base_url + encrypt_query_param`.
@@ -24,7 +58,7 @@ pub async fn download_media(
     let plaintext = aes128_ecb_decrypt(&ciphertext, &key_bytes)?;
 
     tokio::fs::create_dir_all(dest_dir).await?;
-    let dest_path = dest_dir.join(filename);
+    let dest_path = resolve_download_dest(dest_dir, filename)?;
     tokio::fs::write(&dest_path, &plaintext).await?;
 
     Ok(dest_path)
@@ -102,4 +136,47 @@ pub async fn cleanup_old_media(max_age: Duration) -> anyhow::Result<usize> {
         }
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_strips_directory_components() {
+        assert_eq!(
+            sanitize_download_filename("/etc/passwd").unwrap(),
+            "passwd"
+        );
+        assert_eq!(
+            sanitize_download_filename("../../etc/passwd").unwrap(),
+            "passwd"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_dotdot_in_basename() {
+        assert!(sanitize_download_filename("..").is_err());
+        assert!(sanitize_download_filename("file..txt").is_err());
+    }
+
+    #[test]
+    fn resolve_download_dest_stays_within_dir() {
+        let dir = std::env::temp_dir().join(format!("wechat-dl-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = resolve_download_dest(&dir, "report.pdf").unwrap();
+        assert!(dest.starts_with(dir.canonicalize().unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_download_dest_rejects_absolute_filename() {
+        let dir = std::env::temp_dir().join(format!("wechat-dl-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // sanitize strips to basename; traversal via absolute path is neutralized.
+        let dest = resolve_download_dest(&dir, "/tmp/evil.txt").unwrap();
+        assert_eq!(dest.file_name().and_then(|s| s.to_str()), Some("evil.txt"));
+        assert!(dest.starts_with(dir.canonicalize().unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -14,6 +14,18 @@ pub struct ProxyResponse {
     pub body: serde_json::Value,
 }
 
+fn validate_proxy_path(path: &str) -> Result<(), String> {
+    if path.contains("..") {
+        return Err("path must not contain '..'".into());
+    }
+    if !path.starts_with("/v1/") && !path.starts_with("/api/") && !path.starts_with("/health") {
+        return Err(
+            "path not allowed: must start with /v1/, /api/, or /health".into(),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn http_proxy(
     state: tauri::State<'_, AppData>,
@@ -24,6 +36,8 @@ pub async fn http_proxy(
         GatewayStartupState::Running { info } => info,
         _ => return Err("gateway not ready".into()),
     };
+
+    validate_proxy_path(&request.path)?;
 
     let url = format!("{}{}", info.http_url, request.path);
     let client = reqwest::Client::new();

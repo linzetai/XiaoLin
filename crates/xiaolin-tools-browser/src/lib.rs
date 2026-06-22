@@ -175,11 +175,8 @@ impl BrowserTool {
 
         #[cfg(not(target_os = "windows"))]
         let pids_and_ports = {
-            let output = std::process::Command::new("sh")
-                .args([
-                    "-c",
-                    &format!("ps aux | grep chrome | grep '{}'", profile_str),
-                ])
+            let output = std::process::Command::new("pgrep")
+                .args(["-af", &format!("chrome.*{profile_str}")])
                 .output()
                 .ok()?;
             let text = String::from_utf8_lossy(&output.stdout);
@@ -445,6 +442,92 @@ impl BrowserTool {
                      Example: {{\"action\": \"{action}\", \"selector\": \"button.submit\"}}."
                 )
             })
+    }
+
+    fn validate_url_scheme(url: &str) -> Result<(), String> {
+        let trimmed = url.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("https://") || lower.starts_with("http://") {
+            return Ok(());
+        }
+        Err(format!(
+            "browser: URL scheme not allowed for '{trimmed}'. Only http:// and https:// are permitted."
+        ))
+    }
+
+    fn workspace_root_for_paths() -> std::path::PathBuf {
+        std::env::current_dir()
+            .map(|cwd| xiaolin_core::workspace::detect_workspace_root(&cwd))
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    }
+
+    fn canonicalize_or_self(path: &std::path::Path) -> std::path::PathBuf {
+        path.canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn validate_output_path(path: &str) -> Result<std::path::PathBuf, String> {
+        use std::path::{Component, Path};
+
+        let input = Path::new(path);
+        if input.as_os_str().is_empty() {
+            return Err("browser: output path must not be empty".to_string());
+        }
+        if input
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+        {
+            return Err(format!(
+                "browser: output path '{path}' must not contain '..'"
+            ));
+        }
+
+        let workspace = Self::workspace_root_for_paths();
+        let absolute = if input.is_absolute() {
+            input.to_path_buf()
+        } else {
+            workspace.join(input)
+        };
+
+        let parent = absolute
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(workspace.as_path());
+
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "browser: cannot create output directory '{}': {e}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let canon_parent = parent.canonicalize().map_err(|e| {
+            format!(
+                "browser: cannot resolve output path parent for '{path}': {e}"
+            )
+        })?;
+
+        let allowed_roots = [
+            Self::canonicalize_or_self(&workspace),
+            Self::canonicalize_or_self(&std::env::temp_dir()),
+        ];
+        let under_allowed = allowed_roots
+            .iter()
+            .any(|root| canon_parent.starts_with(root));
+
+        if !under_allowed {
+            return Err(format!(
+                "browser: output path '{path}' is outside the workspace or temp directory"
+            ));
+        }
+
+        let file_name = absolute.file_name().ok_or_else(|| {
+            format!("browser: output path '{path}' must include a file name")
+        })?;
+
+        Ok(canon_parent.join(file_name))
     }
 
     /// Build a condensed a11y-tree snapshot (modeled after chrome-devtools-mcp take_snapshot).
@@ -765,6 +848,7 @@ impl BrowserTool {
         let tab = Self::get_or_create_tab(state)?;
 
         if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
+            Self::validate_url_scheme(u)?;
             tab.navigate_to(u)
                 .map_err(|e| format!("browser screenshot navigate: {e}"))?;
             tab.wait_until_navigated().ok();
@@ -824,8 +908,13 @@ impl BrowserTool {
             .or(args.get("output_path"))
             .and_then(|v| v.as_str())
         {
-            std::fs::write(path, &png)
-                .map_err(|e| format!("browser screenshot: could not write to '{path}': {e}."))?;
+            let validated = Self::validate_output_path(path)?;
+            std::fs::write(&validated, &png).map_err(|e| {
+                format!(
+                    "browser screenshot: could not write to '{}': {e}.",
+                    validated.display()
+                )
+            })?;
         }
 
         let summary = format!(
@@ -1037,6 +1126,7 @@ impl BrowserTool {
                             "browser navigate: 'type' is 'url' but missing 'url' field."
                                 .to_string(),
                         )?;
+                        Self::validate_url_scheme(url)?;
                         tab.navigate_to(url).map_err(|e| {
                             format!("browser navigate: failed to load '{url}': {e}.")
                         })?;
@@ -1067,12 +1157,18 @@ impl BrowserTool {
                 let title = tab.get_title().unwrap_or_default();
                 let output = format!("# Page: {title}\n# URL: {url}\n\n{snapshot}");
                 if let Some(path) = args.get("filePath").and_then(|v| v.as_str()) {
-                    std::fs::write(path, &output)
-                        .map_err(|e| format!("browser take_snapshot: write to '{path}': {e}"))?;
-                    Ok(
-                        serde_json::json!({ "saved": path, "elements": snapshot.lines().count() })
-                            .to_string(),
-                    )
+                    let validated = Self::validate_output_path(path)?;
+                    std::fs::write(&validated, &output).map_err(|e| {
+                        format!(
+                            "browser take_snapshot: write to '{}': {e}",
+                            validated.display()
+                        )
+                    })?;
+                    Ok(serde_json::json!({
+                        "saved": validated.to_string_lossy(),
+                        "elements": snapshot.lines().count()
+                    })
+                    .to_string())
                 } else {
                     Ok(output)
                 }
@@ -1105,15 +1201,22 @@ impl BrowserTool {
                     .get("output_path")
                     .and_then(|v| v.as_str())
                     .ok_or("browser pdf: missing 'output_path'.")?;
+                let validated = Self::validate_output_path(path)?;
                 let bytes = tab
                     .print_to_pdf(None)
                     .map_err(|e| format!("browser pdf: {e}."))?;
-                std::fs::write(path, &bytes)
-                    .map_err(|e| format!("browser pdf: write to '{path}' failed: {e}."))?;
-                Ok(
-                    serde_json::json!({ "ok": true, "path": path, "bytes": bytes.len() })
-                        .to_string(),
-                )
+                std::fs::write(&validated, &bytes).map_err(|e| {
+                    format!(
+                        "browser pdf: write to '{}' failed: {e}.",
+                        validated.display()
+                    )
+                })?;
+                Ok(serde_json::json!({
+                    "ok": true,
+                    "path": validated.to_string_lossy(),
+                    "bytes": bytes.len()
+                })
+                .to_string())
             }
 
             // ── Evaluate (supports chrome-devtools-mcp "function" syntax) ──
@@ -1121,6 +1224,7 @@ impl BrowserTool {
                 let tab = Self::get_or_create_tab(state)?;
 
                 if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
+                    Self::validate_url_scheme(u)?;
                     tab.navigate_to(u)
                         .map_err(|e| format!("browser evaluate navigate: {e}"))?;
                     tab.wait_until_navigated().ok();
@@ -1491,6 +1595,7 @@ impl BrowserTool {
                     .get("url")
                     .and_then(|v| v.as_str())
                     .ok_or("browser new_page: missing 'url'.")?;
+                Self::validate_url_scheme(url)?;
                 let tab = state
                     .browser
                     .new_tab()
@@ -1621,6 +1726,7 @@ impl BrowserTool {
 
                 let tab = Self::get_or_create_tab(state)?;
                 if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
+                    Self::validate_url_scheme(u)?;
                     tab.navigate_to(u)
                         .map_err(|e| format!("browser interact: {e}"))?;
                     tab.wait_until_navigated().ok();
@@ -2406,6 +2512,60 @@ mod tests {
         let registry = ToolRegistry::new();
         register_browser_tool(&registry);
         assert!(registry.get("browser").is_some());
+    }
+
+    #[test]
+    fn validate_url_scheme_allows_http_https() {
+        assert!(BrowserTool::validate_url_scheme("https://example.com").is_ok());
+        assert!(BrowserTool::validate_url_scheme("http://example.com/path").is_ok());
+        assert!(BrowserTool::validate_url_scheme("  HTTPS://Example.COM  ").is_ok());
+    }
+
+    #[test]
+    fn validate_url_scheme_rejects_dangerous_schemes() {
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "ftp://example.com",
+            "/etc/passwd",
+        ] {
+            let err = BrowserTool::validate_url_scheme(url).unwrap_err();
+            assert!(
+                err.contains("scheme not allowed") || err.contains("http://"),
+                "unexpected error for {url}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_output_path_rejects_outside_workspace() {
+        let err = BrowserTool::validate_output_path("/etc/cron.d/evil").unwrap_err();
+        assert!(err.contains("outside the workspace"));
+    }
+
+    #[test]
+    fn validate_output_path_allows_workspace_relative() {
+        let root = BrowserTool::workspace_root_for_paths();
+        let rel = root.join("browser-out/test.png");
+        let rel_str = rel
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let validated = BrowserTool::validate_output_path(&rel_str).unwrap();
+        assert!(validated.starts_with(root.canonicalize().unwrap_or(root)));
+    }
+
+    #[test]
+    fn validate_output_path_allows_temp_dir() {
+        let tmp = std::env::temp_dir().join("xiaolin-browser-test-out.pdf");
+        let validated = BrowserTool::validate_output_path(tmp.to_str().unwrap()).unwrap();
+        assert!(validated.starts_with(
+            std::env::temp_dir()
+                .canonicalize()
+                .unwrap_or_else(|_| std::env::temp_dir())
+        ));
     }
 
     #[tokio::test]

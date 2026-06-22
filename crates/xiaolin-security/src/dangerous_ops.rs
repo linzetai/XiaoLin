@@ -38,6 +38,11 @@ pub fn get_dangerous_ops_policy() -> DangerousOpsPolicy {
         .unwrap_or_default()
 }
 
+const POLICY_NOT_LOADED_MSG: &str =
+    "Dangerous-ops policy not initialized; confirmation required before execution";
+const POLICY_POISONED_MSG: &str =
+    "Dangerous-ops policy lock poisoned; command blocked pending policy recovery";
+
 /// Check a shell command against the dangerous-ops policy.
 ///
 /// Returns:
@@ -47,11 +52,22 @@ pub fn get_dangerous_ops_policy() -> DangerousOpsPolicy {
 pub fn check_dangerous_command(command: &str) -> Result<(), CheckResult> {
     let guard = match STATE.read() {
         Ok(g) => g,
-        Err(_) => return Ok(()),
+        Err(e) => {
+            tracing::warn!(error = %e, "dangerous-ops policy RwLock poisoned; blocking command");
+            return Err(CheckResult::Denied(POLICY_POISONED_MSG.to_string()));
+        }
     };
     let state = match guard.as_ref() {
         Some(s) => s,
-        None => return Ok(()),
+        None => {
+            tracing::warn!(
+                command = %command.trim(),
+                "dangerous-ops policy not loaded; requiring confirmation"
+            );
+            return Err(CheckResult::NeedsConfirmation(
+                POLICY_NOT_LOADED_MSG.to_string(),
+            ));
+        }
     };
 
     match state.policy {
@@ -140,5 +156,18 @@ mod tests {
         init_test_state(DangerousOpsPolicy::Deny);
         assert!(check_dangerous_command("rmdir /tmp/old").is_err());
         assert!(check_dangerous_command("mkdir new_dir").is_ok());
+    }
+
+    #[test]
+    fn fail_closed_when_policy_not_loaded() {
+        if let Ok(mut guard) = STATE.write() {
+            *guard = None;
+        }
+        match check_dangerous_command("rm -rf /") {
+            Err(CheckResult::NeedsConfirmation(msg)) => {
+                assert!(msg.contains("not initialized"));
+            }
+            other => panic!("expected NeedsConfirmation when policy not loaded, got {other:?}"),
+        }
     }
 }

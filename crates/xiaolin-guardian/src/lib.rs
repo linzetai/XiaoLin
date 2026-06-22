@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct GuardianConfig {
     /// Whether the Guardian is enabled.
     pub enabled: bool,
+    /// When `enabled` is false, only auto-allow if the user explicitly opted out.
+    /// If false, a missing or failed config load is treated as fail-closed deny.
+    pub explicitly_disabled: bool,
     /// Timeout for LLM review calls.
     pub timeout: Duration,
     /// Model to use for reviews.
@@ -23,9 +26,41 @@ impl Default for GuardianConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            explicitly_disabled: true,
             timeout: Duration::from_secs(60),
             model: "deepseek/deepseek-v4-flash".to_string(),
             max_transcript_tokens: 10000,
+        }
+    }
+}
+
+impl GuardianConfig {
+    /// Config successfully loaded with Guardian enabled.
+    pub fn enabled_from_config(timeout: Duration, model: String, max_transcript_tokens: usize) -> Self {
+        Self {
+            enabled: true,
+            explicitly_disabled: false,
+            timeout,
+            model,
+            max_transcript_tokens,
+        }
+    }
+
+    /// Config successfully loaded with Guardian explicitly disabled by the user.
+    pub fn explicitly_disabled_from_config() -> Self {
+        Self {
+            enabled: false,
+            explicitly_disabled: true,
+            ..Default::default()
+        }
+    }
+
+    /// Config missing or failed to parse — fail-closed.
+    pub fn unavailable() -> Self {
+        Self {
+            enabled: false,
+            explicitly_disabled: false,
+            ..Default::default()
         }
     }
 }
@@ -259,12 +294,21 @@ impl Guardian {
         context: &ReviewContext,
     ) -> GuardianAssessment {
         if !self.config.enabled {
-            return GuardianAssessment {
-                decision: GuardianDecision::Allow,
-                risk_level: GuardianRiskLevel::Low,
-                user_authorization: GuardianUserAuthorization::Unknown,
-                rationale: "Guardian disabled; auto-allow".to_string(),
-            };
+            if self.config.explicitly_disabled {
+                tracing::info!("Guardian explicitly disabled by user; auto-allowing operation");
+                return GuardianAssessment {
+                    decision: GuardianDecision::Allow,
+                    risk_level: GuardianRiskLevel::Low,
+                    user_authorization: GuardianUserAuthorization::Unknown,
+                    rationale: "Guardian explicitly disabled by user; auto-allow".to_string(),
+                };
+            }
+            tracing::warn!(
+                "Guardian configuration unavailable or invalid; denying operation (fail-closed)"
+            );
+            return GuardianAssessment::deny(
+                "Guardian configuration unavailable; fail-closed deny",
+            );
         }
 
         let review_prompt = prompt::build_review_prompt(operation, context);
@@ -296,23 +340,66 @@ impl Guardian {
     fn parse_response(&self, response: &str) -> GuardianAssessment {
         let _ = &self.config;
 
-        if let Ok(assessment) = serde_json::from_str::<GuardianAssessment>(response) {
-            return assessment;
+        if let Some(assessment) = parse_validated_assessment(response) {
+            return validate_assessment(assessment);
         }
 
-        let json_str = response
-            .find('{')
-            .and_then(|start| response.rfind('}').map(|end| &response[start..=end]));
-
-        if let Some(json) = json_str {
-            if let Ok(assessment) = serde_json::from_str::<GuardianAssessment>(json) {
-                return assessment;
+        if let Some(start) = response.find('{') {
+            if let Some(end) = response.rfind('}') {
+                if let Some(assessment) = parse_validated_assessment(&response[start..=end]) {
+                    return validate_assessment(assessment);
+                }
             }
         }
 
         tracing::error!("Failed to parse Guardian response as JSON");
         GuardianAssessment::deny("Failed to parse LLM response as valid assessment JSON")
     }
+}
+
+fn parse_validated_assessment(json_str: &str) -> Option<GuardianAssessment> {
+    let mut val: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let decision_raw = val.get("decision")?.as_str()?.to_string();
+    let normalized = match decision_raw.as_str() {
+        "allow" | "deny" => decision_raw,
+        "needs_confirmation" => {
+            tracing::info!(
+                decision = decision_raw,
+                "Guardian LLM returned needs_confirmation; treating as deny pending user review"
+            );
+            "deny".to_string()
+        }
+        other => {
+            tracing::warn!(decision = %other, "Guardian response has invalid decision value");
+            return None;
+        }
+    };
+    val.as_object_mut()?
+        .insert("decision".to_string(), serde_json::Value::String(normalized));
+    serde_json::from_value(val).ok()
+}
+
+/// Enforce consistency invariants on a parsed Guardian assessment.
+fn validate_assessment(mut assessment: GuardianAssessment) -> GuardianAssessment {
+    if assessment.decision == GuardianDecision::Allow
+        && matches!(
+            assessment.risk_level,
+            GuardianRiskLevel::High | GuardianRiskLevel::Critical
+        )
+    {
+        tracing::warn!(
+            risk_level = ?assessment.risk_level,
+            rationale = %assessment.rationale,
+            "Guardian assessment inconsistent: allow with high/critical risk; downgrading to deny"
+        );
+        let original = assessment.rationale.clone();
+        assessment.decision = GuardianDecision::Deny;
+        assessment.rationale = format!(
+            "[auto-corrected] inconsistent allow with {:?} risk: {original}",
+            assessment.risk_level
+        );
+    }
+    assessment
 }
 
 /// Kind of transcript entry, used for budget allocation.
@@ -662,7 +749,43 @@ mod tests {
 
         let result = guardian.review(&test_operation(), &test_context()).await;
         assert!(result.is_allowed());
-        assert!(result.rationale.contains("disabled"));
+        assert!(result.rationale.contains("explicitly disabled"));
+    }
+
+    #[tokio::test]
+    async fn unavailable_guardian_config_denies() {
+        let llm = Arc::new(FailingLlm);
+        let guardian = Guardian::new(GuardianConfig::unavailable(), llm);
+
+        let result = guardian.review(&test_operation(), &test_context()).await;
+        assert!(!result.is_allowed());
+        assert!(result.rationale.contains("unavailable"));
+    }
+
+    #[tokio::test]
+    async fn review_downgrades_allow_with_critical_risk() {
+        let llm = Arc::new(MockLlm {
+            response: r#"{"decision":"allow","risk_level":"critical","rationale":"Trust me"}"#
+                .to_string(),
+        });
+        let guardian = Guardian::new(
+            GuardianConfig {
+                enabled: true,
+                explicitly_disabled: false,
+                ..Default::default()
+            },
+            llm,
+        );
+
+        let result = guardian.review(&test_operation(), &test_context()).await;
+        assert!(!result.is_allowed());
+        assert!(result.rationale.contains("auto-corrected"));
+    }
+
+    #[test]
+    fn rejects_invalid_decision_value() {
+        let json = r#"{"decision":"approve","risk_level":"low","rationale":"bad"}"#;
+        assert!(parse_validated_assessment(json).is_none());
     }
 
     #[tokio::test]

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use serde::Deserialize;
 
-use xiaolin_tools_fs::filesystem::{ReadFileTool, SearchInFilesTool};
+use xiaolin_tools_fs::filesystem::{ensure_within_workspace, ReadFileTool, SearchInFilesTool};
 use crate::lsp_manager::LspSessionManager;
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +119,12 @@ fn parse_search_matches(raw: &str) -> Result<Vec<serde_json::Value>, String> {
 
 fn parse_read_line(raw: &str) -> String {
     raw.lines().next().unwrap_or_default().to_string()
+}
+
+fn validate_workspace_read_path(path: &str, tool: &str) -> Result<PathBuf, ToolResult> {
+    ensure_within_workspace(Path::new(path), true).map_err(|e| {
+        ToolResult::err(format!("{tool}: path not allowed: {e}"))
+    })
 }
 
 pub struct WorkspaceSymbolsTool;
@@ -914,10 +921,13 @@ async fn execute_hover(path: &str, line: usize, col: usize) -> ToolResult {
 }
 
 async fn execute_document_symbol(path: &str) -> ToolResult {
-    let file_path = std::path::Path::new(path);
-    if let Some(lang) = xiaolin_treesitter::CodeParser::detect_language(file_path) {
+    let file_path = match validate_workspace_read_path(path, "documentSymbol") {
+        Ok(p) => p,
+        Err(err) => return err,
+    };
+    if let Some(lang) = xiaolin_treesitter::CodeParser::detect_language(&file_path) {
         if xiaolin_treesitter::CodeParser::is_language_available(&lang) {
-            match xiaolin_treesitter::CodeParser::parse_file(file_path) {
+            match xiaolin_treesitter::CodeParser::parse_file(&file_path) {
                 Ok(parsed) => {
                     let symbols = xiaolin_treesitter::extract_symbols(
                         &parsed.tree,
@@ -1133,8 +1143,11 @@ impl Tool for FileOutlineTool {
             Ok(v) => v,
             Err(e) => return ToolResult::err(format!("file_outline invalid JSON: {e}")),
         };
-        let file_path = std::path::Path::new(&args.path);
-        let lang = match xiaolin_treesitter::CodeParser::detect_language(file_path) {
+        let file_path = match validate_workspace_read_path(&args.path, "file_outline") {
+            Ok(p) => p,
+            Err(err) => return err,
+        };
+        let lang = match xiaolin_treesitter::CodeParser::detect_language(&file_path) {
             Some(l) => l,
             None => {
                 return ToolResult::err(format!(
@@ -1153,7 +1166,7 @@ impl Tool for FileOutlineTool {
             ));
         }
 
-        let parsed = match xiaolin_treesitter::CodeParser::parse_file(file_path) {
+        let parsed = match xiaolin_treesitter::CodeParser::parse_file(&file_path) {
             Ok(p) => p,
             Err(e) => return ToolResult::err(format!("file_outline parse error: {e}")),
         };
@@ -1250,8 +1263,11 @@ impl Tool for CodeSectionsTool {
             Ok(v) => v,
             Err(e) => return ToolResult::err(format!("code_sections invalid JSON: {e}")),
         };
-        let file_path = std::path::Path::new(&args.path);
-        let lang = match xiaolin_treesitter::CodeParser::detect_language(file_path) {
+        let file_path = match validate_workspace_read_path(&args.path, "code_sections") {
+            Ok(p) => p,
+            Err(err) => return err,
+        };
+        let lang = match xiaolin_treesitter::CodeParser::detect_language(&file_path) {
             Some(l) => l,
             None => {
                 return ToolResult::err(format!(
@@ -1270,7 +1286,7 @@ impl Tool for CodeSectionsTool {
             ));
         }
 
-        let parsed = match xiaolin_treesitter::CodeParser::parse_file(file_path) {
+        let parsed = match xiaolin_treesitter::CodeParser::parse_file(&file_path) {
             Ok(p) => p,
             Err(e) => return ToolResult::err(format!("code_sections parse error: {e}")),
         };

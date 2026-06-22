@@ -1,5 +1,25 @@
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+fn is_valid_skill_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn ensure_within_skills_dir(skills_dir: &Path, target: &Path) -> Result<PathBuf, String> {
+    let skills_canon = skills_dir
+        .canonicalize()
+        .map_err(|e| format!("skills directory unavailable: {e}"))?;
+    let target_canon = target
+        .canonicalize()
+        .map_err(|e| format!("invalid destination path: {e}"))?;
+    if !target_canon.starts_with(&skills_canon) {
+        return Err("path escapes skills directory".into());
+    }
+    Ok(target_canon)
+}
 
 fn config_mode() -> xiaolin_core::config::ConfigMode {
     crate::resolve_config_mode()
@@ -33,6 +53,9 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or("invalid directory name")?;
+        if !is_valid_skill_name(dir_name) {
+            return Err(format!("invalid skill directory name: {dir_name}"));
+        }
         let dest = skills_dir.join(dir_name);
         if dest.exists() {
             std::fs::remove_dir_all(&dest)
@@ -40,6 +63,7 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         }
         copy_dir_recursive(src, &dest)
             .map_err(|e| format!("failed to copy skill dir: {e}"))?;
+        ensure_within_skills_dir(&skills_dir, &dest)?;
         return Ok(json!({ "installed": dir_name }));
     }
 
@@ -75,12 +99,20 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         if !has_skill_md {
             return Err("zip archive does not contain a SKILL.md file".into());
         }
+        for name in &top_dirs {
+            if !is_valid_skill_name(name) {
+                return Err(format!("invalid skill name in zip: {name}"));
+            }
+        }
 
         let is_flat = top_dirs.len() == 1;
         let extract_to = if is_flat {
             skills_dir.clone()
         } else {
             let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("skill");
+            if !is_valid_skill_name(stem) {
+                return Err(format!("invalid skill archive name: {stem}"));
+            }
             skills_dir.join(stem)
         };
         std::fs::create_dir_all(&extract_to)
@@ -111,6 +143,8 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                     .map_err(|e| format!("failed to write extracted file: {e}"))?;
             }
         }
+
+        ensure_within_skills_dir(&skills_dir, &extract_to)?;
 
         let skill_name = if is_flat {
             top_dirs.into_iter().next().unwrap_or_default()

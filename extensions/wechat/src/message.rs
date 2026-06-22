@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::api::client::WechatApiClient;
 use crate::api::types::*;
-use crate::media::download::{download_media, media_temp_dir};
+use crate::media::download::{download_media, media_temp_dir, sanitize_download_filename};
 use crate::media::upload::{build_message_item, media_type_from_mime, mime_from_extension, upload_to_cdn};
 
 /// Convert a WeChat inbound message to XiaoLin's InboundMessage.
@@ -145,14 +145,21 @@ pub async fn enrich_inbound_media(
                             .file_name
                             .as_deref()
                             .unwrap_or("file");
-                        let filename = format!("{}_{}", uuid::Uuid::new_v4(), name);
-                        let mime = mime_from_extension(Path::new(name));
+                        let safe_name = match sanitize_download_filename(name) {
+                            Ok(n) => n,
+                            Err(e) => {
+                                tracing::warn!(error = %e, file_name = name, "rejecting unsafe inbound file name");
+                                continue;
+                            }
+                        };
+                        let filename = format!("{}_{}", uuid::Uuid::new_v4(), safe_name);
+                        let mime = mime_from_extension(Path::new(&safe_name));
                         download_media(media, cdn_base_url, &dest_dir, &filename)
                             .await
                             .map(|p| Attachment {
                                 file_path: p.to_string_lossy().to_string(),
                                 mime_type: Some(mime.to_string()),
-                                file_name: Some(name.to_string()),
+                                file_name: Some(safe_name),
                             })
                     } else {
                         continue;

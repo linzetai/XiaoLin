@@ -1,7 +1,8 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use xiaolin_tools_fs::filesystem::ensure_within_workspace;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,6 +65,11 @@ impl NotebookCell {
             execution_count: None,
         }
     }
+}
+
+fn validate_notebook_path(path: &str) -> Result<PathBuf, String> {
+    ensure_within_workspace(Path::new(path), true)
+        .map_err(|e| format!("notebook_edit: path not allowed: {e}"))
 }
 
 fn source_to_lines(source: &str) -> Vec<String> {
@@ -189,12 +195,15 @@ impl Tool for NotebookEditTool {
             }
         };
 
-        let path = Path::new(&args.path);
+        let path = match validate_notebook_path(&args.path) {
+            Ok(p) => p,
+            Err(msg) => return ToolResult::err(msg),
+        };
 
         match args.operation.as_str() {
-            "replace" => execute_replace(path, &args),
-            "insert" => execute_insert(path, &args),
-            "delete" => execute_delete(path, &args),
+            "replace" => execute_replace(&path, &args),
+            "insert" => execute_insert(&path, &args),
+            "delete" => execute_delete(&path, &args),
             other => ToolResult::err(format!(
                 "Unknown operation '{other}'. Must be 'replace', 'insert', or 'delete'."
             )),
