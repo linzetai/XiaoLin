@@ -6,6 +6,7 @@ import { useChatMetaStore } from "./chat-meta-store";
 
 const MAX_OPEN_FILES = 10;
 const MAX_ARTIFACTS_PER_SESSION = 500;
+const MAX_CACHED_SESSIONS = 20;
 
 export interface OpenFile {
   path: string;
@@ -89,6 +90,21 @@ function pickLruPath(openFiles: Record<string, OpenFile>, excludePath?: string):
   return lru;
 }
 
+/** Merge server-fetched artifacts with locally-buffered ones (from WS events). */
+function mergeArtifacts(local: FileArtifact[], server: FileArtifact[]): FileArtifact[] {
+  const seen = new Set<string>();
+  const merged: FileArtifact[] = [];
+  for (const a of [...local, ...server]) {
+    const key = `${a.path}\0${a.timestamp}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(a);
+  }
+  return merged.length > MAX_ARTIFACTS_PER_SESSION
+    ? merged.slice(0, MAX_ARTIFACTS_PER_SESSION)
+    : merged;
+}
+
 function prependArtifact(list: FileArtifact[], artifact: FileArtifact): FileArtifact[] {
   if (list.some((a) => a.path === artifact.path && a.timestamp === artifact.timestamp)) {
     return list;
@@ -125,6 +141,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const resolved = resolveFilePath(path, workDir);
     if (!resolved || !workDir) return;
 
+    const sessionAtStart = useChatMetaStore.getState().activeChatId;
     set({ lastOpenError: null });
 
     const existing = get().openFiles[resolved];
@@ -156,6 +173,8 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
           size = text.size;
         } catch (e) {
           console.warn("[file-viewer] failed to read SVG text:", resolved, e);
+          set({ lastOpenError: "无法打开文件，请确认文件路径和权限是否正确" });
+          return;
         }
       }
 
@@ -166,16 +185,19 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.warn("[file-viewer] failed to open file:", resolved, e);
-        set({ lastOpenError: `无法打开文件：${msg}` });
+        console.warn("[file-viewer] open error detail:", msg);
+        set({ lastOpenError: "无法打开文件，请确认文件路径和权限是否正确" });
         return;
       }
     }
+
+    if (useChatMetaStore.getState().activeChatId !== sessionAtStart) return;
 
     const now = Date.now();
     let openFiles = { ...get().openFiles };
 
     if (Object.keys(openFiles).length >= MAX_OPEN_FILES) {
-      const lru = pickLruPath(openFiles);
+      const lru = pickLruPath(openFiles, get().activeFilePath ?? undefined);
       if (lru) {
         const { [lru]: _, ...rest } = openFiles;
         openFiles = rest;
@@ -199,9 +221,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   closeFile: (path) => {
     set((state) => {
       if (!state.openFiles[path]) return state;
+      const paths = Object.keys(state.openFiles);
       const { [path]: _, ...openFiles } = state.openFiles;
-      const activeFilePath =
-        state.activeFilePath === path ? pickMostRecentOpenFile(openFiles) : state.activeFilePath;
+
+      let activeFilePath = state.activeFilePath;
+      if (activeFilePath === path) {
+        const idx = paths.indexOf(path);
+        const next = paths[idx + 1] ?? paths[idx - 1] ?? null;
+        activeFilePath = next && openFiles[next] ? next : pickMostRecentOpenFile(openFiles);
+      }
       return { openFiles, activeFilePath };
     });
   },
@@ -253,6 +281,17 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         sessionArtifacts[oldSessionId] = state.artifacts;
       }
 
+      const cachedKeys = Object.keys(sessionOpenFiles);
+      if (cachedKeys.length > MAX_CACHED_SESSIONS) {
+        const toEvict = cachedKeys
+          .filter((k) => k !== newSessionId && k !== oldSessionId)
+          .slice(0, cachedKeys.length - MAX_CACHED_SESSIONS);
+        for (const k of toEvict) {
+          delete sessionOpenFiles[k];
+          delete sessionArtifacts[k];
+        }
+      }
+
       const openFiles = sessionOpenFiles[newSessionId] ?? {};
       const artifacts = sessionArtifacts[newSessionId] ?? [];
       const activeFilePath = pickMostRecentOpenFile(openFiles);
@@ -263,19 +302,27 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         openFiles,
         artifacts,
         activeFilePath,
+        lastOpenError: null,
       };
     });
 
-    transport
-      .listArtifacts(newSessionId)
-      .then((artifacts) => {
-        if (useChatMetaStore.getState().activeChatId !== newSessionId) return;
-        useFileViewerStore.setState((state) => ({
-          artifacts,
-          sessionArtifacts: { ...state.sessionArtifacts, [newSessionId]: artifacts },
-        }));
-      })
-      .catch(() => {});
+    if (!newSessionId.startsWith("new-")) {
+      transport
+        .listArtifacts(newSessionId)
+        .then((serverArtifacts) => {
+          if (useChatMetaStore.getState().activeChatId !== newSessionId) return;
+          useFileViewerStore.setState((state) => {
+            const merged = mergeArtifacts(state.artifacts, serverArtifacts);
+            return {
+              artifacts: merged,
+              sessionArtifacts: { ...state.sessionArtifacts, [newSessionId]: merged },
+            };
+          });
+        })
+        .catch((e) => {
+          console.warn("[file-viewer] failed to load artifacts for session:", newSessionId, e);
+        });
+    }
   },
 
 }));
@@ -323,12 +370,15 @@ export function reloadArtifactsForCurrentSession(): void {
   if (!sessionId || sessionId.startsWith("new-")) return;
   transport
     .listArtifacts(sessionId)
-    .then((artifacts) => {
+    .then((serverArtifacts) => {
       if (useChatMetaStore.getState().activeChatId !== sessionId) return;
-      useFileViewerStore.setState((s) => ({
-        artifacts,
-        sessionArtifacts: { ...s.sessionArtifacts, [sessionId]: artifacts },
-      }));
+      useFileViewerStore.setState((s) => {
+        const merged = mergeArtifacts(s.artifacts, serverArtifacts);
+        return {
+          artifacts: merged,
+          sessionArtifacts: { ...s.sessionArtifacts, [sessionId]: merged },
+        };
+      });
     })
     .catch((e) => {
       console.warn("[file-viewer] reload artifacts failed:", e);

@@ -171,6 +171,17 @@ export async function readBinaryForViewer(
   return tauriInvoke<ReadBinaryForViewerResult>("read_binary_for_viewer", { path, workDir });
 }
 
+export interface DirEntry {
+  name: string;
+  isDir: boolean;
+  size: number;
+}
+
+export async function listDirectory(path: string, workDir: string): Promise<DirEntry[]> {
+  if (!isTauri) throw new Error("list_directory only available in desktop mode");
+  return tauriInvoke<DirEntry[]>("list_directory", { path, workDir });
+}
+
 // ─── WebSocket Connection ───
 
 export function connectWs(url: string, token?: string): Promise<void> {

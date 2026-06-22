@@ -108,6 +108,24 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
 
   useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { path?: string; line?: number; workDir?: string } | undefined;
+      if (!detail?.path) return;
+
+      const chatId = useChatMetaStore.getState().activeChatId;
+      const chat = useChatMetaStore.getState().chats[chatId];
+      const resolvedWorkDir = detail.workDir ?? chat?.workDir ?? "";
+      if (!resolvedWorkDir) return;
+
+      void useFileViewerStore.getState().openFile(detail.path, resolvedWorkDir, detail.line);
+      useWorkspaceTabs.getState().setActiveTab("files");
+    };
+
+    window.addEventListener("xiaolin:open-file", handler);
+    return () => window.removeEventListener("xiaolin:open-file", handler);
+  }, []);
+
+  useEffect(() => {
     if (!gitStatus?.isGitRepo) return;
     const changeCount = (gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0);
     const tabs = useWorkspaceTabs.getState().tabs;

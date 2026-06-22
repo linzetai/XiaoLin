@@ -979,7 +979,7 @@ async fn dispatch(
             .await;
         }
         ClientOp::ArtifactsList { session_id } => {
-            artifact::handle_artifacts_list(sender, state, id, &session_id).await;
+            artifact::handle_artifacts_list(sender, state, owned_sessions, id, &session_id).await;
         }
     }
 }

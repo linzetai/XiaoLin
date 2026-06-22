@@ -47,7 +47,12 @@ pub struct BinaryFileResult {
 }
 
 /// Canonicalize `path` and ensure it stays within `work_dir` (also canonicalized).
+/// Security: rejects NUL bytes, root work_dir, and paths outside the work directory.
 fn validate_path(path: &str, work_dir: &str) -> Result<PathBuf, String> {
+    if path.contains('\0') || work_dir.contains('\0') {
+        return Err("invalid path".into());
+    }
+
     let work_root = Path::new(work_dir);
     if !work_root.is_dir() {
         return Err("work directory unavailable".into());
@@ -57,7 +62,16 @@ fn validate_path(path: &str, work_dir: &str) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|_| "work directory unavailable".to_string())?;
 
-    let target = Path::new(path);
+    if canonical_work == PathBuf::from("/") || canonical_work.parent().is_none() {
+        return Err("work directory unavailable".into());
+    }
+
+    let target = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        canonical_work.join(path)
+    };
+
     if !target.exists() {
         return Err("path not found".into());
     }

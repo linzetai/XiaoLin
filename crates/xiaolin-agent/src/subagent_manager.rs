@@ -45,6 +45,8 @@ pub struct SubAgentManager {
     run_queues: Arc<DashMap<String, Arc<MessageQueue>>>,
     /// Shared port for bubble approval requests from sub-agents.
     bubble_port: Arc<xiaolin_core::tool_runtime::BubbleApprovalPort>,
+    /// Shared artifact store for persisting subagent file operations under the parent session.
+    artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
 }
 
 impl SubAgentManager {
@@ -66,7 +68,12 @@ impl SubAgentManager {
             session_event_senders: Arc::new(DashMap::new()),
             run_queues: Arc::new(DashMap::new()),
             bubble_port: Arc::new(xiaolin_core::tool_runtime::BubbleApprovalPort::new()),
+            artifact_store: None,
         }
+    }
+
+    pub fn set_artifact_store(&mut self, store: Arc<dyn xiaolin_session::ArtifactStore>) {
+        self.artifact_store = Some(store);
     }
 
     pub fn controller(&self) -> &Arc<SpawnController> {
@@ -354,6 +361,7 @@ impl SubAgentManager {
         let controller = self.controller.clone();
         let orchestrator = self.orchestrator.clone();
         let completion_channels = self.completion_channels.clone();
+        let artifact_store = self.artifact_store.clone();
         let result_char_limit = max_result_chars
             .unwrap_or(crate::sidechain::MAX_RESULT_CHARS);
 
@@ -467,6 +475,7 @@ impl SubAgentManager {
                     initial_msgs.as_deref(),
                     Some(mq.clone()),
                     approval_strat,
+                    artifact_store.clone(),
                 ) => {
                     res
                 }
@@ -857,9 +866,10 @@ impl SubAgentManager {
         initial_messages: Option<&[ChatMessage]>,
         message_queue: Option<Arc<MessageQueue>>,
         approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
+        artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
     ) -> anyhow::Result<(String, u32, u32, Option<Usage>)> {
         use crate::sidechain::{SidechainMessage, SidechainMeta, SidechainWriter};
-        use xiaolin_core::types::{ChatMessage, ChatRequest, Role};
+        use xiaolin_core::types::{ChatMessage, ChatRequest, Role, SessionId};
 
         let mut messages = Vec::new();
 
@@ -892,7 +902,7 @@ impl SubAgentManager {
             temperature: None,
             max_tokens: None,
             agent_id: Some(config.agent_id.clone()),
-            session_id: None,
+            session_id: Some(xiaolin_core::types::SessionId::from(parent_session_id.to_string())),
             tools: None,
             slash_intent: None,
             work_dir,
@@ -1137,7 +1147,7 @@ impl SubAgentManager {
                 None,
                 None,
                 None,
-                None,
+                artifact_store,
                 None,
                 message_queue,
             )

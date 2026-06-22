@@ -62,16 +62,16 @@
 
 ## 7. Files Tab 和分栏布局
 
-- [ ] 7.1 创建 `FileViewerTab.tsx`：Files tab 主组件，分栏布局容器
-- [ ] 7.2 在 `AppShell.tsx` 中注册 Files tab（`registerTab({ id: "files", ... })`），完整 order 表：Plan=0, Review=1, Files=2, Goal=3, Terminal=4, SubAgents=5
-- [ ] 7.3 实现分栏布局：左侧文件列表（180px / 可折叠为 36px）+ 右侧查看器
-- [ ] 7.4 实现自适应折叠：面板宽度 < 400px 时自动折叠文件列表为 36px 图标条
-- [ ] 7.4b 实现折叠后 overlay 展开：点击图标条弹出 overlay 文件列表（不挤压查看器），点击外部关闭
-- [ ] 7.5 创建 `FileTabBar.tsx`：查看器区域上方的多文件 tab 栏（切换/关闭/LRU）
-- [ ] 7.6 创建 `FileViewer.tsx`：按文件类型路由到 CodeViewer/MarkdownViewer/ImageViewer
-- [ ] 7.7 创建 `FileToolbar.tsx`：文件名 + 复制内容 + 在外部打开 + 自动换行切换 + 预览/源码切换
-- [ ] 7.8 实现空状态 UI：无文件时显示引导提示
-- [ ] 7.9 实现首次打开自动扩展面板宽度至 500px
+- [x] 7.1 创建 `FileViewerTab.tsx`：Files tab 主组件，分栏布局容器
+- [x] 7.2 在 `AppShell.tsx` 中注册 Files tab（`registerTab({ id: "files", ... })`），完整 order 表：Plan=0, Review=1, Files=2, Goal=3, Terminal=4, SubAgents=5
+- [x] 7.3 实现分栏布局：左侧文件列表（180px / 可折叠为 36px）+ 右侧查看器
+- [x] 7.4 实现自适应折叠：面板宽度 < 400px 时自动折叠文件列表为 36px 图标条
+- [x] 7.4b 实现折叠后 overlay 展开：点击图标条弹出 overlay 文件列表（不挤压查看器），点击外部关闭
+- [x] 7.5 创建 `FileTabBar.tsx`：查看器区域上方的多文件 tab 栏（切换/关闭/LRU）
+- [x] 7.6 创建 `FileViewer.tsx`：按文件类型路由到 CodeViewer/MarkdownViewer/ImageViewer
+- [x] 7.7 创建 `FileToolbar.tsx`：文件名 + 复制内容 + 在外部打开 + 自动换行切换 + 预览/源码切换
+- [x] 7.8 实现空状态 UI：无文件时显示引导提示
+- [x] 7.9 实现首次打开自动扩展面板宽度至 500px
 
 ## 8. 文件树浏览器
 

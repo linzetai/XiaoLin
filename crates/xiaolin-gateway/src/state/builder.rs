@@ -937,7 +937,7 @@ impl StateBuilder {
         let live_agents_swap: Arc<ArcSwap<Vec<AgentConfig>>> =
             Arc::new(ArcSwap::from_pointee(initial_agents.clone()));
 
-        let subagent_manager_shared = Arc::new(xiaolin_agent::SubAgentManager::new(
+        let mut subagent_manager = xiaolin_agent::SubAgentManager::new(
             runtime_for_subagent,
             initial_agents.clone(),
             xiaolin_core::agent_config::SubAgentPolicy::default(),
@@ -946,7 +946,9 @@ impl StateBuilder {
                     xiaolin_core::agent_config::SubAgentPolicy::default().max_parallel,
                 ),
             )),
-        ));
+        );
+        subagent_manager.set_artifact_store(artifact_store.clone());
+        let subagent_manager_shared = Arc::new(subagent_manager);
 
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(
             Arc::new(xiaolin_agent::RuntimeTurnExecutor {
