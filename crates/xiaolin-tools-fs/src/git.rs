@@ -503,7 +503,25 @@ pub async fn git_commit(dir: &Path, message: &str) -> Result<CommitResult, Strin
     })
 }
 
-pub async fn git_revert_files(dir: &Path, files: &[String]) -> Result<(), String> {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GitRevertFailure {
+    pub file: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GitRevertResult {
+    pub reverted: Vec<String>,
+    pub delete_failures: Vec<GitRevertFailure>,
+}
+
+impl GitRevertResult {
+    pub fn all_succeeded(&self) -> bool {
+        self.delete_failures.is_empty()
+    }
+}
+
+pub async fn git_revert_files(dir: &Path, files: &[String]) -> Result<GitRevertResult, String> {
     if files.is_empty() {
         return Err("no files specified for revert".into());
     }
@@ -530,12 +548,26 @@ pub async fn git_revert_files(dir: &Path, files: &[String]) -> Result<(), String
         run_git(dir, &args).await?;
     }
 
-    for f in &untracked_to_delete {
-        let path = dir.join(f);
-        let _ = tokio::fs::remove_file(&path).await;
+    let mut reverted = tracked;
+    let mut delete_failures = Vec::new();
+
+    for f in untracked_to_delete {
+        let path = dir.join(&f);
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => reverted.push(f),
+            Err(e) => {
+                delete_failures.push(GitRevertFailure {
+                    file: f,
+                    error: e.to_string(),
+                });
+            }
+        }
     }
 
-    Ok(())
+    Ok(GitRevertResult {
+        reverted,
+        delete_failures,
+    })
 }
 
 // ── Write Mutex ─────────────────────────────────────────────────────────

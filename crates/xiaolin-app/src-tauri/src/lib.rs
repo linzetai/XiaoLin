@@ -284,18 +284,18 @@ pub fn run() {
                         );
                     }
                     Err(e) => {
-                        let error_msg = format!("failed to start gateway: {e}");
-                        tracing::error!("{}", error_msg);
+                        tracing::error!(error = %e, "failed to start gateway");
 
+                        let user_message = "Gateway failed to start".to_string();
                         let _ = watch_tx.send(GatewayStartupState::Failed {
-                            error: error_msg.clone(),
+                            error: user_message.clone(),
                         });
 
                         let _ = handle.emit(
                             "gateway://started",
                             json!({
                                 "status": "error",
-                                "message": error_msg
+                                "message": user_message
                             }),
                         );
 
@@ -304,7 +304,7 @@ pub fn run() {
                             .notification()
                             .builder()
                             .title("XiaoLin")
-                            .body(format!("Gateway 启动失败：{e}"))
+                            .body("Gateway 启动失败，请查看日志了解详情")
                             .show();
                     }
                 }

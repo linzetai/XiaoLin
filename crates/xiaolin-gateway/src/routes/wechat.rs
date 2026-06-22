@@ -183,7 +183,11 @@ pub async fn login_status(
                 }
                 qr_login::LoginStatus::Expired => {
                     let refreshed = {
-                        let mut session = LOGIN_SESSIONS.get_mut(&session_key).unwrap();
+                        let Some(mut session) = LOGIN_SESSIONS.get_mut(&session_key) else {
+                            let data = serde_json::json!({"status": "error", "message": "session not found"});
+                            yield Ok(Event::default().data(data.to_string()));
+                            break;
+                        };
                         qr_login::refresh_qr(&mut session, &[]).await
                     };
                     match refreshed {

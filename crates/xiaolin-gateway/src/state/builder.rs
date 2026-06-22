@@ -478,12 +478,8 @@ impl StateBuilder {
         let ask_question_pending = Arc::new(DashMap::new());
         let tool_orchestrator = {
             let mut policy_engine = xiaolin_execpolicy::PolicyEngine::new();
-            let policy_loaded = Self::load_exec_policy(&mut policy_engine, config);
-            if policy_loaded {
-                Arc::new(xiaolin_agent::ToolOrchestrator::with_policy(policy_engine))
-            } else {
-                Arc::new(xiaolin_agent::ToolOrchestrator::new())
-            }
+            Self::load_exec_policy(&mut policy_engine, config);
+            Arc::new(xiaolin_agent::ToolOrchestrator::with_policy(policy_engine))
         };
         p3.tool_registry.register(Arc::new(
             xiaolin_agent::builtin_tools::AskQuestionTool::new(
@@ -885,6 +881,8 @@ impl StateBuilder {
             .set_skills_allow(config.skills.allow.clone());
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
+        let pty_max_sessions = config.terminal.max_sessions;
+        let pty_idle_timeout_secs = config.terminal.idle_timeout_secs;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let auth = Arc::new(xiaolin_security::ApiKeyAuth::new(
             &xiaolin_security::AuthConfig {
@@ -1048,7 +1046,10 @@ impl StateBuilder {
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: subagent_manager_shared.clone(),
                 session_manager: session_manager.clone(),
-                pty_manager: Arc::new(xiaolin_pty::PtySessionManager::new()),
+                pty_manager: Arc::new(xiaolin_pty::PtySessionManager::from_config(
+                    pty_max_sessions,
+                    pty_idle_timeout_secs,
+                )),
                 agent_def_watcher: None,
                 skill_watcher: None,
                 pending_elicitations: Arc::new(dashmap::DashMap::new()),

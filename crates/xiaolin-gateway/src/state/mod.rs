@@ -324,6 +324,28 @@ pub struct ElicitationReply {
     pub content: Option<serde_json::Value>,
 }
 
+/// Max pending MCP elicitations before evicting the oldest entry.
+const MAX_PENDING_ELICITATIONS: usize = 1000;
+
+fn evict_oldest_pending_elicitation(
+    pending_elicitations: &DashMap<String, PendingElicitation>,
+) {
+    let Some(oldest) = pending_elicitations
+        .iter()
+        .min_by_key(|entry| entry.value().created_at)
+        .map(|entry| entry.key().clone())
+    else {
+        return;
+    };
+    pending_elicitations.remove(&oldest);
+    tracing::warn!(
+        max = MAX_PENDING_ELICITATIONS,
+        removed = %oldest,
+        remaining = pending_elicitations.len(),
+        "pending_elicitations at capacity; evicted oldest entry"
+    );
+}
+
 #[derive(Clone)]
 pub struct StreamState {
     /// Used by `RuntimeTurnExecutor` for `ask_question`/`confirm`
@@ -1851,6 +1873,9 @@ impl AppState {
                                     .unwrap_or(serde_json::json!({}));
 
                                 let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                if pending_elicitations.len() >= MAX_PENDING_ELICITATIONS {
+                                    evict_oldest_pending_elicitation(&pending_elicitations);
+                                }
                                 pending_elicitations.insert(elicitation_id.clone(), PendingElicitation {
                                     server_id: id.clone(),
                                     mcp_request_id: req.id.clone(),

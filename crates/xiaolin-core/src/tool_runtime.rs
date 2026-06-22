@@ -126,6 +126,9 @@ pub struct BubbleApprovalPort {
     pending: DashMap<String, oneshot::Sender<ApprovalDecision>>,
 }
 
+/// Max pending bubble approvals before evicting the oldest entry.
+const MAX_PENDING_BUBBLE_APPROVALS: usize = 500;
+
 impl BubbleApprovalPort {
     pub fn new() -> Self {
         Self {
@@ -133,8 +136,25 @@ impl BubbleApprovalPort {
         }
     }
 
+    fn evict_oldest_pending(&self) {
+        if let Some(oldest) = self.pending.iter().next() {
+            let key = oldest.key().clone();
+            drop(oldest);
+            self.pending.remove(&key);
+            tracing::warn!(
+                max = MAX_PENDING_BUBBLE_APPROVALS,
+                removed = %key,
+                remaining = self.pending.len(),
+                "BubbleApprovalPort at capacity; evicted oldest pending approval"
+            );
+        }
+    }
+
     /// Register a pending approval and return the receiver.
     pub fn register(&self, approval_id: String) -> oneshot::Receiver<ApprovalDecision> {
+        if self.pending.len() >= MAX_PENDING_BUBBLE_APPROVALS {
+            self.evict_oldest_pending();
+        }
         let (tx, rx) = oneshot::channel();
         self.pending.insert(approval_id, tx);
         rx

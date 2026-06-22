@@ -1,6 +1,9 @@
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
+const MAX_SKILL_ZIP_ENTRIES: usize = 1000;
+const MAX_SKILL_ZIP_TOTAL_BYTES: u64 = 100 * 1024 * 1024;
+
 fn is_valid_skill_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -73,12 +76,26 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
             std::fs::File::open(src).map_err(|e| format!("failed to open zip: {e}"))?;
         let mut archive =
             zip::ZipArchive::new(file).map_err(|e| format!("invalid zip: {e}"))?;
+        if archive.len() > MAX_SKILL_ZIP_ENTRIES {
+            return Err(format!(
+                "zip archive has too many entries ({}); maximum is {MAX_SKILL_ZIP_ENTRIES}",
+                archive.len()
+            ));
+        }
         let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut has_skill_md = false;
+        let mut total_uncompressed: u64 = 0;
         for i in 0..archive.len() {
             let f = archive
                 .by_index(i)
                 .map_err(|e| format!("failed to read zip entry at index {i}: {e}"))?;
+            total_uncompressed = total_uncompressed.saturating_add(f.size());
+            if total_uncompressed > MAX_SKILL_ZIP_TOTAL_BYTES {
+                return Err(format!(
+                    "zip archive uncompressed size exceeds {} MB limit",
+                    MAX_SKILL_ZIP_TOTAL_BYTES / (1024 * 1024)
+                ));
+            }
             let Some(enclosed) = f.enclosed_name() else {
                 return Err(format!(
                     "zip contains unsafe path traversal entry: {}",
@@ -117,6 +134,7 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         };
         std::fs::create_dir_all(&extract_to)
             .map_err(|e| format!("failed to create extraction dir: {e}"))?;
+        let mut extracted_bytes: u64 = 0;
         for i in 0..archive.len() {
             let mut f = archive
                 .by_index(i)
@@ -132,6 +150,14 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 std::fs::create_dir_all(&out_path)
                     .map_err(|e| format!("failed to create dir during extraction: {e}"))?;
             } else {
+                extracted_bytes = extracted_bytes.saturating_add(f.size());
+                if extracted_bytes > MAX_SKILL_ZIP_TOTAL_BYTES {
+                    let _ = std::fs::remove_dir_all(&extract_to);
+                    return Err(format!(
+                        "zip extraction exceeded {} MB limit",
+                        MAX_SKILL_ZIP_TOTAL_BYTES / (1024 * 1024)
+                    ));
+                }
                 if let Some(parent) = out_path.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| {
                         format!("failed to create parent dir during extraction: {e}")

@@ -188,14 +188,8 @@ pub async fn auto_record_episode(
     if !memory_enabled {
         return;
     }
-    let summary = if content.len() > 200 {
-        let end = content
-            .char_indices()
-            .map(|(i, _)| i)
-            .take_while(|&i| i <= 200)
-            .last()
-            .unwrap_or(0);
-        format!("{}...", &content[..end])
+    let summary = if content.chars().count() > 200 {
+        format!("{}...", content.chars().take(200).collect::<String>())
     } else {
         content.to_string()
     };

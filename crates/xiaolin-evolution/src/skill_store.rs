@@ -97,6 +97,9 @@ pub struct SkillStore {
     pool: SqlitePool,
 }
 
+/// Max rows in `extracted_skills` before evicting oldest entries.
+const MAX_EXTRACTED_SKILLS: i64 = 5000;
+
 impl SkillStore {
     pub async fn open(pool: SqlitePool) -> Result<Self> {
         sqlx::query(
@@ -187,6 +190,7 @@ impl SkillStore {
     }
 
     pub async fn save_skill(&self, skill: &ExtractedSkill) -> Result<()> {
+        self.enforce_capacity().await?;
         let mut tx = self.pool.begin().await?;
         let sources = serde_json::to_string(&skill.source_trajectory_ids)?;
         let status_str = skill_status_str(&skill.status);
@@ -236,6 +240,56 @@ impl SkillStore {
         }
 
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// Evict oldest retired skills (then oldest rows) when the table exceeds [`MAX_EXTRACTED_SKILLS`].
+    async fn enforce_capacity(&self) -> Result<()> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM extracted_skills")
+                .fetch_one(&self.pool)
+                .await?;
+        if count < MAX_EXTRACTED_SKILLS {
+            return Ok(());
+        }
+
+        let retired = sqlx::query(
+            "DELETE FROM extracted_skills WHERE id IN (
+                SELECT id FROM extracted_skills
+                WHERE status = 'retired'
+                ORDER BY created_at ASC
+                LIMIT 100
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        if retired.rows_affected() > 0 {
+            tracing::warn!(
+                count,
+                max = MAX_EXTRACTED_SKILLS,
+                removed = retired.rows_affected(),
+                "extracted_skills at capacity; evicted oldest retired rows"
+            );
+            return Ok(());
+        }
+
+        let removed = sqlx::query(
+            "DELETE FROM extracted_skills WHERE id IN (
+                SELECT id FROM extracted_skills
+                ORDER BY created_at ASC
+                LIMIT 100
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        tracing::warn!(
+            count,
+            max = MAX_EXTRACTED_SKILLS,
+            removed = removed.rows_affected(),
+            "extracted_skills at capacity; evicted oldest rows"
+        );
         Ok(())
     }
 

@@ -5,6 +5,11 @@ use std::sync::Mutex;
 
 const ALLOWED_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
+/// Maximum decoded PNG payload size for clipboard writes.
+const MAX_CLIPBOARD_PNG_BYTES: usize = 50 * 1024 * 1024;
+/// Base64 expands ~4/3; reject oversize input before decoding.
+const MAX_CLIPBOARD_B64_LEN: usize = MAX_CLIPBOARD_PNG_BYTES * 4 / 3 + 4;
+
 fn allowed_image_roots() -> Vec<PathBuf> {
     let mut roots = vec![std::env::temp_dir()];
     if let Some(home) = dirs::home_dir() {
@@ -97,9 +102,24 @@ pub fn clipboard_write_image(
     base64_png: String,
     state: tauri::State<'_, ClipboardState>,
 ) -> Result<(), String> {
+    if base64_png.len() > MAX_CLIPBOARD_B64_LEN {
+        return Err(format!(
+            "PNG too large: base64 payload exceeds {} MB limit",
+            MAX_CLIPBOARD_PNG_BYTES / (1024 * 1024)
+        ));
+    }
+
     let png_data = base64::engine::general_purpose::STANDARD
         .decode(&base64_png)
         .map_err(|e| format!("Invalid base64: {e}"))?;
+
+    if png_data.len() > MAX_CLIPBOARD_PNG_BYTES {
+        return Err(format!(
+            "PNG too large: decoded size {} bytes exceeds {} MB limit",
+            png_data.len(),
+            MAX_CLIPBOARD_PNG_BYTES / (1024 * 1024)
+        ));
+    }
 
     let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
     let mut reader = decoder

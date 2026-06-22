@@ -366,11 +366,25 @@ impl LspSessionManager {
 
     /// Shut down all LSP sessions (for process exit).
     pub async fn shutdown_all(&self) {
-        let mut w = self.sessions.write().await;
-        let count = w.len();
-        w.clear();
-        if count > 0 {
-            tracing::info!(count, "all LSP sessions shut down");
+        let sessions: Vec<Arc<Mutex<PersistentLspSession>>> = {
+            let mut w = self.sessions.write().await;
+            w.drain().map(|(_, entry)| entry.session).collect()
+        };
+        if sessions.is_empty() {
+            return;
+        }
+        tracing::info!(count = sessions.len(), "shutting down all LSP sessions");
+        for session in sessions {
+            match tokio::time::timeout(Duration::from_secs(5), shutdown_lsp_session(session.clone()))
+                .await
+            {
+                Ok(()) => {}
+                Err(_) => {
+                    tracing::warn!("LSP session shutdown timed out, forcing kill");
+                    let mut guard = session.lock().await;
+                    let _ = guard.child.start_kill();
+                }
+            }
         }
     }
 

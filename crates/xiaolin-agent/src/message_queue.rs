@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// Max queued steering messages per agent run; excess low-priority messages are dropped.
-const MAX_QUEUE_SIZE: usize = 100;
+const MAX_QUEUE_SIZE: usize = 10_000;
 
 /// Priority levels for queued messages. Higher priority messages are drained first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

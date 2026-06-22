@@ -117,7 +117,8 @@ impl CronScheduler {
                 let store = self.store.clone();
                 let trigger = self.trigger.clone();
                 let semaphore = self.job_semaphore.clone();
-                tokio::spawn(async move {
+                let job_id = job.id.clone();
+                let handle = tokio::spawn(async move {
                     let _permit = match semaphore.acquire().await {
                         Ok(permit) => permit,
                         Err(e) => {
@@ -126,6 +127,11 @@ impl CronScheduler {
                         }
                     };
                     execute_job(&store, &*trigger, job).await;
+                });
+                tokio::spawn(async move {
+                    if let Err(e) = handle.await {
+                        tracing::error!(job = %job_id, error = %e, "cron: job task panicked or was cancelled");
+                    }
                 });
             }
 

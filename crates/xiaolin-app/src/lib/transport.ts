@@ -55,11 +55,22 @@ export async function uploadAgentAvatar(
   return tauriInvoke("upload_agent_avatar", { agentId, sourcePath });
 }
 
+/** Matches backend `read_identity_files` JSON (SOUL.md, IDENTITY.md, USER.md, …). */
+export interface ReadIdentityFilesResult {
+  soul: string | null;
+  identity: string | null;
+  user: string | null;
+  agents: string | null;
+  tools: string | null;
+}
+
 export async function readIdentityFiles(
   agentId: string,
-): Promise<{ soul: string | null; identity: string | null; user: string | null; agents: string | null; tools: string | null }> {
-  if (!isTauri) return { soul: null, identity: null, user: null, agents: null, tools: null };
-  return tauriInvoke("read_identity_files", { agentId });
+): Promise<ReadIdentityFilesResult> {
+  if (!isTauri) {
+    return { soul: null, identity: null, user: null, agents: null, tools: null };
+  }
+  return tauriInvoke<ReadIdentityFilesResult>("read_identity_files", { agentId });
 }
 
 export async function uploadSkill(

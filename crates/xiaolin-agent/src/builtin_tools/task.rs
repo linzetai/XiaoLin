@@ -54,6 +54,46 @@ pub struct TaskManager {
 /// Remove terminal tasks finished more than this many seconds ago.
 const TASK_GC_MAX_AGE_SECS: u64 = 300;
 
+/// Max retained completed/failed/cancelled tasks before pruning oldest.
+const MAX_COMPLETED_TASKS: usize = 200;
+
+/// Remove oldest terminal tasks when the completed set exceeds [`MAX_COMPLETED_TASKS`].
+fn prune_oldest_completed_tasks_map(tasks: &DashMap<String, TaskHandle>) {
+    let mut completed: Vec<(String, u64)> = tasks
+        .iter()
+        .filter_map(|entry| {
+            let handle = entry.value();
+            match handle.info.status {
+                TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => handle
+                    .info
+                    .finished_at
+                    .map(|finished| (entry.key().clone(), finished)),
+                _ => None,
+            }
+        })
+        .collect();
+
+    if completed.len() <= MAX_COMPLETED_TASKS {
+        return;
+    }
+
+    completed.sort_by_key(|(_, finished_at)| *finished_at);
+    let remove_count = completed.len() - MAX_COMPLETED_TASKS;
+    for (id, _) in completed.into_iter().take(remove_count) {
+        if let Some((_, mut handle)) = tasks.remove(&id) {
+            if let Some(jh) = handle.join_handle.take() {
+                jh.abort();
+            }
+        }
+    }
+    tracing::warn!(
+        max = MAX_COMPLETED_TASKS,
+        removed = remove_count,
+        remaining = tasks.len(),
+        "TaskManager pruned oldest completed tasks"
+    );
+}
+
 impl TaskManager {
     pub fn new(max_concurrency: usize) -> Self {
         Self {
@@ -153,6 +193,8 @@ impl TaskManager {
                 entry.join_handle = None;
             }
 
+            prune_oldest_completed_tasks_map(&tasks);
+
             running.fetch_sub(1, Ordering::AcqRel);
         });
 
@@ -193,6 +235,7 @@ impl TaskManager {
                 }
                 entry.info.status = TaskStatus::Cancelled;
                 entry.info.finished_at = Some(Self::now_ms());
+                prune_oldest_completed_tasks_map(&self.tasks);
                 Ok(true)
             }
             TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => Ok(false),

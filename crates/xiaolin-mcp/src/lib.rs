@@ -1086,6 +1086,14 @@ impl McpClient {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             byte_buf.extend_from_slice(&chunk);
+            if byte_buf.len() > MAX_SSE_BUFFER {
+                tracing::warn!(
+                    len = byte_buf.len(),
+                    max = MAX_SSE_BUFFER,
+                    "streamable HTTP SSE buffer exceeded max size; disconnecting"
+                );
+                anyhow::bail!("SSE buffer exceeded {MAX_SSE_BUFFER} bytes");
+            }
             if std::str::from_utf8(&byte_buf).is_err() {
                 continue;
             }
@@ -1234,6 +1242,14 @@ impl McpClient {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             byte_buf.extend_from_slice(&chunk);
+            if byte_buf.len() > MAX_SSE_BUFFER {
+                tracing::warn!(
+                    len = byte_buf.len(),
+                    max = MAX_SSE_BUFFER,
+                    "SSE buffer exceeded max size; disconnecting"
+                );
+                anyhow::bail!("SSE buffer exceeded {MAX_SSE_BUFFER} bytes");
+            }
             if std::str::from_utf8(&byte_buf).is_err() {
                 continue;
             }
@@ -2485,6 +2501,30 @@ static NEEDS_AUTH_CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 const NEEDS_AUTH_TTL: Duration = Duration::from_secs(15 * 60);
+/// Max MCP servers cached as needing OAuth before evicting oldest entries.
+const MAX_NEEDS_AUTH_CACHE: usize = 500;
+/// Max accumulated SSE byte buffer before disconnecting (10 MiB).
+const MAX_SSE_BUFFER: usize = 10 * 1024 * 1024;
+
+fn prune_needs_auth_cache(cache: &mut HashMap<String, std::time::Instant>) {
+    cache.retain(|_, ts| ts.elapsed() < NEEDS_AUTH_TTL);
+    while cache.len() >= MAX_NEEDS_AUTH_CACHE {
+        let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, ts)| *ts)
+            .map(|(k, _)| k.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest);
+        tracing::warn!(
+            max = MAX_NEEDS_AUTH_CACHE,
+            removed = %oldest,
+            remaining = cache.len(),
+            "NEEDS_AUTH_CACHE at capacity; evicted oldest entry"
+        );
+    }
+}
 
 /// Clear the NeedsAuth TTL cache for a specific server (e.g. after a user-initiated OAuth login).
 pub fn clear_needs_auth_cache(server_id: &str) {
@@ -2500,6 +2540,7 @@ pub async fn connect_mcp_server(
     cfg.validate().map_err(|e| anyhow::anyhow!(e))?;
 
     if let Ok(mut cache) = NEEDS_AUTH_CACHE.lock() {
+        prune_needs_auth_cache(&mut cache);
         if let Some(ts) = cache.get(&cfg.id).copied() {
             if ts.elapsed() < NEEDS_AUTH_TTL {
                 return Err(NeedsOAuth {
@@ -2611,6 +2652,7 @@ async fn try_oauth_recovery(
     }
 
     if let Ok(mut cache) = NEEDS_AUTH_CACHE.lock() {
+        prune_needs_auth_cache(&mut cache);
         cache.insert(cfg.id.clone(), std::time::Instant::now());
     }
 

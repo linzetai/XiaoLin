@@ -87,6 +87,8 @@ impl ReplyCache {
 
 /// Per-account (account_id, peer_id) → context_token mapping.
 /// Mirrors openclaw-weixin's strategy: in-memory + disk persistence.
+const MAX_CONTEXT_TOKEN_ENTRIES: usize = 500;
+
 pub struct ContextTokenCache {
     tokens: DashMap<(String, String), String>,
 }
@@ -105,10 +107,27 @@ impl ContextTokenCache {
     }
 
     pub fn update(&self, account_id: &str, peer_id: &str, token: &str) {
-        self.tokens.insert(
-            (account_id.to_string(), peer_id.to_string()),
-            token.to_string(),
-        );
+        let key = (account_id.to_string(), peer_id.to_string());
+        if !self.tokens.contains_key(&key) && self.tokens.len() >= MAX_CONTEXT_TOKEN_ENTRIES {
+            let target_len = MAX_CONTEXT_TOKEN_ENTRIES / 2;
+            let remove_count = self.tokens.len().saturating_sub(target_len);
+            let keys: Vec<(String, String)> = self
+                .tokens
+                .iter()
+                .take(remove_count)
+                .map(|entry| entry.key().clone())
+                .collect();
+            for k in &keys {
+                self.tokens.remove(k);
+            }
+            tracing::warn!(
+                max = MAX_CONTEXT_TOKEN_ENTRIES,
+                removed = keys.len(),
+                remaining = self.tokens.len(),
+                "ContextTokenCache at capacity; evicted entries"
+            );
+        }
+        self.tokens.insert(key, token.to_string());
         self.persist(account_id);
     }
 
@@ -128,11 +147,25 @@ impl ContextTokenCache {
             Ok(m) => m,
             Err(_) => return,
         };
+        let total = map.len();
         let mut count = 0usize;
         for (peer_id, token) in map {
+            if !self.tokens.contains_key(&(account_id.to_string(), peer_id.clone()))
+                && self.tokens.len() >= MAX_CONTEXT_TOKEN_ENTRIES
+            {
+                break;
+            }
             self.tokens
                 .insert((account_id.to_string(), peer_id), token);
             count += 1;
+        }
+        if total > count {
+            tracing::warn!(
+                max = MAX_CONTEXT_TOKEN_ENTRIES,
+                restored = count,
+                skipped = total - count,
+                "ContextTokenCache at capacity during restore; skipped excess entries"
+            );
         }
         tracing::info!(account_id, count, "restored context tokens from disk");
     }

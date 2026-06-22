@@ -415,6 +415,9 @@ fn sequence_similarity(a: &[String], b: &[String]) -> f64 {
 
 // ── Pattern Frequency Tracking ───────────────────────────────────────
 
+/// Max distinct task patterns tracked before evicting oldest observations.
+const MAX_PATTERN_TRACKER_OBSERVATIONS: usize = 10_000;
+
 /// Tracks observation frequency of task patterns to determine when to
 /// trigger skill learning.
 #[derive(Debug, Clone)]
@@ -452,6 +455,25 @@ impl PatternTracker {
 
     /// Record an observation of a task pattern.
     pub fn observe(&mut self, pattern_key: &str, trajectory_id: &str) {
+        if !self.observations.contains_key(pattern_key)
+            && self.observations.len() >= MAX_PATTERN_TRACKER_OBSERVATIONS
+        {
+            if let Some(oldest_key) = self
+                .observations
+                .iter()
+                .min_by_key(|(_, obs)| obs.first_seen.clone())
+                .map(|(k, _)| k.clone())
+            {
+                self.observations.remove(&oldest_key);
+                tracing::warn!(
+                    max = MAX_PATTERN_TRACKER_OBSERVATIONS,
+                    removed = %oldest_key,
+                    remaining = self.observations.len(),
+                    "PatternTracker at capacity; evicted oldest pattern"
+                );
+            }
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
         let entry = self
             .observations

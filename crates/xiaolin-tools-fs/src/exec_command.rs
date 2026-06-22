@@ -343,6 +343,9 @@ pub mod pty_session {
         timeout: Duration,
     }
 
+    /// Max concurrent exec_command PTY sessions before rejecting new ones.
+    const MAX_PTY_SESSIONS: usize = 50;
+
     impl PtySessionManager {
         pub fn new(timeout: Duration) -> Self {
             Self {
@@ -361,6 +364,38 @@ pub mod pty_session {
             workdir: Option<&str>,
             shell: &str,
         ) -> Result<String, String> {
+            {
+                let mut sessions = self.sessions.lock().await;
+                if sessions.len() >= MAX_PTY_SESSIONS {
+                    let before = sessions.len();
+                    let expired: Vec<String> = sessions
+                        .iter()
+                        .filter(|(_, s)| s.last_activity.elapsed() >= self.timeout)
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in expired {
+                        sessions.remove(&id);
+                    }
+                    if before != sessions.len() {
+                        tracing::warn!(
+                            max = MAX_PTY_SESSIONS,
+                            expired_removed = before - sessions.len(),
+                            "exec_command evicted expired PTY sessions before create"
+                        );
+                    }
+                    if sessions.len() >= MAX_PTY_SESSIONS {
+                        tracing::warn!(
+                            max = MAX_PTY_SESSIONS,
+                            "exec_command PTY session table at capacity"
+                        );
+                        return Err(format!(
+                            "Maximum number of PTY sessions ({MAX_PTY_SESSIONS}) reached. \
+                             Close an existing session before starting a new one."
+                        ));
+                    }
+                }
+            }
+
             let session_id = format!("pty_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0"));
 
             let mut command = Command::new(shell);

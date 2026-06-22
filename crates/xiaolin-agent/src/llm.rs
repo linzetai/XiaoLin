@@ -133,6 +133,17 @@ impl std::fmt::Display for LlmApiError {
 
 impl std::error::Error for LlmApiError {}
 
+/// Read an HTTP error response body, logging read failures instead of silently dropping them.
+async fn read_error_response_body(resp: reqwest::Response) -> String {
+    match resp.text().await {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read LLM error response body");
+            String::new()
+        }
+    }
+}
+
 /// Parse an HTTP error response into a structured, user-friendly error.
 pub fn classify_llm_error(status: StatusCode, body: &str) -> LlmApiError {
     let parsed: Option<serde_json::Value> = serde_json::from_str(body).ok();
@@ -433,7 +444,7 @@ impl OpenAiProvider {
                         return Ok(resp);
                     }
                     let status = resp.status();
-                    let text = resp.text().await.unwrap_or_default();
+                    let text = read_error_response_body(resp).await;
                     let classified = classify_llm_error(status, &text);
                     if classified.retryable && attempt + 1 < max_attempts {
                         let delay_ms = openai_backoff_delay_ms(&self.retry, attempt as u32);
@@ -540,7 +551,7 @@ impl LlmProvider for OpenAiProvider {
                 Ok(resp) => {
                     if !resp.status().is_success() {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_default();
+                        let text = read_error_response_body(resp).await;
                         let classified = classify_llm_error(status, &text);
                         if classified.retryable && attempt + 1 < max_attempts {
                             let delay_ms = openai_backoff_delay_ms(&self.retry, attempt as u32);
@@ -1143,7 +1154,7 @@ impl LlmProvider for AnthropicProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+            let text = read_error_response_body(resp).await;
             anyhow::bail!("Anthropic API error: {status} — {text}");
         }
 
@@ -1187,7 +1198,7 @@ impl LlmProvider for AnthropicProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+            let text = read_error_response_body(resp).await;
             anyhow::bail!("Anthropic API error: {status} — {text}");
         }
 

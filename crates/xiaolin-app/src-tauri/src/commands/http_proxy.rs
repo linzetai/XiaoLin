@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{AppData, GatewayStartupState};
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +42,13 @@ pub async fn http_proxy(
     validate_proxy_path(&request.path)?;
 
     let url = format!("{}{}", info.http_url, request.path);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| {
+            tracing::error!(error = %e, "http_proxy: failed to build HTTP client");
+            String::from("failed to create HTTP client")
+        })?;
 
     let mut req_builder = match request.method.to_uppercase().as_str() {
         "GET" => client.get(&url),
@@ -57,16 +65,30 @@ pub async fn http_proxy(
             .json(&body);
     }
 
-    let resp = req_builder
-        .send()
-        .await
-        .map_err(|e| format!("proxy request failed: {e}"))?;
+    let resp = req_builder.send().await.map_err(|e| {
+        tracing::warn!(
+            error = %e,
+            method = %request.method,
+            path = %request.path,
+            "http_proxy request failed"
+        );
+        String::from("proxy request failed")
+    })?;
 
     let status = resp.status().as_u16();
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .unwrap_or(serde_json::Value::Null);
+    let body: serde_json::Value = match resp.json().await {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                method = %request.method,
+                path = %request.path,
+                status,
+                "http_proxy: failed to parse response JSON"
+            );
+            serde_json::Value::Null
+        }
+    };
 
     Ok(ProxyResponse { status, body })
 }

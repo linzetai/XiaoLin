@@ -194,7 +194,9 @@ pub fn parse_shell_ast(source: &str) -> anyhow::Result<ShellAst> {
     let src_bytes = source.as_bytes();
 
     for i in 0..root.child_count() {
-        let child = root.child(i as u32).unwrap();
+        let Some(child) = child_at(&root, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             stmts.push(convert_node(&child, src_bytes));
         }
@@ -202,13 +204,25 @@ pub fn parse_shell_ast(source: &str) -> anyhow::Result<ShellAst> {
 
     Ok(match stmts.len() {
         0 => ShellAst::Raw(source.to_string()),
-        1 => stmts.into_iter().next().unwrap(),
+        1 => first_or_raw(stmts),
         _ => ShellAst::Sequence(stmts),
     })
 }
 
 fn node_text<'a>(node: &tree_sitter::Node, src: &'a [u8]) -> &'a str {
     node.utf8_text(src).unwrap_or("")
+}
+
+#[inline]
+fn child_at<'a>(node: &'a tree_sitter::Node<'a>, index: u32) -> Option<tree_sitter::Node<'a>> {
+    node.child(index)
+}
+
+fn first_or_raw(stmts: Vec<ShellAst>) -> ShellAst {
+    stmts
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| ShellAst::Raw(String::new()))
 }
 
 fn convert_node(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
@@ -228,7 +242,9 @@ fn convert_node(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
         "negated_command" => {
             let mut inner = ShellAst::Raw("!".into());
             for i in 0..node.child_count() {
-                let c = node.child(i as u32).unwrap();
+                let Some(c) = child_at(node, i as u32) else {
+                    continue;
+                };
                 if c.is_named() {
                     inner = convert_node(&c, src);
                     break;
@@ -246,7 +262,9 @@ fn convert_command(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut redirections = Vec::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "command_name" => {
                 name = node_text(&child, src).to_string();
@@ -303,7 +321,9 @@ fn convert_command(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
 fn convert_concatenation(node: &tree_sitter::Node, src: &[u8]) -> ShellArg {
     let mut parts = String::new();
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         parts.push_str(node_text(&child, src));
     }
     ShellArg::Literal(parts)
@@ -311,7 +331,9 @@ fn convert_concatenation(node: &tree_sitter::Node, src: &[u8]) -> ShellArg {
 
 fn convert_command_substitution(node: &tree_sitter::Node, src: &[u8]) -> ShellArg {
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() && child.kind() != "$(" {
             return ShellArg::CommandSubstitution(Box::new(convert_node(&child, src)));
         }
@@ -327,7 +349,9 @@ fn convert_redirect(node: &tree_sitter::Node, src: &[u8]) -> Option<Redirection>
     let mut target = String::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "file_descriptor" => {
                 fd = node_text(&child, src).parse().ok();
@@ -358,15 +382,17 @@ fn convert_redirect(node: &tree_sitter::Node, src: &[u8]) -> Option<Redirection>
 fn convert_pipeline(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut commands = Vec::new();
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             commands.push(convert_node(&child, src));
         }
     }
-    if commands.len() == 1 {
-        commands.into_iter().next().unwrap()
-    } else {
-        ShellAst::Pipeline(commands)
+    match commands.len() {
+        0 => ShellAst::Raw(String::new()),
+        1 => first_or_raw(commands),
+        _ => ShellAst::Pipeline(commands),
     }
 }
 
@@ -375,7 +401,9 @@ fn convert_list(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut operators = Vec::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             items.push(convert_node(&child, src));
         } else {
@@ -415,7 +443,9 @@ fn convert_list(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
 fn convert_subshell(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut inner = ShellAst::Raw(String::new());
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             inner = convert_node(&child, src);
             break;
@@ -429,7 +459,9 @@ fn convert_function(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut body = ShellAst::Raw(String::new());
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "word" => name = node_text(&child, src).to_string(),
             "compound_statement" => body = convert_compound(&child, src),
@@ -446,14 +478,16 @@ fn convert_function(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
 fn convert_compound(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut stmts = Vec::new();
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             stmts.push(convert_node(&child, src));
         }
     }
     match stmts.len() {
         0 => ShellAst::CompoundList(Vec::new()),
-        1 => stmts.into_iter().next().unwrap(),
+        1 => first_or_raw(stmts),
         _ => ShellAst::CompoundList(stmts),
     }
 }
@@ -471,7 +505,9 @@ fn convert_if(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut elif_cond = ShellAst::Raw(String::new());
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         let text = node_text(&child, src);
 
         match text {
@@ -529,7 +565,9 @@ fn convert_for(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut in_words = false;
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         let text = node_text(&child, src);
 
         match child.kind() {
@@ -567,7 +605,9 @@ fn convert_while(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut found_do = false;
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         let text = node_text(&child, src);
 
         if text == "do" || child.kind() == "do_group" {
@@ -589,14 +629,16 @@ fn convert_while(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
 fn convert_do_group(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut stmts = Vec::new();
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         if child.is_named() {
             stmts.push(convert_node(&child, src));
         }
     }
     match stmts.len() {
         0 => ShellAst::CompoundList(Vec::new()),
-        1 => stmts.into_iter().next().unwrap(),
+        1 => first_or_raw(stmts),
         _ => ShellAst::CompoundList(stmts),
     }
 }
@@ -606,7 +648,9 @@ fn convert_case(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut arms = Vec::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "word" | "string" => {
                 if word.is_empty() {
@@ -629,7 +673,9 @@ fn convert_case_item(node: &tree_sitter::Node, src: &[u8]) -> (String, ShellAst)
     let mut body = ShellAst::Raw(String::new());
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "word" | "concatenation" | "string" | "extglob_pattern" => {
                 if pattern.is_empty() {
@@ -653,7 +699,9 @@ fn convert_assignment(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut value = String::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "variable_name" => name = node_text(&child, src).to_string(),
             _ if child.is_named() => value = node_text(&child, src).to_string(),
@@ -669,7 +717,9 @@ fn convert_redirected(node: &tree_sitter::Node, src: &[u8]) -> ShellAst {
     let mut redirections = Vec::new();
 
     for i in 0..node.child_count() {
-        let child = node.child(i as u32).unwrap();
+        let Some(child) = child_at(node, i as u32) else {
+            continue;
+        };
         match child.kind() {
             "file_redirect" | "heredoc_redirect" | "herestring_redirect" => {
                 if let Some(r) = convert_redirect(&child, src) {

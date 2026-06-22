@@ -131,6 +131,10 @@ impl SessionActor {
                 f.gc();
             }
 
+            if let Ok(mut approvals) = self.session_approvals.lock() {
+                crate::turn::prune_session_approvals_if_needed(&mut approvals);
+            }
+
             tokio::select! {
                 sub = self.rx_sub.recv() => {
                     match sub {

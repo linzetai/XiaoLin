@@ -823,21 +823,12 @@ mod tests {
 
         let results = executor.drain_remaining().await;
 
-        // The panicking tool's spawn task will JoinError. The StdMutex may
-        // or may not be poisoned depending on whether the panic happened
-        // while holding the lock. If poisoned, get_completed_results()
-        // inside drain_remaining() will panic on .lock().unwrap().
-        //
-        // With the current code, we cannot guarantee how many results we get.
-        // This test documents the fragility: if it passes, the panic didn't
-        // happen while holding the lock (lucky timing). If it panics, the
-        // mutex was poisoned — confirming RISK 1.
-        //
-        // A robust fix (parking_lot::Mutex or unwrap_or_else) would guarantee
-        // this test always returns 2 results with the panicker marked as failed.
-        eprintln!(
-            "risk1: got {} results (expected 2 with a robust mutex strategy)",
-            results.len()
+        // With lock_or_recover(), the executor should always return both results
+        // with the panicker marked as failed.
+        assert_eq!(
+            results.len(),
+            2,
+            "expected both tools to produce results after mutex poison recovery"
         );
     }
 }

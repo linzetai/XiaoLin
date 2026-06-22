@@ -104,33 +104,67 @@ impl DreamingPipeline<'_> {
             return;
         };
 
-        if let Ok(episodes) = self.episodic.unembedded_episodes(limit).await {
-            let texts: Vec<&str> = episodes.iter().map(|e| e.summary.as_str()).collect();
-            if !texts.is_empty() {
-                if let Ok(vecs) = embedder.embed_batch(&texts).await {
+        let episodes = match self.episodic.unembedded_episodes(limit).await {
+            Ok(episodes) => episodes,
+            Err(e) => {
+                tracing::warn!(error = %e, "dream cycle: failed to list unembedded episodes");
+                Vec::new()
+            }
+        };
+        let texts: Vec<&str> = episodes.iter().map(|e| e.summary.as_str()).collect();
+        if !texts.is_empty() {
+            match embedder.embed_batch(&texts).await {
+                Ok(vecs) => {
                     for (ep, vec) in episodes.iter().zip(vecs.iter()) {
-                        if self.episodic.update_embedding(&ep.id, vec).await.is_ok() {
-                            report.embeddings_backfilled += 1;
+                        match self.episodic.update_embedding(&ep.id, vec).await {
+                            Ok(()) => report.embeddings_backfilled += 1,
+                            Err(e) => tracing::warn!(
+                                error = %e,
+                                episode_id = %ep.id,
+                                "dream cycle: failed to persist episode embedding"
+                            ),
                         }
                     }
                 }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    count = texts.len(),
+                    "dream cycle: episodic embedding batch failed"
+                ),
             }
         }
 
-        if let Ok(facts) = self.semantic.unembedded_facts(limit).await {
-            let texts: Vec<String> = facts
-                .iter()
-                .map(|f| format!("{} {} {}", f.subject, f.predicate, f.object))
-                .collect();
-            let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-            if !refs.is_empty() {
-                if let Ok(vecs) = embedder.embed_batch(&refs).await {
+        let facts = match self.semantic.unembedded_facts(limit).await {
+            Ok(facts) => facts,
+            Err(e) => {
+                tracing::warn!(error = %e, "dream cycle: failed to list unembedded facts");
+                Vec::new()
+            }
+        };
+        let texts: Vec<String> = facts
+            .iter()
+            .map(|f| format!("{} {} {}", f.subject, f.predicate, f.object))
+            .collect();
+        let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        if !refs.is_empty() {
+            match embedder.embed_batch(&refs).await {
+                Ok(vecs) => {
                     for (fact, vec) in facts.iter().zip(vecs.iter()) {
-                        if self.semantic.update_embedding(&fact.id, vec).await.is_ok() {
-                            report.embeddings_backfilled += 1;
+                        match self.semantic.update_embedding(&fact.id, vec).await {
+                            Ok(()) => report.embeddings_backfilled += 1,
+                            Err(e) => tracing::warn!(
+                                error = %e,
+                                fact_id = %fact.id,
+                                "dream cycle: failed to persist fact embedding"
+                            ),
                         }
                     }
                 }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    count = refs.len(),
+                    "dream cycle: semantic embedding batch failed"
+                ),
             }
         }
     }

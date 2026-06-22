@@ -6,6 +6,16 @@ use serde::Serialize;
 
 static GLOBAL_INDEX: OnceLock<Arc<SymbolIndex>> = OnceLock::new();
 
+/// Skip indexing files larger than this during background scan / watcher reindex.
+const MAX_INDEX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+
+fn file_exceeds_index_limit(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(meta) => meta.len() > MAX_INDEX_FILE_BYTES,
+        Err(_) => true,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexedSymbol {
     pub name: String,
@@ -295,6 +305,11 @@ pub fn start_background_scan(root: PathBuf, index: Arc<SymbolIndex>) {
                 continue;
             }
 
+            if file_exceeds_index_limit(path) {
+                skipped += 1;
+                continue;
+            }
+
             let lang = match xiaolin_treesitter::CodeParser::detect_language(path) {
                 Some(l) if xiaolin_treesitter::CodeParser::is_language_available(&l) => l,
                 _ => continue,
@@ -402,6 +417,10 @@ pub fn start_watcher(root: PathBuf, index: Arc<SymbolIndex>) {
 }
 
 fn reindex_single_file(path: &Path, root: &Path, index: &SymbolIndex) {
+    if file_exceeds_index_limit(path) {
+        return;
+    }
+
     let lang = match xiaolin_treesitter::CodeParser::detect_language(path) {
         Some(l) if xiaolin_treesitter::CodeParser::is_language_available(&l) => l,
         _ => return,

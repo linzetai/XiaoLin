@@ -1,6 +1,9 @@
 use serde_json::json;
 use std::path::PathBuf;
 
+const MAX_AVATAR_BYTES: u64 = 10 * 1024 * 1024;
+const ALLOWED_AVATAR_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+
 fn config_mode() -> xiaolin_core::config::ConfigMode {
     crate::resolve_config_mode()
 }
@@ -24,14 +27,40 @@ pub async fn upload_agent_avatar(
         return Err("invalid agent ID".into());
     }
 
+    let src = std::path::Path::new(&source_path);
+    if !src.exists() {
+        return Err(format!("source file not found: {source_path}"));
+    }
+
+    let meta = tokio::fs::metadata(src)
+        .await
+        .map_err(|e| format!("read source metadata: {e}"))?;
+    if meta.len() > MAX_AVATAR_BYTES {
+        return Err(format!(
+            "avatar file too large ({} bytes); maximum is {} MB",
+            meta.len(),
+            MAX_AVATAR_BYTES / (1024 * 1024)
+        ));
+    }
+
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !ALLOWED_AVATAR_EXTS.contains(&ext.as_str()) {
+        return Err(format!(
+            "unsupported avatar extension '.{ext}'; allowed: {}",
+            ALLOWED_AVATAR_EXTS.join(", ")
+        ));
+    }
+
     let sd = state_dir();
     let avatars_dir = sd.join("avatars");
     tokio::fs::create_dir_all(&avatars_dir)
         .await
         .map_err(|e| format!("create avatars dir: {e}"))?;
 
-    let src = std::path::Path::new(&source_path);
-    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
     let dest = avatars_dir.join(format!("{agent_id}.{ext}"));
     tokio::fs::copy(src, &dest)
         .await

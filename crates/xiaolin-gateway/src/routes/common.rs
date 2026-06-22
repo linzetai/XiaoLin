@@ -327,7 +327,7 @@ pub fn record_chat_budget_stream_estimate(
     input_tokens: u32,
     assistant_text_char_len: usize,
 ) {
-    let out_toks = ((assistant_text_char_len as u32).saturating_add(3)) / 4;
+    let out_toks = ((assistant_text_char_len as u32) / 2).max(1);
     let cost = state
         .obs
         .model_router

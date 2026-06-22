@@ -15,6 +15,26 @@ use crate::interaction::InteractionHandle;
 /// Shared, per-session approval cache. Keyed by action cache key.
 pub type SessionApprovalCache = Arc<std::sync::Mutex<HashMap<String, ApprovalDecision>>>;
 
+/// Max cached approval decisions per session before evicting oldest half.
+const MAX_SESSION_APPROVALS: usize = 1000;
+
+/// Drop oldest half of entries when the session approval cache exceeds capacity.
+pub fn prune_session_approvals_if_needed(cache: &mut HashMap<String, ApprovalDecision>) {
+    if cache.len() <= MAX_SESSION_APPROVALS {
+        return;
+    }
+    tracing::warn!(
+        entries = cache.len(),
+        max = MAX_SESSION_APPROVALS,
+        "session_approvals exceeded capacity; evicting oldest half"
+    );
+    let remove_count = cache.len() / 2;
+    let keys: Vec<String> = cache.keys().take(remove_count).cloned().collect();
+    for key in keys {
+        cache.remove(&key);
+    }
+}
+
 /// A mid-turn input message injected via `SessionOp::SteerInput`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SteerMessage {

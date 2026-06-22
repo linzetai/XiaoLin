@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -32,6 +33,39 @@ impl Default for PtySessionConfig {
     }
 }
 
+struct SubscriberGuard {
+    count: Arc<AtomicUsize>,
+    no_subscribers_since: Arc<Mutex<Option<Instant>>>,
+}
+
+impl Drop for SubscriberGuard {
+    fn drop(&mut self) {
+        if self.count.fetch_sub(1, Ordering::SeqCst) == 1 {
+            *self.no_subscribers_since.lock() = Some(Instant::now());
+        }
+    }
+}
+
+/// Broadcast receiver that decrements the session subscriber count when dropped.
+pub struct TrackedBroadcastReceiver {
+    inner: broadcast::Receiver<Vec<u8>>,
+    _guard: SubscriberGuard,
+}
+
+impl Deref for TrackedBroadcastReceiver {
+    type Target = broadcast::Receiver<Vec<u8>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for TrackedBroadcastReceiver {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 pub struct PtySession {
     pub id: String,
     pub source: String,
@@ -39,6 +73,8 @@ pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     broadcast_tx: broadcast::Sender<Vec<u8>>,
+    subscriber_count: Arc<AtomicUsize>,
+    no_subscribers_since: Arc<Mutex<Option<Instant>>>,
     reader_shutdown: Arc<AtomicBool>,
     reader_handle: Option<JoinHandle<()>>,
     cols: u16,
@@ -140,6 +176,8 @@ impl PtySession {
             writer: Arc::new(Mutex::new(writer)),
             child,
             broadcast_tx,
+            subscriber_count: Arc::new(AtomicUsize::new(0)),
+            no_subscribers_since: Arc::new(Mutex::new(None)),
             reader_shutdown,
             reader_handle: Some(reader_handle),
             cols: config.cols,
@@ -149,8 +187,24 @@ impl PtySession {
         })
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Vec<u8>> {
-        self.broadcast_tx.subscribe()
+    pub fn subscribe(&self) -> TrackedBroadcastReceiver {
+        self.subscriber_count.fetch_add(1, Ordering::SeqCst);
+        *self.no_subscribers_since.lock() = None;
+        TrackedBroadcastReceiver {
+            inner: self.broadcast_tx.subscribe(),
+            _guard: SubscriberGuard {
+                count: Arc::clone(&self.subscriber_count),
+                no_subscribers_since: Arc::clone(&self.no_subscribers_since),
+            },
+        }
+    }
+
+    pub fn subscriber_count(&self) -> usize {
+        self.subscriber_count.load(Ordering::SeqCst)
+    }
+
+    pub fn no_subscribers_since(&self) -> Option<Instant> {
+        *self.no_subscribers_since.lock()
     }
 
     pub fn write_input(&self, data: &[u8]) -> Result<(), String> {

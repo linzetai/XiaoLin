@@ -4,6 +4,9 @@ use xiaolin_core::types::{ChatMessage, Role};
 
 use crate::compressor::estimate_messages_tokens;
 
+/// Max cached microcompact entries before evicting stale / oldest keys.
+const MAX_CACHED_MICROCOMPACT_ENTRIES: usize = 500;
+
 /// A lightweight content fingerprint used to detect whether a tool result has
 /// already been compressed in a previous pipeline pass.
 fn content_fingerprint(msg: &ChatMessage) -> u64 {
@@ -111,7 +114,7 @@ impl CachedMicrocompactor {
                 None => continue,
             };
 
-            if text.len() < self.config.threshold_chars {
+            if text.chars().count() < self.config.threshold_chars {
                 continue;
             }
 
@@ -166,6 +169,7 @@ impl CachedMicrocompactor {
             );
             self.last_referenced.insert(cache_key, self.pass_count);
             new_compressions += 1;
+            self.enforce_capacity();
         }
 
         let entries_evicted = self.evict_stale();
@@ -196,6 +200,30 @@ impl CachedMicrocompactor {
         count
     }
 
+    /// Evict oldest entries when the cache exceeds [`MAX_CACHED_MICROCOMPACT_ENTRIES`].
+    fn enforce_capacity(&mut self) {
+        if self.cache.len() <= MAX_CACHED_MICROCOMPACT_ENTRIES {
+            return;
+        }
+        let mut keys: Vec<(String, u32)> = self
+            .last_referenced
+            .iter()
+            .map(|(k, pass)| (k.clone(), *pass))
+            .collect();
+        keys.sort_by_key(|(_, pass)| *pass);
+        let remove_count = self.cache.len().saturating_sub(MAX_CACHED_MICROCOMPACT_ENTRIES / 2);
+        for (key, _) in keys.into_iter().take(remove_count) {
+            self.cache.remove(&key);
+            self.last_referenced.remove(&key);
+        }
+        tracing::warn!(
+            max = MAX_CACHED_MICROCOMPACT_ENTRIES,
+            removed = remove_count,
+            remaining = self.cache.len(),
+            "CachedMicrocompactor at capacity; evicted oldest entries"
+        );
+    }
+
     /// Reset cache (e.g. after /clear or session change).
     pub fn clear(&mut self) {
         self.cache.clear();
@@ -210,16 +238,27 @@ impl CachedMicrocompactor {
 
     fn compress_content(text: &str, max_chars: usize) -> String {
         let lines: Vec<&str> = text.lines().collect();
-        if lines.len() <= 3 && text.len() <= max_chars {
+        if lines.len() <= 3 && text.chars().count() <= max_chars {
             return text.to_string();
         }
 
-        let mut result = String::with_capacity(max_chars);
+        let mut result = String::new();
+        let mut result_chars = 0usize;
+
+        let append_line = |result: &mut String, result_chars: &mut usize, line: &str| -> bool {
+            let line_chars = line.chars().count() + 1;
+            if *result_chars + line_chars > max_chars {
+                return false;
+            }
+            result.push_str(line);
+            result.push('\n');
+            *result_chars += line_chars;
+            true
+        };
 
         if let Some(first_line) = lines.first() {
-            if first_line.len() <= 200 {
-                result.push_str(first_line);
-                result.push('\n');
+            if first_line.chars().count() <= 200 {
+                let _ = append_line(&mut result, &mut result_chars, first_line);
             }
         }
 
@@ -243,34 +282,36 @@ impl CachedMicrocompactor {
             .collect();
 
         for line in &important_lines {
-            if result.len() + line.len() + 1 > max_chars {
+            if !append_line(&mut result, &mut result_chars, line) {
                 break;
             }
-            result.push_str(line);
-            result.push('\n');
         }
 
-        if result.len() < max_chars {
-            let remaining = max_chars - result.len();
-            let tail_start = text.len().saturating_sub(remaining / 2);
-            let safe_start = if text.is_char_boundary(tail_start) {
-                tail_start
-            } else {
-                text.ceil_char_boundary(tail_start)
-            };
-            let tail = &text[safe_start..];
+        if result_chars < max_chars {
+            let remaining = max_chars - result_chars;
+            let tail_budget = remaining / 2;
+            let tail: String = text
+                .chars()
+                .rev()
+                .take(tail_budget)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             if let Some(newline_pos) = tail.find('\n') {
-                result.push_str("...\n");
-                result.push_str(&tail[newline_pos + 1..]);
+                let tail_body = &tail[newline_pos + 1..];
+                if !tail_body.is_empty() {
+                    result.push_str("...\n");
+                    let _ = append_line(&mut result, &mut result_chars, tail_body);
+                }
             }
         }
 
-        if result.len() > max_chars {
-            let safe_end = result.floor_char_boundary(max_chars);
-            result.truncate(safe_end);
+        if result.chars().count() > max_chars {
+            result.chars().take(max_chars).collect()
+        } else {
+            result
         }
-
-        result
     }
 }
 

@@ -39,15 +39,22 @@ export function useStreamScroll({
   runProgrammaticScroll: (action: () => void, suppressMs?: number) => void;
 }) {
   const loadingMore = useRef(false);
+  const streamLengthRef = useRef(streamLength);
+  streamLengthRef.current = streamLength;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  const runProgrammaticScrollRef = useRef(runProgrammaticScroll);
+  runProgrammaticScrollRef.current = runProgrammaticScroll;
+
   const handleStartReached = useCallback(() => {
-    if (!hasMore || loadingMore.current) return;
+    if (!hasMoreRef.current || loadingMore.current) return;
     loadingMore.current = true;
     setVisibleCount((prev) => {
-      const next = Math.min(prev + STREAM_PAGE_SIZE, streamLength);
+      const next = Math.min(prev + STREAM_PAGE_SIZE, streamLengthRef.current);
       loadingMore.current = false;
       return next;
     });
-  }, [hasMore, streamLength, setVisibleCount]);
+  }, [setVisibleCount]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (Date.now() < suppressScrollTrackingUntilRef.current) return;
@@ -62,10 +69,10 @@ export function useStreamScroll({
     }
     scrollPositions.current[chatKey] = top;
 
-    if (hasMore && top < 200) {
+    if (hasMoreRef.current && top < 200) {
       handleStartReached();
     }
-  }, [chatKey, scrollPositions, atBottomRef, suppressScrollTrackingUntilRef, hasMore, handleStartReached]);
+  }, [chatKey, scrollPositions, atBottomRef, suppressScrollTrackingUntilRef, handleStartReached]);
 
   const prevChatKey = useRef(chatKey);
 
@@ -85,11 +92,11 @@ export function useStreamScroll({
     const behavior = pendingBottomScrollBehaviorRef.current;
     pendingBottomScrollBehaviorRef.current = null;
     requestAnimationFrame(() => {
-      runProgrammaticScroll(() => {
+      runProgrammaticScrollRef.current(() => {
         virtualizer.scrollToEnd({ behavior });
       });
     });
-  }, [displayDataLength, chatKey, runProgrammaticScroll, virtualizer, pendingBottomScrollBehaviorRef]);
+  }, [displayDataLength, chatKey, virtualizer, pendingBottomScrollBehaviorRef]);
 
   useEffect(() => {
     if (pendingRestoreScrollTopRef.current == null || !scrollContainerRef.current) return;
@@ -97,14 +104,14 @@ export function useStreamScroll({
     pendingRestoreScrollTopRef.current = null;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        runProgrammaticScroll(() => {
+        runProgrammaticScrollRef.current(() => {
           if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = restoreTop;
           }
         }, 360);
       });
     });
-  }, [chatKey, displayDataLength, runProgrammaticScroll, scrollContainerRef, pendingRestoreScrollTopRef]);
+  }, [chatKey, displayDataLength, scrollContainerRef, pendingRestoreScrollTopRef]);
 
   useEffect(() => {
     if (searchResults.length > 0 && virtualizer) {
@@ -112,12 +119,12 @@ export function useStreamScroll({
       if (fullIdx != null) {
         const visibleIdx = fullIdx - paginationOffsetRef.current;
         if (visibleIdx < 0) {
-          const neededVisibleCount = streamLength - fullIdx;
+          const neededVisibleCount = streamLengthRef.current - fullIdx;
           setVisibleCount((prev) => Math.max(prev, neededVisibleCount));
           return;
         }
         if (visibleIdx >= 0 && visibleIdx < displayDataLength) {
-          runProgrammaticScroll(() => {
+          runProgrammaticScrollRef.current(() => {
             virtualizer.scrollToIndex(visibleIdx, { align: "center", behavior: "auto" });
           });
           requestAnimationFrame(() => {
@@ -138,7 +145,7 @@ export function useStreamScroll({
         }
       }
     }
-  }, [searchIdx, searchResults, displayDataLength, streamLength, runProgrammaticScroll, virtualizer, setVisibleCount, paginationOffsetRef]);
+  }, [searchIdx, searchResults, displayDataLength, virtualizer, setVisibleCount, paginationOffsetRef]);
 
   return {
     handleScroll,

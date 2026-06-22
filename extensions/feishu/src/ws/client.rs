@@ -29,6 +29,8 @@ const DEFAULT_PING_INTERVAL: u64 = 120;
 const DEFAULT_RECONNECT_INTERVAL: u64 = 120;
 const DEFAULT_RECONNECT_NONCE: u64 = 30;
 const FRAGMENT_TTL: Duration = Duration::from_secs(60);
+/// Max in-flight WS message fragment buffers before evicting oldest.
+const MAX_FRAGMENT_CACHE: usize = 100;
 
 type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, WsMessage>;
 type WsReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -507,6 +509,22 @@ impl FeishuWsClient {
         let mut cache = self.fragment_cache.lock().await;
         let now = Instant::now();
         cache.retain(|_, entry| now.duration_since(entry.created_at) < FRAGMENT_TTL);
+
+        if !cache.contains_key(msg_id) && cache.len() >= MAX_FRAGMENT_CACHE {
+            if let Some(oldest_key) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.created_at)
+                .map(|(k, _)| k.clone())
+            {
+                cache.remove(&oldest_key);
+                tracing::warn!(
+                    max = MAX_FRAGMENT_CACHE,
+                    removed = %oldest_key,
+                    remaining = cache.len(),
+                    "feishu ws fragment_cache at capacity; evicted oldest entry"
+                );
+            }
+        }
 
         let buf = cache
             .entry(msg_id.to_string())

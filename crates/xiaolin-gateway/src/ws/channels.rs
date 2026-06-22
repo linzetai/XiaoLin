@@ -57,7 +57,7 @@ pub async fn handle_channels_list(
 
     for (id, name, desc, mode) in &known_types {
         if !registered_ids.iter().any(|r| r == id) {
-            let configured = state.cfg.config.channels.contains_key(*id);
+            let configured = is_channel_configured_live(state, id);
             channels.push(json!({
                 "id": id,
                 "name": name,
@@ -262,12 +262,9 @@ fn has_channel_backup(state: &AppState, channel_id: &str) -> bool {
 
 fn is_channel_configured_live(state: &AppState, channel_id: &str) -> bool {
     let live = state.cfg.config_live.load();
-    if let Some(channels) = live.get("channels") {
-        if channels.get(channel_id).is_some() {
-            return true;
-        }
-    }
-    state.cfg.config.channels.contains_key(channel_id)
+    live.get("channels")
+        .and_then(|channels| channels.get(channel_id))
+        .is_some()
 }
 
 pub async fn handle_wechat_login(

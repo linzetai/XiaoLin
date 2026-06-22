@@ -66,7 +66,7 @@ pub(super) async fn auth_status(
             .and_then(|s| s.get("apiKeys"))
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
             .map(|keys| !keys.is_empty())
-            .unwrap_or(!state.cfg.config.security.api_keys.is_empty())
+            .unwrap_or(false)
     };
     Json(json!({ "authRequired": auth_required }))
 }

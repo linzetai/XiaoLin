@@ -298,13 +298,17 @@ pub async fn handle_git_revert(
     };
 
     match git::git_revert_files(&dir, files).await {
-        Ok(()) => {
+        Ok(result) => {
             send_resp(
                 sender,
                 &WsResponse {
                     id: req_id,
                     msg_type: "git.revert".into(),
-                    data: Some(json!({"success": true})),
+                    data: Some(json!({
+                        "success": result.all_succeeded(),
+                        "reverted": result.reverted,
+                        "deleteFailures": result.delete_failures,
+                    })),
                     error: None,
                 },
             )

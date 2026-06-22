@@ -52,6 +52,12 @@ impl MessageDedup {
             .map(|(k, _)| k.clone())
         {
             self.seen.remove(&oldest_key);
+            tracing::warn!(
+                max = MAX_ENTRIES,
+                removed = %oldest_key,
+                remaining = self.seen.len(),
+                "MessageDedup at capacity; evicted oldest entry"
+            );
         }
     }
 

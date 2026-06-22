@@ -10,7 +10,7 @@ use dashmap::DashMap;
 const MAX_HISTOGRAM_SAMPLES: usize = 10_240;
 
 /// Max distinct counter/histogram keys retained in memory.
-const MAX_METRIC_KEYS: usize = 500;
+const MAX_METRIC_KEYS: usize = 1000;
 
 fn push_histogram_sample(deque: &mut VecDeque<f64>, sample: f64) {
     if deque.len() >= MAX_HISTOGRAM_SAMPLES {
@@ -54,18 +54,56 @@ impl MetricsCollector {
         self.histograms.len() >= MAX_METRIC_KEYS
     }
 
+    fn evict_oldest_counter_keys(&self, target_len: usize) {
+        let remove_count = self.counters.len().saturating_sub(target_len);
+        if remove_count == 0 {
+            return;
+        }
+        let keys: Vec<String> = self
+            .counters
+            .iter()
+            .take(remove_count)
+            .map(|e| e.key().clone())
+            .collect();
+        for key in &keys {
+            self.counters.remove(key);
+        }
+        tracing::warn!(
+            removed = keys.len(),
+            remaining = self.counters.len(),
+            max = MAX_METRIC_KEYS,
+            "metrics collector counters at capacity; evicted entries"
+        );
+    }
+
+    fn evict_oldest_histogram_keys(&self, target_len: usize) {
+        let remove_count = self.histograms.len().saturating_sub(target_len);
+        if remove_count == 0 {
+            return;
+        }
+        let keys: Vec<String> = self
+            .histograms
+            .iter()
+            .take(remove_count)
+            .map(|e| e.key().clone())
+            .collect();
+        for key in &keys {
+            self.histograms.remove(key);
+        }
+        tracing::warn!(
+            removed = keys.len(),
+            remaining = self.histograms.len(),
+            max = MAX_METRIC_KEYS,
+            "metrics collector histograms at capacity; evicted entries"
+        );
+    }
+
     fn try_counter_entry(
         &self,
         key: String,
     ) -> Option<dashmap::mapref::one::RefMut<'_, String, AtomicU64>> {
         if !self.counters.contains_key(&key) && self.counter_at_capacity() {
-            tracing::warn!(
-                keys = self.counters.len(),
-                max = MAX_METRIC_KEYS,
-                new_key = %key,
-                "metrics collector at capacity; rejecting new counter key"
-            );
-            return None;
+            self.evict_oldest_counter_keys(MAX_METRIC_KEYS / 2);
         }
         Some(
             self.counters
@@ -79,13 +117,7 @@ impl MetricsCollector {
         key: String,
     ) -> Option<dashmap::mapref::one::RefMut<'_, String, Mutex<VecDeque<f64>>>> {
         if !self.histograms.contains_key(&key) && self.histogram_at_capacity() {
-            tracing::warn!(
-                keys = self.histograms.len(),
-                max = MAX_METRIC_KEYS,
-                new_key = %key,
-                "metrics collector at capacity; rejecting new histogram key"
-            );
-            return None;
+            self.evict_oldest_histogram_keys(MAX_METRIC_KEYS / 2);
         }
         Some(
             self.histograms

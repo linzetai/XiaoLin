@@ -1102,8 +1102,23 @@ pub struct ProcessLlmProvider {
 struct ProcessHandle {
     stdin: tokio::process::ChildStdin,
     stdout: tokio::io::BufReader<tokio::process::ChildStdout>,
-    #[allow(dead_code)]
     child: tokio::process::Child,
+}
+
+impl Drop for ProcessLlmProvider {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.process.try_lock() {
+            if let Some(mut handle) = guard.take() {
+                if let Err(e) = handle.child.start_kill() {
+                    tracing::warn!(
+                        plugin_id = %self.plugin_id,
+                        error = %e,
+                        "failed to kill LLM plugin process on drop"
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl ProcessLlmProvider {

@@ -156,7 +156,7 @@ pub const MAX_CONSECUTIVE_DENIALS_PER_TURN: u32 = 3;
 pub const MAX_RECENT_DENIALS_PER_TURN: u32 = 10;
 pub const DENIAL_WINDOW_SIZE: usize = 50;
 /// Max distinct turn IDs tracked by the circuit breaker before evicting oldest.
-pub const MAX_CIRCUIT_BREAKER_TURNS: usize = 100;
+pub const MAX_CIRCUIT_BREAKER_TURNS: usize = 200;
 
 /// Action to take after recording a denial.
 #[derive(Debug, Clone, PartialEq, Eq)]

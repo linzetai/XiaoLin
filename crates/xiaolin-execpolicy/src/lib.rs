@@ -91,6 +91,8 @@ pub struct MatchOptions {
 
 /// The policy engine: evaluates commands against layered rules.
 pub struct PolicyEngine {
+    /// Whether at least one policy layer was successfully loaded.
+    loaded: bool,
     /// Rules from highest to lowest priority: session, project, system.
     layers: Vec<PolicyLayer>,
     /// Known host executables by basename, for `resolve_host_executables` matching.
@@ -168,10 +170,16 @@ impl PolicyEngine {
     /// Create a new engine with no rules.
     pub fn new() -> Self {
         Self {
+            loaded: false,
             layers: Vec::new(),
             host_executables_by_name: HashMap::new(),
             defaults_fallback: "forbidden".to_string(),
         }
+    }
+
+    /// Whether any policy layer has been successfully loaded.
+    pub fn is_loaded(&self) -> bool {
+        self.loaded
     }
 
     /// Load policy from a TOML file, adding it as a named layer.
@@ -191,6 +199,7 @@ impl PolicyEngine {
 
     /// Add a configuration as a new layer (appended at lowest priority).
     pub fn add_layer(&mut self, name: &str, config: PolicyConfig) {
+        self.loaded = true;
         let mut prefix_rules = config.rules;
 
         if let Some(defaults) = &config.defaults {
@@ -247,6 +256,16 @@ impl PolicyEngine {
 
     /// Evaluate a command and return a detailed `Evaluation` with all matched rules.
     pub fn evaluate(&self, command_tokens: &[&str]) -> Evaluation {
+        if !self.loaded {
+            return Evaluation {
+                decision: PolicyDecision::Forbidden {
+                    rule_id: None,
+                    justification: "exec-policy not loaded".to_string(),
+                },
+                matched_rules: vec![],
+            };
+        }
+
         let first_token = command_tokens.first().copied();
         let mut best: Option<PolicyDecision> = None;
         let mut matched_rules: Vec<MatchedRule> = Vec::new();
@@ -311,6 +330,16 @@ impl PolicyEngine {
         command_tokens: &[&str],
         fallback: impl Fn(&[&str]) -> PolicyDecision,
     ) -> Evaluation {
+        if !self.loaded {
+            return Evaluation {
+                decision: PolicyDecision::Forbidden {
+                    rule_id: None,
+                    justification: "exec-policy not loaded".to_string(),
+                },
+                matched_rules: vec![],
+            };
+        }
+
         let eval = self.evaluate(command_tokens);
         if !eval.matched_rules.is_empty() {
             return eval;
@@ -381,6 +410,16 @@ impl PolicyEngine {
         &self,
         commands: impl IntoIterator<Item = &'a [&'a str]>,
     ) -> Evaluation {
+        if !self.loaded {
+            return Evaluation {
+                decision: PolicyDecision::Forbidden {
+                    rule_id: None,
+                    justification: "exec-policy not loaded".to_string(),
+                },
+                matched_rules: vec![],
+            };
+        }
+
         let mut all_rules: Vec<MatchedRule> = Vec::new();
         let mut best: Option<PolicyDecision> = None;
 
@@ -407,6 +446,13 @@ impl PolicyEngine {
     /// caller convenience). Rule hosts use strict normalization. The `protocol`
     /// parameter is matched against the typed `NetworkRuleProtocol`.
     pub fn evaluate_network(&self, host: &str, protocol: &str) -> PolicyDecision {
+        if !self.loaded {
+            return PolicyDecision::Forbidden {
+                rule_id: None,
+                justification: "exec-policy not loaded".to_string(),
+            };
+        }
+
         let normalized_host = lenient_normalize_host(host);
 
         for layer in &self.layers {
@@ -571,6 +617,7 @@ impl PolicyEngine {
         );
 
         PolicyEngine {
+            loaded: self.loaded || overlay.loaded,
             layers: combined_layers,
             host_executables_by_name: host_exes,
             defaults_fallback: overlay.defaults_fallback.clone(),
@@ -973,11 +1020,23 @@ decision = "prompt"
     }
 
     #[test]
+    fn unloaded_engine_denies_all() {
+        let engine = PolicyEngine::new();
+        assert!(!engine.is_loaded());
+        let eval = engine.evaluate(&["ls", "-la"]);
+        assert!(eval.is_forbidden());
+        assert!(engine.evaluate_network("example.com", "https").is_forbidden());
+    }
+
+    #[test]
     fn not_match_validation() {
         let mut engine = PolicyEngine::new();
         engine
             .load_str(
                 r#"
+[defaults]
+fallback = "prompt"
+
 [[rules]]
 pattern = ["echo"]
 decision = "allow"
@@ -1293,8 +1352,7 @@ decision = "allow"
         let engine = PolicyEngine::new();
         let cmds: Vec<&[&str]> = vec![];
         let eval = engine.evaluate_multiple(cmds);
-        assert!(!eval.is_allowed());
-        assert!(!eval.is_forbidden());
+        assert!(eval.is_forbidden());
     }
 
     #[test]

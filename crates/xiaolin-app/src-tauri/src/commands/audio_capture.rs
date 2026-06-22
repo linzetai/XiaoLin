@@ -12,6 +12,7 @@ pub struct AudioCaptureState {
     samples: Arc<Mutex<Vec<f32>>>,
     sample_rate: Arc<Mutex<u32>>,
     channels: Arc<Mutex<u16>>,
+    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Default for AudioCaptureState {
@@ -21,6 +22,18 @@ impl Default for AudioCaptureState {
             samples: Arc::new(Mutex::new(Vec::new())),
             sample_rate: Arc::new(Mutex::new(44100)),
             channels: Arc::new(Mutex::new(1)),
+            thread: Mutex::new(None),
+        }
+    }
+}
+
+impl Drop for AudioCaptureState {
+    fn drop(&mut self) {
+        self.recording.store(false, Ordering::SeqCst);
+        if let Ok(mut guard) = self.thread.lock() {
+            if let Some(handle) = guard.take() {
+                let _ = handle.join();
+            }
         }
     }
 }
@@ -63,7 +76,7 @@ pub fn start_native_recording(
 
     recording.store(true, Ordering::SeqCst);
 
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         let host = cpal::default_host();
         let device = match host.default_input_device() {
             Some(d) => d,
@@ -151,6 +164,10 @@ pub fn start_native_recording(
         drop(stream);
     });
 
+    if let Ok(mut guard) = state.thread.lock() {
+        *guard = Some(handle);
+    }
+
     Ok(())
 }
 
@@ -162,6 +179,12 @@ pub fn stop_native_recording(
         return Err("not recording".into());
     }
     state.recording.store(false, Ordering::SeqCst);
+
+    if let Ok(mut guard) = state.thread.lock() {
+        if let Some(handle) = guard.take() {
+            let _ = handle.join();
+        }
+    }
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 

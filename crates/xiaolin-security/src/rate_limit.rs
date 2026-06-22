@@ -54,6 +54,8 @@ const BUCKET_IDLE_TTL: std::time::Duration = std::time::Duration::from_secs(10 *
 
 /// Run bucket GC every N check calls across all dimensions.
 const BUCKET_GC_INTERVAL: u64 = 100;
+/// Max token buckets per dimension before evicting oldest idle entries.
+const MAX_RATE_LIMIT_BUCKETS: usize = 5000;
 
 /// Multi-dimension rate limiter: per-IP, per-API-key, and per-agent token buckets.
 #[derive(Clone)]
@@ -94,6 +96,31 @@ impl RateLimiter {
         buckets.retain(|_, bucket| now.duration_since(bucket.last_refill) < BUCKET_IDLE_TTL);
     }
 
+    fn enforce_bucket_capacity<K: std::hash::Hash + Eq + Clone>(
+        buckets: &DashMap<K, TokenBucket>,
+        key: &K,
+    ) {
+        if buckets.contains_key(key) || buckets.len() < MAX_RATE_LIMIT_BUCKETS {
+            return;
+        }
+        let mut entries: Vec<(K, Instant)> = buckets
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().last_refill))
+            .collect();
+        entries.sort_by_key(|(_, ts)| *ts);
+        let target_len = MAX_RATE_LIMIT_BUCKETS / 2;
+        let remove_count = buckets.len().saturating_sub(target_len);
+        for (k, _) in entries.into_iter().take(remove_count) {
+            buckets.remove(&k);
+        }
+        tracing::warn!(
+            max = MAX_RATE_LIMIT_BUCKETS,
+            removed = remove_count,
+            remaining = buckets.len(),
+            "rate limiter buckets at capacity; evicted oldest idle entries"
+        );
+    }
+
     fn check_bucket<K: std::hash::Hash + Eq + Clone>(
         buckets: &DashMap<K, TokenBucket>,
         check_count: &AtomicU64,
@@ -102,6 +129,7 @@ impl RateLimiter {
         window: std::time::Duration,
     ) -> bool {
         Self::maybe_gc_buckets(buckets, check_count);
+        Self::enforce_bucket_capacity(buckets, &key);
         let now = Instant::now();
         let mut entry = buckets.entry(key).or_insert_with(|| TokenBucket {
             tokens: max_tokens,

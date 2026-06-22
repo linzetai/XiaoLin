@@ -1019,7 +1019,7 @@ pub async fn spawn_chat(
                     &state_budget,
                     model_for_budget.as_str(),
                     input_estimate,
-                    assistant_content.len(),
+                    assistant_content.chars().count(),
                 );
             }
             if is_done && !after_chat_called && !assistant_content.is_empty() {

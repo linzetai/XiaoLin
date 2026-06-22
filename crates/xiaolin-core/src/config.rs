@@ -152,6 +152,9 @@ pub struct XiaoLinConfig {
     /// Channel plugin system configuration.
     #[serde(default, rename = "channelPlugins")]
     pub channel_plugins: crate::channel_plugin::ChannelPluginsConfig,
+    /// Interactive PTY terminal session limits.
+    #[serde(default)]
+    pub terminal: TerminalConfig,
 }
 
 /// Controls conversation tracing for the harness / eval subsystem.
@@ -512,6 +515,33 @@ impl Default for GatewayConfig {
             max_connections: 1024,
             rate_limit: RateLimitCfg::default(),
             cors_origins: Vec::new(),
+        }
+    }
+}
+
+/// Limits for interactive PTY terminal sessions (Shell tab / agent terminal tools).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalConfig {
+    #[serde(default = "default_terminal_max_sessions")]
+    pub max_sessions: usize,
+    #[serde(default = "default_terminal_idle_timeout_secs")]
+    pub idle_timeout_secs: u64,
+}
+
+fn default_terminal_max_sessions() -> usize {
+    8
+}
+
+fn default_terminal_idle_timeout_secs() -> u64 {
+    30 * 60
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            max_sessions: default_terminal_max_sessions(),
+            idle_timeout_secs: default_terminal_idle_timeout_secs(),
         }
     }
 }

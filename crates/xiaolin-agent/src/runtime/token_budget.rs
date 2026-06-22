@@ -21,7 +21,7 @@ static SESSION_BUDGETS: LazyLock<Arc<DashMap<String, SessionBudgetEntry>>> =
     LazyLock::new(|| Arc::new(DashMap::new()));
 
 /// Max session budget entries before stale cleanup runs.
-const MAX_SESSION_BUDGET_ENTRIES: usize = 1000;
+const MAX_SESSION_BUDGET_ENTRIES: usize = 500;
 
 /// Run stale budget cleanup every N registry mutations.
 const SESSION_BUDGET_CLEANUP_INTERVAL: u64 = 100;

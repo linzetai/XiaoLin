@@ -3,14 +3,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use tokio::sync::broadcast;
 use tokio::time;
 
-use crate::session::{PtySession, PtySessionConfig};
+use crate::session::{PtySession, PtySessionConfig, TrackedBroadcastReceiver};
 
 const DEFAULT_MAX_SESSIONS: usize = 8;
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
+/// Grace period after the last broadcast subscriber disconnects before cleanup.
+const NO_SUBSCRIBER_GRACE: Duration = Duration::from_secs(30);
 
 pub struct PtySessionManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
@@ -20,11 +21,31 @@ pub struct PtySessionManager {
 
 impl PtySessionManager {
     pub fn new() -> Self {
+        Self::with_limits(DEFAULT_MAX_SESSIONS, DEFAULT_IDLE_TIMEOUT)
+    }
+
+    pub fn with_limits(max_sessions: usize, idle_timeout: Duration) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            max_sessions: DEFAULT_MAX_SESSIONS,
-            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            max_sessions: max_sessions.max(1),
+            idle_timeout,
         }
+    }
+
+    /// Build from gateway config (`terminal.maxSessions`, `terminal.idleTimeoutSecs`).
+    pub fn from_config(max_sessions: usize, idle_timeout_secs: u64) -> Self {
+        Self::with_limits(
+            max_sessions.max(1),
+            Duration::from_secs(idle_timeout_secs.max(60)),
+        )
+    }
+
+    pub fn max_sessions(&self) -> usize {
+        self.max_sessions
+    }
+
+    pub fn idle_timeout(&self) -> Duration {
+        self.idle_timeout
     }
 
     pub fn create_session(&self, config: PtySessionConfig) -> Result<String, String> {
@@ -48,7 +69,7 @@ impl PtySessionManager {
     pub fn create_session_with_subscriber(
         &self,
         config: PtySessionConfig,
-    ) -> Result<(String, broadcast::Receiver<Vec<u8>>), String> {
+    ) -> Result<(String, TrackedBroadcastReceiver), String> {
         let mut sessions = self.sessions.lock();
         if sessions.len() >= self.max_sessions {
             drop(sessions);
@@ -67,7 +88,7 @@ impl PtySessionManager {
         Ok((id, rx))
     }
 
-    pub fn subscribe(&self, id: &str) -> Option<broadcast::Receiver<Vec<u8>>> {
+    pub fn subscribe(&self, id: &str) -> Option<TrackedBroadcastReceiver> {
         let sessions = self.sessions.lock();
         sessions.get(id).map(|s| s.subscribe())
     }
@@ -110,6 +131,7 @@ impl PtySessionManager {
                 cols: s.cols(),
                 rows: s.rows(),
                 idle_secs: s.last_activity.lock().elapsed().as_secs(),
+                subscriber_count: s.subscriber_count(),
             })
             .collect()
     }
@@ -140,8 +162,22 @@ impl PtySessionManager {
         let mut to_remove = Vec::new();
 
         for (id, session) in sessions.iter() {
+            if !session.is_alive() {
+                to_remove.push(id.clone());
+                continue;
+            }
+
+            if session.subscriber_count() == 0 {
+                if let Some(since) = session.no_subscribers_since() {
+                    if now.duration_since(since) > NO_SUBSCRIBER_GRACE {
+                        to_remove.push(id.clone());
+                        continue;
+                    }
+                }
+            }
+
             let idle = now.duration_since(*session.last_activity.lock());
-            if idle > self.idle_timeout || !session.is_alive() {
+            if idle > self.idle_timeout {
                 to_remove.push(id.clone());
             }
         }
@@ -149,7 +185,7 @@ impl PtySessionManager {
         for id in &to_remove {
             if let Some(session) = sessions.remove(id) {
                 session.kill();
-                tracing::info!(session_id = %id, "PTY session cleaned up (idle/dead)");
+                tracing::info!(session_id = %id, "PTY session cleaned up (idle/dead/no subscribers)");
             }
         }
     }
@@ -168,4 +204,5 @@ pub struct SessionInfo {
     pub cols: u16,
     pub rows: u16,
     pub idle_secs: u64,
+    pub subscriber_count: usize,
 }

@@ -4115,6 +4115,8 @@ fn search_builtin(
     context_lines: usize,
     root: &Path,
 ) -> Result<(String, usize, usize, bool), String> {
+    const MAX_SEARCH_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
     let regex = RegexBuilder::new(pattern)
         .case_insensitive(!case_sensitive)
         .build()
@@ -4139,6 +4141,14 @@ fn search_builtin(
             if !simple_glob_match(glob, &rel) {
                 continue;
             }
+        }
+
+        let file_size = match fs::metadata(file) {
+            Ok(meta) => meta.len(),
+            Err(_) => continue,
+        };
+        if file_size > MAX_SEARCH_FILE_BYTES {
+            continue;
         }
 
         let content = match fs::read_to_string(file) {

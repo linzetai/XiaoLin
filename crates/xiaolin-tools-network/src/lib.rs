@@ -163,7 +163,7 @@ impl Tool for HttpFetchTool {
     fn description(&self) -> &str {
         "Raw HTTP client for REST API calls, webhooks, and JSON/XML responses. \
          Supports GET/POST/PUT/DELETE/PATCH/HEAD with custom headers, auth tokens, and request body. \
-         Returns raw response (status, headers, body). Body truncated at ~4KB; timeout 10s. \
+         Returns raw response (status, headers, body). Body truncated at ~5MB; timeout 10s. \
          SSRF protection blocks localhost and private IPs. \
          DO NOT use for reading web pages — use web_fetch (which extracts readable text from HTML)."
     }
@@ -511,9 +511,16 @@ impl SearchEngine for SearxngEngine {
     }
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+        let search_url = format!("{}/search", self.base_url.trim_end_matches('/'));
+        if let Err(e) = ssrf_check_url(&search_url) {
+            return Err(format!(
+                "searxng search URL rejected before request: {e}. \
+                 Configure a public http(s) SearXNG base URL that resolves outside private networks."
+            ));
+        }
         let resp = self
             .client
-            .get(format!("{}/search", self.base_url.trim_end_matches('/')))
+            .get(&search_url)
             .query(&[("q", query), ("format", "json"), ("categories", "general")])
             .send()
             .await

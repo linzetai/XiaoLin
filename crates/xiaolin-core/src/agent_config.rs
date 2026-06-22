@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -773,36 +773,66 @@ pub fn tool_pattern_matches(pattern: &str, tool_name: &str) -> bool {
     }
 }
 
+/// Preprocessed tool patterns: exact names in a HashSet, globs/negations in small vecs.
+struct ToolPatternIndex {
+    exact: HashSet<String>,
+    globs: Vec<String>,
+    negated: Vec<String>,
+}
+
+impl ToolPatternIndex {
+    fn from_patterns(patterns: &[String]) -> Self {
+        let mut exact = HashSet::new();
+        let mut globs = Vec::new();
+        let mut negated = Vec::new();
+        for p in patterns {
+            if p.starts_with('!') {
+                negated.push(p.clone());
+            } else if p.ends_with('*') {
+                globs.push(p.clone());
+            } else {
+                exact.insert(p.clone());
+            }
+        }
+        Self {
+            exact,
+            globs,
+            negated,
+        }
+    }
+
+    fn matches(&self, tool_name: &str) -> bool {
+        if self.exact.contains(tool_name) {
+            return true;
+        }
+        self.globs
+            .iter()
+            .any(|p| tool_pattern_matches(p, tool_name))
+            || self
+                .negated
+                .iter()
+                .any(|p| tool_pattern_matches(p, tool_name))
+    }
+}
+
 impl BehaviorConfig {
     /// Resolve the effective permission for a tool: deny > ask > allow.
     ///
     /// Priority: `tools_deny` (highest) > `tools_ask` + `require_confirmation_for` > `tools_allow` (lowest).
     /// When `tools_allow` is non-empty, unlisted tools are implicitly denied.
     pub fn tool_permission(&self, tool_name: &str) -> ToolPermission {
-        if !self.tools_deny.is_empty()
-            && self
-                .tools_deny
-                .iter()
-                .any(|d| tool_pattern_matches(d, tool_name))
-        {
+        let deny = ToolPatternIndex::from_patterns(&self.tools_deny);
+        if !self.tools_deny.is_empty() && deny.matches(tool_name) {
             return ToolPermission::Deny;
         }
-        if !self.tools_allow.is_empty()
-            && !self
-                .tools_allow
-                .iter()
-                .any(|a| tool_pattern_matches(a, tool_name))
-        {
+        let allow = ToolPatternIndex::from_patterns(&self.tools_allow);
+        if !self.tools_allow.is_empty() && !allow.matches(tool_name) {
             return ToolPermission::Deny;
         }
-        let ask_patterns = self
-            .tools_ask
-            .iter()
-            .chain(self.require_confirmation_for.iter());
-        if ask_patterns
-            .clone()
-            .any(|p| tool_pattern_matches(p, tool_name))
-        {
+        let mut ask_patterns: Vec<String> = self.tools_ask.clone();
+        ask_patterns.extend(self.require_confirmation_for.iter().cloned());
+        let ask = ToolPatternIndex::from_patterns(&ask_patterns);
+        if ask.matches(tool_name) {
             return ToolPermission::Ask;
         }
         ToolPermission::Allow
