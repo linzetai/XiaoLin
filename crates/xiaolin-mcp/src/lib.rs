@@ -1478,7 +1478,12 @@ impl McpClient {
                     }
                     match resp_out {
                         Some(r) => r,
-                        None => return Err(last_err.unwrap().into()),
+                        None => {
+                            return Err(match last_err {
+                                Some(e) => e.into(),
+                                None => anyhow::anyhow!("transport failed after retries").into(),
+                            })
+                        }
                     }
                 };
 
@@ -1612,14 +1617,14 @@ impl McpClient {
         let current_session = session_id.lock().await.clone();
         if current_session != old_session {
             tracing::info!(
-                server = %self.server_name.read().unwrap(),
+                server = %self.server_name.read().unwrap_or_else(|e| e.into_inner()),
                 "session already recovered by another request, skipping"
             );
             return Ok(());
         }
 
         tracing::warn!(
-            server = %self.server_name.read().unwrap(),
+            server = %self.server_name.read().unwrap_or_else(|e| e.into_inner()),
             "recovering Streamable HTTP session"
         );
 
@@ -1673,8 +1678,16 @@ impl McpClient {
         if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&body) {
             if let Some(result) = resp.result {
                 if let Ok(info) = serde_json::from_value::<InitializeResult>(result) {
-                    *self.server_name.write().unwrap() = info.server_info.name;
-                    *self.server_instructions.write().unwrap() = info.instructions;
+                    *self
+                        .server_name
+                        .write()
+                        .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? =
+                        info.server_info.name;
+                    *self
+                        .server_instructions
+                        .write()
+                        .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? =
+                        info.instructions;
                 }
             }
         }
@@ -1694,7 +1707,10 @@ impl McpClient {
         }
         let _ = req.body(notif_json).send().await?;
 
-        tracing::info!(server = %self.server_name.read().unwrap(), "Streamable HTTP session recovered");
+        tracing::info!(
+            server = %self.server_name.read().unwrap_or_else(|e| e.into_inner()),
+            "Streamable HTTP session recovered"
+        );
         Ok(())
     }
 
@@ -1741,14 +1757,23 @@ impl McpClient {
 
         if let Some(result) = response.result {
             let info: InitializeResult = serde_json::from_value(result)?;
-            *self.server_name.write().unwrap() = info.server_info.name;
+            *self
+                .server_name
+                .write()
+                .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? = info.server_info.name;
             let has_instructions = info.instructions.is_some();
             let has_resources = info.capabilities.resources.is_some();
             let has_prompts = info.capabilities.prompts.is_some();
-            *self.server_capabilities.write().unwrap() = info.capabilities;
-            *self.server_instructions.write().unwrap() = info.instructions;
+            *self
+                .server_capabilities
+                .write()
+                .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? = info.capabilities;
+            *self
+                .server_instructions
+                .write()
+                .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? = info.instructions;
             tracing::info!(
-                server = %self.server_name.read().unwrap(),
+                server = %self.server_name.read().unwrap_or_else(|e| e.into_inner()),
                 version = %info.server_info.version,
                 has_instructions,
                 has_resources,
@@ -1826,7 +1851,11 @@ impl McpClient {
                     sanitize::sanitize_json_schema_descriptions(schema);
                 }
             }
-            tracing::info!(count = tool_list.tools.len(), server = %self.server_name.read().unwrap(), "discovered MCP tools");
+            tracing::info!(
+                count = tool_list.tools.len(),
+                server = %self.server_name.read().unwrap_or_else(|e| e.into_inner()),
+                "discovered MCP tools"
+            );
             self.tools = tool_list.tools;
         }
         Ok(())
@@ -1879,12 +1908,18 @@ impl McpClient {
 
     /// Get the server name.
     pub fn server_name(&self) -> String {
-        self.server_name.read().unwrap().clone()
+        self.server_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Get the server-provided instructions (from `InitializeResult.instructions`).
     pub fn instructions(&self) -> Option<String> {
-        self.server_instructions.read().unwrap().clone()
+        self.server_instructions
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Subscribe to server-initiated notifications (JSON-RPC messages without `id`).
@@ -1954,17 +1989,28 @@ impl McpClient {
 
     /// Returns the server capabilities declared during `initialize`.
     pub fn server_capabilities(&self) -> ServerCapabilities {
-        self.server_capabilities.read().unwrap().clone()
+        self.server_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Whether the server declared `capabilities.resources`.
     pub fn has_resources(&self) -> bool {
-        self.server_capabilities.read().unwrap().resources.is_some()
+        self.server_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .resources
+            .is_some()
     }
 
     /// Whether the server declared `capabilities.prompts`.
     pub fn has_prompts(&self) -> bool {
-        self.server_capabilities.read().unwrap().prompts.is_some()
+        self.server_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .prompts
+            .is_some()
     }
 
     /// List resources exposed by the server (`resources/list`).

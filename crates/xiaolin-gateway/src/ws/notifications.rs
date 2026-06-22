@@ -83,13 +83,38 @@ pub async fn handle_mark_read(
     req_id: Option<String>,
     notification_id: &str,
 ) {
-    let _ = state.store.notification_store.mark_read(notification_id).await;
-    let unread = state
-        .store
-        .notification_store
-        .unread_count()
-        .await
-        .unwrap_or(0);
+    match state.store.notification_store.mark_read(notification_id).await {
+        Ok(_) => {}
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32000, "message": format!("{e}")})),
+                },
+            )
+            .await;
+            return;
+        }
+    }
+    let unread = match state.store.notification_store.unread_count().await {
+        Ok(count) => count,
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32000, "message": format!("{e}")})),
+                },
+            )
+            .await;
+            return;
+        }
+    };
 
     send_resp(
         sender,
@@ -108,13 +133,38 @@ pub async fn handle_mark_all_read(
     state: &AppState,
     req_id: Option<String>,
 ) {
-    let _ = state.store.notification_store.mark_all_read().await;
-    let unread = state
-        .store
-        .notification_store
-        .unread_count()
-        .await
-        .unwrap_or(0);
+    match state.store.notification_store.mark_all_read().await {
+        Ok(_) => {}
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32000, "message": format!("{e}")})),
+                },
+            )
+            .await;
+            return;
+        }
+    }
+    let unread = match state.store.notification_store.unread_count().await {
+        Ok(count) => count,
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32000, "message": format!("{e}")})),
+                },
+            )
+            .await;
+            return;
+        }
+    };
 
     send_resp(
         sender,
@@ -134,16 +184,30 @@ pub async fn handle_delete(
     req_id: Option<String>,
     notification_id: &str,
 ) {
-    let _ = state.store.notification_store.delete(notification_id).await;
-
-    send_resp(
-        sender,
-        &WsResponse {
-            id: req_id,
-            msg_type: "notifications.delete".into(),
-            data: Some(json!({ "ok": true })),
-            error: None,
-        },
-    )
-    .await;
+    match state.store.notification_store.delete(notification_id).await {
+        Ok(_) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "notifications.delete".into(),
+                    data: Some(json!({ "ok": true })),
+                    error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": -32000, "message": format!("{e}")})),
+                },
+            )
+            .await;
+        }
+    }
 }

@@ -593,8 +593,19 @@ impl AppState {
                         _ => remote_sem.clone(),
                     };
                     async move {
-                        let _permit = sem.acquire().await.expect("semaphore closed");
                         let id = cfg.id.clone();
+                        let _permit = match sem.acquire().await {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                tracing::warn!("semaphore closed");
+                                return (
+                                    id,
+                                    scope,
+                                    transport,
+                                    Err(anyhow::anyhow!("semaphore closed")),
+                                );
+                            }
+                        };
                         let result =
                             xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
                         (id, scope, transport, result)
@@ -1371,8 +1382,19 @@ impl AppState {
                     _ => remote_sem.clone(),
                 };
                 async move {
-                    let _permit = sem.acquire().await.expect("semaphore closed");
                     let id = cfg.id.clone();
+                    let _permit = match sem.acquire().await {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            tracing::warn!("semaphore closed");
+                            return (
+                                id,
+                                scope,
+                                transport,
+                                Err(anyhow::anyhow!("semaphore closed")),
+                            );
+                        }
+                    };
                     let result =
                         xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
                     (id, scope, transport, result)

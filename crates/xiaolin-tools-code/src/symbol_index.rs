@@ -123,11 +123,14 @@ impl SymbolIndex {
              FROM symbols WHERE name = ?1 OR name LIKE ?2 LIMIT 100",
         ) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lookup prepare failed");
+                return Vec::new();
+            }
         };
 
         let prefix = format!("{name}%");
-        stmt.query_map(params![name, prefix], |row| {
+        let rows = match stmt.query_map(params![name, prefix], |row| {
             Ok(IndexedSymbol {
                 name: row.get(0)?,
                 kind: row.get(1)?,
@@ -136,12 +139,14 @@ impl SymbolIndex {
                 end_line: row.get(4)?,
                 signature: row.get(5)?,
             })
-        })
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lookup query failed");
+                return Vec::new();
+            }
+        };
+        rows.filter_map(|r| r.ok()).collect()
     }
 
     pub fn find_references(&self, name: &str) -> Vec<IndexedSymbol> {
@@ -155,10 +160,13 @@ impl SymbolIndex {
              FROM symbols WHERE signature LIKE ?1 OR name = ?2 LIMIT 200",
         ) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index find_references prepare failed");
+                return Vec::new();
+            }
         };
 
-        stmt.query_map(params![pattern, name], |row| {
+        let rows = match stmt.query_map(params![pattern, name], |row| {
             Ok(IndexedSymbol {
                 name: row.get(0)?,
                 kind: row.get(1)?,
@@ -167,12 +175,14 @@ impl SymbolIndex {
                 end_line: row.get(4)?,
                 signature: row.get(5)?,
             })
-        })
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index find_references query failed");
+                return Vec::new();
+            }
+        };
+        rows.filter_map(|r| r.ok()).collect()
     }
 
     pub fn symbols_in_file(&self, file_path: &str) -> Vec<IndexedSymbol> {
@@ -185,10 +195,13 @@ impl SymbolIndex {
              FROM symbols WHERE file_path = ?1 ORDER BY start_line",
         ) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index symbols_in_file prepare failed");
+                return Vec::new();
+            }
         };
 
-        stmt.query_map(params![file_path], |row| {
+        let rows = match stmt.query_map(params![file_path], |row| {
             Ok(IndexedSymbol {
                 name: row.get(0)?,
                 kind: row.get(1)?,
@@ -197,12 +210,14 @@ impl SymbolIndex {
                 end_line: row.get(4)?,
                 signature: row.get(5)?,
             })
-        })
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index symbols_in_file query failed");
+                return Vec::new();
+            }
+        };
+        rows.filter_map(|r| r.ok()).collect()
     }
 
     pub fn symbol_count(&self) -> usize {
@@ -210,10 +225,15 @@ impl SymbolIndex {
             Ok(c) => c,
             Err(_) => return 0,
         };
-        conn.query_row("SELECT COUNT(*) FROM symbols", [], |row| {
+        match conn.query_row("SELECT COUNT(*) FROM symbols", [], |row| {
             row.get::<_, usize>(0)
-        })
-        .unwrap_or(0)
+        }) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index count query failed");
+                0
+            }
+        }
     }
 }
 

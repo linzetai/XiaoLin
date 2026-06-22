@@ -1,12 +1,13 @@
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use cron::Schedule;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 
+use crate::schedule::compute_next_run;
 use crate::store::{CronJob, CronJobStore, JobAction, NotifyChannel};
+
+const MAX_CONCURRENT_JOBS: usize = 10;
 
 /// Callback trait for executing job actions.
 #[async_trait::async_trait]
@@ -61,6 +62,7 @@ pub struct CronScheduler {
     trigger: Arc<dyn JobTrigger>,
     tick_interval: Duration,
     wake: Arc<Notify>,
+    job_semaphore: Arc<Semaphore>,
 }
 
 impl CronScheduler {
@@ -70,6 +72,7 @@ impl CronScheduler {
             trigger,
             tick_interval: Duration::from_secs(1),
             wake: Arc::new(Notify::new()),
+            job_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_JOBS)),
         }
     }
 
@@ -85,6 +88,7 @@ impl CronScheduler {
             trigger,
             tick_interval: Duration::from_secs(1),
             wake,
+            job_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_JOBS)),
         }
     }
 
@@ -112,7 +116,15 @@ impl CronScheduler {
             for job in due {
                 let store = self.store.clone();
                 let trigger = self.trigger.clone();
+                let semaphore = self.job_semaphore.clone();
                 tokio::spawn(async move {
+                    let _permit = match semaphore.acquire().await {
+                        Ok(permit) => permit,
+                        Err(e) => {
+                            tracing::error!(error = %e, "cron: job semaphore closed");
+                            return;
+                        }
+                    };
                     execute_job(&store, &*trigger, job).await;
                 });
             }
@@ -218,32 +230,3 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
     }
 }
 
-/// Compute the next scheduled run time after `now`.
-///
-/// Cron expressions are interpreted in the **system's local timezone** so that
-/// `"0 9 * * *"` means "9 AM on the machine running XiaoLin", regardless of the
-/// UTC offset of the server.  The returned RFC3339 string is **normalized to UTC**
-/// (offset `+00:00`) so all `next_run` values in the database are directly comparable
-/// with `Utc::now()` via SQLite text collation.
-fn compute_next_run(schedule_str: &str) -> Option<String> {
-    let schedule = Schedule::from_str(schedule_str).ok()?;
-    let next_local = schedule.upcoming(chrono::Local).next()?;
-    // Normalize to UTC so SQLite text comparison with Utc::now().to_rfc3339() is correct.
-    Some(next_local.with_timezone(&Utc).to_rfc3339())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_cron_schedule() {
-        let next = compute_next_run("0 */5 * * * *");
-        assert!(next.is_some(), "should parse a 6-field cron expression");
-    }
-
-    #[test]
-    fn invalid_schedule_returns_none() {
-        assert!(compute_next_run("not a cron").is_none());
-    }
-}

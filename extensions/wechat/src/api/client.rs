@@ -33,23 +33,23 @@ impl WechatApiClient {
         token: &str,
         bot_agent: Option<&str>,
         long_poll_timeout: Duration,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .timeout(DEFAULT_API_TIMEOUT)
             .build()
-            .expect("failed to build reqwest client");
+            .map_err(|e| anyhow::anyhow!("failed to build reqwest client: {e}"))?;
         let long_poll_client = reqwest::Client::builder()
             .timeout(long_poll_timeout + Duration::from_secs(5))
             .build()
-            .expect("failed to build long-poll reqwest client");
+            .map_err(|e| anyhow::anyhow!("failed to build long-poll reqwest client: {e}"))?;
 
-        Self {
+        Ok(Self {
             http,
             long_poll_client,
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
             bot_agent: sanitize_bot_agent(bot_agent.unwrap_or(DEFAULT_BOT_AGENT)),
-        }
+        })
     }
 
     pub fn base_url(&self) -> &str {

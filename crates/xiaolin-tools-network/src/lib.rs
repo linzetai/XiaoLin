@@ -499,7 +499,7 @@ fn build_scraper_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(BROWSER_UA)
-        .redirect(reqwest::redirect::Policy::limited(3))
+        .redirect(ssrf_safe_redirect_policy())
         .build()
         .unwrap_or_default()
 }

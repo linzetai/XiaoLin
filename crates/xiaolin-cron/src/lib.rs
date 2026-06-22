@@ -1,3 +1,4 @@
+mod schedule;
 mod scheduler;
 mod store;
 

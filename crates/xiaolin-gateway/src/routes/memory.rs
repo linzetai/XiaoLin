@@ -178,7 +178,14 @@ pub async fn auto_record_episode(
     agent_id: &str,
     content: &str,
 ) {
-    if !state.cfg.config.memory.enabled {
+    let memory_enabled = {
+        let live = state.cfg.config_live.load();
+        live.get("memory")
+            .and_then(|m| m.get("enabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(state.cfg.config.memory.enabled)
+    };
+    if !memory_enabled {
         return;
     }
     let summary = if content.len() > 200 {

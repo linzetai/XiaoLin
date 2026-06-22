@@ -146,10 +146,13 @@ impl MemoryManager {
                 created_at: now.clone(),
                 updated_at: now,
             };
-            let _ = self
+            if let Err(e) = self
                 .semantic
                 .upsert_auto(&fact, self.embedder.as_deref())
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, "failed to upsert semantic memory");
+            }
         }
 
         Ok(id)

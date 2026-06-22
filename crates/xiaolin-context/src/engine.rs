@@ -1199,11 +1199,12 @@ impl ContextEngine {
                 .and_then(|c| c.as_str())
                 .unwrap_or("");
             let char_limit = per_msg_budget_chars.max(min_chars);
-            if text.len() > char_limit {
+            let char_count = text.chars().count();
+            if char_count > char_limit {
                 let truncated: String = text.chars().take(char_limit).collect();
                 messages[idx].content = Some(serde_json::Value::String(format!(
                     "{truncated}\n\n[... truncated to fit context window ({} chars removed)]",
-                    text.len() - char_limit,
+                    char_count - char_limit,
                 )));
             }
         }

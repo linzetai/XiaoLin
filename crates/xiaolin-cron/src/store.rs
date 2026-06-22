@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use crate::schedule::compute_next_run;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronJob {
     #[serde(default)]
@@ -195,6 +197,11 @@ impl CronJobStore {
     pub async fn upsert(&self, job: &CronJob) -> anyhow::Result<()> {
         let action_json = serde_json::to_string(&job.action)?;
         let notify_json = serde_json::to_string(&job.notify_channels)?;
+        let next_run = if job.enabled && job.next_run.is_none() {
+            compute_next_run(&job.schedule).or_else(|| job.next_run.clone())
+        } else {
+            job.next_run.clone()
+        };
         sqlx::query(
             "INSERT INTO cron_jobs (id, name, schedule, action, enabled, last_run, next_run, status, created_at, run_count, error_count, last_error, notify_channels, work_dir)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -218,7 +225,7 @@ impl CronJobStore {
         .bind(&action_json)
         .bind(job.enabled)
         .bind(&job.last_run)
-        .bind(&job.next_run)
+        .bind(&next_run)
         .bind(job.status.to_string())
         .bind(&job.created_at)
         .bind(job.run_count)
@@ -281,7 +288,7 @@ impl CronJobStore {
     pub async fn due_jobs(&self, now: &DateTime<Utc>) -> anyhow::Result<Vec<CronJob>> {
         let now_str = now.to_rfc3339();
         let rows = sqlx::query_as::<_, CronJobRow>(
-            "SELECT * FROM cron_jobs WHERE enabled = 1 AND status != 'running' AND (next_run IS NULL OR next_run <= ?)",
+            "SELECT * FROM cron_jobs WHERE enabled = 1 AND status != 'running' AND next_run <= ?",
         )
         .bind(&now_str)
         .fetch_all(&self.pool)

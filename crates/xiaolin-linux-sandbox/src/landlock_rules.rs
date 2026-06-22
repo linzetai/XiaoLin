@@ -91,7 +91,7 @@ fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
             info!("landlock: partially enforced (kernel may not support all rules)");
         }
         RulesetStatus::NotEnforced => {
-            tracing::warn!("landlock: NOT enforced (kernel does not support landlock)");
+            anyhow::bail!("landlock: NOT enforced (kernel does not support landlock)");
         }
     }
 

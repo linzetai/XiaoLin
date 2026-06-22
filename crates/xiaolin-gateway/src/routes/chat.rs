@@ -527,8 +527,22 @@ async fn handle_stream(
                         let pt = usage.map(|u| u.prompt_tokens).unwrap_or(0);
                         let ct = usage.map(|u| u.completion_tokens).unwrap_or(0);
                         let tt = usage.map(|u| u.total_tokens).unwrap_or(0);
-                        let _ = state_for_persist.store.session_store.accumulate_usage(sid, pt, ct, elapsed_ms).await;
-                        let _ = state_for_persist.store.session_store.stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms).await;
+                        if let Err(e) = state_for_persist
+                            .store
+                            .session_store
+                            .accumulate_usage(sid, pt, ct, elapsed_ms)
+                            .await
+                        {
+                            tracing::warn!(error = %e, session_id = %sid, "failed to accumulate session usage");
+                        }
+                        if let Err(e) = state_for_persist
+                            .store
+                            .session_store
+                            .stamp_last_assistant_usage(sid, pt, ct, tt, elapsed_ms)
+                            .await
+                        {
+                            tracing::warn!(error = %e, session_id = %sid, "failed to stamp last assistant usage");
+                        }
                     }
                     let mut val = serde_json::to_value(&event).unwrap_or_default();
                     if let Some(obj) = val.as_object_mut() {

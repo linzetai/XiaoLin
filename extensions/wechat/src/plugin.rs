@@ -52,12 +52,23 @@ impl ReplyCache {
 
     pub fn insert(&self, message_id: &str, chat_id: &str, context_token: Option<&str>) {
         if self.entries.len() > REPLY_CACHE_MAX_ENTRIES {
+            let target_len = REPLY_CACHE_MAX_ENTRIES / 2;
+            let to_remove = self.entries.len().saturating_sub(target_len);
             tracing::warn!(
                 len = self.entries.len(),
                 max = REPLY_CACHE_MAX_ENTRIES,
-                "wechat reply cache exceeded capacity, clearing"
+                evicting = to_remove,
+                "wechat reply cache exceeded capacity, evicting oldest entries"
             );
-            self.entries.clear();
+            let keys: Vec<String> = self
+                .entries
+                .iter()
+                .take(to_remove)
+                .map(|entry| entry.key().clone())
+                .collect();
+            for key in keys {
+                self.entries.remove(&key);
+            }
         }
         self.entries.insert(
             message_id.to_string(),
@@ -257,7 +268,7 @@ impl ChannelPlugin for WechatPlugin {
                 &cred.token,
                 self.config.bot_agent.as_deref(),
                 poll_timeout,
-            );
+            )?;
 
             let cancel = CancellationToken::new();
             let monitor = WechatMonitor::new(

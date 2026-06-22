@@ -666,7 +666,8 @@ impl BrowserTool {
         render(&tree, 0, &mut snapshot);
 
         if snapshot.len() > 32_000 {
-            snapshot.truncate(31_900);
+            let end = snapshot.floor_char_boundary(31_900);
+            snapshot.truncate(end);
             snapshot.push_str("\n... [snapshot truncated at 32KB]");
         }
 

@@ -16,25 +16,28 @@ use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
+use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info, warn};
 
 type BoxBody = Full<Bytes>;
 type HttpResponse = Response<BoxBody>;
 
-const HOP_BY_HOP_HEADERS: &[&str] = &[
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "transfer-encoding",
-    "upgrade",
-    "proxy-connection",
-];
+static HOP_BY_HOP_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "proxy-connection",
+    ])
+});
 
 const X_PROXY_ERROR: &str = "x-proxy-error";
 const X_UNIX_SOCKET: &str = "x-unix-socket";
@@ -417,7 +420,7 @@ async fn handle_plain_proxy(
 
     for (name, value) in req.headers() {
         let name_lower = name.as_str().to_ascii_lowercase();
-        if HOP_BY_HOP_HEADERS.contains(&name_lower.as_str()) {
+        if HOP_BY_HOP_HEADERS.contains(name_lower.as_str()) {
             continue;
         }
         builder = builder.header(name, value);
@@ -433,7 +436,7 @@ async fn handle_plain_proxy(
     let mut resp_builder = Response::builder().status(parts.status);
     for (name, value) in &parts.headers {
         let name_lower = name.as_str().to_ascii_lowercase();
-        if HOP_BY_HOP_HEADERS.contains(&name_lower.as_str()) {
+        if HOP_BY_HOP_HEADERS.contains(name_lower.as_str()) {
             continue;
         }
         resp_builder = resp_builder.header(name, value);
@@ -555,10 +558,10 @@ mod tests {
 
     #[test]
     fn hop_by_hop_list_is_complete() {
-        assert!(HOP_BY_HOP_HEADERS.contains(&"connection"));
-        assert!(HOP_BY_HOP_HEADERS.contains(&"proxy-authorization"));
-        assert!(HOP_BY_HOP_HEADERS.contains(&"transfer-encoding"));
-        assert!(!HOP_BY_HOP_HEADERS.contains(&"content-type"));
+        assert!(HOP_BY_HOP_HEADERS.contains("connection"));
+        assert!(HOP_BY_HOP_HEADERS.contains("proxy-authorization"));
+        assert!(HOP_BY_HOP_HEADERS.contains("transfer-encoding"));
+        assert!(!HOP_BY_HOP_HEADERS.contains("content-type"));
     }
 
     #[test]

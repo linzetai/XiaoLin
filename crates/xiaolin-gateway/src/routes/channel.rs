@@ -195,7 +195,12 @@ async fn handle_slash_command(
             .and_then(|a| a.model.clone())
             .unwrap_or_else(|| "unknown".to_string());
 
-        let available: Vec<String> = state.cfg.config.models.keys().cloned().collect();
+        let live = state.cfg.config_live.load();
+        let available: Vec<String> = live
+            .get("models")
+            .and_then(|v| v.as_object())
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_else(|| state.cfg.config.models.keys().cloned().collect());
 
         let mut buf = format!("🤖 当前模型: **{}**\n", current_override.as_deref().unwrap_or(&default_model));
         if current_override.is_some() {
@@ -231,8 +236,18 @@ async fn handle_slash_command(
                 .unwrap_or_else(|| "unknown".to_string());
             return Some(format!("🤖 已恢复默认模型: **{default_model}**"));
         }
-        if !state.cfg.config.models.contains_key(model_name) {
-            let available: Vec<String> = state.cfg.config.models.keys().cloned().collect();
+        let live = state.cfg.config_live.load();
+        let model_exists = live
+            .get("models")
+            .and_then(|v| v.as_object())
+            .map(|m| m.contains_key(model_name))
+            .unwrap_or_else(|| state.cfg.config.models.contains_key(model_name));
+        if !model_exists {
+            let available: Vec<String> = live
+                .get("models")
+                .and_then(|v| v.as_object())
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_else(|| state.cfg.config.models.keys().cloned().collect());
             return Some(format!(
                 "❌ 未知模型 `{model_name}`\n\n可用模型: {}",
                 available.join(", ")
@@ -851,6 +866,15 @@ fn friendly_tool_name(tool_name: &str) -> &'static str {
     }
 }
 
+/// JSON argument keys for [`tool_args_summary`]. Update when adding tools with new param names.
+const TOOL_ARG_KEY_QUERY: &str = "query";
+const TOOL_ARG_KEY_URL: &str = "url";
+const TOOL_ARG_KEY_PATH: &str = "path";
+const TOOL_ARG_KEY_PATTERN: &str = "pattern";
+const TOOL_ARG_KEY_GLOB: &str = "glob";
+const TOOL_ARG_KEY_COMMAND: &str = "command";
+const TOOL_ARG_KEY_ACTION: &str = "action";
+
 /// Extract a concise argument summary from tool args JSON for display.
 fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
     let args_str = match args {
@@ -864,11 +888,11 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
 
     let summary = match tool_name {
         "web_search" => parsed
-            .get("query")
+            .get(TOOL_ARG_KEY_QUERY)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         "web_fetch" | "http_fetch" => parsed
-            .get("url")
+            .get(TOOL_ARG_KEY_URL)
             .and_then(|v| v.as_str())
             .map(|u| {
                 if u.len() > 50 {
@@ -879,25 +903,25 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
                 }
             }),
         "read_file" => parsed
-            .get("path")
+            .get(TOOL_ARG_KEY_PATH)
             .and_then(|v| v.as_str())
             .map(short_path),
         "write_file" | "edit_file" | "multi_edit" | "apply_patch" => parsed
-            .get("path")
+            .get(TOOL_ARG_KEY_PATH)
             .and_then(|v| v.as_str())
             .map(short_path),
         "search_in_files" | "glob" => parsed
-            .get("pattern")
-            .or_else(|| parsed.get("query"))
-            .or_else(|| parsed.get("glob"))
+            .get(TOOL_ARG_KEY_PATTERN)
+            .or_else(|| parsed.get(TOOL_ARG_KEY_QUERY))
+            .or_else(|| parsed.get(TOOL_ARG_KEY_GLOB))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         "list_directory" => parsed
-            .get("path")
+            .get(TOOL_ARG_KEY_PATH)
             .and_then(|v| v.as_str())
             .map(short_path),
         "shell_exec" => parsed
-            .get("command")
+            .get(TOOL_ARG_KEY_COMMAND)
             .and_then(|v| v.as_str())
             .map(|c| {
                 if c.len() > 60 {
@@ -908,16 +932,16 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
                 }
             }),
         "git" => parsed
-            .get("command")
-            .or_else(|| parsed.get("action"))
+            .get(TOOL_ARG_KEY_COMMAND)
+            .or_else(|| parsed.get(TOOL_ARG_KEY_ACTION))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         "memory_search" => parsed
-            .get("query")
+            .get(TOOL_ARG_KEY_QUERY)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         "browser" => parsed
-            .get("action")
+            .get(TOOL_ARG_KEY_ACTION)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         _ => None,

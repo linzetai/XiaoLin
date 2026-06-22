@@ -191,19 +191,20 @@ impl Diagnostician {
         }
 
         if let Some(output) = &trace.output {
-            if output.len() < self.thresholds.min_output_length {
+            let output_len = output.chars().count();
+            if output_len < self.thresholds.min_output_length {
                 diagnoses.push(Diagnosis {
                     kind: DiagnosisKind::OutputQualityLow,
                     description: format!(
                         "Output too short ({} chars, minimum: {})",
-                        output.len(),
+                        output_len,
                         self.thresholds.min_output_length
                     ),
                     severity: Severity::Warning,
                     suggested_fix: Some(
                         "Improve system prompt to encourage more detailed responses".into(),
                     ),
-                    context: serde_json::json!({ "output_length": output.len() }),
+                    context: serde_json::json!({ "output_length": output_len }),
                 });
             }
         }

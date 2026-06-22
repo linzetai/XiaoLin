@@ -558,7 +558,7 @@ impl SkillStore {
             let (new_usage, new_success) = if positive {
                 (usage + 1, success_count + 1)
             } else {
-                (usage, (success_count - 1).max(0))
+                (usage + 1, (success_count - 1).max(0))
             };
 
             let rate = new_success as f64 / new_usage.max(1) as f64;

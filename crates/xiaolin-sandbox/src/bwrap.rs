@@ -76,7 +76,8 @@ fn system_bwrap_has_user_namespace_access(system_bwrap_path: &Path, timeout: Dur
         .stderr(Stdio::piped())
         .spawn()
     else {
-        return true;
+        tracing::warn!("bwrap probe: failed to spawn bubblewrap process");
+        return false;
     };
 
     let deadline = Instant::now() + timeout;
@@ -112,14 +113,16 @@ fn system_bwrap_has_user_namespace_access(system_bwrap_path: &Path, timeout: Dur
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return true;
+                    tracing::warn!("bwrap probe: timed out waiting for bubblewrap");
+                    return false;
                 }
                 thread::sleep(SYSTEM_BWRAP_PROBE_POLL_INTERVAL);
             }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return true;
+                tracing::warn!("bwrap probe: failed while waiting for bubblewrap");
+                return false;
             }
         }
     }

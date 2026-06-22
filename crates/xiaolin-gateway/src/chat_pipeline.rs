@@ -563,7 +563,15 @@ fn apply_prompt_router(
     agent_id: &str,
     messages: &mut Vec<ChatMessage>,
 ) -> Option<PromptRouteMeta> {
-    let cfg = &state.cfg.config.prompt_router;
+    let cfg = {
+        let live = state.cfg.config_live.load();
+        live.get("promptRouter")
+            .cloned()
+            .and_then(|v| {
+                serde_json::from_value::<xiaolin_core::config::PromptRouterConfig>(v).ok()
+            })
+            .unwrap_or_else(|| state.cfg.config.prompt_router.clone())
+    };
     if !cfg.enabled {
         return None;
     }
