@@ -298,8 +298,9 @@ impl Tool for EnterPlanModeTool {
     }
 
     fn description(&self) -> &str {
-        "Switch to plan mode for read-only exploration and design. \
-         Write/edit/execute tools are blocked until exit_plan_mode is called."
+        "Switch to plan mode for read-only exploration, intent clarification, and \
+         decision-complete planning. Follow the three-phase workflow: Explore → \
+         Intent → Plan."
     }
 
     fn prompt(&self) -> String {
@@ -310,31 +311,42 @@ impl Tool for EnterPlanModeTool {
 - Large refactors touching many files or systems\n\
 - Requirements are unclear and need exploration before committing to a direction\n\
 - User asks for a plan, design, or approach discussion\n\n\
-## What Changes in Plan Mode\n\n\
-**Available tools (read-only):**\n\
+## Three-Phase Workflow\n\n\
+### Phase 1: Explore\n\
+Read files, search patterns, inspect configs, trace call chains. Eliminate \
+unknowns that can be discovered from the codebase BEFORE asking the user.\n\
+Distinguish discoverable facts (explore first) from preferences/tradeoffs \
+(ask the user early with 2-4 options).\n\n\
+### Phase 2: Intent\n\
+Confirm goal, scope, constraints, and tradeoffs with the user. Use \
+`ask_question` for structured questions with options. Each question must:\n\
+- Materially change the plan, OR\n\
+- Confirm/lock an assumption, OR\n\
+- Choose between meaningful tradeoffs\n\n\
+### Phase 3: Plan\n\
+Write a **decision-complete** plan to the plan file using `write_file`. \
+Include: Context, Approach, Changes (with file paths and signatures), \
+Verification, and Assumptions. Keep under ~60 lines.\n\n\
+## Available Tools\n\
 - read_file, search_in_files, glob, list_directory (explore code)\n\
 - shell_exec with READONLY commands only (ls, cat, grep, git status, cargo check)\n\
 - web_search, web_fetch (research)\n\
-- update_plan (structured step tracking with status)\n\
-- task_create (delegate exploration)\n\n\
-**Blocked tools (write/edit/execute):**\n\
-- write_file, edit_file, multi_edit, apply_patch (file modifications)\n\
-- shell_exec with write commands (rm, mv, mkdir, npm create/init/install, \
-cargo install, git commit/add, pip install, etc.)\n\n\
+- write_file / edit_file (plan file ONLY — for the decision-complete spec)\n\
+- update_plan (structured step tracking — mainly for post-approval implementation)\n\
+- ask_question (structured questions with options)\n\n\
+## Blocked Tools\n\
+- write_file, edit_file targeting non-plan files\n\
+- multi_edit, apply_patch (always blocked in Plan mode)\n\
+- shell_exec with write commands\n\n\
 **IMPORTANT:** Do NOT attempt to run blocked commands — they will fail and waste \
-iterations. Plan mode is for exploration and design ONLY. Save all implementation \
-steps (commands, file writes) for after exit_plan_mode.\n\n\
+iterations. Save all implementation steps for after exit_plan_mode.\n\n\
+## Ending Your Turn\n\
+End with `ask_question` (clarify) or `exit_plan_mode` (submit for approval). \
+Do NOT ask about approval in text.\n\n\
 ## When NOT to Enter Plan Mode\n\n\
 - Task is straightforward with an obvious implementation\n\
 - You've already gathered enough context and are ready to code\n\
-- The task is a simple fix or small change\n\
-- User explicitly asked you to implement something\n\n\
-## Workflow\n\n\
-1. Enter plan mode to explore and understand\n\
-2. Read relevant code, search for patterns, check tests\n\
-3. Propose approach to user with trade-offs\n\
-4. Exit plan mode when ready to implement\n\
-5. Execute the agreed-upon plan in agent mode"
+- The task is a simple fix or small change"
             .to_string()
     }
 
@@ -409,31 +421,34 @@ impl Tool for ExitPlanModeTool {
     }
 
     fn description(&self) -> &str {
-        "Exit plan mode and return to agent mode with full tool access. \
-         Optionally verify plan execution by providing plan_summary and \
-         all_steps_completed (combines former verify_plan_execution). \
-         Call this after designing your approach to start implementation."
+        "Submit plan for user approval (session stays in Plan mode until \
+         approved). Only call when plan is decision-complete. Do NOT ask \
+         about approval in text — use this tool."
     }
 
     fn prompt(&self) -> String {
-        "Exit plan mode and return to agent mode with full tool access.\n\n\
+        "Submit the plan for user approval. The session stays in Plan mode \
+until the user approves via the approval card.\n\n\
 ## When to Exit\n\
-- You have a clear implementation plan agreed with the user\n\
-- Requirements are sufficiently understood to begin coding\n\
-- The user explicitly says to proceed with implementation\n\n\
-## Before Exiting — Verify\n\
-1. You have identified all files that need changes\n\
-2. You understand the approach and trade-offs\n\
-3. You have a todo list if the task has multiple steps\n\
-4. The user has confirmed the approach (if there were choices)\n\n\
-## After Exiting\n\
-- All write/edit/execute tools become available\n\
-- Start implementing the plan immediately\n\
-- Reference your plan notes and todo list during implementation\n\n\
+- Your plan is **decision-complete**: an implementer should not need to make \
+any design decisions. All file paths, function signatures, and architecture \
+decisions are explicit in the plan file.\n\
+- The plan includes Context, Approach, Changes, Verification, and Assumptions.\n\
+- You have explored the codebase and confirmed intent with the user.\n\n\
+## Decision-Complete Checklist\n\
+1. All files to change are identified with specific modifications\n\
+2. Function signatures and data structures are defined\n\
+3. Existing utilities to reuse are referenced with file paths\n\
+4. Verification steps are concrete (specific commands or scenarios)\n\
+5. Assumptions are documented for any choices the user did not specify\n\n\
+## After Approval\n\
+- The user will review and approve/reject/give feedback\n\
+- On approval, all write/edit/execute tools become available\n\
+- Use `update_plan` to track step progress during implementation\n\n\
 ## Anti-Patterns\n\
-- Don't exit plan mode just because you're impatient\n\
-- Don't exit without a clear direction\n\
-- Don't ask the user 'should I exit plan mode?' — just do it when ready"
+- Do NOT ask 'should I proceed?' or 'is this plan OK?' in text\n\
+- Do NOT exit without a decision-complete plan\n\
+- Do NOT exit just because you're impatient — finish all three phases first"
             .to_string()
     }
 
