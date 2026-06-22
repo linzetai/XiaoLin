@@ -136,35 +136,18 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     if (isImagePath(resolved)) {
       let content = "";
       let size = 0;
-      let isReadonly = true;
 
       if (isSvgPath(resolved)) {
         try {
           const text = await transport.readFileForViewer(resolved, workDir);
           content = text.content;
           size = text.size;
-          isReadonly = text.isReadonly;
         } catch (e) {
-          console.warn("[file-viewer] failed to read SVG text, image-only:", resolved, e);
-          try {
-            const binary = await transport.readBinaryForViewer(resolved, workDir);
-            size = binary.size;
-          } catch (binaryErr) {
-            console.warn("[file-viewer] failed to open image:", resolved, binaryErr);
-            return;
-          }
-        }
-      } else {
-        try {
-          const binary = await transport.readBinaryForViewer(resolved, workDir);
-          size = binary.size;
-        } catch (e) {
-          console.warn("[file-viewer] failed to open image:", resolved, e);
-          return;
+          console.warn("[file-viewer] failed to read SVG text:", resolved, e);
         }
       }
 
-      result = { content, size, isReadonly };
+      result = { content, size, isReadonly: true };
     } else {
       try {
         result = await transport.readFileForViewer(resolved, workDir);

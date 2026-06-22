@@ -5,8 +5,6 @@ const IMAGE_EXTENSIONS = new Set([
   "gif",
   "webp",
   "svg",
-  "ico",
-  "bmp",
 ]);
 
 export function isImagePath(path: string): boolean {

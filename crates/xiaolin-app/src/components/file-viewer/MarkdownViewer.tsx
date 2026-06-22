@@ -4,6 +4,7 @@ import { MarkdownContent } from "../message-stream/MarkdownContent";
 import { CodeViewer } from "./CodeViewer";
 import { openLightbox } from "../common/ImageLightbox";
 import { readBinaryForViewer, isTauri } from "../../lib/transport";
+import { base64ToBlobUrl } from "./blob-utils";
 
 export interface MarkdownViewerProps {
   content: string;
@@ -69,13 +70,6 @@ function normalizePath(raw: string): string {
     return `${parts[0]}/${stack.slice(1).join("/")}`.replace(/\\/g, "/");
   }
   return stack.join("/");
-}
-
-function base64ToBlobUrl(base64: string, mime: string): string {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
 }
 
 function MarkdownPreview({

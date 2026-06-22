@@ -17,6 +17,7 @@ import {
 import { readBinaryForViewer } from "../../lib/transport";
 import { CodeViewer } from "./CodeViewer";
 import { formatFileSize, isSvgPath } from "./file-types";
+import { base64ToBlobUrl } from "./blob-utils";
 
 export interface ImageViewerProps {
   filePath: string;
@@ -29,13 +30,6 @@ export interface ImageViewerProps {
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 5.0;
 const WHEEL_ZOOM_FACTOR = 1.1;
-
-function base64ToBlobUrl(base64: string, mime: string): string {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
-}
 
 function clampScale(value: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -172,7 +166,13 @@ export const ImageViewer = memo(function ImageViewer({
 
     const observer = new ResizeObserver(() => {
       const fit = computeFit(naturalSize.w, naturalSize.h);
-      setFitScale(fit);
+      setFitScale((prev) => {
+        setScale((prevScale) => {
+          if (Math.abs(prevScale - prev) < 0.005) return fit;
+          return prevScale;
+        });
+        return fit;
+      });
     });
     observer.observe(container);
     return () => observer.disconnect();
@@ -220,7 +220,8 @@ export const ImageViewer = memo(function ImageViewer({
 
   const handleMouseDown = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
-      if (viewMode === "code" || e.button !== 0) return;
+      const pan = scale > fitScale * 1.01 || scale > 1.01;
+      if (viewMode === "code" || e.button !== 0 || !pan) return;
       e.preventDefault();
       dragRef.current = {
         active: true,
@@ -231,7 +232,7 @@ export const ImageViewer = memo(function ImageViewer({
       };
       setIsDragging(true);
     },
-    [translate.x, translate.y, viewMode],
+    [translate.x, translate.y, viewMode, scale, fitScale],
   );
 
   useEffect(() => {
