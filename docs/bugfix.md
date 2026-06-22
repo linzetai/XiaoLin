@@ -2,22 +2,36 @@
 
 > 审查日期：2026-06-22
 > 审查范围：28 个 Rust crate + 2 个 extension + Tauri 前端
-> 审查规则：code-generation-quality.mdc（32 条）+ Rust best practices
+> 审查规则：code-generation-quality.mdc（38 条）+ Rust best practices
 > 总计发现：**42 HIGH / 110 MEDIUM / 60 LOW = 212 个问题**
+> **已修复：106 个（42 HIGH + 34 MEDIUM + 30 LOW）** | 剩余：98 个
+
+### 修复进度
+
+| 轮次 | Commit | 修复数 | 优先级 |
+|------|--------|-------|--------|
+| 第一轮 | `887145f` | 42 | 全部 HIGH |
+| 第二轮 | `ebea89f` | 43 | MEDIUM |
+| 第三轮 | `02729b3` | 30 | LOW |
+
+### 标记说明
+
+- ✅ = 已修复
+- （无标记）= 未修复
 
 ## 问题汇总
 
-| Crate 分组 | HIGH | MEDIUM | LOW | 小计 |
-|-----------|------|--------|-----|------|
-| xiaolin-core / agent / session / session-actor | 3 | 15 | 7 | 25 |
-| xiaolin-protocol / gateway / mcp | 4 | 10 | 8 | 22 |
-| xiaolin-tools-fs / network / browser / code | 7 | 15 | 7 | 29 |
-| xiaolin-security / sandbox / linux-sandbox / execpolicy / network-proxy | 9 | 19 | 6 | 34 |
-| xiaolin-evolution / memory / context / treesitter | 7 | 12 | 4 | 23 |
-| xiaolin-model-router / guardian / observe / cron / pty / self-iter / benchmark | 4 | 15 | 15 | 34 |
-| xiaolin-app (Tauri 后端 + 前端) | 3 | 14 | 5 | 22 |
-| extensions/feishu + extensions/wechat | 5 | 10 | 8 | 23 |
-| **合计** | **42** | **110** | **60** | **212** |
+| Crate 分组 | HIGH | MEDIUM | LOW | 小计 | 已修复 |
+|-----------|------|--------|-----|------|-------|
+| xiaolin-core / agent / session / session-actor | 3 | 15 | 7 | 25 | 12 |
+| xiaolin-protocol / gateway / mcp | 4 | 10 | 8 | 22 | 12 |
+| xiaolin-tools-fs / network / browser / code | 7 | 15 | 7 | 29 | 20 |
+| xiaolin-security / sandbox / linux-sandbox / execpolicy / network-proxy | 9 | 19 | 6 | 34 | 19 |
+| xiaolin-evolution / memory / context / treesitter | 7 | 12 | 4 | 23 | 14 |
+| xiaolin-model-router / guardian / observe / cron / pty / self-iter / benchmark | 4 | 15 | 15 | 34 | 20 |
+| xiaolin-app (Tauri 后端 + 前端) | 3 | 14 | 5 | 22 | 8 |
+| extensions/feishu + extensions/wechat | 5 | 10 | 8 | 23 | 10 |
+| **合计** | **42** | **110** | **60** | **212** | **115** |
 
 ---
 
@@ -42,7 +56,7 @@
 
 ### 1. xiaolin-core
 
-#### [HIGH] MessageBus 重放防护在 Mutex poison 时静默失效
+#### ✅ [HIGH] MessageBus 重放防护在 Mutex poison 时静默失效
 - **文件**: `crates/xiaolin-core/src/bus.rs:306-322`
 - **问题**: HMAC 校验后重放检测依赖 `seen_ids.lock()`，poison 时 `if let Ok` 跳过，消息仍投递
 - **违反规则**: 安全策略 deny-by-default、并发安全
@@ -53,7 +67,7 @@
 - **问题**: `tool_permission()` 对每个工具名遍历 Vec
 - **修复**: 预处理为 HashSet
 
-#### [MEDIUM] 配置文件解析失败时静默回退为空对象并覆盖原文件
+#### ✅ [MEDIUM] 配置文件解析失败时静默回退为空对象并覆盖原文件
 - **文件**: `crates/xiaolin-core/src/config_access.rs:114-127`
 - **问题**: `json5::from_str` 失败用 `json!({})`，覆盖磁盘文件
 - **修复**: 解析失败应 bail 保留原文件
@@ -63,7 +77,7 @@
 - **问题**: DashMap 仅在 resolve/cancel_all 时清理
 - **修复**: 加 TTL/容量上限 + 定期 prune
 
-#### [LOW] history 转换中 JSON 序列化失败静默降级
+#### ✅ [LOW] history 转换中 JSON 序列化失败静默降级
 - **文件**: `crates/xiaolin-core/src/history_compat.rs:101-104, 176-179`
 - **问题**: `unwrap_or_default()` 写入空 JSON
 - **修复**: warn + 保留原始文本 fallback
@@ -72,12 +86,12 @@
 
 ### 2. xiaolin-agent
 
-#### [HIGH] Hook 执行失败时默认放行工具
+#### ✅ [HIGH] Hook 执行失败时默认放行工具
 - **文件**: `crates/xiaolin-agent/src/runtime/hook_executor.rs:179-215`
 - **问题**: spawn/wait/JSON 解析失败均 return HookResult::allow()
 - **修复**: 失败路径返回 block 或可配置 fail-closed 策略
 
-#### [HIGH] 默认工具策略为 allow-by-default
+#### ✅ [HIGH] 默认工具策略为 allow-by-default
 - **文件**: `crates/xiaolin-core/src/agent_config.rs:575-593`
 - **问题**: tools_allow/tools_deny 均空时返回 Allow
 - **修复**: 明确产品策略或在 preset 中强制 deny 列表
@@ -106,7 +120,7 @@
 - **文件**: `crates/xiaolin-agent/src/runtime/token_budget.rs:18-35`
 - **修复**: session unload 时联动清理
 
-#### [MEDIUM] 工具参数 JSON 解析失败静默为空对象
+#### ✅ [MEDIUM] 工具参数 JSON 解析失败静默为空对象
 - **文件**: `crates/xiaolin-agent/src/runtime/dispatcher.rs:485-486`
 - **修复**: 返回 ToolResult::err("invalid arguments JSON")
 
@@ -118,28 +132,28 @@
 - **文件**: `crates/xiaolin-agent/src/runtime/streaming_tool_executor.rs:89-97`
 - **修复**: poison 后 abort 整个 executor
 
-#### [MEDIUM] 工具历史 compact 算法 O(N²)
+#### ✅ [MEDIUM] 工具历史 compact 算法 O(N²)
 - **文件**: `crates/xiaolin-agent/src/runtime/tool_executor.rs:1278-1286`
 - **修复**: 预建索引或反向单次扫描
 
-#### [LOW] subagent_manager.as_ref().unwrap() 防御不足
+#### ✅ [LOW] subagent_manager.as_ref().unwrap() 防御不足
 - **文件**: `crates/xiaolin-agent/src/session_bridge.rs:327`
 
-#### [LOW] DefaultHasher 用于运行时哈希（低风险但需注释）
+#### ✅ [LOW] DefaultHasher 用于运行时哈希（低风险但需注释）
 - **文件**: `crates/xiaolin-agent/src/runtime/cache_break_detection.rs:272-277`
 
 ---
 
 ### 3. xiaolin-session
 
-#### [MEDIUM] Schema 迁移错误被 let _ = 静默忽略
+#### ✅ [MEDIUM] Schema 迁移错误被 let _ = 静默忽略
 - **文件**: `crates/xiaolin-session/src/store.rs:451-459`
 - **修复**: 区分 duplicate column 与其他错误
 
-#### [LOW] 多处 SystemTime 失败使用 unwrap_or_default
+#### ✅ [LOW] 多处 SystemTime 失败使用 unwrap_or_default
 - **文件**: `crates/xiaolin-session/src/store.rs` 多处
 
-#### [LOW] EventLog 队列满时 spawn 失败无反馈
+#### ✅ [LOW] EventLog 队列满时 spawn 失败无反馈
 - **文件**: `crates/xiaolin-session/src/event_log.rs:93-100`
 
 ---
@@ -149,20 +163,20 @@
 #### [MEDIUM] session_approvals 缓存无界增长
 - **文件**: `crates/xiaolin-session-actor/src/actor.rs:64-67`
 
-#### [MEDIUM] relay task 无显式 abort 句柄
+#### ✅ [MEDIUM] relay task 无显式 abort 句柄
 - **文件**: `crates/xiaolin-session-actor/src/actor.rs:309-342`
 
-#### [LOW] get_or_create 对 dead handle 替换不完整
+#### ✅ [LOW] get_or_create 对 dead handle 替换不完整
 - **文件**: `crates/xiaolin-session-actor/src/manager.rs:70-101`
 
-#### [LOW] Fanout subscribers 无自动上限
+#### ✅ [LOW] Fanout subscribers 无自动上限
 - **文件**: `crates/xiaolin-session-actor/src/fanout.rs:26-81`
 
 ---
 
 ### 5. xiaolin-protocol
 
-#### [MEDIUM] parse_request 列表类 op 静默吞掉参数解析错误
+#### ✅ [MEDIUM] parse_request 列表类 op 静默吞掉参数解析错误
 - **文件**: `crates/xiaolin-protocol/src/op.rs:891-894`
 - **修复**: 改为 serde_json::from_value(params).map_err(...)?
 
@@ -173,14 +187,14 @@
 
 ### 6. xiaolin-gateway
 
-#### [HIGH] 运行时配置仍从静态 config 快照读取（4 处）
+#### ✅ [HIGH] 运行时配置仍从静态 config 快照读取（4 处）
 - **文件**: `crates/xiaolin-gateway/src/routes/chat.rs:267`（memory.enabled）
 - **文件**: `crates/xiaolin-gateway/src/routes/channel.rs:414-442`（session/group_chat）
 - **文件**: `crates/xiaolin-gateway/src/chat_pipeline.rs:843-851`（mcp_servers）
 - **文件**: `crates/xiaolin-gateway/src/state/mod.rs:817-884`（evolution 配置）
 - **修复**: 统一从 config_live 读取
 
-#### [HIGH] 每次 chat/skills.list 同步 DB 查询 usage_counts
+#### ✅ [HIGH] 每次 chat/skills.list 同步 DB 查询 usage_counts
 - **文件**: `crates/xiaolin-gateway/src/chat_pipeline.rs:719-725`
 - **修复**: 后台定时刷新 + ArcSwap 缓存
 
@@ -206,10 +220,10 @@
 #### [MEDIUM] channels.list 启用状态混合静态/动态源
 - **文件**: `crates/xiaolin-gateway/src/ws/channels.rs:60`
 
-#### [LOW] PTY WebSocket serde_json::to_string().unwrap()
+#### ✅ [LOW] PTY WebSocket serde_json::to_string().unwrap()
 - **文件**: `crates/xiaolin-gateway/src/routes/pty.rs:71, 87, 158, 195, 221`
 
-#### [LOW] Regex::new().unwrap() 每次运行时编译
+#### ✅ [LOW] Regex::new().unwrap() 每次运行时编译
 - **文件**: `crates/xiaolin-gateway/src/chat_pipeline.rs:935`
 
 ---
@@ -219,41 +233,41 @@
 #### [MEDIUM] NEEDS_AUTH_CACHE 只增不减
 - **文件**: `crates/xiaolin-mcp/src/lib.rs:2438-2467`
 
-#### [MEDIUM] WebSocket MCP 断开未发送 Close 帧
+#### ✅ [MEDIUM] WebSocket MCP 断开未发送 Close 帧
 - **文件**: `crates/xiaolin-mcp/src/lib.rs:2194-2221`
 
-#### [MEDIUM] HTTP 错误体 unwrap_or_default() 静默丢弃
+#### ✅ [MEDIUM] HTTP 错误体 unwrap_or_default() 静默丢弃
 - **文件**: `crates/xiaolin-mcp/src/lib.rs:1335, 1355` 等
 
 #### [LOW] SSE byte_buf 无上限
 - **文件**: `crates/xiaolin-mcp/src/lib.rs:1089-1097`
 
-#### [LOW] naming.rs 工具名对含 __ 的 server_id 有歧义
+#### ✅ [LOW] naming.rs 工具名对含 __ 的 server_id 有歧义
 - **文件**: `crates/xiaolin-mcp/src/naming.rs:49-57`
 
 ---
 
 ### 8. xiaolin-tools-fs
 
-#### [HIGH] read_file 读取前无文件大小上限
+#### ✅ [HIGH] read_file 读取前无文件大小上限
 - **文件**: `crates/xiaolin-tools-fs/src/filesystem.rs:2371-2372`
 - **修复**: 读取前 metadata() 检查，超阈值拒绝
 
-#### [HIGH] git stash 子命令被误判为只读
+#### ✅ [HIGH] git stash 子命令被误判为只读
 - **文件**: `crates/xiaolin-tools-fs/src/shell.rs:209-226`
 - **修复**: 对 git stash 解析第二参数
 
-#### [HIGH] FileAccessMode::Full 完全绕过工作区边界
+#### ✅ [HIGH] FileAccessMode::Full 完全绕过工作区边界
 - **文件**: `crates/xiaolin-tools-fs/src/filesystem.rs:210-238`
 - **修复**: 增加敏感路径黑名单
 
-#### [MEDIUM] exec_command 未校验 workdir
+#### ✅ [MEDIUM] exec_command 未校验 workdir
 - **文件**: `crates/xiaolin-tools-fs/src/exec_command.rs:140-157`
 
-#### [MEDIUM] enter_worktree 未校验用户指定 path
+#### ✅ [MEDIUM] enter_worktree 未校验用户指定 path
 - **文件**: `crates/xiaolin-tools-fs/src/worktree.rs:139-154`
 
-#### [MEDIUM] check_stale 在 stat 失败时返回 Fresh
+#### ✅ [MEDIUM] check_stale 在 stat 失败时返回 Fresh
 - **文件**: `crates/xiaolin-tools-fs/src/file_state_cache.rs:110-116`
 
 #### [MEDIUM] search_builtin 无单文件大小限制
@@ -265,7 +279,7 @@
 #### [MEDIUM] git_revert_files 静默丢弃删除错误
 - **文件**: `crates/xiaolin-tools-fs/src/git.rs:533-536`
 
-#### [LOW] FileStateCache 无条目上限
+#### ✅ [LOW] FileStateCache 无条目上限
 - **文件**: `crates/xiaolin-tools-fs/src/file_state_cache.rs:36-50`
 
 #### [LOW] 路径/只读校验逻辑重复且不一致（三套实现）
@@ -275,14 +289,14 @@
 
 ### 9. xiaolin-tools-network
 
-#### [HIGH] 搜索引擎全量加载 HTML 无响应体上限
+#### ✅ [HIGH] 搜索引擎全量加载 HTML 无响应体上限
 - **文件**: `crates/xiaolin-tools-network/src/lib.rs:583-586, 705-708, 828-831`
 - **修复**: 复用 read_response_body_limited
 
 #### [MEDIUM] http_fetch 描述与实现不一致（4KB vs 5MB）
 - **文件**: `crates/xiaolin-tools-network/src/lib.rs:11, 113-116`
 
-#### [MEDIUM] reqwest::Client::build().unwrap_or_default() 静默降级
+#### ✅ [MEDIUM] reqwest::Client::build().unwrap_or_default() 静默降级
 - **文件**: `crates/xiaolin-tools-network/src/lib.rs:92-96`
 
 #### [MEDIUM] SearxngEngine 未对 base_url 做 SSRF 校验
@@ -291,18 +305,18 @@
 #### [LOW] strip_html_tags 双倍内存分配
 - **文件**: `crates/xiaolin-tools-network/src/lib.rs:1546-1548`
 
-#### [LOW] truncate_text 注释写 chars 实际按 bytes 截断
+#### ✅ [LOW] truncate_text 注释写 chars 实际按 bytes 截断
 - **文件**: `crates/xiaolin-tools-network/src/lib.rs:1682-1696`
 
 ---
 
 ### 10. xiaolin-tools-browser
 
-#### [HIGH] 导航 URL 仅校验 scheme，无 SSRF 防护
+#### ✅ [HIGH] 导航 URL 仅校验 scheme，无 SSRF 防护
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:455-463`
 - **修复**: 复用 ssrf_check_url
 
-#### [HIGH] Chrome 启动超时后线程泄漏
+#### ✅ [HIGH] Chrome 启动超时后线程泄漏
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:318-329`
 
 #### [MEDIUM] sandbox(false) 禁用 Chrome 沙箱
@@ -321,33 +335,33 @@
 
 ### 11. xiaolin-tools-code
 
-#### [HIGH] LSP 响应 Content-Length 无上限
+#### ✅ [HIGH] LSP 响应 Content-Length 无上限
 - **文件**: `crates/xiaolin-tools-code/src/lsp_manager.rs:681-686`
 - **修复**: 限制 content_length <= 10MB
 
 #### [MEDIUM] shutdown_all 不保证子进程回收
 - **文件**: `crates/xiaolin-tools-code/src/lsp_manager.rs:360-366`
 
-#### [MEDIUM] LRU 驱逐 LSP session 时未显式 kill
+#### ✅ [MEDIUM] LRU 驱逐 LSP session 时未显式 kill
 - **文件**: `crates/xiaolin-tools-code/src/lsp_manager.rs:331-339`
 
 #### [MEDIUM] 符号索引后台扫描无单文件大小限制
 - **文件**: `crates/xiaolin-tools-code/src/symbol_index.rs:291, 398`
 
-#### [LOW] SymbolIndex::lookup 锁失败静默返回空
+#### ✅ [LOW] SymbolIndex::lookup 锁失败静默返回空
 - **文件**: `crates/xiaolin-tools-code/src/symbol_index.rs:117-119`
 
-#### [LOW] notebook 整文件读入内存无上限
+#### ✅ [LOW] notebook 整文件读入内存无上限
 - **文件**: `crates/xiaolin-tools-code/src/notebook.rs:101-102`
 
 ---
 
 ### 12. xiaolin-security
 
-#### [HIGH] 认证关闭时 API Key 校验恒为通过（fail-open）
+#### ✅ [HIGH] 认证关闭时 API Key 校验恒为通过（fail-open）
 - **文件**: `crates/xiaolin-security/src/auth.rs:52-56`
 
-#### [HIGH] API Key 明文保存在内存快照中
+#### ✅ [HIGH] API Key 明文保存在内存快照中
 - **文件**: `crates/xiaolin-security/src/auth.rs:22-26`
 
 #### [MEDIUM] WebSocket 允许 query string 传递 API Key
@@ -359,35 +373,35 @@
 #### [MEDIUM] PermissionProfile::Disabled 默认启用网络
 - **文件**: `crates/xiaolin-security/src/permission_profile.rs:179-184`
 
-#### [MEDIUM] 危险命令策略写入失败被静默忽略
+#### ✅ [MEDIUM] 危险命令策略写入失败被静默忽略
 - **文件**: `crates/xiaolin-security/src/dangerous_ops.rs:25-30`
 
-#### [MEDIUM] SSRF 允许列表写入失败被静默忽略
+#### ✅ [MEDIUM] SSRF 允许列表写入失败被静默忽略
 - **文件**: `crates/xiaolin-security/src/ssrf.rs:11-15`
 
 #### [MEDIUM] 速率限制桶无容量上限
 - **文件**: `crates/xiaolin-security/src/rate_limit.rs:54-56`
 
-#### [LOW] 安全路径解析中使用 panic!
+#### ✅ [LOW] 安全路径解析中使用 panic!
 - **文件**: `crates/xiaolin-security/src/permission_profile.rs:1284-1291`
 
-#### [LOW] ReadDenyMatcher 路径匹配 O(N²) 嵌套遍历
+#### ✅ [LOW] ReadDenyMatcher 路径匹配 O(N²) 嵌套遍历
 - **文件**: `crates/xiaolin-security/src/read_deny_matcher.rs:139-156`
 
 ---
 
 ### 13. xiaolin-sandbox
 
-#### [HIGH] Landlock/WSL1 不可用时 Auto 模式静默降级为 Noop
+#### ✅ [HIGH] Landlock/WSL1 不可用时 Auto 模式静默降级为 Noop
 - **文件**: `crates/xiaolin-sandbox/src/lib.rs:351-361`
 
-#### [HIGH] ProxyRouted seccomp 未限制 connect/bind 目标
+#### ✅ [HIGH] ProxyRouted seccomp 未限制 connect/bind 目标
 - **文件**: `crates/xiaolin-sandbox/src/landlock.rs:354-361`
 
 #### [MEDIUM] Landlock BestEffort + PartiallyEnforced 可能误以为已隔离
 - **文件**: `crates/xiaolin-sandbox/src/landlock.rs:271-294`
 
-#### [MEDIUM] 策略序列化失败直接 panic
+#### ✅ [MEDIUM] 策略序列化失败直接 panic
 - **文件**: `crates/xiaolin-sandbox/src/landlock.rs:491-501`
 
 #### [MEDIUM] Legacy Landlock 无法执行 deny-read 时的降级逻辑
@@ -397,10 +411,10 @@
 
 ### 14. xiaolin-linux-sandbox
 
-#### [HIGH] CLI 策略 JSON 未经 normalize/校验直接反序列化
+#### ✅ [HIGH] CLI 策略 JSON 未经 normalize/校验直接反序列化
 - **文件**: `crates/xiaolin-linux-sandbox/src/linux_run_main.rs:195-202`
 
-#### [HIGH] exec_with_bwrap exec 后 synthetic mount 清理永不执行
+#### ✅ [HIGH] exec_with_bwrap exec 后 synthetic mount 清理永不执行
 - **文件**: `crates/xiaolin-linux-sandbox/src/bwrap.rs:1239-1268`
 
 #### [MEDIUM] Legacy --policy 默认网络策略偏宽松
@@ -415,34 +429,34 @@
 #### [MEDIUM] glob 展开无 max_depth 时可能扫描整棵树
 - **文件**: `crates/xiaolin-linux-sandbox/src/bwrap.rs:654-694`
 
-#### [LOW] launcher.rs 子进程路径使用 expect
+#### ✅ [LOW] launcher.rs 子进程路径使用 expect
 - **文件**: `crates/xiaolin-linux-sandbox/src/launcher.rs:34-36`
 
 ---
 
 ### 15. xiaolin-execpolicy
 
-#### [HIGH] 空引擎 / 无匹配规则默认 Prompt 而非 Deny
+#### ✅ [HIGH] 空引擎 / 无匹配规则默认 Prompt 而非 Deny
 - **文件**: `crates/xiaolin-execpolicy/src/lib.rs:169-174`
 - **修复**: 默认 fallback 改为 forbidden
 
-#### [HIGH] 网络规则无匹配时默认 Prompt（非 Deny）
+#### ✅ [HIGH] 网络规则无匹配时默认 Prompt（非 Deny）
 - **文件**: `crates/xiaolin-execpolicy/src/lib.rs:447-450`
 
-#### [MEDIUM] 空 pattern 规则匹配任意命令
+#### ✅ [MEDIUM] 空 pattern 规则匹配任意命令
 - **文件**: `crates/xiaolin-execpolicy/src/matcher.rs:8-10`
 
 #### [MEDIUM] TOML 加载失败后引擎无「未加载」状态
 - **文件**: `crates/xiaolin-execpolicy/src/lib.rs:177-189`
 
-#### [LOW] get_allowed_prefixes Vec 线性 contains
+#### ✅ [LOW] get_allowed_prefixes Vec 线性 contains
 - **文件**: `crates/xiaolin-execpolicy/src/lib.rs:504-533`
 
 ---
 
 ### 16. xiaolin-network-proxy
 
-#### [HIGH] Allow/Deny glob 编译失败被静默忽略
+#### ✅ [HIGH] Allow/Deny glob 编译失败被静默忽略
 - **文件**: `crates/xiaolin-network-proxy/src/runtime.rs:122-138`
 - **修复**: 编译失败时 deny all + error!
 
@@ -452,7 +466,7 @@
 #### [MEDIUM] NetworkMode::Off 时 evaluate 直接 Allow
 - **文件**: `crates/xiaolin-network-proxy/src/runtime.rs`
 
-#### [MEDIUM] 上游代理存在时跳过 TCP 目标 IP 检查
+#### ✅ [MEDIUM] 上游代理存在时跳过 TCP 目标 IP 检查
 - **文件**: `crates/xiaolin-network-proxy/src/connect_policy.rs:36-38`
 
 #### [MEDIUM] Allowlist 允许全局通配符 *
@@ -461,18 +475,18 @@
 #### [MEDIUM] MITM CA 私钥落盘未加密
 - **文件**: `crates/xiaolin-network-proxy/src/mitm.rs:59-60`
 
-#### [LOW] dynamic_domains 无 cap
+#### ✅ [LOW] dynamic_domains 无 cap
 - **文件**: `crates/xiaolin-network-proxy/src/runtime.rs`
 
 ---
 
 ### 17. xiaolin-evolution
 
-#### [HIGH] find_similar 全表加载 + 内存评分
+#### ✅ [HIGH] find_similar 全表加载 + 内存评分
 - **文件**: `crates/xiaolin-evolution/src/skill_store.rs:304-359`
 - **修复**: SQL 层初筛或 FTS5
 
-#### [HIGH] hydrate_skills / row_to_skill N+1 参数查询
+#### ✅ [HIGH] hydrate_skills / row_to_skill N+1 参数查询
 - **文件**: `crates/xiaolin-evolution/src/skill_store.rs:705-767`
 - **修复**: 批量 WHERE skill_id IN (...)
 
@@ -485,32 +499,32 @@
 #### [MEDIUM] 聚类算法 O(n²)
 - **文件**: `crates/xiaolin-evolution/src/skill_extractor.rs:128-142`
 
-#### [MEDIUM] JSON 解析失败静默跳过无 warn
+#### ✅ [MEDIUM] JSON 解析失败静默跳过无 warn
 - **文件**: `crates/xiaolin-evolution/src/skill_store.rs:255-261`
 
-#### [LOW] record_usage 对不存在 skill 静默成功
+#### ✅ [LOW] record_usage 对不存在 skill 静默成功
 - **文件**: `crates/xiaolin-evolution/src/skill_store.rs:376-385`
 
-#### [LOW] tokenize 用字节长度过滤 token
+#### ✅ [LOW] tokenize 用字节长度过滤 token
 - **文件**: `crates/xiaolin-evolution/src/skill_store.rs:814-825`
 
 ---
 
 ### 18. xiaolin-memory
 
-#### [HIGH] 语义记忆（facts/relationships）无容量淘汰策略
+#### ✅ [HIGH] 语义记忆（facts/relationships）无容量淘汰策略
 - **文件**: `crates/xiaolin-memory/src/semantic.rs:265-318`
 
-#### [HIGH] recall 路径 embedding 失败无日志
+#### ✅ [HIGH] recall 路径 embedding 失败无日志
 - **文件**: `crates/xiaolin-memory/src/manager.rs:172-176`
 
-#### [MEDIUM] Schema migration 失败被 let _ = 静默吞掉
+#### ✅ [MEDIUM] Schema migration 失败被 let _ = 静默吞掉
 - **文件**: `crates/xiaolin-memory/src/episodic.rs:105-117`
 
 #### [MEDIUM] Dream cycle embedding backfill 失败无日志
 - **文件**: `crates/xiaolin-memory/src/dreaming.rs:102-130`
 
-#### [MEDIUM] mark_episodes_dreamed 逐条 UPDATE（N+1）
+#### ✅ [MEDIUM] mark_episodes_dreamed 逐条 UPDATE（N+1）
 - **文件**: `crates/xiaolin-memory/src/episodic.rs:135-146`
 
 #### [MEDIUM] 向量搜索候选分片可能漏掉全局最优
@@ -520,14 +534,14 @@
 
 ### 19. xiaolin-context
 
-#### [HIGH] 全局使用 chars/4 估算 token，中文低估 2-3x
+#### ✅ [HIGH] 全局使用 chars/4 估算 token，中文低估 2-3x
 - **文件**: `crates/xiaolin-context/src/compressor.rs:49-52`
 - **文件**: `crates/xiaolin-context/src/engine.rs:111-121`
 
-#### [HIGH] Collapse 用 summary.len()/4（字节长度）
+#### ✅ [HIGH] Collapse 用 summary.len()/4（字节长度）
 - **文件**: `crates/xiaolin-context/src/collapse.rs:334, 420`
 
-#### [HIGH] MemoryIngestHook 每次 ingest 触发 DB + 可选 embedding
+#### ✅ [HIGH] MemoryIngestHook 每次 ingest 触发 DB + 可选 embedding
 - **文件**: `crates/xiaolin-context/src/engine.rs:737-794`
 
 #### [MEDIUM] CachedMicrocompactor 无条目数量上限
@@ -536,10 +550,10 @@
 #### [MEDIUM] compress_content 混用字节长度与字符边界
 - **文件**: `crates/xiaolin-context/src/cached_microcompact.rs:246-254`
 
-#### [MEDIUM] Memory ingest 搜索失败无 warn
+#### ✅ [MEDIUM] Memory ingest 搜索失败无 warn
 - **文件**: `crates/xiaolin-context/src/engine.rs:769-794`
 
-#### [LOW] CompactionHook 使用 std Mutex 可能阻塞 async 路径
+#### ✅ [LOW] CompactionHook 使用 std Mutex 可能阻塞 async 路径
 - **文件**: `crates/xiaolin-context/src/engine.rs:588-594`
 
 ---
@@ -560,32 +574,32 @@
 #### [MEDIUM] 路由预算检查存在瞬时竞态
 - **文件**: `crates/xiaolin-model-router/src/router.rs:232-236`
 
-#### [MEDIUM] Tier 窗口无匹配时静默放宽约束
+#### ✅ [MEDIUM] Tier 窗口无匹配时静默放宽约束
 - **文件**: `crates/xiaolin-model-router/src/router.rs:80-88`
 
-#### [MEDIUM] Fixed 策略 preferred 不存在时静默降级
+#### ✅ [MEDIUM] Fixed 策略 preferred 不存在时静默降级
 - **文件**: `crates/xiaolin-model-router/src/router.rs:181-187`
 
 #### [MEDIUM] estimate_request 低估非字符串 content
 - **文件**: `crates/xiaolin-model-router/src/estimator.rs:212-228`
 
-#### [LOW] 未知模型费用静默返回 0
+#### ✅ [LOW] 未知模型费用静默返回 0
 - **文件**: `crates/xiaolin-model-router/src/router.rs:130-139`
 
-#### [LOW] default_usage_charge 每次重建定价表
+#### ✅ [LOW] default_usage_charge 每次重建定价表
 - **文件**: `crates/xiaolin-model-router/src/estimator.rs:246-257`
 
-#### [LOW] BudgetTracker.by_model 无界增长
+#### ✅ [LOW] BudgetTracker.by_model 无界增长
 - **文件**: `crates/xiaolin-model-router/src/budget.rs:77-81`
 
 ---
 
 ### 22. xiaolin-guardian
 
-#### [HIGH] 整个 crate 未被任何生产代码引用（死代码）
+#### ✅ [HIGH] 整个 crate 未被任何生产代码引用（死代码）
 - **文件**: `crates/xiaolin-guardian/src/lib.rs`
 
-#### [HIGH] max_transcript_tokens 配置从未生效
+#### ✅ [HIGH] max_transcript_tokens 配置从未生效
 - **文件**: `crates/xiaolin-guardian/src/lib.rs:22, 420-422`
 
 #### [MEDIUM] Token 估算对 CJK 偏乐观
@@ -607,19 +621,19 @@
 
 ### 23. xiaolin-observe
 
-#### [HIGH] 双 MetricsCollector 实例导致 metrics 端点数据为空
+#### ✅ [HIGH] 双 MetricsCollector 实例导致 metrics 端点数据为空
 - **文件**: `crates/xiaolin-observe/src/metrics_collector.rs:342-351`
 
 #### [MEDIUM] DashMap 指标 key 无界增长
 - **文件**: `crates/xiaolin-observe/src/metrics_collector.rs:27-28`
 
-#### [MEDIUM] 直方图采样 Vec::remove(0) 为 O(n)
+#### ✅ [MEDIUM] 直方图采样 Vec::remove(0) 为 O(n)
 - **文件**: `crates/xiaolin-observe/src/metrics_collector.rs:11-16`
 
-#### [LOW] render_prometheus 每次全量 clone + sort
+#### ✅ [LOW] render_prometheus 每次全量 clone + sort
 - **文件**: `crates/xiaolin-observe/src/metrics_collector.rs:151-161`
 
-#### [LOW] tracing 初始化失败被静默忽略
+#### ✅ [LOW] tracing 初始化失败被静默忽略
 - **文件**: `crates/xiaolin-observe/src/lib.rs:34-40`
 
 ---
@@ -629,20 +643,20 @@
 #### [MEDIUM] fire-and-forget job spawn 无 panic 传播
 - **文件**: `crates/xiaolin-cron/src/scheduler.rs:116-129`
 
-#### [MEDIUM] 执行路径大量 DB 错误被 let _ = 吞掉
+#### ✅ [MEDIUM] 执行路径大量 DB 错误被 let _ = 吞掉
 - **文件**: `crates/xiaolin-cron/src/scheduler.rs:171, 200-203, 218-220, 229`
 
-#### [LOW] 无效 cron 表达式无告警
+#### ✅ [LOW] 无效 cron 表达式无告警
 - **文件**: `crates/xiaolin-cron/src/scheduler.rs:139-149`
 
-#### [LOW] notify_channels JSON 解析失败静默为空
+#### ✅ [LOW] notify_channels JSON 解析失败静默为空
 - **文件**: `crates/xiaolin-cron/src/store.rs:452-456`
 
 ---
 
 ### 25. xiaolin-pty
 
-#### [MEDIUM] 达到 max_sessions 时不尝试驱逐 idle 会话
+#### ✅ [MEDIUM] 达到 max_sessions 时不尝试驱逐 idle 会话
 - **文件**: `crates/xiaolin-pty/src/manager.rs:30-34`
 
 #### [LOW] 硬编码会话限制无配置入口
@@ -655,17 +669,17 @@
 
 ### 26. xiaolin-self-iter
 
-#### [MEDIUM] DiagnosisKind::PromptDrift 从未被诊断（死代码）
+#### ✅ [MEDIUM] DiagnosisKind::PromptDrift 从未被诊断（死代码）
 - **文件**: `crates/xiaolin-self-iter/src/diagnosis.rs:14-21`
 
-#### [LOW] 迭代失败时 pass_rate 返回历史最佳而非末轮
+#### ✅ [LOW] 迭代失败时 pass_rate 返回历史最佳而非末轮
 - **文件**: `crates/xiaolin-self-iter/src/engine.rs:258-270`
 
 ---
 
 ### 27. xiaolin-benchmark
 
-#### [HIGH] LiveExecutor 超时后 agent 任务继续运行（孤儿任务）
+#### ✅ [HIGH] LiveExecutor 超时后 agent 任务继续运行（孤儿任务）
 - **文件**: `crates/xiaolin-benchmark/src/live.rs:372-421`
 
 #### [MEDIUM] MetricsConfig.thresholds 定义但从未 enforced
@@ -677,17 +691,17 @@
 #### [MEDIUM] allowed_shell_patterns 逻辑未验证 shell 命令
 - **文件**: `crates/xiaolin-benchmark/src/grader.rs:624-627`
 
-#### [LOW] ReplayExecutor 缺失 fixture 返回空 events
+#### ✅ [LOW] ReplayExecutor 缺失 fixture 返回空 events
 - **文件**: `crates/xiaolin-benchmark/src/runner.rs:156-162`
 
 ---
 
 ### 28. xiaolin-app（Tauri 后端）
 
-#### [HIGH] import_data 未限制导入 blob 大小
+#### ✅ [HIGH] import_data 未限制导入 blob 大小
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/migration.rs:65-74`
 
-#### [HIGH] transcribe_audio 未限制 base64 音频大小
+#### ✅ [HIGH] transcribe_audio 未限制 base64 音频大小
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/voice.rs:10-19`
 
 #### [MEDIUM] Gateway 启动失败时向 IPC 泄露内部错误
@@ -696,10 +710,10 @@
 #### [MEDIUM] http_proxy 错误信息泄露且缺少超时
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/http_proxy.rs:43-63`
 
-#### [MEDIUM] 应用退出时 Gateway 可能无法 shutdown
+#### ✅ [MEDIUM] 应用退出时 Gateway 可能无法 shutdown
 - **文件**: `crates/xiaolin-app/src-tauri/src/lib.rs:345-354`
 
-#### [MEDIUM] Whisper 子进程未在应用退出时跟踪/终止
+#### ✅ [MEDIUM] Whisper 子进程未在应用退出时跟踪/终止
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/voice.rs:89-117`
 
 #### [MEDIUM] 原生录音线程在应用退出时无清理
@@ -714,24 +728,24 @@
 #### [MEDIUM] Skill ZIP 解压缺少体积/条目数限制
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/skill.rs:78-145`
 
-#### [LOW] 生产代码中的 expect（Tauri build）
+#### ✅ [LOW] 生产代码中的 expect（Tauri build）
 - **文件**: `crates/xiaolin-app/src-tauri/src/lib.rs:342-343`
 
-#### [LOW] 迁移 IPC 错误携带底层细节
+#### ✅ [LOW] 迁移 IPC 错误携带底层细节
 - **文件**: `crates/xiaolin-app/src-tauri/src/commands/migration.rs:55-58`
 
 ---
 
 ### 29. xiaolin-app（前端 TS/TSX）
 
-#### [HIGH] CodeBlock 在 early return 之后调用 Hook
+#### ✅ [HIGH] CodeBlock 在 early return 之后调用 Hook
 - **文件**: `crates/xiaolin-app/src/components/message-stream/MarkdownContent.tsx:116-125`
 - **修复**: 将 useConfigStore 移到函数顶部
 
 #### [MEDIUM] readIdentityFiles 缺少后端 identity 字段
 - **文件**: `crates/xiaolin-app/src/lib/transport.ts:58-62`
 
-#### [MEDIUM] 根组件缺少 ErrorBoundary
+#### ✅ [MEDIUM] 根组件缺少 ErrorBoundary
 - **文件**: `crates/xiaolin-app/src/App.tsx:17-31`
 
 #### [MEDIUM] 会话消息一次性全量加载，无分页
@@ -759,18 +773,18 @@
 
 ### 30. extensions/feishu
 
-#### [HIGH] WebSocket 与 Webhook 入站解析未统一
+#### ✅ [HIGH] WebSocket 与 Webhook 入站解析未统一
 - **文件**: `extensions/feishu/src/ws/transport.rs:171-247` vs `plugin.rs`
 - **修复**: 抽取单一 InboundMessage 构建函数
 
-#### [HIGH] encrypt_key 配置存在但未实现事件解密
+#### ✅ [HIGH] encrypt_key 配置存在但未实现事件解密
 - **文件**: `extensions/feishu/src/plugin.rs:32, 75`
 
-#### [HIGH] 遗留 webhook.rs 存在严重安全缺陷
+#### ✅ [HIGH] 遗留 webhook.rs 存在严重安全缺陷
 - **文件**: `extensions/feishu/src/webhook.rs:66-104`
 - **修复**: 删除或与 FeishuPlugin.verify_webhook 对齐
 
-#### [HIGH] Card action 回调绕过去重
+#### ✅ [HIGH] Card action 回调绕过去重
 - **文件**: `extensions/feishu/src/plugin.rs:448-449`
 
 #### [MEDIUM] MessageDedup 仅有 TTL、无容量上限
@@ -795,7 +809,7 @@
 
 ### 31. extensions/wechat
 
-#### [HIGH] 入站消息无去重机制
+#### ✅ [HIGH] 入站消息无去重机制
 - **文件**: `extensions/wechat/src/monitor.rs:171-173`
 
 #### [MEDIUM] Bot token 明文落盘
@@ -816,10 +830,10 @@
 #### [MEDIUM] ReplyCache 淘汰策略非 LRU
 - **文件**: `extensions/wechat/src/plugin.rs:54-71`
 
-#### [LOW] 生产代码中 Regex::new().unwrap()
+#### ✅ [LOW] 生产代码中 Regex::new().unwrap()
 - **文件**: `extensions/wechat/src/api/client.rs:354`
 
-#### [LOW] Typing keepalive task 缺少兜底清理
+#### ✅ [LOW] Typing keepalive task 缺少兜底清理
 - **文件**: `extensions/wechat/src/plugin.rs:355-385`
 
 ---
