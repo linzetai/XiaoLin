@@ -182,6 +182,7 @@ impl SelfIterEngine {
         let base_prompt = current_prompt.to_string();
         let mut best_prompt = base_prompt.clone();
         let mut best_pass_rate = 0.0;
+        let mut last_pass_rate = 0.0;
         let all_diagnoses = diagnoses;
         let mut last_test_results = Vec::new();
         let mut feedback_history: Vec<String> = Vec::new();
@@ -207,6 +208,8 @@ impl SelfIterEngine {
             let pass_rate = passed as f64 / total as f64;
 
             last_test_results = test_results;
+
+            last_pass_rate = pass_rate;
 
             if pass_rate >= self.config.pass_threshold {
                 return IterationResult {
@@ -266,7 +269,7 @@ impl SelfIterEngine {
             rounds_executed,
             diagnoses: all_diagnoses,
             test_results: last_test_results,
-            pass_rate: best_pass_rate,
+            pass_rate: last_pass_rate,
             final_prompt: Some(best_prompt),
         }
     }

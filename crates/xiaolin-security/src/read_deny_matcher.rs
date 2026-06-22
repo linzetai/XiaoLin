@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
@@ -11,7 +12,8 @@ use crate::permission_profile::FileSystemSandboxPolicy;
 /// When a glob pattern is invalid, the matcher operates in "fail-closed"
 /// mode — all reads are denied to prevent policy bypass from a config typo.
 pub struct ReadDenyMatcher {
-    denied_candidates: Vec<Vec<PathBuf>>,
+    denied_exact: HashSet<PathBuf>,
+    denied_prefix_roots: Vec<PathBuf>,
     deny_glob_matchers: Vec<GlobMatcher>,
     invalid_pattern: bool,
 }
@@ -58,6 +60,9 @@ impl ReadDenyMatcher {
             .map(|p| normalized_and_canonical_candidates(&p))
             .collect();
 
+        let (denied_exact, denied_prefix_roots) =
+            build_denied_path_index(&denied_candidates);
+
         let mut deny_glob_matchers = Vec::with_capacity(deny_globs.len());
         let mut invalid_pattern = false;
 
@@ -75,7 +80,8 @@ impl ReadDenyMatcher {
         }
 
         Self {
-            denied_candidates,
+            denied_exact,
+            denied_prefix_roots,
             deny_glob_matchers,
             invalid_pattern,
         }
@@ -95,6 +101,9 @@ impl ReadDenyMatcher {
             .into_iter()
             .map(|path| normalized_and_canonical_candidates(path.as_path()))
             .collect();
+
+        let (denied_exact, denied_prefix_roots) =
+            build_denied_path_index(&denied_candidates);
 
         let mut invalid_pattern = false;
         let mut deny_glob_matchers = Vec::new();
@@ -119,7 +128,8 @@ impl ReadDenyMatcher {
         }
 
         Ok(Some(Self {
-            denied_candidates,
+            denied_exact,
+            denied_prefix_roots,
             deny_glob_matchers,
             invalid_pattern,
         }))
@@ -136,17 +146,17 @@ impl ReadDenyMatcher {
 
         let path_candidates = normalized_and_canonical_candidates(path);
 
-        if self.denied_candidates.iter().any(|denied_candidates| {
-            path_candidates.iter().any(|candidate| {
-                denied_candidates
-                    .iter()
-                    .any(|denied_candidate| {
-                        candidate == denied_candidate
-                            || candidate.starts_with(denied_candidate)
-                    })
-            })
-        }) {
-            return true;
+        for candidate in &path_candidates {
+            if self.denied_exact.contains(candidate) {
+                return true;
+            }
+            if self
+                .denied_prefix_roots
+                .iter()
+                .any(|root| candidate.starts_with(root))
+            {
+                return true;
+            }
         }
 
         self.deny_glob_matchers.iter().any(|matcher| {
@@ -155,6 +165,22 @@ impl ReadDenyMatcher {
                 .any(|candidate| matcher.is_match(candidate))
         })
     }
+}
+
+fn build_denied_path_index(
+    denied_candidates: &[Vec<PathBuf>],
+) -> (HashSet<PathBuf>, Vec<PathBuf>) {
+    let mut denied_exact = HashSet::new();
+    let mut denied_prefix_roots = Vec::new();
+    for candidates in denied_candidates {
+        for candidate in candidates {
+            denied_exact.insert(candidate.clone());
+            if !denied_prefix_roots.iter().any(|existing| existing == candidate) {
+                denied_prefix_roots.push(candidate.clone());
+            }
+        }
+    }
+    (denied_exact, denied_prefix_roots)
 }
 
 fn build_glob_matcher(pattern: &str) -> Result<GlobMatcher, String> {

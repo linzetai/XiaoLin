@@ -91,10 +91,22 @@ fn source_to_lines(source: &str) -> Vec<String> {
     lines
 }
 
+const MAX_NOTEBOOK_BYTES: u64 = 20 * 1024 * 1024;
+
 fn read_notebook(path: &Path) -> Result<Notebook, String> {
     if path.extension().and_then(|e| e.to_str()) != Some("ipynb") {
         return Err(format!(
             "Not a Jupyter notebook: {}. Only .ipynb files are supported.",
+            path.display()
+        ));
+    }
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    if metadata.len() > MAX_NOTEBOOK_BYTES {
+        return Err(format!(
+            "Notebook too large ({} bytes, max {}): {}",
+            metadata.len(),
+            MAX_NOTEBOOK_BYTES,
             path.display()
         ));
     }

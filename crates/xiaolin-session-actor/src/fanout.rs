@@ -58,20 +58,29 @@ impl EventFanout {
         self.subscribers.retain(|s| s.id != id);
     }
 
-    /// Send an event to all subscribers.
-    pub async fn send(&self, event: &SessionEvent) {
+    /// Send an event to all subscribers, removing subscribers whose channels are closed or fail.
+    pub async fn send(&mut self, event: &SessionEvent) {
+        let mut dead_ids = Vec::new();
         for sub in &self.subscribers {
             if sub.tx.is_closed() {
+                dead_ids.push(sub.id);
                 continue;
             }
-            match sub.policy {
-                BackpressurePolicy::Drop => {
-                    let _ = sub.tx.try_send(event.clone());
-                }
+            let failed = match sub.policy {
+                BackpressurePolicy::Drop => matches!(
+                    sub.tx.try_send(event.clone()),
+                    Err(mpsc::error::TrySendError::Closed(_))
+                ),
                 BackpressurePolicy::Block => {
-                    let _ = sub.tx.send(event.clone()).await;
+                    matches!(sub.tx.send(event.clone()).await, Err(_))
                 }
+            };
+            if failed {
+                dead_ids.push(sub.id);
             }
+        }
+        if !dead_ids.is_empty() {
+            self.subscribers.retain(|s| !dead_ids.contains(&s.id));
         }
     }
 

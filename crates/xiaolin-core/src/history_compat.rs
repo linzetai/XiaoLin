@@ -2,6 +2,16 @@ use xiaolin_protocol::{ContentPart, HistoryItem, TurnId};
 
 use crate::types::{ChatMessage, Role};
 
+fn content_parts_to_value(content: &[ContentPart]) -> serde_json::Value {
+    match serde_json::to_value(content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to serialize ContentPart slice to JSON");
+            serde_json::json!(format!("{content:?}"))
+        }
+    }
+}
+
 /// Convert a ChatMessage to zero or more HistoryItems.
 ///
 /// A single ChatMessage may produce multiple items (e.g., one Message plus
@@ -98,10 +108,10 @@ pub fn history_to_chat_message(item: &HistoryItem) -> Option<ChatMessage> {
                 if let ContentPart::Text { text } = &content[0] {
                     Some(serde_json::Value::String(text.clone()))
                 } else {
-                    Some(serde_json::to_value(content).unwrap_or_default())
+                    Some(content_parts_to_value(content))
                 }
             } else {
-                Some(serde_json::to_value(content).unwrap_or_default())
+                Some(content_parts_to_value(content))
             };
             Some(ChatMessage {
                 role: role.clone(),
@@ -173,10 +183,10 @@ pub fn history_items_to_chat_messages(items: &[HistoryItem]) -> Vec<ChatMessage>
                         if let ContentPart::Text { text } = &content[0] {
                             Some(serde_json::Value::String(text.clone()))
                         } else {
-                            Some(serde_json::to_value(content).unwrap_or_default())
+                            Some(content_parts_to_value(content))
                         }
                     } else {
-                        Some(serde_json::to_value(content).unwrap_or_default())
+                        Some(content_parts_to_value(content))
                     };
 
                     // Attach tool_calls to assistant messages

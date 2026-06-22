@@ -1854,6 +1854,18 @@ impl SessionStore {
         Ok(row.map(goal_row_from_tuple))
     }
 
+    fn unix_timestamp_secs() -> i64 {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        if ts == 0 {
+            chrono::Utc::now().timestamp()
+        } else {
+            ts
+        }
+    }
+
     /// Update goal status with an optional pause reason.
     pub async fn update_goal_status(
         &self,
@@ -1861,10 +1873,7 @@ impl SessionStore {
         status: &str,
         reason: Option<&str>,
     ) -> anyhow::Result<bool> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         let result = sqlx::query(
             "UPDATE goals SET status = ?, pause_reason = ?, updated_at = ? \
              WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')",
@@ -1884,10 +1893,7 @@ impl SessionStore {
         goal_id: &str,
         description: &str,
     ) -> anyhow::Result<bool> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         let result = sqlx::query(
             "UPDATE goals SET description = ?, updated_at = ? WHERE id = ?",
         )
@@ -1905,10 +1911,7 @@ impl SessionStore {
         goal_id: &str,
         amount: i64,
     ) -> anyhow::Result<bool> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         let result = sqlx::query(
             "UPDATE goals SET token_budget = COALESCE(token_budget, 0) + ?, status = 'active', pause_reason = NULL, updated_at = ? WHERE id = ?",
         )
@@ -1940,10 +1943,7 @@ impl SessionStore {
         goal_id: &str,
         delta: i64,
     ) -> anyhow::Result<Option<(i64, bool)>> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         let goal = self.get_goal(goal_id).await?;
         let Some(goal) = goal else { return Ok(None) };
         let new_used = goal.tokens_used + delta;
@@ -1963,10 +1963,7 @@ impl SessionStore {
         goal_id: &str,
         seconds: i64,
     ) -> anyhow::Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         sqlx::query(
             "UPDATE goals SET time_used_seconds = time_used_seconds + ?, updated_at = ? WHERE id = ?",
         )
@@ -1980,10 +1977,7 @@ impl SessionStore {
 
     /// Cancel all non-terminal goals for a session (used before creating a new goal).
     pub async fn cancel_active_goals(&self, session_id: &str) -> anyhow::Result<u64> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = Self::unix_timestamp_secs();
         let result = sqlx::query(
             "UPDATE goals SET status = 'cancelled', pause_reason = NULL, updated_at = ? WHERE session_id = ? AND status IN ('active', 'paused', 'budget_limited')",
         )

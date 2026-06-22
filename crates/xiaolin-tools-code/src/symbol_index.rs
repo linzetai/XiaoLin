@@ -116,7 +116,10 @@ impl SymbolIndex {
     pub fn lookup(&self, name: &str) -> Vec<IndexedSymbol> {
         let conn = match self.conn.lock() {
             Ok(c) => c,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lock poisoned");
+                return Vec::new();
+            }
         };
         let mut stmt = match conn.prepare(
             "SELECT name, kind, file_path, start_line, end_line, signature
@@ -152,7 +155,10 @@ impl SymbolIndex {
     pub fn find_references(&self, name: &str) -> Vec<IndexedSymbol> {
         let conn = match self.conn.lock() {
             Ok(c) => c,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lock poisoned");
+                return Vec::new();
+            }
         };
         let pattern = format!("%{name}%");
         let mut stmt = match conn.prepare(
@@ -188,7 +194,10 @@ impl SymbolIndex {
     pub fn symbols_in_file(&self, file_path: &str) -> Vec<IndexedSymbol> {
         let conn = match self.conn.lock() {
             Ok(c) => c,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lock poisoned");
+                return Vec::new();
+            }
         };
         let mut stmt = match conn.prepare(
             "SELECT name, kind, file_path, start_line, end_line, signature
@@ -223,7 +232,10 @@ impl SymbolIndex {
     pub fn symbol_count(&self) -> usize {
         let conn = match self.conn.lock() {
             Ok(c) => c,
-            Err(_) => return 0,
+            Err(e) => {
+                tracing::warn!(error = %e, "symbol index lock poisoned");
+                return 0;
+            }
         };
         match conn.query_row("SELECT COUNT(*) FROM symbols", [], |row| {
             row.get::<_, usize>(0)

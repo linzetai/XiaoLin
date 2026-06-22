@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use base64::Engine;
@@ -17,6 +18,11 @@ const DEFAULT_BOT_TYPE: &str = "3";
 
 const CHANNEL_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_BOT_AGENT: &str = "XiaoLin";
+
+static PRODUCT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^[A-Za-z0-9_.\-]{1,32}/[A-Za-z0-9_.+\-]{1,32}$")
+        .expect("invalid product regex")
+});
 
 #[derive(Clone)]
 pub struct WechatApiClient {
@@ -351,9 +357,8 @@ fn sanitize_bot_agent(raw: &str) -> String {
         return DEFAULT_BOT_AGENT.to_string();
     }
 
-    let product_re = regex::Regex::new(r"^[A-Za-z0-9_.\-]{1,32}/[A-Za-z0-9_.+\-]{1,32}$").unwrap();
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    let accepted: Vec<&str> = tokens.into_iter().filter(|t| product_re.is_match(t)).collect();
+    let accepted: Vec<&str> = tokens.into_iter().filter(|t| PRODUCT_RE.is_match(t)).collect();
 
     if accepted.is_empty() {
         DEFAULT_BOT_AGENT.to_string()

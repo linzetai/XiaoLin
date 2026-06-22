@@ -146,12 +146,11 @@ impl ReplayExecutor {
 impl BenchmarkExecutor for ReplayExecutor {
     async fn execute(&self, task: &BenchmarkTask) -> anyhow::Result<TaskExecution> {
         let events_path = self.fixtures_dir.join(&task.id).join("events.json");
-        let events: Vec<AgentEvent> = if events_path.exists() {
-            let content = tokio::fs::read_to_string(&events_path).await?;
-            serde_json::from_str(&content)?
-        } else {
-            vec![]
-        };
+        if !events_path.exists() {
+            anyhow::bail!("fixture file not found: {}", events_path.display());
+        }
+        let content = tokio::fs::read_to_string(&events_path).await?;
+        let events: Vec<AgentEvent> = serde_json::from_str(&content)?;
 
         let mut collector = MetricsCollector::new();
         for event in &events {

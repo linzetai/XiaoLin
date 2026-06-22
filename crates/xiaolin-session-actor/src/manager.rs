@@ -74,6 +74,10 @@ impl SessionManager {
                 if handle.is_alive() {
                     return Arc::clone(handle);
                 }
+                debug!(
+                    session_id = %session_id,
+                    "dead session handle on read path, will recreate on slow path"
+                );
             }
         }
 

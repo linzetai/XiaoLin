@@ -16,6 +16,7 @@ use crate::network_policy::{
 };
 
 const MAX_BLOCKED_EVENTS: usize = 200;
+const MAX_DYNAMIC_DOMAINS: usize = 1000;
 pub const DEFAULT_MAX_CONNECTIONS: usize = 1024;
 
 /// Metadata attached to proxy audit events.
@@ -333,11 +334,33 @@ impl NetworkProxyState {
     // ── Dynamic domain allow/deny ───────────────────────────────────────
 
     pub async fn add_allowed_domain(&self, domain: String) {
-        self.dynamic_domains.write().await.allowed.push(domain);
+        let mut domains = self.dynamic_domains.write().await;
+        let total = domains.allowed.len() + domains.denied.len();
+        if total >= MAX_DYNAMIC_DOMAINS {
+            tracing::warn!(
+                total,
+                max = MAX_DYNAMIC_DOMAINS,
+                domain = %domain,
+                "dynamic domain list at capacity; rejecting new allowed domain"
+            );
+            return;
+        }
+        domains.allowed.push(domain);
     }
 
     pub async fn add_denied_domain(&self, domain: String) {
-        self.dynamic_domains.write().await.denied.push(domain);
+        let mut domains = self.dynamic_domains.write().await;
+        let total = domains.allowed.len() + domains.denied.len();
+        if total >= MAX_DYNAMIC_DOMAINS {
+            tracing::warn!(
+                total,
+                max = MAX_DYNAMIC_DOMAINS,
+                domain = %domain,
+                "dynamic domain list at capacity; rejecting new denied domain"
+            );
+            return;
+        }
+        domains.denied.push(domain);
     }
 
     pub async fn dynamic_allowed_domains(&self) -> Vec<String> {

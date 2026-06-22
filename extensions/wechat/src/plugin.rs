@@ -364,7 +364,16 @@ impl ChannelPlugin for WechatPlugin {
 
             tokio::spawn(async move {
                 let interval = Duration::from_secs(5);
+                let max_duration = Duration::from_secs(300);
+                let started = tokio::time::Instant::now();
                 loop {
+                    if started.elapsed() >= max_duration {
+                        tracing::debug!(
+                            chat_id = %chat_id_owned,
+                            "typing keepalive max duration reached, stopping"
+                        );
+                        break;
+                    }
                     tokio::select! {
                         () = tokio::time::sleep(interval) => {}
                         () = cancel.cancelled() => break,

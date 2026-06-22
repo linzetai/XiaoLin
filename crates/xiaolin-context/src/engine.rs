@@ -585,6 +585,7 @@ impl ContextHook for SandboxAwarenessHook {
 /// [`crate::compressor::CompactionStrategy::ImportanceBased`] (also the [`Default`] for
 /// [`crate::compressor::CompactionStrategy`]).
 pub struct CompactionHook {
+    // TODO: Consider tokio::sync::Mutex — lock is held only briefly during compact().
     compactor: std::sync::Mutex<crate::compressor::ContextCompactor>,
 }
 

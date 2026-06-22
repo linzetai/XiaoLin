@@ -3,6 +3,8 @@ use std::time::SystemTime;
 
 use dashmap::DashMap;
 
+const MAX_CACHE_ENTRIES: usize = 10_000;
+
 #[derive(Debug, Clone)]
 struct FileState {
     content_hash: u64,
@@ -145,6 +147,15 @@ impl FileStateCache {
         offset: Option<i64>,
         limit: Option<usize>,
     ) {
+        if self.cache.len() > MAX_CACHE_ENTRIES {
+            tracing::warn!(
+                entries = self.cache.len(),
+                max = MAX_CACHE_ENTRIES,
+                "FileStateCache exceeded entry limit; clearing cache"
+            );
+            self.cache.clear();
+        }
+
         let mtime = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);

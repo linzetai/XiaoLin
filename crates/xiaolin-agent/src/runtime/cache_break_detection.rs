@@ -10,6 +10,7 @@
 //!    if a break is detected, diff the snapshots to identify the cause.
 
 use std::collections::hash_map::DefaultHasher;
+// DefaultHasher: in-memory only (same-process comparison). Use blake3 if persistence is needed.
 use std::hash::{Hash, Hasher};
 
 /// Extended usage data that includes cache-specific token counts.
@@ -269,7 +270,7 @@ impl Default for CacheBreakDetector {
     }
 }
 
-/// Hash a string using DefaultHasher for fast comparison.
+/// Hash a string using DefaultHasher for fast in-memory comparison (not for persistence).
 fn hash_str(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);

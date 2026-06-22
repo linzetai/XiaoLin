@@ -12,6 +12,15 @@ pub fn launch_child(
     use nix::sys::wait::{WaitStatus, waitpid};
     use nix::unistd::{ForkResult, fork};
 
+    let c_program = CString::new(program.as_bytes()).context("program contains null byte")?;
+    let c_args: Vec<CString> = std::iter::once(c_program.clone())
+        .chain(
+            args.iter()
+                .map(|a| CString::new(a.as_bytes()).context("argument contains null byte"))
+                .collect::<Result<Vec<_>>>()?,
+        )
+        .collect();
+
     let result = unsafe { fork() };
     match result.context("fork failed")? {
         ForkResult::Parent { child } => {
@@ -29,12 +38,6 @@ pub fn launch_child(
             for (key, val) in env {
                 unsafe { std::env::set_var(key, val) };
             }
-
-            let c_program =
-                CString::new(program.as_bytes()).expect("invalid program");
-            let c_args: Vec<CString> = std::iter::once(c_program.clone())
-                .chain(args.iter().map(|a| CString::new(a.as_bytes()).expect("invalid arg")))
-                .collect();
 
             match nix::unistd::execvp(&c_program, &c_args) {
                 Ok(inf) => match inf {},

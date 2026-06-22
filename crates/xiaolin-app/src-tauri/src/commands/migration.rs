@@ -55,10 +55,16 @@ pub async fn export_data(options: ExportOptionsDto) -> Result<Vec<u8>, String> {
     let export_options = ExportOptions::from(options);
     let data = migration::export_data(&mode, &export_options)
         .await
-        .map_err(|e| format!("Failed to export data: {}", e))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "export_data failed");
+            "Export failed".to_string()
+        })?;
 
     migration::serialize_migration_data(&data)
-        .map_err(|e| format!("Failed to serialize migration data: {}", e))
+        .map_err(|e| {
+            tracing::warn!(error = %e, "serialize_migration_data failed");
+            "Export failed".to_string()
+        })
 }
 
 /// Import data from a binary blob.
@@ -71,13 +77,19 @@ pub async fn import_data(data: Vec<u8>, options: ImportOptionsDto) -> Result<(),
     }
     let mode = config_mode();
     let migration_data = migration::deserialize_migration_data(&data)
-        .map_err(|e| format!("Failed to deserialize migration data: {}", e))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "deserialize_migration_data failed");
+            "Import failed".to_string()
+        })?;
 
     let import_options = ImportOptions::from(options);
 
     migration::import_data(&migration_data, &mode, &import_options)
         .await
-        .map_err(|e| format!("Failed to import data: {}", e))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "import_data failed");
+            "Import failed".to_string()
+        })?;
 
     Ok(())
 }

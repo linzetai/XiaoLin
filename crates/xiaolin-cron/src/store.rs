@@ -452,7 +452,18 @@ impl CronJobRow {
         let notify_channels: Vec<NotifyChannel> = if self.notify_channels.is_empty() {
             Vec::new()
         } else {
-            serde_json::from_str(&self.notify_channels).unwrap_or_default()
+            match serde_json::from_str(&self.notify_channels) {
+                Ok(channels) => channels,
+                Err(e) => {
+                    tracing::warn!(
+                        job_id = %self.id,
+                        error = %e,
+                        raw = %self.notify_channels,
+                        "failed to parse notify_channels JSON, using empty list"
+                    );
+                    Vec::new()
+                }
+            }
         };
         Ok(CronJob {
             id: self.id,

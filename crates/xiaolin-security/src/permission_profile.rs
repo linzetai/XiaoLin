@@ -926,7 +926,7 @@ impl FileSystemSandboxPolicy {
 
         let root = AbsolutePathBuf::from_absolute_path(cwd)
             .ok()
-            .map(|c| absolute_root_path_for_cwd(&c));
+            .and_then(|c| absolute_root_path_for_cwd(&c));
 
         dedup_absolute_paths(
             self.resolved_entries_with_cwd(cwd)
@@ -1264,7 +1264,7 @@ fn resolve_entry_path(
     match path {
         FileSystemPath::Special {
             value: FileSystemSpecialPath::Root,
-        } => cwd.map(absolute_root_path_for_cwd),
+        } => cwd.and_then(absolute_root_path_for_cwd),
         _ => resolve_file_system_path(path, cwd),
     }
 }
@@ -1281,14 +1281,9 @@ fn resolve_candidate_path(path: &Path, cwd: &Path) -> Option<AbsolutePathBuf> {
     }
 }
 
-fn absolute_root_path_for_cwd(cwd: &AbsolutePathBuf) -> AbsolutePathBuf {
-    let root = cwd
-        .as_path()
-        .ancestors()
-        .last()
-        .unwrap_or_else(|| panic!("cwd must have a filesystem root"));
-    AbsolutePathBuf::from_absolute_path(root)
-        .unwrap_or_else(|err| panic!("cwd root must be an absolute path: {err}"))
+fn absolute_root_path_for_cwd(cwd: &AbsolutePathBuf) -> Option<AbsolutePathBuf> {
+    let root = cwd.as_path().ancestors().last()?;
+    AbsolutePathBuf::from_absolute_path(root).ok()
 }
 
 fn resolved_entry_precedence(entry: &ResolvedFileSystemEntry) -> (usize, FileSystemAccessMode) {

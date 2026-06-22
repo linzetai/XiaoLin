@@ -8,7 +8,7 @@ pub use config::{
     PolicyConfig, PolicyTest, PrefixRule,
 };
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Decision from policy evaluation.
@@ -502,33 +502,31 @@ impl PolicyEngine {
     /// "allow" rule across all layers. Useful for building allowlists
     /// in external sandbox configurations.
     pub fn get_allowed_prefixes(&self) -> Vec<String> {
-        let mut prefixes: Vec<String> = Vec::new();
+        let mut prefix_set: HashSet<String> = HashSet::new();
         for layer in &self.layers {
             for (token, rules) in &layer.rules_by_first_token {
-                if rules.iter().any(|r| r.decision == "allow") && !prefixes.contains(token) {
-                    prefixes.push(token.clone());
+                if rules.iter().any(|r| r.decision == "allow") {
+                    prefix_set.insert(token.clone());
                 }
             }
             for rule in &layer.catch_all_rules {
                 if rule.decision == "allow" {
                     for element in &rule.pattern {
                         match element {
-                            config::PatternElement::Exact(s) if !prefixes.contains(s) => {
-                                prefixes.push(s.clone());
+                            config::PatternElement::Exact(s) => {
+                                prefix_set.insert(s.clone());
                             }
                             config::PatternElement::Alternatives(alts) => {
                                 for alt in alts {
-                                    if !prefixes.contains(alt) {
-                                        prefixes.push(alt.clone());
-                                    }
+                                    prefix_set.insert(alt.clone());
                                 }
                             }
-                            config::PatternElement::Exact(_) => {}
                         }
                     }
                 }
             }
         }
+        let mut prefixes: Vec<String> = prefix_set.into_iter().collect();
         prefixes.sort();
         prefixes
     }

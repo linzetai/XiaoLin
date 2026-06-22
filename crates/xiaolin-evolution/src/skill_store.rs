@@ -386,6 +386,10 @@ impl SkillStore {
                 (nu, ns)
             }
             None => {
+                tracing::debug!(
+                    skill_id = %skill_id,
+                    "record_usage: skill_id not found in extracted_skills; usage row inserted but stats not updated"
+                );
                 tx.commit().await?;
                 return Ok(());
             }
@@ -879,7 +883,7 @@ fn tokenize(text: &str) -> Vec<String> {
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter_map(|w| {
             let w = w.trim();
-            if w.len() >= 2 {
+            if w.chars().count() >= 2 {
                 Some(w.to_string())
             } else {
                 None

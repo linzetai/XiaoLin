@@ -106,8 +106,13 @@ impl EventLog {
                             }
                         }
                     });
-                } else if tx.blocking_send(entry).is_err() {
-                    tracing::warn!("event_log: channel closed, dropping event");
+                } else {
+                    tracing::warn!(
+                        "event_log: no tokio runtime available, falling back to blocking send"
+                    );
+                    if tx.blocking_send(entry).is_err() {
+                        tracing::warn!("event_log: channel closed, dropping event");
+                    }
                 }
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {

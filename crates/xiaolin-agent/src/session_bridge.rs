@@ -324,7 +324,9 @@ impl RuntimeTurnExecutor {
         cancel: &CancellationToken,
         approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
     ) -> anyhow::Result<xiaolin_protocol::TurnSummary> {
-        let mgr = self.subagent_manager.as_ref().unwrap();
+        let mgr = self.subagent_manager.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("subagent manager required for reactive loop")
+        })?;
         let policy = &config.behavior.subagent;
         let batch_window = Duration::from_millis(policy.batch_window_ms);
         let max_reprompts = policy.max_reprompts_per_turn;

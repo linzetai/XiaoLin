@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+const MAX_BY_MODEL_ENTRIES: usize = 100;
+
 fn map_poison<T>(r: std::sync::LockResult<T>) -> anyhow::Result<T> {
     match r {
         Ok(guard) => Ok(guard),
@@ -73,6 +75,17 @@ impl BudgetTracker {
         inner.request_count += 1;
         inner.total_input_tokens += record.input_tokens as u64;
         inner.total_output_tokens += record.output_tokens as u64;
+
+        if !inner.by_model.contains_key(&record.model)
+            && inner.by_model.len() >= MAX_BY_MODEL_ENTRIES
+        {
+            tracing::warn!(
+                count = inner.by_model.len(),
+                max = MAX_BY_MODEL_ENTRIES,
+                model = %record.model,
+                "BudgetTracker by_model exceeded entry limit"
+            );
+        }
 
         let model_usage = inner.by_model.entry(record.model.clone()).or_default();
         model_usage.cost += record.cost;

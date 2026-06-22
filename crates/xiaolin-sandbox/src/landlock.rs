@@ -151,7 +151,7 @@ pub fn transform_external(
         sandbox_policy_cwd,
         false,
         allow_network,
-    );
+    )?;
 
     let mut env = HashMap::new();
     env.insert("XIAOLIN_SANDBOXED".to_string(), "1".to_string());
@@ -487,25 +487,33 @@ pub fn create_linux_sandbox_command_args(
     sandbox_policy_cwd: &Path,
     use_legacy_landlock: bool,
     allow_network: bool,
-) -> Vec<String> {
-    let fs_json = serde_json::to_string(fs_policy)
-        .unwrap_or_else(|err| panic!("failed to serialize fs sandbox policy: {err}"));
-    let net_json = serde_json::to_string(&net_policy)
-        .unwrap_or_else(|err| panic!("failed to serialize net sandbox policy: {err}"));
-    let policy_cwd = sandbox_policy_cwd
-        .to_str()
-        .unwrap_or_else(|| panic!("sandbox policy cwd must be valid UTF-8"))
-        .to_string();
-    let cmd_cwd = command_cwd
-        .to_str()
-        .unwrap_or_else(|| panic!("command cwd must be valid UTF-8"))
-        .to_string();
+) -> Result<Vec<String>, SandboxTransformError> {
+    let fs_json = serde_json::to_string(fs_policy).map_err(|err| {
+        SandboxTransformError::PolicySerializationFailed(format!(
+            "failed to serialize fs sandbox policy: {err}"
+        ))
+    })?;
+    let net_json = serde_json::to_string(&net_policy).map_err(|err| {
+        SandboxTransformError::PolicySerializationFailed(format!(
+            "failed to serialize net sandbox policy: {err}"
+        ))
+    })?;
+    let policy_cwd = sandbox_policy_cwd.to_str().ok_or_else(|| {
+        SandboxTransformError::PolicySerializationFailed(
+            "sandbox policy cwd must be valid UTF-8".into(),
+        )
+    })?;
+    let cmd_cwd = command_cwd.to_str().ok_or_else(|| {
+        SandboxTransformError::PolicySerializationFailed(
+            "command cwd must be valid UTF-8".into(),
+        )
+    })?;
 
     let mut args: Vec<String> = vec![
         "--sandbox-policy-cwd".to_string(),
-        policy_cwd,
+        policy_cwd.to_string(),
         "--command-cwd".to_string(),
-        cmd_cwd,
+        cmd_cwd.to_string(),
         "--fs-sandbox-policy".to_string(),
         fs_json,
         "--net-sandbox-policy".to_string(),
@@ -519,7 +527,7 @@ pub fn create_linux_sandbox_command_args(
     }
     args.push("--".to_string());
     args.extend(command);
-    args
+    Ok(args)
 }
 
 #[cfg(test)]
@@ -677,7 +685,8 @@ mod tests {
             Path::new("/home/user/project"),
             false,
             false,
-        );
+        )
+        .unwrap();
         assert!(args.contains(&"--sandbox-policy-cwd".to_string()));
         assert!(args.contains(&"/home/user/project".to_string()));
         assert!(args.contains(&"--command-cwd".to_string()));
@@ -701,7 +710,8 @@ mod tests {
             Path::new("/tmp"),
             true,
             true,
-        );
+        )
+        .unwrap();
         assert!(args.contains(&"--use-legacy-landlock".to_string()));
         assert!(args.contains(&"--allow-network-for-proxy".to_string()));
 
@@ -719,7 +729,8 @@ mod tests {
             Path::new("/home/user/project"),
             false,
             false,
-        );
+        )
+        .unwrap();
         let idx = args
             .iter()
             .position(|a| a == "--fs-sandbox-policy")

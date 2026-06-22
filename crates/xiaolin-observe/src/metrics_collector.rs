@@ -207,6 +207,9 @@ impl MetricsCollector {
     }
 
     /// Renders all recorded metrics in Prometheus text exposition format (0.0.5).
+    ///
+    /// TODO: histogram rendering clones and sorts samples on every scrape. Consider
+    /// an incremental quantile sketch (e.g. CKMS or t-digest) to avoid O(n log n) work.
     pub fn render_prometheus(&self) -> String {
         let mut out = String::new();
 

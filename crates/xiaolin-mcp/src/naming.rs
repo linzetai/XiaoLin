@@ -1,6 +1,9 @@
 //! MCP tool naming utilities — centralized naming logic for MCP tool registration.
 //!
 //! Format: `mcp__{sanitized_server_id}__{sanitized_tool_name}`
+//!
+//! Server IDs must not contain consecutive `__` after sanitization, because
+//! [`parse_mcp_tool_name`] splits on the first `__` after the `mcp__` prefix.
 
 pub const MCP_DELIMITER: &str = "__";
 pub const MCP_PREFIX: &str = "mcp";
@@ -23,13 +26,25 @@ pub fn sanitize_for_api(name: &str) -> String {
     }
 }
 
+/// Sanitize MCP server ID for use in tool name prefix.
+///
+/// Applies [`sanitize_for_api`] then collapses consecutive `__` to `_` so that
+/// [`parse_mcp_tool_name`] can unambiguously split server_id from tool_name.
+pub fn sanitize_server_id(server_id: &str) -> String {
+    let mut s = sanitize_for_api(server_id);
+    while s.contains("__") {
+        s = s.replace("__", "_");
+    }
+    s
+}
+
 /// Build the full MCP prefix for a server: `mcp__{sanitized_id}__`
 pub fn mcp_server_prefix(server_id: &str) -> String {
     format!(
         "{}{}{}{}{}",
         MCP_PREFIX,
         MCP_DELIMITER,
-        sanitize_for_api(server_id),
+        sanitize_server_id(server_id),
         MCP_DELIMITER,
         ""
     )
@@ -100,6 +115,15 @@ mod tests {
         assert_eq!(
             mcp_tool_name("chrome-devtools", "read_console"),
             "mcp__chrome-devtools__read_console"
+        );
+    }
+
+    #[test]
+    fn sanitize_server_id_collapses_double_underscore() {
+        assert_eq!(sanitize_server_id("my__server"), "my_server");
+        assert_eq!(
+            mcp_server_prefix("my__server"),
+            "mcp__my_server__"
         );
     }
 

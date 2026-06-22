@@ -1728,7 +1728,7 @@ pub fn truncate_text(text: &str, max_bytes: usize) -> String {
         .last()
         .unwrap_or(0);
     format!(
-        "{}... [truncated, {} chars total]",
+        "{}... [truncated, {} bytes total]",
         &text[..end],
         text.len()
     )

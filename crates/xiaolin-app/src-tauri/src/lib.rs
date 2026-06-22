@@ -189,7 +189,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
-    builder
+    let build_result = builder
         .plugin(local_storage_isolation_plugin())
         .setup(|app| {
             let (watch_tx, watch_rx) = tokio::sync::watch::channel(GatewayStartupState::Starting);
@@ -339,9 +339,17 @@ pub fn run() {
             commands::audio_capture::start_native_recording,
             commands::audio_capture::stop_native_recording,
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building XiaoLin app")
-        .run(|app, event| {
+        .build(tauri::generate_context!());
+
+    let app = match build_result {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("error while building XiaoLin app: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppData>();
                 let lock_result = tauri::async_runtime::block_on(async {
