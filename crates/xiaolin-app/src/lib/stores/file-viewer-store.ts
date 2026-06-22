@@ -2,6 +2,7 @@ import { create } from "zustand";
 import * as transport from "../transport";
 import type { FileArtifact } from "../transport";
 import { languageFromPath } from "../../components/file-viewer/cm-languages";
+import { isImagePath, isSvgPath } from "../../components/file-viewer/file-types";
 import { useChatMetaStore } from "./chat-meta-store";
 
 const MAX_OPEN_FILES = 10;
@@ -55,7 +56,9 @@ export function resolveFilePath(path: string, workDir: string): string {
 
 function defaultViewMode(path: string): "code" | "preview" {
   const lower = path.toLowerCase();
-  return lower.endsWith(".md") || lower.endsWith(".mdx") ? "preview" : "code";
+  if (lower.endsWith(".md") || lower.endsWith(".mdx")) return "preview";
+  if (isSvgPath(path)) return "preview";
+  return "code";
 }
 
 function pickMostRecentOpenFile(
@@ -129,11 +132,46 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     }
 
     let result: { content: string; size: number; isReadonly: boolean };
-    try {
-      result = await transport.readFileForViewer(resolved, workDir);
-    } catch (e) {
-      console.warn("[file-viewer] failed to open file:", resolved, e);
-      return;
+
+    if (isImagePath(resolved)) {
+      let content = "";
+      let size = 0;
+      let isReadonly = true;
+
+      if (isSvgPath(resolved)) {
+        try {
+          const text = await transport.readFileForViewer(resolved, workDir);
+          content = text.content;
+          size = text.size;
+          isReadonly = text.isReadonly;
+        } catch (e) {
+          console.warn("[file-viewer] failed to read SVG text, image-only:", resolved, e);
+          try {
+            const binary = await transport.readBinaryForViewer(resolved, workDir);
+            size = binary.size;
+          } catch (binaryErr) {
+            console.warn("[file-viewer] failed to open image:", resolved, binaryErr);
+            return;
+          }
+        }
+      } else {
+        try {
+          const binary = await transport.readBinaryForViewer(resolved, workDir);
+          size = binary.size;
+        } catch (e) {
+          console.warn("[file-viewer] failed to open image:", resolved, e);
+          return;
+        }
+      }
+
+      result = { content, size, isReadonly };
+    } else {
+      try {
+        result = await transport.readFileForViewer(resolved, workDir);
+      } catch (e) {
+        console.warn("[file-viewer] failed to open file:", resolved, e);
+        return;
+      }
     }
 
     const now = Date.now();
@@ -152,7 +190,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       content: result.content,
       size: result.size,
       isReadonly: result.isReadonly,
-      language: languageFromPath(resolved),
+      language: isImagePath(resolved) ? "image" : languageFromPath(resolved),
       viewMode: defaultViewMode(resolved),
       lastAccessed: now,
       line,

@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ComponentProps } from "react";
 import type { CodeViewer as CodeViewerComponent } from "./CodeViewer";
 import type { MarkdownViewer as MarkdownViewerComponent } from "./MarkdownViewer";
+import type { ImageViewer as ImageViewerComponent } from "./ImageViewer";
 
 const CodeViewerLazy = lazy(() =>
   import("./CodeViewer").then((m) => ({ default: m.CodeViewer })),
@@ -8,6 +9,10 @@ const CodeViewerLazy = lazy(() =>
 
 const MarkdownViewerLazy = lazy(() =>
   import("./MarkdownViewer").then((m) => ({ default: m.MarkdownViewer })),
+);
+
+const ImageViewerLazy = lazy(() =>
+  import("./ImageViewer").then((m) => ({ default: m.ImageViewer })),
 );
 
 function ViewerFallback() {
@@ -35,5 +40,15 @@ export function MarkdownViewer(props: ComponentProps<typeof MarkdownViewerCompon
   );
 }
 
+export function ImageViewer(props: ComponentProps<typeof ImageViewerComponent>) {
+  return (
+    <Suspense fallback={<ViewerFallback />}>
+      <ImageViewerLazy {...props} />
+    </Suspense>
+  );
+}
+
 export type { CodeViewerProps } from "./CodeViewer";
 export type { MarkdownViewerProps } from "./MarkdownViewer";
+export type { ImageViewerProps } from "./ImageViewer";
+export { isImagePath, isSvgPath, formatFileSize } from "./file-types";

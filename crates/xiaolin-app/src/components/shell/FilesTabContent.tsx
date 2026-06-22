@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useWorkspaceTabs } from "./workspace-tabs";
-import { CodeViewer, MarkdownViewer } from "../file-viewer";
+import { CodeViewer, MarkdownViewer, ImageViewer, isImagePath } from "../file-viewer";
 
 export interface OpenFileEventDetail {
   path: string;
@@ -20,6 +20,7 @@ export function FilesTabContent() {
   const { t } = useTranslation("sidebar");
   const workDir = useChatMetaStore((s) => s.chats[s.activeChatId]?.workDir ?? null);
   const openFile = useFileViewerStore((s) => s.openFile);
+  const setViewMode = useFileViewerStore((s) => s.setViewMode);
   const openFiles = useFileViewerStore((s) => s.openFiles);
   const activeFilePath = useFileViewerStore((s) => s.activeFilePath);
   const artifacts = useFileViewerStore((s) => s.artifacts);
@@ -77,7 +78,15 @@ export function FilesTabContent() {
             </span>
           </div>
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-            {activeFile.language === "markdown" ? (
+            {isImagePath(activeFile.path) ? (
+              <ImageViewer
+                filePath={activeFile.path}
+                workDir={workDir!}
+                viewMode={activeFile.viewMode}
+                svgContent={activeFile.content}
+                onViewModeChange={(mode) => setViewMode(activeFile.path, mode)}
+              />
+            ) : activeFile.language === "markdown" ? (
               <MarkdownViewer
                 content={activeFile.content}
                 filePath={activeFile.path}
