@@ -322,7 +322,9 @@ impl SandboxManager {
                 landlock::policy_has_deny_read_restrictions(&effective_fs, cwd);
 
             if has_deny_read && request.use_legacy_landlock {
-                return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
+                tracing::warn!(
+                    "legacy Landlock cannot enforce deny-read rules; proceeding with degraded filesystem isolation"
+                );
             }
 
             let explicit_exe = request.linux_sandbox_exe.map(Path::to_path_buf);
@@ -334,7 +336,7 @@ impl SandboxManager {
                 }
             });
 
-            if has_deny_read && resolved_exe.is_none() {
+            if has_deny_read && resolved_exe.is_none() && !request.use_legacy_landlock {
                 return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
             }
 
@@ -358,7 +360,7 @@ impl SandboxManager {
                 );
             }
 
-            if has_deny_read {
+            if has_deny_read && !request.use_legacy_landlock {
                 return Err(SandboxTransformError::DenyReadRequiresExternalSandbox);
             }
         }

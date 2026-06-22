@@ -387,6 +387,10 @@ pub fn validate_readonly_command(command: &str) -> Result<(), String> {
 }
 
 // ─── Path Safety Validation ─────────────────────────────────────────────────
+//
+// TODO: Unify path/readonly validation — logic is duplicated and can drift across
+// `validate_readonly_command` + `classify_readonly` here, `validate_command_paths`
+// below, and `shell_readonly.rs` (`ReadOnlyClassifier`). Consolidate into one module.
 
 /// Sensitive paths under $HOME that should never be written to by shell commands.
 const SENSITIVE_HOME_PATHS: &[&str] = &[

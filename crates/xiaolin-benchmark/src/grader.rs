@@ -121,6 +121,10 @@ fn grade_output_not_contains(patterns: &[String], text: &str) -> GradeResult {
     }
 }
 
+// TODO: `allowed_shell_patterns` currently only bypasses the `shell_exec` forbidden
+// check; it does not inspect actual shell command strings from the tool trace.
+// Implement command-level regex/prefix validation against recorded shell arguments.
+
 fn grade_tool_trace(
     must_include: &[String],
     must_not_include: &[String],

@@ -74,6 +74,11 @@ pub struct FileCheck {
     pub not_contains: Vec<String>,
 }
 
+/// Per-task metric thresholds for pass/fail reporting.
+///
+/// TODO: `thresholds` are deserialized but not yet enforced at runtime — grading
+/// relies on explicit `graders` only. Wire thresholds into `evaluate_graders` or
+/// post-run validation when implementing metrics-based failure.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetricsConfig {
     #[serde(default)]

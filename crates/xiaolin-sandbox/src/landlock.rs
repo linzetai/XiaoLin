@@ -287,10 +287,21 @@ fn install_filesystem_landlock_rules(writable_roots: &[PathBuf]) -> std::io::Res
     }
 
     let status = ruleset.restrict_self().map_err(io_err)?;
-    if status.ruleset == landlock::RulesetStatus::NotEnforced {
-        return Err(std::io::Error::other(
-            "Landlock rules were not enforced by the kernel",
-        ));
+    match status.ruleset {
+        landlock::RulesetStatus::NotEnforced => {
+            return Err(std::io::Error::other(
+                "Landlock rules were not enforced by the kernel",
+            ));
+        }
+        landlock::RulesetStatus::PartiallyEnforced => {
+            tracing::warn!(
+                landlock = ?status.landlock,
+                no_new_privs = status.no_new_privs,
+                writable_root_count = writable_roots.len(),
+                "Landlock BestEffort rules partially enforced; some filesystem access rules may not be active on this kernel"
+            );
+        }
+        landlock::RulesetStatus::FullyEnforced => {}
     }
 
     Ok(())

@@ -210,6 +210,42 @@ impl CostEstimator {
         base.saturating_add(tool_schema_overhead).max(64)
     }
 
+    fn estimate_content_value(content: &serde_json::Value) -> (usize, usize) {
+        match content {
+            serde_json::Value::String(s) => (s.len(), s.chars().count()),
+            serde_json::Value::Array(parts) => parts.iter().fold((0, 0), |(bytes, chars), part| {
+                let (b, c) = match part {
+                    serde_json::Value::Object(obj) => {
+                        let text_len = obj
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .map(|s| (s.len(), s.chars().count()))
+                            .unwrap_or((0, 0));
+                        let url_len = obj
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .map(|s| (s.len(), s.chars().count()))
+                            .unwrap_or((0, 0));
+                        (
+                            text_len.0 + url_len.0,
+                            text_len.1 + url_len.1,
+                        )
+                    }
+                    serde_json::Value::String(s) => (s.len(), s.chars().count()),
+                    other => {
+                        let s = other.to_string();
+                        (s.len(), s.chars().count())
+                    }
+                };
+                (bytes + b, chars + c)
+            }),
+            other => {
+                let s = other.to_string();
+                (s.len(), s.chars().count())
+            }
+        }
+    }
+
     pub fn estimate_request(
         &self,
         model: &str,
@@ -219,9 +255,10 @@ impl CostEstimator {
         let mut total_chars = 0usize;
         let mut char_count = 0usize;
         for msg in messages {
-            if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
-                total_chars += content.len();
-                char_count += content.chars().count();
+            if let Some(content) = msg.get("content") {
+                let (bytes, chars) = Self::estimate_content_value(content);
+                total_chars += bytes;
+                char_count += chars;
             }
         }
         let input_tokens = (total_chars as u32)

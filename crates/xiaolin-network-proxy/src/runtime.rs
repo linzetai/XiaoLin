@@ -419,7 +419,7 @@ impl NetworkProxyState {
     pub async fn host_blocked(&self, host: &str, _port: u16) -> anyhow::Result<HostBlockDecision> {
         let mode = self.network_mode().await;
         if matches!(mode, NetworkMode::Off) {
-            return Ok(HostBlockDecision::Allowed);
+            return Ok(HostBlockDecision::Blocked(HostBlockReason::NotAllowed));
         }
 
         let dynamic = self.dynamic_domains.read().await;
@@ -527,7 +527,11 @@ impl NetworkProxyState {
 
         let mode = self.network_mode().await;
         if matches!(mode, NetworkMode::Off) {
-            return NetworkDecision::allow();
+            // Off disables managed proxy filtering — deny all proxied network access.
+            return NetworkDecision::deny_with_source(
+                "network mode is off",
+                NetworkDecisionSource::BaselinePolicy,
+            );
         }
 
         let host_decision = match self.host_blocked(&request.host, request.port).await {
@@ -653,12 +657,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn evaluate_allows_when_mode_off() {
+    async fn evaluate_denies_when_mode_off() {
         let settings = NetworkProxySettings::default();
         let state = NetworkProxyState::for_settings(settings);
         state.set_network_mode(NetworkMode::Off).await;
-        let result = state.evaluate(&make_request("blocked.com")).await;
-        assert!(result.is_allowed());
+        let result = state.evaluate(&make_request("example.com")).await;
+        assert!(!result.is_allowed());
     }
 
     #[tokio::test]

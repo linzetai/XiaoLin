@@ -206,16 +206,6 @@ fn setup_nftables(proxy_port: u16) -> anyhow::Result<()> {
          }}"
     );
 
-    let status = std::process::Command::new(nft.as_ref())
-        .args(["-f", "-"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()?
-        .wait()?;
-
-    if !status.success() {
-        anyhow::bail!("nft failed with exit code {:?}", status.code());
-    }
-
     let mut child = std::process::Command::new(nft.as_ref())
         .args(["-f", "-"])
         .stdin(std::process::Stdio::piped())
@@ -485,6 +475,24 @@ fn is_pid_alive_raw(pid: libc::pid_t) -> bool {
     !matches!(err.raw_os_error(), Some(libc::ESRCH))
 }
 
+fn reap_bridge_child(pid: libc::pid_t) {
+    let mut status = 0;
+    loop {
+        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if waited == pid {
+            return;
+        }
+        if waited < 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            tracing::warn!(pid, error = %err, "failed to reap proxy bridge child");
+            return;
+        }
+    }
+}
+
 fn spawn_proxy_socket_dir_cleanup_worker(
     socket_dir: PathBuf,
     host_bridge_pids: Vec<libc::pid_t>,
@@ -496,11 +504,15 @@ fn spawn_proxy_socket_dir_cleanup_worker(
 
     if pid == 0 {
         loop {
-            if host_bridge_pids
-                .iter()
-                .copied()
-                .all(|bridge_pid| !is_pid_alive_raw(bridge_pid))
-            {
+            let mut all_dead = true;
+            for bridge_pid in &host_bridge_pids {
+                if is_pid_alive_raw(*bridge_pid) {
+                    all_dead = false;
+                } else {
+                    reap_bridge_child(*bridge_pid);
+                }
+            }
+            if all_dead {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));

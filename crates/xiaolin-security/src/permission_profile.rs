@@ -179,7 +179,7 @@ impl PermissionProfile {
     pub fn network_sandbox_policy(&self) -> NetworkSandboxPolicy {
         match self {
             Self::Managed { network, .. } => *network,
-            Self::Disabled => NetworkSandboxPolicy::Enabled,
+            Self::Disabled => NetworkSandboxPolicy::Restricted,
             Self::External { network } => *network,
         }
     }

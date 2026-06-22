@@ -323,6 +323,10 @@ impl EpisodicMemory {
     /// most *agent-relevant* memories are usually among higher-importance /
     /// newer episodes.
     ///
+    /// TODO: The importance/recency shard split can miss globally optimal matches
+    /// (e.g. low-importance but semantically nearest). Alternatives: full scan for
+    /// small tables, ANN index (sqlite-vec / hnsw), or widen candidate_cap adaptively.
+    ///
     /// Rows also store `embedding_norm` (L2 at insert time) for diagnostics and
     /// cheap rejection of empty / corrupt vectors (`norm < 1e-9`).
     pub async fn search_by_vector(

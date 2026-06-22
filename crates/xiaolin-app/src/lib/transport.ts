@@ -226,6 +226,8 @@ export interface SessionMessage {
   createdAt: string;
 }
 
+// TODO: Load session messages with pagination (limit/offset or cursor) instead of
+// fetching the full history in one WS round-trip — large sessions block UI startup.
 export async function getSessionMessages(sessionId: string): Promise<SessionMessage[]> {
   const resp = (await wsClient.send("sessions.messages", { sessionId })) as {
     data?: { messages?: SessionMessage[] };

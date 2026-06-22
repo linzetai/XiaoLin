@@ -30,6 +30,24 @@ let reconnectedUnsub: (() => void) | null = null;
 let sessionChangedUnsub: (() => void) | null = null;
 let projectsChangedUnsub: (() => void) | null = null;
 
+/** Tear down module-level WS listeners (component unmount, HMR, or gateway restart). */
+export function cleanupGatewayListeners(): void {
+  disconnectUnsub?.();
+  reconnectedUnsub?.();
+  sessionChangedUnsub?.();
+  projectsChangedUnsub?.();
+  disconnectUnsub = null;
+  reconnectedUnsub = null;
+  sessionChangedUnsub = null;
+  projectsChangedUnsub = null;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    cleanupGatewayListeners();
+  });
+}
+
 const SESSION_CACHE_KEY = "xiaolin:session-cache";
 
 /** Restore cached sessions so the UI can render a skeleton sidebar immediately. */

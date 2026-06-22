@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, OnceCell};
 use tokio_util::sync::CancellationToken;
 
 use xiaolin_core::channel::{
@@ -40,6 +40,7 @@ pub struct FeishuPluginConfig {
     #[serde(default = "default_reply_mode")]
     pub reply_mode: String,
     /// User access token for user-scoped Open APIs (tasks, bitable, docx, calendar, media).
+    // TODO: encrypt at rest — user_access_token is stored in plaintext channel config on disk.
     #[serde(default)]
     pub user_access_token: Option<String>,
     /// When true, allow webhooks without a configured verification_token (dev/test only).
@@ -104,8 +105,8 @@ pub struct FeishuPlugin {
     client: Arc<FeishuClient>,
     /// WebSocket client for long-connection mode (None in webhook mode)
     ws_client: Arc<Mutex<Option<Arc<ws::FeishuWsClient>>>>,
-    /// Cached bot open_id resolved once at startup
-    bot_open_id_cache: Arc<Mutex<Option<String>>>,
+    /// Cached bot open_id resolved once at startup (OnceCell coalesces concurrent fetches).
+    bot_open_id_cache: Arc<OnceCell<String>>,
     /// Cancels the event bridge task on stop
     ws_bridge_cancel: Arc<Mutex<Option<CancellationToken>>>,
     dedup: Arc<Mutex<MessageDedup>>,
@@ -142,7 +143,7 @@ impl FeishuPlugin {
             config,
             client,
             ws_client: Arc::new(Mutex::new(None)),
-            bot_open_id_cache: Arc::new(Mutex::new(None)),
+            bot_open_id_cache: Arc::new(OnceCell::new()),
             ws_bridge_cancel: Arc::new(Mutex::new(None)),
             dedup: Arc::new(Mutex::new(MessageDedup::new(Duration::from_secs(300)))),
         }
@@ -236,54 +237,16 @@ impl FeishuPlugin {
     }
 
     async fn get_bot_open_id(&self) -> Option<String> {
+        if let Some(id) = self.bot_open_id_cache.get() {
+            return Some(id.clone());
+        }
+        match self
+            .bot_open_id_cache
+            .get_or_try_init(|| async { self.client.get_bot_open_id().await.ok_or(()) })
+            .await
         {
-            let guard = self.bot_open_id_cache.lock().await;
-            if let Some(ref id) = *guard {
-                return Some(id.clone());
-            }
-        }
-
-        let open_id = self.fetch_bot_open_id_from_api().await;
-        if let Some(ref id) = open_id {
-            *self.bot_open_id_cache.lock().await = Some(id.clone());
-        }
-        open_id
-    }
-
-    async fn fetch_bot_open_id_from_api(&self) -> Option<String> {
-        match self.client.get_tenant_token().await {
-            Ok(token) => {
-                let url = format!(
-                    "{}/bot/v3/info",
-                    if self.config.domain == DEFAULT_FEISHU_DOMAIN {
-                        "https://open.feishu.cn/open-apis".to_string()
-                    } else {
-                        format!("{}/open-apis", self.config.domain.trim_end_matches('/'))
-                    }
-                );
-                let resp = reqwest::Client::new()
-                    .get(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .send()
-                    .await
-                    .ok()?
-                    .json::<serde_json::Value>()
-                    .await
-                    .ok()?;
-                let open_id = resp
-                    .get("bot")
-                    .and_then(|b| b.get("open_id"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                if let Some(ref id) = open_id {
-                    tracing::info!(bot_open_id = %id, "feishu: resolved bot open_id");
-                }
-                open_id
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "feishu: could not get bot open_id");
-                None
-            }
+            Ok(id) => Some(id.clone()),
+            Err(()) => None,
         }
     }
 

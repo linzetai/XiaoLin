@@ -393,6 +393,31 @@ impl FeishuClient {
         Ok(token)
     }
 
+    /// Resolve the bot's `open_id` via tenant token (uses the shared HTTP client).
+    pub async fn get_bot_open_id(&self) -> Option<String> {
+        let token = self.get_tenant_token().await.ok()?;
+        let url = format!("{}/bot/v3/info", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?;
+        let open_id = resp
+            .get("bot")
+            .and_then(|b| b.get("open_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        if let Some(ref id) = open_id {
+            tracing::info!(bot_open_id = %id, "feishu: resolved bot open_id");
+        }
+        open_id
+    }
+
     /// Send a text message to a user or chat.
     pub async fn send_message(
         &self,

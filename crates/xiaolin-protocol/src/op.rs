@@ -282,19 +282,24 @@ pub enum ClientOp {
     },
 
     // ── Agent CRUD (deprecated) ───────────────────────────────────
+    #[deprecated(note = "Agent CRUD WS ops are deprecated; use config-based agent management")]
     AgentsList,
+    #[deprecated(note = "Agent CRUD WS ops are deprecated; use config-based agent management")]
     AgentsGet {
         agent_id: AgentId,
     },
+    #[deprecated(note = "Agent CRUD WS ops are deprecated; use config-based agent management")]
     AgentsCreate {
         #[serde(flatten)]
         params: serde_json::Value,
     },
+    #[deprecated(note = "Agent CRUD WS ops are deprecated; use config-based agent management")]
     AgentsUpdate {
         agent_id: AgentId,
         #[serde(flatten)]
         params: serde_json::Value,
     },
+    #[deprecated(note = "Agent CRUD WS ops are deprecated; use config-based agent management")]
     AgentsDelete {
         agent_id: AgentId,
     },
@@ -957,17 +962,22 @@ impl ClientOp {
                     .or_else(|_| extract_string(&params, "run_id"))?;
                 Ok(Self::SubAgentCancel { run_id })
             }
+            #[allow(deprecated)]
             "agents" | "agents.list" => Ok(Self::AgentsList),
+            #[allow(deprecated)]
             "agents.get" => Ok(Self::AgentsGet {
                 agent_id: AgentId::new(extract_string(&params, "agentId")
                     .or_else(|_| extract_string(&params, "agent_id"))?),
             }),
+            #[allow(deprecated)]
             "agents.create" => Ok(Self::AgentsCreate { params }),
+            #[allow(deprecated)]
             "agents.update" => Ok(Self::AgentsUpdate {
                 agent_id: AgentId::new(extract_string(&params, "agentId")
                     .or_else(|_| extract_string(&params, "agent_id"))?),
                 params,
             }),
+            #[allow(deprecated)]
             "agents.delete" => Ok(Self::AgentsDelete {
                 agent_id: AgentId::new(extract_string(&params, "agentId")
                     .or_else(|_| extract_string(&params, "agent_id"))?),
@@ -1573,6 +1583,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn parse_agents_crud() {
         let _ = ClientOp::parse_request("agents", json!({})).unwrap();
         let _ = ClientOp::parse_request("agents.get", json!({"agentId": "a1"})).unwrap();

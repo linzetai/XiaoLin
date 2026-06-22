@@ -219,6 +219,8 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
         .to_string();
 
     let content_str = message.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
+    // TODO: unify with webhook path — `extract_inbound_text` in messaging/inbound/parse.rs
+    // handles more message types; this inline match is stricter and may diverge.
     let text = match msg_type {
         "text" => {
             let parsed = serde_json::from_str::<serde_json::Value>(content_str).ok()?;

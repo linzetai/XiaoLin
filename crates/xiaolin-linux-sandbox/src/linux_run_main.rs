@@ -101,7 +101,7 @@ pub fn run_main() -> Result<()> {
     let options = BwrapOptions {
         mount_proc: true,
         network_mode,
-        glob_scan_max_depth: None,
+        glob_scan_max_depth: Some(10),
     };
 
     let bwrap_args = create_bwrap_command_args(
@@ -253,7 +253,10 @@ fn parse_legacy_policy(
     } else if allow_network_for_proxy {
         NetworkSandboxPolicy::Restricted
     } else {
-        NetworkSandboxPolicy::Enabled
+        tracing::warn!(
+            "legacy --policy: no explicit network restriction configured; defaulting to Restricted network"
+        );
+        NetworkSandboxPolicy::Restricted
     };
 
     Ok(ParsedCli {

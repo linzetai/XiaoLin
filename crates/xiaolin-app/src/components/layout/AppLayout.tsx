@@ -25,8 +25,16 @@ function WindowResizeHandles() {
     async (e: React.MouseEvent, direction: string) => {
       e.preventDefault();
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (getCurrentWindow() as any).startResizeDragging(direction);
+      type ResizeDirection =
+        | "East"
+        | "North"
+        | "NorthEast"
+        | "NorthWest"
+        | "South"
+        | "SouthEast"
+        | "SouthWest"
+        | "West";
+      await getCurrentWindow().startResizeDragging(direction as ResizeDirection);
     },
     [],
   );

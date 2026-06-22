@@ -387,6 +387,10 @@ async fn handle_slash_command(
 /// Uses the shared `setup_chat()` pipeline so IM channels get the same capabilities
 /// as HTTP/WS sessions: workspace paths, context engine, model routing, skills,
 /// prompt routing, budget tracking, and the full coding toolchain.
+///
+/// TODO: Unify inbound message handling with `ws/chat.rs` — both paths should share
+/// the same session setup, slash-command routing, attachment normalization, and
+/// streaming reply logic to avoid behavioral drift between channel webhooks and WS chat.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_channel_message(
     state: AppState,

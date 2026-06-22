@@ -109,6 +109,14 @@ export function useMessageStreamChat({
   const currentStreamChatRef = useRef<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  const cancelScheduledFlush = useCallback(() => {
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      clearTimeout(rafIdRef.current);
+      rafIdRef.current = 0;
+    }
+  }, []);
+
   const drafts = useRef<Record<string, string>>({});
 
   const atBottomRef = useRef(true);
@@ -312,10 +320,15 @@ export function useMessageStreamChat({
     const flushSegments = () => {
       if (!isActive()) return;
       if (rafIdRef.current) return;
-      rafIdRef.current = requestAnimationFrame(() => {
+      const runFlush = () => {
         rafIdRef.current = 0;
         if (isActive()) setStreamSegments(segmentsRef.current.map((s) => ({ ...s, toolCall: s.toolCall ? { ...s.toolCall } : undefined })));
-      });
+      };
+      // rAF pauses when the window is hidden (WebKitGTK); fall back to setTimeout.
+      rafIdRef.current =
+        typeof document !== "undefined" && document.hidden
+          ? window.setTimeout(runFlush, 16)
+          : requestAnimationFrame(runFlush);
     };
 
     const appendText = (c: string) => {
@@ -439,8 +452,7 @@ export function useMessageStreamChat({
             }
 
             if (isActive()) {
-              cancelAnimationFrame(rafIdRef.current);
-              rafIdRef.current = 0;
+              cancelScheduledFlush();
               streamAccRef.current = "";
               segmentsRef.current = [];
               currentStreamChatRef.current = null;
@@ -536,8 +548,7 @@ export function useMessageStreamChat({
             const d = event.data;
             const reason = (d?.reason as string) ?? "interrupted";
             if (isActive()) {
-              cancelAnimationFrame(rafIdRef.current);
-              rafIdRef.current = 0;
+              cancelScheduledFlush();
               const content = streamAccRef.current;
               const savedTC = segmentsRef.current
                 .filter((s) => s.type === "tool" && s.toolCall)
@@ -845,8 +856,7 @@ export function useMessageStreamChat({
             // Always clear streaming on fatal error, even if chat switched (isActive() false)
             setStreaming(false);
             if (isActive()) {
-              cancelAnimationFrame(rafIdRef.current);
-              rafIdRef.current = 0;
+              cancelScheduledFlush();
               streamAccRef.current = "";
               // Persist tool call segments (especially todo_write) before clearing
               const toolSegs = segmentsRef.current.filter(
@@ -1129,8 +1139,7 @@ export function useMessageStreamChat({
         const tc = s.toolCall!;
         return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata };
       });
-    cancelAnimationFrame(rafIdRef.current);
-    rafIdRef.current = 0;
+    cancelScheduledFlush();
     streamAccRef.current = "";
     segmentsRef.current = [];
     setStreamSegments([]);

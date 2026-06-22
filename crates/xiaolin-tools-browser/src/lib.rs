@@ -50,6 +50,8 @@ struct BrowserState {
 /// **DevTools**: evaluate, list_network_requests, list_console_messages
 /// **Emulation**: emulate, resize_page
 /// **Cookies**: cookies (get/set/delete/clear)
+// TODO: Global `std::sync::Mutex` blocks all browser ops on one thread; consider
+// `tokio::sync::Mutex` or splitting launch vs navigate/interaction lock granularity.
 pub struct BrowserTool {
     inner: Arc<Mutex<Option<BrowserState>>>,
 }
@@ -302,6 +304,11 @@ impl BrowserTool {
         let headless = Self::is_headless();
         let chrome_path = Self::find_chrome();
         let mut builder = headless_chrome::LaunchOptions::default_builder();
+        // Chrome sandbox is disabled because nested sandboxing (Docker/container +
+        // Chrome setuid sandbox) commonly fails on CI and headless server environments.
+        tracing::warn!(
+            "browser: launching Chrome with sandbox disabled (required for Docker/nested environments)"
+        );
         builder
             .headless(headless)
             .sandbox(false)
@@ -369,13 +376,26 @@ impl BrowserTool {
         let output = cmd.output();
         if let Ok(out) = output {
             let text = String::from_utf8_lossy(&out.stdout);
-            for line in text.lines() {
-                if let Ok(pid) = line.trim().parse::<u32>() {
-                    let mut kill_cmd = std::process::Command::new("taskkill");
-                    kill_cmd.args(["/F", "/PID", &pid.to_string()]);
-                    kill_cmd.creation_flags(0x08000000);
-                    let _ = kill_cmd.output();
-                }
+            let mut pids: Vec<u32> = text
+                .lines()
+                .filter_map(|line| line.trim().parse().ok())
+                .collect();
+            pids.sort_unstable();
+            pids.dedup();
+            for pid in &pids {
+                let mut kill_cmd = std::process::Command::new("taskkill");
+                kill_cmd.args(["/PID", &pid.to_string()]);
+                kill_cmd.creation_flags(0x08000000);
+                let _ = kill_cmd.output();
+            }
+            if !pids.is_empty() {
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            for pid in pids {
+                let mut kill_cmd = std::process::Command::new("taskkill");
+                kill_cmd.args(["/F", "/PID", &pid.to_string()]);
+                kill_cmd.creation_flags(0x08000000);
+                let _ = kill_cmd.output();
             }
         }
     }
@@ -388,8 +408,27 @@ impl BrowserTool {
             .output();
         if let Ok(out) = output {
             let text = String::from_utf8_lossy(&out.stdout);
-            for line in text.lines() {
-                if let Ok(pid) = line.trim().parse::<i32>() {
+            let mut pids: Vec<i32> = text
+                .lines()
+                .filter_map(|line| line.trim().parse().ok())
+                .collect();
+            pids.sort_unstable();
+            pids.dedup();
+            for pid in &pids {
+                let _ = std::process::Command::new("kill")
+                    .args(["-15", &pid.to_string()])
+                    .output();
+            }
+            if !pids.is_empty() {
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            for pid in pids {
+                let still_alive = std::process::Command::new("kill")
+                    .args(["-0", &pid.to_string()])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                if still_alive {
                     let _ = std::process::Command::new("kill")
                         .args(["-9", &pid.to_string()])
                         .output();
@@ -537,7 +576,25 @@ impl BrowserTool {
             format!("browser: output path '{path}' must include a file name")
         })?;
 
-        Ok(canon_parent.join(file_name))
+        let candidate = canon_parent.join(file_name);
+        let resolved = if candidate.exists() || candidate.symlink_metadata().is_ok() {
+            candidate.canonicalize().map_err(|e| {
+                format!("browser: cannot resolve output path '{path}': {e}")
+            })?
+        } else {
+            candidate
+        };
+
+        let under_allowed = allowed_roots
+            .iter()
+            .any(|root| resolved.starts_with(root));
+        if !under_allowed {
+            return Err(format!(
+                "browser: output path '{path}' resolves outside the workspace or temp directory"
+            ));
+        }
+
+        Ok(resolved)
     }
 
     /// Build a condensed a11y-tree snapshot (modeled after chrome-devtools-mcp take_snapshot).

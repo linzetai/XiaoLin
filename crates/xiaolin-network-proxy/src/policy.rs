@@ -183,6 +183,12 @@ fn compile_globset_with_policy(
     let mut builder = GlobSetBuilder::new();
     let mut seen = HashSet::new();
     for pattern in patterns {
+        if global_wildcard == GlobalWildcard::Allow && is_global_wildcard_domain_pattern(pattern) {
+            tracing::warn!(
+                pattern = %pattern,
+                "allowlist contains global wildcard \"*\"; this disables network host filtering for all domains"
+            );
+        }
         if global_wildcard == GlobalWildcard::Reject && is_global_wildcard_domain_pattern(pattern) {
             bail!(
                 "unsupported global wildcard domain pattern \"*\"; use exact hosts or scoped wildcards like *.example.com or **.example.com"

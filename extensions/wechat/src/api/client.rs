@@ -19,6 +19,16 @@ const DEFAULT_BOT_TYPE: &str = "3";
 const CHANNEL_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_BOT_AGENT: &str = "XiaoLin";
 
+const ERROR_BODY_LOG_MAX_CHARS: usize = 200;
+
+fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let truncated: String = text.chars().take(max_chars).collect();
+    format!("{truncated}…")
+}
+
 static PRODUCT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"^[A-Za-z0-9_.\-]{1,32}/[A-Za-z0-9_.+\-]{1,32}$")
         .expect("invalid product regex")
@@ -163,15 +173,17 @@ impl WechatApiClient {
         let text = resp.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            tracing::error!(status = %status, body = %text, "sendMessage HTTP error");
-            anyhow::bail!("sendMessage failed: {status} {text}");
+            let body_snippet = truncate_for_log(&text, ERROR_BODY_LOG_MAX_CHARS);
+            tracing::error!(status = %status, body = %body_snippet, "sendMessage HTTP error");
+            anyhow::bail!("sendMessage failed: {status} {body_snippet}");
         }
 
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
             let ret = parsed.get("ret").and_then(|v| v.as_i64()).unwrap_or(0);
             if ret != 0 {
-                tracing::error!(ret, body = %text, "sendMessage API error");
-                anyhow::bail!("sendMessage API error: ret={ret} body={text}");
+                let body_snippet = truncate_for_log(&text, ERROR_BODY_LOG_MAX_CHARS);
+                tracing::error!(ret, body = %body_snippet, "sendMessage API error");
+                anyhow::bail!("sendMessage API error: ret={ret} body={body_snippet}");
             }
         }
 

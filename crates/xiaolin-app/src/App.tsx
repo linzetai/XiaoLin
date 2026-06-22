@@ -5,7 +5,7 @@ import { AppErrorBoundary } from "./components/common/AppErrorBoundary";
 import { ContextMenuProvider } from "./components/common/ContextMenu";
 import { TooltipProvider } from "./components/common/Tooltip";
 import { ImageLightbox } from "./components/common/ImageLightbox";
-import { useGatewayStore } from "./lib/store";
+import { cleanupGatewayListeners, useGatewayStore } from "./lib/store";
 import { ICON_SIZE } from "./lib/ui-tokens";
 import "./lib/theme";
 
@@ -20,6 +20,9 @@ export default function App() {
 
   useEffect(() => {
     initGateway();
+    return () => {
+      cleanupGatewayListeners();
+    };
   }, [initGateway]);
 
   return (

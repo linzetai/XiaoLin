@@ -8,7 +8,7 @@
 
 use crate::certs::ManagedMitmCa;
 use crate::config::NetworkMode;
-use crate::network_policy::HostBlockDecision;
+use crate::network_policy::{NetworkPolicyRequest, NetworkProtocol};
 use crate::policy::normalize_host;
 use crate::reasons::REASON_METHOD_NOT_ALLOWED;
 use crate::runtime::{BlockedRequestArgs, NetworkProxyState};
@@ -56,6 +56,9 @@ impl std::fmt::Debug for MitmState {
 
 impl MitmState {
     /// Create a new MITM state, loading or generating the local CA.
+    ///
+    /// TODO(security): the MITM CA private key is persisted unencrypted on disk
+    /// (`~/.xiaolin/proxy/ca.key`, mode 0o600). Encrypt at rest before production use.
     pub fn new(config: MitmUpstreamConfig) -> Result<Self> {
         let ca = ManagedMitmCa::load_or_create()?;
 
@@ -289,12 +292,24 @@ async fn mitm_blocking_response(
         }
     }
 
-    let block_decision = policy
-        .app_state
-        .host_blocked(&policy.target_host, policy.target_port)
-        .await?;
-    if let HostBlockDecision::Blocked(ref block_reason) = block_decision {
-        let reason = block_reason.as_str();
+    // TODO(security): unify inner MITM policy with NetworkProxyState::evaluate()
+    // so host/method decisions share one code path (mitm_blocking_response still
+    // duplicates host_blocked + mode.allows_method checks below).
+    let policy_request = NetworkPolicyRequest {
+        protocol: NetworkProtocol::HttpsConnect,
+        host: policy.target_host.clone(),
+        port: policy.target_port,
+        client_addr: None,
+        method: Some(method.to_string()),
+        command: None,
+        exec_policy_hint: None,
+    };
+    let decision = policy.app_state.evaluate(&policy_request).await;
+    if !decision.is_allowed() {
+        let reason = match &decision {
+            crate::network_policy::NetworkDecision::Deny { reason, .. } => reason.as_str(),
+            crate::network_policy::NetworkDecision::Allow => "blocked by network policy",
+        };
         let _ = policy
             .app_state
             .record_blocked(BlockedRequestArgs {
@@ -307,7 +322,7 @@ async fn mitm_blocking_response(
             })
             .await;
         warn!(
-            "MITM blocked local/private target (host={}, port={})",
+            "MITM blocked by network policy (host={}, port={}, reason={reason})",
             policy.target_host, policy.target_port
         );
         return Ok(Some(text_response(StatusCode::FORBIDDEN, reason)));

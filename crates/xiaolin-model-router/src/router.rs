@@ -282,6 +282,10 @@ impl ModelRouter {
     }
 }
 
+// TODO: `try_reserve` + `release_reservation` in route()/select_within_budget() is a
+// check-then-use pattern — concurrent requests can both pass the budget check before
+// either records actual spend, briefly overshooting the limit. Needs atomic reserve-or-fail.
+
 fn select_within_budget(
     budget: &BudgetTracker,
     candidates: &mut [ModelCandidate],

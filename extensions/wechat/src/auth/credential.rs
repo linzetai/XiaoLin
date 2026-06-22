@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WechatCredential {
+    // TODO: encrypt at rest — bot token is written to plaintext JSON on disk.
     pub token: String,
     pub base_url: String,
     #[serde(default)]

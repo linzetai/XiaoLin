@@ -39,6 +39,7 @@ const LINUX_PLATFORM_DEFAULT_READ_ROOTS: &[&str] = &[
 ];
 
 const MAX_UNREADABLE_GLOB_MATCHES: usize = 8192;
+const DEFAULT_GLOB_SCAN_MAX_DEPTH: usize = 10;
 
 /// Options that control how bubblewrap is invoked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -660,6 +661,7 @@ fn expand_unreadable_globs_with_ripgrep(
         return Ok(Vec::new());
     }
 
+    let max_depth = max_depth.or(Some(DEFAULT_GLOB_SCAN_MAX_DEPTH));
     let mut patterns_by_search_root: BTreeMap<AbsolutePathBuf, Vec<String>> = BTreeMap::new();
     for pattern in patterns {
         if let Some((search_root, glob)) = split_pattern_for_ripgrep(pattern, cwd) {

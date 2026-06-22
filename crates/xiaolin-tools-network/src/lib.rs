@@ -1588,25 +1588,20 @@ pub fn strip_html_tags(html: &str) -> String {
     let mut in_style = false;
     let mut last_was_whitespace = false;
 
-    let lower = html.to_lowercase();
     let chars: Vec<char> = html.chars().collect();
-    let lower_chars: Vec<char> = lower.chars().collect();
 
     let mut i = 0;
     while i < chars.len() {
-        if !in_tag && i + 7 < lower_chars.len() {
-            let ahead: String = lower_chars[i..i + 7].iter().collect();
-            if ahead == "<script" {
+        if !in_tag && i + 7 < chars.len() {
+            if chars_starts_with_ascii_ignore_case(&chars, i, "<script") {
                 in_script = true;
                 in_tag = true;
                 i += 1;
                 continue;
             }
-            if ahead == "<style "
-                || (i + 6 < lower_chars.len() && {
-                    let s: String = lower_chars[i..i + 6].iter().collect();
-                    s == "<style"
-                })
+            if chars_starts_with_ascii_ignore_case(&chars, i, "<style ")
+                || (i + 6 < chars.len()
+                    && chars_starts_with_ascii_ignore_case(&chars, i, "<style"))
             {
                 in_style = true;
                 in_tag = true;
@@ -1615,9 +1610,8 @@ pub fn strip_html_tags(html: &str) -> String {
             }
         }
 
-        if in_script && i + 9 <= lower_chars.len() {
-            let ahead: String = lower_chars[i..i + 9].iter().collect();
-            if ahead == "</script>" {
+        if in_script && i + 9 <= chars.len() {
+            if chars_starts_with_ascii_ignore_case(&chars, i, "</script>") {
                 in_script = false;
                 i += 9;
                 continue;
@@ -1626,9 +1620,8 @@ pub fn strip_html_tags(html: &str) -> String {
             continue;
         }
 
-        if in_style && i + 8 <= lower_chars.len() {
-            let ahead: String = lower_chars[i..i + 8].iter().collect();
-            if ahead == "</style>" {
+        if in_style && i + 8 <= chars.len() {
+            if chars_starts_with_ascii_ignore_case(&chars, i, "</style>") {
                 in_style = false;
                 i += 8;
                 continue;
@@ -1646,19 +1639,7 @@ pub fn strip_html_tags(html: &str) -> String {
             if i < chars.len() {
                 i += 1;
             }
-            let tag: String = lower_chars[tag_start..i.min(lower_chars.len())]
-                .iter()
-                .collect();
-            if tag.starts_with("<br")
-                || tag.starts_with("<p")
-                || tag.starts_with("</p")
-                || tag.starts_with("<div")
-                || tag.starts_with("</div")
-                || tag.starts_with("<h")
-                || tag.starts_with("</h")
-                || tag.starts_with("<li")
-                || tag.starts_with("<tr")
-            {
+            if tag_is_block_break(&chars, tag_start) {
                 if !result.ends_with('\n') {
                     result.push('\n');
                 }
@@ -1718,6 +1699,23 @@ pub fn strip_html_tags(html: &str) -> String {
         .filter(|l| !l.is_empty())
         .collect();
     cleaned.join("\n")
+}
+
+fn chars_starts_with_ascii_ignore_case(chars: &[char], pos: usize, prefix: &str) -> bool {
+    prefix.chars().enumerate().all(|(j, pc)| {
+        chars
+            .get(pos + j)
+            .is_some_and(|c| c.to_ascii_lowercase() == pc.to_ascii_lowercase())
+    })
+}
+
+fn tag_is_block_break(chars: &[char], tag_start: usize) -> bool {
+    const BLOCK_PREFIXES: &[&str] = &[
+        "<br", "<p", "</p", "<div", "</div", "<h", "</h", "<li", "<tr",
+    ];
+    BLOCK_PREFIXES
+        .iter()
+        .any(|prefix| chars_starts_with_ascii_ignore_case(chars, tag_start, prefix))
 }
 
 fn html_to_markdown(html: &str) -> String {

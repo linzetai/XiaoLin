@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde_json::json;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -33,8 +33,14 @@ struct AccountState {
 /// look up the correct recipient and context from a numeric message ID.
 const REPLY_CACHE_MAX_ENTRIES: usize = 10_000;
 
+struct ReplyCacheEntry {
+    chat_id: String,
+    context_token: Option<String>,
+    inserted_at: Instant,
+}
+
 pub struct ReplyCache {
-    entries: DashMap<String, (String, Option<String>)>,
+    entries: DashMap<String, ReplyCacheEntry>,
 }
 
 impl Default for ReplyCache {
@@ -51,33 +57,42 @@ impl ReplyCache {
     }
 
     pub fn insert(&self, message_id: &str, chat_id: &str, context_token: Option<&str>) {
-        if self.entries.len() > REPLY_CACHE_MAX_ENTRIES {
+        if self.entries.len() >= REPLY_CACHE_MAX_ENTRIES {
             let target_len = REPLY_CACHE_MAX_ENTRIES / 2;
             let to_remove = self.entries.len().saturating_sub(target_len);
             tracing::warn!(
                 len = self.entries.len(),
                 max = REPLY_CACHE_MAX_ENTRIES,
                 evicting = to_remove,
-                "wechat reply cache exceeded capacity, evicting oldest entries"
+                "wechat reply cache exceeded capacity, evicting oldest entries by time"
             );
-            let keys: Vec<String> = self
+            let mut ranked: Vec<(String, Instant)> = self
                 .entries
                 .iter()
-                .take(to_remove)
-                .map(|entry| entry.key().clone())
+                .map(|entry| (entry.key().clone(), entry.value().inserted_at))
                 .collect();
-            for key in keys {
+            ranked.sort_by_key(|(_, at)| *at);
+            for (key, _) in ranked.into_iter().take(to_remove) {
                 self.entries.remove(&key);
             }
         }
         self.entries.insert(
             message_id.to_string(),
-            (chat_id.to_string(), context_token.map(String::from)),
+            ReplyCacheEntry {
+                chat_id: chat_id.to_string(),
+                context_token: context_token.map(String::from),
+                inserted_at: Instant::now(),
+            },
         );
     }
 
     pub fn get(&self, message_id: &str) -> Option<(String, Option<String>)> {
-        self.entries.get(message_id).map(|v| v.clone())
+        self.entries.get(message_id).map(|v| {
+            (
+                v.chat_id.clone(),
+                v.context_token.clone(),
+            )
+        })
     }
 
     pub fn remove(&self, message_id: &str) {
@@ -91,12 +106,14 @@ const MAX_CONTEXT_TOKEN_ENTRIES: usize = 500;
 
 pub struct ContextTokenCache {
     tokens: DashMap<(String, String), String>,
+    persist_lock: Arc<Mutex<()>>,
 }
 
 impl Default for ContextTokenCache {
     fn default() -> Self {
         Self {
             tokens: DashMap::new(),
+            persist_lock: Arc::new(Mutex::new(())),
         }
     }
 }
@@ -181,13 +198,19 @@ impl ContextTokenCache {
         }
         let path = Self::file_path(account_id);
         if let Ok(json) = serde_json::to_string(&map) {
-            tokio::task::spawn_blocking(move || {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).ok();
-                }
-                if let Err(e) = std::fs::write(&path, json) {
-                    tracing::warn!(error = %e, path = %path.display(), "failed to persist wechat context tokens");
-                }
+            let persist_lock = self.persist_lock.clone();
+            tokio::spawn(async move {
+                let _guard = persist_lock.lock().await;
+                tokio::task::spawn_blocking(move || {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent).ok();
+                    }
+                    if let Err(e) = std::fs::write(&path, json) {
+                        tracing::warn!(error = %e, path = %path.display(), "failed to persist wechat context tokens");
+                    }
+                })
+                .await
+                .ok();
             });
         }
     }
@@ -228,10 +251,25 @@ impl WechatPlugin {
     }
 
     fn find_client_for_target(&self, target_id: &str) -> Option<(String, WechatApiClient)> {
-        self.accounts
+        let found = self
+            .accounts
             .iter()
             .find(|entry| self.context_tokens.get(entry.key(), target_id).is_some())
-            .map(|entry| (entry.key().clone(), entry.value().client.clone()))
+            .map(|entry| (entry.key().clone(), entry.value().client.clone()));
+        if found.is_none() {
+            let account_ids: Vec<String> = self
+                .accounts
+                .iter()
+                .map(|entry| entry.key().clone())
+                .collect();
+            tracing::debug!(
+                target_id,
+                registered_accounts = self.accounts.len(),
+                account_ids = ?account_ids,
+                "wechat: find_client_for_target missed — no context_token for target (first outbound may fail)"
+            );
+        }
+        found
     }
 }
 

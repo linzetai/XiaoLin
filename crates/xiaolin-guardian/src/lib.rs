@@ -356,10 +356,16 @@ impl Guardian {
     }
 
     fn parse_response(&self, response: &str) -> GuardianAssessment {
-        let _ = &self.config;
-
-        if let Some(assessment) = parse_validated_assessment(response) {
+        if let Some(assessment) = parse_validated_assessment(response.trim()) {
             return validate_assessment(assessment);
+        }
+
+        let brace_blocks = response.match_indices('{').count();
+        if brace_blocks > 1 {
+            tracing::warn!(
+                brace_blocks,
+                "Guardian response contains multiple '{{' blocks; substring extraction may pick wrong JSON"
+            );
         }
 
         if let Some(start) = response.find('{') {
@@ -400,6 +406,14 @@ fn parse_validated_assessment(json_str: &str) -> Option<GuardianAssessment> {
 /// Enforce consistency invariants on a parsed Guardian assessment.
 fn validate_assessment(mut assessment: GuardianAssessment) -> GuardianAssessment {
     if assessment.decision == GuardianDecision::Allow
+        && assessment.risk_level == GuardianRiskLevel::Medium
+    {
+        tracing::warn!(
+            rationale = %assessment.rationale,
+            "Guardian assessment inconsistent: allow with medium risk (no auto-correction)"
+        );
+    }
+    if assessment.decision == GuardianDecision::Allow
         && matches!(
             assessment.risk_level,
             GuardianRiskLevel::High | GuardianRiskLevel::Critical
@@ -436,7 +450,8 @@ pub struct TranscriptEntry {
 }
 
 const GUARDIAN_MAX_TOOL_TOKENS: usize = 10_000;
-const CHARS_PER_TOKEN: usize = 4;
+/// Conservative chars-per-token for CJK-heavy transcripts (≈2 chars/token vs ASCII /4).
+const CHARS_PER_TOKEN: usize = 2;
 
 /// Build a compact intent transcript using a two-budget model:
 /// - `message_budget`: for User and Assistant entries
@@ -451,12 +466,14 @@ pub fn build_intent_transcript_v2(
     max_message_tokens: usize,
 ) -> ReviewContext {
     let msg_budget_chars = max_message_tokens * CHARS_PER_TOKEN;
-    let tool_budget_chars = GUARDIAN_MAX_TOOL_TOKENS * CHARS_PER_TOKEN;
+    let tool_budget_tokens = max_message_tokens.min(GUARDIAN_MAX_TOOL_TOKENS);
+    let tool_budget_chars = tool_budget_tokens * CHARS_PER_TOKEN;
 
     let mut message_slots: Vec<(usize, String)> = Vec::new();
     let mut tool_slots: Vec<(usize, String)> = Vec::new();
 
     let mut msg_used = 0usize;
+    let mut msg_chars = 0usize;
 
     // Phase 1: anchor first and last user entries
     let first_user = entries
@@ -475,6 +492,7 @@ pub fn build_intent_transcript_v2(
         let line = format!("[user]: {}\n", entry.text);
         if msg_used + line.len() <= msg_budget_chars {
             msg_used += line.len();
+            msg_chars += line.chars().count();
             message_slots.push((idx, line));
             anchored.insert(idx);
         }
@@ -484,6 +502,7 @@ pub fn build_intent_transcript_v2(
             let line = format!("[user]: {}\n", entry.text);
             if msg_used + line.len() <= msg_budget_chars {
                 msg_used += line.len();
+                msg_chars += line.chars().count();
                 message_slots.push((idx, line));
                 anchored.insert(idx);
             }
@@ -507,6 +526,7 @@ pub fn build_intent_transcript_v2(
                     continue;
                 }
                 msg_used += line.len();
+                msg_chars += line.chars().count();
                 message_slots.push((idx, line));
             }
             EntryKind::Tool(_) => {}
@@ -515,6 +535,7 @@ pub fn build_intent_transcript_v2(
 
     // Phase 3: fill tool entries (most recent first) with separate budget
     let mut tool_chars_used = 0usize;
+    let mut tool_chars = 0usize;
     for (idx, entry) in entries.iter().enumerate().rev() {
         if let EntryKind::Tool(name) = &entry.kind {
             let line = format!("[tool:{name}]: {}\n", entry.text);
@@ -522,10 +543,10 @@ pub fn build_intent_transcript_v2(
                 continue;
             }
             tool_chars_used += line.len();
+            tool_chars += line.chars().count();
             tool_slots.push((idx, line));
         }
     }
-    let tool_used = tool_chars_used;
 
     // Merge and sort by original index to preserve chronological order
     let mut all_slots = message_slots;
@@ -533,11 +554,10 @@ pub fn build_intent_transcript_v2(
     all_slots.sort_by_key(|(idx, _)| *idx);
 
     let transcript: String = all_slots.into_iter().map(|(_, line)| line).collect();
-    let total_chars = msg_used + tool_used;
 
     ReviewContext {
         intent_transcript: transcript,
-        transcript_tokens: total_chars / CHARS_PER_TOKEN,
+        transcript_tokens: (msg_chars + tool_chars).div_ceil(CHARS_PER_TOKEN),
     }
 }
 

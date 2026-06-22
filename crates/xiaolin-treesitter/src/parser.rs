@@ -4,6 +4,9 @@ use std::sync::OnceLock;
 use dashmap::DashMap;
 use tree_sitter::Tree;
 
+/// Upper bound on cached language availability entries (language set is finite).
+const MAX_LANG_CACHE_ENTRIES: usize = 50;
+
 static LANG_CACHE: OnceLock<DashMap<String, bool>> = OnceLock::new();
 
 fn lang_availability() -> &'static DashMap<String, bool> {
@@ -88,6 +91,13 @@ impl CodeParser {
             return *entry;
         }
         let available = tree_sitter_language_pack::has_language(lang);
+        if cache.len() >= MAX_LANG_CACHE_ENTRIES {
+            cache.clear();
+            tracing::debug!(
+                max = MAX_LANG_CACHE_ENTRIES,
+                "LANG_CACHE at capacity; cleared before insert"
+            );
+        }
         cache.insert(lang.to_string(), available);
         available
     }

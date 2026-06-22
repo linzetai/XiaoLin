@@ -67,6 +67,10 @@ impl ApiKeyAuth {
     /// Priority: `Authorization: Bearer`, `Sec-WebSocket-Protocol` subprotocol
     /// (`bearer.<key>` or `api-key.<key>`), then deprecated query `token` /
     /// `api_key`.
+    ///
+    /// Query-string keys are supported only because browser WebSocket APIs cannot
+    /// set custom headers on upgrade requests. Prefer `Authorization: Bearer` or
+    /// `Sec-WebSocket-Protocol` when the client environment allows it.
     pub fn extract_ws_key(
         headers: &axum::http::HeaderMap,
         query_token: Option<&str>,
@@ -108,22 +112,32 @@ impl ApiKeyAuth {
         None
     }
 
-    fn extract_key(req: &Request) -> Option<String> {
+    fn extract_key_with_source(req: &Request) -> Option<(String, WsKeySource)> {
         if let Some(auth) = req.headers().get("authorization") {
             if let Ok(value) = auth.to_str() {
                 if let Some(token) = value.strip_prefix("Bearer ") {
-                    return Some(token.trim().to_string());
+                    let token = token.trim();
+                    if !token.is_empty() {
+                        return Some((
+                            token.to_string(),
+                            WsKeySource::AuthorizationHeader,
+                        ));
+                    }
                 }
             }
         }
 
         if let Some(key) = req.headers().get("x-api-key") {
             if let Ok(value) = key.to_str() {
-                return Some(value.trim().to_string());
+                let value = value.trim();
+                if !value.is_empty() {
+                    return Some((value.to_string(), WsKeySource::AuthorizationHeader));
+                }
             }
         }
 
-        // WebSocket upgrade: clients often cannot set custom headers; allow key in query string.
+        // WebSocket upgrade: browser WebSocket APIs cannot attach custom headers, so
+        // clients may pass the key in the query string as a last resort.
         if req.uri().path() == "/ws" {
             if let Some(q) = req.uri().query() {
                 for pair in q.split('&') {
@@ -135,7 +149,7 @@ impl ApiKeyAuth {
                         let v = decode_query_component(v);
                         let v = v.trim();
                         if !v.is_empty() {
-                            return Some(v.to_string());
+                            return Some((v.to_string(), WsKeySource::QueryString));
                         }
                     }
                 }
@@ -171,6 +185,52 @@ fn hex_digit(b: u8) -> Option<u8> {
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
     }
+}
+
+/// Percent-decode a URL path segment (application/x-www-form-urlencoded rules).
+fn percent_decode_path(path: &str) -> String {
+    decode_query_component(path)
+}
+
+/// Collapse duplicate slashes and resolve `.` / `..` path components.
+fn normalize_request_path(raw: &str) -> String {
+    let decoded = percent_decode_path(raw);
+    let collapsed = decoded.replace("//", "/");
+    let absolute = collapsed.starts_with('/');
+    let mut stack: Vec<&str> = Vec::new();
+
+    for component in collapsed.split('/') {
+        match component {
+            "" | "." => continue,
+            ".." => {
+                if absolute {
+                    stack.pop();
+                } else if !stack.is_empty() {
+                    stack.pop();
+                }
+            }
+            segment => stack.push(segment),
+        }
+    }
+
+    if absolute {
+        if stack.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", stack.join("/"))
+        }
+    } else {
+        stack.join("/")
+    }
+}
+
+fn is_auth_exempt_path(path: &str) -> bool {
+    path == "/health"
+        || path == "/healthz"
+        || path == "/ready"
+        || path == "/"
+        || path == "/ui"
+        || (path.starts_with("/webhook/") && path.split('/').count() <= 4)
 }
 
 /// Minimal application/x-www-form-urlencoded decoding for query values.
@@ -222,27 +282,25 @@ pub async fn auth_middleware(
     }
 
     let raw_path = req.uri().path();
-    let normalized = raw_path.replace("//", "/");
-    let path = normalized.as_str();
+    let path = normalize_request_path(raw_path);
     if path != raw_path {
         tracing::debug!(
             raw = %raw_path,
             normalized = %path,
-            "auth: path normalized (double slashes removed)"
+            "auth: request path normalized before auth check"
         );
     }
-    if path == "/health"
-        || path == "/healthz"
-        || path == "/ready"
-        || path == "/"
-        || path == "/ui"
-        || (path.starts_with("/webhook/") && !path.contains("..") && path.split('/').count() <= 4)
-    {
+    if is_auth_exempt_path(&path) {
         return next.run(req).await;
     }
 
-    match ApiKeyAuth::extract_key(&req) {
-        Some(key) if auth.validate_key(&key) => next.run(req).await,
+    match ApiKeyAuth::extract_key_with_source(&req) {
+        Some((key, source)) if auth.validate_key(&key) => {
+            if source == WsKeySource::QueryString {
+                tracing::debug!(path = %path, "authenticated via query param");
+            }
+            next.run(req).await
+        }
         Some(_) => {
             tracing::warn!(path, "invalid API key");
             (

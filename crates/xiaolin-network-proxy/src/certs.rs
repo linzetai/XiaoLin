@@ -122,6 +122,7 @@ fn managed_ca_paths() -> Result<(PathBuf, PathBuf)> {
 }
 
 fn load_or_create_ca() -> Result<(String, String)> {
+    // TODO(security): encrypt the MITM CA private key at rest; file mode is 0o600 only.
     let (cert_path, key_path) = managed_ca_paths()?;
 
     if cert_path.exists() || key_path.exists() {

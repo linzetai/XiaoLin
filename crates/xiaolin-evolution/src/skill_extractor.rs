@@ -117,14 +117,28 @@ impl SkillExtractor {
         task_pattern: &str,
         trajs: &[&Trajectory],
     ) -> Vec<ExtractedSkill> {
+        const LARGE_CLUSTER_WARN_THRESHOLD: usize = 1000;
+
         let min_n = (self.min_occurrences as usize).max(1);
         if trajs.len() < min_n {
             return Vec::new();
         }
 
+        if trajs.len() > LARGE_CLUSTER_WARN_THRESHOLD {
+            tracing::warn!(
+                task_pattern,
+                patterns = trajs.len(),
+                threshold = LARGE_CLUSTER_WARN_THRESHOLD,
+                "skill clustering: large trajectory group; O(n²) similarity pass may be slow \
+                 (TODO: union-find or pre-sort by sequence length/hash to reduce comparisons)"
+            );
+        }
+
         let mut used: HashSet<String> = HashSet::new();
         let mut out = Vec::new();
 
+        // TODO: O(n²) seed-vs-all clustering; consider union-find on similarity graph or
+        // pre-sorting trajectories by tool-sequence hash to prune candidate pairs.
         for seed in trajs {
             if used.contains(&seed.id) {
                 continue;

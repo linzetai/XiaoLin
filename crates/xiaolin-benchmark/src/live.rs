@@ -93,7 +93,10 @@ impl BenchmarkExecutor for LiveExecutor {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(256);
 
         let runtime = self.runtime.clone();
-        let config = self.agent_config.clone();
+        let mut config = self.agent_config.clone();
+        if let Some(max_turns) = task.environment.max_turns {
+            config.behavior.max_tool_calls_per_turn = max_turns;
+        }
         let registry = self.tool_registry.clone();
         let orchestrator = self.orchestrator.clone();
 
