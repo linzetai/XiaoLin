@@ -136,11 +136,15 @@ impl ContextTokenCache {
             }
         }
         let path = Self::file_path(account_id);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
         if let Ok(json) = serde_json::to_string(&map) {
-            std::fs::write(&path, json).ok();
+            tokio::task::spawn_blocking(move || {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!(error = %e, path = %path.display(), "failed to persist wechat context tokens");
+                }
+            });
         }
     }
 
@@ -182,20 +186,10 @@ impl WechatPlugin {
     }
 
     fn find_client_for_target(&self, target_id: &str) -> Option<(String, WechatApiClient)> {
-        if let Some(ctx_token_key) = self
-            .accounts
+        self.accounts
             .iter()
             .find(|entry| self.context_tokens.get(entry.key(), target_id).is_some())
-        {
-            let account_id = ctx_token_key.key().clone();
-            let client = ctx_token_key.value().client.clone();
-            return Some((account_id, client));
-        }
-
-        // Fallback: use first available account
-        self.accounts.iter().next().map(|entry| {
-            (entry.key().clone(), entry.value().client.clone())
-        })
+            .map(|entry| (entry.key().clone(), entry.value().client.clone()))
     }
 }
 

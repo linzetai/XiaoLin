@@ -34,13 +34,13 @@
 
 #### BUG-002 🔴 API Key 热更新不生效
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/lib.rs` L138–142、L208–212
 - **关联文件**：`crates/xiaolin-gateway/src/ws/config.rs` L226–238
 - **问题**：`ApiKeyAuth` 在 `build_app` 时从静态 `config.security.api_keys` 构造并注入 Extension。`config.set` 可写 `security` 并更新 `config_live`，但未刷新 `ApiKeyAuth`。旧 key 仍可用，新 key 无效。
 - **影响**：密钥轮换窗口期安全漏洞
 - **建议**：将 `ApiKeyAuth` 改为 `Arc<ArcSwap<AuthConfig>>` 或在 `config.set` 的 `security` 分支同步重建 auth 层
-- **修复记录**：
+- **修复记录**：2026-06-22 ApiKeyAuth 改为 ArcSwap 动态读取，config.set 同步 reload
 
 ---
 
@@ -57,7 +57,7 @@
 
 #### BUG-004 🔴 SSRF 检查与 HTTP 请求之间存在 DNS TOCTOU
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要自定义 DNS resolver/connector，影响面大
 - **文件**：`crates/xiaolin-security/src/ssrf.rs` L86–109
 - **关联文件**：`crates/xiaolin-tools-network/src/lib.rs` L203–236
 - **问题**：`ssrf_check_url` 解析 DNS 后返回 OK，但 `reqwest` 在 `send()` 时可能再次解析。DNS rebinding 可绕过私有 IP 检查。
@@ -69,7 +69,7 @@
 
 #### BUG-005 🔴 飞书加密推送未实现但配置声明了
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要实现完整 AES-256-CBC 加解密流程
 
 - **文件**：`extensions/feishu/src/plugin.rs` L27
 - **关联文件**：`extensions/feishu/src/webhook.rs` L12–13；`extensions/feishu/Cargo.toml` L22–23
@@ -82,7 +82,7 @@
 
 #### BUG-006 🔴 飞书 OAuth Token 无刷新机制
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要实现完整 OAuth 授权码 + refresh_token 流程
 
 - **文件**：`extensions/feishu/src/oauth.rs` L8–25
 - **关联文件**：`extensions/feishu/src/client.rs` L97–108
@@ -95,13 +95,13 @@
 
 #### BUG-007 🔴 微信多账号场景下可能选错 API Client
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/wechat/src/plugin.rs` L170–185、L300–303、L410–412
 - **问题**：`find_client_for_target` 在找不到 context token 映射时，直接 fallback 到第一个账号。多账号并存时可能串号。
 - **影响**：消息发送到错误账号
 - **建议**：严格按 `account_id` 选 client，去掉 fallback，找不到则报错
-- **修复记录**：
+- **修复记录**：2026-06-22 删除 fallback 到第一个账号的逻辑，找不到返回 None
 
 ---
 
@@ -149,13 +149,13 @@
 
 #### BUG-011 🔴 Session Actor emit_sync 静默丢弃关键事件
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-session-actor/src/actor.rs` L514–540
 - **问题**：`TurnStart` / `TurnAborted` 等同步事件经 `try_send` 发送，channel 满时丢弃且无重试。
 - **影响**：UI 状态与后端不一致，用户可能永远看不到 `TurnEnd`
 - **建议**：生命周期事件用 `BackpressurePolicy::Block` 或带超时的 `send().await`
-- **修复记录**：
+- **修复记录**：2026-06-22 生命周期事件改为带超时 send().await，buffer 增至 1024
 
 ---
 
@@ -225,7 +225,7 @@
 
 #### BUG-017 🔴 飞书 Webhook 模式下 mention_only 失效
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/plugin.rs` L456–467
 - **关联文件**：`extensions/feishu/src/ws/transport.rs` L40–46
@@ -233,13 +233,13 @@
 - **影响**：群聊中所有消息都触发 bot 响应
 - **建议**：在 webhook 中复用 `messaging/inbound/parse.rs` + `mention.rs` 逻辑
 - **相关规则**：新增规则 #22
-- **修复记录**：
+- **修复记录**：2026-06-22 Webhook 复用 parse_im_mentions_from_message，正确设置 bot_mentioned
 
 ---
 
 #### BUG-018 🔴 飞书消息去重未接入生产路径
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/messaging/inbound/dedup.rs` L5–46
 - **关联文件**：`extensions/feishu/src/ws/transport.rs` L17–71；`extensions/feishu/src/plugin.rs` L518–557
@@ -247,7 +247,7 @@
 - **影响**：重连/重投/双通道时同一消息被重复处理
 - **建议**：在所有入口用 `Arc<Mutex<MessageDedup>>` 去重
 - **相关规则**：新增规则 #22
-- **修复记录**：
+- **修复记录**：2026-06-22 FeishuPlugin 新增 dedup 字段，WS/webhook 入口均调用去重
 
 ---
 
@@ -283,7 +283,7 @@
 
 #### BUG-021 🟡 沙箱拒绝后无二次审批即降级
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要重新设计 orchestrator 审批流程
 
 - **文件**：`crates/xiaolin-agent/src/runtime/orchestrator.rs` L361–377
 - **问题**：Phase 2 已获用户批准后，沙箱 `Denied` 直接以 `SandboxBackend::None` 重试
@@ -294,7 +294,7 @@
 
 #### BUG-022 🟡 Message Bus HTTP API 无 HMAC
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要评估 HMAC key 分发和管理机制
 
 - **文件**：`crates/xiaolin-core/src/bus.rs` L240–248；`crates/xiaolin-gateway/src/state/builder.rs` L585
 - **问题**：生产用 `MessageBus::new()` (`hmac_key: None`)，校验跳过
@@ -352,14 +352,14 @@
 
 #### BUG-027 🟡 skills 配置 static vs live 不一致
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-gateway/src/chat_pipeline.rs` L642
 - **关联文件**：`crates/xiaolin-gateway/src/state/mod.rs` L2347–2371
 - **问题**：`deny` 热更新，`allow`/`promptMode`/`contextBudgetPercent` 需重启
 - **建议**：统一从 `config_live` 读取
 - **相关规则**：规则 #2
-- **修复记录**：
+- **修复记录**：2026-06-22 promptMode/contextBudgetPercent 改为从 config_live 读取
 
 ---
 
@@ -367,12 +367,12 @@
 
 #### BUG-028 🟡 EventLog 缓冲区满时丢弃事件
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-session/src/event_log.rs` L91–93
 - **问题**：`try_send` 失败仅 `warn!`，不重试
 - **建议**：增大 buffer 或溢出时 spool 到磁盘
-- **修复记录**：
+- **修复记录**：2026-06-22 channel 容量增至 2048，失败时 spawn + timeout 重试
 
 ---
 
@@ -389,7 +389,7 @@
 
 #### BUG-030 🟡 ssrfAllowedHosts 完全跳过私有 IP 检查
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要评估白名单安全策略设计
 
 - **文件**：`crates/xiaolin-security/src/ssrf.rs` L77–84
 - **问题**：白名单 host 不做 DNS 解析校验
@@ -400,7 +400,7 @@
 
 #### BUG-031 🟡 MCP OAuth Token 明文落盘
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要集成 OS keyring 或加密存储方案
 
 - **文件**：`crates/xiaolin-mcp/src/oauth.rs` L393–427
 - **问题**：`FileTokenStore` 以明文 JSON 存 token
@@ -423,18 +423,18 @@
 
 #### BUG-033 🟡 FileStateCache::check_stale 同步读取整文件
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-tools-fs/src/file_state_cache.rs` L117–126
 - **问题**：mtime 变化时用 `std::fs::read_to_string` 全量读入，阻塞 async runtime
 - **建议**：异步 + 流式 hash
-- **修复记录**：
+- **修复记录**：2026-06-22 check_stale 改为 async，使用 tokio::fs 读取
 
 ---
 
 #### BUG-034 🟡 SkillStore::find_similar 全表扫描 + N+1 查询
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要 FTS/倒排索引架构改造
 
 - **文件**：`crates/xiaolin-evolution/src/skill_store.rs` L274–309、L691–729
 - **问题**：每次调用 SELECT 全部 skills，每个 skill 再查 parameters
@@ -445,7 +445,7 @@
 
 #### BUG-035 🟡 Skill 聚类 O(N²) + LCS O(N×M)
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要 MinHash/LSH 等算法优化
 
 - **文件**：`crates/xiaolin-evolution/src/skill_extractor.rs` L128–142、L390–405
 - **问题**：轨迹数增长时 CPU 开销急剧上升
@@ -456,7 +456,7 @@
 
 #### BUG-036 🟡 SymbolIndex 全局 Mutex 阻塞所有 lookup
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要 SQLite 多连接 + WAL 架构改造
 
 - **文件**：`crates/xiaolin-tools-code/src/symbol_index.rs` L19–21、L116–145
 - **问题**：后台扫描与前台 lookup 共用同一 `Mutex<Connection>`
@@ -467,12 +467,12 @@
 
 #### BUG-037 🟡 terminal_capture 全文件读入再取尾部
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-tools-fs/src/terminal.rs` L186–200
 - **问题**：大 panel 文件时 I/O 开销高
 - **建议**：从尾部 seek 读取
-- **修复记录**：
+- **修复记录**：2026-06-22 大文件从尾部反向 chunk 读取，小文件 async 读取
 
 ---
 
@@ -536,18 +536,18 @@
 
 #### BUG-043 🟡 SessionList 订阅整个 streams 对象
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-app/src/components/session-list/SessionList.tsx` L163
 - **问题**：`useStreamStore((s) => s.streams)` 使任意会话消息变化都重渲染整个侧边栏
 - **建议**：列表项内用 `useChatStream(chatId)` 逐条订阅
-- **修复记录**：
+- **修复记录**：2026-06-22 拆分 SessionChatPreview 子组件，单会话独立订阅
 
 ---
 
 #### BUG-044 🟡 WS 事件 payload 大量 `as` 断言
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要设计 WS 事件 discriminated union 类型体系
 
 - **文件**：`crates/xiaolin-app/src/components/message-stream/useMessageStreamChat.ts` L198–232
 - **问题**：后端字段变更时编译期无法感知
@@ -558,12 +558,12 @@
 
 #### BUG-045 🟡 TerminalPanel 使用 dangerouslySetInnerHTML
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`crates/xiaolin-app/src/components/shell/TerminalPanel.tsx` L80、L89–98
 - **问题**：终端输出经 `ansiToHtml` 转 HTML，ANSI 正则替换后可能含注入内容
 - **建议**：改用 xterm.js 或 DOM text + CSS 着色
-- **修复记录**：
+- **修复记录**：2026-06-22 删除 dangerouslySetInnerHTML，改为 ANSI→React span 渲染
 
 ---
 
@@ -580,7 +580,7 @@
 
 #### BUG-047 🟡 useMessageStreamChat effect 刻意省略依赖
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要重构 effect 依赖和 ref 追踪模式
 
 - **文件**：`crates/xiaolin-app/src/components/message-stream/useMessageStreamChat.ts` L127–243
 - **问题**：省略 `streaming` 等依赖，detached stream 逻辑可能不一致
@@ -602,7 +602,7 @@
 
 #### BUG-049 🟡 transport / api 双路径并存
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要跨 22+ 组件统一迁移到 api.ts
 
 - **文件**：22 个组件直接 `import transport`；13 个用 `api`
 - **问题**：新增 WS op 时易漏同步三层类型
@@ -625,7 +625,7 @@
 
 #### BUG-051 🟡 PluginsView 单文件 2400+ 行
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要按功能拆分 2400+ 行文件
 
 - **文件**：`crates/xiaolin-app/src/components/plugins/PluginsView.tsx`
 - **问题**：状态、轮询、WeChat 登录、Skills/MCP/Channels 混在一起
@@ -671,41 +671,41 @@
 
 #### BUG-055 🟡 飞书 tenant token 刷新 thundering herd
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/client.rs` L323–364
 - **问题**：多并发请求同时穿透到 token API
 - **建议**：使用 single-flight / OnceCell
-- **修复记录**：
+- **修复记录**：2026-06-22 tenant token 刷新改为 Mutex + double-check 模式
 
 ---
 
 #### BUG-056 🟡 飞书 WS 分片缓存无 TTL
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/ws/client.rs` L454–476
 - **问题**：`fragment_cache` 分片未收齐时永不 eviction
 - **建议**：为每个 msg_id 加 timestamp，定期清理
 - **相关规则**：新增规则 #27
-- **修复记录**：
+- **修复记录**：2026-06-22 fragment_cache 条目带时间戳，60 秒 TTL 清理
 
 ---
 
 #### BUG-057 🟡 飞书 Webhook 仅处理 text，与能力声明不一致
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/plugin.rs` L414–417
 - **问题**：`capabilities().media = true` 但丢弃 image/file/post
 - **建议**：扩展 parse 逻辑，至少对 image/file 生成 attachments
-- **修复记录**：
+- **修复记录**：2026-06-22 非 text 消息生成占位描述而非丢弃
 
 ---
 
 #### BUG-058 🟡 飞书三套并行 inbound 架构
 
-- **状态**：⬜ OPEN
+- **状态**：⏭️ DEFERRED: 需要收敛三套 inbound 架构为统一模块
 
 - **文件**：`plugin.rs`（ChannelPlugin）、`ws/transport.rs`（WS 解析）、`channel/handler.rs`（遗留 Axum）
 - **问题**：mention 解析在 3 处重复实现，行为已出现分歧
@@ -717,12 +717,12 @@
 
 #### BUG-059 🟡 飞书 im_core_tools 与注释意图不符
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/plugin.rs` L146–157、L502–505
 - **问题**：注释称 NOT exposed to LLM，但 `tools()` 合并了 im_core_tools
 - **建议**：分层注册 channel_internal_tools vs llm_tools
-- **修复记录**：
+- **修复记录**：2026-06-22 tools() 只返回 llm_tools()，im_core_tools 改为 #[cfg(test)]
 
 ---
 
@@ -739,13 +739,13 @@
 
 #### BUG-061 🟡 微信凭证明文落盘
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/wechat/src/auth/credential.rs` L30–35、L44–57
 - **问题**：`bot_token` 以明文 JSON 存储，无文件权限限制
 - **建议**：使用加密存储；写入时 chmod 600
 - **相关规则**：新增规则 #23
-- **修复记录**：
+- **修复记录**：2026-06-22 写入后设置文件权限 0600
 
 ---
 
@@ -785,34 +785,34 @@
 
 #### BUG-065 🟡 微信 ContextToken 持久化在 async 热路径阻塞
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/wechat/src/plugin.rs` L115–130
 - **问题**：`ContextTokenCache::persist` 使用同步 `std::fs::*`
 - **建议**：`tokio::fs` + 防抖批量写
-- **修复记录**：
+- **修复记录**：2026-06-22 persist 改为 spawn_blocking 异步写盘
 
 ---
 
 #### BUG-066 🟡 飞书 media 下载无大小上限
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/client.rs` L291–320
 - **问题**：整文件读入 `Vec<u8>`，大文件可能 OOM
 - **建议**：设置 max size；流式写入临时文件
-- **修复记录**：
+- **修复记录**：2026-06-22 下载前检查 Content-Length，流式读取累计超 50MB 报错
 
 ---
 
 #### BUG-067 🟡 飞书/微信配置 schema 与运行时行为不一致
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 
 - **文件**：`extensions/feishu/src/core/config_schema.rs` L45–48
 - **问题**：schema 声明了 `allow_from`、`brand` 但未读取/enforcement
 - **建议**：实现过滤，或从 schema 移除
-- **修复记录**：
+- **修复记录**：2026-06-22 从 schema 移除未实现的 brand/allow_from 字段
 
 ---
 

@@ -4,6 +4,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use arc_swap::ArcSwap;
 use constant_time_eq::constant_time_eq;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -17,31 +18,42 @@ pub struct AuthConfig {
     pub api_keys: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct AuthSnapshot {
+    enabled: bool,
+    valid_keys: Vec<String>,
+}
+
 /// API key authentication layer.
 /// Checks `Authorization: Bearer <key>` or `X-API-Key: <key>` headers.
 #[derive(Clone)]
 pub struct ApiKeyAuth {
-    valid_keys: Arc<Vec<String>>,
-    enabled: bool,
+    inner: Arc<ArcSwap<AuthSnapshot>>,
 }
 
 impl ApiKeyAuth {
     pub fn new(config: &AuthConfig) -> Self {
         Self {
-            valid_keys: Arc::new(config.api_keys.clone()),
-            enabled: config.enabled,
+            inner: Arc::new(ArcSwap::from_pointee(snapshot_from_config(config))),
         }
+    }
+
+    /// Hot-reload API keys and enabled flag (e.g. after `config.set security`).
+    pub fn reload(&self, config: &AuthConfig) {
+        self.inner
+            .store(Arc::new(snapshot_from_config(config)));
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.enabled
+        self.inner.load().enabled
     }
 
     pub fn validate_key(&self, key: &str) -> bool {
-        if !self.enabled {
+        let snap = self.inner.load();
+        if !snap.enabled {
             return true;
         }
-        self.valid_keys
+        snap.valid_keys
             .iter()
             .any(|k| constant_time_eq(k.as_bytes(), key.as_bytes()))
     }
@@ -81,6 +93,13 @@ impl ApiKeyAuth {
         }
 
         None
+    }
+}
+
+fn snapshot_from_config(config: &AuthConfig) -> AuthSnapshot {
+    AuthSnapshot {
+        enabled: config.enabled,
+        valid_keys: config.api_keys.clone(),
     }
 }
 
@@ -137,7 +156,7 @@ pub async fn auth_middleware(
 ) -> Response {
     let auth = &auth.0;
 
-    if !auth.enabled {
+    if !auth.is_enabled() {
         return next.run(req).await;
     }
 

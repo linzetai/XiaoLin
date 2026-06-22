@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,9 @@ use xiaolin_core::channel::{
 use xiaolin_core::tool::Tool;
 
 use crate::client::FeishuClient;
+use crate::messaging::inbound::{MessageDedup, parse_im_mentions_from_message};
+use crate::messaging::inbound::parse::extract_inbound_text;
+#[cfg(test)]
 use crate::tools::{FeishuGetChatMessagesTool, FeishuReplyMessageTool, FeishuSendMessageTool};
 use crate::ws;
 
@@ -102,6 +106,7 @@ pub struct FeishuPlugin {
     ws_client: Arc<Mutex<Option<Arc<ws::FeishuWsClient>>>>,
     /// Cancels the event bridge task on stop
     ws_bridge_cancel: Arc<Mutex<Option<CancellationToken>>>,
+    dedup: Arc<Mutex<MessageDedup>>,
 }
 
 impl FeishuPlugin {
@@ -136,6 +141,7 @@ impl FeishuPlugin {
             client,
             ws_client: Arc::new(Mutex::new(None)),
             ws_bridge_cancel: Arc::new(Mutex::new(None)),
+            dedup: Arc::new(Mutex::new(MessageDedup::new(Duration::from_secs(300)))),
         }
     }
 
@@ -151,8 +157,19 @@ impl FeishuPlugin {
         &self.config.reply_mode
     }
 
+    async fn accept_inbound_message(&self, message_id: &str) -> bool {
+        let mut dedup = self.dedup.lock().await;
+        if dedup.check(message_id) {
+            true
+        } else {
+            tracing::debug!(message_id, "feishu: duplicate message skipped");
+            false
+        }
+    }
+
     /// IM core tools used internally by the channel plugin (send/reply/image).
     /// These are NOT exposed to the LLM as the gateway handles messaging.
+    #[cfg(test)]
     fn im_core_tools(&self) -> Vec<Arc<dyn Tool>> {
         use crate::tools::{FeishuReplyImageTool, FeishuSendImageTool};
         vec![
@@ -432,16 +449,18 @@ impl ChannelPlugin for FeishuPlugin {
             .get("message_type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if msg_type != "text" {
-            tracing::debug!(msg_type, "ignoring non-text Feishu message");
-            return Ok(WebhookResult::Ignored);
-        }
-
         let message_id = message
             .get("message_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        if message_id.is_empty() {
+            return Ok(WebhookResult::Ignored);
+        }
+        if !self.accept_inbound_message(&message_id).await {
+            return Ok(WebhookResult::Ignored);
+        }
+
         let chat_id = message
             .get("chat_id")
             .and_then(|v| v.as_str())
@@ -459,10 +478,11 @@ impl ChannelPlugin for FeishuPlugin {
             .get("content")
             .and_then(|v| v.as_str())
             .unwrap_or("{}");
-        let text = serde_json::from_str::<serde_json::Value>(content_str)
-            .ok()
-            .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(String::from))
-            .unwrap_or_default();
+        let mut text = extract_inbound_text(msg_type, content_str);
+        let bot_open_id = self.get_bot_open_id().await;
+        let (bot_mentioned, stripped_text) =
+            parse_im_mentions_from_message(message, text, bot_open_id.as_deref());
+        text = stripped_text;
 
         if text.is_empty() {
             return Ok(WebhookResult::Ignored);
@@ -474,6 +494,18 @@ impl ChannelPlugin for FeishuPlugin {
             .unwrap_or("p2p")
             .to_string();
 
+        if chat_type == "group"
+            && self.config.reply_mode == "mention_only"
+            && !bot_mentioned
+        {
+            tracing::debug!(
+                chat_id = %chat_id,
+                message_id = %message_id,
+                "feishu webhook: group message without @mention, skipped"
+            );
+            return Ok(WebhookResult::Ignored);
+        }
+
         Ok(WebhookResult::Messages(vec![InboundMessage {
             channel_id: "feishu".to_string(),
             account_id: None,
@@ -483,7 +515,7 @@ impl ChannelPlugin for FeishuPlugin {
             text,
             msg_type: msg_type.to_string(),
             chat_type,
-            bot_mentioned: false,
+            bot_mentioned,
             extra: event.clone(),
             attachments: vec![],
         }]))
@@ -521,9 +553,7 @@ impl ChannelPlugin for FeishuPlugin {
     }
 
     fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut tools = self.im_core_tools();
-        tools.extend(self.llm_tools());
-        tools
+        self.llm_tools()
     }
 
     async fn probe(&self) -> anyhow::Result<bool> {
@@ -572,6 +602,7 @@ impl ChannelPlugin for FeishuPlugin {
 
         let bot_open_id = self.get_bot_open_id().await;
         let reply_mode = self.config.reply_mode.clone();
+        let dedup = Arc::clone(&self.dedup);
         let bridge_cancel = CancellationToken::new();
         {
             let mut guard = self.ws_bridge_cancel.lock().await;
@@ -584,6 +615,7 @@ impl ChannelPlugin for FeishuPlugin {
                 inbound_tx,
                 bot_open_id,
                 reply_mode,
+                dedup,
                 bridge_cancel,
             )
             .await;
@@ -691,7 +723,8 @@ mod tests {
     #[test]
     fn plugin_tools_count() {
         let plugin = FeishuPlugin::new(test_config());
-        assert_eq!(plugin.tools().len(), 32);
+        assert_eq!(plugin.tools().len(), 27);
+        assert_eq!(plugin.im_core_tools().len(), 5);
     }
 
     #[test]
@@ -746,6 +779,37 @@ mod tests {
                 assert_eq!(msgs[0].text, "hello");
                 assert_eq!(msgs[0].chat_id, "oc_456");
                 assert_eq!(msgs[0].sender_id, "ou_abc");
+            }
+            _ => panic!("expected Messages"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_image_message() {
+        let plugin = FeishuPlugin::new(test_config());
+        let payload = serde_json::json!({
+            "header": {
+                "event_type": "im.message.receive_v1",
+                "token": ""
+            },
+            "event": {
+                "sender": {
+                    "sender_id": { "open_id": "ou_abc" }
+                },
+                "message": {
+                    "message_id": "om_img",
+                    "chat_id": "oc_456",
+                    "message_type": "image",
+                    "content": "{\"image_key\":\"img_123\"}"
+                }
+            }
+        });
+        let result = plugin.handle_webhook(payload).await.unwrap();
+        match result {
+            WebhookResult::Messages(msgs) => {
+                assert_eq!(msgs.len(), 1);
+                assert_eq!(msgs[0].text, "[图片]");
+                assert_eq!(msgs[0].msg_type, "image");
             }
             _ => panic!("expected Messages"),
         }

@@ -231,9 +231,14 @@ pub async fn handle_config_set(
                         new_config.security.dangerous_ops_policy,
                         &new_config.security.dangerous_patterns,
                     );
+                    state.cfg.auth.reload(&xiaolin_security::AuthConfig {
+                        enabled: !new_config.security.api_keys.is_empty(),
+                        api_keys: new_config.security.api_keys.clone(),
+                    });
                     tracing::info!(
                         hosts = ?new_config.security.ssrf_allowed_hosts,
                         dangerous_ops_policy = ?new_config.security.dangerous_ops_policy,
+                        api_key_count = new_config.security.api_keys.len(),
                         "config.set: hot-reloaded security settings"
                     );
                 }

@@ -879,6 +879,12 @@ impl StateBuilder {
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
+        let auth = Arc::new(xiaolin_security::ApiKeyAuth::new(
+            &xiaolin_security::AuthConfig {
+                enabled: !config.security.api_keys.is_empty(),
+                api_keys: config.security.api_keys.clone(),
+            },
+        ));
         let runtime_for_subagent = p5.phase2.phase4.phase3.runtime.clone();
         let runtime_for_session = p5.phase2.phase4.phase3.runtime.clone();
         let session_store_for_session = p5.phase2.phase4.phase3.phase1.session_store.clone();
@@ -954,6 +960,7 @@ impl StateBuilder {
             cfg: super::ConfigState {
                 config: Arc::new(config),
                 config_live: Arc::new(ArcSwap::new(Arc::new(config_live_val))),
+                auth,
                 runtime_route_bindings: Arc::new(tokio::sync::RwLock::new(Vec::new())),
                 last_good_agents: Arc::new(tokio::sync::RwLock::new(initial_agents.clone())),
                 live_agents_swap: live_agents_swap.clone(),

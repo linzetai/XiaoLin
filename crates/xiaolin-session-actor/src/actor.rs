@@ -41,6 +41,8 @@ impl SessionActorConfig {
     /// Bounded SQ capacity. Aligned with Codex's 512 but we default lower
     /// since XiaoLin sessions are typically lighter.
     pub const DEFAULT_SQ_CAPACITY: usize = 256;
+    /// Default buffer size for session event subscribers.
+    pub const DEFAULT_SUBSCRIBER_BUFFER: usize = 1024;
 }
 
 /// The session actor — one per session, owns the SQ/EQ channel pair.
@@ -220,25 +222,27 @@ impl SessionActor {
                 false
             }
             SessionOp::ForkSession { .. } => {
-                self.emit_sync(
+                self.emit_event(
                     &sub.id,
                     AgentEvent::Error {
                         turn_id: TurnId::new("fork"),
                         message: "ForkSession is not yet implemented".into(),
                         error_code: Some(xiaolin_protocol::event::ErrorCode::BadRequest),
                     },
-                );
+                )
+                .await;
                 false
             }
             SessionOp::RollbackTurns { .. } => {
-                self.emit_sync(
+                self.emit_event(
                     &sub.id,
                     AgentEvent::Error {
                         turn_id: TurnId::new("rollback"),
                         message: "RollbackTurns is not yet implemented".into(),
                         error_code: Some(xiaolin_protocol::event::ErrorCode::BadRequest),
                     },
-                );
+                )
+                .await;
                 false
             }
             SessionOp::UpdateSettings { .. } => {
@@ -274,13 +278,14 @@ impl SessionActor {
         let _ = self.status_tx.send(AgentStatus::Running);
 
         // 3. Emit TurnStart.
-        self.emit_sync(
+        self.emit_event(
             &sub_id,
             AgentEvent::TurnStart {
                 turn_id: turn_id.clone(),
                 session_id: Some(self.session_id.to_string()),
             },
-        );
+        )
+        .await;
 
         // 4. Create interaction channel for this turn.
         let (interaction_handle, registrar) = crate::interaction::interaction_channel();
@@ -462,7 +467,7 @@ impl SessionActor {
 
             // 4. Emit TurnAborted (before clearing pending, so subscribers
             //    learn about the abort while interactions are still tracked).
-            self.emit_sync(
+            self.emit_event(
                 &turn.sub_id,
                 AgentEvent::TurnAborted {
                     turn_id: turn.turn_id,
@@ -470,7 +475,8 @@ impl SessionActor {
                     completed_at: None,
                     duration_ms: None,
                 },
-            );
+            )
+            .await;
 
             // 5. Clear pending interactions and steer channel for this turn.
             self.interaction_port.cancel_all();
@@ -485,14 +491,15 @@ impl SessionActor {
     async fn handle_compact(&mut self, sub_id: SubmissionId) {
         if self.active_turn.is_some() {
             warn!(sub_id = %sub_id, "Compact rejected: a turn is already active");
-            self.emit_sync(
+            self.emit_event(
                 &sub_id,
                 AgentEvent::Error {
                     turn_id: TurnId::new("compact"),
                     message: "cannot compact while a turn is active".into(),
                     error_code: Some(xiaolin_protocol::event::ErrorCode::BadRequest),
                 },
-            );
+            )
+            .await;
             return;
         }
 
@@ -528,12 +535,18 @@ impl SessionActor {
     }
 
     /// Emit an event to all subscribers.
-    fn emit_sync(&self, sub_id: &SubmissionId, msg: AgentEvent) {
+    async fn emit_event(&self, sub_id: &SubmissionId, msg: AgentEvent) {
         let event = SessionEvent {
             id: sub_id.clone(),
             session_id: self.session_id.clone(),
             msg,
         };
+        let is_lifecycle = matches!(
+            event.msg,
+            AgentEvent::TurnStart { .. }
+                | AgentEvent::TurnEnd { .. }
+                | AgentEvent::TurnAborted { .. }
+        );
         let senders = {
             let f = self.fanout.lock();
             f.subscriber_senders()
@@ -544,14 +557,39 @@ impl SessionActor {
                 had_closed = true;
                 continue;
             }
-            if let Err(e) = tx.try_send(event.clone()) {
+            if is_lifecycle {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    tx.send(event.clone()),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) if tx.is_closed() => {
+                        had_closed = true;
+                    }
+                    Ok(Err(e)) => {
+                        warn!(
+                            session_id = %self.session_id,
+                            error = %e,
+                            "emit_event: failed to deliver lifecycle event"
+                        );
+                    }
+                    Err(_) => {
+                        warn!(
+                            session_id = %self.session_id,
+                            "emit_event: timed out delivering lifecycle event to subscriber"
+                        );
+                    }
+                }
+            } else if let Err(e) = tx.try_send(event.clone()) {
                 if tx.is_closed() {
                     had_closed = true;
                 } else {
                     warn!(
                         session_id = %self.session_id,
                         error = %e,
-                        "emit_sync: subscriber channel full, event dropped"
+                        "emit_event: subscriber channel full, event dropped"
                     );
                 }
             }
@@ -776,16 +814,12 @@ mod tests {
         handle.wait_until_stopped().await;
     }
 
-    // ─── RISK 7: emit_sync drops events when channel is full ─────────
+    // ─── Lifecycle events use blocking send with timeout ───────────────
 
-    /// Demonstrates that emit_sync uses try_send which silently drops
-    /// events when the subscriber channel is full. Critical lifecycle
-    /// events like TurnAborted may be lost.
     #[tokio::test]
-    async fn risk7_emit_sync_drops_events_on_full_channel() {
+    async fn lifecycle_events_delivered_even_on_tiny_subscriber_buffer() {
         let (handle, _exec) = spawn_test_actor();
 
-        // Subscribe with a tiny channel capacity of 1
         let (_sub_id, mut rx) = handle
             .submit_and_subscribe(
                 SessionOp::UserTurn {
@@ -796,32 +830,24 @@ mod tests {
                     extra: Default::default(),
                     typed_data: None,
                 },
-                1, // capacity = 1 — will fill up quickly
+                1,
             )
             .await
             .unwrap();
 
-        // Wait for events to be emitted
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        // Drain what we can — some events may have been dropped
         let mut received = Vec::new();
         while let Ok(ev) = rx.try_recv() {
             received.push(ev);
         }
 
-        // With capacity=1, the channel fills after TurnStart, and
-        // subsequent events (ContentDelta, TurnEnd) may be silently dropped.
-        // The relay task (handle_user_turn) uses async send with timeout,
-        // but emit_sync (used for TurnStart, TurnAborted) uses try_send.
-        eprintln!(
-            "risk7: received {} events with capacity=1 channel (some may have been dropped)",
-            received.len()
+        assert!(
+            received
+                .iter()
+                .any(|ev| matches!(ev.msg, AgentEvent::TurnStart { .. })),
+            "TurnStart must not be dropped on a full subscriber channel"
         );
-
-        // In a well-behaved system, we should always receive TurnStart + TurnEnd.
-        // But emit_sync's try_send may drop TurnStart if the channel was full
-        // from a prior subscription's unread events.
 
         handle.submit(SessionOp::Shutdown).await.unwrap();
         handle.wait_until_stopped().await;

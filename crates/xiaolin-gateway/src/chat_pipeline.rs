@@ -639,7 +639,29 @@ async fn inject_skills_prompt(
     messages: &mut Vec<ChatMessage>,
 ) {
     let agent_skill_reg = state.skill_registry_for(agent_id);
-    let skills_cfg = &state.cfg.config.skills;
+    let (prompt_mode, context_budget_percent) = {
+        let live = state.cfg.config_live.load();
+        let static_cfg = &state.cfg.config.skills;
+        if let Some(skills) = live.get("skills") {
+            let prompt_mode = skills
+                .get("promptMode")
+                .and_then(|v| {
+                    serde_json::from_value::<xiaolin_core::config::SkillPromptMode>(v.clone()).ok()
+                })
+                .unwrap_or(static_cfg.prompt_mode.clone());
+            let context_budget_percent = skills
+                .get("contextBudgetPercent")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u8)
+                .unwrap_or(static_cfg.context_budget_percent);
+            (prompt_mode, context_budget_percent)
+        } else {
+            (
+                static_cfg.prompt_mode.clone(),
+                static_cfg.context_budget_percent,
+            )
+        }
+    };
 
     let mut touched = xiaolin_core::skill::extract_touched_paths(messages);
     if touched.is_empty() {
@@ -678,11 +700,11 @@ async fn inject_skills_prompt(
         );
     }
 
-    let char_budget = if skills_cfg.context_budget_percent == 0 {
+    let char_budget = if context_budget_percent == 0 {
         None
     } else {
         context_window.map(|cw| {
-            (cw as usize) * (skills_cfg.context_budget_percent as usize) / 100 * 4
+            (cw as usize) * (context_budget_percent as usize) / 100 * 4
         })
     };
 
@@ -695,7 +717,7 @@ async fn inject_skills_prompt(
     };
 
     let (skills_prompt, truncation, injected_ids) =
-        effective_reg.format_with_budget_ordered(&skills_cfg.prompt_mode, char_budget, Some(&usage_counts));
+        effective_reg.format_with_budget_ordered(&prompt_mode, char_budget, Some(&usage_counts));
 
     if skills_prompt.is_empty() {
         return;

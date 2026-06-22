@@ -5,9 +5,13 @@
 //! Applies reply-mode filtering: in group chats with `mention_only` mode,
 //! messages without @mention are silently dropped.
 
-use xiaolin_core::channel::InboundMessage;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+
+use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
+use xiaolin_core::channel::InboundMessage;
+
+use crate::messaging::inbound::{MessageDedup, parse_im_mentions_from_message};
 
 use super::client::{EventReceiver, WsEvent};
 
@@ -20,6 +24,7 @@ pub async fn run_event_bridge(
     inbound_tx: mpsc::UnboundedSender<InboundMessage>,
     bot_open_id: Option<String>,
     reply_mode: String,
+    dedup: Arc<Mutex<MessageDedup>>,
     cancel: CancellationToken,
 ) {
     loop {
@@ -46,6 +51,17 @@ pub async fn run_event_bridge(
 
                 match parse_event_payload(&evt, bot_open_id.as_deref()) {
                     Some(msg) => {
+                        {
+                            let mut guard = dedup.lock().await;
+                            if !guard.check(&msg.message_id) {
+                                tracing::debug!(
+                                    msg_id = %msg.message_id,
+                                    "feishu ws: duplicate message skipped"
+                                );
+                                continue;
+                            }
+                        }
+
                         if msg.chat_type == "group" && reply_mode == "mention_only" && !msg.bot_mentioned {
                             tracing::debug!(
                                 chat_id = %msg.chat_id,
@@ -197,45 +213,14 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
         .to_string();
 
     let content_str = message.get("content")?.as_str()?;
-    let mut text = serde_json::from_str::<serde_json::Value>(content_str)
+    let text = serde_json::from_str::<serde_json::Value>(content_str)
         .ok()?
         .get("text")?
         .as_str()?
         .to_string();
 
-    // Parse mentions array to detect bot mention and strip @markers from text
-    let mentions = message
-        .get("mentions")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    let mut bot_mentioned = false;
-    for m in &mentions {
-        let m_key = m.get("key").and_then(|v| v.as_str()).unwrap_or("");
-        let m_open_id = m
-            .get("id")
-            .and_then(|v| v.get("open_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let is_bot = if let Some(bot_id) = bot_open_id {
-            m_open_id == bot_id
-        } else {
-            // Fallback: check id_type == "app_id" which indicates a bot mention
-            m.get("id")
-                .and_then(|v| v.get("id_type"))
-                .and_then(|v| v.as_str())
-                == Some("app_id")
-        };
-
-        if is_bot {
-            bot_mentioned = true;
-            text = text.replace(m_key, "");
-        }
-    }
-
-    let text = text.trim().to_string();
+    let (bot_mentioned, text) =
+        parse_im_mentions_from_message(message, text, bot_open_id);
     if text.is_empty() {
         return None;
     }

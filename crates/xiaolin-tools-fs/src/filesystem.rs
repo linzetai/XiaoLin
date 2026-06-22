@@ -2703,7 +2703,7 @@ Always use this tool or edit_file — they provide atomic writes, encoding prese
         // Only applies when overwriting existing files (not append or create_new).
         if mode == "overwrite" && validated.exists() {
             if let Some(cache) = get_file_state_cache() {
-                match cache.check_stale(&validated) {
+                match cache.check_stale(&validated).await {
                     StaleCheckResult::Stale => {
                         return ToolResult::typed_err(
                             ToolErrorType::FileWriteFailure,
@@ -2888,7 +2888,7 @@ impl EditFileTool {
         };
 
         if let Some(cache) = get_file_state_cache() {
-            if let StaleCheckResult::Stale = cache.check_stale(&validated) {
+            if let StaleCheckResult::Stale = cache.check_stale(&validated).await {
                 return ToolResult::typed_err(
                     ToolErrorType::EditPreparationFailure,
                     format!(
@@ -3263,7 +3263,7 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
 
         // Stale detection: reject if the file was modified externally since we last read it.
         if let Some(cache) = get_file_state_cache() {
-            match cache.check_stale(&validated) {
+            match cache.check_stale(&validated).await {
                 StaleCheckResult::Stale => {
                     return ToolResult::typed_err(
                         ToolErrorType::EditPreparationFailure,

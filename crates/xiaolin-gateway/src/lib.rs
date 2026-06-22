@@ -135,11 +135,7 @@ pub async fn run(config: XiaoLinConfig) -> anyhow::Result<()> {
     let state = AppState::new(config).await?;
     let bind_addr = state.cfg.config.gateway.bind_addr();
 
-    let auth_config = xiaolin_security::AuthConfig {
-        enabled: !state.cfg.config.security.api_keys.is_empty(),
-        api_keys: state.cfg.config.security.api_keys.clone(),
-    };
-    let auth = ApiKeyAuth::new(&auth_config);
+    let auth = state.cfg.auth.as_ref().clone();
     if state.cfg.config.gateway.rate_limit.enabled {
         tracing::info!(
             max_requests = state.cfg.config.gateway.rate_limit.max_requests,
@@ -205,11 +201,7 @@ pub async fn serve_with_state(
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
     ensure_auth_for_exposed_bind(&state.cfg.config)?;
-    let auth_config = xiaolin_security::AuthConfig {
-        enabled: !state.cfg.config.security.api_keys.is_empty(),
-        api_keys: state.cfg.config.security.api_keys.clone(),
-    };
-    let auth = ApiKeyAuth::new(&auth_config);
+    let auth = state.cfg.auth.as_ref().clone();
 
     spawn_config_watcher(state.clone());
     spawn_cron_scheduler(state.clone());

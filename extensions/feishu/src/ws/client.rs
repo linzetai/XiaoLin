@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use futures::stream::{SplitSink, SplitStream};
@@ -28,9 +28,15 @@ const GEN_ENDPOINT_URI: &str = "/callback/ws/endpoint";
 const DEFAULT_PING_INTERVAL: u64 = 120;
 const DEFAULT_RECONNECT_INTERVAL: u64 = 120;
 const DEFAULT_RECONNECT_NONCE: u64 = 30;
+const FRAGMENT_TTL: Duration = Duration::from_secs(60);
 
 type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, WsMessage>;
 type WsReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+
+struct FragmentBuffer {
+    parts: Vec<Option<Vec<u8>>>,
+    created_at: Instant,
+}
 
 // ---------------------------------------------------------------------------
 // API types for /callback/ws/endpoint
@@ -111,7 +117,7 @@ pub struct FeishuWsClient {
     shutdown: Arc<Notify>,
     cancel: CancellationToken,
     #[allow(clippy::type_complexity)]
-    fragment_cache: Arc<Mutex<HashMap<String, Vec<Option<Vec<u8>>>>>>,
+    fragment_cache: Arc<Mutex<HashMap<String, FragmentBuffer>>>,
 }
 
 impl FeishuWsClient {
@@ -494,16 +500,23 @@ impl FeishuWsClient {
     /// Reassemble fragmented messages (multi-frame payloads).
     async fn combine(&self, msg_id: &str, sum: usize, seq: usize, data: &[u8]) -> Option<Vec<u8>> {
         let mut cache = self.fragment_cache.lock().await;
+        let now = Instant::now();
+        cache.retain(|_, entry| now.duration_since(entry.created_at) < FRAGMENT_TTL);
+
         let buf = cache
             .entry(msg_id.to_string())
-            .or_insert_with(|| vec![None; sum]);
+            .or_insert_with(|| FragmentBuffer {
+                parts: vec![None; sum],
+                created_at: now,
+            });
 
-        if seq < buf.len() {
-            buf[seq] = Some(data.to_vec());
+        if seq < buf.parts.len() {
+            buf.parts[seq] = Some(data.to_vec());
         }
 
-        if buf.iter().all(|slot| slot.is_some()) {
+        if buf.parts.iter().all(|slot| slot.is_some()) {
             let combined: Vec<u8> = buf
+                .parts
                 .iter()
                 .filter_map(|slot| slot.as_ref())
                 .flatten()

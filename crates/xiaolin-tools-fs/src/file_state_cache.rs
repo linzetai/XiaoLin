@@ -101,13 +101,16 @@ impl FileStateCache {
     /// - `Stale` — file changed externally; must re-read before editing
     /// - `NeverRead` — we have no record; the tool should decide whether to
     ///   require a read-first or allow the operation
-    pub fn check_stale(&self, path: &Path) -> StaleCheckResult {
+    pub async fn check_stale(&self, path: &Path) -> StaleCheckResult {
         let entry = match self.cache.get(path) {
-            Some(e) => e,
+            Some(e) => e.clone(),
             None => return StaleCheckResult::NeverRead,
         };
 
-        let current_mtime = match std::fs::metadata(path).and_then(|m| m.modified()) {
+        let current_mtime = match tokio::fs::metadata(path)
+            .await
+            .and_then(|m| m.modified())
+        {
             Ok(t) => t,
             Err(_) => return StaleCheckResult::Fresh,
         };
@@ -117,7 +120,7 @@ impl FileStateCache {
             // Editors like vim/emacs rewrite the file on save even without
             // content changes, causing mtime bumps. Comparing the hash
             // avoids false-positive stale rejections.
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(content) = tokio::fs::read_to_string(path).await {
                 if compute_hash(&content) == entry.content_hash {
                     return StaleCheckResult::Fresh;
                 }
@@ -296,15 +299,15 @@ mod tests {
         assert!(!cache.is_unchanged(&path_b));
     }
 
-    #[test]
-    fn check_stale_mtime_changed_content_same_returns_fresh() {
+    #[tokio::test]
+    async fn check_stale_mtime_changed_content_same_returns_fresh() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("stale_test.txt");
         std::fs::write(&file_path, "same content").unwrap();
 
         let cache = FileStateCache::new();
         cache.update(&file_path, "same content");
-        assert_eq!(cache.check_stale(&file_path), StaleCheckResult::Fresh);
+        assert_eq!(cache.check_stale(&file_path).await, StaleCheckResult::Fresh);
 
         // Bump mtime by re-writing the same content after a delay
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -312,14 +315,14 @@ mod tests {
 
         // mtime changed but content hash matches → should be Fresh
         assert_eq!(
-            cache.check_stale(&file_path),
+            cache.check_stale(&file_path).await,
             StaleCheckResult::Fresh,
             "should be Fresh when mtime changed but content hash is the same"
         );
     }
 
-    #[test]
-    fn check_stale_mtime_changed_content_different_returns_stale() {
+    #[tokio::test]
+    async fn check_stale_mtime_changed_content_different_returns_stale() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("stale_test2.txt");
         std::fs::write(&file_path, "original content").unwrap();
@@ -331,7 +334,7 @@ mod tests {
         std::fs::write(&file_path, "modified content").unwrap();
 
         assert_eq!(
-            cache.check_stale(&file_path),
+            cache.check_stale(&file_path).await,
             StaleCheckResult::Stale,
             "should be Stale when both mtime and content changed"
         );

@@ -1087,15 +1087,15 @@ async fn feishu_plugin_provides_tools() {
     });
 
     let tools = plugin.tools();
-    assert_eq!(tools.len(), 32, "IM + user-scoped Feishu tools");
+    assert_eq!(tools.len(), 27, "LLM-exposed Feishu tools");
 
     let names: Vec<&str> = tools
         .iter()
         .map(|t| xiaolin_core::tool::Tool::name(t.as_ref()))
         .collect();
-    assert!(names.contains(&"feishu_send_message"));
-    assert!(names.contains(&"feishu_reply_message"));
-    assert!(names.contains(&"feishu_get_chat_messages"));
+    assert!(!names.contains(&"feishu_send_message"));
+    assert!(!names.contains(&"feishu_reply_message"));
+    assert!(!names.contains(&"feishu_get_chat_messages"));
     assert!(names.contains(&"feishu_task_create"));
     assert!(names.contains(&"feishu_doc_get_content"));
 }
@@ -1274,8 +1274,9 @@ async fn feishu_config_schema_valid() {
     let required = schema["required"].as_array().unwrap();
     assert!(required.iter().any(|v| v == "app_id"));
     assert!(required.iter().any(|v| v == "app_secret"));
-    assert!(schema["properties"]["brand"].is_object());
     assert!(schema["properties"]["connection_mode"].is_object());
+    assert!(schema["properties"]["brand"].is_null());
+    assert!(schema["properties"]["allow_from"].is_null());
 }
 
 // ---------------------------------------------------------------------------

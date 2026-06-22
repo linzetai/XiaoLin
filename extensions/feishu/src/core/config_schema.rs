@@ -26,12 +26,6 @@ pub fn feishu_config_json_schema() -> serde_json::Value {
                 "description": "XiaoLin agent ID to handle messages",
                 "default": "main"
             },
-            "brand": {
-                "type": "string",
-                "enum": ["feishu", "lark"],
-                "description": "Feishu or Lark brand (determines API base URL)",
-                "default": "feishu"
-            },
             "webhook_port": {
                 "type": "integer",
                 "description": "Custom webhook listen port"
@@ -41,11 +35,6 @@ pub fn feishu_config_json_schema() -> serde_json::Value {
                 "enum": ["webhook", "websocket"],
                 "description": "Connection mode for receiving events",
                 "default": "webhook"
-            },
-            "allow_from": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Allowlist of chat_ids or user open_ids permitted to interact"
             }
         },
         "required": ["app_id", "app_secret"]

@@ -120,6 +120,7 @@ mod helpers;
 pub struct ConfigState {
     pub config: Arc<XiaoLinConfig>,
     pub config_live: Arc<ArcSwap<serde_json::Value>>,
+    pub auth: Arc<xiaolin_security::ApiKeyAuth>,
     pub runtime_route_bindings: Arc<tokio::sync::RwLock<Vec<RuntimeRouteBinding>>>,
     pub last_good_agents: Arc<tokio::sync::RwLock<Vec<AgentConfig>>>,
     /// Lock-free mirror of `last_good_agents` for synchronous access
@@ -3195,6 +3196,12 @@ impl AppState {
             Arc::new(xiaolin_agent::ToolOrchestrator::new());
 
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
+        let auth = Arc::new(xiaolin_security::ApiKeyAuth::new(
+            &xiaolin_security::AuthConfig {
+                enabled: !config.security.api_keys.is_empty(),
+                api_keys: config.security.api_keys.clone(),
+            },
+        ));
         let channel_inbound_tx = {
             let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
             tx
@@ -3232,6 +3239,7 @@ impl AppState {
             cfg: ConfigState {
                 config: Arc::new(config),
                 config_live: Arc::new(ArcSwap::new(Arc::new(config_live_val))),
+                auth,
                 runtime_route_bindings: Arc::new(tokio::sync::RwLock::new(Vec::new())),
                 last_good_agents: Arc::new(tokio::sync::RwLock::new(last_good_agents_init.clone())),
                 live_agents_swap: Arc::new(ArcSwap::from_pointee(last_good_agents_init)),

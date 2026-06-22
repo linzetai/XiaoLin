@@ -36,8 +36,7 @@ pub fn parse_message_event(event: &serde_json::Value) -> Option<MessageContext> 
 
     let text = raw_content
         .as_deref()
-        .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
-        .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(String::from))
+        .map(|c| extract_inbound_text(&message_type, c))
         .unwrap_or_default();
 
     let thread_id = message
@@ -88,6 +87,36 @@ pub fn parse_message_event(event: &serde_json::Value) -> Option<MessageContext> 
     })
 }
 
+/// Extract display text or a placeholder for non-text Feishu message types.
+pub fn extract_inbound_text(msg_type: &str, content_str: &str) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(content_str).unwrap_or_default();
+    match msg_type {
+        "text" => parsed
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "image" => "[图片]".to_string(),
+        "file" => {
+            let name = parsed
+                .get("file_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if name.is_empty() {
+                "[文件]".to_string()
+            } else {
+                format!("[文件: {name}]")
+            }
+        }
+        "post" => "[富文本]".to_string(),
+        "audio" => "[语音]".to_string(),
+        "media" => "[视频]".to_string(),
+        "sticker" => "[贴纸]".to_string(),
+        "interactive" => "[卡片]".to_string(),
+        other => format!("[{other}]"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +160,21 @@ mod tests {
     fn parse_missing_message() {
         let event = json!({"sender": {"sender_id": {"open_id": "ou_abc"}}});
         assert!(parse_message_event(&event).is_none());
+    }
+
+    #[test]
+    fn extract_image_placeholder() {
+        assert_eq!(
+            extract_inbound_text("image", r#"{"image_key":"img_123"}"#),
+            "[图片]"
+        );
+    }
+
+    #[test]
+    fn extract_file_placeholder_with_name() {
+        assert_eq!(
+            extract_inbound_text("file", r#"{"file_name":"report.pdf"}"#),
+            "[文件: report.pdf]"
+        );
     }
 }

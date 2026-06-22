@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use sqlx::sqlite::SqlitePool;
 use tokio::sync::mpsc;
@@ -7,9 +8,10 @@ use xiaolin_protocol::AgentEvent;
 
 use crate::search_index::{SearchIndex, try_index_event};
 
-const BATCH_CAPACITY: usize = 1024;
+const BATCH_CAPACITY: usize = 2048;
 const BATCH_SIZE: usize = 64;
 const FLUSH_INTERVAL_MS: u64 = 50;
+const ENQUEUE_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct EventEntry {
     session_id: String,
@@ -68,8 +70,8 @@ impl EventLog {
         Ok(())
     }
 
-    /// Submit an event to the batch writer. Non-blocking: drops the event
-    /// and logs a warning if the buffer is full.
+    /// Submit an event to the batch writer. Uses a non-blocking send first;
+    /// if the buffer is full, waits up to [`ENQUEUE_TIMEOUT`] instead of dropping.
     pub fn append(&self, session_id: &str, event: &AgentEvent) {
         let turn_id = event.turn_id().to_string();
         let event_json = match serde_json::to_string(event) {
@@ -88,8 +90,29 @@ impl EventLog {
             event_json,
         };
 
-        if self.tx.try_send(entry).is_err() {
-            tracing::warn!("event_log: buffer full, dropping event");
+        match self.tx.try_send(entry) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(entry)) => {
+                let tx = self.tx.clone();
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        match tokio::time::timeout(ENQUEUE_TIMEOUT, tx.send(entry)).await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(_)) => {
+                                tracing::warn!("event_log: channel closed while waiting to enqueue");
+                            }
+                            Err(_) => {
+                                tracing::warn!("event_log: timed out waiting to enqueue event");
+                            }
+                        }
+                    });
+                } else if tx.blocking_send(entry).is_err() {
+                    tracing::warn!("event_log: channel closed, dropping event");
+                }
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::warn!("event_log: channel closed, dropping event");
+            }
         }
     }
 

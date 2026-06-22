@@ -1,17 +1,16 @@
 use std::collections::HashMap;
+use std::io::SeekFrom;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use regex::Regex;
 use serde::Deserialize;
 
 const DEFAULT_LINES: usize = 50;
-
-/// Default directory where ShellTool writes terminal output files.
-fn default_terminal_dir() -> PathBuf {
-    std::env::temp_dir().join("xiaolin_terminals")
-}
+const TAIL_READ_CHUNK: usize = 8192;
+const INLINE_READ_MAX_BYTES: u64 = 512 * 1024;
 
 /// Strip ANSI escape sequences (CSI, OSC, simple escapes) from text.
 fn strip_ansi(input: &str) -> String {
@@ -20,6 +19,111 @@ fn strip_ansi(input: &str) -> String {
     )
     .expect("static regex");
     re.replace_all(input, "").into_owned()
+}
+
+/// Default directory where ShellTool writes terminal output files.
+fn default_terminal_dir() -> PathBuf {
+    std::env::temp_dir().join("xiaolin_terminals")
+}
+
+/// Read the last `line_count` lines from a file without loading the entire file
+/// into memory when it is large. Returns `(tail_lines, total_line_count)`.
+async fn read_terminal_tail(
+    path: &std::path::Path,
+    line_count: usize,
+) -> Result<(Vec<String>, usize), String> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| format!("Failed to stat terminal file {}: {e}", path.display()))?;
+
+    if metadata.len() <= INLINE_READ_MAX_BYTES {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| format!("Failed to read terminal file {}: {e}", path.display()))?;
+        let cleaned = strip_ansi(&content);
+        let all_lines: Vec<&str> = cleaned.lines().collect();
+        let total = all_lines.len();
+        let start = total.saturating_sub(line_count);
+        let tail: Vec<String> = all_lines[start..].iter().map(|s| s.to_string()).collect();
+        return Ok((tail, total));
+    }
+
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| format!("Failed to open terminal file {}: {e}", path.display()))?;
+    let file_len = metadata.len();
+    let mut pos = file_len;
+    let mut buffer = Vec::new();
+    let mut reached_start = false;
+
+    while pos > 0 {
+        let read_size = TAIL_READ_CHUNK.min(pos as usize);
+        pos -= read_size as u64;
+        file.seek(SeekFrom::Start(pos))
+            .await
+            .map_err(|e| format!("Failed to seek terminal file {}: {e}", path.display()))?;
+        let mut chunk = vec![0u8; read_size];
+        file.read_exact(&mut chunk)
+            .await
+            .map_err(|e| format!("Failed to read terminal file {}: {e}", path.display()))?;
+        chunk.extend_from_slice(&buffer);
+        buffer = chunk;
+
+        if pos == 0 {
+            reached_start = true;
+        }
+
+        let cleaned = strip_ansi(&String::from_utf8_lossy(&buffer));
+        if cleaned.lines().count() > line_count || reached_start {
+            break;
+        }
+    }
+
+    let cleaned = strip_ansi(&String::from_utf8_lossy(&buffer));
+    let all_lines: Vec<&str> = cleaned.lines().collect();
+    let total = if reached_start {
+        all_lines.len()
+    } else {
+        count_lines_in_file(path).await?
+    };
+    let start = all_lines.len().saturating_sub(line_count);
+    let tail: Vec<String> = all_lines[start..].iter().map(|s| s.to_string()).collect();
+    Ok((tail, total))
+}
+
+/// Count lines using Rust `lines()` semantics without loading the whole file.
+async fn count_lines_in_file(path: &std::path::Path) -> Result<usize, String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path)
+            .map_err(|e| format!("Failed to open terminal file {}: {e}", path.display()))?;
+        let mut buf = [0u8; TAIL_READ_CHUNK];
+        let mut count = 0usize;
+        let mut pending_line = false;
+        loop {
+            let n = file
+                .read(&mut buf)
+                .map_err(|e| format!("Failed to read terminal file {}: {e}", path.display()))?;
+            if n == 0 {
+                break;
+            }
+            for &byte in &buf[..n] {
+                if byte == b'\n' {
+                    count += 1;
+                    pending_line = false;
+                } else {
+                    pending_line = true;
+                }
+            }
+        }
+        if pending_line {
+            count += 1;
+        }
+        Ok(count)
+    })
+    .await
+    .map_err(|e| format!("Failed to count terminal lines: {e}"))?
 }
 
 /// List available terminal panel files, sorted by modification time (newest first).
@@ -183,27 +287,17 @@ impl Tool for TerminalCaptureTool {
             panels[0].1.clone()
         };
 
-        let content = match std::fs::read_to_string(&target_path) {
-            Ok(c) => c,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Failed to read terminal file {}: {e}",
-                    target_path.display()
-                ))
-            }
+        let (tail, total) = match read_terminal_tail(&target_path, line_count).await {
+            Ok(result) => result,
+            Err(e) => return ToolResult::err(e),
         };
-
-        let cleaned = strip_ansi(&content);
-        let all_lines: Vec<&str> = cleaned.lines().collect();
-        let total = all_lines.len();
-        let start = total.saturating_sub(line_count);
-        let tail: Vec<&str> = all_lines[start..].to_vec();
 
         let panel_name = target_path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
+        let start = total.saturating_sub(line_count);
         let header = if start > 0 {
             format!("Terminal: {panel_name} (showing last {line_count} of {total} lines)\n\n")
         } else {

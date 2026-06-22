@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, type CSSProperties } from "react";
+import { useEffect, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { Terminal, Trash } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { useTerminalStore, useChatMetaStore, type TerminalSession } from "../../lib/stores";
@@ -77,7 +77,7 @@ function SessionOutput({ session }: { session: TerminalSession }) {
           $ {session.command}
         </div>
       )}
-      <div dangerouslySetInnerHTML={{ __html: ansiToHtml(content) }} />
+      <AnsiText text={content} />
       {session.status === "running" && (
         <span style={{ opacity: 0.5 }} className="terminal-cursor">▌</span>
       )}
@@ -86,16 +86,54 @@ function SessionOutput({ session }: { session: TerminalSession }) {
   );
 }
 
-function ansiToHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\x1b\[31m(.*?)\x1b\[0m/g, '<span class="ansi-red">$1</span>')
-    .replace(/\x1b\[32m(.*?)\x1b\[0m/g, '<span class="ansi-green">$1</span>')
-    .replace(/\x1b\[33m(.*?)\x1b\[0m/g, '<span class="ansi-yellow">$1</span>')
-    .replace(/\x1b\[34m(.*?)\x1b\[0m/g, '<span class="ansi-blue">$1</span>')
-    .replace(/\x1b\[\d+m/g, "");
+const ANSI_COLOR_CLASSES: Record<string, string> = {
+  "31": "ansi-red",
+  "32": "ansi-green",
+  "33": "ansi-yellow",
+  "34": "ansi-blue",
+};
+
+function renderAnsiText(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /\x1b\[(\d+)m|\x1b\[0m/g;
+  let lastIndex = 0;
+  let colorClass: string | undefined;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const chunk = text.slice(lastIndex, match.index);
+      nodes.push(
+        colorClass
+          ? <span key={`${lastIndex}-text`} className={colorClass}>{chunk}</span>
+          : chunk,
+      );
+    }
+
+    const code = match[1];
+    if (code) {
+      colorClass = ANSI_COLOR_CLASSES[code];
+    } else {
+      colorClass = undefined;
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    const chunk = text.slice(lastIndex);
+    nodes.push(
+      colorClass
+        ? <span key={`${lastIndex}-tail`} className={colorClass}>{chunk}</span>
+        : chunk,
+    );
+  }
+
+  return nodes;
+}
+
+function AnsiText({ text }: { text: string }) {
+  const nodes = useMemo(() => renderAnsiText(text), [text]);
+  return <>{nodes}</>;
 }
 
 export function TerminalPanel() {

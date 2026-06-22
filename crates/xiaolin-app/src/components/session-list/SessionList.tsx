@@ -25,6 +25,26 @@ function chatPreview(stream: StreamItem[] | undefined, meta: ChatMeta, waitingTe
   return waitingText;
 }
 
+function SessionChatPreview({
+  chatId,
+  meta,
+  waitingText,
+}: {
+  chatId: string;
+  meta: ChatMeta;
+  waitingText: string;
+}) {
+  const preview = useStreamStore((s) => chatPreview(s.streams[chatId], meta, waitingText));
+  return (
+    <div
+      className="mt-0.5 truncate text-[11px]"
+      style={{ color: "var(--fill-quaternary)" }}
+    >
+      {preview}
+    </div>
+  );
+}
+
 function ChatContextMenu({
   x, y, onClose, onRename, onSetWorkDir, onDelete,
 }: {
@@ -160,7 +180,6 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
   const newChat = useChatMetaStore((s) => s.newChat);
   const closeChat = useChatMetaStore((s) => s.closeChat);
   const renameChat = useChatMetaStore((s) => s.renameChat);
-  const streams = useStreamStore((s) => s.streams);
   const gatewayReady = useGatewayStore((s) => s.connected);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const layoutTier = useUIStore((s) => s.layoutTier);
@@ -350,7 +369,6 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
               {chats.map((chat) => {
                 const active = activeChatId === chat.id;
                 const isRenaming = renamingChatId === chat.id;
-                const preview = chatPreview(streams[chat.id], chat, t("waitingForInput"));
                 return (
                   <div
                     key={chat.id}
@@ -397,12 +415,11 @@ export function SessionList({ collapsed = false, onToggleCollapse }: SessionList
                           >
                             {chat.title || t("newChat")}
                           </button>
-                          <div
-                            className="mt-0.5 truncate text-[11px]"
-                            style={{ color: "var(--fill-quaternary)" }}
-                          >
-                            {preview}
-                          </div>
+                          <SessionChatPreview
+                            chatId={chat.id}
+                            meta={chat}
+                            waitingText={t("waitingForInput")}
+                          />
                         </>
                       )}
                     </div>

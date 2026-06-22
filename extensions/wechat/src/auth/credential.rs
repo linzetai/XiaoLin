@@ -31,6 +31,11 @@ pub fn save_credential(account_id: &str, cred: &WechatCredential) -> anyhow::Res
     let path = credential_path(account_id);
     let json = serde_json::to_string_pretty(cred)?;
     std::fs::write(&path, json)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
     tracing::info!(account_id, path = %path.display(), "saved wechat credential");
     Ok(())
 }

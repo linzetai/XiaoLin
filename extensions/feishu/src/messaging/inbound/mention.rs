@@ -1,5 +1,44 @@
 use crate::messaging::types::MentionRef;
 
+/// Parse Feishu IM message mentions and strip bot @-markers from text.
+pub fn parse_im_mentions_from_message(
+    message: &serde_json::Value,
+    mut text: String,
+    bot_open_id: Option<&str>,
+) -> (bool, String) {
+    let mentions = message
+        .get("mentions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut bot_mentioned = false;
+    for m in &mentions {
+        let m_key = m.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        let m_open_id = m
+            .get("id")
+            .and_then(|v| v.get("open_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let is_bot = if let Some(bot_id) = bot_open_id {
+            m_open_id == bot_id
+        } else {
+            m.get("id")
+                .and_then(|v| v.get("id_type"))
+                .and_then(|v| v.as_str())
+                == Some("app_id")
+        };
+
+        if is_bot {
+            bot_mentioned = true;
+            text = text.replace(m_key, "");
+        }
+    }
+
+    (bot_mentioned, text.trim().to_string())
+}
+
 /// Check if any mention in the list is the bot itself.
 pub fn mentioned_bot(mentions: &[MentionRef], bot_open_id: &str) -> bool {
     mentions.iter().any(|m| m.open_id == bot_open_id)

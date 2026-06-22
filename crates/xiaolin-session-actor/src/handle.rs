@@ -79,10 +79,15 @@ impl SessionHandle {
     /// Subscribe to all session events via the actor's EventFanout.
     ///
     /// Returns a subscriber ID (for later `unsubscribe`) and the receiving end.
-    /// Uses `BackpressurePolicy::Drop` — full buffers silently discard events.
+    /// Uses `BackpressurePolicy::Drop` — full buffers silently discard non-lifecycle events.
     pub fn subscribe(&self, buffer: usize) -> (u64, mpsc::Receiver<SessionEvent>) {
         let mut f = self.fanout.lock();
         f.subscribe(buffer, BackpressurePolicy::Drop)
+    }
+
+    /// Subscribe with the default buffer size (`DEFAULT_SUBSCRIBER_BUFFER`).
+    pub fn subscribe_default(&self) -> (u64, mpsc::Receiver<SessionEvent>) {
+        self.subscribe(crate::actor::SessionActorConfig::DEFAULT_SUBSCRIBER_BUFFER)
     }
 
     /// Remove a previously registered subscriber.

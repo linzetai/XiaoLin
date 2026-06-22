@@ -7,6 +7,8 @@ pub struct FeishuClient {
     base_url: String,
     http: reqwest::Client,
     tenant_access_token: tokio::sync::RwLock<Option<CachedToken>>,
+    /// Serializes tenant token refresh so concurrent callers don't thundering-herd the API.
+    tenant_token_refresh: tokio::sync::Mutex<()>,
     /// User access token (OAuth) for user-scoped APIs; optional.
     user_access_token: Option<String>,
 }
@@ -82,6 +84,7 @@ impl FeishuClient {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             tenant_access_token: tokio::sync::RwLock::new(None),
+            tenant_token_refresh: tokio::sync::Mutex::new(()),
             user_access_token,
         }
     }
@@ -296,6 +299,8 @@ impl FeishuClient {
         resource_type: &str,
     ) -> anyhow::Result<Vec<u8>> {
         use futures::StreamExt;
+        const MAX_MEDIA_SIZE: u64 = 50 * 1024 * 1024;
+
         let token = self.require_user_token()?;
         let url = format!(
             "{}/im/v1/messages/{message_id}/resources/{file_key}",
@@ -311,16 +316,39 @@ impl FeishuClient {
         if !resp.status().is_success() {
             anyhow::bail!("download resource failed: HTTP {}", resp.status());
         }
+        if let Some(len) = resp.content_length() {
+            if len > MAX_MEDIA_SIZE {
+                anyhow::bail!(
+                    "download resource too large: {len} bytes (max {MAX_MEDIA_SIZE})"
+                );
+            }
+        }
         let mut stream = resp.bytes_stream();
         let mut out = Vec::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             out.extend_from_slice(&chunk);
+            if out.len() as u64 > MAX_MEDIA_SIZE {
+                anyhow::bail!(
+                    "download resource exceeded max size during streaming (max {MAX_MEDIA_SIZE})"
+                );
+            }
         }
         Ok(out)
     }
 
     pub async fn get_tenant_token(&self) -> anyhow::Result<String> {
+        {
+            let cached = self.tenant_access_token.read().await;
+            if let Some(ref t) = *cached {
+                if t.expires_at > std::time::Instant::now() {
+                    return Ok(t.token.clone());
+                }
+            }
+        }
+
+        let _refresh_guard = self.tenant_token_refresh.lock().await;
+
         {
             let cached = self.tenant_access_token.read().await;
             if let Some(ref t) = *cached {
