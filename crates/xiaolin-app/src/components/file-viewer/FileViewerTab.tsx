@@ -145,7 +145,7 @@ export function FileViewerTab() {
 
   const [wordWrap, setWordWrap] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
-  const [browseActive, setBrowseActive] = useState(false);
+  const [browseActive, setBrowseActive] = useState(true);
 
   const openCount = Object.keys(openFiles).length;
   const activeFile = activeFilePath ? openFiles[activeFilePath] : null;
