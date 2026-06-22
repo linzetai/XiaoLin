@@ -157,6 +157,20 @@ export async function readFileForViewer(
   return tauriInvoke<ReadFileForViewerResult>("read_file_for_viewer", { path, workDir });
 }
 
+export interface ReadBinaryForViewerResult {
+  base64: string;
+  mime: string;
+  size: number;
+}
+
+export async function readBinaryForViewer(
+  path: string,
+  workDir: string,
+): Promise<ReadBinaryForViewerResult> {
+  if (!isTauri) throw new Error("read_binary_for_viewer only available in desktop mode");
+  return tauriInvoke<ReadBinaryForViewerResult>("read_binary_for_viewer", { path, workDir });
+}
+
 // ─── WebSocket Connection ───
 
 export function connectWs(url: string, token?: string): Promise<void> {

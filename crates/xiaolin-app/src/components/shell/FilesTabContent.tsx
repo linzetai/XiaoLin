@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useWorkspaceTabs } from "./workspace-tabs";
-import { CodeViewer } from "../file-viewer";
+import { CodeViewer, MarkdownViewer } from "../file-viewer";
 
 export interface OpenFileEventDetail {
   path: string;
@@ -76,15 +76,23 @@ export function FilesTabContent() {
               {activeFile.path.split("/").pop()}
             </span>
           </div>
-          {activeFile.viewMode === "code" && (
-            <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            {activeFile.language === "markdown" ? (
+              <MarkdownViewer
+                content={activeFile.content}
+                filePath={activeFile.path}
+                workDir={workDir!}
+                viewMode={activeFile.viewMode}
+                line={activeFile.line}
+              />
+            ) : (
               <CodeViewer
                 content={activeFile.content}
                 language={activeFile.language}
                 line={activeFile.line}
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
       {artifacts.length > 0 && (

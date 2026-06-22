@@ -46,11 +46,11 @@
 
 ## 5. Markdown 预览器
 
-- [ ] 5.1 创建 `MarkdownViewer.tsx`：复用 `MarkdownContent` 组件 + 源码/预览切换
-- [ ] 5.2 预览模式：`react-markdown` + `remarkGfm` + `rehypeHighlightLite`
-- [ ] 5.3 源码模式：CodeMirror 6 + Markdown 语言包
-- [ ] 5.4 处理 Markdown 内相对路径链接：点击在 Files tab 中打开
-- [ ] 5.5 处理 Markdown 内本地图片引用：通过 `read_binary_for_viewer` IPC 命令加载（统一安全校验）
+- [x] 5.1 创建 `MarkdownViewer.tsx`：复用 `MarkdownContent` 组件 + 源码/预览切换
+- [x] 5.2 预览模式：`react-markdown` + `remarkGfm` + `rehypeHighlightLite`
+- [x] 5.3 源码模式：CodeMirror 6 + Markdown 语言包
+- [x] 5.4 处理 Markdown 内相对路径链接：点击在 Files tab 中打开
+- [x] 5.5 处理 Markdown 内本地图片引用：通过 `read_binary_for_viewer` IPC 命令加载（统一安全校验）
 
 ## 6. 图片查看器
 
