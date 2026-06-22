@@ -145,6 +145,7 @@ pub struct RuntimeState {
     pub todo_store: xiaolin_agent::builtin_tools::TodoStore,
     pub goal_store: Arc<xiaolin_agent::builtin_tools::GoalStore>,
     pub plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore,
+    pub plan_step_store: xiaolin_agent::builtin_tools::PlanStepStore,
     pub permission_preset_registry: Arc<xiaolin_core::agent_config::PermissionPresetRegistry>,
     pub embedding_update_running: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -2210,6 +2211,14 @@ impl AppState {
         });
     }
 
+    /// Clean up all plan-related in-memory state for a deleted session.
+    /// Call from every code path that removes a session (WS, HTTP, channel, TTL).
+    pub fn cleanup_session_plan_state(&self, session_id: &str) {
+        self.rt.plan_file_store.remove_slug(session_id);
+        self.rt.session_modes.remove(session_id);
+        self.rt.plan_step_store.remove(session_id);
+    }
+
     /// Garbage-collect stale resources tied to dead sessions.
     /// Call periodically (e.g., every 60s) to prevent unbounded memory growth.
     pub async fn gc_stale_resources(&self) {
@@ -2261,7 +2270,17 @@ impl AppState {
         // prune completion channels for dead sessions.
         self.strm.subagent_manager.gc(std::time::Duration::from_secs(300));
 
-        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed;
+        // GC plan-related stores: remove entries for sessions no longer active.
+        // Acts as a safety net for TTL expiry and any delete path that missed cleanup.
+        let plan_steps_before = self.rt.plan_step_store.len();
+        self.rt.plan_step_store.retain(|k| active_ids.contains(k));
+        let plan_steps_removed = plan_steps_before - self.rt.plan_step_store.len();
+
+        let modes_before = self.rt.session_modes.len();
+        self.rt.session_modes.retain(|k| active_ids.contains(k));
+        let modes_removed = modes_before - self.rt.session_modes.len();
+
+        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed + plan_steps_removed + modes_removed;
         if gc_stats.removed > 0 || total_removed > 0 {
             tracing::info!(
                 sessions_removed = gc_stats.removed,
@@ -2270,6 +2289,8 @@ impl AppState {
                 overrides_removed,
                 streams_removed,
                 cancels_removed,
+                plan_steps_removed,
+                modes_removed,
                 "resource GC completed"
             );
         }
@@ -3232,6 +3253,7 @@ impl AppState {
                     session_store.clone(),
                 )),
                 plan_file_store: xiaolin_agent::builtin_tools::PlanFileStore::default(),
+                plan_step_store: xiaolin_agent::builtin_tools::PlanStepStore::new(),
                 permission_preset_registry: Arc::new(
                     xiaolin_core::agent_config::PermissionPresetRegistry::default(),
                 ),

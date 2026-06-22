@@ -38,6 +38,18 @@ impl PlanStepStore {
     pub fn remove(&self, session_id: &str) {
         self.sessions.remove(session_id);
     }
+
+    pub fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+
+    pub fn retain(&self, f: impl Fn(&str) -> bool) {
+        self.sessions.retain(|k, _| f(k.as_str()));
+    }
 }
 
 #[derive(Deserialize)]

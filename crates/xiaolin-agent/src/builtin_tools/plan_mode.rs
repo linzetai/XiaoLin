@@ -267,6 +267,18 @@ impl SessionModeRegistry {
     pub fn remove(&self, session_id: &str) {
         self.modes.remove(session_id);
     }
+
+    pub fn len(&self) -> usize {
+        self.modes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.modes.is_empty()
+    }
+
+    pub fn retain(&self, f: impl Fn(&str) -> bool) {
+        self.modes.retain(|k, _| f(k.as_str()));
+    }
 }
 
 // ─── EnterPlanModeTool ───────────────────────────────────────────────

@@ -208,8 +208,7 @@ pub async fn handle_sessions_delete(
     };
     match state.store.session_store.delete_session(sid).await {
         Ok(deleted) => {
-            state.rt.plan_file_store.remove_slug(sid);
-            state.rt.session_modes.remove(sid);
+            state.cleanup_session_plan_state(sid);
 
             send_resp(
                 sender,

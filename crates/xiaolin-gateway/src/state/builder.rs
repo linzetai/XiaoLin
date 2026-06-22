@@ -61,6 +61,7 @@ struct BuildPhase4 {
     mcp_handles_init: std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>,
     session_modes: xiaolin_agent::builtin_tools::SessionModeRegistry,
     goal_store: Arc<xiaolin_agent::builtin_tools::GoalStore>,
+    plan_step_store: xiaolin_agent::builtin_tools::PlanStepStore,
 }
 
 struct BuildPhase2Memory {
@@ -560,6 +561,7 @@ impl StateBuilder {
             mcp_handles_init,
             session_modes,
             goal_store,
+            plan_step_store,
         })
     }
 
@@ -971,6 +973,7 @@ impl StateBuilder {
                 todo_store: p5.phase2.phase4.phase3.todo_store,
                 goal_store: p5.phase2.phase4.goal_store,
                 plan_file_store,
+                plan_step_store: p5.phase2.phase4.plan_step_store,
                 permission_preset_registry: permission_preset_registry.clone(),
                 embedding_update_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
