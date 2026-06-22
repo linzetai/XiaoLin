@@ -172,11 +172,17 @@ impl MemoryManager {
             None
         };
 
-        let episodes = self
+        let episodes = match self
             .episodic
             .hybrid_search(query, query_vec.as_ref(), 0.5, limit * 2)
             .await
-            .unwrap_or_default();
+        {
+            Ok(eps) => eps,
+            Err(e) => {
+                tracing::warn!(error = %e, "memory recall: episodic hybrid_search failed");
+                Vec::new()
+            }
+        };
 
         for (ep, score) in episodes {
             let ep_type = MemoryType::from_tag(&ep.tags);
@@ -196,18 +202,21 @@ impl MemoryManager {
         }
 
         let facts = if let Some(ref qv) = query_vec {
-            self.semantic
-                .search_by_vector(qv, limit)
-                .await
-                .unwrap_or_default()
+            match self.semantic.search_by_vector(qv, limit).await {
+                Ok(facts) => facts,
+                Err(e) => {
+                    tracing::warn!(error = %e, "memory recall: semantic vector search failed");
+                    Vec::new()
+                }
+            }
         } else {
-            self.semantic
-                .search(query, limit as i64)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|f| (f, 0.5))
-                .collect()
+            match self.semantic.search(query, limit as i64).await {
+                Ok(facts) => facts.into_iter().map(|f| (f, 0.5)).collect(),
+                Err(e) => {
+                    tracing::warn!(error = %e, "memory recall: semantic text search failed");
+                    Vec::new()
+                }
+            }
         };
 
         for (fact, score) in facts {

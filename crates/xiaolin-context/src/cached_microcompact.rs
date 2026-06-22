@@ -7,15 +7,15 @@ use crate::compressor::estimate_messages_tokens;
 /// A lightweight content fingerprint used to detect whether a tool result has
 /// already been compressed in a previous pipeline pass.
 fn content_fingerprint(msg: &ChatMessage) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut content = String::new();
     if let Some(ref c) = msg.content {
-        c.to_string().hash(&mut hasher);
+        content.push_str(&c.to_string());
     }
     if let Some(ref name) = msg.name {
-        name.hash(&mut hasher);
+        content.push_str(name);
     }
-    hasher.finish()
+    let hash = blake3::hash(content.as_bytes());
+    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
 }
 
 /// Entry in the cached microcompact store.

@@ -169,9 +169,11 @@ impl CostEstimator {
         models
     }
 
-    /// Rough token count: ~4 chars per token for English.
+    /// Conservative token count: max(bytes/4, char count).
     pub fn estimate_tokens(text: &str) -> u32 {
-        (text.len() as u32).div_ceil(4)
+        let bytes = text.len() as u32;
+        let chars = text.chars().count() as u32;
+        bytes.div_ceil(4).max(chars)
     }
 
     /// Rough input-token budget for routing: message text + serialized tool calls + tool schema overhead.
@@ -180,23 +182,29 @@ impl CostEstimator {
         tool_definition_count: usize,
     ) -> u32 {
         let mut chars: u64 = 0;
+        let mut char_count: u64 = 0;
         for msg in messages {
             if let Some(ref c) = msg.content {
-                let n = serde_json::to_string(c)
-                    .map(|s| s.len() as u64)
-                    .unwrap_or(0);
-                chars = chars.saturating_add(n);
+                if let Ok(s) = serde_json::to_string(c) {
+                    chars = chars.saturating_add(s.len() as u64);
+                    char_count = char_count.saturating_add(s.chars().count() as u64);
+                }
             }
             if let Some(ref tcs) = msg.tool_calls {
                 for tc in tcs {
                     chars = chars.saturating_add(tc.function.name.len() as u64);
                     chars = chars.saturating_add(tc.function.arguments.len() as u64);
+                    char_count = char_count.saturating_add(tc.function.name.chars().count() as u64);
+                    char_count =
+                        char_count.saturating_add(tc.function.arguments.chars().count() as u64);
                     chars = chars.saturating_add(48);
+                    char_count = char_count.saturating_add(48);
                 }
             }
         }
-        let capped = chars.min(u32::MAX as u64) as u32;
-        let base = capped.div_ceil(4);
+        let capped_bytes = chars.min(u32::MAX as u64) as u32;
+        let capped_chars = char_count.min(u32::MAX as u64) as u32;
+        let base = capped_bytes.div_ceil(4).max(capped_chars);
         let tool_schema_overhead = (tool_definition_count as u32).saturating_mul(180);
         base.saturating_add(tool_schema_overhead).max(64)
     }
@@ -208,12 +216,16 @@ impl CostEstimator {
     ) -> Option<(TokenEstimate, f64)> {
         let pricing = self.pricing.get(model)?;
         let mut total_chars = 0usize;
+        let mut char_count = 0usize;
         for msg in messages {
             if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
                 total_chars += content.len();
+                char_count += content.chars().count();
             }
         }
-        let input_tokens = (total_chars as u32).div_ceil(4);
+        let input_tokens = (total_chars as u32)
+            .div_ceil(4)
+            .max(char_count as u32);
         let estimated_output = (input_tokens / 3).max(100);
         let est = TokenEstimate {
             input_tokens,
@@ -270,9 +282,10 @@ mod tests {
 
     #[test]
     fn token_estimation() {
-        let tokens = CostEstimator::estimate_tokens("hello world, this is a test");
+        let text = "hello world, this is a test";
+        let tokens = CostEstimator::estimate_tokens(text);
         assert!(tokens > 0);
-        assert!(tokens < 20);
+        assert_eq!(tokens, text.chars().count() as u32);
     }
 
     #[test]

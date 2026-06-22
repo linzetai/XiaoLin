@@ -102,9 +102,7 @@ fn extract_aes_key(cdn_media: &CDNMedia) -> anyhow::Result<[u8; 16]> {
 
 /// Return the path to the media temp directory.
 pub fn media_temp_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".xiaolin-dev")
+    xiaolin_core::paths::resolve_state_dir()
         .join("data")
         .join("wechat-media")
 }

@@ -1068,7 +1068,7 @@
 
 #### BUG-102 🔴 tool_result_storage UTF-8 字节切片 panic
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-agent/src/runtime/tool_result_storage.rs` L161–174
 - **问题**：`generate_preview` 用 `&content[..max_bytes]` 字节索引截断，中文/emoji 可能在非 char 边界 panic。
 - **建议**：使用 `floor_char_boundary(max_bytes)` 或 `chars().take(n).collect()`。
@@ -1077,7 +1077,7 @@
 
 #### BUG-103 🔴 llm_plugin 日志预览 UTF-8 字节切片
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-agent/src/llm_plugin.rs` L1339, L1466, L1537, L1549
 - **问题**：`&trimmed[..trimmed.len().min(N)]` 按字节截断。
 - **建议**：统一改为 `floor_char_boundary`。
@@ -1086,7 +1086,7 @@
 
 #### BUG-104 🔴 lsp_actions truncate UTF-8 不安全
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-agent/src/runtime/lsp_actions.rs` L283–289
 - **问题**：`&first_line[..max - 3]` 无 char 边界检查。
 - **建议**：使用 `floor_char_boundary(max.saturating_sub(3))`。
@@ -1095,7 +1095,7 @@
 
 #### BUG-105 🔴 Evolution 路径未应用 skills.allow 白名单
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-agent/src/runtime/mod.rs` L959–996
 - **问题**：Evolution 路径只过滤 `skills_deny`，未应用 `skills.allow`。双路径覆盖不一致。
 - **建议**：增加 `skills_allow` 过滤，与 gateway deny 同步机制对齐。
@@ -1104,7 +1104,7 @@
 
 #### BUG-106 🔴 gateway mask_value/mask_sensitive UTF-8 panic
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/ws/mcp.rs` L13–18；`src/ws/channels.rs` L85–90
 - **问题**：`&s[..4]` 对多字节 UTF-8 字符不安全。
 - **建议**：改为 `s.chars().take(4).collect::<String>()`。
@@ -1113,7 +1113,7 @@
 
 #### BUG-107 🔴 gateway reload_skills allow 仍读启动快照
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-gateway/src/state/mod.rs` L2349–2375
 - **问题**：`skills.allow` 仍读 `self.cfg.config.skills.allow`，热更新不生效。
 - **建议**：与 deny 一致，从 `config_live` 读取。
@@ -1122,7 +1122,7 @@
 
 #### BUG-108 🔴 MCP streamable_http_listener SSE 缓冲截断
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-mcp/src/lib.rs` L1084–1108
 - **问题**：SSE 监听每收到 chunk 就 `buf.clear()`，未按 `\n\n` 边界 drain。跨 chunk 的 SSE 事件被截断。
 - **建议**：复用 `sse_reader_loop` 的增量解析逻辑。
@@ -1131,7 +1131,7 @@
 
 #### BUG-109 🔴 protocol parse 静默接受畸形参数
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-protocol/src/op.rs` L725–741, L809–848
 - **问题**：`serde_json::from_value(...).unwrap_or_default()` 使畸形 JSON 被静默接受为空 params。
 - **建议**：必填字段用 `.map_err(...)?`，可选字段保留 default。
@@ -1140,7 +1140,7 @@
 
 #### BUG-110 🔴 PromotionConfig 配置完全未生效
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-evolution/src/promotion.rs` L95–96；`src/skill_store.rs` L588–596
 - **问题**：配置定义了阈值，但 `maintenance()` 内部硬编码 `promote_candidates(3, 0.7)`。
 - **建议**：传入配置值或新增 `maintenance_with_config`。
@@ -1149,7 +1149,7 @@
 
 #### BUG-111 🔴 PTY 子进程未 wait 导致僵尸进程
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-pty/src/session.rs` L74–106, L149–162
 - **问题**：子进程退出后未调用 `child.wait()`，Unix 上产生僵尸进程。
 - **建议**：reader 线程 EOF 后 `child.wait()`，或 Drop 中 reap。
@@ -1160,7 +1160,7 @@
 
 #### BUG-112 🔴 memory recall DB 错误静默吞掉
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-memory/src/manager.rs` L175–179, L198–210
 - **问题**：`hybrid_search`/`search`/`search_by_vector` 失败用 `unwrap_or_default()`。
 - **建议**：`match` + `tracing::warn!`。
@@ -1169,7 +1169,7 @@
 
 #### BUG-113 🔴 memory episodic build_recap UTF-8 字节切片
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-memory/src/episodic.rs` L530–532
 - **问题**：`&ep.created_at[..10.min(ep.created_at.len())]` 多字节字符可能 panic。
 - **建议**：`chars().take(10).collect()` 或 chrono 解析。
@@ -1178,7 +1178,7 @@
 
 #### BUG-114 🔴 context DefaultHasher 指纹违反规则
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-context/src/cached_microcompact.rs` L9–18
 - **问题**：`content_fingerprint` 使用 `DefaultHasher`，用于跨轮 compaction 缓存。
 - **建议**：改用 `blake3::hash`。
@@ -1187,7 +1187,7 @@
 
 #### BUG-115 🔴 self-iter rounds_executed 计数错误
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-self-iter/src/engine.rs` L252–254
 - **问题**：循环结束后固定设为 `max_rounds`，提前 break 时返回值不准确。
 - **建议**：用循环变量记录实际执行轮数。
@@ -1205,7 +1205,7 @@
 
 #### BUG-117 🔴 execpolicy defaults.fallback 配置未读取
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-execpolicy/src/config.rs` L27–29；`src/lib.rs` L292–295
 - **问题**：TOML `defaults.fallback` 解析但未使用，无匹配规则时硬编码 `Prompt`。
 - **建议**：使用配置值。
@@ -1214,7 +1214,7 @@
 
 #### BUG-118 🔴 execpolicy amend deny vs forbidden 不一致
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-execpolicy/src/amend.rs` L22–28；`src/lib.rs` L666–684
 - **问题**：amend 写 `"deny"`，但 `evaluate_network` 只识别 `"allow"`/`"forbidden"`，`deny` 落入 `Prompt`。
 - **建议**：统一决策字符串。
@@ -1241,7 +1241,7 @@
 
 #### BUG-121 🔴 treesitter Dockerfile 扩展名检测错误
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-treesitter/src/parser.rs` L54, L96–108
 - **问题**：`Dockerfile` 无扩展名（extension 为 None），无法识别。
 - **建议**：额外匹配 `file_name() == "Dockerfile"`。
@@ -1250,7 +1250,7 @@
 
 #### BUG-122 🔴 treesitter 无文件大小上限
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-treesitter/src/parser.rs` L96–108；`src/chunker.rs` L16–71
 - **问题**：整文件读入内存 + AST + chunk 副本，大文件可导致 OOM。
 - **建议**：配置 `max_file_bytes`，超限降级。
@@ -1268,7 +1268,7 @@
 
 #### BUG-124 🔴 model-router token 估算用字节÷4
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`crates/xiaolin-model-router/src/tier.rs` L14–17；`src/estimator.rs` L172–175
 - **问题**：中文/emoji 严重低估 token 数，导致选中装不下的模型。
 - **建议**：至少用 `chars().count()` 估算。
@@ -1277,7 +1277,7 @@
 
 #### BUG-125 🔴 微信凭证硬编码到 ~/.xiaolin-dev/
 
-- **状态**：⬜ OPEN
+- **状态**：✅ FIXED
 - **文件**：`extensions/wechat/src/auth/credential.rs` L17–21；`src/plugin.rs` L151–156
 - **问题**：不同 profile（dev/prod）数据隔离错误。
 - **建议**：统一使用 `xiaolin_core::config::state_dir(&mode)`。

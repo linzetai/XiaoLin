@@ -452,6 +452,8 @@ pub struct AgentRuntime {
     skill_usage_store: ArcSwap<Option<Arc<xiaolin_core::skill_usage::SkillUsageStore>>>,
     /// Live skills deny list (synced from gateway `config_live.skills.deny`).
     skills_deny: ArcSwap<Vec<String>>,
+    /// Live skills allow list (synced from gateway `config_live.skills.allow`).
+    skills_allow: ArcSwap<Vec<String>>,
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
     cached_runtime_registry: Arc<runtimes::RuntimeRegistry>,
     self_handle: std::sync::OnceLock<std::sync::Weak<Self>>,
@@ -479,6 +481,7 @@ impl AgentRuntime {
             skill_store: ArcSwap::new(Arc::new(None)),
             skill_usage_store: ArcSwap::new(Arc::new(None)),
             skills_deny: ArcSwap::new(Arc::new(Vec::new())),
+            skills_allow: ArcSwap::new(Arc::new(Vec::new())),
             trajectory_store: ArcSwap::new(Arc::new(None)),
             cached_runtime_registry: Arc::new(runtimes::register_default_runtimes()),
             self_handle: std::sync::OnceLock::new(),
@@ -564,6 +567,11 @@ impl AgentRuntime {
     /// Update the live skills deny list used by evolution skill injection.
     pub fn set_skills_deny(&self, deny: Vec<String>) {
         self.skills_deny.store(Arc::new(deny));
+    }
+
+    /// Update the live skills allow list used by evolution skill injection.
+    pub fn set_skills_allow(&self, allow: Vec<String>) {
+        self.skills_allow.store(Arc::new(allow));
     }
 
     #[cfg(feature = "self-iter")]
@@ -980,10 +988,14 @@ impl AgentRuntime {
         }
         let skills = store.find_similar(&task, 16).await?;
         let deny_set: HashSet<String> = self.skills_deny.load().iter().cloned().collect();
+        let allow_list = self.skills_allow.load();
+        let allow_set: HashSet<String> = allow_list.iter().cloned().collect();
+        let passes_allow = |id: &str| allow_set.is_empty() || allow_set.contains(id);
         let active: Vec<_> = skills
             .iter()
             .filter(|s| matches!(s.status, SkillStatus::Active))
             .filter(|s| !deny_set.contains(&s.id))
+            .filter(|s| passes_allow(&s.id))
             .take(5)
             .cloned()
             .collect();
@@ -991,6 +1003,7 @@ impl AgentRuntime {
             .iter()
             .filter(|s| matches!(s.status, SkillStatus::Candidate))
             .filter(|s| !deny_set.contains(&s.id))
+            .filter(|s| passes_allow(&s.id))
             .take(2)
             .cloned()
             .collect();

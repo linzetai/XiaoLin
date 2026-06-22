@@ -822,18 +822,27 @@ impl ClientOp {
                 Ok(Self::SkillsList { params: list_params })
             }
             "skills.read" => {
-                let read_params: SkillsReadParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let read_params: SkillsReadParams = serde_json::from_value(params)
+                    .map_err(|e| format!("invalid params: {e}"))?;
+                if read_params.skill_id.is_empty() {
+                    return Err("invalid params: skillId is required".into());
+                }
                 Ok(Self::SkillsRead { params: read_params })
             }
             "skills.update" => {
-                let update_params: SkillsUpdateParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let update_params: SkillsUpdateParams = serde_json::from_value(params)
+                    .map_err(|e| format!("invalid params: {e}"))?;
+                if update_params.skill_id.is_empty() {
+                    return Err("invalid params: skillId is required".into());
+                }
                 Ok(Self::SkillsUpdate { params: update_params })
             }
             "skills.delete" => {
-                let delete_params: SkillsDeleteParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let delete_params: SkillsDeleteParams = serde_json::from_value(params)
+                    .map_err(|e| format!("invalid params: {e}"))?;
+                if delete_params.skill_id.is_empty() {
+                    return Err("invalid params: skillId is required".into());
+                }
                 Ok(Self::SkillsDelete { params: delete_params })
             }
             "skills.refresh" => Ok(Self::SkillsRefresh),
@@ -843,8 +852,9 @@ impl ClientOp {
                     .get("skill_id")
                     .or_else(|| params.get("skillId"))
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| "invalid params: skillId is required".to_string())?;
                 Ok(Self::EvolutionPromote { skill_id })
             }
             "marketplace.browse" | "marketplace.search" => Ok(Self::MarketplaceBrowse {

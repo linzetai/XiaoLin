@@ -163,7 +163,7 @@ pub fn generate_preview(content: &str, max_bytes: usize) -> (String, bool) {
         return (content.to_string(), false);
     }
 
-    let truncated = &content[..max_bytes.min(content.len())];
+    let truncated = &content[..content.floor_char_boundary(max_bytes.min(content.len()))];
     let last_newline = truncated.rfind('\n');
 
     let cut_point = match last_newline {
@@ -171,7 +171,7 @@ pub fn generate_preview(content: &str, max_bytes: usize) -> (String, bool) {
         _ => max_bytes.min(content.len()),
     };
 
-    (content[..cut_point].to_string(), true)
+    (content[..content.floor_char_boundary(cut_point)].to_string(), true)
 }
 
 fn format_file_size(bytes: usize) -> String {

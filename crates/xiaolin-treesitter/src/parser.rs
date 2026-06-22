@@ -18,8 +18,22 @@ pub struct ParsedTree {
 
 pub struct CodeParser;
 
+/// Maximum file size for tree-sitter parsing (10 MiB).
+pub const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
 impl CodeParser {
     pub fn detect_language(path: &Path) -> Option<String> {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            let name_lower = name.to_ascii_lowercase();
+            if name_lower == "dockerfile"
+                || name_lower.starts_with("dockerfile.")
+                || name_lower == "containerfile"
+                || name_lower.starts_with("containerfile.")
+            {
+                return Some("dockerfile".to_string());
+            }
+        }
+
         let ext = path.extension()?.to_str()?;
         let lang = match ext {
             "rs" => "rust",
@@ -94,6 +108,15 @@ impl CodeParser {
     }
 
     pub fn parse_file(path: &Path) -> anyhow::Result<ParsedTree> {
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| anyhow::anyhow!("failed to stat {}: {e}", path.display()))?;
+        if metadata.len() > MAX_FILE_SIZE {
+            anyhow::bail!(
+                "file too large for tree-sitter parsing: {} bytes (max {MAX_FILE_SIZE})",
+                metadata.len()
+            );
+        }
+
         let lang = Self::detect_language(path)
             .ok_or_else(|| anyhow::anyhow!("unsupported file extension: {}", path.display()))?;
 
@@ -135,6 +158,14 @@ mod tests {
             Some("tsx".into())
         );
         assert_eq!(CodeParser::detect_language(Path::new("no_ext")), None);
+        assert_eq!(
+            CodeParser::detect_language(Path::new("Dockerfile")),
+            Some("dockerfile".into())
+        );
+        assert_eq!(
+            CodeParser::detect_language(Path::new("Containerfile")),
+            Some("dockerfile".into())
+        );
     }
 
     #[test]

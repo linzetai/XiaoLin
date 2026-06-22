@@ -20,8 +20,8 @@ use xiaolin_core::Router as AgentRouter;
 use xiaolin_core::types::McpStatus;
 use xiaolin_cron::CronJobStore;
 use xiaolin_evolution::{
-    FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromptDistiller, SkillExtractor,
-    SkillParam, SkillStore, TrajectoryStore,
+    FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromptDistiller, PromotionConfig,
+    SkillExtractor, SkillParam, SkillStore, TrajectoryStore,
 };
 use xiaolin_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use xiaolin_model_router::BudgetTracker;
@@ -805,13 +805,22 @@ impl AppState {
         let skill_store = self.store.skill_store.clone();
         let maintenance_secs = self.cfg.config.evolution.skill_maintenance_interval_secs;
         if maintenance_secs > 0 {
+            let promotion_config = PromotionConfig::default();
             tokio::spawn(async move {
                 let mut interval =
                     tokio::time::interval(std::time::Duration::from_secs(maintenance_secs.max(1)));
                 interval.tick().await;
                 loop {
                     interval.tick().await;
-                    match skill_store.maintenance().await {
+                    match skill_store
+                        .maintenance(
+                            promotion_config.promote_min_usage,
+                            promotion_config.promote_min_success_rate,
+                            promotion_config.retire_min_usage,
+                            promotion_config.retire_max_success_rate,
+                        )
+                        .await
+                    {
                         Ok(rep) => {
                             if rep.promoted > 0 || rep.retired_active > 0 {
                                 tracing::info!(
@@ -2333,21 +2342,29 @@ impl AppState {
         base.merge_from(legacy_project_registry);
         base.merge_from(cross_tool_registry);
 
-        let deny_list: Vec<String> = {
+        let (allow_list, deny_list): (Vec<String>, Vec<String>) = {
             let live = self.cfg.config_live.load();
-            live.get("skills")
+            let allow = live
+                .get("skills")
+                .and_then(|s| s.get("allow"))
+                .and_then(|a| serde_json::from_value::<Vec<String>>(a.clone()).ok())
+                .unwrap_or_default();
+            let deny = live
+                .get("skills")
                 .and_then(|s| s.get("deny"))
                 .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
-                .unwrap_or_default()
+                .unwrap_or_default();
+            (allow, deny)
         };
         self.rt.runtime.set_skills_deny(deny_list.clone());
+        self.rt.runtime.set_skills_allow(allow_list.clone());
 
         self.rt
             .unfiltered_skill_registry
             .store(Arc::new(base.clone()));
 
         let filtered_base = Arc::new(base.filtered(
-            &self.cfg.config.skills.allow,
+            &allow_list,
             &deny_list,
             None,
         ));
@@ -2370,7 +2387,7 @@ impl AppState {
                 .find(|a| a.id == *agent_id)
                 .and_then(|a| a.skills.as_deref());
             agent_reg = agent_reg.filtered(
-                &self.cfg.config.skills.allow,
+                &allow_list,
                 &deny_list,
                 agent_allow,
             );

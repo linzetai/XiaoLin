@@ -3,6 +3,8 @@
 use xiaolin_core::complexity::ComplexityTier;
 use xiaolin_core::types::{ChatMessage, Role};
 
+use crate::estimator::CostEstimator;
+
 /// Inputs for [`estimate_complexity_tier`].
 #[derive(Debug, Clone)]
 pub struct TierEstimateInput<'a> {
@@ -11,9 +13,9 @@ pub struct TierEstimateInput<'a> {
     pub tool_definition_count: usize,
 }
 
-/// Rough token count (~4 chars per token).
+/// Conservative token estimate: max(bytes/4, char count).
 fn token_len(text: &str) -> u32 {
-    (text.len() as u32).div_ceil(4)
+    CostEstimator::estimate_tokens(text)
 }
 
 fn last_user_text(messages: &[ChatMessage]) -> Option<String> {

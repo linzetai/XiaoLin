@@ -50,9 +50,7 @@ impl WechatMonitor {
         context_tokens: Arc<ContextTokenCache>,
         cdn_base_url: String,
     ) -> Self {
-        let sync_file = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".xiaolin-dev")
+        let sync_file = xiaolin_core::paths::resolve_state_dir()
             .join("data")
             .join(format!("wechat-sync-{account_id}.buf"));
 

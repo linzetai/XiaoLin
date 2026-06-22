@@ -1336,7 +1336,7 @@ impl LlmProvider for ProcessLlmProvider {
                     plugin_id = %self.plugin_id,
                     error = msg,
                     code,
-                    raw_line = &trimmed[..trimmed.len().min(500)],
+                    raw_line = &trimmed[..trimmed.floor_char_boundary(trimmed.len().min(500))],
                     "plugin process stream: first line is error"
                 );
                 if code == "unknown_method" || code == "unsupported_method" {
@@ -1463,7 +1463,7 @@ async fn process_stream_line(
             tracing::warn!(
                 plugin_id = %plugin_id,
                 error = %e,
-                line_preview = &trimmed[..trimmed.len().min(120)],
+                line_preview = &trimmed[..trimmed.floor_char_boundary(trimmed.len().min(120))],
                 "plugin stream: line is not valid JSON, skipping"
             );
             return Ok(());
@@ -1534,7 +1534,7 @@ async fn process_stream_line(
             tracing::info!(
                 plugin_id = %plugin_id,
                 error = %strict_err,
-                line_preview = &trimmed[..trimmed.len().min(200)],
+                line_preview = &trimmed[..trimmed.floor_char_boundary(trimmed.len().min(200))],
                 "plugin stream: strict StreamDelta parse failed, trying lenient"
             );
         }
@@ -1546,7 +1546,7 @@ async fn process_stream_line(
     if delta.choices.is_empty() && delta.usage.is_none() {
         tracing::warn!(
             plugin_id = %plugin_id,
-            line_preview = &trimmed[..trimmed.len().min(300)],
+            line_preview = &trimmed[..trimmed.floor_char_boundary(trimmed.len().min(300))],
             "plugin stream: unparseable line with no choices/usage, skipping"
         );
         return Ok(());

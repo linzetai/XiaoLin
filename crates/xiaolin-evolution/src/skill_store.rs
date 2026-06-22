@@ -585,11 +585,20 @@ impl SkillStore {
         Ok(())
     }
 
-    /// Runs [`Self::promote_candidates`] (defaults: usage ≥ 3, rate ≥ 0.7) then [`Self::retire_underperforming`]
-    /// (defaults: active usage ≥ 10, rate ≤ 0.3).
-    pub async fn maintenance(&self) -> Result<MaintenanceReport> {
-        let promoted = self.promote_candidates(3, 0.7).await?;
-        let retired_active = self.retire_underperforming(10, 0.3).await?;
+    /// Runs [`Self::promote_candidates`] then [`Self::retire_underperforming`] with caller-supplied thresholds.
+    pub async fn maintenance(
+        &self,
+        promote_min_usage: u32,
+        promote_min_success_rate: f64,
+        retire_min_usage: u32,
+        retire_max_success_rate: f64,
+    ) -> Result<MaintenanceReport> {
+        let promoted = self
+            .promote_candidates(promote_min_usage, promote_min_success_rate)
+            .await?;
+        let retired_active = self
+            .retire_underperforming(retire_min_usage, retire_max_success_rate)
+            .await?;
         Ok(MaintenanceReport {
             promoted,
             retired_active,

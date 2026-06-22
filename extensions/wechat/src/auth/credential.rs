@@ -15,10 +15,7 @@ pub struct WechatCredential {
 }
 
 fn credentials_dir() -> PathBuf {
-    let base = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".xiaolin-dev")
-        .join("credentials");
+    let base = xiaolin_core::paths::resolve_state_dir().join("credentials");
     std::fs::create_dir_all(&base).ok();
     base
 }

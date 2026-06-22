@@ -188,7 +188,9 @@ impl SelfIterEngine {
         const MAX_PROMPT_CHARS: usize = 100_000;
         let effective_max = self.config.max_rounds.min(HARD_MAX_ROUNDS);
 
+        let mut rounds_executed = 0u32;
         for round in 0..effective_max {
+            rounds_executed = round + 1;
             let test_results = run_test_suite(
                 sandbox.as_ref(),
                 agent_id,
@@ -206,7 +208,7 @@ impl SelfIterEngine {
             if pass_rate >= self.config.pass_threshold {
                 return IterationResult {
                     status: IterationStatus::Passed,
-                    rounds_executed: round + 1,
+                    rounds_executed,
                     diagnoses: all_diagnoses,
                     test_results: last_test_results,
                     pass_rate,
@@ -251,7 +253,7 @@ impl SelfIterEngine {
 
         IterationResult {
             status,
-            rounds_executed: self.config.max_rounds,
+            rounds_executed,
             diagnoses: all_diagnoses,
             test_results: last_test_results,
             pass_rate: best_pass_rate,

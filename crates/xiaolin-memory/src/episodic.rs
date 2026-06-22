@@ -529,7 +529,7 @@ impl EpisodicMemory {
         for ep in &eps {
             out.push_str(&format!(
                 "- [{}] (importance={:.1}) {}\n",
-                &ep.created_at[..10.min(ep.created_at.len())],
+                &ep.created_at[..ep.created_at.floor_char_boundary(10.min(ep.created_at.len()))],
                 ep.importance,
                 ep.summary
             ));

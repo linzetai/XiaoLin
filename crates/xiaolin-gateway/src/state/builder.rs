@@ -876,6 +876,11 @@ impl StateBuilder {
             .phase3
             .runtime
             .set_skills_deny(config.skills.deny.clone());
+        p5.phase2
+            .phase4
+            .phase3
+            .runtime
+            .set_skills_allow(config.skills.allow.clone());
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();

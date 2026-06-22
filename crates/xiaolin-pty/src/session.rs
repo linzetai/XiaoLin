@@ -76,6 +76,8 @@ impl PtySession {
             .spawn_command(cmd)
             .map_err(|e| format!("failed to spawn shell: {e}"))?;
 
+        let child = Arc::new(Mutex::new(child));
+
         let writer = pair
             .master
             .take_writer()
@@ -89,6 +91,7 @@ impl PtySession {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
 
         let tx_clone = broadcast_tx.clone();
+        let child_for_reader = Arc::clone(&child);
         std::thread::spawn(move || {
             let mut reader = reader;
             let mut buf = [0u8; 4096];
@@ -103,6 +106,8 @@ impl PtySession {
                     Err(_) => break,
                 }
             }
+            let mut child = child_for_reader.lock();
+            let _ = child.wait();
         });
 
         let now = Instant::now();
@@ -111,7 +116,7 @@ impl PtySession {
             source: config.source,
             master: pair.master,
             writer: Arc::new(Mutex::new(writer)),
-            child: Arc::new(Mutex::new(child)),
+            child,
             broadcast_tx,
             cols: config.cols,
             rows: config.rows,
@@ -159,6 +164,7 @@ impl PtySession {
     pub fn kill(&self) {
         let mut child = self.child.lock();
         let _ = child.kill();
+        let _ = child.wait();
     }
 
     pub fn cols(&self) -> u16 {

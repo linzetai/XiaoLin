@@ -86,7 +86,7 @@ fn mask_sensitive(s: &str) -> String {
     if s.len() <= 4 {
         "****".to_string()
     } else {
-        format!("{}****", &s[..4])
+        format!("{}****", &s[..s.floor_char_boundary(4)])
     }
 }
 

@@ -1081,31 +1081,36 @@ impl McpClient {
             }
         };
 
+        let mut byte_buf: Vec<u8> = Vec::new();
         let mut stream = response.bytes_stream();
-        let mut buf = Vec::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            buf.extend_from_slice(&chunk);
-            let text = match std::str::from_utf8(&buf) {
-                Ok(t) => t.to_string(),
-                Err(_) => continue,
-            };
-            for data_line in extract_sse_data_lines(&text) {
-                let value: serde_json::Value = match serde_json::from_str(&data_line) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-
-                Self::dispatch_incoming(
-                    value,
-                    &pending,
-                    &notification_tx,
-                    &server_request_tx,
-                    "streamable_http",
-                )
-                .await;
+            byte_buf.extend_from_slice(&chunk);
+            if std::str::from_utf8(&byte_buf).is_err() {
+                continue;
             }
-            buf.clear();
+            while let Ok(text) = std::str::from_utf8(&byte_buf) {
+                let Some(pos) = text.find("\n\n") else {
+                    break;
+                };
+                let event_block = text[..pos].to_string();
+                byte_buf.drain(..pos + 2);
+                for data in extract_sse_data_lines(&event_block) {
+                    let value: serde_json::Value = match serde_json::from_str(&data) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    Self::dispatch_incoming(
+                        value,
+                        &pending,
+                        &notification_tx,
+                        &server_request_tx,
+                        "streamable_http",
+                    )
+                    .await;
+                }
+            }
         }
         Ok(())
     }

@@ -93,7 +93,14 @@ pub async fn run_pipeline(
     }
 
     // Step 4: Maintenance — promote + retire
-    let maintenance = skill_store.maintenance().await?;
+    let maintenance = skill_store
+        .maintenance(
+            config.promote_min_usage,
+            config.promote_min_success_rate,
+            config.retire_min_usage,
+            config.retire_max_success_rate,
+        )
+        .await?;
     if maintenance.promoted > 0 || maintenance.retired_active > 0 {
         tracing::info!(
             promoted = maintenance.promoted,
@@ -122,6 +129,16 @@ pub async fn run_pipeline(
 
 /// Lightweight version — just runs maintenance (promote/retire)
 /// without trajectory analysis. Suitable for periodic background tasks.
-pub async fn run_maintenance_only(skill_store: &SkillStore) -> Result<MaintenanceReport> {
-    skill_store.maintenance().await
+pub async fn run_maintenance_only(
+    skill_store: &SkillStore,
+    config: &PromotionConfig,
+) -> Result<MaintenanceReport> {
+    skill_store
+        .maintenance(
+            config.promote_min_usage,
+            config.promote_min_success_rate,
+            config.retire_min_usage,
+            config.retire_max_success_rate,
+        )
+        .await
 }

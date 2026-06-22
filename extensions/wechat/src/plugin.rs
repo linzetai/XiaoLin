@@ -149,9 +149,7 @@ impl ContextTokenCache {
     }
 
     fn file_path(account_id: &str) -> std::path::PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".xiaolin-dev")
+        xiaolin_core::paths::resolve_state_dir()
             .join("data")
             .join(format!("wechat-ctx-tokens-{account_id}.json"))
     }

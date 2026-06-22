@@ -95,6 +95,8 @@ pub struct PolicyEngine {
     layers: Vec<PolicyLayer>,
     /// Known host executables by basename, for `resolve_host_executables` matching.
     host_executables_by_name: HashMap<String, Vec<PathBuf>>,
+    /// Default decision when no rule matches (from lowest-priority layer's `[defaults]`).
+    defaults_fallback: String,
 }
 
 #[derive(Clone)]
@@ -168,6 +170,7 @@ impl PolicyEngine {
         Self {
             layers: Vec::new(),
             host_executables_by_name: HashMap::new(),
+            defaults_fallback: "prompt".to_string(),
         }
     }
 
@@ -199,6 +202,7 @@ impl PolicyEngine {
                     justification: None,
                 });
             }
+            self.defaults_fallback = defaults.fallback.clone();
         }
 
         self.layers.push(PolicyLayer::new(
@@ -289,10 +293,7 @@ impl PolicyEngine {
             }
         }
 
-        let decision = best.unwrap_or(PolicyDecision::Prompt {
-            rule_id: None,
-            reason: "no matching rule (default: prompt)".to_string(),
-        });
+        let decision = best.unwrap_or_else(|| parse_fallback_decision(&self.defaults_fallback));
 
         Evaluation {
             decision,
@@ -395,10 +396,7 @@ impl PolicyEngine {
         }
 
         Evaluation {
-            decision: best.unwrap_or(PolicyDecision::Prompt {
-                rule_id: None,
-                reason: "no matching rule (default: prompt)".to_string(),
-            }),
+            decision: best.unwrap_or_else(|| parse_fallback_decision(&self.defaults_fallback)),
             matched_rules: all_rules,
         }
     }
@@ -432,7 +430,7 @@ impl PolicyEngine {
                             "allow" => PolicyDecision::Allow {
                                 rule_id: rule.id.clone(),
                             },
-                            "forbidden" => PolicyDecision::Forbidden {
+                            "forbidden" | "deny" => PolicyDecision::Forbidden {
                                 rule_id: rule.id.clone(),
                                 justification: "network access denied by policy".to_string(),
                             },
@@ -577,6 +575,7 @@ impl PolicyEngine {
         PolicyEngine {
             layers: combined_layers,
             host_executables_by_name: host_exes,
+            defaults_fallback: overlay.defaults_fallback.clone(),
         }
     }
 
@@ -661,6 +660,20 @@ fn lenient_normalize_host(raw: &str) -> String {
     }
 
     host.to_lowercase()
+}
+
+fn parse_fallback_decision(fallback: &str) -> PolicyDecision {
+    match fallback {
+        "allow" => PolicyDecision::Allow { rule_id: None },
+        "forbidden" | "deny" => PolicyDecision::Forbidden {
+            rule_id: None,
+            justification: "forbidden by default policy".to_string(),
+        },
+        _ => PolicyDecision::Prompt {
+            rule_id: None,
+            reason: format!("no matching rule (default: {fallback})"),
+        },
+    }
 }
 
 fn parse_decision(rule: &PrefixRule) -> PolicyDecision {
