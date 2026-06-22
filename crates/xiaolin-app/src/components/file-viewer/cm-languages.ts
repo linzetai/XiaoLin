@@ -141,18 +141,6 @@ const LOADERS: Record<string, LanguageLoader> = {
     const { css } = await import("@codemirror/lang-css");
     return css();
   },
-  kotlin: async () => {
-    const { java } = await import("@codemirror/lang-java");
-    return java();
-  },
-  ruby: async () => {
-    const { javascript } = await import("@codemirror/lang-javascript");
-    return javascript();
-  },
-  csharp: async () => {
-    const { java } = await import("@codemirror/lang-java");
-    return java();
-  },
 };
 
 const cache = new Map<string, Extension>();

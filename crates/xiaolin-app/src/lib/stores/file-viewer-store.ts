@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as transport from "../transport";
 import type { FileArtifact } from "../transport";
+import { languageFromPath } from "../../components/file-viewer/cm-languages";
 import { useChatMetaStore } from "./chat-meta-store";
 
 const MAX_OPEN_FILES = 10;
@@ -38,47 +39,6 @@ export interface FileViewerState {
   saveScrollPosition: (path: string, scrollTop: number) => void;
 }
 
-const EXT_LANG_MAP: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  rs: "rust",
-  py: "python",
-  go: "go",
-  java: "java",
-  kt: "kotlin",
-  rb: "ruby",
-  php: "php",
-  swift: "swift",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  cc: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  htm: "html",
-  xml: "xml",
-  json: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  md: "markdown",
-  mdx: "markdown",
-  sql: "sql",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  dockerfile: "dockerfile",
-  vue: "vue",
-  svelte: "svelte",
-};
 
 /** Resolve absolute or relative paths against a work directory. */
 export function resolveFilePath(path: string, workDir: string): string {
@@ -92,12 +52,6 @@ export function resolveFilePath(path: string, workDir: string): string {
   return `${base}/${relative}`;
 }
 
-function detectLanguage(path: string): string {
-  const name = path.split("/").pop() ?? "";
-  if (name.toLowerCase() === "dockerfile") return "dockerfile";
-  const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() ?? "" : "";
-  return EXT_LANG_MAP[ext] ?? "plain";
-}
 
 function defaultViewMode(path: string): "code" | "preview" {
   const lower = path.toLowerCase();
@@ -198,7 +152,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       content: result.content,
       size: result.size,
       isReadonly: result.isReadonly,
-      language: detectLanguage(resolved),
+      language: languageFromPath(resolved),
       viewMode: defaultViewMode(resolved),
       lastAccessed: now,
       line,

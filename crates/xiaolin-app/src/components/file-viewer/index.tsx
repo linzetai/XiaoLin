@@ -23,4 +23,3 @@ export function CodeViewer(props: ComponentProps<typeof CodeViewerComponent>) {
 }
 
 export type { CodeViewerProps } from "./CodeViewer";
-export { languageFromPath, languageFromExtension, EXT_TO_LANG } from "./cm-languages";
