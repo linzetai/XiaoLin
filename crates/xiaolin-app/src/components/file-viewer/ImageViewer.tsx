@@ -4,6 +4,8 @@ import {
   useRef,
   useState,
   memo,
+  lazy,
+  Suspense,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -15,9 +17,12 @@ import {
   Image as ImageIcon,
 } from "@phosphor-icons/react";
 import { readBinaryForViewer } from "../../lib/transport";
-import { CodeViewer } from "./CodeViewer";
 import { formatFileSize, isSvgPath } from "./file-types";
 import { base64ToBlobUrl } from "./blob-utils";
+
+const LazyCodeViewer = lazy(() =>
+  import("./CodeViewer").then((m) => ({ default: m.CodeViewer })),
+);
 
 export interface ImageViewerProps {
   filePath: string;
@@ -128,13 +133,23 @@ export const ImageViewer = memo(function ImageViewer({
       setBlobUrl(null);
 
       try {
-        const result = await readBinaryForViewer(filePath, workDir);
-        if (cancelled) return;
+        let url: string;
+        let size: number;
 
-        const url = base64ToBlobUrl(result.base64, result.mime);
+        if (isSvg && svgContent) {
+          const blob = new Blob([svgContent], { type: "image/svg+xml" });
+          url = URL.createObjectURL(blob);
+          size = new Blob([svgContent]).size;
+        } else {
+          const result = await readBinaryForViewer(filePath, workDir);
+          if (cancelled) return;
+          url = base64ToBlobUrl(result.base64, result.mime);
+          size = result.size;
+        }
+
         blobUrlRef.current = url;
         setBlobUrl(url);
-        setFileSize(result.size);
+        setFileSize(size);
       } catch (err) {
         if (cancelled) return;
         console.warn("[ImageViewer] failed to load image:", filePath, err);
@@ -153,7 +168,7 @@ export const ImageViewer = memo(function ImageViewer({
         blobUrlRef.current = null;
       }
     };
-  }, [filePath, workDir]);
+  }, [filePath, workDir, isSvg, svgContent]);
 
   useEffect(() => {
     if (!naturalSize) return;
@@ -293,7 +308,9 @@ export const ImageViewer = memo(function ImageViewer({
           onZoomOut={() => zoomBy(1 / WHEEL_ZOOM_FACTOR)}
           hideZoomControls
         />
-        <CodeViewer content={svgContent} language="xml" />
+        <Suspense fallback={<div style={{ padding: 16, color: "var(--fill-secondary)" }}>加载中…</div>}>
+          <LazyCodeViewer content={svgContent} language="xml" />
+        </Suspense>
       </div>
     );
   }

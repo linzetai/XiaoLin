@@ -56,7 +56,10 @@ function scrollToLine(view: EditorView, lineNumber: number) {
   });
 }
 
-function fadeLineHighlight(view: EditorView) {
+function fadeLineHighlight(
+  view: EditorView,
+  timerRef: React.MutableRefObject<number | undefined>,
+) {
   const deco = view.state.field(lineHighlightField, false);
   if (!deco || deco.size === 0) return;
 
@@ -65,7 +68,9 @@ function fadeLineHighlight(view: EditorView) {
     dom.classList.add("cm-line-highlight-fade");
   }
 
-  window.setTimeout(() => {
+  if (timerRef.current != null) window.clearTimeout(timerRef.current);
+  timerRef.current = window.setTimeout(() => {
+    timerRef.current = undefined;
     if (!view.dom.isConnected) return;
     view.dispatch({ effects: highlightLineEffect.of(null) });
   }, 3000);
@@ -125,7 +130,6 @@ export function CodeViewer({ content, language, line, wordWrap = false }: CodeVi
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial mount only
   }, []);
 
-  // Sync content
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -135,6 +139,7 @@ export function CodeViewer({ content, language, line, wordWrap = false }: CodeVi
         changes: { from: 0, to: current.length, insert: content },
       });
       lineHandledRef.current = undefined;
+      view.scrollDOM.scrollTop = 0;
     }
   }, [content]);
 
@@ -191,7 +196,7 @@ export function CodeViewer({ content, language, line, wordWrap = false }: CodeVi
         window.clearTimeout(fadeTimerRef.current);
       }
       fadeTimerRef.current = window.setTimeout(() => {
-        if (viewRef.current) fadeLineHighlight(viewRef.current);
+        if (viewRef.current) fadeLineHighlight(viewRef.current, fadeTimerRef);
       }, 50);
     });
   }, [line, content, language]);

@@ -1,64 +1,11 @@
 import type { Extension } from "@codemirror/state";
 import { StreamLanguage } from "@codemirror/language";
 
+export { EXT_TO_LANG, languageFromExtension, languageFromPath } from "../../lib/file-utils";
+
 const MAX_LANG_CACHE = 24;
 
 type LanguageLoader = () => Promise<Extension>;
-
-/** Extension → internal language id (aligned with file-viewer-store detectLanguage). */
-export const EXT_TO_LANG: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  rs: "rust",
-  py: "python",
-  go: "go",
-  java: "java",
-  kt: "kotlin",
-  rb: "ruby",
-  php: "php",
-  swift: "swift",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  cc: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  htm: "html",
-  xml: "xml",
-  json: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  md: "markdown",
-  mdx: "markdown",
-  sql: "sql",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  dockerfile: "dockerfile",
-  vue: "vue",
-  svelte: "svelte",
-};
-
-export function languageFromExtension(ext: string): string {
-  const normalized = ext.toLowerCase().replace(/^\./, "");
-  return EXT_TO_LANG[normalized] ?? "plain";
-}
-
-export function languageFromPath(path: string): string {
-  const name = path.split("/").pop() ?? "";
-  if (name.toLowerCase() === "dockerfile") return "dockerfile";
-  const ext = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
-  return languageFromExtension(ext);
-}
 
 const LOADERS: Record<string, LanguageLoader> = {
   typescript: async () => {

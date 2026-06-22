@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import * as transport from "../transport";
 import type { FileArtifact } from "../transport";
-import { languageFromPath } from "../../components/file-viewer/cm-languages";
-import { isImagePath, isSvgPath } from "../../components/file-viewer/file-types";
+import { languageFromPath, isImagePath, isSvgPath } from "../file-utils";
 import { useChatMetaStore } from "./chat-meta-store";
 
 const MAX_OPEN_FILES = 10;
@@ -16,7 +15,6 @@ export interface OpenFile {
   language: string;
   viewMode: "code" | "preview";
   lastAccessed: number;
-  scrollTop?: number;
   line?: number;
 }
 
@@ -25,6 +23,7 @@ export interface FileViewerState {
   activeFilePath: string | null;
   artifacts: FileArtifact[];
   fileListCollapsed: boolean;
+  lastOpenError: string | null;
 
   sessionArtifacts: Record<string, FileArtifact[]>;
   sessionOpenFiles: Record<string, Record<string, OpenFile>>;
@@ -37,7 +36,7 @@ export interface FileViewerState {
   updateArtifacts: (artifacts: FileArtifact[]) => void;
   addArtifact: (artifact: FileArtifact) => void;
   switchSession: (newSessionId: string, oldSessionId: string | null) => void;
-  saveScrollPosition: (path: string, scrollTop: number) => void;
+  clearOpenError: () => void;
 }
 
 
@@ -90,6 +89,16 @@ function pickLruPath(openFiles: Record<string, OpenFile>, excludePath?: string):
   return lru;
 }
 
+function prependArtifact(list: FileArtifact[], artifact: FileArtifact): FileArtifact[] {
+  if (list.some((a) => a.path === artifact.path && a.timestamp === artifact.timestamp)) {
+    return list;
+  }
+  const updated = [artifact, ...list];
+  return updated.length > MAX_ARTIFACTS_PER_SESSION
+    ? updated.slice(0, MAX_ARTIFACTS_PER_SESSION)
+    : updated;
+}
+
 function parseArtifactData(data: Record<string, unknown>): FileArtifact | null {
   if (typeof data.path !== "string") return null;
   const op = data.operation;
@@ -108,12 +117,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   activeFilePath: null,
   artifacts: [],
   fileListCollapsed: false,
+  lastOpenError: null,
   sessionArtifacts: {},
   sessionOpenFiles: {},
 
   openFile: async (path, workDir, line) => {
     const resolved = resolveFilePath(path, workDir);
     if (!resolved || !workDir) return;
+
+    set({ lastOpenError: null });
 
     const existing = get().openFiles[resolved];
     if (existing) {
@@ -152,7 +164,9 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       try {
         result = await transport.readFileForViewer(resolved, workDir);
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.warn("[file-viewer] failed to open file:", resolved, e);
+        set({ lastOpenError: `无法打开文件：${msg}` });
         return;
       }
     }
@@ -221,14 +235,13 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
 
   addArtifact: (artifact) => {
     set((state) => {
-      const exists = state.artifacts.some(
-        (a) => a.path === artifact.path && a.timestamp === artifact.timestamp,
-      );
-      if (exists) return state;
-      const updated = [artifact, ...state.artifacts];
-      return { artifacts: updated.length > MAX_ARTIFACTS_PER_SESSION ? updated.slice(0, MAX_ARTIFACTS_PER_SESSION) : updated };
+      const updated = prependArtifact(state.artifacts, artifact);
+      if (updated === state.artifacts) return state;
+      return { artifacts: updated };
     });
   },
+
+  clearOpenError: () => set({ lastOpenError: null }),
 
   switchSession: (newSessionId, oldSessionId) => {
     set((state) => {
@@ -265,16 +278,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       .catch(() => {});
   },
 
-  saveScrollPosition: (path, scrollTop) => {
-    const file = get().openFiles[path];
-    if (!file) return;
-    set({
-      openFiles: {
-        ...get().openFiles,
-        [path]: { ...file, scrollTop },
-      },
-    });
-  },
 }));
 
 let _unsubFileArtifact: (() => void) | undefined;
@@ -300,11 +303,8 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
     if (!artifact) return;
 
     useFileViewerStore.setState((s) => {
-      const exists = s.artifacts.some(
-        (a) => a.path === artifact.path && a.timestamp === artifact.timestamp,
-      );
-      if (exists) return s;
-      const updated = [artifact, ...s.artifacts];
+      const updated = prependArtifact(s.artifacts, artifact);
+      if (updated === s.artifacts) return s;
       return {
         artifacts: updated,
         sessionArtifacts: { ...s.sessionArtifacts, [chatId]: updated },
