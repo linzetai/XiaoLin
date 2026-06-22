@@ -71,10 +71,13 @@ pub(crate) async fn run_turn_loop(
         // ═══════════════════════════════════════════════════════════════════
         let mut llm_output = match llm_call::perform_llm_call(ms, svc, estimated_tokens).await {
             LlmCallOutcome::Completed(output) => *output,
-            LlmCallOutcome::RetryIteration => continue,
+            LlmCallOutcome::RetryIteration => continue, // mode_turn_counted stays true → skip re-increment
             LlmCallOutcome::FatalError(e) => return Err(e),
             LlmCallOutcome::EarlyFinish(summary) => return Ok(summary),
         };
+        // Reset after successful LLM call so the next iteration can count.
+        // NOT reset on RetryIteration (continue above) to prevent double-counting.
+        ms.mode_turn_counted = false;
 
         // ═══════════════════════════════════════════════════════════════════
         // Phase 3: Dispatch on LLM transition

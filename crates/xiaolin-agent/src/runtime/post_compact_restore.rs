@@ -256,10 +256,27 @@ impl RestorationState {
         let content = self.plan_content.as_ref()?;
         let path = self.plan_path.as_ref()?;
 
+        let progress = parse_plan_progress(content);
+
         let mut message = String::new();
         message.push_str("[Plan file restored after context compaction]\n\n");
-        message.push_str(&format!("**Plan file:** {}\n\n", path.display()));
+        message.push_str(&format!("**Plan file:** {}\n", path.display()));
+        if let Some(ref p) = progress {
+            message.push_str(&format!(
+                "**Progress:** {}/{} completed, {} in progress\n",
+                p.completed, p.total, p.in_progress,
+            ));
+            if let Some(ref next) = p.next_step {
+                message.push_str(&format!("**Next step:** {next}\n"));
+            }
+        }
+        message.push('\n');
         message.push_str(content);
+        if progress.is_some() {
+            message.push_str(
+                "\n\nContinue implementing the plan. Use `update_plan` to track step progress.",
+            );
+        }
 
         Some(ChatMessage {
             role: Role::System,
@@ -296,6 +313,56 @@ impl RestorationState {
             ..Default::default()
         }
     }
+}
+
+/// Parsed progress from plan markdown step markers.
+pub struct PlanProgress {
+    pub total: usize,
+    pub completed: usize,
+    pub in_progress: usize,
+    pub pending: usize,
+    pub next_step: Option<String>,
+}
+
+/// Parse `[ ]`, `[~]`, `[x]` step markers from plan markdown content.
+/// Returns `None` if no step markers are found.
+pub fn parse_plan_progress(content: &str) -> Option<PlanProgress> {
+    let mut total = 0usize;
+    let mut completed = 0usize;
+    let mut in_progress = 0usize;
+    let mut next_step: Option<String> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim_start_matches(['-', ' ', '*']);
+        if let Some(rest) = trimmed.strip_prefix("[x] ").or_else(|| trimmed.strip_prefix("[X] ")) {
+            total += 1;
+            completed += 1;
+            let _ = rest;
+        } else if let Some(rest) = trimmed.strip_prefix("[~] ") {
+            total += 1;
+            in_progress += 1;
+            if next_step.is_none() {
+                next_step = Some(rest.trim().to_string());
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("[ ] ") {
+            total += 1;
+            if next_step.is_none() {
+                next_step = Some(rest.trim().to_string());
+            }
+        }
+    }
+
+    if total == 0 {
+        return None;
+    }
+
+    Some(PlanProgress {
+        total,
+        completed,
+        in_progress,
+        pending: total - completed - in_progress,
+        next_step,
+    })
 }
 
 /// Truncate content to approximately `max_tokens` tokens.
@@ -415,19 +482,47 @@ mod tests {
         let mut state = RestorationState::new();
         state.set_plan(
             PathBuf::from("/plans/test-plan.md"),
-            "# My Plan\n\n- Step 1\n- Step 2".to_string(),
+            "# My Plan\n\n- [x] Step 1\n- [~] Step 2\n- [ ] Step 3".to_string(),
         );
         let messages = state.generate_restoration_messages();
         assert!(messages.iter().any(|m| {
             m.content
                 .as_ref()
                 .map(|c| {
-                    c.to_string().contains("Plan file restored")
-                        && c.to_string().contains("test-plan.md")
-                        && c.to_string().contains("My Plan")
+                    let s = c.to_string();
+                    s.contains("Plan file restored")
+                        && s.contains("test-plan.md")
+                        && s.contains("My Plan")
+                        && s.contains("1/3 completed")
                 })
                 .unwrap_or(false)
         }));
+    }
+
+    #[test]
+    fn parse_plan_progress_basic() {
+        let content = "# Plan\n- [x] Done\n- [~] Working\n- [ ] Todo";
+        let p = parse_plan_progress(content).unwrap();
+        assert_eq!(p.total, 3);
+        assert_eq!(p.completed, 1);
+        assert_eq!(p.in_progress, 1);
+        assert_eq!(p.pending, 1);
+        assert_eq!(p.next_step.as_deref(), Some("Working"));
+    }
+
+    #[test]
+    fn parse_plan_progress_no_markers() {
+        let content = "# Plan\n\nJust a description.";
+        assert!(parse_plan_progress(content).is_none());
+    }
+
+    #[test]
+    fn parse_plan_progress_all_completed() {
+        let content = "- [x] First\n- [x] Second";
+        let p = parse_plan_progress(content).unwrap();
+        assert_eq!(p.total, 2);
+        assert_eq!(p.completed, 2);
+        assert!(p.next_step.is_none());
     }
 
     #[test]

@@ -281,15 +281,37 @@ function StreamingCursor() {
 }
 
 function PlanChecklist({ steps, explanation }: { steps: PlanStep[]; explanation?: string }) {
-  const completed = steps.filter((s) => s.status === "completed").length;
-  const total = steps.length;
+  const { t } = useTranslation("chat");
+  const [overrides, setOverrides] = useState<Record<number, PlanStep["status"]>>({});
+
+  const stepsKey = useMemo(() => steps.map((s) => `${s.step}:${s.status}`).join("|"), [steps]);
+  useEffect(() => {
+    setOverrides({});
+  }, [stepsKey]);
+
+  const effectiveSteps = useMemo(
+    () => steps.map((s, i) => (i in overrides ? { ...s, status: overrides[i] } : s)),
+    [steps, overrides],
+  );
+
+  const toggleStep = useCallback((idx: number) => {
+    setOverrides((prev) => {
+      const current = prev[idx] ?? steps[idx]?.status ?? "pending";
+      const next = current === "completed" ? "pending" : "completed";
+      return { ...prev, [idx]: next };
+    });
+  }, [steps]);
+
+  const completed = effectiveSteps.filter((s) => s.status === "completed").length;
+  const total = effectiveSteps.length;
   const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const allDone = total > 0 && completed === total;
 
   return (
     <div
       className="mb-3 rounded-md border"
       style={{
-        borderColor: "var(--separator)",
+        borderColor: allDone ? "var(--green, #38A169)" : "var(--separator)",
         background: "var(--bg-primary)",
       }}
     >
@@ -298,31 +320,40 @@ function PlanChecklist({ steps, explanation }: { steps: PlanStep[]; explanation?
         className="flex items-center gap-2 px-3 py-2"
         style={{ borderBottom: "0.5px solid var(--separator)" }}
       >
-        <span className="text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
-          进度
-        </span>
-        <div
-          className="h-1.5 flex-1 rounded-full"
-          style={{ background: "var(--fill-quaternary, #e2e8f0)" }}
-        >
-          <div
-            className="h-full rounded-full transition-all duration-300"
-            style={{
-              width: `${progress}%`,
-              background: "var(--plan-tint)",
-            }}
-          />
-        </div>
-        <span className="text-[10px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-          {completed}/{total}
-        </span>
+        {allDone ? (
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "var(--green, #38A169)" }}>
+            <CheckCircle size={14} weight="fill" />
+            {t("plan_allCompleted")}
+          </span>
+        ) : (
+          <>
+            <span className="text-[11px] font-semibold" style={{ color: "var(--fill-secondary)" }}>
+              {t("plan_progress")}
+            </span>
+            <div
+              className="h-1.5 flex-1 rounded-full"
+              style={{ background: "var(--fill-quaternary, #e2e8f0)" }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${progress}%`,
+                  background: "var(--plan-tint)",
+                }}
+              />
+            </div>
+            <span className="text-[10px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
+              {completed}/{total}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Steps list */}
       <ul className="list-none px-3 py-2">
-        {steps.map((step, idx) => (
+        {effectiveSteps.map((step, idx) => (
           <li key={idx} className="flex items-start gap-2 py-1">
-            <StepIcon status={step.status} />
+            <StepIcon status={step.status} onClick={() => toggleStep(idx)} />
             <span
               className="text-[12px] leading-[1.5]"
               style={{
@@ -355,25 +386,34 @@ function PlanChecklist({ steps, explanation }: { steps: PlanStep[]; explanation?
   );
 }
 
-function StepIcon({ status }: { status: PlanStep["status"] }) {
+function StepIcon({ status, onClick }: { status: PlanStep["status"]; onClick?: () => void }) {
+  const iconStyle: React.CSSProperties = { flexShrink: 0, marginTop: 2, cursor: onClick ? "pointer" : "default" };
+
   if (status === "completed") {
-    return <CheckCircle size={14} weight="fill" style={{ color: "var(--green, #38A169)", flexShrink: 0, marginTop: 2 }} />;
+    return (
+      <CheckCircle
+        size={14} weight="fill"
+        style={{ ...iconStyle, color: "var(--green, #38A169)" }}
+        onClick={onClick}
+      />
+    );
   }
   if (status === "in_progress") {
     return (
       <CircleNotch
-        size={14}
-        weight="bold"
-        style={{
-          color: "var(--plan-tint)",
-          flexShrink: 0,
-          marginTop: 2,
-          animation: "spin 1s linear infinite",
-        }}
+        size={14} weight="bold"
+        style={{ ...iconStyle, color: "var(--plan-tint)", animation: "spin 1s linear infinite" }}
+        onClick={onClick}
       />
     );
   }
-  return <Circle size={14} weight="regular" style={{ color: "var(--fill-tertiary)", flexShrink: 0, marginTop: 2 }} />;
+  return (
+    <Circle
+      size={14} weight="regular"
+      style={{ ...iconStyle, color: "var(--fill-tertiary)" }}
+      onClick={onClick}
+    />
+  );
 }
 
 /**

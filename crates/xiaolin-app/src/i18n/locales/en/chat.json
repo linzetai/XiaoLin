@@ -189,6 +189,8 @@
   "plan_notCreated": "(not created)",
   "plan_notCreatedYet": "Plan file not created yet",
   "plan_emptyHint": "Send a message in Plan mode and the AI will create a structured execution plan",
+  "plan_progress": "Progress",
+  "plan_allCompleted": "Plan fully implemented",
   "plan_nudge_hasUnfinished": "You have an unfinished plan. Click to switch back to Plan mode.",
   "plan_nudge_keyword": "Try Plan mode to design a complete approach?",
   "plan_nudge_complexity": "This looks like a complex task. Use Plan mode to plan before implementing.",

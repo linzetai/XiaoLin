@@ -194,17 +194,21 @@ pub async fn handle_execution_approve_plan(
                 }
 
                 if let Some(plan_content) = state.rt.plan_file_store.read_plan(session_id) {
+                    let guidance = build_approval_guidance(&plan_content);
+                    let context_msg = format!("[Plan Context]\n\n{plan_content}\n\n{guidance}");
                     let plan_msg = xiaolin_core::types::ChatMessage {
                         role: xiaolin_core::types::Role::User,
-                        content: Some(serde_json::Value::String(format!(
-                            "[Plan Context]\n\n{plan_content}"
-                        ))),
+                        content: Some(serde_json::Value::String(context_msg)),
                         ..Default::default()
                     };
                     let _ = state.store.session_store.append_message(&new_id, &plan_msg).await;
                 }
 
-                state.rt.session_modes.transition(&new_id, target);
+                {
+                    let mode_state = state.rt.session_modes.get_or_create(&new_id);
+                    mode_state.transition(xiaolin_core::types::ExecutionMode::Plan);
+                    mode_state.transition(target);
+                }
 
                 send_resp(
                     sender,
@@ -239,6 +243,20 @@ pub async fn handle_execution_approve_plan(
     }
 
     let (from, to) = state.rt.session_modes.transition(session_id, target);
+
+    if from != to && from == xiaolin_core::types::ExecutionMode::Plan {
+        if let Some(plan_content) = state.rt.plan_file_store.read_plan(session_id) {
+            let guidance = build_approval_guidance(&plan_content);
+            let msg = xiaolin_core::types::ChatMessage {
+                role: xiaolin_core::types::Role::User,
+                content: Some(serde_json::Value::String(guidance)),
+                ..Default::default()
+            };
+            if let Err(e) = state.store.session_store.append_message(session_id, &msg).await {
+                tracing::warn!(error = %e, session_id, "failed to inject approval guidance");
+            }
+        }
+    }
 
     send_resp(
         sender,
@@ -476,4 +494,33 @@ async fn infer_mode_from_messages(
     }
 
     xiaolin_core::types::ExecutionMode::Agent
+}
+
+/// Build a guidance message to inject after plan approval.
+fn build_approval_guidance(plan_content: &str) -> String {
+    use xiaolin_agent::runtime::post_compact_restore::parse_plan_progress;
+
+    let mut guidance = String::from(
+        "[Plan Approved — Implementation Guidance]\n\n\
+         The user has approved the plan. Start implementing step by step.\n\n",
+    );
+
+    if let Some(p) = parse_plan_progress(plan_content) {
+        guidance.push_str(&format!(
+            "Plan has {} steps ({} completed, {} in progress, {} pending).\n",
+            p.total, p.completed, p.in_progress, p.pending,
+        ));
+        if let Some(ref next) = p.next_step {
+            guidance.push_str(&format!("Start with: {next}\n"));
+        }
+    }
+
+    guidance.push_str(
+        "\nWorkflow:\n\
+         1. Call `update_plan` at the start to set the first step to `in_progress`\n\
+         2. Implement each step, then call `update_plan` to mark it `completed`\n\
+         3. After all steps, run the verification described in the plan\n",
+    );
+
+    guidance
 }

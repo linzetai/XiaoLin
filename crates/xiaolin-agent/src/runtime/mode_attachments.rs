@@ -248,6 +248,56 @@ fn plan_full_zh(plan_file_path: Option<&str>, plan_file_exists: bool) -> String 
     )
 }
 
+/// Interval (in turns) between sparse implementation reminders in Agent mode.
+pub const AGENT_REMINDER_INTERVAL: u32 = 5;
+
+/// Build a sparse implementation reminder for Agent mode when a plan exists.
+/// Returns `None` if this turn should not get a reminder.
+pub fn agent_implementation_reminder(
+    agent_turn: u32,
+    plan_content: &str,
+    lang: Option<&str>,
+) -> Option<String> {
+    if agent_turn == 0 || !agent_turn.is_multiple_of(AGENT_REMINDER_INTERVAL) {
+        return None;
+    }
+    let progress = crate::runtime::post_compact_restore::parse_plan_progress(plan_content);
+    let is_zh = matches!(lang, Some("zh" | "zh-CN" | "zh-TW"));
+
+    let msg = if is_zh {
+        let mut s = String::from(
+            "<implementation_reminder>\n实施进度提醒：你正在按照方案执行。\n",
+        );
+        if let Some(ref p) = progress {
+            s.push_str(&format!(
+                "进度: {}/{} 已完成, {} 进行中, {} 待办\n",
+                p.completed, p.total, p.in_progress, p.pending,
+            ));
+            if let Some(ref next) = p.next_step {
+                s.push_str(&format!("下一步: {next}\n"));
+            }
+        }
+        s.push_str("请用 update_plan 更新步骤状态。完成所有步骤后运行验证。\n</implementation_reminder>");
+        s
+    } else {
+        let mut s = String::from(
+            "<implementation_reminder>\nImplementation progress reminder: you are executing the approved plan.\n",
+        );
+        if let Some(ref p) = progress {
+            s.push_str(&format!(
+                "Progress: {}/{} completed, {} in progress, {} pending\n",
+                p.completed, p.total, p.in_progress, p.pending,
+            ));
+            if let Some(ref next) = p.next_step {
+                s.push_str(&format!("Next step: {next}\n"));
+            }
+        }
+        s.push_str("Use update_plan to track step status. Run verification after all steps.\n</implementation_reminder>");
+        s
+    };
+    Some(msg)
+}
+
 fn plan_sparse_en() -> String {
     "<mode_attachment type=\"sparse\">\n\
      Reminder: Plan mode active. Read-only except plan file.\n\
@@ -372,5 +422,42 @@ mod tests {
         assert_eq!(decisions[15], AttachmentDecision::Sparse);
         assert_eq!(decisions[20], AttachmentDecision::Sparse);
         assert_eq!(decisions[25], AttachmentDecision::Full);
+    }
+
+    #[test]
+    fn agent_reminder_skips_first_turn() {
+        let plan = "- [x] Done\n- [ ] Todo";
+        assert!(agent_implementation_reminder(0, plan, None).is_none());
+    }
+
+    #[test]
+    fn agent_reminder_fires_on_interval() {
+        let plan = "- [x] Done\n- [~] Working\n- [ ] Todo";
+        assert!(agent_implementation_reminder(5, plan, None).is_some());
+        assert!(agent_implementation_reminder(10, plan, None).is_some());
+    }
+
+    #[test]
+    fn agent_reminder_skips_non_interval() {
+        let plan = "- [x] Done\n- [ ] Todo";
+        for t in 1..5 {
+            assert!(agent_implementation_reminder(t, plan, None).is_none(), "turn {t}");
+        }
+    }
+
+    #[test]
+    fn agent_reminder_includes_progress() {
+        let plan = "- [x] Done\n- [~] Working\n- [ ] Todo";
+        let msg = agent_implementation_reminder(5, plan, None).unwrap();
+        assert!(msg.contains("1/3 completed"));
+        assert!(msg.contains("Working"));
+    }
+
+    #[test]
+    fn agent_reminder_zh() {
+        let plan = "- [x] 完成\n- [ ] 待办";
+        let msg = agent_implementation_reminder(5, plan, Some("zh")).unwrap();
+        assert!(msg.contains("实施进度提醒"));
+        assert!(msg.contains("1/2 已完成"));
     }
 }

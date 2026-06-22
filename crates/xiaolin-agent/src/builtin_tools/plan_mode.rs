@@ -84,6 +84,9 @@ pub struct ExecutionModeState {
     state: Arc<AtomicU8>,
     /// Number of turns spent in Plan mode since last entry (for attachment throttling).
     plan_turn_counter: Arc<AtomicU32>,
+    /// Number of turns spent in Agent mode since last Plan→Agent transition
+    /// (for sparse implementation reminders).
+    agent_turn_counter: Arc<AtomicU32>,
     /// Whether the agent has previously exited Plan mode (for reentry detection).
     has_exited_plan: Arc<AtomicBool>,
 }
@@ -93,6 +96,7 @@ impl Clone for ExecutionModeState {
         Self {
             state: Arc::clone(&self.state),
             plan_turn_counter: Arc::clone(&self.plan_turn_counter),
+            agent_turn_counter: Arc::clone(&self.agent_turn_counter),
             has_exited_plan: Arc::clone(&self.has_exited_plan),
         }
     }
@@ -109,6 +113,7 @@ impl ExecutionModeState {
         Self {
             state: Arc::new(AtomicU8::new(MODE_AGENT)),
             plan_turn_counter: Arc::new(AtomicU32::new(0)),
+            agent_turn_counter: Arc::new(AtomicU32::new(0)),
             has_exited_plan: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -134,6 +139,7 @@ impl ExecutionModeState {
                 }
                 ExecutionMode::Agent if from == ExecutionMode::Plan => {
                     self.has_exited_plan.store(true, Ordering::Release);
+                    self.agent_turn_counter.store(0, Ordering::Release);
                 }
                 _ => {}
             }
@@ -150,6 +156,16 @@ impl ExecutionModeState {
     /// Increment the plan turn counter by 1. Returns the value *before* increment.
     pub fn increment_plan_turn(&self) -> u32 {
         self.plan_turn_counter.fetch_add(1, Ordering::AcqRel)
+    }
+
+    /// Current agent turn counter (for sparse implementation reminders).
+    pub fn agent_turn_count(&self) -> u32 {
+        self.agent_turn_counter.load(Ordering::Acquire)
+    }
+
+    /// Increment the agent turn counter by 1. Returns the value *before* increment.
+    pub fn increment_agent_turn(&self) -> u32 {
+        self.agent_turn_counter.fetch_add(1, Ordering::AcqRel)
     }
 
     /// Whether the agent has previously exited plan mode (for reentry detection).

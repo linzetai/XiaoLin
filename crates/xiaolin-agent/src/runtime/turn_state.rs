@@ -60,6 +60,9 @@ pub(crate) struct TurnMutableState {
     pub tool_defs_est_tokens: usize,
     /// Snapshot of `ToolRegistry::version()` at the time `tool_defs` was built.
     pub registry_version_at_setup: u64,
+    /// Whether mode attachment turn counter was already incremented this outer loop iteration.
+    /// Prevents double-counting on `RetryIteration` paths.
+    pub mode_turn_counted: bool,
     /// Extra tool definitions injected by the channel request (`request.tools`).
     /// Preserved across `tool_defs` refreshes so channel-scoped tools survive
     /// registry version changes.

@@ -153,6 +153,19 @@ impl ToolRuntime for FileWriteRuntime {
                 message: format!("failed to write file: {e}"),
             })?;
 
+        if let Some(pc) = crate::builtin_tools::current_plan_context() {
+            let plan_path = pc.store.plan_path(&pc.session_id);
+            let is_plan = path == plan_path
+                || path.canonicalize().ok().zip(plan_path.canonicalize().ok())
+                    .is_some_and(|(a, b)| a == b);
+            if is_plan {
+                return Ok(format!(
+                    "Plan updated — {} (view in Plan panel)",
+                    path.display()
+                ));
+            }
+        }
+
         Ok(format!("wrote {} bytes to {}", content.len(), path.display()))
     }
 

@@ -61,7 +61,7 @@ pub(crate) mod observer;
 pub mod dispatcher;
 pub mod orchestrator;
 pub mod permissions;
-mod post_compact_restore;
+pub mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;

@@ -169,7 +169,42 @@ pub(crate) async fn perform_llm_call(
                     "mode_attachment: injected plan mode instructions"
                 );
             }
-            mode_state.increment_plan_turn();
+            if !ms.mode_turn_counted {
+                mode_state.increment_plan_turn();
+                ms.mode_turn_counted = true;
+            }
+        }
+
+        if mode_state.current_mode() == ExecutionMode::Agent && mode_state.has_exited_plan() {
+            let plan_exists = svc.plan_file_path.as_ref().is_some_and(|p| p.exists());
+            if plan_exists {
+                let turn_count = mode_state.agent_turn_count();
+                if let Some(plan_path) = svc.plan_file_path.as_ref() {
+                    if turn_count > 0 && turn_count.is_multiple_of(mode_attachments::AGENT_REMINDER_INTERVAL) {
+                        if let Ok(plan_content) = std::fs::read_to_string(plan_path) {
+                            if let Some(reminder) = mode_attachments::agent_implementation_reminder(
+                                turn_count,
+                                &plan_content,
+                                svc.language_preference.as_deref(),
+                            ) {
+                                ms.messages.push(ChatMessage {
+                                    role: Role::User,
+                                    content: Some(serde_json::Value::String(reminder)),
+                                    ..Default::default()
+                                });
+                                tracing::debug!(
+                                    turn_count,
+                                    "mode_attachment: injected agent implementation reminder"
+                                );
+                            }
+                        }
+                    }
+                }
+                if !ms.mode_turn_counted {
+                    mode_state.increment_agent_turn();
+                    ms.mode_turn_counted = true;
+                }
+            }
         }
     }
 

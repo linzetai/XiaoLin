@@ -344,6 +344,7 @@ pub(crate) async fn setup_turn(
         tool_defs_est_tokens,
         registry_version_at_setup,
         extra_tool_defs,
+        mode_turn_counted: false,
     };
 
     let turn_services = TurnServices {

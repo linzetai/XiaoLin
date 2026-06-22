@@ -11,11 +11,12 @@ use super::ask_question::ASK_QUESTION_STREAM_KEY;
 use super::plan_mode::current_plan_context;
 
 type EventTxMap = Arc<DashMap<String, tokio::sync::mpsc::Sender<AgentEvent>>>;
+type PlanStepData = (Option<String>, Vec<PlanStep>);
 
 /// Per-session plan step state.
 #[derive(Debug, Clone, Default)]
 pub struct PlanStepStore {
-    sessions: Arc<DashMap<String, (Option<String>, Vec<PlanStep>)>>,
+    sessions: Arc<DashMap<String, PlanStepData>>,
 }
 
 impl PlanStepStore {
