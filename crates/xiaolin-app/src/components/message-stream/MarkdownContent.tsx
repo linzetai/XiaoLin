@@ -2,6 +2,7 @@ import { memo, useState, useCallback, useEffect, useMemo, type ComponentPropsWit
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
 import { rehypeHighlightLite } from "./rehype-highlight-lite";
 import { Check, Copy } from "@phosphor-icons/react";
 import { useConfigStore } from "../../lib/stores";
@@ -13,8 +14,8 @@ interface MarkdownContentProps {
 }
 
 const remarkPlugins = [remarkGfm];
-const rehypePluginsFull = [rehypeHighlightLite];
-const rehypePluginsNone: never[] = [];
+const rehypePluginsFull = [rehypeSlug, rehypeHighlightLite];
+const rehypePluginsSlugOnly = [rehypeSlug];
 
 function hasUnclosedCodeBlock(text: string): boolean {
   let count = 0;
@@ -236,8 +237,8 @@ export const MarkdownContent = memo(function MarkdownContent({
 
   const unclosed = streaming && hasUnclosedCodeBlock(content);
   const rehypePlugins = useMemo(() => {
-    if (streaming) return unclosed ? rehypePluginsNone : rehypePluginsFull;
-    return highlighted ? rehypePluginsFull : rehypePluginsNone;
+    if (streaming) return unclosed ? rehypePluginsSlugOnly : rehypePluginsFull;
+    return highlighted ? rehypePluginsFull : rehypePluginsSlugOnly;
   }, [streaming, unclosed, highlighted]);
 
   return (

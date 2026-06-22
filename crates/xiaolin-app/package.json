@@ -61,6 +61,7 @@
     "react-dom": "^19.2.5",
     "react-i18next": "^17.0.8",
     "react-markdown": "^10.1.0",
+    "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "unist-util-visit": "^5.1.0",
     "zustand": "^5.0.12"

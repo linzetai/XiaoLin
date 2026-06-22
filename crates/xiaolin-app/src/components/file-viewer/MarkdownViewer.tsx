@@ -117,9 +117,9 @@ function MarkdownPreview({
       }
 
       if (isLocalRelativeRef(href)) {
+        e.preventDefault();
         const resolved = resolveRelativeFromFile(href, filePath);
         if (OPENABLE_EXT.test(resolved)) {
-          e.preventDefault();
           window.dispatchEvent(
             new CustomEvent("xiaolin:open-file", {
               detail: { path: resolved, workDir },
@@ -145,15 +145,21 @@ function MarkdownPreview({
 
     let cancelled = false;
     blobUrlsRef.current = [];
+    const inFlight = new Set<string>();
+    let rafId: number | null = null;
 
     const loadLocalImages = async () => {
       const imgs = container.querySelectorAll<HTMLImageElement>(".markdown-body img");
       for (const img of imgs) {
+        if (cancelled) return;
         const src = img.getAttribute("src");
         if (!src || !isLocalRelativeRef(src)) continue;
         if (img.dataset.localLoaded === "true") continue;
 
         const resolved = resolveRelativeFromFile(src, filePath);
+        if (inFlight.has(resolved)) continue;
+        inFlight.add(resolved);
+
         try {
           const result = await readBinaryForViewer(resolved, workDir);
           if (cancelled) return;
@@ -170,19 +176,28 @@ function MarkdownPreview({
           };
         } catch (err) {
           console.warn("[MarkdownViewer] failed to load image:", resolved, err);
+        } finally {
+          inFlight.delete(resolved);
         }
       }
     };
 
-    const observer = new MutationObserver(() => {
-      void loadLocalImages();
-    });
+    const scheduleLoad = () => {
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        void loadLocalImages();
+      });
+    };
+
+    const observer = new MutationObserver(scheduleLoad);
     observer.observe(container, { childList: true, subtree: true });
     void loadLocalImages();
 
     return () => {
       cancelled = true;
       observer.disconnect();
+      if (rafId != null) cancelAnimationFrame(rafId);
       for (const url of blobUrlsRef.current) {
         URL.revokeObjectURL(url);
       }
