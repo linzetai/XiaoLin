@@ -1,4 +1,5 @@
 mod agents;
+mod artifact;
 mod automations;
 mod channels;
 mod chat;
@@ -976,6 +977,9 @@ async fn dispatch(
                 Some(&params),
             )
             .await;
+        }
+        ClientOp::ArtifactsList { session_id } => {
+            artifact::handle_artifacts_list(sender, state, id, &session_id).await;
         }
     }
 }

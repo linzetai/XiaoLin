@@ -167,6 +167,7 @@ pub struct StorageState {
     pub skill_usage_store: Arc<xiaolin_core::skill_usage::SkillUsageStore>,
     pub context_engine: Arc<xiaolin_context::ContextEngine>,
     pub cost_store: Arc<xiaolin_session::CostStore>,
+    pub artifact_store: Arc<dyn xiaolin_session::ArtifactStore>,
     pub search_index: Arc<SearchIndex>,
 }
 
@@ -2278,9 +2279,22 @@ impl AppState {
         self.rt.plan_step_store.remove(session_id);
     }
 
-    /// Full cleanup for a deleted session: plan state + sub-agents + session actor.
+    /// Full cleanup for a deleted session: plan state + sub-agents + session actor + artifacts.
     pub async fn cleanup_session_resources(&self, session_id: &str) {
         self.cleanup_session_plan_state(session_id);
+
+        if let Err(e) = self
+            .store
+            .artifact_store
+            .delete_session_artifacts(session_id)
+            .await
+        {
+            tracing::warn!(
+                error = %e,
+                session_id = %session_id,
+                "failed to delete file artifacts for session"
+            );
+        }
 
         for run in self.strm.subagent_manager.active_runs(session_id) {
             self.strm.subagent_manager.cancel(&run.run_id);
@@ -3328,6 +3342,7 @@ impl AppState {
                 behavior_overrides: None,
                 live_agents: None,
                 cost_store: None,
+                artifact_store: None,
             });
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(executor));
 
@@ -3379,6 +3394,9 @@ impl AppState {
                 context_engine: context_engine.clone(),
                 cost_store: Arc::new(
                     xiaolin_session::CostStore::open(session_store.pool()).await?,
+                ),
+                artifact_store: Arc::new(
+                    xiaolin_session::SqliteArtifactStore::open(session_store.pool()).await?,
                 ),
                 search_index,
             },

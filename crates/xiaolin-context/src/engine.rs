@@ -1210,7 +1210,8 @@ impl ContextEngine {
             return;
         }
 
-        let per_msg_budget_chars = (remaining_budget * 4) / truncatable_count;
+        let per_msg_budget_chars =
+            (remaining_budget * crate::compressor::DEFAULT_CHARS_PER_TOKEN) / truncatable_count;
         let min_chars = 200;
 
         for &idx in &sys_indices[1..] {

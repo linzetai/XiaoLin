@@ -1078,6 +1078,9 @@ impl SubAgentManager {
                             });
                         }
                     }
+                    AgentEvent::FileArtifact { .. } => {
+                        let _ = parent_tx_clone.send(event).await;
+                    }
                     _ => {}
                 }
             }
@@ -1127,6 +1130,7 @@ impl SubAgentManager {
                 approval_strategy,
                 llm_override,
                 orchestrator,
+                None,
                 None,
                 None,
                 None,

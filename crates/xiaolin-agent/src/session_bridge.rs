@@ -83,6 +83,8 @@ pub struct RuntimeTurnExecutor {
     pub live_agents: Option<Arc<ArcSwap<Vec<AgentConfig>>>>,
     /// Persistent cost store for SQLite-backed analytics.
     pub cost_store: Option<Arc<xiaolin_session::CostStore>>,
+    /// File artifact store for tracking agent file operations.
+    pub artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
 }
 
 impl RuntimeTurnExecutor {
@@ -461,6 +463,7 @@ impl RuntimeTurnExecutor {
                 todo_store.clone(),
                 self.goal_store.clone(),
                 self.cost_store.clone(),
+                self.artifact_store.clone(),
                 self.behavior_overrides.clone(),
                 None,
             ));
@@ -731,6 +734,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
             let plan_ctx_for_loop = plan_ctx.clone();
 
             let cost_store_for_runtime = self.cost_store.clone();
+            let artifact_store_for_runtime = self.artifact_store.clone();
             let behavior_overrides_for_runtime = self.behavior_overrides.clone();
             let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified_with_cost_store(
                 &config,
@@ -747,6 +751,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 todo_store.clone(),
                 goal_store,
                 cost_store_for_runtime,
+                artifact_store_for_runtime,
                 behavior_overrides_for_runtime,
                 None,
             ));

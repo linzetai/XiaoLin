@@ -1,17 +1,17 @@
 ## 1. 后端 Artifact 追踪基础设施
 
-- [ ] 1.1 定义 `FileArtifact` 数据模型（在 `xiaolin-agent/src/runtime/` 中，扩展已有 `SessionFileTracker`）：`session_id`, `path`, `operation` (created/modified/deleted), `timestamp`, `tool_call_id`, `bytes`
-- [ ] 1.2 创建 `file_artifacts` SQLite 表（migration），字段对应 `FileArtifact`，含索引 `idx_session_id`
-- [ ] 1.3 实现 `ArtifactStore` trait：`record_artifact()`, `get_session_artifacts()`, `delete_session_artifacts()`
-- [ ] 1.4 在 `write_file`/`edit_file`/`create_file`/`multi_edit`/`apply_patch`/`str_replace_editor` 工具成功回调中注入 `record_artifact()` 调用
-- [ ] 1.5 在 `xiaolin-protocol` 中新增：`FileArtifactEvent` 事件类型 + `artifacts.list` ClientOp variant + parse_request
-- [ ] 1.6 在 `xiaolin-protocol/lib.rs` 中 pub use 导出新类型
-- [ ] 1.7 在 `xiaolin-gateway/ws/mod.rs` 中注册 `artifacts.list` dispatch 分支
-- [ ] 1.8 实现 `xiaolin-gateway/ws/artifact.rs` handler：查询 SQLite 返回 artifact 列表
-- [ ] 1.9 实现 `file_artifact` WS event 推送逻辑：agent runtime 记录 artifact → channel/callback → gateway WS dispatcher 推送到前端
-- [ ] 1.10 session 删除时级联删除对应的 artifact 记录
-- [ ] 1.11 在 `transport.ts` 中添加 `listArtifacts(sessionId)` 函数 + `FileArtifact` interface
-- [ ] 1.12 在 `api.ts` 中添加 `listSessionArtifacts()` 高层包装
+- [x] 1.1 定义 `FileArtifact` 数据模型（在 `xiaolin-agent/src/runtime/` 中，扩展已有 `SessionFileTracker`）：`session_id`, `path`, `operation` (created/modified/deleted), `timestamp`, `tool_call_id`, `bytes`
+- [x] 1.2 创建 `file_artifacts` SQLite 表（migration），字段对应 `FileArtifact`，含索引 `idx_session_id`
+- [x] 1.3 实现 `ArtifactStore` trait：`record_artifact()`, `get_session_artifacts()`, `delete_session_artifacts()`
+- [x] 1.4 在 `write_file`/`edit_file`/`create_file`/`multi_edit`/`apply_patch`/`str_replace_editor` 工具成功回调中注入 `record_artifact()` 调用
+- [x] 1.5 在 `xiaolin-protocol` 中新增：`FileArtifactEvent` 事件类型 + `artifacts.list` ClientOp variant + parse_request
+- [x] 1.6 在 `xiaolin-protocol/lib.rs` 中 pub use 导出新类型
+- [x] 1.7 在 `xiaolin-gateway/ws/mod.rs` 中注册 `artifacts.list` dispatch 分支
+- [x] 1.8 实现 `xiaolin-gateway/ws/artifact.rs` handler：查询 SQLite 返回 artifact 列表
+- [x] 1.9 实现 `file_artifact` WS event 推送逻辑：agent runtime 记录 artifact → channel/callback → gateway WS dispatcher 推送到前端
+- [x] 1.10 session 删除时级联删除对应的 artifact 记录
+- [x] 1.11 在 `transport.ts` 中添加 `listArtifacts(sessionId)` 函数 + `FileArtifact` interface
+- [x] 1.12 在 `api.ts` 中添加 `listSessionArtifacts()` 高层包装
 
 ## 2. Tauri IPC 命令
 

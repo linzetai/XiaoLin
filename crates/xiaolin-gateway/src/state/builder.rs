@@ -859,6 +859,12 @@ impl StateBuilder {
             xiaolin_session::CostStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
                 .await?,
         );
+        let artifact_store: Arc<dyn xiaolin_session::ArtifactStore> = Arc::new(
+            xiaolin_session::SqliteArtifactStore::open(
+                p5.phase2.phase4.phase3.phase1.pool.clone(),
+            )
+            .await?,
+        );
         p5.phase2
             .phase4
             .phase3
@@ -959,6 +965,7 @@ impl StateBuilder {
                 behavior_overrides: Some(session_behavior_overrides.clone()),
                 live_agents: Some(live_agents_swap.clone()),
                 cost_store: Some(cost_store.clone()),
+                artifact_store: Some(artifact_store.clone()),
             }),
         ));
         let mut state = AppState {
@@ -1008,6 +1015,7 @@ impl StateBuilder {
                 skill_usage_store: skill_usage_store_arc.clone(),
                 context_engine: Arc::new(p5.phase2.context_engine),
                 cost_store: cost_store.clone(),
+                artifact_store: artifact_store.clone(),
                 search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
             },
             mem: super::MemoryState {

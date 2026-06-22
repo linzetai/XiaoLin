@@ -46,7 +46,7 @@ pub const DEFAULT_IMPORTANCE_MAX_MESSAGES: usize = 60;
 /// Default chars-per-token ratio for heuristic estimates.
 /// Use 2 (not 4) because CJK text is often ~1 token per character in BPE tokenizers;
 /// byte-length / 4 severely underestimates Chinese context usage.
-const DEFAULT_CHARS_PER_TOKEN: usize = 2;
+pub(crate) const DEFAULT_CHARS_PER_TOKEN: usize = 2;
 const PER_MESSAGE_OVERHEAD: usize = 4;
 
 /// Estimate the total token count for a slice of messages using the chars-per-token heuristic.

@@ -124,6 +124,9 @@ export const createSession = transport.createSession;
 export const setSessionWorkDir = transport.setSessionWorkDir;
 export const workspaceInit = transport.workspaceInit;
 
+export type { FileArtifact } from "./transport";
+export const listSessionArtifacts = transport.listArtifacts;
+
 export type { ExportFormat } from "./transport";
 
 export async function exportSession(

@@ -436,6 +436,38 @@ fn extract_file_path_from_args(arguments: &str) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
+/// Extract all file paths affected by a file tool call.
+pub(crate) fn extract_file_paths_from_args(
+    tool_name: &str,
+    arguments: &str,
+) -> Vec<std::path::PathBuf> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(arguments) else {
+        return Vec::new();
+    };
+
+    match tool_name {
+        "multi_edit" => v
+            .get("edits")
+            .and_then(|e| e.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .get("path")
+                            .or_else(|| entry.get("file_path"))
+                            .and_then(|p| p.as_str())
+                            .map(std::path::PathBuf::from)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => extract_file_path_from_args(arguments)
+            .into_iter()
+            .collect(),
+    }
+}
+
 /// Manages the execution of a single agent invocation, including
 /// the tool-calling loop: LLM → tool_calls → execute → inject result → repeat.
 /// Internal key for the default/fallback provider inside `agent_providers`.
@@ -765,6 +797,7 @@ impl AgentRuntime {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            artifact_store: None,
             plan_file_path: None,
             message_queue: None,
             cancel_token: None,
@@ -799,7 +832,7 @@ impl AgentRuntime {
         self.execute_unified_with_cost_store(
             config, request, tool_registry, tx, approval_strategy,
             llm_override, orchestrator, interaction_handle, subagent_prompt,
-            mode_state, session_store, todo_store, goal_store, None, None, None,
+            mode_state, session_store, todo_store, goal_store, None, None, None, None,
         ).await
     }
 
@@ -820,6 +853,7 @@ impl AgentRuntime {
         todo_store: Option<crate::builtin_tools::TodoStore>,
         goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
         cost_store: Option<Arc<xiaolin_session::CostStore>>,
+        artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
         behavior_overrides: Option<std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>>,
         message_queue: Option<Arc<crate::message_queue::MessageQueue>>,
     ) -> anyhow::Result<TurnSummary> {
@@ -841,6 +875,7 @@ impl AgentRuntime {
             todo_store,
             goal_store,
             cost_store,
+            artifact_store,
             plan_file_path: crate::builtin_tools::plan_mode::current_plan_context()
                 .map(|pc| pc.store.plan_path(&pc.session_id)),
             message_queue,

@@ -6,7 +6,7 @@ use crate::builtin_tools::GoalStatus;
 
 use super::agent_step::{AgentStep, TurnEndReason};
 use super::dispatcher::DispatchContext;
-use super::file_persistence::FileOp;
+use super::file_persistence::{FileArtifact, FileOp};
 use super::llm_call::LlmStreamOutput;
 use super::permissions;
 use super::query_state;
@@ -16,9 +16,67 @@ use super::trajectory::truncate_for_trajectory;
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::validation_pipeline::ValidationContext;
 use super::{
-    extract_file_path_from_args, inject_tool_recovery_guidance,
+    extract_file_path_from_args, extract_file_paths_from_args, inject_tool_recovery_guidance,
     make_turn_summary, process_tool_output, tool_result_content, track_restoration_state,
 };
+
+const FILE_ARTIFACT_TOOLS: &[&str] = &[
+    "edit_file",
+    "write_file",
+    "create_file",
+    "str_replace_editor",
+    "apply_patch",
+    "multi_edit",
+];
+
+fn is_file_artifact_tool(tool_name: &str) -> bool {
+    FILE_ARTIFACT_TOOLS.contains(&tool_name)
+}
+
+fn resolve_artifact_path(work_dir: Option<&str>, path: &std::path::Path) -> std::path::PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    work_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+        .join(path)
+}
+
+fn record_successful_file_artifacts(
+    svc: &TurnServices,
+    tool_name: &str,
+    call_id: &str,
+    arguments: &str,
+    file_pre_snapshots: &std::collections::HashMap<std::path::PathBuf, (Option<String>, bool)>,
+) {
+    let Some(session_id) = svc.session_id.as_deref() else {
+        return;
+    };
+
+    let paths = extract_file_paths_from_args(tool_name, arguments);
+    if paths.is_empty() {
+        return;
+    }
+
+    for path in paths {
+        let resolved = resolve_artifact_path(svc.work_dir.as_deref(), &path);
+        let op = match tool_name {
+            "edit_file" | "multi_edit" | "str_replace_editor" | "apply_patch" => FileOp::Modified,
+            "create_file" => FileOp::Created,
+            _ => {
+                let file_existed = file_pre_snapshots
+                    .get(&path)
+                    .map(|(_, exists)| *exists)
+                    .unwrap_or_else(|| resolved.exists());
+                if file_existed { FileOp::Modified } else { FileOp::Created }
+            }
+        };
+        let bytes = std::fs::metadata(&resolved).map(|m| m.len()).unwrap_or(0);
+        let artifact = FileArtifact::new(session_id, resolved, op, call_id, bytes);
+        svc.services.record_file_artifact(&svc.event_tx, &svc.turn_id, artifact);
+    }
+}
 
 /// State captured before tool execution for detecting external changes.
 pub(crate) struct PreToolSnapshot {
@@ -187,25 +245,21 @@ pub(crate) async fn execute_tool_round(
     let file_pre_snapshots: std::collections::HashMap<
         std::path::PathBuf,
         (Option<String>, bool),
-    > = if streaming_executor.is_some() {
+    > = {
         let mut snaps = std::collections::HashMap::new();
         for tc in &assembled_calls {
-            if matches!(
-                tc.function.name.as_str(),
-                "edit_file" | "write_file" | "create_file" | "str_replace_editor"
-            ) {
-                if let Some(fp) = extract_file_path_from_args(&tc.function.arguments) {
+            if is_file_artifact_tool(&tc.function.name) {
+                for fp in extract_file_paths_from_args(&tc.function.name, &tc.function.arguments) {
                     if let std::collections::hash_map::Entry::Vacant(e) = snaps.entry(fp) {
-                        let exists = e.key().exists();
-                        let content = tokio::fs::read_to_string(e.key()).await.ok();
+                        let resolved = resolve_artifact_path(svc.work_dir.as_deref(), e.key());
+                        let exists = resolved.exists();
+                        let content = tokio::fs::read_to_string(&resolved).await.ok();
                         e.insert((content, exists));
                     }
                 }
             }
         }
         snaps
-    } else {
-        std::collections::HashMap::new()
     };
 
     let stream_results = if let Some(mut executor) = streaming_executor {
@@ -451,6 +505,16 @@ pub(crate) async fn execute_tool_round(
         } else {
             ms.query_loop.clear_error_streak();
             ms.undo_engine.record_success();
+
+            if is_file_artifact_tool(&tool_name) {
+                record_successful_file_artifacts(
+                    svc,
+                    &tool_name,
+                    &call_id,
+                    &arguments,
+                    &file_pre_snapshots,
+                );
+            }
         }
 
         // ── ValidationPipeline: append findings to tool output ───

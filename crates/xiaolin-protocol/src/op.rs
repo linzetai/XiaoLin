@@ -671,6 +671,12 @@ pub enum ClientOp {
 
     // ── Keepalive ───────────────────────────────────────────────────
     Ping,
+
+    // ── File artifacts ──────────────────────────────────────────────
+    ArtifactsList {
+        #[serde(alias = "sessionId")]
+        session_id: String,
+    },
 }
 
 fn default_git_log_limit() -> u32 {
@@ -838,6 +844,7 @@ pub fn all_ws_method_names() -> &'static [&'static str] {
         "goal.clear",
         "goal.edit",
         "goal.add_budget",
+        "artifacts.list",
     ];
     METHODS
 }
@@ -1456,6 +1463,10 @@ impl ClientOp {
                     .and_then(|v| v.as_u64())
                     .ok_or_else(|| ClientOpParseError::invalid_params("missing or invalid 'amount'"))?,
             }),
+            "artifacts.list" => Ok(Self::ArtifactsList {
+                session_id: extract_string(&params, "sessionId")
+                    .or_else(|_| extract_string(&params, "session_id"))?,
+            }),
             other => Err(ClientOpParseError::unknown_method(format!(
                 "unknown method: {other}"
             ))),
@@ -1698,5 +1709,18 @@ mod tests {
         } else {
             panic!("wrong variant");
         }
+    }
+
+    #[test]
+    fn parse_artifacts_list() {
+        let op = ClientOp::parse_request(
+            "artifacts.list",
+            json!({"sessionId": "sess-abc"}),
+        )
+        .unwrap();
+        assert!(matches!(
+            op,
+            ClientOp::ArtifactsList { session_id } if session_id == "sess-abc"
+        ));
     }
 }

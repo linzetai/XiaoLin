@@ -235,6 +235,7 @@ pub(crate) async fn setup_turn(
         budget_limit,
         abort_token,
         ctx.cost_store.clone(),
+        ctx.artifact_store.clone(),
         request.session_id.as_ref().map(|s| s.to_string()),
     );
 

@@ -1,9 +1,11 @@
+mod artifact_store;
 mod cost_store;
 mod event_log;
 mod models;
 mod search_index;
 mod store;
 
+pub use artifact_store::{ArtifactStore, FileArtifactRecord, SqliteArtifactStore};
 pub use cost_store::{CostStore, CostSummary, SessionCostSummary, ToolCallDaily, TokenUsageDaily};
 pub use event_log::EventLog;
 pub use search_index::{

@@ -54,6 +54,7 @@ pub struct AgentContext {
     pub todo_store: Option<TodoStore>,
     pub goal_store: Option<Arc<GoalStore>>,
     pub cost_store: Option<Arc<xiaolin_session::CostStore>>,
+    pub artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
 
     // === Optional - Message Queue (for steering injection) ===
     pub message_queue: Option<Arc<MessageQueue>>,
@@ -86,6 +87,7 @@ impl AgentContext {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            artifact_store: None,
             plan_file_path: None,
             message_queue: None,
             cancel_token: None,

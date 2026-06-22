@@ -12,7 +12,10 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use xiaolin_protocol::{AgentEvent, TurnId};
+
 use super::cost_tracker::{BudgetAlert, CallUsage, CostTracker, CostTrackerConfig};
+use super::file_persistence::FileArtifact;
 use super::hook_config::HookConfig;
 use super::hook_events::{HookEvent, HookResult};
 use super::hook_executor::{HookEventFilter, HookExecutor, HookHandler, RegisteredHook};
@@ -26,6 +29,7 @@ pub(crate) struct RuntimeServices {
     pub magic_docs: Option<DocIndex>,
     pub permissions: Option<PermissionRuleEngine>,
     pub cost_store: Option<Arc<xiaolin_session::CostStore>>,
+    pub artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
     abort_token: CancellationToken,
     session_id: Option<String>,
 }
@@ -36,6 +40,7 @@ impl RuntimeServices {
         budget_limit_usd: Option<f64>,
         abort_token: CancellationToken,
         cost_store: Option<Arc<xiaolin_session::CostStore>>,
+        artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
         session_id: Option<String>,
     ) -> Self {
         let hooks = Self::load_hooks(workspace_dir);
@@ -59,8 +64,70 @@ impl RuntimeServices {
             magic_docs,
             permissions,
             cost_store,
+            artifact_store,
             abort_token,
             session_id,
+        }
+    }
+
+    /// Record a file artifact to SQLite (async, non-blocking) and emit a WS event.
+    pub fn record_file_artifact(
+        &self,
+        event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+        turn_id: &TurnId,
+        artifact: FileArtifact,
+    ) {
+        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+            artifact.timestamp_ms as i64,
+        )
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339();
+        let operation = artifact.operation_str().to_string();
+        let path_str = artifact.path.display().to_string();
+
+        let event = AgentEvent::FileArtifact {
+            turn_id: turn_id.clone(),
+            session_id: artifact.session_id.clone(),
+            path: path_str.clone(),
+            operation: operation.clone(),
+            timestamp: timestamp.clone(),
+            tool_call_id: artifact.tool_call_id.clone(),
+            bytes: artifact.bytes,
+        };
+        let tx = event_tx.clone();
+        let session_id_for_log = artifact.session_id.clone();
+        tokio::spawn(async move {
+            if tx.send(event).await.is_err() {
+                tracing::warn!(session_id = %session_id_for_log, "failed to send file_artifact event: channel closed");
+            }
+        });
+
+        if let Some(ref store) = self.artifact_store {
+            let store = Arc::clone(store);
+            let session_id = artifact.session_id.clone();
+            let tool_call_id = artifact.tool_call_id.clone();
+            let bytes = artifact.bytes;
+            let timestamp_ms = artifact.timestamp_ms;
+            tokio::spawn(async move {
+                if let Err(e) = store
+                    .record_artifact(
+                        &session_id,
+                        &path_str,
+                        &operation,
+                        &tool_call_id,
+                        bytes,
+                        timestamp_ms,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        session_id = %session_id,
+                        path = %path_str,
+                        "failed to persist file artifact"
+                    );
+                }
+            });
         }
     }
 
@@ -355,6 +422,7 @@ impl RuntimeServices {
             magic_docs: None,
             permissions: None,
             cost_store: None,
+            artifact_store: None,
             abort_token,
             session_id: None,
         }
@@ -383,6 +451,7 @@ mod tests {
             permissions: None,
             abort_token: CancellationToken::new(),
             cost_store: None,
+            artifact_store: None,
             session_id: None,
         };
         let alert = svc

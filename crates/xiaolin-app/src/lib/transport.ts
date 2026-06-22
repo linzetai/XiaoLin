@@ -1687,6 +1687,23 @@ export async function costSessions(limit?: number): Promise<SessionCostData[]> {
   return resp?.data?.items ?? [];
 }
 
+// ─── File Artifacts ───
+
+export interface FileArtifact {
+  path: string;
+  operation: "created" | "modified" | "deleted";
+  timestamp: string;
+  toolCallId: string;
+  bytes: number;
+}
+
+export async function listArtifacts(sessionId: string): Promise<FileArtifact[]> {
+  const resp = (await wsClient.send("artifacts.list", { sessionId })) as {
+    data?: { artifacts?: FileArtifact[] };
+  };
+  return resp?.data?.artifacts ?? [];
+}
+
 // ─── Backward Compatibility Aliases ───
 // These are kept for gradual migration of the frontend code.
 

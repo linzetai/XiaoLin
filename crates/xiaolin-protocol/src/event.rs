@@ -470,6 +470,19 @@ pub enum AgentEvent {
         turn_id: TurnId,
         goal_id: String,
     },
+
+    // ── File artifacts ──────────────────────────────────────────────
+    FileArtifact {
+        turn_id: TurnId,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        path: String,
+        operation: String,
+        timestamp: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        bytes: u64,
+    },
 }
 
 impl AgentEvent {
@@ -510,6 +523,7 @@ impl AgentEvent {
             | Self::MemoryRecalled { turn_id, .. }
             | Self::GoalUpdated { turn_id, .. }
             | Self::GoalCleared { turn_id, .. }
+            | Self::FileArtifact { turn_id, .. }
             | Self::IterationBoundary { turn_id, .. } => turn_id,
         }
     }

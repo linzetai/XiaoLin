@@ -39,6 +39,48 @@ pub struct FileChange {
     pub timestamp_ms: u64,
 }
 
+/// Persistent artifact record for a file operation within a session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileArtifact {
+    pub session_id: String,
+    pub path: PathBuf,
+    pub operation: FileOp,
+    pub timestamp_ms: u64,
+    pub tool_call_id: String,
+    pub bytes: u64,
+}
+
+impl FileArtifact {
+    pub fn new(
+        session_id: impl Into<String>,
+        path: PathBuf,
+        operation: FileOp,
+        tool_call_id: impl Into<String>,
+        bytes: u64,
+    ) -> Self {
+        let timestamp_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            session_id: session_id.into(),
+            path,
+            operation,
+            timestamp_ms,
+            tool_call_id: tool_call_id.into(),
+            bytes,
+        }
+    }
+
+    pub fn operation_str(&self) -> &'static str {
+        match self.operation {
+            FileOp::Created => "created",
+            FileOp::Modified => "modified",
+            FileOp::Deleted => "deleted",
+        }
+    }
+}
+
 /// Tracks all file changes within a session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionFileTracker {
