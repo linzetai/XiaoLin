@@ -158,6 +158,11 @@ pub async fn handle_sessions_messages(
                         obj["totalTokens"] = json!(m.total_tokens);
                         obj["elapsedMs"] = json!(m.elapsed_ms);
                     }
+                    if let Some(ref so) = m.segment_order_json {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(so) {
+                            obj["segmentOrder"] = parsed;
+                        }
+                    }
                     obj
                 })
                 .collect();
@@ -208,7 +213,7 @@ pub async fn handle_sessions_delete(
     };
     match state.store.session_store.delete_session(sid).await {
         Ok(deleted) => {
-            state.cleanup_session_plan_state(sid);
+            state.cleanup_session_resources(sid).await;
 
             send_resp(
                 sender,

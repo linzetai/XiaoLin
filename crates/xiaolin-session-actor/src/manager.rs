@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info};
@@ -200,6 +201,39 @@ impl SessionManager {
         let mut sessions = self.state.sessions.write().await;
         sessions.clear();
         info!("all sessions shut down");
+    }
+
+    /// Unload sessions that have been idle (no submit calls) longer than `max_idle`.
+    /// Busy sessions (currently processing a turn) are never evicted.
+    pub async fn gc_idle(&self, max_idle: Duration) -> usize {
+        let to_unload: Vec<(SessionId, Arc<SessionHandle>)> = {
+            let sessions = self.state.sessions.read().await;
+            sessions
+                .iter()
+                .filter(|(_, h)| {
+                    h.is_alive()
+                        && h.status() == crate::actor::AgentStatus::Idle
+                        && h.idle_duration() > max_idle
+                })
+                .map(|(id, h)| (id.clone(), Arc::clone(h)))
+                .collect()
+        };
+        if to_unload.is_empty() {
+            return 0;
+        }
+        let count = to_unload.len();
+        {
+            let mut sessions = self.state.sessions.write().await;
+            for (id, _) in &to_unload {
+                sessions.remove(id);
+            }
+        }
+        for (id, handle) in &to_unload {
+            let _ = handle.submit(SessionOp::Shutdown).await;
+            debug!(session_id = %id, "idle session unloaded");
+        }
+        info!(unloaded = count, max_idle_secs = max_idle.as_secs(), "idle session GC completed");
+        count
     }
 
     /// Subscribe to session creation events.

@@ -57,7 +57,7 @@ pub(super) async fn delete_session(
         .delete_session(&session_id)
         .await?;
     if deleted {
-        state.cleanup_session_plan_state(&session_id);
+        state.cleanup_session_resources(&session_id).await;
         Ok(Json(json!({ "deleted": true })))
     } else {
         Err(AppError::NotFound(format!(

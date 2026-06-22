@@ -792,6 +792,8 @@ pub async fn spawn_chat(
         let mut assistant_reasoning = String::new();
         let mut stream_ended = false;
         let mut after_chat_called = false;
+        let mut segment_order: Vec<String> = Vec::new();
+        let mut last_segment_type: &str = "";
         let mut current_turn_id: Option<xiaolin_protocol::TurnId> = None;
 
         // Track tool calls during the stream so we can persist enriched data
@@ -879,10 +881,12 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
+                    let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
                         enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                        segment_order: seg_order,
                         ..Default::default()
                     };
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
@@ -893,6 +897,8 @@ pub async fn spawn_chat(
             state.store.event_log.append(&session_id, &event);
             // Capture tool events for enriched persistence
             if let AgentEvent::ToolExecuting { ref call_id, ref tool_name, ref args, .. } = event {
+                segment_order.push(format!("tool:{}", call_id));
+                last_segment_type = "tool";
                 tracked_tools.push(TrackedToolCallData {
                     id: call_id.clone(),
                     name: tool_name.clone(),
@@ -953,6 +959,7 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
+                    let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -962,6 +969,7 @@ pub async fn spawn_chat(
                             Some(assistant_reasoning.clone())
                         },
                         enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                        segment_order: seg_order,
                         ..Default::default()
                     };
                     let _ = after_chat(&state, &setup, &assistant_msg, false).await;
@@ -979,6 +987,10 @@ pub async fn spawn_chat(
                     .and_then(|d| d.get("content"))
                     .and_then(|c| c.as_str())
                 {
+                    if last_segment_type != "text" {
+                        segment_order.push("text".to_string());
+                        last_segment_type = "text";
+                    }
                     assistant_content.push_str(text);
                     if assistant_content.len() > MAX_CONTENT_BYTES {
                         tracing::error!(
@@ -992,6 +1004,10 @@ pub async fn spawn_chat(
                 }
             }
             if let AgentEvent::ReasoningDelta { ref content, .. } = event {
+                if last_segment_type != "reasoning" {
+                    segment_order.push("reasoning".to_string());
+                    last_segment_type = "reasoning";
+                }
                 assistant_reasoning.push_str(content);
             }
             let is_done = matches!(&event, AgentEvent::TurnEnd { .. });
@@ -1007,6 +1023,7 @@ pub async fn spawn_chat(
                 );
             }
             if is_done && !after_chat_called && !assistant_content.is_empty() {
+                let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -1016,6 +1033,7 @@ pub async fn spawn_chat(
                         Some(assistant_reasoning.clone())
                     },
                     enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                    segment_order: seg_order,
                     ..Default::default()
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;
@@ -1139,10 +1157,12 @@ pub async fn spawn_chat(
                 if turn_cancel.is_cancelled() {
                     assistant_content.push_str("\n\n[此回复因超时被截断]");
                 }
+                let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
                     enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
+                    segment_order: seg_order,
                     ..Default::default()
                 };
                 let _ = after_chat(&state, &setup, &assistant_msg, false).await;

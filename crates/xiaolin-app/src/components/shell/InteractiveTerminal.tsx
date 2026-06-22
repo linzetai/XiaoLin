@@ -93,7 +93,7 @@ export function InteractiveTerminal({ sessionId }: InteractiveTerminalProps) {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      fontFamily: "var(--font-mono)",
       theme,
       scrollback: 5000,
       allowProposedApi: true,

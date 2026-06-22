@@ -22,6 +22,7 @@ function parseUtcTimestamp(ts: string): Date {
 
 export const EMPTY_STREAM: StreamItem[] = [];
 const EMPTY_SUB_AGENT_RUNS: Record<string, SubAgentRunUI> = {};
+const MAX_CACHED_STREAMS = 8;
 
 export interface StreamState {
   streams: Record<string, StreamItem[]>;
@@ -251,14 +252,7 @@ export const useStreamStore = create<StreamState>((set) => ({
     const assistantMessages = messages.filter((m) => m.role === "assistant");
     const lastAssistant = assistantMessages[assistantMessages.length - 1];
     if (lastAssistant) {
-      const segments: ChatStreamSegment[] = [];
-      if (lastAssistant.reasoningContent) {
-        segments.push({
-          id: `reasoning-restored`,
-          type: "reasoning",
-          content: lastAssistant.reasoningContent,
-        });
-      }
+      const toolCallMap = new Map<string, ChatStreamSegment>();
       if (lastAssistant.toolCallsJson && Array.isArray(lastAssistant.toolCallsJson)) {
         for (const tc of lastAssistant.toolCallsJson) {
           const hasEnriched = tc.output !== undefined || tc.display_output !== undefined;
@@ -269,7 +263,7 @@ export const useStreamStore = create<StreamState>((set) => ({
           const success = hasEnriched
             ? (tc.success !== false)
             : (matched ? matched.success : true);
-          segments.push({
+          toolCallMap.set(tc.id, {
             id: `tool-${tc.id}`,
             type: "tool",
             toolCall: {
@@ -296,8 +290,39 @@ export const useStreamStore = create<StreamState>((set) => ({
           ? lastAssistant.content
           : JSON.stringify(lastAssistant.content ?? "");
       }
-      if (textContent) {
-        segments.push({ id: `text-restored`, type: "text", content: textContent });
+
+      const segments: ChatStreamSegment[] = [];
+      const order = lastAssistant.segmentOrder;
+      if (order && Array.isArray(order) && order.length > 0) {
+        const usedToolIds = new Set<string>();
+        for (const entry of order) {
+          if (entry === "reasoning" && lastAssistant.reasoningContent) {
+            segments.push({ id: `reasoning-restored`, type: "reasoning", content: lastAssistant.reasoningContent });
+          } else if (entry === "text" && textContent) {
+            segments.push({ id: `text-restored-${segments.length}`, type: "text", content: textContent });
+            textContent = "";
+          } else if (entry.startsWith("tool:")) {
+            const callId = entry.slice(5);
+            const seg = toolCallMap.get(callId);
+            if (seg) {
+              segments.push(seg);
+              usedToolIds.add(callId);
+            }
+          }
+        }
+        for (const [id, seg] of toolCallMap) {
+          if (!usedToolIds.has(id)) segments.push(seg);
+        }
+      } else {
+        if (lastAssistant.reasoningContent) {
+          segments.push({ id: `reasoning-restored`, type: "reasoning", content: lastAssistant.reasoningContent });
+        }
+        for (const seg of toolCallMap.values()) {
+          segments.push(seg);
+        }
+        if (textContent) {
+          segments.push({ id: `text-restored`, type: "text", content: textContent });
+        }
       }
       if (segments.length > 0) {
         lastSegmentsMap[chatId] = segments;
@@ -307,9 +332,27 @@ export const useStreamStore = create<StreamState>((set) => ({
     set((state) => {
       const existing = state.streams[chatId];
       if (existing && existing.length > 0) return state;
+      const newStreams = { ...state.streams, [chatId]: items };
+      const newUsage = { ...state.usage };
+      const newLastSegs = { ...state.lastSegments, ...lastSegmentsMap };
+      const newSubRuns = { ...state.subAgentRuns };
+
+      const keys = Object.keys(newStreams);
+      if (keys.length > MAX_CACHED_STREAMS) {
+        const evictCount = keys.length - MAX_CACHED_STREAMS;
+        const toEvict = keys.filter((k) => k !== chatId).slice(0, evictCount);
+        for (const k of toEvict) {
+          delete newStreams[k];
+          delete newUsage[k];
+          delete newLastSegs[k];
+          delete newSubRuns[k];
+        }
+      }
       return {
-        streams: { ...state.streams, [chatId]: items },
-        lastSegments: { ...state.lastSegments, ...lastSegmentsMap },
+        streams: newStreams,
+        usage: newUsage,
+        lastSegments: newLastSegs,
+        subAgentRuns: newSubRuns,
       };
     });
   },

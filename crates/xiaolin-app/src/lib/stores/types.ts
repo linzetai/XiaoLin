@@ -218,4 +218,5 @@ export interface BackendMessage {
   completionTokens?: number;
   totalTokens?: number;
   elapsedMs?: number;
+  segmentOrder?: string[] | null;
 }

@@ -471,7 +471,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
     isEditResult(tool.name, tool.result) ||
     isPlanExitResult(tool.name, tool.result, tool.metadata as PlanApprovalMetadata | undefined)
   );
-  const canExpand = hasDetails && !hasSpecialResult && !isShell;
+  const canExpand = hasDetails && !hasSpecialResult;
 
   return (
     <div
@@ -603,17 +603,17 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
       )}
 
       {/* Shell tools: simplified inline status + "View in Terminal" */}
-      {isShell && !isRunning && tool.result && (
+      {isShell && !isRunning && tool.result && !expanded && (
         <ShellResultSummary result={tool.result} />
       )}
 
-      {/* Expandable body — grid-template-rows animation (hidden for shell tools) */}
-      {category !== "shell" && (
+      {/* Expandable body — grid-template-rows animation */}
+      {(
         <div
           className="tc-bd"
           style={{
             display: "grid",
-            gridTemplateRows: expanded && hasDetails && !hasSpecialResult ? "1fr" : "0fr",
+            gridTemplateRows: expanded && hasDetails ? "1fr" : "0fr",
             transition: "grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1)",
           }}
         >

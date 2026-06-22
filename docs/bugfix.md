@@ -1722,3 +1722,44 @@
 | #30 | 代理/转发层必须走统一策略评估：HTTP proxy/SOCKS proxy/MITM 等所有流量路径必须调用同一 evaluate() 方法 | BUG-089, BUG-090, BUG-091 |
 | #31 | Token/字符估算必须区分语种：使用 bytes/4 估算 token 数对 CJK 文本严重低估，至少用 chars().count() | BUG-124, BUG-152, BUG-165 |
 | #32 | 配置值声明与使用必须成对验证：新增配置字段后必须搜索其读取点，确认被实际使用 | BUG-110, BUG-117, BUG-145 |
+
+---
+
+## 第三轮：体验问题（UX Issue）
+
+> 审查日期：2026-06-22
+> 审查范围：前端交互 + 前后端内存管理
+
+### 用户报告的体验问题
+
+| ID | 严重程度 | 问题 | 位置 | 状态 |
+|----|---------|------|------|------|
+| UX-001 | 🟡 | 内置 shell 字体与系统不一致：TerminalPanel 硬编码回退字体，Linux 上不统一 | `TerminalPanel.tsx` | ✅ FIXED |
+| UX-002 | 🟢 | 内置 shell 滚动条太粗：全局滚动条 10px 对终端面板显得粗 | `index.css` | ✅ FIXED |
+| UX-003 | 🟡 | 思考时闪动蓝点与左边竖线重叠：PhaseIndicator pl-1 仅 4px 太近 | `ThinkingIndicator.tsx` | ✅ FIXED |
+| UX-004 | 🟡 | 调用终端输出内容没法关闭/折叠 | `TerminalPanel.tsx` / `StepIndicator.tsx` | ✅ FIXED |
+| UX-005 | 🔴 | 历史会话工具调用与文本顺序错乱（持久化排序问题） | `stream-store.ts` / `store.rs` / `chat.rs` | ✅ FIXED |
+| UX-006 | 🔴 | 内存占用异常（4GB）：多个泄漏点 | 多文件 | ✅ FIXED (partial) |
+
+### 排查发现的类似问题
+
+| ID | 严重程度 | 问题 | 位置 | 状态 |
+|----|---------|------|------|------|
+| UX-007 | 🟢 | DiffCard 硬编码字体未使用 CSS 变量 | `DiffCard.tsx` | ✅ FIXED |
+| UX-008 | 🟢 | ToolCallCard 硬编码字体同上 | `ToolCallCard.tsx` | ✅ FIXED |
+| UX-009 | 🟢 | InteractiveTerminal 硬编码字体同上 | `InteractiveTerminal.tsx` | ✅ FIXED |
+
+### UX-006 内存问题详细分析
+
+已修复的前端泄漏点：
+1. Stream store LRU：添加 MAX_CACHED_STREAMS=8 淘汰旧 session
+2. Git store 重连泄漏：initGitStore() 开头 destroyGitStore()
+3. Terminal store：MAX_LINES_PER_SESSION=2000 + MAX_DONE_SESSIONS=20
+
+已修复的后端泄漏（第二轮）：
+
+| ID | 问题 | 修复方式 | 位置 | 状态 |
+|----|------|---------|------|------|
+| MEM-B1 | Session Actor 永不卸载 | SessionHandle 添加 last_activity_ms 追踪，SessionManager.gc_idle(30min) 在 gc_stale_resources 中自动卸载 idle session | `session-actor/handle.rs`, `manager.rs`, `state/mod.rs` | ✅ FIXED |
+| MEM-B2 | SubAgentManager 未接入 session 删除路径 | 新增 cleanup_session_resources() 统一入口，cancel active runs + cleanup_session + unload actor，三个删除路径全部接入 | `state/mod.rs`, `ws/session.rs`, `routes/session.rs`, `routes/channel.rs` | ✅ FIXED |
+| MEM-B3 | LSP session 无 idle 淘汰 | LspSessionManager 添加 LspSessionEntry(last_used)，后台 GC task 每 60s 扫描移除 idle>15min 的 session，LRU 淘汰 MAX_LSP_SESSIONS=4 | `lsp_manager.rs` | ✅ FIXED |

@@ -120,6 +120,8 @@ let eventUnsub: (() => void) | null = null;
 let projectUnsub: (() => void) | null = null;
 
 export function initGitStore() {
+  destroyGitStore();
+
   eventUnsub = transport.onGitStatusChanged((projectId, status) => {
     const activeProjectId = useProjectStore.getState().activeProjectId;
     if (projectId === activeProjectId && status) {

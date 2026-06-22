@@ -114,6 +114,11 @@ pub struct ChatMessage {
     /// the `ToolCall` struct and should not be sent to the LLM.
     #[serde(skip)]
     pub enriched_tool_calls_json: Option<String>,
+    /// Ordered list of segment types for interleaved rendering.
+    /// Each entry is `"reasoning"`, `"tool:<callId>"`, or `"text"`.
+    /// Persisted so the frontend can reconstruct the original streaming order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_order: Option<Vec<String>>,
 }
 
 impl ChatMessage {
@@ -187,6 +192,7 @@ impl Default for ChatMessage {
             tool_call_id: None,
             compact_metadata: None,
             enriched_tool_calls_json: None,
+            segment_order: None,
         }
     }
 }

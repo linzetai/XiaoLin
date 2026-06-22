@@ -95,7 +95,7 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }) {
       style={{
         background: "var(--bg-primary)",
         border: "0.5px solid var(--separator)",
-        fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace',
+        fontFamily: 'var(--font-mono)',
       }}
     >
       {display.map((line, i) => (

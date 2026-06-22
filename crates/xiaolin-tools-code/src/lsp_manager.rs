@@ -10,10 +10,19 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, RwLock};
 use url::Url;
 
+const LSP_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const LSP_MAX_SESSIONS: usize = 4;
+const LSP_GC_INTERVAL: Duration = Duration::from_secs(60);
+
+struct LspSessionEntry {
+    session: Arc<Mutex<PersistentLspSession>>,
+    last_used: Instant,
+}
+
 #[derive(Clone)]
 pub struct LspSessionManager {
     availability: Arc<RwLock<HashMap<String, bool>>>,
-    sessions: Arc<RwLock<HashMap<String, Arc<Mutex<PersistentLspSession>>>>>,
+    sessions: Arc<RwLock<HashMap<String, LspSessionEntry>>>,
     rust_analyzer_cmd: Arc<RwLock<Option<String>>>,
     sessions_created: Arc<AtomicU64>,
     sessions_reused: Arc<AtomicU64>,
@@ -31,14 +40,28 @@ pub struct LspLocation {
 impl LspSessionManager {
     pub fn global() -> &'static LspSessionManager {
         static INSTANCE: OnceLock<LspSessionManager> = OnceLock::new();
-        INSTANCE.get_or_init(|| LspSessionManager {
-            availability: Arc::new(RwLock::new(HashMap::new())),
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            rust_analyzer_cmd: Arc::new(RwLock::new(None)),
-            sessions_created: Arc::new(AtomicU64::new(0)),
-            sessions_reused: Arc::new(AtomicU64::new(0)),
-            requests_total: Arc::new(AtomicU64::new(0)),
-            requests_failed: Arc::new(AtomicU64::new(0)),
+        INSTANCE.get_or_init(|| {
+            let mgr = LspSessionManager {
+                availability: Arc::new(RwLock::new(HashMap::new())),
+                sessions: Arc::new(RwLock::new(HashMap::new())),
+                rust_analyzer_cmd: Arc::new(RwLock::new(None)),
+                sessions_created: Arc::new(AtomicU64::new(0)),
+                sessions_reused: Arc::new(AtomicU64::new(0)),
+                requests_total: Arc::new(AtomicU64::new(0)),
+                requests_failed: Arc::new(AtomicU64::new(0)),
+            };
+            let sessions = mgr.sessions.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(LSP_GC_INTERVAL);
+                loop {
+                    interval.tick().await;
+                    let removed = gc_idle_lsp_sessions(&sessions).await;
+                    if removed > 0 {
+                        tracing::info!(removed, "LSP idle session GC completed");
+                    }
+                }
+            });
+            mgr
         })
     }
 
@@ -290,21 +313,40 @@ impl LspSessionManager {
             .await
             .ok_or_else(|| anyhow::anyhow!("rust-analyzer command unavailable"))?;
         {
-            let g = self.sessions.read().await;
-            if let Some(s) = g.get(workspace_root) {
+            let mut g = self.sessions.write().await;
+            if let Some(entry) = g.get_mut(workspace_root) {
+                entry.last_used = Instant::now();
                 self.sessions_reused.fetch_add(1, Ordering::Relaxed);
-                return Ok((s.clone(), true));
+                return Ok((entry.session.clone(), true));
             }
         }
 
         let mut w = self.sessions.write().await;
-        if let Some(s) = w.get(workspace_root) {
+        if let Some(entry) = w.get_mut(workspace_root) {
+            entry.last_used = Instant::now();
             self.sessions_reused.fetch_add(1, Ordering::Relaxed);
-            return Ok((s.clone(), true));
+            return Ok((entry.session.clone(), true));
+        }
+        // Evict LRU if at capacity.
+        if w.len() >= LSP_MAX_SESSIONS {
+            if let Some(oldest_key) = w
+                .iter()
+                .min_by_key(|(_, e)| e.last_used)
+                .map(|(k, _)| k.clone())
+            {
+                tracing::info!(workspace = %oldest_key, "evicting LRU LSP session (at capacity)");
+                w.remove(&oldest_key);
+            }
         }
         let session = PersistentLspSession::spawn(&cmd, workspace_root).await?;
         let arc = Arc::new(Mutex::new(session));
-        w.insert(workspace_root.to_string(), arc.clone());
+        w.insert(
+            workspace_root.to_string(),
+            LspSessionEntry {
+                session: arc.clone(),
+                last_used: Instant::now(),
+            },
+        );
         self.sessions_created.fetch_add(1, Ordering::Relaxed);
         Ok((arc, false))
     }
@@ -314,15 +356,31 @@ impl LspSessionManager {
         w.remove(workspace_root);
     }
 
+    /// Shut down all LSP sessions (for process exit).
+    pub async fn shutdown_all(&self) {
+        let mut w = self.sessions.write().await;
+        let count = w.len();
+        w.clear();
+        if count > 0 {
+            tracing::info!(count, "all LSP sessions shut down");
+        }
+    }
+
     pub fn stats_snapshot(&self) -> serde_json::Value {
         let cmd = self
             .rust_analyzer_cmd
             .try_read()
             .ok()
             .and_then(|g| g.clone());
+        let active_count = self
+            .sessions
+            .try_read()
+            .map(|g| g.len())
+            .unwrap_or(0);
         serde_json::json!({
             "sessionsCreated": self.sessions_created.load(Ordering::Relaxed),
             "sessionsReused": self.sessions_reused.load(Ordering::Relaxed),
+            "activeSessions": active_count,
             "requestsTotal": self.requests_total.load(Ordering::Relaxed),
             "requestsFailed": self.requests_failed.load(Ordering::Relaxed),
             "rustAnalyzerCommand": cmd,
@@ -633,4 +691,31 @@ impl Drop for PersistentLspSession {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
     }
+}
+
+async fn gc_idle_lsp_sessions(
+    sessions: &Arc<RwLock<HashMap<String, LspSessionEntry>>>,
+) -> usize {
+    let to_remove: Vec<String> = {
+        let g = sessions.read().await;
+        g.iter()
+            .filter(|(_, e)| e.last_used.elapsed() > LSP_IDLE_TIMEOUT)
+            .map(|(k, _)| k.clone())
+            .collect()
+    };
+    if to_remove.is_empty() {
+        return 0;
+    }
+    let mut w = sessions.write().await;
+    let mut removed = 0;
+    for key in &to_remove {
+        if let Some(entry) = w.get(key) {
+            if entry.last_used.elapsed() > LSP_IDLE_TIMEOUT {
+                tracing::debug!(workspace = %key, "removing idle LSP session");
+                w.remove(key);
+                removed += 1;
+            }
+        }
+    }
+    removed
 }

@@ -81,6 +81,7 @@ pub struct SessionMessage {
     pub elapsed_ms: i64,
     pub reasoning_content: Option<String>,
     pub compact_metadata_json: Option<String>,
+    pub segment_order_json: Option<String>,
 }
 
 /// A persisted sub-agent run record.

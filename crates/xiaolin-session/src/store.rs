@@ -458,6 +458,21 @@ impl SessionStore {
         .execute(&self.pool)
         .await;
 
+        // Migration: add segment_order_json to messages for interleaved segment ordering
+        let has_segment_order: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'segment_order_json'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+        if !has_segment_order {
+            sqlx::query("ALTER TABLE messages ADD COLUMN segment_order_json TEXT")
+                .execute(&self.pool)
+                .await?;
+            tracing::info!("migrated messages table: added segment_order_json column");
+        }
+
         Ok(())
     }
 
@@ -911,9 +926,15 @@ impl SessionStore {
             .map(serde_json::to_string)
             .transpose()?;
 
+        let segment_order_json = msg
+            .segment_order
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+
         let result = sqlx::query(
-            "INSERT INTO messages (session_id, role, content, name, tool_calls_json, tool_call_id, reasoning_content, compact_metadata_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (session_id, role, content, name, tool_calls_json, tool_call_id, reasoning_content, compact_metadata_json, segment_order_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(session_id)
         .bind(role)
@@ -923,6 +944,7 @@ impl SessionStore {
         .bind(&msg.tool_call_id)
         .bind(&msg.reasoning_content)
         .bind(&compact_metadata_json)
+        .bind(&segment_order_json)
         .execute(&mut **tx)
         .await?;
 
@@ -1036,7 +1058,7 @@ impl SessionStore {
         let messages = sqlx::query_as::<_, SessionMessage>(
             "SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
                     prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
-                    reasoning_content, compact_metadata_json
+                    reasoning_content, compact_metadata_json, segment_order_json
              FROM messages WHERE session_id = ? ORDER BY id ASC",
         )
         .bind(session_id)
@@ -1056,7 +1078,7 @@ impl SessionStore {
             "SELECT * FROM (
                 SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
                        prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
-                       reasoning_content, compact_metadata_json
+                       reasoning_content, compact_metadata_json, segment_order_json
                 FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?
              ) sub ORDER BY id ASC",
         )
@@ -1137,6 +1159,11 @@ impl SessionStore {
                 .map(serde_json::from_str)
                 .transpose()?;
 
+            let segment_order: Option<Vec<String>> = row
+                .segment_order_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
+
             messages.push(ChatMessage {
                 role,
                 content,
@@ -1145,6 +1172,7 @@ impl SessionStore {
                 tool_calls,
                 tool_call_id: row.tool_call_id,
                 compact_metadata,
+                segment_order,
                 ..Default::default()
             });
         }

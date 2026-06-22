@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -7,6 +10,13 @@ use xiaolin_protocol::Envelope;
 use crate::actor::AgentStatus;
 use crate::fanout::{BackpressurePolicy, SharedFanout};
 use crate::submission::{SessionEvent, SessionOp, Submission};
+
+fn epoch_ms_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 /// Lightweight, cloneable handle to a session actor.
 ///
@@ -21,6 +31,7 @@ pub struct SessionHandle {
     cancellation_token: CancellationToken,
     fanout: SharedFanout,
     _task_handle: std::sync::Arc<tokio::task::JoinHandle<()>>,
+    last_activity_ms: std::sync::Arc<AtomicU64>,
 }
 
 impl SessionHandle {
@@ -41,6 +52,7 @@ impl SessionHandle {
             cancellation_token,
             fanout,
             _task_handle: std::sync::Arc::new(task_handle),
+            last_activity_ms: std::sync::Arc::new(AtomicU64::new(epoch_ms_now())),
         }
     }
 
@@ -67,6 +79,7 @@ impl SessionHandle {
     /// Submit an operation to the session actor. Returns the auto-generated
     /// submission ID for event correlation.
     pub async fn submit(&self, op: SessionOp) -> Result<SubmissionId, SubmitError> {
+        self.touch();
         let sub = Submission::new(op);
         let id = sub.id.clone();
         self.tx_sub
@@ -145,6 +158,7 @@ impl SessionHandle {
         &self,
         envelope: Envelope<SessionOp>,
     ) -> Result<SubmissionId, SubmitError> {
+        self.touch();
         let sub = Submission {
             id: envelope.id,
             op: envelope.payload,
@@ -160,6 +174,18 @@ impl SessionHandle {
     /// Request graceful shutdown of the session actor.
     pub fn cancel(&self) {
         self.cancellation_token.cancel();
+    }
+
+    /// Update the last-activity timestamp to now.
+    fn touch(&self) {
+        self.last_activity_ms.store(epoch_ms_now(), Ordering::Relaxed);
+    }
+
+    /// How long this session has been idle (no submit calls).
+    pub fn idle_duration(&self) -> Duration {
+        let last = self.last_activity_ms.load(Ordering::Relaxed);
+        let now = epoch_ms_now();
+        Duration::from_millis(now.saturating_sub(last))
     }
 }
 

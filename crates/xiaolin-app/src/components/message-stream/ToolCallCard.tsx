@@ -212,7 +212,7 @@ function StreamingDiffPreview({ args }: { args: string }) {
       </div>
       <pre
         className="overflow-x-auto text-[11px] leading-[1.6]"
-        style={{ fontFamily: '"SF Mono","Fira Code",Menlo,Monaco,monospace', maxHeight: "200px", overflowY: "auto" }}
+        style={{ fontFamily: 'var(--font-mono)', maxHeight: "200px", overflowY: "auto" }}
       >
         {isCreate ? (
           newStr.split("\n").slice(0, 20).map((line: string, i: number) => (

@@ -33,7 +33,7 @@ export function PhaseIndicator({ phase = "thinking" }: PhaseIndicatorProps) {
 
   return (
     <div
-      className="pb-3 pl-1 flex items-center gap-2"
+      className="pb-3 pl-3 flex items-center gap-2"
       style={{
         animation: "slide-left var(--duration-normal) var(--ease-out)",
         maxWidth: "min(90%, var(--content-max-w, 720px))",

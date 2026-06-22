@@ -76,6 +76,7 @@ impl BenchmarkExecutor for LiveExecutor {
                 tool_call_id: None,
                 compact_metadata: None,
                 enriched_tool_calls_json: None,
+                segment_order: None,
             }],
             agent_id: None,
             session_id: None,

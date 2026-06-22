@@ -171,7 +171,7 @@ async fn handle_slash_command(
             .unwrap_or(false);
 
         if deleted {
-            state.cleanup_session_plan_state(&session_key);
+            state.cleanup_session_resources(&session_key).await;
             return Some("🔄 已开启新对话，之前的上下文已清除。".to_string());
         } else {
             return Some("🔄 已就绪，当前没有历史上下文。".to_string());

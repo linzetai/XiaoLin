@@ -14,7 +14,7 @@
 [data-theme="light"] {
   --font: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-display: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  --font-mono: "Geist Mono", "JetBrains Mono", "SF Mono", "Cascadia Code", "DejaVu Sans Mono", ui-monospace, monospace;
 
   --bg-primary: #FAFAFA;
   --bg-secondary: #F4F4F5;
@@ -599,6 +599,16 @@
 
   .sidebar-list::-webkit-scrollbar { width: 8px; }
   .sidebar-list::-webkit-scrollbar-thumb { min-height: 36px; }
+
+  .terminal-output::-webkit-scrollbar { width: 6px; height: 6px; }
+  .terminal-output::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--fill-quaternary) 40%, transparent);
+    border-radius: 3px;
+  }
+  .terminal-output::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--fill-quaternary) 70%, transparent);
+  }
+  .terminal-output { scrollbar-width: thin; }
 
   /* Surface depth classes */
   .surface-elevated {

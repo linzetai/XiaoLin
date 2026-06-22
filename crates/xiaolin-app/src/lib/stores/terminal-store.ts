@@ -1,5 +1,8 @@
 import { create } from "zustand";
 
+const MAX_LINES_PER_SESSION = 2000;
+const MAX_DONE_SESSIONS = 20;
+
 export interface TerminalLine {
   text: string;
   timestamp: number;
@@ -44,10 +47,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const session = s.sessions[callId];
       if (!session) return s;
       const newLine: TerminalLine = { text, timestamp: Date.now() };
+      let lines = [...session.lines, newLine];
+      if (lines.length > MAX_LINES_PER_SESSION) {
+        lines = lines.slice(lines.length - MAX_LINES_PER_SESSION);
+      }
       return {
         sessions: {
           ...s.sessions,
-          [callId]: { ...session, lines: [...session.lines, newLine] },
+          [callId]: { ...session, lines },
         },
       };
     });
@@ -57,12 +64,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((s) => {
       const session = s.sessions[callId];
       if (!session) return s;
-      return {
-        sessions: {
-          ...s.sessions,
-          [callId]: { ...session, status: "done" },
-        },
-      };
+      const updated = { ...s.sessions, [callId]: { ...session, status: "done" as const } };
+      const doneIds = Object.entries(updated)
+        .filter(([, v]) => v.status === "done")
+        .map(([k]) => k);
+      if (doneIds.length > MAX_DONE_SESSIONS) {
+        const toRemove = doneIds.slice(0, doneIds.length - MAX_DONE_SESSIONS);
+        for (const id of toRemove) delete updated[id];
+      }
+      return { sessions: updated };
     });
   },
 

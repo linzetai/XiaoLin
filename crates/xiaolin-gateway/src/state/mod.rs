@@ -2251,6 +2251,19 @@ impl AppState {
         self.rt.plan_step_store.remove(session_id);
     }
 
+    /// Full cleanup for a deleted session: plan state + sub-agents + session actor.
+    pub async fn cleanup_session_resources(&self, session_id: &str) {
+        self.cleanup_session_plan_state(session_id);
+
+        for run in self.strm.subagent_manager.active_runs(session_id) {
+            self.strm.subagent_manager.cancel(&run.run_id);
+        }
+        self.strm.subagent_manager.cleanup_session(session_id);
+
+        let sid = xiaolin_protocol::id::SessionId::new(session_id);
+        self.strm.session_manager.unload(&sid).await;
+    }
+
     /// Garbage-collect stale resources tied to dead sessions.
     /// Call periodically (e.g., every 60s) to prevent unbounded memory growth.
     pub async fn gc_stale_resources(&self) {
@@ -2298,6 +2311,13 @@ impl AppState {
         });
         let cancels_removed = cancels_before - self.ext.chat_cancels.len();
 
+        // Unload session actors idle for more than 30 minutes.
+        let idle_unloaded = self
+            .strm
+            .session_manager
+            .gc_idle(std::time::Duration::from_secs(30 * 60))
+            .await;
+
         // GC SubAgentManager: remove terminal runs older than 5 minutes and
         // prune completion channels for dead sessions.
         self.strm.subagent_manager.gc(std::time::Duration::from_secs(300));
@@ -2313,10 +2333,11 @@ impl AppState {
         let modes_removed = modes_before - self.rt.session_modes.len();
 
         let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed + plan_steps_removed + modes_removed;
-        if gc_stats.removed > 0 || total_removed > 0 {
+        if gc_stats.removed > 0 || total_removed > 0 || idle_unloaded > 0 {
             tracing::info!(
                 sessions_removed = gc_stats.removed,
                 sessions_alive = gc_stats.alive,
+                idle_unloaded,
                 locks_removed,
                 overrides_removed,
                 streams_removed,

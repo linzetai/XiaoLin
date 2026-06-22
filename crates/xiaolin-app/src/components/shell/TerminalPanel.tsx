@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
-import { Terminal, Trash } from "@phosphor-icons/react";
+import { Terminal, Trash, X as XIcon } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { useTerminalStore, useChatMetaStore, type TerminalSession } from "../../lib/stores";
 import { ICON_SIZE } from "../../lib/ui-tokens";
@@ -37,7 +37,7 @@ const outputStyle: CSSProperties = {
   flex: 1,
   overflowY: "auto",
   padding: "8px 12px",
-  fontFamily: "var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)",
+  fontFamily: "var(--font-mono)",
   fontSize: 12,
   lineHeight: 1.5,
   whiteSpace: "pre-wrap",
@@ -71,7 +71,7 @@ function SessionOutput({ session }: { session: TerminalSession }) {
   );
 
   return (
-    <div style={outputStyle}>
+    <div style={outputStyle} className="terminal-output">
       {session.command && (
         <div style={{ color: "var(--tint)", marginBottom: 4, opacity: 0.8 }}>
           $ {session.command}
@@ -195,6 +195,26 @@ export function TerminalPanel() {
                   }}
                 />
                 {label}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  style={{
+                    marginLeft: 2,
+                    opacity: 0.4,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: 3,
+                    padding: 1,
+                  }}
+                  title={t("close", { ns: "common" })}
+                  onClick={(e) => { e.stopPropagation(); clear(s.callId); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); clear(s.callId); } }}
+                  onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.4"; e.currentTarget.style.background = "transparent"; }}
+                >
+                  <XIcon size={10} />
+                </span>
               </button>
             );
           })}
@@ -203,7 +223,7 @@ export function TerminalPanel() {
 
       {activeSession && <SessionOutput session={activeSession} />}
 
-      {activeSession && activeSession.status === "done" && (
+      {activeSession && (
         <div style={{ padding: "4px 10px", borderTop: "1px solid var(--border-shell-subtle)", display: "flex", justifyContent: "flex-end" }}>
           <button
             type="button"
@@ -224,7 +244,7 @@ export function TerminalPanel() {
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; }}
           >
             <Trash />
-            {t("clear")}
+            {activeSession.status === "done" ? t("clear") : t("close", { ns: "common" })}
           </button>
         </div>
       )}
