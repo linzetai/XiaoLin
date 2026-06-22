@@ -35,14 +35,14 @@
 
 ## 4. CodeMirror 6 代码查看器
 
-- [ ] 4.1 安装 CM6 依赖：`@codemirror/view`, `@codemirror/state`, `@codemirror/language`, `@codemirror/search`, `@codemirror/commands`, `@codemirror/language-data`
-- [ ] 4.2 创建 `CodeViewer.tsx`：React 封装 CM6 EditorView，readonly 模式，接收 `content`/`language`/`line` props
-- [ ] 4.3 实现文件扩展名 → CM6 语言包映射表 + 按需 `import()` 加载
-- [ ] 4.4 实现 light/dark 主题跟随：监听 XiaoLin theme 变化，切换 CM6 theme extension
-- [ ] 4.5 实现行高亮跳转：收到 `line` prop 时滚动到指定行并添加临时高亮效果
-- [ ] 4.6 实现搜索面板：CM6 `@codemirror/search` 的 `searchKeymap` 绑定
-- [ ] 4.7 实现代码折叠：CM6 `foldGutter()` + `foldKeymap` 绑定
-- [ ] 4.8 用 `React.lazy()` + `Suspense` 包装 CodeViewer，实现 lazy import
+- [x] 4.1 安装 CM6 依赖：`@codemirror/view`, `@codemirror/state`, `@codemirror/language`, `@codemirror/search`, `@codemirror/commands`, `@codemirror/language-data`
+- [x] 4.2 创建 `CodeViewer.tsx`：React 封装 CM6 EditorView，readonly 模式，接收 `content`/`language`/`line` props
+- [x] 4.3 实现文件扩展名 → CM6 语言包映射表 + 按需 `import()` 加载
+- [x] 4.4 实现 light/dark 主题跟随：监听 XiaoLin theme 变化，切换 CM6 theme extension
+- [x] 4.5 实现行高亮跳转：收到 `line` prop 时滚动到指定行并添加临时高亮效果
+- [x] 4.6 实现搜索面板：CM6 `@codemirror/search` 的 `searchKeymap` 绑定
+- [x] 4.7 实现代码折叠：CM6 `foldGutter()` + `foldKeymap` 绑定
+- [x] 4.8 用 `React.lazy()` + `Suspense` 包装 CodeViewer，实现 lazy import
 
 ## 5. Markdown 预览器
 

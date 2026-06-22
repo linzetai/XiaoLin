@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useWorkspaceTabs } from "./workspace-tabs";
+import { CodeViewer } from "../file-viewer";
 
 export interface OpenFileEventDetail {
   path: string;
@@ -54,6 +55,7 @@ export function FilesTabContent() {
         color: "var(--fill-secondary)",
         fontSize: 13,
         gap: 8,
+        minHeight: 0,
       }}
     >
       <div style={{ fontWeight: 600, color: "var(--fill-primary)" }}>Files</div>
@@ -65,14 +67,22 @@ export function FilesTabContent() {
           {t("filesEmptyHint", { defaultValue: "Open a file from chat or the file tree." })}
         </p>
       )}
-      {openCount > 0 && (
-        <div>
-          <div style={{ opacity: 0.7, marginBottom: 4 }}>
+      {openCount > 0 && activeFile && (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ opacity: 0.7, marginBottom: 4, flexShrink: 0 }}>
             {t("filesOpenCount", { defaultValue: "{{count}} open", count: openCount })}
-          </div>
-          {activeFile && (
-            <div style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}>
+            {" · "}
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
               {activeFile.path.split("/").pop()}
+            </span>
+          </div>
+          {activeFile.viewMode === "code" && (
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <CodeViewer
+                content={activeFile.content}
+                language={activeFile.language}
+                line={activeFile.line}
+              />
             </div>
           )}
         </div>
