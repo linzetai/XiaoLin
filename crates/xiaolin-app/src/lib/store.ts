@@ -41,6 +41,7 @@ export function cleanupGatewayListeners(): void {
   reconnectedUnsub = null;
   sessionChangedUnsub = null;
   projectsChangedUnsub = null;
+  import("./stores/file-viewer-store").then((m) => m.teardownFileArtifactListener());
 }
 
 if (import.meta.hot) {
@@ -125,6 +126,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         reconnectedUnsub = transport.onWsEvent("reconnected", () => {
           set({ connected: true });
           syncBackendData();
+          import("./stores/file-viewer-store").then((m) => m.reloadArtifactsForCurrentSession());
         });
 
         try {
@@ -182,6 +184,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         reconnectedUnsub = transport.onWsEvent("reconnected", () => {
           set({ connected: true });
           syncBackendData();
+          import("./stores/file-viewer-store").then((m) => m.reloadArtifactsForCurrentSession());
         });
 
         try {

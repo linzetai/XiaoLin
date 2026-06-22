@@ -1713,9 +1713,11 @@ export interface FileArtifact {
 
 export async function listArtifacts(sessionId: string): Promise<FileArtifact[]> {
   const resp = (await wsClient.send("artifacts.list", { sessionId })) as {
-    data?: { artifacts?: FileArtifact[] };
+    data?: FileArtifact[] | { artifacts?: FileArtifact[] };
   };
-  return resp?.data?.artifacts ?? [];
+  const data = resp?.data;
+  if (Array.isArray(data)) return data;
+  return (data as { artifacts?: FileArtifact[] })?.artifacts ?? [];
 }
 
 // ─── Backward Compatibility Aliases ───

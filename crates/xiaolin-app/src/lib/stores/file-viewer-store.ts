@@ -4,6 +4,7 @@ import type { FileArtifact } from "../transport";
 import { useChatMetaStore } from "./chat-meta-store";
 
 const MAX_OPEN_FILES = 10;
+const MAX_ARTIFACTS_PER_SESSION = 500;
 
 export interface OpenFile {
   path: string;
@@ -173,7 +174,14 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       return;
     }
 
-    const result = await transport.readFileForViewer(resolved, workDir);
+    let result: { content: string; size: number; isReadonly: boolean };
+    try {
+      result = await transport.readFileForViewer(resolved, workDir);
+    } catch (e) {
+      console.warn("[file-viewer] failed to open file:", resolved, e);
+      return;
+    }
+
     const now = Date.now();
     let openFiles = { ...get().openFiles };
 
@@ -242,7 +250,8 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         (a) => a.path === artifact.path && a.timestamp === artifact.timestamp,
       );
       if (exists) return state;
-      return { artifacts: [artifact, ...state.artifacts] };
+      const updated = [artifact, ...state.artifacts];
+      return { artifacts: updated.length > MAX_ARTIFACTS_PER_SESSION ? updated.slice(0, MAX_ARTIFACTS_PER_SESSION) : updated };
     });
   },
 
@@ -315,17 +324,38 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
     const artifact = parseArtifactData(data);
     if (!artifact) return;
 
-    useFileViewerStore.getState().addArtifact(artifact);
-    useFileViewerStore.setState((s) => ({
-      sessionArtifacts: {
-        ...s.sessionArtifacts,
-        [chatId]: [artifact, ...(s.sessionArtifacts[chatId] ?? s.artifacts)],
-      },
-    }));
+    useFileViewerStore.setState((s) => {
+      const exists = s.artifacts.some(
+        (a) => a.path === artifact.path && a.timestamp === artifact.timestamp,
+      );
+      if (exists) return s;
+      const updated = [artifact, ...s.artifacts];
+      return {
+        artifacts: updated,
+        sessionArtifacts: { ...s.sessionArtifacts, [chatId]: updated },
+      };
+    });
   });
 }
 
 export function teardownFileArtifactListener(): void {
   _unsubFileArtifact?.();
   _unsubFileArtifact = undefined;
+}
+
+export function reloadArtifactsForCurrentSession(): void {
+  const sessionId = useChatMetaStore.getState().activeChatId;
+  if (!sessionId || sessionId.startsWith("new-")) return;
+  transport
+    .listArtifacts(sessionId)
+    .then((artifacts) => {
+      if (useChatMetaStore.getState().activeChatId !== sessionId) return;
+      useFileViewerStore.setState((s) => ({
+        artifacts,
+        sessionArtifacts: { ...s.sessionArtifacts, [sessionId]: artifacts },
+      }));
+    })
+    .catch((e) => {
+      console.warn("[file-viewer] reload artifacts failed:", e);
+    });
 }

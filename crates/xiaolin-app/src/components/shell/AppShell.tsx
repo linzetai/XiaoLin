@@ -25,11 +25,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const subAgentRuns = useActiveSubAgentRuns();
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
   const activeChat = useChatMetaStore((s) => s.chats[s.activeChatId]);
-  const prevChatRef = useRef(activeChatId);
+  const prevChatRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (activeChatId !== prevChatRef.current) {
-      useWorkspaceTabs.getState().switchSession(activeChatId, prevChatRef.current);
+      useWorkspaceTabs.getState().switchSession(activeChatId, prevChatRef.current ?? undefined);
       useFileViewerStore.getState().switchSession(activeChatId, prevChatRef.current);
       prevChatRef.current = activeChatId;
     }

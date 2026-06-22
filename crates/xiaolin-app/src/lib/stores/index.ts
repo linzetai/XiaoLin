@@ -15,6 +15,7 @@ export {
   useFileViewerStore,
   initFileArtifactListener,
   teardownFileArtifactListener,
+  reloadArtifactsForCurrentSession,
   resolveFilePath,
 } from "./file-viewer-store";
 export type { OpenFile, FileViewerState } from "./file-viewer-store";

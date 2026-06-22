@@ -31,7 +31,7 @@
 - [x] 3.5 实现 `xiaolin:open-file` 全局 CustomEvent 监听，调用 `openFile` + `setActiveTab("files")`
 - [x] 3.6 实现路径解析工具函数 `resolveFilePath(path, workDir)`：处理绝对/相对路径
 - [x] 3.7 实现 session 切换时 store 隔离：`switchSession` 时保存当前 openFiles/artifacts，加载新 session 的 artifacts（调用 `artifacts.list` WS op）
-- [x] 3.8 实现 `filesClosedByUser` 标志：用户手动关闭 Files tab 后 suppress auto-open（类似 `planClosedByUser`），session 切换时重置
+- [x] 3.8 定义 `filesClosedByUser` 状态 + setter（类似 `planClosedByUser`），session 切换时重置。行为接入（调用 setter 的 UI 逻辑）在 Phase 7/9 实现
 
 ## 4. CodeMirror 6 代码查看器
 
