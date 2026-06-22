@@ -303,12 +303,25 @@ impl SemanticMemory {
         .await?;
 
         // Migration: add embedding column if table existed without it
-        let _ = sqlx::query("ALTER TABLE facts ADD COLUMN embedding BLOB")
+        match sqlx::query("ALTER TABLE facts ADD COLUMN embedding BLOB")
             .execute(&pool)
-            .await;
-        let _ = sqlx::query("ALTER TABLE facts ADD COLUMN embedding_norm REAL")
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(error = %e, "failed to migrate facts table: add embedding column"),
+        }
+        match sqlx::query("ALTER TABLE facts ADD COLUMN embedding_norm REAL")
             .execute(&pool)
-            .await;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(
+                error = %e,
+                "failed to migrate facts table: add embedding_norm column"
+            ),
+        }
         let _ = sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_fact_conf_upd ON facts(confidence, updated_at)",
         )

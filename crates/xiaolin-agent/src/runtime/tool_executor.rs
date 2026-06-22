@@ -1267,45 +1267,56 @@ fn dedup_overlapping_reads(
         })
         .collect();
 
-    // Work from newest to oldest: for each older read, check if any newer read
-    // covers its range. `reads` is ordered by position in messages (ascending),
-    // so newer reads are at the end.
-    for i in 0..reads.len().saturating_sub(1) {
+    // Scan newest → oldest; accumulate newer reads so each step is O(k) not O(N).
+    let mut seen_newer_full = false;
+    let mut newer_partial_ranges: Vec<(usize, usize)> = Vec::new();
+    for i in (0..reads.len()).rev() {
         let older = &reads[i];
-        let older_range = match older.range {
-            Some(r) => r,
-            None => {
-                // Full-file read: only superseded if a newer full-file read exists
-                let has_newer_full = reads[i + 1..].iter().any(|r| r.range.is_none());
-                if has_newer_full {
-                    supersede_message(messages, older.msg_idx, file_path);
-                }
-                continue;
+        let covered_by_newer = match older.range {
+            None => seen_newer_full,
+            Some(older_range) => {
+                seen_newer_full
+                    || newer_partial_ranges
+                        .iter()
+                        .any(|&newer_range| range_contained(older_range, newer_range))
             }
         };
-
-        let covered_by_newer = reads[i + 1..].iter().any(|newer| {
-            match newer.range {
-                None => true, // newer full-file read covers everything
-                Some(newer_range) => range_contained(older_range, newer_range),
-            }
-        });
 
         if covered_by_newer {
             if let Some(text) = messages[older.msg_idx].text_content() {
                 if text.starts_with("[superseded") || is_error_tool_result(&text) {
-                    continue;
+                    // still update accumulators below
+                } else if let Some(older_range) = older.range {
+                    let short_path = if file_path.len() > 50 {
+                        format!("…{}", &file_path[file_path.len().saturating_sub(47)..])
+                    } else {
+                        file_path.to_string()
+                    };
+                    messages[older.msg_idx].content = Some(serde_json::Value::String(format!(
+                        "[superseded: lines {}-{} of \"{short_path}\" covered by a later read]",
+                        older_range.0, older_range.1
+                    )));
+                } else {
+                    supersede_message(messages, older.msg_idx, file_path);
                 }
+            } else if older.range.is_none() {
+                supersede_message(messages, older.msg_idx, file_path);
+            } else if let Some(older_range) = older.range {
+                let short_path = if file_path.len() > 50 {
+                    format!("…{}", &file_path[file_path.len().saturating_sub(47)..])
+                } else {
+                    file_path.to_string()
+                };
+                messages[older.msg_idx].content = Some(serde_json::Value::String(format!(
+                    "[superseded: lines {}-{} of \"{short_path}\" covered by a later read]",
+                    older_range.0, older_range.1
+                )));
             }
-            let short_path = if file_path.len() > 50 {
-                format!("…{}", &file_path[file_path.len().saturating_sub(47)..])
-            } else {
-                file_path.to_string()
-            };
-            messages[older.msg_idx].content = Some(serde_json::Value::String(format!(
-                "[superseded: lines {}-{} of \"{short_path}\" covered by a later read]",
-                older_range.0, older_range.1
-            )));
+        }
+
+        match older.range {
+            None => seen_newer_full = true,
+            Some(r) => newer_partial_ranges.push(r),
         }
     }
 }

@@ -2189,6 +2189,45 @@ impl McpClient {
         let parsed: GetPromptResult = serde_json::from_value(result)?;
         Ok(parsed.messages)
     }
+
+    /// Gracefully close the transport connection when possible.
+    pub async fn close(&self) {
+        match &self.transport {
+            McpTransport::WebSocket { ws_write, .. } => {
+                use futures::SinkExt;
+                let mut writer = ws_write.lock().await;
+                let _ = writer
+                    .send(tokio_tungstenite::tungstenite::Message::Close(None))
+                    .await;
+                let _ = writer.close().await;
+            }
+            _ => {}
+        }
+    }
+
+    fn close_websocket_sync(ws_write: &Arc<
+        tokio::sync::Mutex<
+            futures::stream::SplitSink<
+                tokio_tungstenite::WebSocketStream<
+                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                >,
+                tokio_tungstenite::tungstenite::Message,
+            >,
+        >,
+    >) {
+        use futures::SinkExt;
+        let ws_write = ws_write.clone();
+        let close = async move {
+            let mut writer = ws_write.lock().await;
+            let _ = writer
+                .send(tokio_tungstenite::tungstenite::Message::Close(None))
+                .await;
+            let _ = writer.close().await;
+        };
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let _ = handle.block_on(tokio::time::timeout(Duration::from_secs(2), close));
+        }
+    }
 }
 
 impl Drop for McpClient {
@@ -2214,8 +2253,14 @@ impl Drop for McpClient {
                     task.abort();
                 }
             }
-            McpTransport::WebSocket { reader_task, url, .. } => {
+            McpTransport::WebSocket {
+                reader_task,
+                ws_write,
+                url,
+                ..
+            } => {
                 tracing::debug!(url = %url, "dropping WebSocket MCP client");
+                Self::close_websocket_sync(ws_write);
                 reader_task.abort();
             }
         }

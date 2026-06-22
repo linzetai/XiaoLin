@@ -1,8 +1,9 @@
 //! In-memory structured metrics with Prometheus text exposition (no external TSDB).
 
+use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use dashmap::DashMap;
 
@@ -11,11 +12,11 @@ const MAX_HISTOGRAM_SAMPLES: usize = 10_240;
 /// Max distinct counter/histogram keys retained in memory.
 const MAX_METRIC_KEYS: usize = 500;
 
-fn push_histogram_sample(vec: &mut Vec<f64>, sample: f64) {
-    if vec.len() >= MAX_HISTOGRAM_SAMPLES {
-        vec.remove(0);
+fn push_histogram_sample(deque: &mut VecDeque<f64>, sample: f64) {
+    if deque.len() >= MAX_HISTOGRAM_SAMPLES {
+        deque.pop_front();
     }
-    vec.push(sample);
+    deque.push_back(sample);
 }
 
 fn escape_label_value(value: &str) -> String {
@@ -28,7 +29,7 @@ fn escape_label_value(value: &str) -> String {
 /// Simple in-memory metrics store for counters and latency samples.
 pub struct MetricsCollector {
     pub counters: DashMap<String, AtomicU64>,
-    pub histograms: DashMap<String, Mutex<Vec<f64>>>,
+    pub histograms: DashMap<String, Mutex<VecDeque<f64>>>,
 }
 
 impl Default for MetricsCollector {
@@ -76,7 +77,7 @@ impl MetricsCollector {
     fn try_histogram_entry(
         &self,
         key: String,
-    ) -> Option<dashmap::mapref::one::RefMut<'_, String, Mutex<Vec<f64>>>> {
+    ) -> Option<dashmap::mapref::one::RefMut<'_, String, Mutex<VecDeque<f64>>>> {
         if !self.histograms.contains_key(&key) && self.histogram_at_capacity() {
             tracing::warn!(
                 keys = self.histograms.len(),
@@ -89,7 +90,7 @@ impl MetricsCollector {
         Some(
             self.histograms
                 .entry(key)
-                .or_insert_with(|| Mutex::new(Vec::new())),
+                .or_insert_with(|| Mutex::new(VecDeque::new())),
         )
     }
 
@@ -238,9 +239,10 @@ impl MetricsCollector {
                 Ok(g) => g.clone(),
                 Err(poisoned) => poisoned.into_inner().clone(),
             };
-            let count = vec.len() as f64;
-            let sum: f64 = vec.iter().copied().sum();
-            let (p50, p95, p99) = Self::percentiles(&vec);
+            let samples: Vec<f64> = vec.iter().copied().collect();
+            let count = samples.len() as f64;
+            let sum: f64 = samples.iter().sum();
+            let (p50, p95, p99) = Self::percentiles(&samples);
             let _ = writeln!(
                 &mut out,
                 "xiaolin_endpoint_latency_ms{{endpoint=\"{}\",quantile=\"0.5\"}} {}",
@@ -349,9 +351,10 @@ impl MetricsCollector {
                 Ok(g) => g.clone(),
                 Err(poisoned) => poisoned.into_inner().clone(),
             };
-            let count = vec.len() as f64;
-            let sum: f64 = vec.iter().copied().sum();
-            let (p50, p95, p99) = Self::percentiles(&vec);
+            let samples: Vec<f64> = vec.iter().copied().collect();
+            let count = samples.len() as f64;
+            let sum: f64 = samples.iter().sum();
+            let (p50, p95, p99) = Self::percentiles(&samples);
             let _ = writeln!(
                 &mut out,
                 "xiaolin_provider_latency_ms{{provider=\"{}\",model=\"{}\",quantile=\"0.5\"}} {}",
@@ -383,11 +386,22 @@ impl MetricsCollector {
     }
 }
 
-static DEFAULT_COLLECTOR: OnceLock<MetricsCollector> = OnceLock::new();
+static DEFAULT_COLLECTOR: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
+
+fn init_default_collector() -> Arc<MetricsCollector> {
+    DEFAULT_COLLECTOR
+        .get_or_init(|| Arc::new(MetricsCollector::new()))
+        .clone()
+}
+
+/// Shared process-wide [`MetricsCollector`] (AppState + `/api/v1/metrics`).
+pub fn shared_metrics_collector() -> Arc<MetricsCollector> {
+    init_default_collector()
+}
 
 /// Process-wide default [`MetricsCollector`] (for gateway `/api/v1/metrics`).
-pub fn default_metrics_collector() -> &'static MetricsCollector {
-    DEFAULT_COLLECTOR.get_or_init(MetricsCollector::new)
+pub fn default_metrics_collector() -> Arc<MetricsCollector> {
+    shared_metrics_collector()
 }
 
 /// Prometheus text from [`default_metrics_collector`].

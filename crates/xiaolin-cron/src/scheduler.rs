@@ -143,6 +143,12 @@ impl CronScheduler {
                     if let Some(next) = compute_next_run(&job.schedule) {
                         job.next_run = Some(next);
                         let _ = self.store.upsert(&job).await;
+                    } else {
+                        tracing::warn!(
+                            job = %job.id,
+                            schedule = %job.schedule,
+                            "cron: invalid schedule expression; cannot compute next_run"
+                        );
                     }
                 }
             }
@@ -168,7 +174,13 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
 
     tracing::info!(job = %job_id, name = %job.name, "cron: executing job");
 
-    let run_id = store.insert_run(&job_id).await.unwrap_or(-1);
+    let run_id = match store.insert_run(&job_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(job = %job_id, error = %e, "cron: failed to insert run record");
+            -1
+        }
+    };
 
     let result: Result<(Option<String>, bool), anyhow::Error> = match &job.action {
         JobAction::AgentChat {
@@ -197,9 +209,13 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
     match result {
         Ok((output, sent_via_channel)) => {
             tracing::info!(job = %job_id, next = ?next_ref, "cron: job completed");
-            let _ = store.mark_completed(&job_id, next_ref).await;
+            if let Err(e) = store.mark_completed(&job_id, next_ref).await {
+                tracing::error!(job = %job_id, error = %e, "cron: failed to mark job completed");
+            }
             if run_id >= 0 {
-                let _ = store.complete_run(run_id, output.as_deref()).await;
+                if let Err(e) = store.complete_run(run_id, output.as_deref()).await {
+                    tracing::error!(job = %job_id, run_id, error = %e, "cron: failed to complete run record");
+                }
             }
             trigger
                 .on_job_completed(
@@ -215,9 +231,13 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
             let err_msg = e.to_string();
             let safe_msg: String = err_msg.chars().take(500).collect();
             tracing::error!(job = %job_id, error = %safe_msg, "cron: job failed");
-            let _ = store.mark_failed(&job_id, &safe_msg, next_ref).await;
+            if let Err(e) = store.mark_failed(&job_id, &safe_msg, next_ref).await {
+                tracing::error!(job = %job_id, error = %e, "cron: failed to mark job failed");
+            }
             if run_id >= 0 {
-                let _ = store.fail_run(run_id, &safe_msg).await;
+                if let Err(e) = store.fail_run(run_id, &safe_msg).await {
+                    tracing::error!(job = %job_id, run_id, error = %e, "cron: failed to fail run record");
+                }
             }
             trigger
                 .on_job_failed(&job_id, &job.name, &safe_msg, &job.notify_channels)
@@ -226,7 +246,9 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
     }
 
     if run_id >= 0 {
-        let _ = store.prune_runs(&job_id, 50).await;
+        if let Err(e) = store.prune_runs(&job_id, 50).await {
+            tracing::error!(job = %job_id, error = %e, "cron: failed to prune run records");
+        }
     }
 }
 

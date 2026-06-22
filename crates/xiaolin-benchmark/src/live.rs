@@ -116,6 +116,7 @@ impl BenchmarkExecutor for LiveExecutor {
                 )
                 .await
         });
+        let exec_abort = exec_handle.abort_handle();
 
         let collect_handle = tokio::spawn(async move {
             let mut collector = MetricsCollector::new();
@@ -124,6 +125,7 @@ impl BenchmarkExecutor for LiveExecutor {
             }
             collector.finalize()
         });
+        let collect_abort = collect_handle.abort_handle();
 
         let timeout = tokio::time::Duration::from_millis(timeout_ms);
         let result = tokio::time::timeout(timeout, async {
@@ -145,7 +147,11 @@ impl BenchmarkExecutor for LiveExecutor {
                 pre_run_files,
             }),
             Ok(Err(e)) => anyhow::bail!("Collection task panicked: {e}"),
-            Err(_) => anyhow::bail!("Task timed out after {timeout_ms}ms"),
+            Err(_) => {
+                exec_abort.abort();
+                collect_abort.abort();
+                anyhow::bail!("Task timed out after {timeout_ms}ms")
+            }
         }
     }
 }

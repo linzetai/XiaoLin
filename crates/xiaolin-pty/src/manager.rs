@@ -30,7 +30,12 @@ impl PtySessionManager {
     pub fn create_session(&self, config: PtySessionConfig) -> Result<String, String> {
         let mut sessions = self.sessions.lock();
         if sessions.len() >= self.max_sessions {
-            return Err("max sessions reached".into());
+            drop(sessions);
+            self.cleanup_idle_sessions();
+            sessions = self.sessions.lock();
+            if sessions.len() >= self.max_sessions {
+                return Err("max sessions reached".into());
+            }
         }
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -46,7 +51,12 @@ impl PtySessionManager {
     ) -> Result<(String, broadcast::Receiver<Vec<u8>>), String> {
         let mut sessions = self.sessions.lock();
         if sessions.len() >= self.max_sessions {
-            return Err("max sessions reached".into());
+            drop(sessions);
+            self.cleanup_idle_sessions();
+            sessions = self.sessions.lock();
+            if sessions.len() >= self.max_sessions {
+                return Err("max sessions reached".into());
+            }
         }
 
         let id = uuid::Uuid::new_v4().to_string();

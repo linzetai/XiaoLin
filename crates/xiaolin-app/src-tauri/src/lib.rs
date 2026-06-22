@@ -344,12 +344,24 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppData>();
-                let mut guard = match state.gateway.try_lock() {
-                    Ok(g) => g,
-                    Err(_) => return,
-                };
-                if let Some(ref mut process) = *guard {
-                    process.shutdown();
+                let lock_result = tauri::async_runtime::block_on(async {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        state.gateway.lock(),
+                    )
+                    .await
+                });
+                match lock_result {
+                    Ok(mut guard) => {
+                        if let Some(ref mut process) = *guard {
+                            process.shutdown();
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "gateway shutdown: failed to acquire lock within 5s, embedded gateway may not shut down cleanly"
+                        );
+                    }
                 }
             }
         });

@@ -1,6 +1,8 @@
 //! Persistent store for extracted skills, parameters, and usage telemetry.
 #![allow(clippy::type_complexity)]
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 
@@ -257,6 +259,10 @@ impl SkillStore {
                 continue;
             }
             let Ok(source_ids) = serde_json::from_str::<Vec<String>>(&sources_json) else {
+                tracing::warn!(
+                    sources_json = %sources_json,
+                    "failed to parse skill candidate source_ids JSON"
+                );
                 continue;
             };
             if cluster_fingerprint(&source_ids) == fingerprint {
@@ -719,11 +725,49 @@ impl SkillStore {
             Option<String>,
         )>,
     ) -> Result<Vec<ExtractedSkill>> {
-        let mut skills = Vec::new();
-        for row in rows {
-            skills.push(self.row_to_skill(row).await?);
+        if rows.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(skills)
+        let skill_ids: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
+        let params_by_skill = self.fetch_skill_parameters_batch(&skill_ids).await?;
+        rows.into_iter()
+            .map(|row| {
+                let parameters = params_by_skill
+                    .get(&row.0)
+                    .cloned()
+                    .unwrap_or_default();
+                skill_from_row(row, parameters)
+            })
+            .collect()
+    }
+
+    async fn fetch_skill_parameters_batch(
+        &self,
+        skill_ids: &[String],
+    ) -> Result<HashMap<String, Vec<SkillParam>>> {
+        if skill_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = skill_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT skill_id, name, param_type, description, default_value \
+             FROM skill_parameters WHERE skill_id IN ({placeholders})"
+        );
+        let mut query = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(&sql);
+        for id in skill_ids {
+            query = query.bind(id);
+        }
+        let rows = query.fetch_all(&self.pool).await?;
+        let mut map: HashMap<String, Vec<SkillParam>> = HashMap::new();
+        for (skill_id, name, param_type, description, default_value) in rows {
+            map.entry(skill_id).or_default().push(SkillParam {
+                name,
+                param_type,
+                description,
+                default_value,
+            });
+        }
+        Ok(map)
     }
 
     async fn row_to_skill(
@@ -743,29 +787,13 @@ impl SkillStore {
             Option<String>,
         ),
     ) -> Result<ExtractedSkill> {
-        let (
-            id,
-            name,
-            task_pattern,
-            strategy_template,
-            source_trajectory_ids,
-            success_rate,
-            usage_count,
-            _success_count,
-            status,
-            created_at,
-            version,
-            parent_id,
-        ) = row;
-
-        let source_trajectory_ids: Vec<String> = serde_json::from_str(&source_trajectory_ids)?;
+        let id = row.0.clone();
         let parameters: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
             "SELECT name, param_type, description, default_value FROM skill_parameters WHERE skill_id = ?",
         )
         .bind(&id)
         .fetch_all(&self.pool)
         .await?;
-
         let parameters: Vec<SkillParam> = parameters
             .into_iter()
             .map(
@@ -777,22 +805,57 @@ impl SkillStore {
                 },
             )
             .collect();
-
-        Ok(ExtractedSkill {
-            id,
-            name,
-            task_pattern,
-            strategy_template,
-            parameters,
-            source_trajectory_ids,
-            success_rate,
-            usage_count,
-            status: parse_skill_status(&status),
-            created_at,
-            version: version.max(1) as u32,
-            parent_id,
-        })
+        skill_from_row(row, parameters)
     }
+}
+
+type SkillRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    f64,
+    i64,
+    i64,
+    String,
+    String,
+    i64,
+    Option<String>,
+);
+
+fn skill_from_row(row: SkillRow, parameters: Vec<SkillParam>) -> Result<ExtractedSkill> {
+    let (
+        id,
+        name,
+        task_pattern,
+        strategy_template,
+        source_trajectory_ids,
+        success_rate,
+        usage_count,
+        _success_count,
+        status,
+        created_at,
+        version,
+        parent_id,
+    ) = row;
+
+    let source_trajectory_ids: Vec<String> = serde_json::from_str(&source_trajectory_ids)?;
+
+    Ok(ExtractedSkill {
+        id,
+        name,
+        task_pattern,
+        strategy_template,
+        parameters,
+        source_trajectory_ids,
+        success_rate,
+        usage_count,
+        status: parse_skill_status(&status),
+        created_at,
+        version: version.max(1) as u32,
+        parent_id,
+    })
 }
 
 fn skill_status_str(s: &SkillStatus) -> &'static str {

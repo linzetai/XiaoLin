@@ -227,10 +227,12 @@ pub async fn handle_config_set(
                     xiaolin_security::ssrf::set_ssrf_allowed_hosts(
                         new_config.security.ssrf_allowed_hosts.clone(),
                     );
-                    xiaolin_security::dangerous_ops::set_dangerous_ops_config(
+                    if let Err(e) = xiaolin_security::dangerous_ops::set_dangerous_ops_config(
                         new_config.security.dangerous_ops_policy,
                         &new_config.security.dangerous_patterns,
-                    );
+                    ) {
+                        tracing::error!(error = %e, "config.set: failed to update dangerous-ops policy");
+                    }
                     state.cfg.auth.reload(&xiaolin_security::AuthConfig {
                         enabled: !new_config.security.api_keys.is_empty(),
                         api_keys: new_config.security.api_keys.clone(),

@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
+use tokio::process::Command as TokioCommand;
 
 /// Maximum base64-encoded audio payload (~25 MiB raw audio at ~1.33x encoding overhead).
 const MAX_AUDIO_BASE64_LEN: usize = 35_000_000;
@@ -92,25 +95,22 @@ async fn try_local_whisper(audio_data: &[u8], mime_type: &str) -> Result<SttResu
     std::fs::write(&tmp_path, audio_data)
         .map_err(|e| format!("failed to write temp audio file: {e}"))?;
 
-    let result = tokio::task::spawn_blocking({
-        let path = tmp_path.clone();
-        move || run_whisper_cli(&path)
-    })
-    .await
-    .map_err(|e| format!("whisper task panicked: {e}"))?;
+    let path = tmp_path.clone();
+    let result = run_whisper_cli(&path).await;
 
     let _ = std::fs::remove_file(&tmp_path);
     result
 }
 
-fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResult, String> {
+async fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResult, String> {
+    const WHISPER_TIMEOUT: Duration = Duration::from_secs(300);
     let output_dir = audio_path
         .parent()
         .unwrap_or(std::path::Path::new("/tmp"));
 
     // Try whisper (pip install openai-whisper) or whisper.cpp CLI
     for cmd in &["whisper", "whisper-cpp"] {
-        let output = std::process::Command::new(cmd)
+        let child = match TokioCommand::new(cmd)
             .arg(audio_path)
             .arg("--language")
             .arg("zh")
@@ -120,37 +120,52 @@ fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResult, String> {
             .arg("txt")
             .arg("--output_dir")
             .arg(output_dir)
-            .output();
-
-        match output {
-            Ok(o) if o.status.success() => {
-                let txt_path = audio_path.with_extension("txt");
-                let text = if txt_path.exists() {
-                    let t = std::fs::read_to_string(&txt_path).unwrap_or_default();
-                    let _ = std::fs::remove_file(&txt_path);
-                    t.trim().to_string()
-                } else {
-                    String::from_utf8_lossy(&o.stdout).trim().to_string()
-                };
-
-                if !text.is_empty() {
-                    return Ok(SttResult {
-                        text,
-                        language: Some("zh".into()),
-                    });
-                }
-            }
-            Ok(o) => {
-                tracing::debug!(
-                    cmd,
-                    status = %o.status,
-                    stderr = %String::from_utf8_lossy(&o.stderr),
-                    "whisper CLI exited with error"
-                );
-            }
+            .spawn()
+        {
+            Ok(c) => c,
             Err(_) => {
                 tracing::debug!(cmd, "whisper CLI not found");
+                continue;
             }
+        };
+        let pid = child.id();
+
+        let output = match tokio::time::timeout(WHISPER_TIMEOUT, child.wait_with_output()).await {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => {
+                tracing::debug!(cmd, error = %e, "whisper CLI wait failed");
+                continue;
+            }
+            Err(_) => {
+                kill_whisper_child(pid);
+                tracing::warn!(cmd, "whisper CLI timed out after 300s");
+                continue;
+            }
+        };
+
+        if output.status.success() {
+            let txt_path = audio_path.with_extension("txt");
+            let text = if txt_path.exists() {
+                let t = std::fs::read_to_string(&txt_path).unwrap_or_default();
+                let _ = std::fs::remove_file(&txt_path);
+                t.trim().to_string()
+            } else {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            };
+
+            if !text.is_empty() {
+                return Ok(SttResult {
+                    text,
+                    language: Some("zh".into()),
+                });
+            }
+        } else {
+            tracing::debug!(
+                cmd,
+                status = %output.status,
+                stderr = %String::from_utf8_lossy(&output.stderr),
+                "whisper CLI exited with error"
+            );
         }
     }
 
@@ -158,6 +173,24 @@ fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResult, String> {
         "语音转文字不可用。请配置 LLM 提供商 API Key，或安装 whisper CLI (pip install openai-whisper)"
             .into(),
     )
+}
+
+fn kill_whisper_child(pid: Option<u32>) {
+    let Some(pid) = pid else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F", "/T"])
+            .status();
+    }
 }
 
 fn mime_ext(mime_type: &str) -> &str {

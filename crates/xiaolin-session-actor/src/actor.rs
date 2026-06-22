@@ -310,7 +310,7 @@ impl SessionActor {
         let relay_session_id = self.session_id.clone();
         let relay_sub_id = sub_id.clone();
         let relay_fanout = self.fanout.clone();
-        tokio::spawn(async move {
+        let relay_handle = tokio::spawn(async move {
             while let Some(event) = task_rx.recv().await {
                 let session_event = SessionEvent {
                     id: relay_sub_id.clone(),
@@ -445,6 +445,7 @@ impl SessionActor {
             handle: tokio_util::task::AbortOnDropHandle::new(handle),
             cancel_token,
             done,
+            relay_handle,
         });
     }
 
@@ -463,6 +464,7 @@ impl SessionActor {
             }
 
             // 3. Hard abort (AbortOnDropHandle drops the JoinHandle).
+            turn.relay_handle.abort();
             drop(turn.handle);
 
             // 4. Emit TurnAborted (before clearing pending, so subscribers

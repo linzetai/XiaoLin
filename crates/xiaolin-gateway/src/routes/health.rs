@@ -83,8 +83,10 @@ pub(super) async fn metrics_endpoint() -> impl IntoResponse {
 }
 
 /// In-memory structured metrics (Prometheus text); see [`xiaolin_observe::MetricsCollector`].
-pub(super) async fn structured_metrics_v1() -> impl IntoResponse {
-    let body = xiaolin_observe::render_structured_metrics_prometheus();
+pub(super) async fn structured_metrics_v1(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
+    let body = state.obs.metrics_collector.render_prometheus();
     (
         [(
             header::CONTENT_TYPE,

@@ -102,20 +102,38 @@ impl EpisodicMemory {
         .execute(&pool)
         .await?;
 
-        let _ = sqlx::query("ALTER TABLE episodes ADD COLUMN embedding BLOB")
+        match sqlx::query("ALTER TABLE episodes ADD COLUMN embedding BLOB")
             .execute(&pool)
-            .await;
-        let _ = sqlx::query("ALTER TABLE episodes ADD COLUMN embedding_norm REAL")
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(error = %e, "failed to migrate episodes table: add embedding column"),
+        }
+        match sqlx::query("ALTER TABLE episodes ADD COLUMN embedding_norm REAL")
             .execute(&pool)
-            .await;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(
+                error = %e,
+                "failed to migrate episodes table: add embedding_norm column"
+            ),
+        }
         let _ = sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_ep_imp_time ON episodes(importance, created_at)",
         )
         .execute(&pool)
         .await;
-        let _ = sqlx::query("ALTER TABLE episodes ADD COLUMN dreamed_at TEXT")
+        match sqlx::query("ALTER TABLE episodes ADD COLUMN dreamed_at TEXT")
             .execute(&pool)
-            .await;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(error = %e, "failed to migrate episodes table: add dreamed_at column"),
+        }
 
         Ok(Self { pool })
     }
@@ -133,14 +151,25 @@ impl EpisodicMemory {
     }
 
     pub async fn mark_episodes_dreamed(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
         let now = Utc::now().to_rfc3339();
         let mut n = 0usize;
-        for id in ids {
-            let r = sqlx::query("UPDATE episodes SET dreamed_at = ? WHERE id = ?")
-                .bind(&now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?;
+        for chunk in ids.chunks(500) {
+            let mut sql = String::from("UPDATE episodes SET dreamed_at = ? WHERE id IN (");
+            for (i, _) in chunk.iter().enumerate() {
+                if i > 0 {
+                    sql.push(',');
+                }
+                sql.push('?');
+            }
+            sql.push(')');
+            let mut q = sqlx::query(&sql).bind(&now);
+            for id in chunk {
+                q = q.bind(id);
+            }
+            let r = q.execute(&self.pool).await?;
             n += r.rows_affected() as usize;
         }
         Ok(n)

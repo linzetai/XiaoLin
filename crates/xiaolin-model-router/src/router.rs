@@ -67,9 +67,9 @@ fn tier_window(constraints: &RouteTierConstraints) -> (ComplexityTier, Complexit
 fn filter_candidates_by_tier(
     candidates: Vec<ModelCandidate>,
     tier: Option<&RouteTierConstraints>,
-) -> Vec<ModelCandidate> {
+) -> anyhow::Result<Vec<ModelCandidate>> {
     let Some(tc) = tier else {
-        return candidates;
+        return Ok(candidates);
     };
     let (need, cap) = tier_window(tc);
     let filtered: Vec<_> = candidates
@@ -81,12 +81,11 @@ fn filter_candidates_by_tier(
         tracing::warn!(
             ?need,
             ?cap,
-            "model router: no models in tier window; ignoring tier filter"
+            "model router: no models in tier window"
         );
-        candidates
-    } else {
-        filtered
+        anyhow::bail!("no models available in tier window {need:?}..{cap:?}");
     }
+    Ok(filtered)
 }
 
 impl ModelRouter {
@@ -136,7 +135,13 @@ impl ModelRouter {
                 }
                 .estimated_cost(p)
             })
-            .unwrap_or(0.0)
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    model = %model,
+                    "model router: unknown model in pricing table; cost assumed 0"
+                );
+                0.0
+            })
     }
 
     pub fn route(
@@ -174,7 +179,7 @@ impl ModelRouter {
             anyhow::bail!("no model with sufficient context window for {input_tokens} tokens");
         }
 
-        candidates = filter_candidates_by_tier(candidates, tier_constraints.as_ref());
+        candidates = filter_candidates_by_tier(candidates, tier_constraints.as_ref())?;
 
         match self.strategy {
             RoutingStrategy::Fixed => {
@@ -183,8 +188,15 @@ impl ModelRouter {
                 let selected = candidates
                     .iter()
                     .find(|c| c.model == model_name)
-                    .cloned()
-                    .or_else(|| candidates.first().cloned());
+                    .cloned();
+                if preferred_model.is_some() && selected.is_none() {
+                    tracing::warn!(
+                        preferred = preferred_model.unwrap(),
+                        first = first_model,
+                        "fixed strategy: preferred model not in candidates; using first"
+                    );
+                }
+                let selected = selected.or_else(|| candidates.first().cloned());
                 let Some(mut sel) = selected else {
                     anyhow::bail!("no routable model candidates");
                 };

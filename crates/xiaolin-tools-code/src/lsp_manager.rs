@@ -338,7 +338,12 @@ impl LspSessionManager {
                 .map(|(k, _)| k.clone())
             {
                 tracing::info!(workspace = %oldest_key, "evicting LRU LSP session (at capacity)");
-                w.remove(&oldest_key);
+                if let Some(entry) = w.remove(&oldest_key) {
+                    let session = entry.session.clone();
+                    drop(w);
+                    shutdown_lsp_session(session).await;
+                    w = self.sessions.write().await;
+                }
             }
         }
         let session = PersistentLspSession::spawn(&cmd, workspace_root).await?;
@@ -660,6 +665,13 @@ impl PersistentLspSession {
         Ok(())
     }
 
+    async fn shutdown(&mut self) -> anyhow::Result<()> {
+        let _ = self.request("shutdown", serde_json::json!(null)).await;
+        let _ = self.notify("exit", serde_json::json!({})).await;
+        let _ = self.child.start_kill();
+        Ok(())
+    }
+
     async fn read_message(&mut self) -> anyhow::Result<serde_json::Value> {
         let mut content_length = 0usize;
         loop {
@@ -698,6 +710,14 @@ impl PersistentLspSession {
 impl Drop for PersistentLspSession {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
+    }
+}
+
+async fn shutdown_lsp_session(session: Arc<Mutex<PersistentLspSession>>) {
+    let mut guard = session.lock().await;
+    if let Err(e) = guard.shutdown().await {
+        tracing::warn!(error = %e, "LSP session shutdown failed, forcing kill");
+        let _ = guard.child.start_kill();
     }
 }
 

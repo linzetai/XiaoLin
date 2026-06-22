@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -9,6 +9,60 @@ use xiaolin_security::ssrf::{ssrf_check_url, ssrf_safe_redirect_policy};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 const HTTP_FETCH_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+fn build_reqwest_client(
+    name: &'static str,
+    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+) -> reqwest::Client {
+    match configure(reqwest::Client::builder()).build() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::error!(
+                client = name,
+                error = %e,
+                "failed to build reqwest client; using default"
+            );
+            reqwest::Client::new()
+        }
+    }
+}
+
+fn shared_http_fetch_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            build_reqwest_client("http_fetch", |b| {
+                b.timeout(std::time::Duration::from_secs(10))
+                    .redirect(ssrf_safe_redirect_policy())
+            })
+        })
+        .clone()
+}
+
+fn shared_api_search_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            build_reqwest_client("api_search", |b| {
+                b.timeout(std::time::Duration::from_secs(15))
+                    .user_agent("XiaoLin/0.1.0")
+            })
+        })
+        .clone()
+}
+
+fn shared_web_fetch_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            build_reqwest_client("web_fetch", |b| {
+                b.timeout(std::time::Duration::from_secs(20))
+                    .user_agent("XiaoLin/0.1.0 (Bot)")
+                    .redirect(ssrf_safe_redirect_policy())
+            })
+        })
+        .clone()
+}
 
 async fn read_response_body_limited(
     resp: reqwest::Response,
@@ -89,11 +143,7 @@ impl Default for HttpFetchTool {
 impl HttpFetchTool {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .redirect(ssrf_safe_redirect_policy())
-                .build()
-                .unwrap_or_default(),
+            client: shared_http_fetch_client(),
         }
     }
 }
@@ -340,11 +390,7 @@ pub struct TavilyEngine {
 impl TavilyEngine {
     pub fn new(api_key: String) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .user_agent("XiaoLin/0.1.0")
-                .build()
-                .unwrap_or_default(),
+            client: shared_api_search_client(),
             api_key,
         }
     }
@@ -446,11 +492,7 @@ pub struct SearxngEngine {
 impl SearxngEngine {
     pub fn new(base_url: String) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .user_agent("XiaoLin/0.1.0")
-                .build()
-                .unwrap_or_default(),
+            client: shared_api_search_client(),
             base_url,
         }
     }
@@ -529,12 +571,16 @@ impl SearchEngine for SearxngEngine {
 const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 fn build_scraper_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .user_agent(BROWSER_UA)
-        .redirect(ssrf_safe_redirect_policy())
-        .build()
-        .unwrap_or_default()
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            build_reqwest_client("scraper", |b| {
+                b.timeout(std::time::Duration::from_secs(10))
+                    .user_agent(BROWSER_UA)
+                    .redirect(ssrf_safe_redirect_policy())
+            })
+        })
+        .clone()
 }
 
 /// Google web search scraper.
@@ -1359,12 +1405,7 @@ pub struct WebFetchTool {
 impl WebFetchTool {
     pub fn new(max_content_bytes: usize) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(20))
-                .user_agent("XiaoLin/0.1.0 (Bot)")
-                .redirect(ssrf_safe_redirect_policy())
-                .build()
-                .unwrap_or_default(),
+            client: shared_web_fetch_client(),
             max_content_bytes,
         }
     }

@@ -769,10 +769,12 @@ impl StateBuilder {
             pattern_count = config.security.dangerous_patterns.len(),
             "Dangerous-ops: initializing policy"
         );
-        xiaolin_security::dangerous_ops::set_dangerous_ops_config(
+        if let Err(e) = xiaolin_security::dangerous_ops::set_dangerous_ops_config(
             config.security.dangerous_ops_policy,
             &config.security.dangerous_patterns,
-        );
+        ) {
+            tracing::error!(error = %e, "Dangerous-ops: failed to initialize policy");
+        }
 
         let p1 = Self::phase1_config_session(&config).await?;
 
@@ -1035,7 +1037,7 @@ impl StateBuilder {
                 hub_client: Arc::new(xiaolin_core::hub::HubClient::with_defaults()),
             },
             obs: super::ObserveState {
-                metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),
+                metrics_collector: xiaolin_observe::shared_metrics_collector(),
                 budget_tracker: Arc::new(p5.budget_tracker),
                 model_router: p5.model_router,
             },

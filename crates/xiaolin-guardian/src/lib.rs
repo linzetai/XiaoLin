@@ -435,7 +435,6 @@ pub struct TranscriptEntry {
     pub text: String,
 }
 
-const GUARDIAN_MAX_MESSAGE_TOKENS: usize = 10_000;
 const GUARDIAN_MAX_TOOL_TOKENS: usize = 10_000;
 const CHARS_PER_TOKEN: usize = 4;
 
@@ -447,8 +446,11 @@ const CHARS_PER_TOKEN: usize = 4;
 /// 1. Always include first and last user turns as anchors
 /// 2. Fill remaining user/assistant turns from most recent to oldest
 /// 3. Fill tool entries from most recent to oldest with a separate budget
-pub fn build_intent_transcript_v2(entries: &[TranscriptEntry]) -> ReviewContext {
-    let msg_budget_chars = GUARDIAN_MAX_MESSAGE_TOKENS * CHARS_PER_TOKEN;
+pub fn build_intent_transcript_v2(
+    entries: &[TranscriptEntry],
+    max_message_tokens: usize,
+) -> ReviewContext {
+    let msg_budget_chars = max_message_tokens * CHARS_PER_TOKEN;
     let tool_budget_chars = GUARDIAN_MAX_TOOL_TOKENS * CHARS_PER_TOKEN;
 
     let mut message_slots: Vec<(usize, String)> = Vec::new();
@@ -556,28 +558,7 @@ pub fn build_intent_transcript(
         })
         .collect();
 
-    if max_tokens >= GUARDIAN_MAX_MESSAGE_TOKENS {
-        return build_intent_transcript_v2(&entries);
-    }
-
-    // Fallback to simple approach for explicitly small budgets
-    let approx_chars = max_tokens * CHARS_PER_TOKEN;
-    let mut transcript = String::new();
-    let mut total_chars = 0;
-
-    for (role, content) in messages.iter().rev() {
-        let entry = format!("[{role}]: {content}\n");
-        if total_chars + entry.len() > approx_chars {
-            break;
-        }
-        transcript.insert_str(0, &entry);
-        total_chars += entry.len();
-    }
-
-    ReviewContext {
-        intent_transcript: transcript,
-        transcript_tokens: total_chars / CHARS_PER_TOKEN,
-    }
+    build_intent_transcript_v2(&entries, max_tokens)
 }
 
 #[cfg(test)]
@@ -978,7 +959,7 @@ mod tests {
             },
         ];
 
-        let ctx = build_intent_transcript_v2(&entries);
+        let ctx = build_intent_transcript_v2(&entries, 10_000);
         assert!(ctx.intent_transcript.contains("initial request"));
         assert!(ctx.intent_transcript.contains("final clarification"));
 
@@ -1004,7 +985,7 @@ mod tests {
             },
         ];
 
-        let ctx = build_intent_transcript_v2(&entries);
+        let ctx = build_intent_transcript_v2(&entries, 10_000);
         assert!(ctx.intent_transcript.contains("[tool:shell]"));
         assert!(ctx.intent_transcript.contains("[tool:file_read]"));
     }
@@ -1034,7 +1015,7 @@ mod tests {
             },
         ];
 
-        let ctx = build_intent_transcript_v2(&entries);
+        let ctx = build_intent_transcript_v2(&entries, 10_000);
         let pos_1 = ctx.intent_transcript.find("step 1").unwrap();
         let pos_a = ctx.intent_transcript.find("tool a").unwrap();
         let pos_reply = ctx.intent_transcript.find("reply").unwrap();

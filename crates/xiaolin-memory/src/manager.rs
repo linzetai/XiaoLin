@@ -170,7 +170,13 @@ impl MemoryManager {
         let mut results = Vec::new();
 
         let query_vec = if let Some(ref emb) = self.embedder {
-            emb.embed(query).await.ok()
+            match emb.embed(query).await {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!(error = %e, "embedding failed, falling back to keyword search");
+                    None
+                }
+            }
         } else {
             None
         };

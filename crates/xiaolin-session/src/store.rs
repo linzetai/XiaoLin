@@ -449,14 +449,27 @@ impl SessionStore {
         .await?;
 
         // Migration: add pause_reason and continuation_rounds columns if missing
-        let _ = sqlx::query("ALTER TABLE goals ADD COLUMN pause_reason TEXT")
+        match sqlx::query("ALTER TABLE goals ADD COLUMN pause_reason TEXT")
             .execute(&self.pool)
-            .await;
-        let _ = sqlx::query(
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(error = %e, "failed to migrate goals table: add pause_reason column"),
+        }
+        match sqlx::query(
             "ALTER TABLE goals ADD COLUMN continuation_rounds INTEGER NOT NULL DEFAULT 0",
         )
         .execute(&self.pool)
-        .await;
+        .await
+        {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("duplicate") => {}
+            Err(e) => tracing::warn!(
+                error = %e,
+                "failed to migrate goals table: add continuation_rounds column"
+            ),
+        }
 
         // Migration: add segment_order_json to messages for interleaved segment ordering
         let has_segment_order: bool = sqlx::query_scalar::<_, i32>(

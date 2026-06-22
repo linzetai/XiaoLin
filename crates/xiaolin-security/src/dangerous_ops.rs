@@ -11,7 +11,10 @@ struct DangerousOpsState {
 static STATE: RwLock<Option<DangerousOpsState>> = RwLock::new(None);
 
 /// Initialize or hot-reload the dangerous-ops policy and compiled patterns.
-pub fn set_dangerous_ops_config(policy: DangerousOpsPolicy, raw_patterns: &[String]) {
+pub fn set_dangerous_ops_config(
+    policy: DangerousOpsPolicy,
+    raw_patterns: &[String],
+) -> Result<(), String> {
     let compiled: Vec<(regex::Regex, String)> = raw_patterns
         .iter()
         .filter_map(|p| {
@@ -22,11 +25,18 @@ pub fn set_dangerous_ops_config(policy: DangerousOpsPolicy, raw_patterns: &[Stri
         })
         .collect();
 
-    if let Ok(mut guard) = STATE.write() {
-        *guard = Some(DangerousOpsState {
-            policy,
-            patterns: compiled,
-        });
+    match STATE.write() {
+        Ok(mut guard) => {
+            *guard = Some(DangerousOpsState {
+                policy,
+                patterns: compiled,
+            });
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to write dangerous-ops policy state");
+            Err(format!("failed to update dangerous-ops policy: {e}"))
+        }
     }
 }
 
@@ -108,7 +118,7 @@ mod tests {
             r"\brmdir\b".to_string(),
             r"\bchmod\b".to_string(),
         ];
-        set_dangerous_ops_config(policy, &patterns);
+        set_dangerous_ops_config(policy, &patterns).expect("test state init");
     }
 
     #[test]

@@ -889,8 +889,8 @@ impl ClientOp {
                 .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?,
             }),
             "sessions.list" => {
-                let list_params: SessionsListParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let list_params: SessionsListParams = serde_json::from_value(params)
+                    .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?;
                 Ok(Self::SessionsList { params: list_params })
             }
             "sessions.get" => Ok(Self::SessionsGet {
@@ -973,8 +973,8 @@ impl ClientOp {
                     .or_else(|_| extract_string(&params, "agent_id"))?),
             }),
             "tools.list" => {
-                let list_params: ToolsListParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let list_params: ToolsListParams = serde_json::from_value(params)
+                    .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?;
                 Ok(Self::ToolsList { params: list_params })
             }
             "tools.update" => {
@@ -983,8 +983,8 @@ impl ClientOp {
                 Ok(Self::ToolsUpdate { params: update_params })
             }
             "skills.list" => {
-                let list_params: SkillsListParams =
-                    serde_json::from_value(params).unwrap_or_default();
+                let list_params: SkillsListParams = serde_json::from_value(params)
+                    .map_err(|e| ClientOpParseError::invalid_params(e.to_string()))?;
                 Ok(Self::SkillsList { params: list_params })
             }
             "skills.read" => {

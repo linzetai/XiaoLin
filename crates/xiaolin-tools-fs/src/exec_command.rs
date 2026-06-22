@@ -2,11 +2,14 @@
 //! `write_stdin` sends input to it and polls output.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolResult};
 
+use crate::filesystem::ensure_within_workspace;
+use crate::shell_path_validation::has_traversal;
 use crate::shell_security::{SecurityVerdict, ShellSecurityChecker};
 
 pub use self::pty_session::PtySessionManager;
@@ -137,7 +140,20 @@ impl Tool for ExecCommandTool {
             return ToolResult::err(reason);
         }
 
-        let workdir = args.get("workdir").and_then(|v| v.as_str()).map(String::from);
+        let workdir = match args.get("workdir").and_then(|v| v.as_str()) {
+            Some(dir) => {
+                if has_traversal(dir) {
+                    return ToolResult::err(
+                        "Invalid workdir: path contains directory traversal (..)",
+                    );
+                }
+                match ensure_within_workspace(Path::new(dir), true) {
+                    Ok(p) => Some(p.to_string_lossy().into_owned()),
+                    Err(e) => return ToolResult::err(format!("Invalid workdir: {e}")),
+                }
+            }
+            None => None,
+        };
         let shell = args
             .get("shell")
             .and_then(|v| v.as_str())

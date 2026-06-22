@@ -766,30 +766,40 @@ impl ContextHook for MemoryIngestHook {
 
         let mut memory_parts = Vec::new();
 
-        if let Ok(facts) = self
+        match self
             .semantic
             .hybrid_search(query, query_vec.as_ref(), alpha, self.max_snippets)
             .await
         {
-            for (fact, score) in facts {
-                if score > 0.3 {
-                    memory_parts.push(format!(
-                        "- [fact] {}: {} {} (confidence: {:.1})",
-                        fact.subject, fact.predicate, fact.object, fact.confidence
-                    ));
+            Ok(facts) => {
+                for (fact, score) in facts {
+                    if score > 0.3 {
+                        memory_parts.push(format!(
+                            "- [fact] {}: {} {} (confidence: {:.1})",
+                            fact.subject, fact.predicate, fact.object, fact.confidence
+                        ));
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "memory ingest: semantic hybrid_search failed");
             }
         }
 
-        if let Ok(episodes) = self
+        match self
             .episodic
             .hybrid_search(query, query_vec.as_ref(), alpha, self.max_snippets / 2)
             .await
         {
-            for (ep, score) in episodes {
-                if score > 0.3 {
-                    memory_parts.push(format!("- [memory] {}", ep.summary));
+            Ok(episodes) => {
+                for (ep, score) in episodes {
+                    if score > 0.3 {
+                        memory_parts.push(format!("- [memory] {}", ep.summary));
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "memory ingest: episodic hybrid_search failed");
             }
         }
 
@@ -975,28 +985,38 @@ impl ContextHook for AgentMemoryIngestHook {
         let alpha = if query_vec.is_some() { 0.5 } else { 0.0 };
         let mut parts = Vec::new();
 
-        if let Ok(facts) = semantic
+        match semantic
             .hybrid_search(query, query_vec.as_ref(), alpha, self.max_snippets)
             .await
         {
-            for (fact, score) in facts {
-                if score > 0.3 {
-                    parts.push(format!(
-                        "- [fact] {}: {} {} (confidence: {:.1})",
-                        fact.subject, fact.predicate, fact.object, fact.confidence
-                    ));
+            Ok(facts) => {
+                for (fact, score) in facts {
+                    if score > 0.3 {
+                        parts.push(format!(
+                            "- [fact] {}: {} {} (confidence: {:.1})",
+                            fact.subject, fact.predicate, fact.object, fact.confidence
+                        ));
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "memory ingest: semantic hybrid_search failed");
             }
         }
         if let Some(ep) = episodic {
-            if let Ok(episodes) = ep
+            match ep
                 .hybrid_search(query, query_vec.as_ref(), alpha, self.max_snippets / 2)
                 .await
             {
-                for (episode, score) in episodes {
-                    if score > 0.3 {
-                        parts.push(format!("- [memory] {}", episode.summary));
+                Ok(episodes) => {
+                    for (episode, score) in episodes {
+                        if score > 0.3 {
+                            parts.push(format!("- [memory] {}", episode.summary));
+                        }
                     }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "memory ingest: episodic hybrid_search failed");
                 }
             }
         }

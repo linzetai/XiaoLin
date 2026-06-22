@@ -29,14 +29,16 @@ impl TargetCheckedTcpConnector {
 
     /// Connect to the target address after checking the policy.
     ///
-    /// When an upstream proxy is configured, the IP check is skipped because
-    /// the actual TCP target will be the upstream proxy, not the logical
-    /// destination.
+    /// Private/reserved targets are rejected even when an upstream proxy is
+    /// configured, to prevent SSRF-style routing to internal addresses.
     pub async fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream> {
-        if !self.has_upstream_proxy
-            && !self.allow_local_binding
-            && is_non_public_ip(addr.ip())
-        {
+        if !self.allow_local_binding && is_non_public_ip(addr.ip()) {
+            if self.has_upstream_proxy {
+                tracing::warn!(
+                    target = %addr,
+                    "network target rejected by policy (private IP with upstream proxy)"
+                );
+            }
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "network target rejected by policy",
@@ -81,17 +83,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn allows_non_public_when_upstream_proxy_present() {
+    async fn rejects_non_public_when_upstream_proxy_present() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0u16))
             .await
             .expect("bind local listener");
         let target = listener.local_addr().expect("local addr");
 
         let connector = TargetCheckedTcpConnector::new(false).with_upstream_proxy(true);
-        let result = connector.connect(target).await;
+        let err = connector.connect(target).await.expect_err("should reject private IP");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         assert!(
-            result.is_ok(),
-            "should allow local target with upstream proxy: {result:?}"
+            format!("{err}").contains("network target rejected by policy"),
+            "unexpected error: {err}"
         );
     }
 

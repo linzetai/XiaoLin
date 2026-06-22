@@ -16,7 +16,6 @@ pub enum DiagnosisKind {
     LoopDetected,
     OutputQualityLow,
     ContextOverflow,
-    PromptDrift,
     LatencySpike,
     CostOverrun,
 }

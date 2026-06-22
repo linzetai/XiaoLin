@@ -7,7 +7,7 @@ use crate::config::PatternElement;
 /// must start with a matching prefix (extra trailing tokens are allowed).
 pub fn matches_prefix(pattern: &[PatternElement], tokens: &[&str]) -> bool {
     if pattern.is_empty() {
-        return true;
+        return false;
     }
     if tokens.len() < pattern.len() {
         return false;
@@ -44,9 +44,9 @@ mod tests {
     }
 
     #[test]
-    fn empty_pattern_matches_everything() {
-        assert!(matches_prefix(&[], &["ls", "-la"]));
-        assert!(matches_prefix(&[], &[]));
+    fn empty_pattern_matches_nothing() {
+        assert!(!matches_prefix(&[], &["ls", "-la"]));
+        assert!(!matches_prefix(&[], &[]));
     }
 
     #[test]

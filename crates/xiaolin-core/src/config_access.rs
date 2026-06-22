@@ -113,7 +113,10 @@ pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Resul
     let cfg_path = state_dir.join("config/default.json");
     let mut cfg_value: serde_json::Value = if cfg_path.exists() {
         let text = std::fs::read_to_string(&cfg_path)?;
-        json5::from_str(&text).unwrap_or_else(|_| json!({}))
+        json5::from_str(&text).map_err(|e| {
+            tracing::warn!(path = %cfg_path.display(), error = %e, "failed to parse config file");
+            anyhow::anyhow!("failed to parse config file: {e}")
+        })?
     } else {
         json!({})
     };

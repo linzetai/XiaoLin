@@ -10,8 +10,13 @@ static ALLOWED_HOSTS: RwLock<Vec<String>> = RwLock::new(Vec::new());
 /// Each entry is a hostname or `hostname:port` pair (compared case-insensitively).
 pub fn set_ssrf_allowed_hosts(hosts: Vec<String>) {
     let normalized: Vec<String> = hosts.iter().map(|h| h.to_lowercase()).collect();
-    if let Ok(mut guard) = ALLOWED_HOSTS.write() {
-        *guard = normalized;
+    match ALLOWED_HOSTS.write() {
+        Ok(mut guard) => {
+            *guard = normalized;
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "failed to write SSRF allowed hosts list");
+        }
     }
 }
 

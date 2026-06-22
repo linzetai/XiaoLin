@@ -117,4 +117,5 @@ pub(crate) struct ActiveTurn {
     pub(crate) handle: tokio_util::task::AbortOnDropHandle<()>,
     pub(crate) cancel_token: CancellationToken,
     pub(crate) done: Arc<Notify>,
+    pub(crate) relay_handle: tokio::task::JoinHandle<()>,
 }

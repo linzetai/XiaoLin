@@ -1,7 +1,8 @@
 mod metrics_collector;
 
 pub use metrics_collector::{
-    default_metrics_collector, render_structured_metrics_prometheus, MetricsCollector,
+    default_metrics_collector, render_structured_metrics_prometheus, shared_metrics_collector,
+    MetricsCollector,
 };
 
 use metrics::{counter, gauge, histogram};
@@ -31,13 +32,15 @@ pub fn init_observability_with_level(
         tracing_subscriber::EnvFilter::from_default_env()
     };
 
-    let _ = match log_format.to_ascii_lowercase().as_str() {
+    if let Err(e) = match log_format.to_ascii_lowercase().as_str() {
         "json" => tracing_subscriber::fmt()
             .json()
             .with_env_filter(filter)
             .try_init(),
         _ => tracing_subscriber::fmt().with_env_filter(filter).try_init(),
-    };
+    } {
+        eprintln!("failed to initialize tracing subscriber: {e}");
+    }
 
     let handle = PrometheusBuilder::new().install_recorder().ok()?;
 

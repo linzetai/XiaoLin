@@ -3380,7 +3380,7 @@ impl AppState {
                 hub_client: Arc::new(xiaolin_core::hub::HubClient::with_defaults()),
             },
             obs: ObserveState {
-                metrics_collector: Arc::new(xiaolin_observe::MetricsCollector::new()),
+                metrics_collector: xiaolin_observe::shared_metrics_collector(),
                 budget_tracker: Arc::new(budget_tracker),
                 model_router: None,
             },

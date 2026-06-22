@@ -34,6 +34,16 @@ struct PtyControlResponse {
     cwd: Option<String>,
 }
 
+fn pty_response_text(resp: &PtyControlResponse) -> Option<String> {
+    match serde_json::to_string(resp) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to serialize PTY control response");
+            None
+        }
+    }
+}
+
 pub async fn pty_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -67,9 +77,9 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
                     exit_code: None,
                     cwd: None,
                 };
-                let _ = sender
-                    .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-                    .await;
+                if let Some(text) = pty_response_text(&resp) {
+                    let _ = sender.send(Message::Text(text)).await;
+                }
                 return;
             }
         };
@@ -83,11 +93,12 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
         exit_code: None,
         cwd: initial_cwd,
     };
-    if ws_sender
-        .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-        .await
-        .is_err()
-    {
+    if let Some(text) = pty_response_text(&resp) {
+        if ws_sender.send(Message::Text(text)).await.is_err() {
+            state.strm.pty_manager.close_session(&session_id);
+            return;
+        }
+    } else {
         state.strm.pty_manager.close_session(&session_id);
         return;
     }
@@ -154,11 +165,10 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
                     exit_code: None,
                     cwd: Some(cwd),
                 };
-                if ws_sender
-                    .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-                    .await
-                    .is_err()
-                {
+                let Some(text) = pty_response_text(&resp) else {
+                    break;
+                };
+                if ws_sender.send(Message::Text(text)).await.is_err() {
                     break;
                 }
             }
@@ -191,9 +201,9 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
                                         exit_code: None,
                                         cwd: None,
                                     };
-                                    let _ = ws_sender
-                                        .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-                                        .await;
+                                    if let Some(text) = pty_response_text(&resp) {
+                                        let _ = ws_sender.send(Message::Text(text)).await;
+                                    }
                                 }
                                 _ => {}
                             }
@@ -217,9 +227,9 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
         exit_code,
         cwd: None,
     };
-    let _ = ws_sender
-        .send(Message::Text(serde_json::to_string(&resp).unwrap()))
-        .await;
+    if let Some(text) = pty_response_text(&resp) {
+        let _ = ws_sender.send(Message::Text(text)).await;
+    }
     pty_mgr_close.close_session(&sid_close);
 
     tracing::info!(session_id = %sid_close, "PTY WebSocket session ended");

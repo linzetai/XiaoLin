@@ -112,7 +112,7 @@ impl FileStateCache {
             .and_then(|m| m.modified())
         {
             Ok(t) => t,
-            Err(_) => return StaleCheckResult::Fresh,
+            Err(_) => return StaleCheckResult::NeverRead,
         };
 
         if current_mtime > entry.modified_at {

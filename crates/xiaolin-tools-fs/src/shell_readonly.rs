@@ -253,7 +253,6 @@ const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
     "rev-list",
     "remote",
     "config",
-    "stash",
     "reflog",
     "worktree",
 ];
@@ -546,6 +545,26 @@ fn classify_git(args: &[&str]) -> CommandClassification {
         .copied()
         .unwrap_or("");
 
+    // git stash list/show are read-only; pop/apply/drop/save modify state
+    if subcommand == "stash" {
+        let stash_action = args
+            .iter()
+            .skip(1)
+            .find(|a| !a.starts_with('-'))
+            .copied()
+            .unwrap_or("");
+        if matches!(stash_action, "list" | "show") {
+            return CommandClassification::ReadOnly;
+        }
+        return CommandClassification::Write {
+            reason: if stash_action.is_empty() {
+                "git stash modifies repository state".into()
+            } else {
+                format!("git stash {stash_action} modifies repository state")
+            },
+        };
+    }
+
     if subcommand.is_empty() || GIT_READONLY_SUBCOMMANDS.contains(&subcommand) {
         return CommandClassification::ReadOnly;
     }
@@ -783,6 +802,28 @@ mod tests {
     #[test]
     fn readonly_git_blame() {
         assert!(ReadOnlyClassifier::classify("git blame src/main.rs").is_readonly());
+    }
+
+    #[test]
+    fn readonly_git_stash_list() {
+        assert!(ReadOnlyClassifier::classify("git stash list").is_readonly());
+    }
+
+    #[test]
+    fn readonly_git_stash_show() {
+        assert!(ReadOnlyClassifier::classify("git stash show stash@{0}").is_readonly());
+    }
+
+    #[test]
+    fn write_git_stash_pop() {
+        let cls = ReadOnlyClassifier::classify("git stash pop");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_git_stash_apply() {
+        let cls = ReadOnlyClassifier::classify("git stash apply");
+        assert!(cls.is_write());
     }
 
     // ── Cargo readonly ──────────────────────────────────────────────

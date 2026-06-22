@@ -932,6 +932,10 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
 /// Max characters per server's instructions to prevent prompt bloat.
 const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
 
+static MCP_SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)ignore previous|system:|<\||\[INST\]").unwrap()
+});
+
 /// Inject MCP server instructions as a **stable, separate system message**.
 ///
 /// Instructions are collected from connected MCP clients and inserted as an
@@ -939,10 +943,6 @@ const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
 /// deterministically sorted by server ID, so it only changes when servers
 /// connect or disconnect — maximising prompt-cache hits on the LLM side.
 async fn inject_mcp_instructions_delta(state: &AppState, messages: &mut Vec<ChatMessage>) {
-    static SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?i)ignore previous|system:|<\||\[INST\]").unwrap()
-    });
-
     let instructions: std::collections::BTreeMap<String, String> = {
         let handles = state.ext.mcp_handles.lock().await;
         handles
@@ -964,7 +964,7 @@ async fn inject_mcp_instructions_delta(state: &AppState, messages: &mut Vec<Chat
     let instructions: std::collections::BTreeMap<String, String> = instructions
         .into_iter()
         .filter(|(id, instr)| {
-            if SUSPICIOUS_RE.is_match(instr) {
+            if MCP_SUSPICIOUS_RE.is_match(instr) {
                 tracing::warn!(
                     server_id = %id,
                     "blocking MCP server instructions: suspicious prompt injection pattern detected"

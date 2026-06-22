@@ -482,8 +482,12 @@ impl ToolDispatcher {
         ctx: &mut DispatchContext<'_>,
     ) -> ToolResult {
         let tool_name = &tc.function.name;
-        let args: serde_json::Value =
-            serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+        let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
+            Ok(v) => v,
+            Err(e) => {
+                return ToolResult::err(format!("Invalid tool arguments JSON: {e}"));
+            }
+        };
         let cwd = ctx
             .work_dir
             .as_ref()

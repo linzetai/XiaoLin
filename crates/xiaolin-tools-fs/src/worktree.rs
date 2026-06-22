@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+
+use crate::filesystem::ensure_within_workspace;
+use crate::shell_path_validation::has_traversal;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::RwLock;
@@ -136,12 +139,20 @@ impl Tool for EnterWorktreeTool {
             .branch
             .unwrap_or_else(|| format!("worktree-{}", &uuid::Uuid::new_v4().to_string()[..8]));
 
-        let worktree_path = parsed.path.map(PathBuf::from).unwrap_or_else(|| {
+        let worktree_path = if let Some(ref path_str) = parsed.path {
+            if has_traversal(path_str) {
+                return ToolResult::err("Invalid path: contains directory traversal (..)");
+            }
+            match ensure_within_workspace(Path::new(path_str), false) {
+                Ok(p) => p,
+                Err(e) => return ToolResult::err(format!("Invalid worktree path: {e}")),
+            }
+        } else {
             std::env::temp_dir().join(format!(
                 "xiaolin-wt-{}",
                 &uuid::Uuid::new_v4().to_string()[..8]
             ))
-        });
+        };
 
         let path_str = worktree_path.display().to_string();
         let output = match run_git_command(

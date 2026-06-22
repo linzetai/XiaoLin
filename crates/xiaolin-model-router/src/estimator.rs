@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use xiaolin_core::complexity::ComplexityTier;
 use xiaolin_core::types::ChatMessage;
@@ -242,9 +243,11 @@ impl Default for CostEstimator {
     }
 }
 
+static DEFAULT_COST_ESTIMATOR: OnceLock<CostEstimator> = OnceLock::new();
+
 /// Best-effort dollar cost for a completed call using known pricing tables (`CostEstimator::with_defaults()`).
 pub fn default_usage_charge(model: &str, input_tokens: u32, output_tokens: u32) -> f64 {
-    let est = CostEstimator::with_defaults();
+    let est = DEFAULT_COST_ESTIMATOR.get_or_init(CostEstimator::with_defaults);
     est.get_pricing(model)
         .map(|p| {
             TokenEstimate {
