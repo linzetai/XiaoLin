@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import {
   Copy,
   ArrowSquareOut,
@@ -46,6 +46,7 @@ export const FileToolbar = memo(function FileToolbar({
 }: FileToolbarProps) {
   const { t } = useTranslation("sidebar");
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const fileName = file.path.split("/").pop() ?? file.path;
   const showViewToggle = supportsViewModeToggle(file.path, file.language);
@@ -55,7 +56,8 @@ export const FileToolbar = memo(function FileToolbar({
     try {
       await navigator.clipboard.writeText(file.content);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard may be unavailable */
     }

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CaretLeft,
   CaretRight,
@@ -110,7 +110,10 @@ const ArtifactRow = memo(function ArtifactRow({ artifact, active, onOpen }: Arti
       }}
       onClick={() => onOpen(artifact.path)}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onOpen(artifact.path);
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(artifact.path);
+        }
       }}
       onMouseEnter={(e) => {
         if (!active) e.currentTarget.style.background = "var(--bg-hover)";
@@ -197,7 +200,10 @@ const DirRow = memo(function DirRow({ entry, parentPath, onOpenFile, onNavigate 
       }}
       onClick={handleClick}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") handleClick();
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleClick();
+        }
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--bg-hover)";
@@ -281,9 +287,14 @@ function FileListPanel({
     [onOpenFile, workDir],
   );
 
-  const uniqueArtifacts = artifacts.filter(
-    (a, i, arr) => arr.findIndex((b) => b.path === a.path) === i,
-  );
+  const uniqueArtifacts = useMemo(() => {
+    const seen = new Set<string>();
+    return artifacts.filter((a) => {
+      if (seen.has(a.path)) return false;
+      seen.add(a.path);
+      return true;
+    });
+  }, [artifacts]);
 
   return (
     <div

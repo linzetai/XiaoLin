@@ -179,15 +179,21 @@ export function CodeViewer({ content, language, line, wordWrap = false }: CodeVi
     });
   }, [wordWrap]);
 
-  // Jump to line
+  // Jump to line (or clear highlight if no line target)
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || line == null || line < 1) return;
+    if (!view) return;
+
+    if (line == null || line < 1) {
+      view.dispatch({ effects: highlightLineEffect.of(null) });
+      lineHandledRef.current = undefined;
+      return;
+    }
 
     const token = `${content.length}:${language}:${line}`;
     if (lineHandledRef.current === token) return;
 
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       if (!viewRef.current) return;
       scrollToLine(viewRef.current, line);
       lineHandledRef.current = token;
@@ -199,6 +205,8 @@ export function CodeViewer({ content, language, line, wordWrap = false }: CodeVi
         if (viewRef.current) fadeLineHighlight(viewRef.current, fadeTimerRef);
       }, 50);
     });
+
+    return () => cancelAnimationFrame(rafId);
   }, [line, content, language]);
 
   return (

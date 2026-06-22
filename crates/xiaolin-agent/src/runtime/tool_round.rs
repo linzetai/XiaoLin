@@ -253,7 +253,13 @@ pub(crate) async fn execute_tool_round(
                     if let std::collections::hash_map::Entry::Vacant(e) = snaps.entry(fp) {
                         let resolved = resolve_artifact_path(svc.work_dir.as_deref(), e.key());
                         let exists = resolved.exists();
-                        let content = tokio::fs::read_to_string(&resolved).await.ok();
+                        const MAX_SNAPSHOT_BYTES: u64 = 5 * 1024 * 1024;
+                        let content = match tokio::fs::metadata(&resolved).await {
+                            Ok(m) if m.len() <= MAX_SNAPSHOT_BYTES => {
+                                tokio::fs::read_to_string(&resolved).await.ok()
+                            }
+                            _ => None,
+                        };
                         e.insert((content, exists));
                     }
                 }

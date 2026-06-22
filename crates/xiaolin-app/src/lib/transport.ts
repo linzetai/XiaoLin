@@ -1736,13 +1736,21 @@ export interface FileArtifact {
   bytes: number;
 }
 
+const VALID_OPS = new Set(["created", "modified", "deleted"]);
+
+function isValidArtifact(a: unknown): a is FileArtifact {
+  if (!a || typeof a !== "object") return false;
+  const obj = a as Record<string, unknown>;
+  return typeof obj.path === "string" && VALID_OPS.has(obj.operation as string);
+}
+
 export async function listArtifacts(sessionId: string): Promise<FileArtifact[]> {
   const resp = (await wsClient.send("artifacts.list", { sessionId })) as {
-    data?: FileArtifact[] | { artifacts?: FileArtifact[] };
+    data?: unknown[] | { artifacts?: unknown[] };
   };
   const data = resp?.data;
-  if (Array.isArray(data)) return data;
-  return (data as { artifacts?: FileArtifact[] })?.artifacts ?? [];
+  const raw = Array.isArray(data) ? data : (data as { artifacts?: unknown[] })?.artifacts ?? [];
+  return raw.filter(isValidArtifact);
 }
 
 // ─── Backward Compatibility Aliases ───

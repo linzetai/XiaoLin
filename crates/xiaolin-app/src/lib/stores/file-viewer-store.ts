@@ -34,7 +34,6 @@ export interface FileViewerState {
   setActiveFile: (path: string) => void;
   setViewMode: (path: string, mode: "code" | "preview") => void;
   toggleFileList: () => void;
-  updateArtifacts: (artifacts: FileArtifact[]) => void;
   addArtifact: (artifact: FileArtifact) => void;
   switchSession: (newSessionId: string, oldSessionId: string | null) => void;
   clearOpenError: () => void;
@@ -258,8 +257,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   toggleFileList: () => set((s) => ({ fileListCollapsed: !s.fileListCollapsed })),
-
-  updateArtifacts: (artifacts) => set({ artifacts }),
 
   addArtifact: (artifact) => {
     set((state) => {

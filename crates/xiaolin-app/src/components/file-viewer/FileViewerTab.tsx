@@ -5,6 +5,7 @@ import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { isTauri } from "../../lib/transport";
+import { isImagePath } from "../../lib/file-utils";
 import { FileListSidebar } from "./FileListSidebar";
 import { FileTabBar } from "./FileTabBar";
 import { FileToolbar } from "./FileToolbar";
@@ -271,12 +272,14 @@ export function FileViewerTab() {
 
         {activeFile && workDir ? (
           <>
-            <FileToolbar
-              file={activeFile}
-              wordWrap={wordWrap}
-              onWordWrapChange={setWordWrap}
-              onViewModeChange={handleViewModeChange}
-            />
+            {!isImagePath(activeFile.path) && (
+              <FileToolbar
+                file={activeFile}
+                wordWrap={wordWrap}
+                onWordWrapChange={setWordWrap}
+                onViewModeChange={handleViewModeChange}
+              />
+            )}
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <FileViewer
                 file={activeFile}

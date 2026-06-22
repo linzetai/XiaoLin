@@ -1,11 +1,8 @@
-import { useEffect, useRef, useCallback, memo, lazy, Suspense } from "react";
+import { useEffect, useRef, useCallback, memo } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { MarkdownContent } from "../message-stream/MarkdownContent";
 import { openLightbox } from "../common/ImageLightbox";
-
-const LazyCodeViewer = lazy(() =>
-  import("./CodeViewer").then((m) => ({ default: m.CodeViewer })),
-);
+import { CodeViewer } from "./CodeViewer";
 import { readBinaryForViewer, isTauri } from "../../lib/transport";
 import { base64ToBlobUrl } from "./blob-utils";
 
@@ -227,14 +224,12 @@ export const MarkdownViewer = memo(function MarkdownViewer({
 }: MarkdownViewerProps) {
   if (viewMode === "code") {
     return (
-      <Suspense fallback={<div style={{ padding: 16, color: "var(--fill-secondary)" }}>加载中…</div>}>
-        <LazyCodeViewer
-          content={content}
-          language="markdown"
-          line={line}
-          wordWrap={wordWrap}
-        />
-      </Suspense>
+      <CodeViewer
+        content={content}
+        language="markdown"
+        line={line}
+        wordWrap={wordWrap}
+      />
     );
   }
 

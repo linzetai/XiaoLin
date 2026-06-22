@@ -4,8 +4,6 @@ import {
   useRef,
   useState,
   memo,
-  lazy,
-  Suspense,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -19,10 +17,7 @@ import {
 import { readBinaryForViewer } from "../../lib/transport";
 import { formatFileSize, isSvgPath } from "./file-types";
 import { base64ToBlobUrl } from "./blob-utils";
-
-const LazyCodeViewer = lazy(() =>
-  import("./CodeViewer").then((m) => ({ default: m.CodeViewer })),
-);
+import { CodeViewer } from "./CodeViewer";
 
 export interface ImageViewerProps {
   filePath: string;
@@ -308,9 +303,7 @@ export const ImageViewer = memo(function ImageViewer({
           onZoomOut={() => zoomBy(1 / WHEEL_ZOOM_FACTOR)}
           hideZoomControls
         />
-        <Suspense fallback={<div style={{ padding: 16, color: "var(--fill-secondary)" }}>加载中…</div>}>
-          <LazyCodeViewer content={svgContent} language="xml" />
-        </Suspense>
+        <CodeViewer content={svgContent} language="xml" />
       </div>
     );
   }

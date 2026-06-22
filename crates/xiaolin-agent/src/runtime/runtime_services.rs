@@ -95,20 +95,14 @@ impl RuntimeServices {
             bytes: artifact.bytes,
         };
         let tx = event_tx.clone();
-        let session_id_for_log = artifact.session_id.clone();
-        tokio::spawn(async move {
-            if tx.send(event).await.is_err() {
-                tracing::warn!(session_id = %session_id_for_log, "failed to send file_artifact event: channel closed");
-            }
-        });
+        let store_opt = self.artifact_store.as_ref().map(Arc::clone);
+        let session_id = artifact.session_id.clone();
+        let tool_call_id = artifact.tool_call_id.clone();
+        let bytes = artifact.bytes;
+        let timestamp_ms = artifact.timestamp_ms;
 
-        if let Some(ref store) = self.artifact_store {
-            let store = Arc::clone(store);
-            let session_id = artifact.session_id.clone();
-            let tool_call_id = artifact.tool_call_id.clone();
-            let bytes = artifact.bytes;
-            let timestamp_ms = artifact.timestamp_ms;
-            tokio::spawn(async move {
+        tokio::spawn(async move {
+            if let Some(store) = store_opt {
                 if let Err(e) = store
                     .record_artifact(
                         &session_id,
@@ -127,8 +121,11 @@ impl RuntimeServices {
                         "failed to persist file artifact"
                     );
                 }
-            });
-        }
+            }
+            if tx.send(event).await.is_err() {
+                tracing::warn!(session_id = %session_id, "failed to send file_artifact event: channel closed");
+            }
+        });
     }
 
     // ── Hook integration ──────────────────────────────────────────────────

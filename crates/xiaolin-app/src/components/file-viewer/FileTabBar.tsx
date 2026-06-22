@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef } from "react";
 import { X } from "@phosphor-icons/react";
 import type { OpenFile } from "../../lib/stores/file-viewer-store";
 
@@ -66,7 +66,7 @@ const FileTabItem = memo(function FileTabItem({
   return (
     <div
       role="tab"
-      tabIndex={0}
+      tabIndex={active ? 0 : -1}
       aria-selected={active}
       style={{
         ...tabStyle,
@@ -76,7 +76,10 @@ const FileTabItem = memo(function FileTabItem({
       title={path}
       onClick={() => onSelect(path)}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onSelect(path);
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(path);
+        }
       }}
       onMouseEnter={(e) => {
         if (!active) e.currentTarget.style.color = "var(--fill-secondary)";
@@ -97,7 +100,8 @@ const FileTabItem = memo(function FileTabItem({
       <button
         type="button"
         style={closeBtnStyle}
-        title="Close"
+        title={`Close ${name}`}
+        aria-label={`Close ${name}`}
         onClick={handleClose}
         onMouseEnter={(e) => {
           e.currentTarget.style.opacity = "1";
@@ -121,10 +125,28 @@ export const FileTabBar = memo(function FileTabBar({
   onClose,
 }: FileTabBarProps) {
   const paths = Object.keys(openFiles);
+  const containerRef = useRef<HTMLDivElement>(null);
   if (paths.length === 0) return null;
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const idx = activeFilePath ? paths.indexOf(activeFilePath) : -1;
+    const next = e.key === "ArrowRight"
+      ? paths[(idx + 1) % paths.length]
+      : paths[(idx - 1 + paths.length) % paths.length];
+    if (next) {
+      onSelect(next);
+      const el = containerRef.current?.querySelector(`[aria-selected="true"]`) as HTMLElement | null;
+      requestAnimationFrame(() => el?.focus());
+    }
+  };
 
   return (
     <div
+      ref={containerRef}
+      role="tablist"
+      aria-label="Open files"
+      onKeyDown={handleKeyDown}
       style={{
         display: "flex",
         alignItems: "center",
