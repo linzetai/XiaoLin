@@ -6,25 +6,63 @@ use std::time::Duration;
 use dashmap::DashMap;
 
 const EVAL_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_PENDING_EVALS: usize = 256;
 
-static PENDING_EVALS: OnceLock<Arc<DashMap<String, std::sync::mpsc::SyncSender<Result<String, String>>>>> =
-    OnceLock::new();
+struct PendingEvalEntry {
+    created: std::time::Instant,
+    tx: std::sync::mpsc::SyncSender<Result<String, String>>,
+}
 
-fn pending_evals() -> &'static Arc<DashMap<String, std::sync::mpsc::SyncSender<Result<String, String>>>> {
+static PENDING_EVALS: OnceLock<Arc<DashMap<String, PendingEvalEntry>>> = OnceLock::new();
+
+fn pending_evals() -> &'static Arc<DashMap<String, PendingEvalEntry>> {
     PENDING_EVALS.get_or_init(|| Arc::new(DashMap::new()))
 }
 
+fn evict_oldest_pending_eval(map: &DashMap<String, PendingEvalEntry>) {
+    let oldest_key = map
+        .iter()
+        .min_by_key(|entry| entry.value().created)
+        .map(|entry| entry.key().clone());
+    if let Some(key) = oldest_key {
+        map.remove(&key);
+        tracing::warn!(
+            eval_id = %key,
+            max = MAX_PENDING_EVALS,
+            "evicted oldest pending eval at capacity"
+        );
+    }
+}
+
 /// Register a pending eval callback and return its receiver.
-pub fn register_eval(id: String) -> std::sync::mpsc::Receiver<Result<String, String>> {
+pub fn register_eval(id: String) -> Result<std::sync::mpsc::Receiver<Result<String, String>>, String> {
+    let map = pending_evals();
+    if map.len() >= MAX_PENDING_EVALS {
+        evict_oldest_pending_eval(map);
+        if map.len() >= MAX_PENDING_EVALS {
+            tracing::warn!(
+                pending = map.len(),
+                max = MAX_PENDING_EVALS,
+                "pending eval registry full"
+            );
+            return Err("too many pending evals".into());
+        }
+    }
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    pending_evals().insert(id, tx);
-    rx
+    map.insert(
+        id,
+        PendingEvalEntry {
+            created: std::time::Instant::now(),
+            tx,
+        },
+    );
+    Ok(rx)
 }
 
 /// Complete a pending eval with a result or error.
 pub fn complete_eval(id: &str, outcome: Result<String, String>) {
-    if let Some((_, tx)) = pending_evals().remove(id) {
-        let _ = tx.send(outcome);
+    if let Some((_, entry)) = pending_evals().remove(id) {
+        let _ = entry.tx.send(outcome);
     }
 }
 

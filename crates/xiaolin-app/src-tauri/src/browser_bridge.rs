@@ -72,9 +72,10 @@ impl TauriBrowserBridge {
         let webview = self.get_webview(&label)?;
 
         let callback_id = Uuid::new_v4().to_string();
+        let js_b64 = base64::engine::general_purpose::STANDARD.encode(js.as_bytes());
         let wrapped_js = if await_promise {
             format!(
-                "(function(){{try{{var __p=({js});\
+                "(function(){{try{{var __p=eval(atob('{js_b64}'));\
                  Promise.resolve(__p).then(function(__r){{\
                  var __out=typeof __r==='string'?__r:JSON.stringify(__r);\
                  window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:__out}}}});\
@@ -86,7 +87,7 @@ impl TauriBrowserBridge {
             )
         } else {
             format!(
-                "(function(){{try{{var __r=({js});\
+                "(function(){{try{{var __r=eval(atob('{js_b64}'));\
                  window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:JSON.stringify(__r)}}}});\
                  }}catch(e){{\
                  window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
@@ -94,7 +95,7 @@ impl TauriBrowserBridge {
             )
         };
 
-        let rx = register_eval(callback_id.clone());
+        let rx = register_eval(callback_id.clone())?;
         webview
             .eval(&wrapped_js)
             .map_err(|_| "failed to evaluate script".to_string())?;

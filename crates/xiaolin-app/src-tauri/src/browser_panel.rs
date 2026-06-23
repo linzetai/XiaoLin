@@ -218,7 +218,19 @@ pub fn browser_data_store_identifier() -> [u8; 16] {
 pub fn is_navigation_allowed(url: &Url) -> bool {
     match url.scheme() {
         "http" | "https" => true,
-        "about" => true,
+        "about" => {
+            let path = url.path();
+            if path == "blank" || path.is_empty() {
+                true
+            } else {
+                tracing::warn!(
+                    url = %url,
+                    scheme = "about",
+                    "blocked browser navigation (only about:blank allowed)"
+                );
+                false
+            }
+        }
         "file" | "javascript" | "data" | "tauri" | "ipc" | "asset" => {
             tracing::warn!(url = %url, scheme = url.scheme(), "blocked browser navigation");
             false

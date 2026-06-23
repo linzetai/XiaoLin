@@ -60,6 +60,37 @@ pub fn canonicalize_or_self(path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Accept `pageId` as a non-empty string (WebView UUID) or non-negative integer (CDP tab index).
+pub fn validate_page_id(args: &serde_json::Value) -> Result<(), String> {
+    let page_id = args.get("pageId").or(args.get("page_id"));
+    match page_id {
+        None => Err("browser: missing 'pageId'.".to_string()),
+        Some(v) if v.as_str().is_some_and(|s| !s.is_empty()) => Ok(()),
+        Some(v) if v.as_u64().is_some() => Ok(()),
+        Some(v) if v.as_i64().is_some_and(|n| n >= 0) => Ok(()),
+        _ => Err(
+            "browser: 'pageId' must be a non-empty string or non-negative integer.".to_string(),
+        ),
+    }
+}
+
+fn path_under_allowed_roots(resolved: &Path) -> Result<(), String> {
+    let workspace = workspace_root_for_paths();
+    let allowed_roots = [
+        canonicalize_or_self(&workspace),
+        canonicalize_or_self(&std::env::temp_dir()),
+    ];
+    if allowed_roots
+        .iter()
+        .any(|root| resolved.starts_with(root))
+    {
+        Ok(())
+    } else {
+        tracing::warn!(path = %resolved.display(), "path is outside allowed roots");
+        Err("browser: path is not accessible".to_string())
+    }
+}
+
 pub fn validate_output_path(path: &str) -> Result<std::path::PathBuf, String> {
     let input = Path::new(path);
     if input.as_os_str().is_empty() {
@@ -69,9 +100,7 @@ pub fn validate_output_path(path: &str) -> Result<std::path::PathBuf, String> {
         .components()
         .any(|c| matches!(c, Component::ParentDir))
     {
-        return Err(format!(
-            "browser: output path '{path}' must not contain '..'"
-        ));
+        return Err("browser: output path must not contain '..'".to_string());
     }
 
     let workspace = workspace_root_for_paths();
@@ -88,54 +117,68 @@ pub fn validate_output_path(path: &str) -> Result<std::path::PathBuf, String> {
 
     if !parent.exists() {
         std::fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "browser: cannot create output directory '{}': {e}",
-                parent.display()
-            )
+            tracing::warn!(error = %e, "failed to create output directory");
+            "browser: output directory does not exist".to_string()
         })?;
     }
 
     let canon_parent = parent.canonicalize().map_err(|e| {
-        format!(
-            "browser: cannot resolve output path parent for '{path}': {e}"
-        )
+        tracing::warn!(error = %e, "failed to resolve output path parent");
+        "browser: output path is not accessible".to_string()
     })?;
 
-    let allowed_roots = [
-        canonicalize_or_self(&workspace),
-        canonicalize_or_self(&std::env::temp_dir()),
-    ];
-    let under_allowed = allowed_roots
-        .iter()
-        .any(|root| canon_parent.starts_with(root));
+    path_under_allowed_roots(&canon_parent)?;
 
-    if !under_allowed {
-        return Err(format!(
-            "browser: output path '{path}' is outside the workspace or temp directory"
-        ));
-    }
-
-    let file_name = absolute.file_name().ok_or_else(|| {
-        format!("browser: output path '{path}' must include a file name")
-    })?;
+    let file_name = absolute
+        .file_name()
+        .ok_or_else(|| "browser: output path must include a file name".to_string())?;
 
     let candidate = canon_parent.join(file_name);
     let resolved = if candidate.exists() || candidate.symlink_metadata().is_ok() {
         candidate.canonicalize().map_err(|e| {
-            format!("browser: cannot resolve output path '{path}': {e}")
+            tracing::warn!(error = %e, "failed to resolve output path");
+            "browser: output path is not accessible".to_string()
         })?
     } else {
         candidate
     };
 
-    let under_allowed = allowed_roots
-        .iter()
-        .any(|root| resolved.starts_with(root));
-    if !under_allowed {
-        return Err(format!(
-            "browser: output path '{path}' resolves outside the workspace or temp directory"
-        ));
+    path_under_allowed_roots(&resolved)?;
+
+    Ok(resolved)
+}
+
+/// Validate an existing file path for upload — must be within workspace or temp directory.
+pub fn validate_upload_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let input = Path::new(path);
+    if input.as_os_str().is_empty() {
+        return Err("browser: upload path must not be empty".to_string());
     }
+    if input
+        .components()
+        .any(|c| matches!(c, Component::ParentDir))
+    {
+        return Err("browser: upload path must not contain '..'".to_string());
+    }
+
+    let workspace = workspace_root_for_paths();
+    let absolute = if input.is_absolute() {
+        input.to_path_buf()
+    } else {
+        workspace.join(input)
+    };
+
+    if !absolute.is_file() {
+        tracing::warn!(path = %absolute.display(), "upload path is not an existing file");
+        return Err("browser: upload file is not accessible".to_string());
+    }
+
+    let resolved = absolute.canonicalize().map_err(|e| {
+        tracing::warn!(error = %e, "failed to resolve upload path");
+        "browser: upload file is not accessible".to_string()
+    })?;
+
+    path_under_allowed_roots(&resolved)?;
 
     Ok(resolved)
 }
@@ -198,21 +241,13 @@ pub fn validate_args(action: &str, args: &serde_json::Value) -> Result<(), Strin
                 );
             }
         }
-        "select_page" => {
-            if args.get("pageId").and_then(|v| v.as_u64()).is_none() {
-                return Err("browser select_page: missing 'pageId'.".to_string());
-            }
-        }
+        "select_page" => validate_page_id(args)?,
         "new_page" => {
             if args.get("url").and_then(|v| v.as_str()).is_none() {
                 return Err("browser new_page: missing 'url'.".to_string());
             }
         }
-        "close_page" => {
-            if args.get("pageId").and_then(|v| v.as_u64()).is_none() {
-                return Err("browser close_page: missing 'pageId'.".to_string());
-            }
-        }
+        "close_page" => validate_page_id(args)?,
         "handle_dialog" => {
             let a = args
                 .get("dialog_action")

@@ -17,6 +17,7 @@ use xiaolin_network_proxy::{
 use xiaolin_tools_browser::{broadcast_network_event, BrowserNetworkBridge};
 
 const CONFIRM_TIMEOUT_SECS: u64 = 30;
+const MAX_PENDING_CONFIRMS: usize = 32;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,10 +171,18 @@ impl BrowserNetworkManager {
     async fn wait_for_confirm(&self, request: NetworkConfirmRequest) -> bool {
         let request_id = request.request_id.clone();
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .await
-            .insert(request_id.clone(), tx);
+        {
+            let mut pending = self.pending.lock().await;
+            if pending.len() >= MAX_PENDING_CONFIRMS {
+                tracing::warn!(
+                    pending = pending.len(),
+                    max = MAX_PENDING_CONFIRMS,
+                    "browser network confirm queue full"
+                );
+                return false;
+            }
+            pending.insert(request_id.clone(), tx);
+        }
 
         self.emit_confirm_request(&request);
 

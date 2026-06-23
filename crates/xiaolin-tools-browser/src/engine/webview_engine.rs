@@ -1,4 +1,5 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use xiaolin_core::tool::ToolImage;
@@ -35,6 +36,12 @@ pub trait BrowserBridge: Send + Sync {
     /// Whether user takeover is active (agent actions must fail closed).
     fn is_user_takeover_active(&self) -> bool {
         false
+    }
+
+    /// Whether user takeover is active for a specific page (preferred over global check).
+    fn is_user_takeover_active_for_page(&self, page_id: Option<&str>) -> bool {
+        let _ = page_id;
+        self.is_user_takeover_active()
     }
 
     /// Active built-in browser page summary for agent context injection (desktop only).
@@ -97,6 +104,44 @@ fn bridge() -> Result<&'static Arc<dyn BrowserBridge>, String> {
          Set XIAOLIN_BROWSER_ENGINE=cdp or register bridge at Tauri startup."
             .to_string()
     })
+}
+
+const DEVTOOLS_UNSUPPORTED: &str = "DevTools actions require CDP engine. \
+In WebView mode, use Agent observe actions instead.";
+
+struct AgentControlDebounce {
+    exit_generation: u64,
+}
+
+static AGENT_CONTROL_DEBOUNCE: OnceLock<Mutex<AgentControlDebounce>> = OnceLock::new();
+
+fn agent_control_debounce() -> &'static Mutex<AgentControlDebounce> {
+    AGENT_CONTROL_DEBOUNCE.get_or_init(|| Mutex::new(AgentControlDebounce { exit_generation: 0 }))
+}
+
+/// Debounce agent-control overlay exit by 500ms to avoid UI flicker between consecutive actions.
+fn schedule_debounced_exit_agent_control(page_id: Option<String>) {
+    let generation = {
+        let mut state = agent_control_debounce()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.exit_generation += 1;
+        state.exit_generation
+    };
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        let should_exit = {
+            let state = agent_control_debounce()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.exit_generation == generation
+        };
+        if should_exit {
+            let engine = TauriWebViewEngine;
+            let _ = engine.exit_agent_control(page_id.as_deref());
+        }
+    });
 }
 
 pub fn browser_request_user_takeover(page_id: Option<&str>) -> Result<(), String> {
@@ -200,12 +245,11 @@ impl TauriWebViewEngine {
     ) -> Result<EngineActionResult, String> {
         let page_id = Self::page_id_from_args(args);
         let bridge = bridge()?;
+        let page_id_ref = page_id.as_deref();
 
-        if bridge.is_user_takeover_active() {
+        if bridge.is_user_takeover_active_for_page(page_id_ref) {
             return Err("user_takeover: user has taken control".into());
         }
-
-        let page_id_ref = page_id.as_deref();
 
         let needs_agent_control = matches!(
             action,
@@ -229,7 +273,7 @@ impl TauriWebViewEngine {
         let result = self.dispatch_sync_inner(action, args, &page_id, page_id_ref, bridge);
 
         if needs_agent_control {
-            let _ = self.exit_agent_control(page_id.as_deref());
+            schedule_debounced_exit_agent_control(page_id.clone());
         }
 
         result
@@ -380,21 +424,8 @@ impl TauriWebViewEngine {
                 Ok(result)
             }
 
-            "list_console_messages" => {
-                let raw = self.eval(
-                    page_id.as_deref(),
-                    "JSON.stringify((window.__XIAOLIN__ && window.__XIAOLIN__.getConsoleLog && window.__XIAOLIN__.getConsoleLog()) || [])",
-                )?;
-                Ok(EngineActionResult::text(format!("{{\"messages\":{raw}}}")))
-            }
-
-            "list_network_requests" => {
-                let raw = self.eval(
-                    page_id.as_deref(),
-                    "JSON.stringify((window.__XIAOLIN__ && window.__XIAOLIN__.getNetworkLog && window.__XIAOLIN__.getNetworkLog()) || [])",
-                )?;
-                Ok(EngineActionResult::text(format!("{{\"requests\":{raw}}}")))
-            }
+            "list_console_messages" | "get_console_message" | "list_network_requests"
+            | "get_network_request" => Err(DEVTOOLS_UNSUPPORTED.to_string()),
 
             "cookies" => {
                 let op = args
@@ -678,11 +709,8 @@ impl TauriWebViewEngine {
                     .get("filePath")
                     .and_then(|v| v.as_str())
                     .ok_or("browser upload_file: missing 'filePath'.")?;
-                let path = std::path::Path::new(file_path);
-                if !path.is_file() {
-                    return Err("browser upload_file: file not found".into());
-                }
-                let bytes = std::fs::read(path)
+                let path = actions::validate_upload_path(file_path)?;
+                let bytes = std::fs::read(&path)
                     .map_err(|_| "browser upload_file: could not read file".to_string())?;
                 const MAX_WEBVIEW_UPLOAD_BYTES: usize = 300 * 1024;
                 if bytes.len() > MAX_WEBVIEW_UPLOAD_BYTES {
@@ -701,7 +729,7 @@ impl TauriWebViewEngine {
                     .unwrap_or("upload.bin");
                 let name_j = serde_json::to_string(filename).unwrap();
                 let find = element_find_expr(args, false)?;
-                let mime = mime_from_path(path);
+                let mime = mime_from_path(&path);
                 let mime_j = serde_json::to_string(&mime).unwrap();
                 let js = format!(
                     r#"(function(){{
@@ -728,6 +756,10 @@ impl TauriWebViewEngine {
             }
 
             "handle_dialog" => {
+                // NOTE: BROWSER_INIT_SCRIPT (xiaolin-app) hijacks confirm/prompt and always
+                // returns true/default — it does not read __fc_dialog_* vars. Agent must call
+                // handle_dialog before triggering the dialog, but full support requires
+                // xiaolin-app BROWSER_INIT_SCRIPT changes.
                 let dialog_action = args
                     .get("dialog_action")
                     .and_then(|v| v.as_str())
@@ -853,13 +885,9 @@ fn page_id_from_args_field(args: &serde_json::Value) -> Option<String> {
     args.get("pageId")
         .or(args.get("page_id"))
         .and_then(|v| {
-            if let Some(s) = v.as_str() {
-                Some(s.to_string())
-            } else if let Some(n) = v.as_u64() {
-                Some(n.to_string())
-            } else {
-                None
-            }
+            v.as_str()
+                .map(String::from)
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
         })
 }
 

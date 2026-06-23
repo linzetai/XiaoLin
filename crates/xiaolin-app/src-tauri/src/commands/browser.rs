@@ -3,7 +3,7 @@ use crate::browser_panel::{
     browser_data_directory, default_download_directory, sanitize_download_filename,
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPage, BrowserPanelManager,
     BrowserPanelState, PageLoadState, PageVisibility, BROWSER_INIT_SCRIPT, BROWSER_WEBVIEW_PREFIX,
-    MAX_BROWSER_PAGES, OFFSCREEN_POSITION,
+    OFFSCREEN_POSITION,
 };
 #[cfg(target_os = "macos")]
 use crate::browser_panel::browser_data_store_identifier;
@@ -223,23 +223,28 @@ fn build_browser_webview(
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| "download".to_string());
                 *destination = download_dir.join(filename);
+                // Full filesystem path is required by the frontend "Open file"/"Open folder"
+                // actions (shell.open). Only emit within the trusted main-window event channel.
+                let destination_path = destination.to_string_lossy().to_string();
                 let _ = app_for_download.emit(
                     "browser-download-requested",
                     serde_json::json!({
                         "pageId": page_id_for_download,
                         "url": url.to_string(),
-                        "destination": destination.display().to_string(),
+                        "destination": destination_path,
                     }),
                 );
                 true
             }
             DownloadEvent::Finished { url, path, success } => {
+                // Full path required for shell.open after download completes (see above).
+                let path_str = path.as_ref().map(|p| p.to_string_lossy().to_string());
                 let _ = app_for_download.emit(
                     "browser-download-finished",
                     serde_json::json!({
                         "pageId": page_id_for_download,
                         "url": url.to_string(),
-                        "path": path.as_ref().map(|p| p.display().to_string()),
+                        "path": path_str,
                         "success": success,
                     }),
                 );
@@ -302,24 +307,73 @@ fn build_browser_webview(
     Ok(builder)
 }
 
-/// Create a browser page. MUST NOT be called while holding the BrowserPanelState
-/// mutex because `window.add_child()` dispatches to the GTK main thread, and
-/// the WebView's `on_navigation` callback also acquires this mutex — holding
-/// the lock across `add_child` causes a deadlock.
+/// Create a browser page. MUST NOT hold the BrowserPanelState mutex across
+/// `window.add_child()` because it dispatches to the GTK main thread and the
+/// WebView's `on_navigation` callback also acquires this mutex — holding the
+/// lock across `add_child` causes a deadlock.
+///
+/// Page slot reservation (`add_page`) happens under lock *before* WebView
+/// creation so concurrent `window.open` calls cannot exceed `MAX_BROWSER_PAGES`.
 pub(crate) fn create_browser_page(
     app: &AppHandle,
     state: &State<'_, BrowserPanelState>,
     url: &str,
 ) -> Result<String, String> {
-    let page_count = with_manager(state, |m| Ok(m.page_count()))?;
-    if page_count >= MAX_BROWSER_PAGES {
-        return Err(format!("browser page limit reached ({MAX_BROWSER_PAGES})"));
-    }
-
     let parsed_url = validate_browser_url(url)?;
     let page_id = Uuid::new_v4().to_string();
     let webview_label = format!("{BROWSER_WEBVIEW_PREFIX}{page_id}");
 
+    let page = BrowserPage {
+        page_id: page_id.clone(),
+        webview_label: webview_label.clone(),
+        url: url.to_string(),
+        title: String::new(),
+        visibility: PageVisibility::Hidden,
+        load_state: PageLoadState::Loading,
+        layout_x: 0.0,
+        layout_y: 0.0,
+        layout_width: 0.0,
+        layout_height: 0.0,
+    };
+
+    with_manager(state, |manager| manager.add_page(page))?;
+
+    let create_result = create_browser_webview_inner(
+        app,
+        state,
+        &page_id,
+        &webview_label,
+        &parsed_url,
+        url,
+    );
+
+    if let Err(e) = create_result {
+        let _ = with_manager(state, |manager| {
+            manager.remove_page(&page_id);
+            Ok(())
+        });
+        return Err(e);
+    }
+
+    let _ = app.emit(
+        "browser-page-created",
+        serde_json::json!({
+            "pageId": page_id,
+            "url": url,
+        }),
+    );
+
+    Ok(page_id)
+}
+
+fn create_browser_webview_inner(
+    app: &AppHandle,
+    _state: &State<'_, BrowserPanelState>,
+    page_id: &str,
+    webview_label: &str,
+    parsed_url: &Url,
+    _url: &str,
+) -> Result<(), String> {
     let window = app
         .get_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
@@ -333,7 +387,12 @@ pub(crate) fn create_browser_page(
     #[cfg(not(target_os = "linux"))]
     let initial_url = parsed_url.clone();
 
-    let builder = build_browser_webview(app, webview_label.clone(), page_id.clone(), initial_url)?;
+    let builder = build_browser_webview(
+        app,
+        webview_label.to_string(),
+        page_id.to_string(),
+        initial_url,
+    )?;
 
     // add_child dispatches to GTK main thread which may synchronously fire
     // on_navigation (which acquires BrowserPanelState mutex). We MUST NOT hold
@@ -359,7 +418,7 @@ pub(crate) fn create_browser_page(
 
         let (tx, rx) = std::sync::mpsc::channel();
         let window_clone = window.clone();
-        let label_for_gtk = webview_label.clone();
+        let label_for_gtk = webview_label.to_string();
         let data_dir = browser_data_directory();
         window
             .run_on_main_thread(move || {
@@ -379,34 +438,11 @@ pub(crate) fn create_browser_page(
             .map_err(|_| "GTK reparent channel closed".to_string())?;
 
         webview
-            .navigate(parsed_url)
+            .navigate(parsed_url.clone())
             .map_err(|_| "failed to navigate after cookie setup".to_string())?;
     }
 
-    let page = BrowserPage {
-        page_id: page_id.clone(),
-        webview_label,
-        url: url.to_string(),
-        title: String::new(),
-        visibility: PageVisibility::Hidden,
-        load_state: PageLoadState::Loading,
-        layout_x: 0.0,
-        layout_y: 0.0,
-        layout_width: 0.0,
-        layout_height: 0.0,
-    };
-
-    with_manager(state, |manager| manager.add_page(page))?;
-
-    let _ = app.emit(
-        "browser-page-created",
-        serde_json::json!({
-            "pageId": page_id,
-            "url": url,
-        }),
-    );
-
-    Ok(page_id)
+    Ok(())
 }
 
 async fn open_page_from_url(app: AppHandle, url: String) -> Result<String, String> {
@@ -455,9 +491,15 @@ pub async fn browser_close_page(
         let window = app
             .get_window("main")
             .ok_or_else(|| "main window not found".to_string())?;
-        let _ = window.run_on_main_thread(move || {
-            crate::browser_gtk::remove_child(&label_for_gtk);
-        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        window
+            .run_on_main_thread(move || {
+                crate::browser_gtk::remove_child(&label_for_gtk);
+                let _ = tx.send(());
+            })
+            .map_err(|_| "failed to dispatch GTK remove".to_string())?;
+        rx.recv()
+            .map_err(|_| "GTK remove channel closed".to_string())?;
     }
 
     if let Ok(webview) = get_webview(&app, &webview_label) {
@@ -671,6 +713,11 @@ pub async fn browser_eval_js(
 /// Replacement for the `xiaolin-internal://callback` custom protocol which
 /// doesn't work on Linux/WebKitGTK (fetch to custom schemes fails with
 /// "Load failed" regardless of CORS settings).
+///
+/// Tauri 2 child WebViews inherit the parent window's capability set (see
+/// `capabilities/default.json` — only `main`/`quick-action` are listed; browser
+/// `browser-*` labels are not separately scoped). Defense-in-depth: reject any
+/// webview whose label does not match `browser-*`, and whitelist message types.
 #[tauri::command]
 pub async fn browser_webview_notify(
     app: AppHandle,
@@ -679,8 +726,18 @@ pub async fn browser_webview_notify(
     data: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     use crate::browser_panel::{
-        is_browser_webview_label, ALLOWED_INTERNAL_MESSAGE_TYPES,
+        is_browser_webview_label, ALLOWED_INTERNAL_MESSAGE_TYPES, MAX_IPC_MESSAGE_BYTES,
     };
+
+    let data_bytes = serde_json::to_vec(&data).map_err(|_| "invalid payload".to_string())?;
+    if data_bytes.len() > MAX_IPC_MESSAGE_BYTES {
+        tracing::warn!(
+            bytes = data_bytes.len(),
+            max = MAX_IPC_MESSAGE_BYTES,
+            "browser_webview_notify payload too large"
+        );
+        return Err("payload too large".into());
+    }
 
     let webview_label = webview.label().to_string();
 
@@ -745,6 +802,14 @@ pub async fn browser_webview_notify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::browser_panel::{is_navigation_allowed, MAX_BROWSER_PAGES};
+
+    #[test]
+    fn about_blank_allowed_other_about_schemes_blocked() {
+        assert!(is_navigation_allowed(&"about:blank".parse().unwrap()));
+        assert!(!is_navigation_allowed(&"about:srcdoc".parse().unwrap()));
+        assert!(!is_navigation_allowed(&"about:config".parse().unwrap()));
+    }
 
     #[test]
     fn manager_enforces_page_limit() {

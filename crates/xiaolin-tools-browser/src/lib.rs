@@ -332,8 +332,11 @@ impl Tool for BrowserTool {
         props.insert(
             "pageId".to_string(),
             serde_json::json!({
-                "type": "integer",
-                "description": "Tab index for select_page, close_page."
+                "oneOf": [
+                    { "type": "string", "description": "Page UUID (WebView engine)" },
+                    { "type": "integer", "description": "Tab index (CDP engine)" }
+                ],
+                "description": "Page identifier for select_page, close_page: string (page UUID) or integer (tab index)."
             }),
         );
         props.insert(
@@ -760,7 +763,7 @@ mod tests {
     #[test]
     fn validate_output_path_rejects_outside_workspace() {
         let err = BrowserTool::validate_output_path("/etc/cron.d/evil").unwrap_err();
-        assert!(err.contains("outside the workspace"));
+        assert!(err.contains("not accessible"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -297,12 +298,31 @@ impl CdpEngine {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let opts = launch_options;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_flag = cancel.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(headless_chrome::Browser::new(opts));
+            if cancel_flag.load(Ordering::Relaxed) {
+                return;
+            }
+            match headless_chrome::Browser::new(opts) {
+                Ok(browser) => {
+                    if cancel_flag.load(Ordering::Relaxed) {
+                        drop(browser);
+                        return;
+                    }
+                    let _ = tx.send(Ok(browser));
+                }
+                Err(e) => {
+                    if !cancel_flag.load(Ordering::Relaxed) {
+                        let _ = tx.send(Err(e));
+                    }
+                }
+            }
         });
         let browser = rx
             .recv_timeout(BROWSER_LAUNCH_TIMEOUT)
             .map_err(|_| {
+                cancel.store(true, Ordering::Relaxed);
                 "browser: Chrome launch timed out (30s). Ensure Chrome/Chromium is installed."
                     .to_string()
             })?
