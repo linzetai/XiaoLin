@@ -1,5 +1,7 @@
 use serde_json::json;
 
+use crate::credential_crypto::SECRET_CONFIG_KEYS;
+
 /// Safe config keys that UIs and tool endpoints are allowed to read.
 pub const CONFIG_READABLE_KEYS: &[&str] = &[
     "gateway",
@@ -121,7 +123,8 @@ pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Resul
         json!({})
     };
 
-    set_nested_key(&mut cfg_value, key, value.clone())
+    let encrypted_value = crate::credential_crypto::encrypt_config_secrets(value);
+    set_nested_key(&mut cfg_value, key, encrypted_value)
         .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
 
     if let Some(parent) = cfg_path.parent() {
@@ -156,8 +159,7 @@ pub fn mask_secret_values(val: &serde_json::Value) -> serde_json::Value {
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
-                let is_secret =
-                    k == "apiKey" || k == "api_key" || k == "appSecret" || k == "app_secret";
+                let is_secret = SECRET_CONFIG_KEYS.contains(&k.as_str());
                 if is_secret {
                     if let Some(s) = v.as_str() {
                         out.insert(k.clone(), masked_secret(s));

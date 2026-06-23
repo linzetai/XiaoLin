@@ -5,7 +5,9 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::StreamExt;
 use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
-use xiaolin_security::ssrf::{ssrf_check_url, ssrf_safe_redirect_policy};
+use xiaolin_security::ssrf::{
+    build_pinned_client, ssrf_check_parsed_url_pinned, ssrf_safe_redirect_policy,
+};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 const HTTP_FETCH_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
@@ -27,18 +29,6 @@ fn build_reqwest_client(
     }
 }
 
-fn shared_http_fetch_client() -> reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            build_reqwest_client("http_fetch", |b| {
-                b.timeout(std::time::Duration::from_secs(10))
-                    .redirect(ssrf_safe_redirect_policy())
-            })
-        })
-        .clone()
-}
-
 fn shared_api_search_client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
@@ -46,19 +36,6 @@ fn shared_api_search_client() -> reqwest::Client {
             build_reqwest_client("api_search", |b| {
                 b.timeout(std::time::Duration::from_secs(15))
                     .user_agent("XiaoLin/0.1.0")
-            })
-        })
-        .clone()
-}
-
-fn shared_web_fetch_client() -> reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            build_reqwest_client("web_fetch", |b| {
-                b.timeout(std::time::Duration::from_secs(20))
-                    .user_agent("XiaoLin/0.1.0 (Bot)")
-                    .redirect(ssrf_safe_redirect_policy())
             })
         })
         .clone()
@@ -94,10 +71,18 @@ async fn read_response_body_limited(
     Ok(body)
 }
 
-/// HTTP fetch tool — performs one HTTP request to a URL.
-pub struct HttpFetchTool {
-    client: reqwest::Client,
+fn ssrf_pinned_client_for_url(
+    url: &str,
+    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+) -> Result<reqwest::Client, String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
+    let host = parsed.host_str().ok_or("URL has no host")?;
+    let verified_addrs = ssrf_check_parsed_url_pinned(&parsed)?;
+    build_pinned_client(host, &verified_addrs, configure)
 }
+
+/// HTTP fetch tool — performs one HTTP request to a URL.
+pub struct HttpFetchTool;
 
 fn parse_http_fetch_method(
     v: Option<&serde_json::Value>,
@@ -142,9 +127,7 @@ impl Default for HttpFetchTool {
 
 impl HttpFetchTool {
     pub fn new() -> Self {
-        Self {
-            client: shared_http_fetch_client(),
-        }
+        Self
     }
 }
 
@@ -283,20 +266,25 @@ impl Tool for HttpFetchTool {
             }
         }
 
-        if let Err(e) = ssrf_check_url(url) {
-            return ToolResult::err(format!(
-                "http_fetch URL was rejected before the HTTP request: {e}. \
-                 Use a public http(s) URL that resolves outside private networks; avoid localhost, RFC1918 ranges, link-local addresses, and non-http schemes. \
-                 If you believe the URL is legitimate, verify spelling, try web_search for an alternate public endpoint, or ask the operator about SSRF policy."
-            ));
-        }
+        let client = match ssrf_pinned_client_for_url(url, |b| {
+            b.timeout(std::time::Duration::from_secs(10)).redirect(ssrf_safe_redirect_policy())
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "http_fetch URL was rejected before the HTTP request: {e}. \
+                     Use a public http(s) URL that resolves outside private networks; avoid localhost, RFC1918 ranges, link-local addresses, and non-http schemes. \
+                     If you believe the URL is legitimate, verify spelling, try web_search for an alternate public endpoint, or ask the operator about SSRF policy."
+                ));
+            }
+        };
 
         let method_name = method.to_string();
         let is_head = method == reqwest::Method::HEAD;
         let with_body = method == reqwest::Method::POST
             || method == reqwest::Method::PUT
             || method == reqwest::Method::PATCH;
-        let mut request = self.client.request(method, url);
+        let mut request = client.request(method, url);
         if !request_headers.is_empty() {
             request = request.headers(request_headers);
         }
@@ -485,16 +473,12 @@ impl SearchEngine for TavilyEngine {
 
 /// SearXNG search engine backend.
 pub struct SearxngEngine {
-    client: reqwest::Client,
     base_url: String,
 }
 
 impl SearxngEngine {
     pub fn new(base_url: String) -> Self {
-        Self {
-            client: shared_api_search_client(),
-            base_url,
-        }
+        Self { base_url }
     }
 }
 
@@ -512,14 +496,18 @@ impl SearchEngine for SearxngEngine {
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         let search_url = format!("{}/search", self.base_url.trim_end_matches('/'));
-        if let Err(e) = ssrf_check_url(&search_url) {
-            return Err(format!(
-                "searxng search URL rejected before request: {e}. \
-                 Configure a public http(s) SearXNG base URL that resolves outside private networks."
-            ));
-        }
-        let resp = self
-            .client
+        let client = match ssrf_pinned_client_for_url(&search_url, |b| {
+            b.timeout(std::time::Duration::from_secs(15)).user_agent("XiaoLin/0.1.0")
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(format!(
+                    "searxng search URL rejected before request: {e}. \
+                     Configure a public http(s) SearXNG base URL that resolves outside private networks."
+                ));
+            }
+        };
+        let resp = client
             .get(&search_url)
             .query(&[("q", query), ("format", "json"), ("categories", "general")])
             .send()
@@ -1405,16 +1393,12 @@ impl Tool for WebSearchTool {
 
 /// Fetch a web page and extract its text content (strips HTML tags).
 pub struct WebFetchTool {
-    client: reqwest::Client,
     max_content_bytes: usize,
 }
 
 impl WebFetchTool {
     pub fn new(max_content_bytes: usize) -> Self {
-        Self {
-            client: shared_web_fetch_client(),
-            max_content_bytes,
-        }
+        Self { max_content_bytes }
     }
 
     pub fn with_defaults() -> Self {
@@ -1506,20 +1490,27 @@ impl Tool for WebFetchTool {
             ),
         };
 
-        if let Err(e) = ssrf_check_url(url) {
-            return ToolResult::err(format!(
-                "web_fetch rejected the URL before download: {e}. \
-                 Use a public http(s) URL that resolves on the public internet; avoid localhost, RFC1918, link-local, and file://. \
-                 If the document lives inside a VPN, ask the user to paste accessible text or expose an approved public mirror."
-            ));
-        }
+        let client = match ssrf_pinned_client_for_url(url, |b| {
+            b.timeout(std::time::Duration::from_secs(20))
+                .user_agent("XiaoLin/0.1.0 (Bot)")
+                .redirect(ssrf_safe_redirect_policy())
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "web_fetch rejected the URL before download: {e}. \
+                     Use a public http(s) URL that resolves on the public internet; avoid localhost, RFC1918, link-local, and file://. \
+                     If the document lives inside a VPN, ask the user to paste accessible text or expose an approved public mirror."
+                ));
+            }
+        };
 
         let mode = args
             .get("extract_mode")
             .and_then(|v| v.as_str())
             .unwrap_or("text");
 
-        let resp = match self.client.get(url).send().await {
+        let resp = match client.get(url).send().await {
             Ok(r) => r,
             Err(e) => return ToolResult::err(format!(
                 "web_fetch could not complete HTTP GET to '{url}': {e}. \

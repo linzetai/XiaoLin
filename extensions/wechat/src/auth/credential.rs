@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WechatCredential {
-    // TODO: encrypt at rest — bot token is written to plaintext JSON on disk.
     pub token: String,
     pub base_url: String,
     #[serde(default)]
@@ -28,7 +27,14 @@ fn credential_path(account_id: &str) -> PathBuf {
 pub fn save_credential(account_id: &str, cred: &WechatCredential) -> anyhow::Result<()> {
     let path = credential_path(account_id);
     let json = serde_json::to_string_pretty(cred)?;
-    std::fs::write(&path, json)?;
+    let payload = match xiaolin_core::credential_crypto::encrypt_credential(&json) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, account_id, "wechat credential encryption failed, storing plaintext");
+            json
+        }
+    };
+    std::fs::write(&path, payload)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -41,7 +47,18 @@ pub fn save_credential(account_id: &str, cred: &WechatCredential) -> anyhow::Res
 pub fn load_credential(account_id: &str) -> Option<WechatCredential> {
     let path = credential_path(account_id);
     let data = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&data).ok()
+    let json = match xiaolin_core::credential_crypto::decrypt_credential(&data) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, account_id, path = %path.display(), "wechat credential decryption failed");
+            if data.trim_start().starts_with('{') {
+                data
+            } else {
+                return None;
+            }
+        }
+    };
+    serde_json::from_str(&json).ok()
 }
 
 pub fn list_credentials() -> Vec<(String, WechatCredential)> {

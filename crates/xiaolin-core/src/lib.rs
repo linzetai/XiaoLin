@@ -6,6 +6,7 @@ pub mod channel_plugin;
 pub mod complexity;
 pub mod config;
 pub mod config_access;
+pub mod credential_crypto;
 pub mod error;
 pub mod hardening;
 pub mod llm_plugin;

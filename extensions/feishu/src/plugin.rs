@@ -40,7 +40,6 @@ pub struct FeishuPluginConfig {
     #[serde(default = "default_reply_mode")]
     pub reply_mode: String,
     /// User access token for user-scoped Open APIs (tasks, bitable, docx, calendar, media).
-    // TODO: encrypt at rest — user_access_token is stored in plaintext channel config on disk.
     #[serde(default)]
     pub user_access_token: Option<String>,
     /// When true, allow webhooks without a configured verification_token (dev/test only).
@@ -65,15 +64,35 @@ fn default_reply_mode() -> String {
 }
 
 impl FeishuPluginConfig {
+    fn decrypt_secret_field(value: &str, field: &str) -> String {
+        match xiaolin_core::credential_crypto::decrypt_credential(value) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(field, error = %e, "failed to decrypt feishu channel secret");
+                value.to_string()
+            }
+        }
+    }
+
+    fn decrypt_optional_secret(value: &Option<String>, field: &str) -> Option<String> {
+        value
+            .as_ref()
+            .map(|s| Self::decrypt_secret_field(s, field))
+            .filter(|s| !s.is_empty())
+    }
+
     /// Create from JSON channel config. All fields must be provided in the config file.
     pub fn from_channel_config(cfg: &xiaolin_core::config::ChannelConfig) -> Option<Self> {
         let app_id = cfg.app_id.clone()?;
-        let app_secret = cfg.app_secret.clone()?;
+        let app_secret = cfg
+            .app_secret
+            .as_ref()
+            .map(|s| Self::decrypt_secret_field(s, "app_secret"))?;
         Some(Self {
             app_id,
             app_secret,
-            verification_token: cfg.verification_token.clone(),
-            encrypt_key: cfg.encrypt_key.clone(),
+            verification_token: Self::decrypt_optional_secret(&cfg.verification_token, "verification_token"),
+            encrypt_key: Self::decrypt_optional_secret(&cfg.encrypt_key, "encrypt_key"),
             agent_id: cfg.agent_id.clone().unwrap_or_else(|| "main".to_string()),
             connection_mode: cfg
                 .connection_mode
@@ -87,7 +106,7 @@ impl FeishuPluginConfig {
                 .reply_mode
                 .clone()
                 .unwrap_or_else(|| "mention_only".to_string()),
-            user_access_token: cfg.user_access_token.clone(),
+            user_access_token: Self::decrypt_optional_secret(&cfg.user_access_token, "user_access_token"),
             allow_insecure_webhook: cfg.allow_insecure_webhook.unwrap_or(false),
         })
     }

@@ -828,6 +828,8 @@
 
 #### ✅ [MEDIUM] user_access_token 明文存于 channel 配置
 - **文件**: `extensions/feishu/src/plugin.rs:44, 89`
+- **修复记录**: 2026-06-23 `from_channel_config` + `persist_config_key` 字段级加密 app_secret/user_access_token 等
+
 
 #### ✅ [MEDIUM] WS 文本解析比 Webhook 更严格，可能导致不一致
 - **文件**: `extensions/feishu/src/ws/transport.rs:211-214`
@@ -844,6 +846,30 @@
 
 #### ✅ [MEDIUM] Bot token 明文落盘
 - **文件**: `extensions/wechat/src/auth/credential.rs:6-8`
+- **修复记录**: 2026-06-23 凭证文件整体 AES-256-GCM 加密（`XENC:` 前缀，向后兼容明文）
+
+#### BUG-001 🔴 凭证明文落盘（规则 #23）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs`
+- **关联文件**：`config.rs`, `config_access.rs`, `extensions/wechat/src/auth/credential.rs`, `extensions/feishu/src/plugin.rs`
+- **问题**：飞书 app_secret/user_access_token、微信 bot token、LLM API keys 等以明文 JSON 写入磁盘
+- **影响**：本地文件读取即可获取全部 channel/LLM 凭证
+- **建议**：机器 ID 派生密钥 + AES-256-GCM 字段级/文件级加密，`XENC:` 前缀区分已加密值
+- **相关规则**：code-generation-quality #23
+- **修复记录**：2026-06-23 新增 `credential_crypto` 模块；`load_config`/`persist_config_key` 透明加解密；微信凭证文件加密；飞书 channel 敏感字段解密
+
+#### BUG-002 🔴 SSRF DNS Rebinding（规则 #41）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-security/src/ssrf.rs`
+- **关联文件**：`crates/xiaolin-tools-network/src/lib.rs`, `crates/xiaolin-gateway/src/lib.rs`
+- **问题**：`ssrf_check_parsed_url` 校验时解析 DNS 并检查私有 IP，但后续 `reqwest` 连接会再次独立解析，攻击者可在检查通过后切换 DNS 到内网 IP
+- **影响**：`http_fetch`/`web_fetch`/Searxng/cron webhook 等出站 HTTP 工具可被 DNS rebinding 绕过 SSRF 防护
+- **建议**：SSRF 校验返回已验证 IP，`build_pinned_client` 通过 `resolve_to_addrs` 固定 DNS 解析结果
+- **相关规则**：code-generation-quality #41
+- **修复记录**：2026-06-23 新增 `ssrf_check_*_pinned` + `build_pinned_client`；network/gateway 调用方改为 per-request pinned client
+
 
 #### ✅ [MEDIUM] ContextTokenCache 无容量上限
 - **文件**: `extensions/wechat/src/plugin.rs:90-98`
@@ -876,7 +902,7 @@
 | 路径白名单 | `filesystem.rs` 的 `ensure_within_workspace` + lexical `..` 处理 |
 | Shell 注入 | `shell_security.rs` 正则 + AST 双路径 |
 | 子进程超时 | `search_via_ripgrep` 30s timeout；PTY Drop kill |
-| SSRF（network） | `http_fetch`/`web_fetch` 使用 `ssrf_check_url` |
+| SSRF（network） | `http_fetch`/`web_fetch`/Searxng/webhook 使用 DNS pinning（`ssrf_check_*_pinned` + `build_pinned_client`） |
 | Guardian fail-closed | disabled/unavailable/LLM 失败/超时均 deny |
 | 持久化 hash | evolution/context 用 `blake3` |
 | ForgetPolicy | episodic memory 有完善的淘汰策略 |

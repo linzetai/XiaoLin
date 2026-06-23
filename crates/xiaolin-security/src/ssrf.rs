@@ -1,4 +1,4 @@
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::RwLock;
 
 /// Global set of hostnames (with optional :port) that bypass private-IP SSRF checks.
@@ -61,12 +61,26 @@ pub fn is_private_ipv4(v4: &std::net::Ipv4Addr) -> bool {
         || v4.octets()[0] == 0 // 0.0.0.0/8
 }
 
-pub fn ssrf_check_url(url_str: &str) -> Result<(), String> {
-    let parsed = url::Url::parse(url_str).map_err(|e| format!("invalid URL: {e}"))?;
-    ssrf_check_parsed_url(&parsed)
+fn resolve_host_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+    let socket_addr_str = format!("{host}:{port}");
+    let addrs: Vec<_> = socket_addr_str
+        .to_socket_addrs()
+        .map_err(|e| format!("DNS resolution failed for '{host}': {e}"))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(format!("DNS resolution returned no addresses for '{host}'"));
+    }
+    Ok(addrs)
 }
 
-pub fn ssrf_check_parsed_url(parsed: &url::Url) -> Result<(), String> {
+/// Validate a URL for SSRF and return pre-verified socket addresses for DNS pinning.
+pub fn ssrf_check_url_pinned(url_str: &str) -> Result<Vec<SocketAddr>, String> {
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("invalid URL: {e}"))?;
+    ssrf_check_parsed_url_pinned(&parsed)
+}
+
+/// Validate a parsed URL for SSRF and return pre-verified socket addresses for DNS pinning.
+pub fn ssrf_check_parsed_url_pinned(parsed: &url::Url) -> Result<Vec<SocketAddr>, String> {
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         tracing::warn!(
@@ -85,17 +99,10 @@ pub fn ssrf_check_parsed_url(parsed: &url::Url) -> Result<(), String> {
             host = %host,
             "SSRF: host is in ssrfAllowedHosts, skipping private-IP check"
         );
-        return Ok(());
+        return resolve_host_addrs(host, port);
     }
 
-    let socket_addr_str = format!("{host}:{port}");
-    let addrs: Vec<_> = socket_addr_str
-        .to_socket_addrs()
-        .map_err(|e| format!("DNS resolution failed for '{host}': {e}"))?
-        .collect();
-    if addrs.is_empty() {
-        return Err(format!("DNS resolution returned no addresses for '{host}'"));
-    }
+    let addrs = resolve_host_addrs(host, port)?;
     for addr in &addrs {
         if is_private_ip(&addr.ip()) {
             tracing::warn!(
@@ -111,7 +118,32 @@ pub fn ssrf_check_parsed_url(parsed: &url::Url) -> Result<(), String> {
             ));
         }
     }
-    Ok(())
+    Ok(addrs)
+}
+
+pub fn ssrf_check_url(url_str: &str) -> Result<(), String> {
+    ssrf_check_url_pinned(url_str).map(|_| ())
+}
+
+pub fn ssrf_check_parsed_url(parsed: &url::Url) -> Result<(), String> {
+    ssrf_check_parsed_url_pinned(parsed).map(|_| ())
+}
+
+/// Build a reqwest Client with DNS pinning for the given host.
+/// Uses the pre-verified IPs from ssrf_check, preventing DNS rebinding.
+pub fn build_pinned_client(
+    host: &str,
+    verified_addrs: &[SocketAddr],
+    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder();
+    if !verified_addrs.is_empty() {
+        builder = builder.resolve_to_addrs(host, verified_addrs);
+    }
+    builder = configure(builder);
+    builder
+        .build()
+        .map_err(|e| format!("failed to build pinned HTTP client: {e}"))
 }
 
 pub fn ssrf_safe_redirect_policy() -> reqwest::redirect::Policy {
@@ -162,6 +194,9 @@ mod tests {
     #[test]
     fn allows_public_https() {
         assert!(ssrf_check_url("https://api.github.com/zen").is_ok());
+        assert!(!ssrf_check_url_pinned("https://api.github.com/zen")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -187,6 +222,11 @@ mod tests {
 
         assert!(is_host_allowed("myhost", 80));
         assert!(is_host_allowed("MYHOST", 80));
+
+        // Allowed hosts skip private-IP check but still resolve for pinning
+        let addrs = ssrf_check_url_pinned("http://localhost:8080/api").unwrap();
+        assert!(!addrs.is_empty());
+        assert!(addrs.iter().any(|a| a.ip().is_loopback()));
 
         // Reset to empty — localhost should be blocked again
         set_ssrf_allowed_hosts(vec![]);
