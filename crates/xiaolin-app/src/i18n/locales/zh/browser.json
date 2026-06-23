@@ -21,6 +21,7 @@
   "maxTabs": "最多 {{max}} 个标签页",
   "enterUrlToStart": "输入 URL 开始浏览",
   "loadFailed": "加载失败",
+  "retry": "重新加载",
   "chat": "Chat",
   "collapsePanel": "折叠面板",
   "downloading": "下载中…",

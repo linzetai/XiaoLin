@@ -955,10 +955,39 @@ fn mime_from_path(path: &std::path::Path) -> String {
     .to_string()
 }
 
+static WEBVIEW_SUPPORTED_ACTIONS: &[&str] = &[
+    "navigate",
+    "go_back",
+    "go_forward",
+    "reload",
+    "click",
+    "fill",
+    "fill_form",
+    "type_text",
+    "press_key",
+    "hover",
+    "scroll",
+    "take_snapshot",
+    "screenshot",
+    "get_content",
+    "evaluate",
+    "wait_for",
+    "list_pages",
+    "select_page",
+    "new_page",
+    "close_page",
+    "cookies",
+    "interact",
+];
+
 #[async_trait]
 impl BrowserEngine for TauriWebViewEngine {
     fn engine_type(&self) -> &str {
         "webview"
+    }
+
+    fn supported_actions(&self) -> &[&str] {
+        WEBVIEW_SUPPORTED_ACTIONS
     }
 
     async fn shutdown(&self) {}

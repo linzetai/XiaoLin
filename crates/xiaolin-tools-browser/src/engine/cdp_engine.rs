@@ -278,14 +278,19 @@ impl CdpEngine {
         let headless = CdpEngine::is_headless();
         let chrome_path = CdpEngine::find_chrome();
         let mut builder = headless_chrome::LaunchOptions::default_builder();
-        // Chrome sandbox is disabled because nested sandboxing (Docker/container +
-        // Chrome setuid sandbox) commonly fails on CI and headless server environments.
-        tracing::warn!(
-            "browser: launching Chrome with sandbox disabled (required for Docker/nested environments)"
-        );
+        let sandbox_enabled = match std::env::var("XIAOLIN_CDP_SANDBOX") {
+            Ok(v) if v == "1" || v.eq_ignore_ascii_case("true") => true,
+            Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
+            _ => !headless,
+        };
+        if !sandbox_enabled {
+            tracing::warn!(
+                "browser: launching Chrome with sandbox disabled (set XIAOLIN_CDP_SANDBOX=true to enable)"
+            );
+        }
         builder
             .headless(headless)
-            .sandbox(false)
+            .sandbox(sandbox_enabled)
             .window_size(Some((1280, 900)))
             .idle_browser_timeout(Duration::from_secs(600))
             .user_data_dir(Some(profile.to_path_buf()));

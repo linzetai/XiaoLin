@@ -333,10 +333,15 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
     if (!isTauri) return;
     try {
       const list = await browserInvoke<BackendPageInfo[]>("browser_list_pages");
+      const currentPages = get().pages;
       const pages: Record<string, BrowserPage> = {};
       let activePageId: string | null = null;
       for (const info of list) {
-        pages[info.pageId] = pageFromBackend(info);
+        const existing = currentPages[info.pageId];
+        const base = pageFromBackend(info);
+        pages[info.pageId] = existing
+          ? { ...base, agentControlled: existing.agentControlled, faviconUrl: existing.faviconUrl }
+          : base;
         if (info.visibility === "active") activePageId = info.pageId;
       }
       if (!activePageId) {

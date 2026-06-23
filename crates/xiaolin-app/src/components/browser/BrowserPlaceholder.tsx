@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Globe } from "@phosphor-icons/react";
-import { useBrowserStore, browserResizeWebview } from "../../lib/stores/browser-store";
+import { useBrowserStore, browserResizeWebview, browserReload } from "../../lib/stores/browser-store";
 import { AgentControlOverlay } from "./AgentControlOverlay";
 
 interface BrowserPlaceholderProps {
@@ -93,17 +93,38 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
             position: "absolute",
             inset: 0,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
+            gap: 12,
             padding: 16,
             color: "var(--fill-tertiary)",
             fontSize: 12,
             textAlign: "center",
-            pointerEvents: "none",
             zIndex: 1,
           }}
         >
-          {(page.loadState.state === "failed" && page.loadState.message) || t("loadFailed")}
+          <span>
+            {(page.loadState.state === "failed" && page.loadState.message) || t("loadFailed")}
+          </span>
+          <button
+            onClick={() => {
+              if (pageId) {
+                void browserReload(pageId);
+              }
+            }}
+            style={{
+              padding: "6px 16px",
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px solid var(--border-primary)",
+              background: "var(--bg-primary)",
+              color: "var(--fill-primary)",
+              cursor: "pointer",
+            }}
+          >
+            {t("retry")}
+          </button>
         </div>
       )}
       {pageId && <AgentControlOverlay pageId={pageId} />}

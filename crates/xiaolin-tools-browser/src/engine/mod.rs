@@ -35,6 +35,43 @@ impl EngineActionResult {
     }
 }
 
+/// All browser tool actions supported by the CDP (headless Chrome) engine.
+static CDP_SUPPORTED_ACTIONS: &[&str] = &[
+    "navigate",
+    "go_back",
+    "go_forward",
+    "reload",
+    "click",
+    "fill",
+    "fill_form",
+    "type_text",
+    "press_key",
+    "hover",
+    "scroll",
+    "drag",
+    "select",
+    "upload_file",
+    "handle_dialog",
+    "interact",
+    "take_snapshot",
+    "screenshot",
+    "get_content",
+    "evaluate",
+    "wait_for",
+    "list_pages",
+    "select_page",
+    "new_page",
+    "close_page",
+    "cookies",
+    "pdf",
+    "emulate",
+    "resize_page",
+    "list_console_messages",
+    "get_console_message",
+    "list_network_requests",
+    "get_network_request",
+];
+
 /// Cookie parameter for browser cookie operations.
 #[derive(Debug, Clone)]
 pub struct CookieParam {
@@ -55,6 +92,11 @@ pub trait BrowserEngine: Send + Sync {
     ) -> Result<EngineActionResult, String>;
 
     fn engine_type(&self) -> &str;
+
+    /// Actions this engine supports. Default returns all known CDP actions.
+    fn supported_actions(&self) -> &[&str] {
+        CDP_SUPPORTED_ACTIONS
+    }
 
     /// Synchronous cleanup (safe to call from `Drop` and non-async contexts).
     fn shutdown_sync(&self) {}

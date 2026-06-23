@@ -497,6 +497,14 @@ impl Tool for BrowserTool {
         }
 
         let engine = self.engine.clone();
+        if !engine.supported_actions().contains(&action.as_str()) {
+            return ToolResult::err(format!(
+                "Action '{}' is not supported by the current browser engine ({}). Supported actions: {}",
+                action,
+                engine.engine_type(),
+                engine.supported_actions().join(", ")
+            ));
+        }
         let result = tokio::time::timeout(
             ACTION_TIMEOUT,
             async move { engine.execute_action(&action, &args).await },

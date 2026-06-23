@@ -21,6 +21,7 @@
   "maxTabs": "Maximum {{max}} tabs",
   "enterUrlToStart": "Enter URL to start browsing",
   "loadFailed": "Load failed",
+  "retry": "Reload",
   "chat": "Chat",
   "collapsePanel": "Collapse panel",
   "downloading": "Downloading…",

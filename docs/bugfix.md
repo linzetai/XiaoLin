@@ -321,10 +321,13 @@
 #### ✅ [HIGH] Chrome 启动超时后线程泄漏
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:318-329`
 
-#### ✅ [MEDIUM] sandbox(false) 禁用 Chrome 沙箱
-- **文件**: `crates/xiaolin-tools-browser/src/lib.rs:305-307`
+#### ✅ FIXED 🔴 [MEDIUM] CDP Chrome sandbox 硬编码 disabled
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L274-300
+- **问题**：`launch_fresh_browser` 始终 `sandbox(false)`，桌面非 headless 场景也禁用沙箱
+- **修复记录**：2026-06-23 `XIAOLIN_CDP_SANDBOX` 环境变量覆盖；默认 headless 关闭、非 headless 启用
 
-#### ✅ [MEDIUM] validate_output_path symlink 绕过风险
+#### ✅ FIXED 🟡 [MEDIUM] validate_output_path symlink 绕过风险
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:472-475`
 
 #### ✅ [MEDIUM] kill_orphan_chrome 使用 kill -9 可能误杀
@@ -928,6 +931,43 @@
 - **影响**：损坏的 live config 导致 deny list 失效
 - **建议**：反序列化失败时 warn 并回退静态 `config.skills.deny`
 - **修复记录**：2026-06-23 新增 `read_live_field_or_warn`，deny list 三处调用改为静态回退
+
+#### BUG-009 🔴 CDP Chrome sandbox 硬编码 disabled
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L274-300
+- **问题**：`launch_fresh_browser` 始终 `sandbox(false)`，桌面非 headless 场景也禁用 Chrome 沙箱
+- **影响**：桌面用户浏览器进程缺少 OS 级沙箱隔离
+- **建议**：`XIAOLIN_CDP_SANDBOX` 环境变量；默认 headless 关闭、非 headless 启用
+- **修复记录**：2026-06-23 实现环境变量覆盖与条件 warn 日志
+
+#### BUG-010 🔴 BrowserEngine 缺少 action 能力查询
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/mod.rs`；`webview_engine.rs`；`lib.rs`
+- **问题**：WebView 引擎不支持 drag/pdf/emulate 等 action，但 `execute_action` 无前置检查，返回 stub 错误
+- **影响**：Agent 调用不支持的 action 时错误信息不明确
+- **建议**：`BrowserEngine::supported_actions()` + `BrowserTool::execute` 前置 capability check
+- **修复记录**：2026-06-23 trait 默认方法 + WebView 覆盖 + execute 前置校验
+
+#### BUG-011 🔴 syncFromBackend 覆盖前端独有状态
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/lib/stores/browser-store.ts` L332-349
+- **问题**：`syncFromBackend` 全量替换 `pages`，丢失 `agentControlled` 和 `faviconUrl`
+- **影响**：后端同步后 Agent 控制状态与 favicon 闪烁/丢失
+- **建议**：merge 模式保留前端独有字段
+- **修复记录**：2026-06-23 merge 时保留 `agentControlled` 和 `faviconUrl`
+
+#### BUG-012 🔴 加载失败页无重试入口
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserPlaceholder.tsx` L90-108
+- **关联文件**：`i18n/locales/zh/browser.json`；`i18n/locales/en/browser.json`
+- **问题**：failed 状态 overlay 设置 `pointerEvents: none`，用户无法重试加载
+- **影响**：页面加载失败后只能关闭重开标签
+- **建议**：添加重试按钮调用 `browserReload`
+- **修复记录**：2026-06-23 移除 pointerEvents 限制，添加 retry 按钮与 i18n
 
 
 #### ✅ [MEDIUM] ContextTokenCache 无容量上限
