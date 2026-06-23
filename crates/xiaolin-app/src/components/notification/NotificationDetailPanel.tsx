@@ -19,7 +19,7 @@ function categoryLabel(category: string | undefined, tr: (key: string) => string
     case "cron":
       return { icon: <Clock size={ICON_SIZE.md} />, label: tr("type_cron") };
     case "agent":
-      return { icon: <Lightning size={ICON_SIZE.md} />, label: "Agent" };
+      return { icon: <Lightning size={ICON_SIZE.md} />, label: tr("type_agent") };
     case "error":
       return { icon: <Warning size={ICON_SIZE.md} />, label: tr("type_error") };
     default:
@@ -89,6 +89,7 @@ export function NotificationDetailPanel({ notification, onClose }: Props) {
             onClick={onClose}
             className="flex items-center justify-center rounded-md p-1.5 hover:bg-[var(--bg-hover)] transition-colors"
             style={{ color: "var(--fill-tertiary)" }}
+            aria-label={t("close", { ns: "common" })}
           >
             <X size={ICON_SIZE.md} />
           </button>

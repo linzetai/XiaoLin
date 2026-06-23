@@ -7,6 +7,7 @@ import { initGitStore } from "./stores/git-store";
 import { initPermissionListener } from "./stores/permission-store";
 import { initAutomationListener } from "./stores/automation-store";
 import { initFileArtifactListener } from "./stores/file-viewer-store";
+import { initBrowserEvents } from "./stores/browser-store";
 
 export interface GatewayInfo {
   port: number;
@@ -42,6 +43,7 @@ export function cleanupGatewayListeners(): void {
   sessionChangedUnsub = null;
   projectsChangedUnsub = null;
   import("./stores/file-viewer-store").then((m) => m.teardownFileArtifactListener());
+  import("./stores/browser-store").then((m) => m.teardownBrowserEvents());
 }
 
 if (import.meta.hot) {
@@ -168,6 +170,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         initAutomationListener();
         initGoalListener(() => useChatMetaStore.getState().activeChatId);
         initFileArtifactListener(() => useChatMetaStore.getState().activeChatId);
+        await initBrowserEvents();
         await syncBackendData();
       } else {
         // Browser mode: check for gateway health endpoint

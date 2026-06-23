@@ -2,6 +2,7 @@
   "identifier": "default",
   "description": "XiaoLin App default capabilities",
   "windows": ["main", "quick-action"],
+  "webviews": ["main", "quick-action"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

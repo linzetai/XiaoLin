@@ -345,6 +345,7 @@ pub mod pty_session {
 
     /// Max concurrent exec_command PTY sessions before rejecting new ones.
     const MAX_PTY_SESSIONS: usize = 50;
+    const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 
     impl PtySessionManager {
         pub fn new(timeout: Duration) -> Self {
@@ -526,6 +527,23 @@ pub mod pty_session {
             }
 
             before - sessions.len()
+        }
+
+        pub fn start_cleanup_task(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+            let mgr = Arc::clone(self);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
+                loop {
+                    interval.tick().await;
+                    let cleaned = mgr.cleanup_expired().await;
+                    if cleaned > 0 {
+                        tracing::info!(
+                            count = cleaned,
+                            "legacy exec_command PTY sessions cleaned up"
+                        );
+                    }
+                }
+            })
         }
 
         pub async fn session_count(&self) -> usize {

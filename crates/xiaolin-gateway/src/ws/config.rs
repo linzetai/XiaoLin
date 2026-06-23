@@ -259,6 +259,10 @@ pub async fn handle_config_set(
                         .rt
                         .runtime
                         .set_skills_deny(new_config.skills.deny.clone());
+                    state
+                        .rt
+                        .runtime
+                        .set_skills_context_budget_percent(new_config.skills.context_budget_percent);
                     if let Err(e) = state.reload_skills() {
                         tracing::warn!(key, error = %e, "config.set: failed to hot-reload skills");
                     }

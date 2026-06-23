@@ -1,6 +1,6 @@
 import { Component, memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense, type ReactNode, type ErrorInfo } from "react";
 import { useTranslation } from "react-i18next";
-import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
+import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/stores/types";
 import type { BriefMessageData } from "../../lib/stores/types";
 import { BTN_ICON } from "../../lib/ui-tokens";
 import { StepIndicator } from "./StepIndicator";
@@ -77,18 +77,18 @@ import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
 
 
-function ts(d: Date) {
+function ts(d: Date, locale = "zh-CN") {
   const now = new Date();
   const isToday =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
   if (isToday) {
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) +
+  return d.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" }) +
     " " +
-    d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }: { content: string; sessionId?: string; turnId?: string }) {
@@ -166,7 +166,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
 });
 
 const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect, savedSegments }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; savedSegments?: StreamSegment[] }) {
-  const { t } = useTranslation("chat");
+  const { t, i18n } = useTranslation("chat");
   const toolCalls = msg.toolCalls;
   const aiThreshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
   const fileChangeSummary = useFileChangeSummary(toolCalls, savedSegments);
@@ -202,7 +202,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 mb-1.5" style={{ maxWidth: "var(--content-max-w)" }}>
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-          {ts(msg.timestamp)}
+          {ts(msg.timestamp, i18n.language)}
         </span>
         {usage && (
           <span
@@ -311,14 +311,15 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
 });
 
 function SystemMsg({ msg }: { msg: ChatMessage }) {
-  const isError = typeof msg.content === "string" && msg.content.startsWith("错误:");
+  const { t } = useTranslation("chat");
+  const isError = typeof msg.content === "string" && (msg.content.startsWith("错误:") || msg.content.startsWith("Error:"));
   const isBudgetReached = msg.metadata?.action === "token_budget_reached";
 
   const handleContinue = useCallback((budget: string) => {
     import("@tauri-apps/api/event").then(({ emit }) => {
-      emit("quick-action-send", { content: `+${budget} 继续完成任务` });
+      emit("quick-action-send", { content: t("budgetContinueMessage", { budget }) });
     });
-  }, []);
+  }, [t]);
 
   if (isBudgetReached) {
     const tokens = msg.metadata?.completionTokens as number | undefined;
@@ -344,17 +345,17 @@ function SystemMsg({ msg }: { msg: ChatMessage }) {
             style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
             onClick={() => handleContinue("5k")}
           >
-            继续 (+5k)
+            {t("budgetContinue", { amount: "5k" })}
           </button>
           <button
             className="px-3 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors"
             style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
             onClick={() => handleContinue("20k")}
           >
-            继续 (+20k)
+            {t("budgetContinue", { amount: "20k" })}
           </button>
           <span className="text-[11px] ml-auto" style={{ color: "var(--fill-tertiary)" }}>
-            已生成 ~{tokens ?? "?"} tokens
+            {t("budgetTokensGenerated", { tokens: tokens ?? "?" })}
           </span>
         </div>
       </div>
@@ -630,24 +631,25 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   highlightTurnId,
   executionMode,
 }: MessageRendererRowProps) {
-  if (item.type === "brief") {
-    return <BriefMessageCard data={item.data as BriefMessageData} />;
-  }
-
-  const m = item.data as StreamableMsg;
+  const { t } = useTranslation("chat");
+  const isBrief = item.type === "brief";
   const threshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
-  const grouped = useMemo(() => groupConsecutiveSegments(streamSegments, threshold), [streamSegments, threshold]);
+  const grouped = useMemo(
+    () => (isBrief ? [] : groupConsecutiveSegments(streamSegments, threshold)),
+    [isBrief, streamSegments, threshold],
+  );
 
-  const isStreaming = m.role === "streaming";
-  const cm = (isStreaming ? m : m) as ChatMessage;
+  const m = isBrief ? null : (item.data as StreamableMsg);
+  const isStreaming = m?.role === "streaming";
+  const cm = m && !isStreaming ? (m as ChatMessage) : null;
   const fullIdx = idx + paginationOffset;
-  const isMatch = !isStreaming && searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
+  const isMatch = !isStreaming && !!cm && !!searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
   const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
-  const isHighlighted = !isStreaming && highlightTurnId != null && String(cm.id) === highlightTurnId;
+  const isHighlighted = !isStreaming && highlightTurnId != null && cm != null && String(cm.id) === highlightTurnId;
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isStreaming) return;
+    if (isBrief || isStreaming) return;
     const el = rowRef.current;
     if (!el) return;
     const existing = el.querySelectorAll("mark[data-search-highlight]");
@@ -699,7 +701,11 @@ export const MessageRendererRow = memo(function MessageRendererRow({
       }
       textNode.parentNode?.replaceChild(frag, textNode);
     }
-  }, [isStreaming, searchQuery, isMatch, isCurrent]);
+  }, [isBrief, isStreaming, searchQuery, isMatch, isCurrent]);
+
+  if (isBrief) {
+    return <BriefMessageCard data={item.data as BriefMessageData} />;
+  }
 
   if (isStreaming) {
     const hasContent = streamSegments.length > 0;
@@ -806,15 +812,16 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     );
   }
 
+  const chatMsg = cm as ChatMessage;
   const isPlanMode = executionMode === "plan";
-  const isAssistant = cm.role === "assistant";
+  const isAssistant = chatMsg.role === "assistant";
 
   return (
     <MessageErrorBoundary>
     <div
       ref={rowRef}
       className="msg-row"
-      data-turn-id={String(cm.id)}
+      data-turn-id={String(chatMsg.id)}
       style={{
         paddingTop: 0,
         paddingRight: "clamp(24px, 5%, 80px)",
@@ -833,22 +840,22 @@ export const MessageRendererRow = memo(function MessageRendererRow({
           className="mb-1 inline-block rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider"
           style={{ color: "var(--plan-tint)", background: "var(--plan-tint-bg)" }}
         >
-          Plan
+          {t("planModeBadge")}
         </span>
       )}
-      {cm.role === "user" ? (
+      {chatMsg.role === "user" ? (
         <UserInput
-          msg={cm}
+          msg={chatMsg}
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
         />
-      ) : cm.role === "system" ? (
-        <SystemMsg msg={cm} />
+      ) : chatMsg.role === "system" ? (
+        <SystemMsg msg={chatMsg} />
       ) : (
         <AiMessage
-          msg={cm}
-          usage={cm.usage}
+          msg={chatMsg}
+          usage={chatMsg.usage}
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}

@@ -103,7 +103,7 @@ function ImageViewer({ src }: { src: string }) {
       <div className="group relative overflow-hidden rounded-md" style={{ border: "0.5px solid var(--separator)" }}>
         <img
           src={src}
-          alt="Tool output"
+          alt={t("toolOutputAlt")}
           className="block max-h-[400px] w-full cursor-pointer object-contain"
           style={{ background: "var(--bg-primary)" }}
           onClick={() => setLightbox(true)}
@@ -165,7 +165,7 @@ function ImageViewer({ src }: { src: string }) {
           </div>
           <img
             src={src}
-            alt="Tool output (full)"
+            alt={t("toolOutputAltFull")}
             className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
             onClick={(e) => e.stopPropagation()}
           />

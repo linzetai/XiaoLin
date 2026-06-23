@@ -176,26 +176,20 @@ const READONLY_COMMANDS: &[&str] = &[
     "realpath",
     "dirname",
     "basename",
-    // Network (readonly)
+    // Network (readonly — no curl/wget: network fetch can write files or run scripts)
     "ping",
     "traceroute",
     "dig",
     "nslookup",
     "host",
-    "curl",
-    "wget",
     "ss",
     "netstat",
     "ip",
-    // Development tools
+    // Development tools (subcommand-checked; no generic script runners)
     "tree",
     "tokei",
     "cloc",
     "scc",
-    "python3",
-    "python",
-    "node",
-    "ruby",
     "cargo",
     "npm",
     "npx",
@@ -205,19 +199,12 @@ const READONLY_COMMANDS: &[&str] = &[
     "gh",
     "docker",
     "kubectl",
-    "rustc",
-    "gcc",
-    "g++",
-    "clang",
-    "make",
-    "cmake",
     // Misc safe
     "test",
     "[",
     "true",
     "false",
     "sleep",
-    "xargs",
     "tput",
     "clear",
     "reset",
@@ -281,8 +268,6 @@ const GIT_DANGEROUS_SUBCOMMANDS: &[&str] = &["push --force", "reset --hard", "cl
 const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
     "check",
     "clippy",
-    "test",
-    "bench",
     "doc",
     "tree",
     "metadata",
@@ -291,7 +276,6 @@ const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
     "version",
     "help",
     "search",
-    "fmt",
 ];
 
 const CARGO_WRITE_SUBCOMMANDS: &[&str] = &[
@@ -309,7 +293,6 @@ const CARGO_WRITE_SUBCOMMANDS: &[&str] = &[
 
 const NPM_READONLY_SUBCOMMANDS: &[&str] = &[
     "list", "ls", "info", "show", "view", "outdated", "audit", "explain", "why", "help", "version",
-    "test", "run", "exec",
 ];
 
 const NPM_WRITE_SUBCOMMANDS: &[&str] = &[
@@ -416,6 +399,33 @@ const DANGEROUS_COMMANDS: &[&str] = &[
 
 // ─── Classification logic ───────────────────────────────────────────────────
 
+fn classify_find(args: &[&str]) -> CommandClassification {
+    for arg in args {
+        if *arg == "-delete" {
+            return CommandClassification::Write {
+                reason: "find -delete removes matching files".into(),
+            };
+        }
+        if matches!(*arg, "-exec" | "-execdir" | "-ok") || arg.starts_with("-exec") {
+            return CommandClassification::Write {
+                reason: format!("find {arg} executes commands on matched files"),
+            };
+        }
+    }
+    CommandClassification::ReadOnly
+}
+
+fn classify_awk(args: &[&str]) -> CommandClassification {
+    let joined = args.join(" ");
+    let lower = joined.to_lowercase();
+    if lower.contains("system(") {
+        return CommandClassification::Write {
+            reason: "awk system() executes shell commands".into(),
+        };
+    }
+    CommandClassification::ReadOnly
+}
+
 fn classify_segment(segment: &str) -> CommandClassification {
     let trimmed = segment.trim();
     if trimmed.is_empty() {
@@ -501,23 +511,23 @@ fn classify_segment(segment: &str) -> CommandClassification {
         }
     }
 
-    // curl/wget with output flags are write
-    if base_cmd == "curl"
-        && tokens
-            .iter()
-            .any(|t| matches!(*t, "-o" | "-O" | "--output"))
-    {
-        return CommandClassification::Write {
-            reason: "curl with -o/-O writes to files".into(),
-        };
+    if base_cmd == "find" {
+        return classify_find(args);
     }
-    if base_cmd == "wget" && !tokens.iter().any(|t| matches!(*t, "--spider" | "-q")) {
-        // wget without --spider downloads files
-        if tokens.len() > 1 {
-            return CommandClassification::Write {
-                reason: "wget downloads and writes files".into(),
-            };
-        }
+
+    if base_cmd == "awk" {
+        return classify_awk(args);
+    }
+
+    // Generic script/network executors are never readonly (Plan mode safety)
+    if matches!(
+        base_cmd,
+        "python3" | "python" | "node" | "ruby" | "xargs" | "curl" | "wget" | "make" | "cmake"
+            | "rustc" | "gcc" | "g++" | "clang"
+    ) {
+        return CommandClassification::Write {
+            reason: format!("'{base_cmd}' is a generic executor and not allowed in read-only mode"),
+        };
     }
 
     // Explicit write commands
@@ -839,8 +849,15 @@ mod tests {
     }
 
     #[test]
-    fn readonly_cargo_test() {
-        assert!(ReadOnlyClassifier::classify("cargo test -p xiaolin-agent").is_readonly());
+    fn write_cargo_test() {
+        let cls = ReadOnlyClassifier::classify("cargo test -p xiaolin-agent");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_cargo_bench() {
+        let cls = ReadOnlyClassifier::classify("cargo bench");
+        assert!(cls.is_write());
     }
 
     #[test]
@@ -856,13 +873,33 @@ mod tests {
     }
 
     #[test]
-    fn readonly_npm_test() {
-        assert!(ReadOnlyClassifier::classify("npm test").is_readonly());
+    fn write_npm_test() {
+        let cls = ReadOnlyClassifier::classify("npm test");
+        assert!(cls.is_write());
     }
 
     #[test]
-    fn readonly_npm_run() {
-        assert!(ReadOnlyClassifier::classify("npm run lint").is_readonly());
+    fn write_npm_run() {
+        let cls = ReadOnlyClassifier::classify("npm run lint");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_python3_executor() {
+        let cls = ReadOnlyClassifier::classify("python3 -c 'print(1)'");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_node_executor() {
+        let cls = ReadOnlyClassifier::classify("node -e '1'");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_make() {
+        let cls = ReadOnlyClassifier::classify("make build");
+        assert!(cls.is_write());
     }
 
     // ── Docker readonly ─────────────────────────────────────────────
@@ -1142,14 +1179,15 @@ mod tests {
     }
 
     #[test]
-    fn curl_with_output() {
-        let cls = ReadOnlyClassifier::classify("curl -o file.txt http://example.com");
+    fn write_curl_any() {
+        let cls = ReadOnlyClassifier::classify("curl -s http://example.com");
         assert!(cls.is_write());
     }
 
     #[test]
-    fn curl_readonly() {
-        assert!(ReadOnlyClassifier::classify("curl -s http://example.com").is_readonly());
+    fn write_curl_with_output() {
+        let cls = ReadOnlyClassifier::classify("curl -o file.txt http://example.com");
+        assert!(cls.is_write());
     }
 
     #[test]
@@ -1205,6 +1243,25 @@ mod tests {
     }
 
     // ── wget ────────────────────────────────────────────────────────
+
+    #[test]
+    fn write_find_exec() {
+        let cls = ReadOnlyClassifier::classify("find . -name '*.log' -exec rm {} \\;");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_find_delete() {
+        let cls = ReadOnlyClassifier::classify("find /tmp -type f -delete");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_awk_system() {
+        let cls = ReadOnlyClassifier::classify("awk 'BEGIN { system(\"touch /tmp/pwned\") }'");
+        // Blocked by ShellSecurityChecker (Dangerous) or classify_awk (Write)
+        assert!(cls.is_dangerous() || cls.is_write());
+    }
 
     #[test]
     fn wget_download_is_write() {

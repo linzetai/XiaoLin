@@ -104,12 +104,12 @@ function ModelFormModal({
               <input value={form.key} onChange={(e) => patch("key", e.target.value)} disabled={!isNew} placeholder={t("placeholderKey")} className={inputCls} style={{ ...inputStyle, opacity: isNew ? 1 : 0.6 }} />
             </div>
             <div>
-              <label className={labelCls} style={labelStyle}>Provider</label>
+              <label className={labelCls} style={labelStyle}>{t("provider")}</label>
               <div className="relative">
                 <select value={form.provider} onChange={(e) => patch("provider", e.target.value)} className="select-premium select-mono">
-                  <option value="openai_compatible">OpenAI Compatible</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
+                  <option value="openai_compatible">{t("provider_openaiCompatible")}</option>
+                  <option value="openai">{t("provider_openai")}</option>
+                  <option value="anthropic">{t("provider_anthropic")}</option>
                 </select>
                 <CaretDown  className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" style={{ color: "var(--fill-tertiary)" }} />
               </div>
@@ -128,7 +128,7 @@ function ModelFormModal({
               }} placeholder={t("placeholderModel")} className={inputCls} style={inputStyle} />
             </div>
             <div>
-              <label className={labelCls} style={labelStyle}>Base URL</label>
+              <label className={labelCls} style={labelStyle}>{t("baseUrl")}</label>
               <input value={form.baseUrl} onChange={(e) => patch("baseUrl", e.target.value)} placeholder="https://api.openai.com/v1" className={inputCls} style={inputStyle} />
             </div>
           </div>
@@ -155,7 +155,7 @@ function ModelFormModal({
             </p>
           </div>
           <div>
-            <label className={labelCls} style={labelStyle}>API Key</label>
+            <label className={labelCls} style={labelStyle}>{t("apiKey")}</label>
             <div className="relative">
               <input
                 type={showApiKey ? "text" : "password"}
@@ -237,7 +237,7 @@ function ModelFormModal({
                             <button
                               key={tier.value}
                               type="button"
-                              title={`${tier.desc}（temperature = ${tier.value}）`}
+                              title={t("tempTooltip", { desc: tier.desc, value: tier.value })}
                               onClick={() => patch("temperature", tier.value)}
                               style={{
                                 flex: 1,

@@ -41,6 +41,8 @@
   "disconnect": "断开",
   "global": "全局",
   "project": "项目",
+  "scope_user": "用户",
+  "removeServer": "移除 {{name}}",
   "pending_title": "待审批的项目 MCP 服务器",
   "pending_desc": "以下 MCP 服务器来自项目配置，需要审批后才能启用",
   "approve": "批准",
@@ -132,7 +134,13 @@
     "cancel": "取消",
     "submit": "添加并连接",
     "submitting": "连接中…",
-    "submit_error": "添加失败，请检查配置后重试"
+    "submit_error": "添加失败，请检查配置后重试",
+    "transport": {
+      "stdio": "Stdio",
+      "sse": "SSE",
+      "streamable_http": "Streamable HTTP",
+      "websocket": "WebSocket"
+    }
   },
   "needs_auth_hint": "需要 OAuth 认证",
   "oauth_login": "登录",
@@ -141,5 +149,91 @@
     "submit": "提交",
     "cancel": "取消",
     "timeout_hint": "将在 {{minutes}} 分钟后自动关闭"
-  }
+  },
+  "selectSkillFolder": "选择技能文件夹",
+  "selectSkillZip": "选择技能 ZIP 文件",
+  "skills_sub": {
+    "installed": "已安装",
+    "marketplace": "市场"
+  },
+  "skills": {
+    "filter_skills": "技能 ({{count}})",
+    "filter_tools": "工具 ({{count}})",
+    "search_placeholder": "搜索技能…",
+    "no_match": "没有匹配的技能",
+    "no_installed": "暂无已安装技能",
+    "all_sources": "全部 ({{count}})",
+    "select_folder": "选择文件夹",
+    "select_zip": "选择 ZIP",
+    "evolved_title": "进化技能 ({{count}})",
+    "evolution_success": "成功率：{{rate}}%",
+    "evolution_used": "使用：{{count}} 次",
+    "evolution_sessions": "会话：{{count}}",
+    "promote": "提升",
+    "promoting": "提升中…",
+    "conditional": "条件",
+    "conditional_title": "条件：{{paths}}",
+    "disable_skill": "禁用技能",
+    "enable_skill": "启用技能",
+    "skill_not_found": "未找到技能",
+    "edit": "编辑",
+    "delete": "删除",
+    "tags": "标签：",
+    "tools_colon": "工具：",
+    "paths": "路径：",
+    "paths_conditional": "路径（条件）：",
+    "loading_detail": "加载中…",
+    "marketplace": {
+      "search_placeholder": "搜索市场技能…",
+      "loading": "加载市场中…",
+      "offline": "市场离线，显示缓存数据",
+      "no_found": "未找到技能",
+      "empty": "市场为空",
+      "try_different": "尝试其他搜索词",
+      "check_back": "稍后查看社区技能",
+      "install_failed": "安装失败：{{error}}",
+      "uninstall_failed": "卸载失败：{{error}}",
+      "by_author": "来自 {{author}}",
+      "installing": "安装中…",
+      "removing": "移除中…",
+      "install": "安装",
+      "remove": "移除",
+      "uninstall": "卸载",
+      "tags": "标签",
+      "repository": "代码仓库"
+    }
+  },
+  "channels_status": {
+    "disconnected": "已断开",
+    "configured": "已配置",
+    "available": "可用"
+  },
+  "channels_cap": {
+    "directMessage": "私信",
+    "groupChat": "群聊",
+    "media": "媒体",
+    "streaming": "流式",
+    "reactions": "表情回应",
+    "threads": "话题"
+  },
+  "channels": {
+    "saved_reloaded": "已保存并重新加载",
+    "restore_failed": "恢复失败",
+    "restore": "恢复",
+    "saving": "保存中…",
+    "save_reload": "保存并重新加载",
+    "edit": "编辑",
+    "configure_connect": "配置并连接",
+    "no_matching_tools": "没有匹配的工具",
+    "search": "搜索…",
+    "secret_placeholder": "••••••",
+    "qr_code_alt": "微信二维码",
+    "enter_code_placeholder": "输入验证码",
+    "cannot_get_qrcode": "无法获取二维码",
+    "enter_pair_code": "输入配对码",
+    "poll_failed": "轮询失败",
+    "start_failed": "启动失败",
+    "code_rejected": "验证码被拒绝"
+  },
+  "transport_http": "HTTP"
 }

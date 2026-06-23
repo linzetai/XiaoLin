@@ -8,13 +8,11 @@ import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption, type SlashCommand } from "./MentionInput";
 import { usePlanNudge } from "./usePlanNudge";
-import {
-  useChatMetaStore,
-  useQueueStore,
-  useActiveChatId,
-  useChatQueue,
-  useGoalStore,
-} from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useQueueStore } from "../../lib/stores/queue-store";
+import { useActiveChatId, useChatQueue } from "../../lib/stores/selectors";
+import { useGoalStore } from "../../lib/stores/goal-store";
+import { useComposerInputStore } from "../../lib/stores/composer-input-store";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
@@ -322,15 +320,16 @@ function ModeSelector({
   onSelectMode: (m: ComposerMode) => void;
   disabled: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const Icon = mode === "plan" ? Compass : mode === "goal" ? Crosshair : Code;
-  const label = mode === "plan" ? "Plan" : mode === "goal" ? "Goal" : "Agent";
+  const label = mode === "plan" ? t("modePlan") : mode === "goal" ? t("modeGoal") : t("modeAgent");
 
   const options: Array<{ id: ComposerMode; icon: typeof Code; label: string; color: string }> = [
-    { id: "agent", icon: Code, label: "Agent", color: "var(--tint)" },
-    { id: "plan", icon: Compass, label: "Plan", color: "var(--plan-tint)" },
-    { id: "goal", icon: Crosshair, label: "Goal", color: "var(--orange, #ED8936)" },
+    { id: "agent", icon: Code, label: t("modeAgent"), color: "var(--tint)" },
+    { id: "plan", icon: Compass, label: t("modePlan"), color: "var(--plan-tint)" },
+    { id: "goal", icon: Crosshair, label: t("modeGoal"), color: "var(--orange, #ED8936)" },
   ];
 
   const activeColor = options.find((o) => o.id === mode)?.color ?? "var(--fill-quaternary)";
@@ -433,13 +432,28 @@ export function ComposerCore({
 
   const activeChatId = useActiveChatId();
   const messageQueue = useChatQueue(activeChatId);
-  const updateQueuedMessage = useQueueStore((s) => s.updateQueuedMessage);
-  const removeQueuedMessage = useQueueStore((s) => s.removeQueuedMessage);
-  const reorderQueue = useQueueStore((s) => s.reorderQueue);
+  const pendingInsert = useComposerInputStore((s) => s.pendingInsert);
+  const clearPendingInsert = useComposerInputStore((s) => s.clearPending);
 
   useEffect(() => {
     if (streaming) setSendPending(false);
   }, [streaming]);
+
+  useEffect(() => {
+    if (!pendingInsert) return;
+    const input = mentionInputRef.current;
+    if (!input) return;
+    const current = input.getText();
+    const next =
+      pendingInsert.mode === "append"
+        ? (current ? `${current}\n\n` : "") + pendingInsert.text
+        : pendingInsert.text;
+    input.setText(next);
+    if (pendingInsert.focus) {
+      input.focus();
+    }
+    clearPendingInsert();
+  }, [pendingInsert, mentionInputRef, clearPendingInsert]);
 
   const executionMode = activeChat?.executionMode ?? "agent";
   const planFilePath = activeChat?.planFilePath;
@@ -452,6 +466,23 @@ export function ComposerCore({
     return !["completed", "failed", "cancelled"].includes(goal.status);
   });
 
+  const streamingRef = useRef(streaming);
+  streamingRef.current = streaming;
+  const executionModeRef = useRef(executionMode);
+  executionModeRef.current = executionMode;
+  const activeChatIdRef = useRef(activeChatId);
+  activeChatIdRef.current = activeChatId;
+  const activeChatSessionIdRef = useRef(activeChat?.id);
+  activeChatSessionIdRef.current = activeChat?.id;
+  const handleMentionSendRef = useRef(handleMentionSend);
+  handleMentionSendRef.current = handleMentionSend;
+  const handleNewTopicRef = useRef(handleNewTopic);
+  handleNewTopicRef.current = handleNewTopic;
+  const setWorkDirRef = useRef(setWorkDir);
+  setWorkDirRef.current = setWorkDir;
+  const tRef = useRef(t);
+  tRef.current = t;
+
   const composerMode: ComposerMode = isGoalMode
     ? "goal"
     : executionMode === "plan"
@@ -459,31 +490,33 @@ export function ComposerCore({
       : "agent";
 
   const handleCompact = useCallback(() => {
-    if (streaming) return;
-    handleMentionSend("/compact", []);
-  }, [streaming, handleMentionSend]);
+    if (streamingRef.current) return;
+    handleMentionSendRef.current("/compact", []);
+  }, []);
 
   const handleSkillify = useCallback(() => {
-    if (streaming) return;
-    handleMentionSend("/skillify", []);
-  }, [streaming, handleMentionSend]);
+    if (streamingRef.current) return;
+    handleMentionSendRef.current("/skillify", []);
+  }, []);
 
   const handleSelectMode = useCallback(async (newMode: ComposerMode) => {
-    if (streaming) return;
+    if (streamingRef.current) return;
+    const chatId = activeChatIdRef.current;
+    const sessionId = activeChatSessionIdRef.current;
+    const execMode = executionModeRef.current;
     if (newMode === "goal") {
-      if (activeChatId) {
-        useGoalStore.getState().setGoalMode(activeChatId, true);
+      if (chatId) {
+        useGoalStore.getState().setGoalMode(chatId, true);
       }
-      if (executionMode === "plan") {
-        const sessionId = activeChat?.id;
+      if (execMode === "plan") {
         const resp = await transport.setExecutionModeIpc("agent", sessionId ?? undefined);
         if (resp.ok) {
-          const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
-          setChatExecutionMode(chatId, "agent");
-          if (chatId) {
-            useStreamStore.getState().addBriefMessage(chatId, {
+          const { activeChatId: currentChatId, setChatExecutionMode } = useChatMetaStore.getState();
+          setChatExecutionMode(currentChatId, "agent");
+          if (currentChatId) {
+            useStreamStore.getState().addBriefMessage(currentChatId, {
               id: `mode-switch-${Date.now()}`,
-              content: t("slashPlanToggle_toAgent"),
+              content: tRef.current("slashPlanToggle_toAgent"),
               mode: "normal",
               timestamp: Date.now(),
             });
@@ -491,23 +524,22 @@ export function ComposerCore({
         }
       }
     } else {
-      if (activeChatId) {
-        useGoalStore.getState().setGoalMode(activeChatId, false);
+      if (chatId) {
+        useGoalStore.getState().setGoalMode(chatId, false);
       }
       const backendMode = newMode === "plan" ? "plan" : "agent";
-      if (backendMode !== executionMode) {
-        const sessionId = activeChat?.id;
+      if (backendMode !== execMode) {
         const resp = await transport.setExecutionModeIpc(backendMode, sessionId ?? undefined);
         if (resp.ok) {
-          const { activeChatId: chatId, setChatExecutionMode } = useChatMetaStore.getState();
-          setChatExecutionMode(chatId, backendMode);
+          const { activeChatId: currentChatId, setChatExecutionMode } = useChatMetaStore.getState();
+          setChatExecutionMode(currentChatId, backendMode);
           if (backendMode === "plan") {
             try { localStorage.setItem("xiaolin:plan-mode-ever-used", String(Date.now())); } catch {}
           }
-          if (chatId) {
-            useStreamStore.getState().addBriefMessage(chatId, {
+          if (currentChatId) {
+            useStreamStore.getState().addBriefMessage(currentChatId, {
               id: `mode-switch-${Date.now()}`,
-              content: backendMode === "plan" ? t("slashPlanToggle_toPlan") : t("slashPlanToggle_toAgent"),
+              content: backendMode === "plan" ? tRef.current("slashPlanToggle_toPlan") : tRef.current("slashPlanToggle_toAgent"),
               mode: "normal",
               timestamp: Date.now(),
             });
@@ -515,47 +547,55 @@ export function ComposerCore({
         }
       }
     }
-  }, [streaming, executionMode, activeChat?.id, activeChatId, t]);
+  }, []);
 
   const messageCount = useStreamStore((s) => (activeChatId ? (s.streams[activeChatId]?.length ?? 0) : 0));
   const discoveryNudge = usePlanNudge(inputText, inputMentions, executionMode, activeChatId ?? "", messageCount);
+
+  const discoveryNudgeRef = useRef(discoveryNudge);
+  discoveryNudgeRef.current = discoveryNudge;
 
   const planShortcutHandler = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isMod = e.metaKey || e.ctrlKey;
     if (isMod && e.shiftKey && (e.key === "P" || e.key === "p")) {
       e.preventDefault();
-      if (!streaming) {
-        handleSelectMode(executionMode === "plan" ? "agent" : "plan");
+      if (!streamingRef.current) {
+        handleSelectMode(executionModeRef.current === "plan" ? "agent" : "plan");
       }
       return true;
     }
-    if (e.key === "Escape" && discoveryNudge.visible) {
-      discoveryNudge.dismiss();
+    if (e.key === "Escape" && discoveryNudgeRef.current.visible) {
+      discoveryNudgeRef.current.dismiss();
       return true;
     }
     return false;
-  }, [streaming, executionMode, handleSelectMode, discoveryNudge]);
+  }, [handleSelectMode]);
 
   const handlePlanSlash = useCallback(() => {
-    if (streaming) return;
-    handleSelectMode(executionMode === "plan" ? "agent" : "plan");
-  }, [streaming, handleSelectMode, executionMode]);
+    if (streamingRef.current) return;
+    handleSelectMode(executionModeRef.current === "plan" ? "agent" : "plan");
+  }, [handleSelectMode]);
 
   const handleExportMd = useCallback(async () => {
-    const chatId = activeChat?.id;
+    const chatId = activeChatSessionIdRef.current;
     if (!chatId) return;
     await api.exportSession(chatId, "markdown");
-  }, [activeChat?.id]);
+  }, []);
 
   const handleExportJson = useCallback(async () => {
-    const chatId = activeChat?.id;
+    const chatId = activeChatSessionIdRef.current;
     if (!chatId) return;
     await api.exportSession(chatId, "json");
-  }, [activeChat?.id]);
+  }, []);
+
+  const handleNewTopicAction = useCallback(() => {
+    if (streamingRef.current) return;
+    handleNewTopicRef.current();
+  }, []);
 
   const slashCommands = useMemo((): SlashCommand[] => [
-    { id: "new", label: "new", desc: t("slashNew"), action: handleNewTopic },
-    { id: "clear", label: "clear", desc: t("slashClear"), action: handleNewTopic },
+    { id: "new", label: "new", desc: t("slashNew"), action: handleNewTopicAction },
+    { id: "clear", label: "clear", desc: t("slashClear"), action: handleNewTopicAction },
     { id: "compact", label: "compact", desc: t("slashCompact"), action: handleCompact },
     { id: "skillify", label: "skillify", desc: t("slashSkillify"), action: handleSkillify },
     { id: "plan", label: "plan", desc: executionMode === "plan" ? t("slashPlanToggle_toAgent") : t("slashPlanToggle_toPlan"), action: handlePlanSlash },
@@ -563,7 +603,7 @@ export function ComposerCore({
     { id: "export-json", label: "export json", desc: t("slashExportJson"), action: handleExportJson },
     { id: "model", label: "model", desc: t("slashModel") },
     { id: "tools", label: "tools", desc: t("slashTools") },
-  ], [t, handleNewTopic, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson, executionMode]);
+  ], [t, executionMode, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson, handleNewTopicAction]);
 
   const handleInputTextChange = useCallback((text: string, mentions: InlineMention[]) => {
     setInputText(text);
@@ -576,12 +616,13 @@ export function ComposerCore({
     setInputText("");
     setInputMentions([]);
     const storeState = useGoalStore.getState();
-    const currentGoalMode = activeChatId ? !!storeState.goalMode[activeChatId] : false;
-    const currentGoal = activeChatId ? storeState.goals[activeChatId] : undefined;
+    const chatId = activeChatIdRef.current;
+    const currentGoalMode = chatId ? !!storeState.goalMode[chatId] : false;
+    const currentGoal = chatId ? storeState.goals[chatId] : undefined;
     const goalActive = currentGoal && !["completed", "failed", "cancelled"].includes(currentGoal.status);
     const shouldCreateGoal = currentGoalMode && !goalActive && txt.trim() && !txt.startsWith("/");
-    handleMentionSend(txt, mentions, shouldCreateGoal ? { goalMode: true } : undefined);
-  }, [handleMentionSend, activeChatId]);
+    handleMentionSendRef.current(txt, mentions, shouldCreateGoal ? { goalMode: true } : undefined);
+  }, []);
 
   const defaultRecall = useCallback((): string | null => null, []);
   const handleRecallLastMessage = onRecallLastMessage ?? defaultRecall;
@@ -597,12 +638,12 @@ export function ComposerCore({
       const { open: tauriOpenDialog } = await import("@tauri-apps/plugin-dialog");
       selected = await tauriOpenDialog({ directory: true, multiple: false, defaultPath: curChat.workDir ?? undefined }) as string | null;
     } catch {
-      selected = prompt(t("enterWorkDir"), curChat.workDir ?? "");
+      selected = prompt(tRef.current("enterWorkDir"), curChat.workDir ?? "");
     }
     if (typeof selected === "string" && selected) {
-      setWorkDir("", chatId, selected);
+      setWorkDirRef.current("", chatId, selected);
     }
-  }, [setWorkDir, t]);
+  }, []);
 
   const handleSendClick = useCallback(() => {
     const ref = mentionInputRef.current;
@@ -645,14 +686,15 @@ export function ComposerCore({
     && activeChatId != null && !nudgeDismissed.has(activeChatId);
 
   const dismissNudge = useCallback(() => {
-    if (!activeChatId) return;
+    const chatId = activeChatIdRef.current;
+    if (!chatId) return;
     setNudgeDismissed((prev) => {
       const next = new Set(prev);
-      next.add(activeChatId);
+      next.add(chatId);
       try { localStorage.setItem("xiaolin:plan-nudge-dismissed", JSON.stringify([...next])); } catch {}
       return next;
     });
-  }, [activeChatId]);
+  }, []);
 
   const [nudgeHovered, setNudgeHovered] = useState(false);
   useEffect(() => {
@@ -754,10 +796,10 @@ export function ComposerCore({
         {queueExpanded && messageQueue.length > 0 && (
           <QueuePanel
             queue={messageQueue}
-            onEdit={(id, content) => updateQueuedMessage(activeChatId, id, { content })}
-            onRemove={(id) => removeQueuedMessage(activeChatId, id)}
-            onReorder={(from, to) => reorderQueue(activeChatId, from, to)}
-            onRetry={(id) => updateQueuedMessage(activeChatId, id, { status: "pending", error: undefined })}
+            onEdit={(id, content) => useQueueStore.getState().updateQueuedMessage(activeChatId, id, { content })}
+            onRemove={(id) => useQueueStore.getState().removeQueuedMessage(activeChatId, id)}
+            onReorder={(from, to) => useQueueStore.getState().reorderQueue(activeChatId, from, to)}
+            onRetry={(id) => useQueueStore.getState().updateQueuedMessage(activeChatId, id, { status: "pending", error: undefined })}
           />
         )}
 
@@ -796,7 +838,7 @@ export function ComposerCore({
             style={{ background: "color-mix(in srgb, var(--orange, #ED8936) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 15%, transparent)", color: "var(--orange, #ED8936)" }}
           >
             <Crosshair className="shrink-0" />
-            <span>Goal 模式 — 描述目标后将自主工作直到完成</span>
+            <span>{t("goalModeBanner")}</span>
           </div>
         )}
         {executionMode === "agent" && planFileExists && planFilePath && (
@@ -813,7 +855,7 @@ export function ComposerCore({
         <div style={{ padding: "11px 14px 6px" }}>
           <MentionInput
             ref={mentionInputRef}
-            placeholder={streaming ? t("placeholderStreaming") : isGoalMode && !hasActiveGoal ? "描述你的目标，按 Enter 开始自主工作..." : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
+            placeholder={streaming ? t("placeholderStreaming") : isGoalMode && !hasActiveGoal ? t("placeholderGoal") : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
             options={mentionOptions}
             slashCommands={slashCommands}
             onSend={wrappedSend}

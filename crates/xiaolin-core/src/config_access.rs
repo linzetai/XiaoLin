@@ -1,4 +1,67 @@
+use serde::de::DeserializeOwned;
 use serde_json::json;
+
+use crate::credential_crypto::SECRET_CONFIG_KEYS;
+
+/// Read and deserialize a top-level section from a live config snapshot.
+///
+/// Returns `T::default()` when the section is missing or fails to deserialize.
+pub fn read_live_section<T: DeserializeOwned + Default>(
+    live: &serde_json::Value,
+    section: &str,
+) -> T {
+    live.get(section)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Read a nested field, falling back to `fallback` when missing or invalid.
+pub fn read_live_field_or<T: DeserializeOwned>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+    fallback: T,
+) -> T {
+    live.get(section)
+        .and_then(|s| s.get(field))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(fallback)
+}
+
+/// Like [`read_live_field_or`], but logs a warning when deserialization fails.
+pub fn read_live_field_or_warn<T: DeserializeOwned>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+    fallback: T,
+) -> T {
+    match live.get(section).and_then(|s| s.get(field)) {
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(
+                    section,
+                    field,
+                    error = %e,
+                    "failed to deserialize live config field, using static fallback"
+                );
+                fallback
+            }
+        },
+        None => fallback,
+    }
+}
+
+/// Read and deserialize a nested field from a live config snapshot.
+///
+/// Example: `read_live_field(live, "skills", "deny")` → `Vec<String>`.
+pub fn read_live_field<T: DeserializeOwned + Default>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+) -> T {
+    read_live_field_or(live, section, field, T::default())
+}
 
 /// Safe config keys that UIs and tool endpoints are allowed to read.
 pub const CONFIG_READABLE_KEYS: &[&str] = &[
@@ -121,7 +184,8 @@ pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Resul
         json!({})
     };
 
-    set_nested_key(&mut cfg_value, key, value.clone())
+    let encrypted_value = crate::credential_crypto::encrypt_config_secrets(value)?;
+    set_nested_key(&mut cfg_value, key, encrypted_value)
         .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
 
     if let Some(parent) = cfg_path.parent() {
@@ -156,8 +220,7 @@ pub fn mask_secret_values(val: &serde_json::Value) -> serde_json::Value {
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
-                let is_secret =
-                    k == "apiKey" || k == "api_key" || k == "appSecret" || k == "app_secret";
+                let is_secret = SECRET_CONFIG_KEYS.contains(&k.as_str());
                 if is_secret {
                     if let Some(s) = v.as_str() {
                         out.insert(k.clone(), masked_secret(s));

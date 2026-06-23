@@ -20,10 +20,12 @@ chrono.workspace = true
 uuid.workspace = true
 axum.workspace = true
 futures.workspace = true
-hmac.workspace = true
 sha2.workspace = true
 prost.workspace = true
 tokio-tungstenite = { workspace = true, features = ["native-tls"] }
 rand = "0.8"
 base64 = "0.22"
 dashmap.workspace = true
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hex = "0.4"

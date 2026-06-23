@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback, memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, PencilSimple } from "@phosphor-icons/react";
-import type { ChatMessage } from "../../lib/agent-store";
+import type { ChatMessage } from "../../lib/stores/types";
 import { openLightbox } from "../common/ImageLightbox";
 
-const REF_PATTERN = /\n\n\[(引用|附件): ([^\]]+)\]$/;
+const REF_PATTERN = /\n\n\[(引用|附件|Reference|Attachment): ([^\]]+)\]$/;
 
 function parseUserContent(content: string): { text: string; tags: Array<{ type: string; items: string[] }> } {
   const tags: Array<{ type: string; items: string[] }> = [];
@@ -87,11 +87,11 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
           <div className="mt-2 flex flex-wrap gap-1.5">
             {msg.images.map((img, i) => (
               <img
-                key={i} src={img.url} alt={img.alt || "attached image"}
+                key={i} src={img.url} alt={img.alt || t("attachedImage")}
                 className="cursor-pointer rounded-md object-cover"
                 style={{ maxHeight: 200, maxWidth: "100%", border: "0.5px solid var(--separator)" }}
                 loading="lazy"
-                onClick={() => openLightbox(img.url, img.alt || "attached image")}
+                onClick={() => openLightbox(img.url, img.alt || t("attachedImage"))}
               />
             ))}
           </div>
@@ -107,7 +107,7 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
                   style={{ background: "color-mix(in srgb, var(--fill-primary) 6%, transparent)", color: "var(--fill-secondary)" }}
                 >
                   <span className="max-w-[120px] truncate">
-                    {tag.type === "引用" ? t("refTag") : tag.type === "附件" ? t("attachTag") : tag.type}: {item}
+                    {(tag.type === "引用" || tag.type === "Reference") ? t("refTag") : (tag.type === "附件" || tag.type === "Attachment") ? t("attachTag") : tag.type}: {item}
                   </span>
                 </span>
               ))

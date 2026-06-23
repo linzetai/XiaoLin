@@ -105,7 +105,7 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
           <path d="M3.5 2L7 5L3.5 8" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span className="opacity-70">
-          {isActive ? t("reasoning_streaming", "思考中...") : t("reasoning_done", "思考过程")}
+          {isActive ? t("reasoning_streaming") : t("reasoning_done")}
         </span>
         {displayTime && <span className="ml-1 tabular-nums opacity-50">{displayTime}</span>}
       </button>

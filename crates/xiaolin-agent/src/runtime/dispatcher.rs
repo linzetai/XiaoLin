@@ -571,7 +571,11 @@ impl ToolDispatcher {
         };
 
         match self.orchestrator.run(rt.as_ref(), &args, &mut orch_ctx).await {
-            Ok(orch_result) => ToolResult::ok(orch_result.output),
+            Ok(orch_result) => {
+                let mut result = ToolResult::ok(orch_result.output);
+                result.metadata = orch_result.metadata;
+                result
+            }
             Err(xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason }) => {
                 ToolResult::err(format!("Denied: {reason}"))
             }

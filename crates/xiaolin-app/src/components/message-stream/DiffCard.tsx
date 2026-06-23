@@ -211,7 +211,7 @@ export function DiffCard({ result, args }: { result: string; args?: string }) {
           <DiffStatBadge added={editResult.linesAdded} removed={editResult.linesRemoved} />
           <button
             type="button"
-            title={t("viewFile", { defaultValue: "View file" })}
+            title={t("viewFile")}
             onClick={handleViewFile}
             className="shrink-0"
             style={{

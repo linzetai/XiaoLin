@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowsClockwise, CheckCircle, XCircle, Lightning, Clock, CurrencyDollar, ChatText } from "@phosphor-icons/react";
 import { useCostStore, type TokenUsageDaily, type ToolCallDaily, type SessionCostSummary } from "../../lib/stores/cost-store";
 
@@ -44,6 +45,7 @@ function SectionTitle({ children, action }: { children: React.ReactNode; action?
 }
 
 function TrendChart({ data }: { data: TokenUsageDaily[] }) {
+  const { t } = useTranslation("cost");
   const grouped = useMemo(() => {
     const map = new Map<string, { input: number; output: number; cache: number; cost: number }>();
     for (const row of data) {
@@ -62,7 +64,7 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
   if (grouped.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-        暂无消耗数据
+        {t("costNoUsageData")}
       </div>
     );
   }
@@ -72,9 +74,9 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
   return (
     <div className="px-4 py-4">
       <div className="mb-3 flex items-center gap-4 text-[10px]" style={{ color: "var(--fill-tertiary)" }}>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--tint)" }} />输入</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--green)" }} />输出</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--fill-quaternary)", opacity: 0.4 }} />cache命中</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--tint)" }} />{t("costInput")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--green)" }} />{t("costOutput")}</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--fill-quaternary)", opacity: 0.4 }} />{t("costCacheHit")}</span>
       </div>
       <div className="relative flex items-end gap-[4px]" style={{ height: 100 }}>
         {grouped.map(([date, v]) => {
@@ -101,9 +103,9 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
                 }}
               >
                 <div className="mb-1 font-medium" style={{ color: "var(--fill-primary)" }}>{date}</div>
-                <div>输入: {formatTokens(v.input)}</div>
-                <div>输出: {formatTokens(v.output)}</div>
-                {v.cache > 0 && <div>cache: {formatTokens(v.cache)}</div>}
+                <div>{t("costInputAmount", { amount: formatTokens(v.input) })}</div>
+                <div>{t("costOutputAmount", { amount: formatTokens(v.output) })}</div>
+                {v.cache > 0 && <div>{t("costCacheAmount", { amount: formatTokens(v.cache) })}</div>}
                 <div className="mt-0.5 font-medium">{formatUsd(v.cost)}</div>
               </div>
             </div>
@@ -119,6 +121,7 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
 }
 
 function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
+  const { t } = useTranslation("cost");
   const totals = useMemo(() => {
     let input = 0, output = 0, cache = 0;
     for (const row of data) {
@@ -132,7 +135,7 @@ function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
   if (totals.total === 0) {
     return (
       <div className="px-4 py-8 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-        暂无数据
+        {t("costNoData")}
       </div>
     );
   }
@@ -147,7 +150,7 @@ function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
         <div className="text-[22px] font-bold tabular-nums" style={{ color: "var(--fill-primary)" }}>
           {formatTokens(totals.total)}
         </div>
-        <div className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>总 Token</div>
+        <div className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>{t("costTotalTokens")}</div>
       </div>
       <div className="mb-3 flex h-2 overflow-hidden rounded-full">
         <div style={{ width: `${inputPct}%`, background: "var(--tint)" }} />
@@ -157,19 +160,19 @@ function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
       <div className="space-y-1.5 text-[11px]">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5" style={{ color: "var(--fill-secondary)" }}>
-            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--tint)" }} />输入
+            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--tint)" }} />{t("costInput")}
           </span>
           <span className="tabular-nums" style={{ color: "var(--fill-primary)" }}>{formatTokens(totals.input)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5" style={{ color: "var(--fill-secondary)" }}>
-            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--green)" }} />输出
+            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--green)" }} />{t("costOutput")}
           </span>
           <span className="tabular-nums" style={{ color: "var(--fill-primary)" }}>{formatTokens(totals.output)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5" style={{ color: "var(--fill-secondary)" }}>
-            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--fill-quaternary)", opacity: 0.4 }} />cache命中
+            <span className="inline-block h-2 w-2 rounded-[1px]" style={{ background: "var(--fill-quaternary)", opacity: 0.4 }} />{t("costCacheHit")}
           </span>
           <span className="tabular-nums" style={{ color: "var(--fill-primary)" }}>{formatTokens(totals.cache)}</span>
         </div>
@@ -179,6 +182,7 @@ function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
 }
 
 function ToolTable({ data }: { data: ToolCallDaily[] }) {
+  const { t } = useTranslation("cost");
   const sorted = useMemo(() => {
     const agg = new Map<string, { success: number; failure: number; duration: number }>();
     for (const row of data) {
@@ -196,7 +200,7 @@ function ToolTable({ data }: { data: ToolCallDaily[] }) {
   if (sorted.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-        暂无工具调用数据
+        {t("costNoToolData")}
       </div>
     );
   }
@@ -237,10 +241,11 @@ function ToolTable({ data }: { data: ToolCallDaily[] }) {
 }
 
 function SessionTable({ data }: { data: SessionCostSummary[] }) {
+  const { t } = useTranslation("cost");
   if (data.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-        暂无会话记录
+        {t("costNoSessionData")}
       </div>
     );
   }
@@ -250,12 +255,12 @@ function SessionTable({ data }: { data: SessionCostSummary[] }) {
       <table className="w-full">
         <thead>
           <tr style={{ borderBottom: "0.5px solid var(--separator-opaque)" }}>
-            <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>日期</th>
-            <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>模型</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>Input</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>Output</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>费用</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>轮次</th>
+            <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costDate")}</th>
+            <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costModel")}</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costInput")}</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costOutput")}</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costFee")}</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costTurns")}</th>
           </tr>
         </thead>
         <tbody>
@@ -288,7 +293,13 @@ function SessionTable({ data }: { data: SessionCostSummary[] }) {
 }
 
 export function CostDashboard() {
-  const { summary, dailyTokens, toolStats, sessions, loading, fetchAll } = useCostStore();
+  const { t } = useTranslation("cost");
+  const summary = useCostStore((s) => s.summary);
+  const dailyTokens = useCostStore((s) => s.dailyTokens);
+  const toolStats = useCostStore((s) => s.toolStats);
+  const sessions = useCostStore((s) => s.sessions);
+  const loading = useCostStore((s) => s.loading);
+  const fetchAll = useCostStore((s) => s.fetchAll);
   const [rangeStart] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -309,7 +320,7 @@ export function CostDashboard() {
     <div className="space-y-5">
       {/* Top Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>全局概览</h2>
+        <h2 className="text-[13px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("costOverview")}</h2>
         <button
           onClick={() => fetchAll(rangeStart)}
           disabled={loading}
@@ -317,16 +328,16 @@ export function CostDashboard() {
           style={{ color: "var(--fill-tertiary)" }}
         >
           <ArrowsClockwise size={12} className={loading ? "animate-spin" : ""} />
-          刷新数据
+          {t("costRefresh")}
         </button>
       </div>
 
       {/* Stats Cards Row */}
       <div className="grid grid-cols-4 gap-2.5">
-        <StatCard icon={<Lightning size={13} />} label="Token 用量" value={formatTokens(totalTokens)} />
-        <StatCard icon={<CurrencyDollar size={13} />} label="费用消耗" value={formatUsd(summary?.total_cost_usd ?? 0)} sub={`今日 ${formatUsd(summary?.today_cost_usd ?? 0)}`} />
-        <StatCard icon={<ChatText size={13} />} label="会话数" value={String(sessionCount)} />
-        <StatCard icon={<Clock size={13} />} label="LLM 调用" value={formatTokens(dailyTokens.reduce((a, r) => a + r.call_count, 0))} sub="次" />
+        <StatCard icon={<Lightning size={13} />} label={t("costTokenUsage")} value={formatTokens(totalTokens)} />
+        <StatCard icon={<CurrencyDollar size={13} />} label={t("costSpend")} value={formatUsd(summary?.total_cost_usd ?? 0)} sub={t("costTodaySpend", { amount: formatUsd(summary?.today_cost_usd ?? 0) })} />
+        <StatCard icon={<ChatText size={13} />} label={t("costSessionCount")} value={String(sessionCount)} />
+        <StatCard icon={<Clock size={13} />} label={t("costLlmCalls")} value={formatTokens(dailyTokens.reduce((a, r) => a + r.call_count, 0))} sub={t("costTimes")} />
       </div>
 
       {/* Trend + Composition Row */}
@@ -335,21 +346,21 @@ export function CostDashboard() {
           className="col-span-2 overflow-visible rounded-[var(--radius-sm)]"
           style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
         >
-          <div className="px-4 pt-3 text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>趋势分析</div>
+          <div className="px-4 pt-3 text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>{t("costTrendAnalysis")}</div>
           <TrendChart data={dailyTokens} />
         </div>
         <div
           className="rounded-[var(--radius-sm)]"
           style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}
         >
-          <div className="px-4 pt-3 text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>Token 构成</div>
+          <div className="px-4 pt-3 text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>{t("costTokenComposition")}</div>
           <TokenComposition data={dailyTokens} />
         </div>
       </div>
 
       {/* Tool Stats */}
       <div>
-        <SectionTitle>工具调用统计</SectionTitle>
+        <SectionTitle>{t("costToolStats")}</SectionTitle>
         <div className="rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
           <ToolTable data={toolStats} />
         </div>
@@ -357,7 +368,7 @@ export function CostDashboard() {
 
       {/* Session Detail Table */}
       <div>
-        <SectionTitle>用量明细</SectionTitle>
+        <SectionTitle>{t("costUsageDetail")}</SectionTitle>
         <div className="rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
           <SessionTable data={sessions} />
         </div>

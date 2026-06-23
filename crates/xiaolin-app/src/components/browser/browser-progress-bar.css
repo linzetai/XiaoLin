@@ -1,0 +1,57 @@
+@keyframes browser-progress-load {
+  0% {
+    width: 0%;
+    animation-timing-function: ease-out;
+  }
+  1.96% {
+    width: 30%;
+    animation-timing-function: ease-out;
+  }
+  21.57% {
+    width: 60%;
+    animation-timing-function: linear;
+  }
+  100% {
+    width: 85%;
+  }
+}
+
+@keyframes browser-progress-trickle {
+  0%,
+  100% {
+    width: 83%;
+  }
+  50% {
+    width: 87%;
+  }
+}
+
+@keyframes browser-progress-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.browser-progress-bar__fill--loading {
+  animation: browser-progress-load 10.2s forwards;
+}
+
+.browser-progress-bar__fill--trickling {
+  width: 85%;
+  animation: browser-progress-trickle 1.5s ease-in-out infinite;
+}
+
+.browser-progress-bar__fill--completing {
+  /* Actual transition handled by useLayoutEffect to animate from current computed width */
+}
+
+.browser-progress-bar__fill--done {
+  width: 100%;
+}
+
+.browser-progress-bar--fading {
+  animation: browser-progress-fade 150ms forwards;
+}

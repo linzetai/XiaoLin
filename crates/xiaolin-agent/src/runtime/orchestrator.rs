@@ -353,8 +353,9 @@ impl ToolOrchestrator {
         let _ = progress_fwd.await;
 
         match run_result {
-            Ok(output) => Ok(OrchestratorResult {
-                output,
+            Ok(run_output) => Ok(OrchestratorResult {
+                output: run_output.output,
+                metadata: run_output.metadata,
                 decision_source,
                 sandbox_used: sandbox.sandbox_type,
             }),
@@ -374,9 +375,10 @@ impl ToolOrchestrator {
                         cwd: ctx.cwd.to_path_buf(),
                         progress_tx: None,
                     };
-                    let output = runtime.run(args, &no_sandbox, &escalation_ctx).await?;
+                    let run_output = runtime.run(args, &no_sandbox, &escalation_ctx).await?;
                     Ok(OrchestratorResult {
-                        output,
+                        output: run_output.output,
+                        metadata: run_output.metadata,
                         decision_source,
                         sandbox_used: SandboxBackend::None,
                     })
@@ -1110,8 +1112,8 @@ decision = "allow"
             _args: &serde_json::Value,
             _sandbox: &SandboxAttempt,
             _ctx: &ToolExecContext,
-        ) -> Result<String, ToolRuntimeError> {
-            Ok(self.output.clone())
+        ) -> Result<ToolRunOutput, ToolRuntimeError> {
+            Ok(ToolRunOutput::plain(self.output.clone()))
         }
         fn name(&self) -> &str {
             "mock"

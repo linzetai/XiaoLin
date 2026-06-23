@@ -23,11 +23,11 @@ interface AddServerModalProps {
   };
 }
 
-const TRANSPORT_OPTIONS: { value: TransportType; label: string; icon: typeof Terminal }[] = [
-  { value: "stdio", label: "Stdio", icon: Terminal },
-  { value: "sse", label: "SSE", icon: Globe },
-  { value: "streamable_http", label: "Streamable HTTP", icon: Lightning },
-  { value: "websocket", label: "WebSocket", icon: ArrowsClockwise },
+const TRANSPORT_OPTIONS: { value: TransportType; labelKey: string; icon: typeof Terminal }[] = [
+  { value: "stdio", labelKey: "add_modal.transport.stdio", icon: Terminal },
+  { value: "sse", labelKey: "add_modal.transport.sse", icon: Globe },
+  { value: "streamable_http", labelKey: "add_modal.transport.streamable_http", icon: Lightning },
+  { value: "websocket", labelKey: "add_modal.transport.websocket", icon: ArrowsClockwise },
 ];
 
 export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) {
@@ -218,7 +218,7 @@ export function AddServerModal({ open, onClose, prefill }: AddServerModalProps) 
                     }}
                   >
                     <Icon size={ICON_SIZE.xs} weight={active ? "bold" : "regular"} />
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </button>
                 );
               })}

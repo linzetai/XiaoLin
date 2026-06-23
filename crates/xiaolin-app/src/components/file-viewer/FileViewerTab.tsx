@@ -67,7 +67,7 @@ function FileEmptyState({
   workDir: string | null;
   onBrowse: () => void;
 }) {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation("fileViewer");
 
   return (
     <div
@@ -85,11 +85,11 @@ function FileEmptyState({
     >
       <FileIcon size={40} weight="thin" style={{ opacity: 0.4 }} />
       <p style={{ margin: 0, fontSize: 13, color: "var(--fill-secondary)" }}>
-        {t("filesEmpty", { defaultValue: "No files yet" })}
+        {t("filesEmpty")}
       </p>
       {!workDir && (
         <p style={{ margin: 0, fontSize: 12, opacity: 0.7, textAlign: "center" }}>
-          {t("setWorkDir", { ns: "chat", defaultValue: "Set a working directory to browse files." })}
+          {t("setWorkDir", { ns: "chat" })}
         </p>
       )}
       {workDir && (
@@ -116,7 +116,7 @@ function FileEmptyState({
           }}
         >
           <FolderOpen size={14} />
-          {t("browseWorkDir", { defaultValue: "Browse working directory" })}
+          {t("browseWorkDir")}
         </button>
       )}
     </div>
@@ -124,7 +124,7 @@ function FileEmptyState({
 }
 
 export function FileViewerTab() {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation("fileViewer");
   const workDir = useChatMetaStore((s) => s.chats[s.activeChatId]?.workDir ?? null);
   const panelWidth = useWorkspaceTabs((s) => s.panelWidth);
 
@@ -268,7 +268,7 @@ export function FileViewerTab() {
               flexShrink: 0,
             }}
           >
-            <span>{lastOpenError}</span>
+            <span>{t(lastOpenError)}</span>
             <button
               type="button"
               style={{
@@ -280,7 +280,7 @@ export function FileViewerTab() {
               }}
               onClick={clearOpenError}
             >
-              {t("dismiss", { defaultValue: "Dismiss" })}
+              {t("dismiss")}
             </button>
           </div>
         )}
@@ -309,7 +309,7 @@ export function FileViewerTab() {
                   flexShrink: 0,
                 }}
               >
-                <span>{t("fileModified", { defaultValue: "This file has been modified by the agent." })}</span>
+                <span>{t("fileModified")}</span>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     type="button"
@@ -325,7 +325,7 @@ export function FileViewerTab() {
                       if (activeFilePath && workDir) void reloadFile(activeFilePath, workDir);
                     }}
                   >
-                    {t("reloadFile", { defaultValue: "Reload" })}
+                    {t("reloadFile")}
                   </button>
                   <button
                     type="button"
@@ -340,7 +340,7 @@ export function FileViewerTab() {
                       if (activeFilePath) dismissStale(activeFilePath);
                     }}
                   >
-                    {t("dismiss", { defaultValue: "Dismiss" })}
+                    {t("dismiss")}
                   </button>
                 </div>
               </div>
@@ -368,7 +368,7 @@ export function FileViewerTab() {
               padding: 16,
             }}
           >
-            {t("filesSelectHint", { defaultValue: "Select a file from the list" })}
+            {t("filesSelectHint")}
           </div>
         )}
       </div>

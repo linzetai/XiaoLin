@@ -461,12 +461,18 @@ fn spawn_cron_scheduler(state: AppState) {
             method: Option<&str>,
             body: Option<&serde_json::Value>,
         ) -> anyhow::Result<()> {
-            xiaolin_security::ssrf::ssrf_check_url(url)
+            let parsed = url::Url::parse(url)
+                .map_err(|e| anyhow::anyhow!("invalid cron webhook URL: {e}"))?;
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("cron webhook URL has no host"))?;
+            let verified_addrs = xiaolin_security::ssrf::ssrf_check_parsed_url_pinned(&parsed)
                 .map_err(|e| anyhow::anyhow!("SSRF check failed for cron webhook: {e}"))?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .redirect(xiaolin_security::ssrf::ssrf_safe_redirect_policy())
-                .build()?;
+            let client = xiaolin_security::ssrf::build_pinned_client(host, &verified_addrs, |b| {
+                b.timeout(std::time::Duration::from_secs(30))
+                    .redirect(xiaolin_security::ssrf::ssrf_safe_redirect_policy())
+            })
+            .map_err(|e| anyhow::anyhow!("failed to build pinned webhook client: {e}"))?;
             let req = match method.unwrap_or("POST") {
                 "GET" => client.get(url),
                 "PUT" => client.put(url),

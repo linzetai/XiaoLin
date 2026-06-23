@@ -2,6 +2,7 @@ mod client;
 mod oauth;
 mod plugin;
 mod webhook;
+mod webhook_security;
 
 pub mod channel;
 pub mod commands;

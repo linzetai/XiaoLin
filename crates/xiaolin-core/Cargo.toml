@@ -32,6 +32,8 @@ tar = "0.4"
 tempfile = "3"
 parking_lot = "0.12"
 blake3 = "1.8.5"
+aes-gcm = "0.10"
+base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

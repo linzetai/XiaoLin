@@ -1,4 +1,5 @@
 import { useState, useCallback, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { CaretRight } from "@phosphor-icons/react";
 import type { FileChangeSummary } from "./edit-result-utils";
 
@@ -34,6 +35,7 @@ const rowStyle: CSSProperties = {
 };
 
 export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const visibleFiles = expanded ? summary.files : summary.files.slice(0, VISIBLE_LIMIT);
   const hiddenCount = summary.files.length - VISIBLE_LIMIT;
@@ -49,7 +51,7 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
   return (
     <div style={cardStyle}>
       <div style={topStyle}>
-        <span>{summary.totalFiles} file{summary.totalFiles > 1 ? "s" : ""} changed</span>
+        <span>{t("fileChanges_count", { count: summary.totalFiles })}</span>
         {(summary.totalAdded > 0 || summary.totalRemoved > 0) && (
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginLeft: 6 }}>
             <span style={{ color: "var(--green-text, var(--green))" }}>+{summary.totalAdded}</span>
@@ -60,7 +62,7 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
         <button
           type="button"
           disabled
-          title="Undo is not yet available"
+          title={t("fileChanges_undoUnavailable")}
           style={{
             marginLeft: "auto",
             fontSize: 11,
@@ -73,7 +75,7 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
             opacity: 0.5,
           }}
         >
-          Undo
+          {t("fileChanges_undo")}
         </button>
       </div>
 
@@ -132,7 +134,7 @@ export function FileChangesCard({ summary }: { summary: FileChangeSummary }) {
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
-          show {hiddenCount} more
+          {t("fileChanges_showMore", { count: hiddenCount })}
         </div>
       )}
     </div>

@@ -1,9 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useStreamStore } from "../../lib/stores/stream-store";
+import { useGoalStore } from "../../lib/stores/goal-store";
+import { useSearchStore } from "../../lib/stores/search-store";
 import {
-  useChatMetaStore,
-  useStreamStore,
   useActiveChatId,
   useActiveChatMeta,
   useActiveStream,
@@ -11,9 +13,7 @@ import {
   useChatLastSegments,
   useChatUsage,
   useActiveGoal,
-  useGoalStore,
-  useSearchStore,
-} from "../../lib/stores";
+} from "../../lib/stores/selectors";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
 import { MessageRendererRow } from "./MessageRenderer";
@@ -294,8 +294,8 @@ export function MessageStream(_props: MessageStreamProps) {
       }
     } else {
       opts.push(
-        { id: "s-web-search", label: "Web Search", type: "skill", desc: t("webSearch") },
-        { id: "s-code-exec", label: "Code Execution", type: "skill", desc: t("codeExec") },
+        { id: "s-web-search", label: t("skill_webSearch"), type: "skill", desc: t("webSearch") },
+        { id: "s-code-exec", label: t("skill_codeExec"), type: "skill", desc: t("codeExec") },
       );
     }
     return opts;
@@ -469,6 +469,13 @@ export function MessageStream(_props: MessageStreamProps) {
     scrollEndThreshold: 120,
     useFlushSync: false,
   });
+
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  const measureElementRef = useCallback((node: Element | null) => {
+    virtualizerRef.current.measureElement(node);
+  }, []);
 
   useLayoutEffect(() => {
     virtualizer.scrollToEnd();
@@ -906,7 +913,7 @@ export function MessageStream(_props: MessageStreamProps) {
               {virtualizer.getVirtualItems().map((virtualItem) => (
                 <div
                   key={virtualItem.key}
-                  ref={virtualizer.measureElement}
+                  ref={measureElementRef}
                   data-index={virtualItem.index}
                   style={{
                     position: "absolute",

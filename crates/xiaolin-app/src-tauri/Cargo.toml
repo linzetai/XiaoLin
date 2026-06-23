@@ -17,7 +17,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "macos-proxy", "unstable"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-shell = "2"
@@ -31,6 +31,7 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 
 uuid = { workspace = true }
+dashmap.workspace = true
 dirs = { workspace = true }
 json5 = { workspace = true }
 chrono = { workspace = true }
@@ -40,7 +41,10 @@ cron = "0.12"
 xiaolin-core = { path = "../../xiaolin-core" }
 xiaolin-protocol = { path = "../../xiaolin-protocol" }
 xiaolin-gateway = { path = "../../xiaolin-gateway" }
-xiaolin-agent = { path = "../../xiaolin-agent" }
+xiaolin-agent = { path = "../../xiaolin-agent", features = ["browser"] }
+xiaolin-tools-browser = { path = "../../xiaolin-tools-browser" }
+async-trait = "0.1"
+xiaolin-network-proxy = { path = "../../xiaolin-network-proxy" }
 xiaolin-cron = { path = "../../xiaolin-cron" }
 xiaolin-observe = { path = "../../xiaolin-observe" }
 xiaolin-security = { path = "../../xiaolin-security" }
@@ -66,3 +70,7 @@ futures = "0.3"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", features = ["v3_24"] }
+webkit2gtk = { version = "2", features = ["v2_40"] }

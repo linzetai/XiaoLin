@@ -297,6 +297,7 @@ pub async fn setup_chat(
         request.work_dir.as_deref(),
         &mut enriched_request.messages,
     );
+    inject_browser_context_prompt(&mut enriched_request.messages);
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
     inject_mcp_instructions_delta(state, &mut enriched_request.messages).await;
     tracing::info!(
@@ -650,25 +651,19 @@ async fn inject_skills_prompt(
     let (prompt_mode, context_budget_percent) = {
         let live = state.cfg.config_live.load();
         let static_cfg = &state.cfg.config.skills;
-        if let Some(skills) = live.get("skills") {
-            let prompt_mode = skills
-                .get("promptMode")
-                .and_then(|v| {
-                    serde_json::from_value::<xiaolin_core::config::SkillPromptMode>(v.clone()).ok()
-                })
-                .unwrap_or(static_cfg.prompt_mode.clone());
-            let context_budget_percent = skills
-                .get("contextBudgetPercent")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u8)
-                .unwrap_or(static_cfg.context_budget_percent);
-            (prompt_mode, context_budget_percent)
-        } else {
-            (
-                static_cfg.prompt_mode.clone(),
-                static_cfg.context_budget_percent,
-            )
-        }
+        let prompt_mode = xiaolin_core::config_access::read_live_field_or(
+            &live,
+            "skills",
+            "promptMode",
+            static_cfg.prompt_mode.clone(),
+        );
+        let context_budget_percent = xiaolin_core::config_access::read_live_field_or(
+            &live,
+            "skills",
+            "contextBudgetPercent",
+            static_cfg.context_budget_percent,
+        );
+        (prompt_mode, context_budget_percent)
     };
 
     let mut touched = xiaolin_core::skill::extract_touched_paths(messages);
@@ -711,9 +706,7 @@ async fn inject_skills_prompt(
     let char_budget = if context_budget_percent == 0 {
         None
     } else {
-        context_window.map(|cw| {
-            (cw as usize) * (context_budget_percent as usize) / 100 * 4
-        })
+        context_window.map(|cw| (cw as usize) * (context_budget_percent as usize) / 100)
     };
 
     let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
@@ -806,6 +799,20 @@ Guidance:\n\
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
         ..Default::default()
+        },
+    );
+}
+
+fn inject_browser_context_prompt(messages: &mut Vec<ChatMessage>) {
+    let Some(prompt) = xiaolin_agent::builtin_tools::browser::browser_context_for_prompt() else {
+        return;
+    };
+    messages.insert(
+        0,
+        ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(prompt)),
+            ..Default::default()
         },
     );
 }

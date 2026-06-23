@@ -3,7 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt, SandboxPreference, Sandboxable,
-    ToolExecContext, ToolRuntime, ToolRuntimeError,
+    ToolExecContext, ToolRuntime, ToolRuntimeError, ToolRunOutput,
 };
 use xiaolin_protocol::approval::PendingAction;
 
@@ -124,7 +124,7 @@ impl ToolRuntime for FileWriteRuntime {
         args: &serde_json::Value,
         _sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError> {
+    ) -> Result<ToolRunOutput, ToolRuntimeError> {
         let path_str = Self::extract_path(args).ok_or_else(|| ToolRuntimeError::Internal {
             message: "missing 'file_path' (or 'path') argument".into(),
         })?;
@@ -159,14 +159,18 @@ impl ToolRuntime for FileWriteRuntime {
                 || path.canonicalize().ok().zip(plan_path.canonicalize().ok())
                     .is_some_and(|(a, b)| a == b);
             if is_plan {
-                return Ok(format!(
+                return Ok(ToolRunOutput::plain(format!(
                     "Plan updated — {} (view in Plan panel)",
                     path.display()
-                ));
+                )));
             }
         }
 
-        Ok(format!("wrote {} bytes to {}", content.len(), path.display()))
+        Ok(ToolRunOutput::plain(format!(
+            "wrote {} bytes to {}",
+            content.len(),
+            path.display()
+        )))
     }
 
     fn name(&self) -> &str {
@@ -235,7 +239,7 @@ impl ToolRuntime for FileEditRuntime {
         args: &serde_json::Value,
         _sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError> {
+    ) -> Result<ToolRunOutput, ToolRuntimeError> {
         let path_str =
             Self::extract_path(args).ok_or_else(|| ToolRuntimeError::Internal {
                 message: "missing 'file_path' (or 'path') argument".into(),
@@ -279,7 +283,7 @@ impl ToolRuntime for FileEditRuntime {
                 message: format!("failed to write file: {e}"),
             })?;
 
-        Ok(format!("edited {}", path.display()))
+        Ok(ToolRunOutput::plain(format!("edited {}", path.display())))
     }
 
     fn name(&self) -> &str {

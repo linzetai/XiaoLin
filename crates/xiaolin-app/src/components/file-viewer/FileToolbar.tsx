@@ -44,7 +44,7 @@ export const FileToolbar = memo(function FileToolbar({
   onWordWrapChange,
   onViewModeChange,
 }: FileToolbarProps) {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation("fileViewer");
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -105,7 +105,7 @@ export const FileToolbar = memo(function FileToolbar({
       <button
         type="button"
         style={iconBtnStyle}
-        title={copied ? t("copied", { defaultValue: "Copied" }) : t("copyContent", { defaultValue: "Copy content" })}
+        title={copied ? t("copied") : t("copyContent")}
         onClick={() => void handleCopy()}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "var(--bg-hover)";
@@ -122,7 +122,7 @@ export const FileToolbar = memo(function FileToolbar({
       <button
         type="button"
         style={iconBtnStyle}
-        title={t("openExternal", { defaultValue: "Open in external app" })}
+        title={t("openExternal")}
         onClick={() => void handleOpenExternal()}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "var(--bg-hover)";
@@ -144,7 +144,7 @@ export const FileToolbar = memo(function FileToolbar({
             color: wordWrap ? "var(--fill-primary)" : "var(--fill-tertiary)",
             background: wordWrap ? "var(--bg-hover)" : "transparent",
           }}
-          title={t("wordWrap", { defaultValue: "Toggle word wrap" })}
+          title={t("wordWrap")}
           onClick={() => onWordWrapChange(!wordWrap)}
           onMouseEnter={(e) => {
             if (!wordWrap) {
@@ -172,8 +172,8 @@ export const FileToolbar = memo(function FileToolbar({
           }}
           title={
             isPreview
-              ? t("viewSource", { defaultValue: "View source" })
-              : t("viewPreview", { defaultValue: "View preview" })
+              ? t("viewSource")
+              : t("viewPreview")
           }
           onClick={() => onViewModeChange(isPreview ? "code" : "preview")}
           onMouseEnter={(e) => {

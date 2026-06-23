@@ -3,6 +3,7 @@ import * as api from "../api";
 import type { ModelInfo } from "../transport";
 
 export type FontSize = "small" | "standard" | "large" | "xlarge";
+export type ChatLinkTarget = "builtin" | "external";
 
 export const FONT_SIZE_MAP: Record<FontSize, number> = {
   small: 13,
@@ -15,6 +16,7 @@ export interface DisplayConfig {
   toolCallGroupThreshold: number;
   fontSize: FontSize;
   showLineNumbers: boolean;
+  chatLinkTarget: ChatLinkTarget;
 }
 
 export interface ConfigStoreState {
@@ -30,6 +32,7 @@ const DEFAULT_DISPLAY: DisplayConfig = {
   toolCallGroupThreshold: 3,
   fontSize: "standard",
   showLineNumbers: true,
+  chatLinkTarget: "builtin",
 };
 
 function applyFontSize(size: FontSize) {

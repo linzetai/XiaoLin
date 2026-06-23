@@ -16,6 +16,8 @@ pub struct ProxyResponse {
     pub body: serde_json::Value,
 }
 
+const MAX_PROXY_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+
 fn validate_proxy_path(path: &str) -> Result<(), String> {
     if path.contains("..") {
         return Err("path must not contain '..'".into());
@@ -76,7 +78,27 @@ pub async fn http_proxy(
     })?;
 
     let status = resp.status().as_u16();
-    let body: serde_json::Value = match resp.json().await {
+    let raw = resp.bytes().await.map_err(|e| {
+        tracing::warn!(
+            error = %e,
+            method = %request.method,
+            path = %request.path,
+            status,
+            "http_proxy: failed to read response body"
+        );
+        String::from("proxy request failed")
+    })?;
+    if raw.len() > MAX_PROXY_RESPONSE_BYTES {
+        tracing::warn!(
+            size = raw.len(),
+            method = %request.method,
+            path = %request.path,
+            status,
+            "http_proxy: response body too large"
+        );
+        return Err("response too large".into());
+    }
+    let body: serde_json::Value = match serde_json::from_slice(&raw) {
         Ok(body) => body,
         Err(e) => {
             tracing::warn!(

@@ -1,34 +1,39 @@
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Clock, Timer, Calendar, CalendarBlank, GearSix } from "@phosphor-icons/react";
 
 const PRESETS = [
-  { id: "daily_9", label: "Daily 9:00", cron: "0 9 * * *", icon: Clock },
-  { id: "hourly", label: "Every hour", cron: "0 * * * *", icon: Timer },
-  { id: "every_4h", label: "Every 4 hours", cron: "0 */4 * * *", icon: CalendarBlank },
-  { id: "weekly_mon", label: "Weekly Mon", cron: "0 9 * * 1", icon: Calendar },
-  { id: "custom", label: "Custom", cron: "", icon: GearSix },
+  { id: "daily_9", labelKey: "presetDaily9", cron: "0 9 * * *", icon: Clock },
+  { id: "hourly", labelKey: "presetHourly", cron: "0 * * * *", icon: Timer },
+  { id: "every_4h", labelKey: "presetEvery4h", cron: "0 */4 * * *", icon: CalendarBlank },
+  { id: "weekly_mon", labelKey: "presetWeeklyMon", cron: "0 9 * * 1", icon: Calendar },
+  { id: "custom", labelKey: "presetCustom", cron: "", icon: GearSix },
 ] as const;
 
-export function cronToHuman(cron: string): string {
+const DAY_KEYS = ["daySun", "dayMon", "dayTue", "dayWed", "dayThu", "dayFri", "daySat"] as const;
+
+type CronTr = (key: string, opts?: Record<string, unknown>) => string;
+
+export function cronToHuman(cron: string, t: CronTr): string {
   const parts = cron.trim().split(/\s+/);
   if (parts.length < 5) return cron;
 
   const [min, hour, dom, mon, dow] = parts;
 
-  if (min === "0" && hour === "*" && dom === "*" && mon === "*" && dow === "*") return "Every hour at :00";
-  if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`;
-  if (min === "0" && hour.startsWith("*/")) return `Every ${hour.slice(2)} hours`;
-  if (hour.startsWith("*/")) return `Every ${hour.slice(2)} hours at :${min.padStart(2, "0")}`;
+  if (min === "0" && hour === "*" && dom === "*" && mon === "*" && dow === "*") return t("cronEveryHourAtZero");
+  if (min.startsWith("*/")) return t("cronEveryMinutes", { count: min.slice(2) });
+  if (min === "0" && hour.startsWith("*/")) return t("cronEveryHours", { count: hour.slice(2) });
+  if (hour.startsWith("*/")) return t("cronEveryHoursAtMin", { count: hour.slice(2), min: min.padStart(2, "0") });
 
   const time = `${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
 
-  if (dom === "*" && mon === "*" && dow === "*") return `Daily at ${time}`;
+  if (dom === "*" && mon === "*" && dow === "*") return t("cronDailyAt", { time });
 
-  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   if (dom === "*" && mon === "*" && dow !== "*") {
     const dayIdx = parseInt(dow, 10);
-    const dayName = DAYS[dayIdx] ?? dow;
-    return `Weekly ${dayName} at ${time}`;
+    const dayKey = DAY_KEYS[dayIdx];
+    const dayName = dayKey ? t(dayKey) : dow;
+    return t("cronWeeklyAt", { day: dayName, time });
   }
 
   return cron;
@@ -46,6 +51,7 @@ interface CronScheduleHelperProps {
 }
 
 export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps) {
+  const { t } = useTranslation("automation");
   const matchedPreset = PRESETS.find((p) => p.cron === value);
   const [mode, setMode] = useState<string>(matchedPreset?.id ?? "custom");
 
@@ -82,7 +88,7 @@ export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps)
               aria-pressed={active}
             >
               <Icon size={11} weight="regular" />
-              {p.label}
+              {t(p.labelKey)}
             </button>
           );
         })}
@@ -92,7 +98,7 @@ export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps)
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="* * * * * (min hour dom mon dow)"
+          placeholder={t("cronPlaceholder")}
           className="auto-input px-3 py-2 text-[13px] font-mono outline-none transition-all duration-150 rounded-[var(--radius-xs)]"
           style={{
             background: "var(--bg-primary)",
@@ -105,7 +111,7 @@ export function CronScheduleHelper({ value, onChange }: CronScheduleHelperProps)
       <div className="flex items-center gap-2 text-[10px]">
         <Clock size={10} style={{ color: "var(--fill-quaternary)" }} />
         <span style={{ color: isCustomInvalid ? "var(--red, #E53E3E)" : "var(--fill-quaternary)" }}>
-          {isCustomInvalid ? "Invalid cron expression" : cronToHuman(value)}
+          {isCustomInvalid ? t("invalidCron") : cronToHuman(value, t)}
         </span>
       </div>
     </div>

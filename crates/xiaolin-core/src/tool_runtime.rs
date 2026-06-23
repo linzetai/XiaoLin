@@ -198,11 +198,31 @@ pub enum DecisionSource {
     NotRequired,
 }
 
+/// Output from a tool runtime execution, including optional UI metadata.
+#[derive(Debug, Clone)]
+pub struct ToolRunOutput {
+    /// The tool's output as a string (for inclusion in LLM messages).
+    pub output: String,
+    /// Structured metadata for the UI (not sent to the LLM).
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl ToolRunOutput {
+    pub fn plain(output: impl Into<String>) -> Self {
+        Self {
+            output: output.into(),
+            metadata: None,
+        }
+    }
+}
+
 /// Result of a successful orchestrated execution.
 #[derive(Debug, Clone)]
 pub struct OrchestratorResult {
     /// The tool's output as a string (for inclusion in LLM messages).
     pub output: String,
+    /// Structured metadata for the UI (e.g. sandbox degradation flags).
+    pub metadata: Option<serde_json::Value>,
     /// How the approval was resolved.
     pub decision_source: DecisionSource,
     /// Which sandbox backend was used.
@@ -261,7 +281,7 @@ pub trait ToolRuntime: Approvable + Sandboxable + Send + Sync {
         args: &serde_json::Value,
         sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError>;
+    ) -> Result<ToolRunOutput, ToolRuntimeError>;
 
     /// Human-readable name for logging/diagnostics.
     fn name(&self) -> &str;

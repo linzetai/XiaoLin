@@ -40,7 +40,6 @@ pub struct FeishuPluginConfig {
     #[serde(default = "default_reply_mode")]
     pub reply_mode: String,
     /// User access token for user-scoped Open APIs (tasks, bitable, docx, calendar, media).
-    // TODO: encrypt at rest — user_access_token is stored in plaintext channel config on disk.
     #[serde(default)]
     pub user_access_token: Option<String>,
     /// When true, allow webhooks without a configured verification_token (dev/test only).
@@ -65,15 +64,38 @@ fn default_reply_mode() -> String {
 }
 
 impl FeishuPluginConfig {
+    fn decrypt_secret_field(value: &str, field: &str) -> Option<String> {
+        match xiaolin_core::credential_crypto::decrypt_credential(value) {
+            Ok(v) if !v.is_empty() => Some(v),
+            Ok(_) => {
+                tracing::error!(field, "feishu channel secret decrypted to empty value");
+                None
+            }
+            Err(e) => {
+                tracing::error!(field, error = %e, "failed to decrypt feishu channel secret");
+                None
+            }
+        }
+    }
+
+    fn decrypt_optional_secret(value: &Option<String>, field: &str) -> Option<String> {
+        value
+            .as_ref()
+            .and_then(|s| Self::decrypt_secret_field(s, field))
+    }
+
     /// Create from JSON channel config. All fields must be provided in the config file.
     pub fn from_channel_config(cfg: &xiaolin_core::config::ChannelConfig) -> Option<Self> {
         let app_id = cfg.app_id.clone()?;
-        let app_secret = cfg.app_secret.clone()?;
+        let app_secret = cfg
+            .app_secret
+            .as_ref()
+            .and_then(|s| Self::decrypt_secret_field(s, "app_secret"))?;
         Some(Self {
             app_id,
             app_secret,
-            verification_token: cfg.verification_token.clone(),
-            encrypt_key: cfg.encrypt_key.clone(),
+            verification_token: Self::decrypt_optional_secret(&cfg.verification_token, "verification_token"),
+            encrypt_key: Self::decrypt_optional_secret(&cfg.encrypt_key, "encrypt_key"),
             agent_id: cfg.agent_id.clone().unwrap_or_else(|| "main".to_string()),
             connection_mode: cfg
                 .connection_mode
@@ -87,7 +109,7 @@ impl FeishuPluginConfig {
                 .reply_mode
                 .clone()
                 .unwrap_or_else(|| "mention_only".to_string()),
-            user_access_token: cfg.user_access_token.clone(),
+            user_access_token: Self::decrypt_optional_secret(&cfg.user_access_token, "user_access_token"),
             allow_insecure_webhook: cfg.allow_insecure_webhook.unwrap_or(false),
         })
     }
@@ -377,11 +399,19 @@ impl ChannelPlugin for FeishuPlugin {
 
     async fn verify_webhook(
         &self,
-        _headers: &BTreeMap<String, String>,
+        headers: &BTreeMap<String, String>,
         raw_body: &[u8],
     ) -> anyhow::Result<()> {
-        let payload: serde_json::Value = serde_json::from_slice(raw_body)
-            .map_err(|e| anyhow::anyhow!("invalid webhook payload: {e}"))?;
+        use crate::webhook_security::{parse_webhook_payload, verify_lark_webhook_headers};
+
+        verify_lark_webhook_headers(
+            headers,
+            self.config.encrypt_key.as_deref(),
+            self.config.allow_insecure_webhook,
+            raw_body,
+        )?;
+
+        let payload = parse_webhook_payload(self.config.encrypt_key.as_deref(), raw_body)?;
         let token = payload
             .get("token")
             .and_then(|v| v.as_str())
@@ -685,6 +715,13 @@ impl ChannelPlugin for FeishuPlugin {
 
     fn supports_interactive_questions(&self) -> bool {
         true
+    }
+
+    fn parse_webhook_payload(&self, raw_body: &[u8]) -> anyhow::Result<serde_json::Value> {
+        crate::webhook_security::parse_webhook_payload(
+            self.config.encrypt_key.as_deref(),
+            raw_body,
+        )
     }
 }
 

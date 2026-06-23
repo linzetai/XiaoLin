@@ -66,7 +66,8 @@ function parseApprovalData(q: NonNullable<PendingToolQuestion>): ApprovalData {
       content: meta.content,
       diff: meta.diff,
     } : {
-      action_type: q.question.includes("操作类型:") ? q.question.split("操作类型:")[1]?.trim() : undefined,
+      action_type: q.question.includes("操作类型:") ? q.question.split("操作类型:")[1]?.trim()
+        : q.question.includes("Action type:") ? q.question.split("Action type:")[1]?.trim() : undefined,
     },
     decisions: q.options,
     riskLevel: meta?.riskLevel ?? "medium",

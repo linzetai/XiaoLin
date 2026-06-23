@@ -38,10 +38,16 @@ impl GatewayProcess {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            if let Err(e) =
-                xiaolin_gateway::run_with_listener(config, listener, shutdown_rx).await
-            {
-                tracing::error!("embedded gateway error: {e}");
+            match xiaolin_gateway::AppState::new(config).await {
+                Ok(state) => {
+                    xiaolin_tools_browser::set_network_ws_broadcast(state.strm.ws_broadcast.clone());
+                    if let Err(e) =
+                        xiaolin_gateway::serve_with_state(state, listener, shutdown_rx).await
+                    {
+                        tracing::error!("embedded gateway error: {e}");
+                    }
+                }
+                Err(e) => tracing::error!("embedded gateway init error: {e}"),
             }
         });
 

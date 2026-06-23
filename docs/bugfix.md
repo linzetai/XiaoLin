@@ -321,10 +321,13 @@
 #### ✅ [HIGH] Chrome 启动超时后线程泄漏
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:318-329`
 
-#### ✅ [MEDIUM] sandbox(false) 禁用 Chrome 沙箱
-- **文件**: `crates/xiaolin-tools-browser/src/lib.rs:305-307`
+#### ✅ FIXED 🔴 [MEDIUM] CDP Chrome sandbox 硬编码 disabled
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L274-300
+- **问题**：`launch_fresh_browser` 始终 `sandbox(false)`，桌面非 headless 场景也禁用沙箱
+- **修复记录**：2026-06-23 `XIAOLIN_CDP_SANDBOX` 环境变量覆盖；默认 headless 关闭、非 headless 启用
 
-#### ✅ [MEDIUM] validate_output_path symlink 绕过风险
+#### ✅ FIXED 🟡 [MEDIUM] validate_output_path symlink 绕过风险
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:472-475`
 
 #### ✅ [MEDIUM] kill_orphan_chrome 使用 kill -9 可能误杀
@@ -332,6 +335,34 @@
 
 #### ✅ [LOW] 全局 Mutex 阻塞所有浏览器操作
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:54-55`
+
+#### ✅ FIXED 🔴 [HIGH] WebView bridge `open_page` / `screenshot` / `list_pages` stub
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_bridge.rs`
+- **问题**：`open_page`/`screenshot` 为 stub；`list_pages` 返回 enumerate 索引而非 UUID pageId
+- **修复记录**：2026-06-23 复用 `create_browser_page`；JS canvas/SVG 截图 fallback；`list_pages` 使用真实 `page_id`
+
+#### ✅ FIXED 🔴 [HIGH] user_takeover 未连通后端
+- **状态**：✅ FIXED
+- **文件**：`browser_bridge.rs`, `webview_engine.rs`, `commands/browser.rs`, `browser-store.ts`
+- **问题**：「取回控制」仅改前端 state，Agent 仍继续执行
+- **修复记录**：2026-06-23 `AtomicBool` + `browser_request_takeover` IPC；`dispatch_sync` fail-closed
+
+#### ✅ FIXED 🔴 [HIGH] `user_action_blocked` 不在协议白名单
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`
+- **修复记录**：2026-06-23 加入 `ALLOWED_INTERNAL_MESSAGE_TYPES` 并映射到 `browser-user-action`
+
+#### ✅ FIXED 🔴 [HIGH] WebView 交互类 action 为 stub
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/webview_engine.rs`
+- **问题**：fill_form/type_text/press_key/drag/select/upload_file/interact 未实现
+- **修复记录**：2026-06-23 JS 注入实现全部交互 action
+
+#### ✅ FIXED 🟡 [MEDIUM] CDP drag 路径未 validate_uid
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L1254
+- **修复记录**：2026-06-23 drag 前对 from_uid/to_uid 调用 validate_uid
 
 ---
 
@@ -800,6 +831,8 @@
 
 #### ✅ [MEDIUM] user_access_token 明文存于 channel 配置
 - **文件**: `extensions/feishu/src/plugin.rs:44, 89`
+- **修复记录**: 2026-06-23 `from_channel_config` + `persist_config_key` 字段级加密 app_secret/user_access_token 等
+
 
 #### ✅ [MEDIUM] WS 文本解析比 Webhook 更严格，可能导致不一致
 - **文件**: `extensions/feishu/src/ws/transport.rs:211-214`
@@ -816,6 +849,126 @@
 
 #### ✅ [MEDIUM] Bot token 明文落盘
 - **文件**: `extensions/wechat/src/auth/credential.rs:6-8`
+- **修复记录**: 2026-06-23 凭证文件整体 AES-256-GCM 加密（`XENC:` 前缀，向后兼容明文）
+
+#### BUG-001 🔴 凭证明文落盘（规则 #23）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs`
+- **关联文件**：`config.rs`, `config_access.rs`, `extensions/wechat/src/auth/credential.rs`, `extensions/feishu/src/plugin.rs`
+- **问题**：飞书 app_secret/user_access_token、微信 bot token、LLM API keys 等以明文 JSON 写入磁盘
+- **影响**：本地文件读取即可获取全部 channel/LLM 凭证
+- **建议**：机器 ID 派生密钥 + AES-256-GCM 字段级/文件级加密，`XENC:` 前缀区分已加密值
+- **相关规则**：code-generation-quality #23
+- **修复记录**：2026-06-23 新增 `credential_crypto` 模块；`load_config`/`persist_config_key` 透明加解密；微信凭证文件加密；飞书 channel 敏感字段解密
+
+#### BUG-002 🔴 SSRF DNS Rebinding（规则 #41）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-security/src/ssrf.rs`
+- **关联文件**：`crates/xiaolin-tools-network/src/lib.rs`, `crates/xiaolin-gateway/src/lib.rs`
+- **问题**：`ssrf_check_parsed_url` 校验时解析 DNS 并检查私有 IP，但后续 `reqwest` 连接会再次独立解析，攻击者可在检查通过后切换 DNS 到内网 IP
+- **影响**：`http_fetch`/`web_fetch`/Searxng/cron webhook 等出站 HTTP 工具可被 DNS rebinding 绕过 SSRF 防护
+- **建议**：SSRF 校验返回已验证 IP，`build_pinned_client` 通过 `resolve_to_addrs` 固定 DNS 解析结果
+- **相关规则**：code-generation-quality #41
+- **修复记录**：2026-06-23 新增 `ssrf_check_*_pinned` + `build_pinned_client`；network/gateway 调用方改为 per-request pinned client
+
+#### BUG-003 🔴 加密失败静默回退明文（规则 #21、#23）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs` L156-165
+- **关联文件**：`extensions/wechat/src/auth/credential.rs`
+- **问题**：`maybe_encrypt_credential` 与微信 `save_credential` 在 AES 加密失败时仍写入明文凭证
+- **影响**：加密机制故障时凭证以明文落盘，用户无感知
+- **建议**：加密失败返回 `Err`，由调用方决定是否中止保存
+- **相关规则**：code-generation-quality #21、#23
+- **修复记录**：2026-06-23 `maybe_encrypt_credential` 改为 `Result<String>`；`encrypt_config_secrets` 传播错误；微信凭证保存失败即返回 Err
+
+#### BUG-004 🟡 解密失败注入密文到运行时（规则 #28）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs` L177-181；`extensions/feishu/src/plugin.rs` L67-72
+- **问题**：`decrypt_config_secrets` / 飞书 `decrypt_secret_field` 解密失败时将 `XENC:...` 密文当作 secret 注入，API 调用静默失败
+- **影响**：配置损坏或密钥变更后 channel/LLM 调用失败且难以诊断
+- **建议**：解密失败时设为空字符串并 `tracing::error!`
+- **相关规则**：code-generation-quality #28
+- **修复记录**：2026-06-23 R3 复审：`decrypt_config_secrets` 解密 `XENC:` 失败返回 `Err` 阻断启动；飞书 `decrypt_secret_field` 失败返回 `None` 跳过 channel
+
+#### BUG-006 🔴 Feishu webhook 无 encrypt_key 时跳过签名校验（规则 #44）
+
+- **状态**：✅ FIXED
+- **文件**：`extensions/feishu/src/webhook_security.rs` L113-122
+- **问题**：`verify_lark_webhook_headers` 在 `encrypt_key` 未配置时 `return Ok(())`，回退到 body 内 token 比对，攻击者可伪造 webhook
+- **影响**：未配置 encrypt_key 的部署可被伪造/重放 webhook 事件
+- **建议**：默认 fail-closed；仅 `allow_insecure_webhook=true` 时允许 token-only 校验并 warn
+- **相关规则**：code-generation-quality #44
+- **修复记录**：2026-06-23 R3 复审：新增 `allow_insecure_webhook` 参数，默认要求 encrypt_key
+
+#### BUG-007 🟡 IPC/API 错误消息泄露内部细节
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-gateway/src/routes/channel.rs` L54-55；`crates/xiaolin-app/src-tauri/src/commands/clipboard.rs` L136-168
+- **问题**：webhook 解析与 clipboard 写入错误将内部解析/IO 细节返回给前端
+- **影响**：信息泄露，违反规则 #43
+- **建议**：用户侧固定文案，详情写 `tracing::warn!`
+- **相关规则**：code-generation-quality #43
+- **修复记录**：2026-06-23 R3 复审：统一为 `"invalid webhook payload"` / `"invalid image data"` / `"failed to write clipboard"`
+
+#### BUG-008 🟡 skill 目录复制 symlink 绕过
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/skill.rs` L291-304
+- **问题**：`copy_dir_recursive` 使用 `entry.file_type()` 跟随 symlink，可复制允许根目录外文件
+- **影响**：恶意 zip/目录可通过 symlink 逃逸 skills 目录白名单
+- **建议**：使用 `symlink_metadata`，遇到 symlink 跳过或拒绝
+- **修复记录**：2026-06-23 R3 复审：改用 `symlink_metadata` 并跳过 symlink
+
+#### BUG-005 🟡 read_live_field deny list fail-open
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-gateway/src/ws/skills.rs`；`crates/xiaolin-gateway/src/state/mod.rs`
+- **问题**：`read_live_field("deny")` 反序列化失败时返回空 Vec，被 deny 的 skill 可能被错误启用
+- **影响**：损坏的 live config 导致 deny list 失效
+- **建议**：反序列化失败时 warn 并回退静态 `config.skills.deny`
+- **修复记录**：2026-06-23 新增 `read_live_field_or_warn`，deny list 三处调用改为静态回退
+
+#### BUG-009 🔴 CDP Chrome sandbox 硬编码 disabled
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L274-300
+- **问题**：`launch_fresh_browser` 始终 `sandbox(false)`，桌面非 headless 场景也禁用 Chrome 沙箱
+- **影响**：桌面用户浏览器进程缺少 OS 级沙箱隔离
+- **建议**：`XIAOLIN_CDP_SANDBOX` 环境变量；默认 headless 关闭、非 headless 启用
+- **修复记录**：2026-06-23 实现环境变量覆盖与条件 warn 日志
+
+#### BUG-010 🔴 BrowserEngine 缺少 action 能力查询
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/mod.rs`；`webview_engine.rs`；`lib.rs`
+- **问题**：WebView 引擎不支持 drag/pdf/emulate 等 action，但 `execute_action` 无前置检查，返回 stub 错误
+- **影响**：Agent 调用不支持的 action 时错误信息不明确
+- **建议**：`BrowserEngine::supported_actions()` + `BrowserTool::execute` 前置 capability check
+- **修复记录**：2026-06-23 trait 默认方法 + WebView 覆盖 + execute 前置校验
+
+#### BUG-011 🔴 syncFromBackend 覆盖前端独有状态
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/lib/stores/browser-store.ts` L332-349
+- **问题**：`syncFromBackend` 全量替换 `pages`，丢失 `agentControlled` 和 `faviconUrl`
+- **影响**：后端同步后 Agent 控制状态与 favicon 闪烁/丢失
+- **建议**：merge 模式保留前端独有字段
+- **修复记录**：2026-06-23 merge 时保留 `agentControlled` 和 `faviconUrl`
+
+#### BUG-012 🔴 加载失败页无重试入口
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserPlaceholder.tsx` L90-108
+- **关联文件**：`i18n/locales/zh/browser.json`；`i18n/locales/en/browser.json`
+- **问题**：failed 状态 overlay 设置 `pointerEvents: none`，用户无法重试加载
+- **影响**：页面加载失败后只能关闭重开标签
+- **建议**：添加重试按钮调用 `browserReload`
+- **修复记录**：2026-06-23 移除 pointerEvents 限制，添加 retry 按钮与 i18n
+
 
 #### ✅ [MEDIUM] ContextTokenCache 无容量上限
 - **文件**: `extensions/wechat/src/plugin.rs:90-98`
@@ -848,13 +1001,162 @@
 | 路径白名单 | `filesystem.rs` 的 `ensure_within_workspace` + lexical `..` 处理 |
 | Shell 注入 | `shell_security.rs` 正则 + AST 双路径 |
 | 子进程超时 | `search_via_ripgrep` 30s timeout；PTY Drop kill |
-| SSRF（network） | `http_fetch`/`web_fetch` 使用 `ssrf_check_url` |
+| SSRF（network） | `http_fetch`/`web_fetch`/Searxng/webhook 使用 DNS pinning（`ssrf_check_*_pinned` + `build_pinned_client`） |
 | Guardian fail-closed | disabled/unavailable/LLM 失败/超时均 deny |
 | 持久化 hash | evolution/context 用 `blake3` |
 | ForgetPolicy | episodic memory 有完善的淘汰策略 |
 | PTY 子进程清理 | `cleanup_idle_sessions` + Drop + kill 已调用 |
 
 ---
+
+#### BUG-E2E-1 🔴 创建 Browser 子 WebView 导致 IPC 死锁
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L228-292
+- **问题**：`create_browser_page` 在 `with_manager` 持有 `BrowserPanelState` mutex 的闭包内调用 `window.add_child()`。`add_child()` 需要 GTK main thread 参与，而新 WebView 的 `on_navigation` 回调也在 GTK main thread 上同步触发并尝试获取同一个 mutex → 经典死锁。第一个页面创建成功（因为还没有回调竞争），第二个页面永久阻塞所有 IPC。
+- **影响**：创建第一个 browser 页面后，所有后续 Tauri IPC 调用永久挂起
+- **修复记录**：将 `window.add_child()` 从 mutex 持有范围内移出。先释放 lock → 创建 WebView → 再重新获取 lock 添加 page。
+- **相关规则**：code-generation-quality #4 (State 字段初始化)
+
+#### BUG-E2E-2 🔴 IPC 创建页面不通知前端 Store
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` + `crates/xiaolin-app/src/lib/stores/browser-store.ts`
+- **问题**：`create_browser_page` 后端成功创建页面但未 emit 事件通知前端。前端 `browser-store` 仅在 `openPage()` 调用时更新，Agent/外部 IPC 直接调用时 Store 不同步 → Browser Tab 不出现。
+- **影响**：通过 Agent 工具或外部 IPC 创建的 browser 页面在 UI 中不可见
+- **修复记录**：后端 `create_browser_page` 和 `browser_close_page` 分别 emit `browser-page-created` 和 `browser-page-closed` 事件。前端在 `initBrowserEvents` 中监听这两个事件并更新 Store。
+
+#### BUG-E2E-3 🟡 ResizeObserver loop 错误导致 Vite dev server 崩溃
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/main.tsx`
+- **问题**：Browser 占位组件的 `ResizeObserver` 在某些 layout 场景下触发 "ResizeObserver loop completed with undelivered notifications" 错误。Vite HMR 客户端将其当作未处理错误，导致 dev server 进程退出。
+- **影响**：开发环境不稳定
+- **修复记录**：在 `main.tsx` 入口添加全局 `error` 事件监听器，拦截并阻止 ResizeObserver loop 错误的传播。
+
+#### BUG-E2E-4 🔴 地址栏输入 URL 回车后始终导航到 example.com
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserAddressBar.tsx` L85-95
+- **问题**：`handleSubmit` 的 `useCallback` 依赖数组缺少 `inputValue`。由于 `navigate`（zustand 稳定引用）和 `pageId` 在用户输入时不变，闭包捕获的 `inputValue` 始终是页面打开时的初始 URL（`https://example.com`），用户输入的新 URL 被忽略。
+- **影响**：Browser 完全无法导航到用户输入的 URL
+- **建议**：将 `inputValue` 加入 `useCallback` 依赖数组
+- **相关规则**：无新规则（React hooks 基础错误，已有 ESLint `exhaustive-deps` 规则覆盖）
+- **修复记录**：`handleSubmit` 依赖数组 `[pageId, navigate]` → `[pageId, inputValue, navigate]`
+
+#### BUG-E2E-5 🔴 browser_hide_all_pages IPC 挂起导致布局切换失败
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L574-592
+- **问题**：`browser_hide_all_pages` 和 `browser_show_page` 在循环中对每个页面独立调用 `apply_webview_layout_gtk`，每次都做 `window.run_on_main_thread(closure)` + `rx.recv()` 阻塞往返。当多页面同时存在时，GTK 主线程调度时序问题导致 `rx.recv()` 永远等不到信号。
+- **影响**：Fullwidth ↔ Panel 布局切换完全失败（按钮点击无响应）
+- **建议**：将多页面位置更新合并为一次 `run_on_main_thread` 调度
+- **相关规则**：无新规则（已有规则 #38 覆盖线程同步模式）
+- **修复记录**：新增 `apply_webview_layouts_gtk_batch` 将所有页面位置更新合并到单次 GTK 主线程调度中，`browser_show_page` 和 `browser_hide_all_pages` 改用批量 API
+
+#### BUG-E2E-6 🔴 Linux 125% 缩放下 Browser WebView 定位严重偏移
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L64-92
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`, `crates/xiaolin-app/src/components/browser/BrowserPlaceholder.tsx`
+- **问题**：在 fractional DPR (如 1.25x) 下，前端 `getBoundingClientRect()` 返回 CSS 像素坐标，但 Linux 的 `GtkFixed::move_()` 使用物理像素坐标。直接传递 CSS 坐标导致 WebView 偏移 `(1 - 1/DPR)` 倍距离（125% 下约偏 200+ CSS 像素）。
+- **影响**：Linux fractional scaling 环境下 Browser WebView 完全不在正确位置
+- **建议**：前端传递 `devicePixelRatio`，Linux GTK 路径乘以 DPR 转换为物理坐标
+- **相关规则**：无新规则（平台特定 bug，非通用模式）
+- **修复记录**：`browser_resize_webview` IPC 新增 `scaleFactor` 参数，`apply_webview_layout_gtk` 对坐标乘以 scale_factor
+
+#### BUG-E2E-7 🔴 Browser WebView Cookie 无法设置/持久化（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`（FFI cookie 配置）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（时序修复 + 环境变量代理）
+- **问题**：在 Linux WebKitGTK 2.52 环境下，Browser 子 WebView 无法接收或持久化 Cookie
+- **影响**：所有依赖 Cookie 的站点（登录态、会话保持）在 Browser 面板中不可用
+- **根因**：两个独立问题叠加：
+  1. **Rust crate API 失效**：`webkit2gtk` 2.0.2 crate 的 `WebsiteDataManager::cookie_manager().set_persistent_storage()` 在 WebKitGTK 2.52 上被静默忽略（该 API 自 2.40 起废弃，GTK3 API 无 NetworkSession 替代）
+  2. **时序问题**：`wry` 的 `WebviewBuilder` 在 `add_child()` 时立即开始加载页面，cookie 配置在首次导航之后才执行，导致 WebKitGTK 忽略 `set_persistent_storage` 调用
+  3. **预防性修复**：`builder.proxy_url()` 内部调用废弃的 `set_network_proxy_settings`，在 WebKitGTK 2.52 上会破坏 cookie jar（proxy_mode 为 "none" 时未触发，但 XiaolinProxy 模式下会触发）
+- **修复方案**：
+  1. `browser_gtk.rs` 新增 `configure_webview_cookies()` 通过 FFI 直接调用 `webkit_web_context_get_cookie_manager` + `webkit_cookie_manager_set_persistent_storage(SQLite)` + `webkit_cookie_manager_set_accept_policy(Always)`
+  2. `commands/browser.rs` Linux 路径先加载 `about:blank`，在 GTK 主线程上配置 cookie 后再 `webview.navigate()` 到目标 URL
+  3. `commands/browser.rs` Linux 不使用 `builder.proxy_url()`，改为 `std::env::set_var("http_proxy"/"https_proxy")` 避免触发废弃 API
+- **验证结果**：example.com、www.baidu.com 上 JS cookie + 服务器 Set-Cookie + SQLite 持久化均正常
+- **相关规则**：无新规则（平台特定 API 废弃兼容性问题，非通用模式）
+- **修复记录**：2026-06-23 FFI cookie 配置 + about:blank 时序修复 + 环境变量代理
+
+#### BUG-E2E-8 🔴 Browser WebView 自定义协议 fetch 失败（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（BROWSER_INIT_SCRIPT send 函数）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（新增 browser_webview_notify 命令）
+- **问题**：在 Linux WebKitGTK 上，Browser 子 WebView 中 `fetch('xiaolin-internal://callback', ...)` 返回 "Load failed"，导致所有 `__XIAOLIN__.notify()` 调用失败
+- **影响**：选中文本发送给 Agent、console 日志转发、network 监控、ready 通知等全部不可用
+- **根因**：WebKitGTK 的 `webkit_web_context_register_uri_scheme` 注册的自定义 scheme 不支持从 https:// origin 通过 Fetch API 访问。注册为 CORS-enabled 也无效（WebKitGTK 2.52 的已知限制）。wry/Tauri 的自定义协议实现依赖 `register_uri_scheme`，在 Linux 上对子 WebView 完全失效
+- **修复方案**：
+  1. 新增 Tauri IPC 命令 `browser_webview_notify`，功能等同于 `handle_xiaolin_internal_protocol` 的事件分发逻辑
+  2. 修改 `BROWSER_INIT_SCRIPT` 的 `send()` 函数：优先使用 `__TAURI_INTERNALS__.invoke('browser_webview_notify', ...)` 通过 WebKitGTK 原生 message handler (window.webkit.messageHandlers) 通信，不依赖自定义协议
+  3. 保留 `fetch('xiaolin-internal://callback')` 作为 fallback（macOS/Windows 可能仍需要）
+- **验证结果**：`notify('selection', {action:'ask'/'quote'})` → Chat 输入框正确接收引用文本
+- **相关规则**：无新规则（平台 WebView 引擎限制，非通用代码模式）
+- **修复记录**：2026-06-23 新增 browser_webview_notify IPC 命令 + BROWSER_INIT_SCRIPT send() 改用 Tauri IPC
+
+#### BUG-E2E-9 🔴 Browser 导航过滤阻止 about:blank + 序列化 panic
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（is_navigation_allowed）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（on_navigation emit json）
+- **问题**：
+  1. `is_navigation_allowed` 未允许 `about:` scheme，WebKitGTK 在页面跳转过程中会触发 `about:blank` 导航，被过滤器阻止后导致导航失败
+  2. `on_navigation` 回调中 `serde_json::json!()` 直接序列化 `PageLoadState::Failed(String)`，该 tagged enum 无法被 `json!` 正确序列化，导致 `unwrap()` panic，应用崩溃
+- **影响**：百度等使用中间 about:blank 跳转的站点无法正常导航，且导致整个应用崩溃退出
+- **修复方案**：
+  1. 在 `is_navigation_allowed` 中添加 `"about" => true` 允许 about:blank
+  2. 将 `json!()` 中的 `PageLoadState::Failed(...)` 替换为手写的 JSON 对象 `{"state": "failed", "error": "..."}`
+- **相关规则**：无
+- **修复记录**：2026-06-23 允许 about scheme + 修复 json 序列化 panic
+
+#### BUG-E2E-10 🔴 Browser target="_blank" 链接不触发新 tab（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（BROWSER_INIT_SCRIPT）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（on_new_window handler）
+- **问题**：在 Linux WebKitGTK 上，用户点击 `target="_blank"` 链接时，WebKitGTK 的 `create` 信号不触发，导致 `on_new_window` handler 从未被调用。但 `window.open()` 能正确触发该信号。
+- **影响**：百度首页的"新闻"、"hao123" 等导航链接无法在新 tab 中打开，用户体验严重受损
+- **根因**：WebKitGTK 对 `target="_blank"` 链接点击的 `create` 信号触发机制与 `window.open()` 不同。在 wry 的 `connect_decide_policy` 中，`NewWindowAction` 类型返回 `false`（使用默认策略），但 WebKitGTK 2.52 可能未正确传递该决策到 `create` 信号。`window.open()` 直接触发 `create` 信号绕过了 `decide-policy` 流程。
+- **修复方案**：在 `BROWSER_INIT_SCRIPT` 中添加 document-level click 事件拦截器（capturing phase），当点击的目标是 `<a target="_blank">` 链接时，`preventDefault()` 阻止默认行为，改用 `window.open(href, '_blank')` 打开。由于 `window.open()` 路径已确认工作，这确保所有 `target="_blank"` 链接都能正确触发新 tab 创建。
+- **验证结果**：百度首页"新闻"(news.baidu.com)、"hao123"(www.hao123.com)、自定义注入的 target=_blank 链接均成功在新 tab 打开
+- **相关规则**：无新规则（平台 WebView 引擎行为差异，通过 JS 层 polyfill 解决）
+- **修复记录**：2026-06-23 BROWSER_INIT_SCRIPT 添加 target=_blank click 拦截 → window.open() 转换
+
+#### BUG-E2E-12 🔴 浏览器代理阻止 localhost 导致 Lazy Import 崩溃
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs` L249
+- **关联文件**：`crates/xiaolin-network-proxy/src/runtime.rs`（`host_blocked` 中 `is_loopback_host` 检查）
+- **问题**：浏览器代理通过 `configure_webview_proxy` FFI 设置在 WebKitWebContext 上。由于 Linux WebKitGTK 上所有 WebView（含主 app WebView 和浏览器子 WebView）共享同一个 WebContext，代理会拦截主 WebView 的请求。在开发模式下，Vite dev server 在 localhost 提供 lazy-loaded chunks，代理以 `loopback_blocked` 拒绝这些请求，导致 Settings、Plugins、Automation 等 lazy import 的视图崩溃。
+- **影响**：开发模式下打开设置面板/插件/自动化视图时应用崩溃，进入 Error Boundary
+- **修复方案**：在 `webkit_network_proxy_settings_new` 的 `ignore_hosts` 参数中添加 `localhost`、`127.0.0.1`、`::1`，使 loopback 地址的流量绕过代理直连。生产模式不受影响（主 WebView 通过 custom protocol 加载，不涉及 localhost）。
+- **修复记录**：2026-06-23 browser_gtk.rs 添加 localhost/127.0.0.1/::1 到 proxy ignore_hosts
+
+#### BUG-E2E-11 🔴 BrowserNetworkSettings 对话框被原生 WebView 遮挡
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserTabContent.tsx`
+- **关联文件**：`crates/xiaolin-app/src/components/browser/BrowserNetworkSettings.tsx`
+- **问题**：`BrowserNetworkSettings` 使用 `fixed inset-0 z-[60]` 定位的 HTML 对话框，但 Tauri WebView 是原生 OS 层渲染，始终覆盖在 HTML 内容之上，导致网络设置对话框被 WebView 完全遮挡不可见。
+- **影响**：用户无法看到和操作网络设置对话框
+- **建议**：在打开 HTML 对话框/modal 时，必须先隐藏原生 WebView
+- **修复记录**：2026-06-23 在 BrowserPanelBody 中添加 useEffect 监听 networkSettingsOpen，打开时 hideAllPages()、关闭时 showActivePage()
+
+#### BUG-E2E-13 🔴 网络代理配置变更后已有 WebView 不热更新
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_network.rs` L157-169
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`（`reapply_webview_proxy`）、`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（`webview_labels`）
+- **问题**：用户在 BrowserNetworkSettings 修改代理/host mapping 后，内置代理（`NetworkProxyState`）已热更新，但 WebView 侧代理仅在 `create_browser_page` 时通过 `configure_webview_proxy` 设置。Linux 上每个 browser 子 WebView 有独立 WebContext，已有页面继续使用旧代理。
+- **影响**：已打开的浏览器 tab 在修改代理模式或自定义代理 URL 后仍走旧路由，需关闭重开才能生效
+- **修复方案**：`apply_config` 完成后遍历 `BrowserPanelState` 中所有 webview label，在 GTK 主线程对每个调用 `reapply_webview_proxy`（支持 Direct/System/Custom 三种模式）
+- **修复记录**：2026-06-23 apply_config 后 reconfigure_open_webview_proxies + browser_gtk reapply_webview_proxy
 
 ## 按类型分布的问题模式
 

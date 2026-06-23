@@ -31,12 +31,12 @@ function formatTokens(n: number): string {
   return n.toString();
 }
 
-const PAUSE_REASON_LABELS: Record<string, string> = {
-  user_pause: "用户手动暂停",
-  user_interrupt: "用户中断对话",
-  max_rounds: "达到最大续轮次数",
-  budget_exhausted: "Token 预算耗尽",
-  session_reconnect: "会话重连",
+const PAUSE_REASON_KEYS: Record<string, string> = {
+  user_pause: "goal_pauseReason_userPause",
+  user_interrupt: "goal_pauseReason_userInterrupt",
+  max_rounds: "goal_pauseReason_maxRounds",
+  budget_exhausted: "goal_pauseReason_budgetExhausted",
+  session_reconnect: "goal_pauseReason_sessionReconnect",
 };
 
 function useStatusConfig(status: string) {
@@ -88,6 +88,7 @@ function useStatusConfig(status: string) {
 }
 
 function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) {
+  const { t } = useTranslation("chat");
   const statusCfg = useStatusConfig(goal.status);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(goal.description);
@@ -166,7 +167,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             className="text-[10px] tabular-nums"
             style={{ color: "var(--fill-quaternary)" }}
           >
-            Round {goal.continuation_rounds}
+            {t("goal_round", { round: goal.continuation_rounds })}
           </span>
         )}
       </div>
@@ -181,7 +182,9 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
           }}
         >
           <WarningCircle size={12} style={{ color: "var(--yellow, #ECC94B)" }} />
-          {PAUSE_REASON_LABELS[goal.pause_reason] ?? goal.pause_reason}
+          {goal.pause_reason && PAUSE_REASON_KEYS[goal.pause_reason]
+            ? t(PAUSE_REASON_KEYS[goal.pause_reason])
+            : goal.pause_reason}
         </div>
       )}
 
@@ -192,7 +195,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             className="text-[10px] font-semibold uppercase tracking-wider"
             style={{ color: "var(--fill-tertiary)" }}
           >
-            目标
+            {t("goal_label")}
           </span>
           {canEdit && !editing && (
             <button
@@ -240,7 +243,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                 }}
               >
                 <Check size={11} />
-                保存
+                {t("save", { ns: "common" })}
               </button>
               <button
                 type="button"
@@ -248,7 +251,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                 className="rounded-md px-2 py-1 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                 style={{ color: "var(--fill-tertiary)" }}
               >
-                取消
+                {t("cancel", { ns: "common" })}
               </button>
             </div>
           </div>
@@ -268,7 +271,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
           className="mb-1 block text-[10px] font-semibold uppercase tracking-wider"
           style={{ color: "var(--fill-tertiary)" }}
         >
-          Token 预算
+          {t("goal_tokenBudget")}
         </span>
         {goal.token_budget != null && goal.token_budget > 0 ? (
           <div className="flex flex-col gap-1.5">
@@ -297,13 +300,16 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             </div>
             {tokenPct != null && (
               <span className="text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-                剩余 {formatTokens(goal.token_budget - goal.tokens_used)} tokens ({100 - tokenPct}%)
+                {t("goal_tokensRemaining", {
+                  remaining: formatTokens(goal.token_budget - goal.tokens_used),
+                  pct: 100 - tokenPct,
+                })}
               </span>
             )}
           </div>
         ) : (
           <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
-            无限制 (已使用 {formatTokens(goal.tokens_used)})
+            {t("goal_unlimitedUsage", { used: formatTokens(goal.tokens_used) })}
           </span>
         )}
 
@@ -320,7 +326,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                     if (e.key === "Enter") handleAddBudget();
                     if (e.key === "Escape") setAddingBudget(false);
                   }}
-                  placeholder="追加 token 数量"
+                  placeholder={t("goal_addBudgetPlaceholder")}
                   className="w-24 rounded-md border px-2 py-1 text-[11px] outline-none"
                   style={{
                     background: "var(--bg-primary)",
@@ -335,7 +341,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                   className="rounded-md px-2 py-1 text-[11px] font-medium"
                   style={{ background: "var(--tint, #4299E1)", color: "white" }}
                 >
-                  追加
+                  {t("goal_addBudget")}
                 </button>
                 <button
                   type="button"
@@ -343,7 +349,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                   className="rounded-md px-2 py-1 text-[11px]"
                   style={{ color: "var(--fill-tertiary)" }}
                 >
-                  取消
+                  {t("cancel", { ns: "common" })}
                 </button>
               </div>
             ) : (
@@ -354,7 +360,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
                 style={{ color: "var(--tint, #4299E1)" }}
               >
                 <Plus size={11} />
-                追加预算
+                {t("goal_addBudgetButton")}
               </button>
             )}
           </div>
@@ -367,15 +373,15 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
           className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider"
           style={{ color: "var(--fill-tertiary)" }}
         >
-          结束条件
+          {t("goal_endingConditions")}
         </span>
         <ul className="flex flex-col gap-1 text-[11px]" style={{ color: "var(--fill-secondary)" }}>
-          <li>• 模型调用 update_goal(completed/failed)</li>
+          <li>• {t("goal_endCondition_modelCall")}</li>
           {goal.token_budget != null && goal.token_budget > 0 && (
-            <li>• Token 预算耗尽 ({formatTokens(goal.token_budget)})</li>
+            <li>• {t("goal_endCondition_budgetExhausted", { budget: formatTokens(goal.token_budget) })}</li>
           )}
-          <li>• 达到最大续轮次数 (50)</li>
-          <li>• 用户手动暂停/取消</li>
+          <li>• {t("goal_endCondition_maxRounds")}</li>
+          <li>• {t("goal_endCondition_userPause")}</li>
         </ul>
       </div>
 
@@ -393,7 +399,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
               style={{ color: "var(--fill-secondary)" }}
             >
               <Pause size={12} />
-              暂停
+              {t("goal_pause")}
             </button>
           )}
           {canResume && (
@@ -407,7 +413,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
               }}
             >
               <Play size={12} />
-              恢复
+              {t("goal_resume")}
             </button>
           )}
           <div className="flex-1" />
@@ -418,7 +424,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
             style={{ color: "var(--red, #F56565)" }}
           >
             <X size={12} />
-            取消目标
+            {t("goal_cancelGoal")}
           </button>
         </div>
       )}
@@ -427,6 +433,7 @@ function GoalDetail({ sessionId, goal }: { sessionId: string; goal: GoalData }) 
 }
 
 export function GoalTabContent() {
+  const { t } = useTranslation("chat");
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
   const goal = useGoalStore((s) => (activeChatId ? s.goals[activeChatId] : undefined));
 
@@ -437,9 +444,9 @@ export function GoalTabContent() {
         style={{ color: "var(--fill-quaternary)" }}
       >
         <Crosshair size={32} weight="light" />
-        <span className="text-[12px]">暂无活跃目标</span>
+        <span className="text-[12px]">{t("goal_noActiveGoal")}</span>
         <span className="text-[11px] opacity-60">
-          在输入框选择 Goal 模式即可创建
+          {t("goal_createHint")}
         </span>
       </div>
     );

@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { rehypeHighlightLite } from "./rehype-highlight-lite";
 import { Check, Copy } from "@phosphor-icons/react";
+import { handleChatLinkClick, isHttpUrl } from "../../lib/chat-link";
 import { useConfigStore } from "../../lib/stores";
 import { openLightbox } from "../common/ImageLightbox";
 
@@ -209,15 +210,31 @@ const PreBlock = memo(function PreBlock({ children, ...rest }: ComponentPropsWit
 function Link({
   href = "",
   children,
+  onClick,
   ...rest
 }: ComponentPropsWithoutRef<"a">) {
+  const chatLinkTarget = useConfigStore((s) => s.display.chatLinkTarget);
   const safeHref = sanitizeUrl(href);
+  const isHttp = safeHref !== "#" && isHttpUrl(safeHref);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>) => {
+      onClick?.(e);
+      if (e.defaultPrevented || !isHttp) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void handleChatLinkClick(safeHref, e.shiftKey);
+    },
+    [onClick, isHttp, safeHref],
+  );
+
   return (
     <a
       {...rest}
       href={safeHref}
-      target="_blank"
-      rel="noopener noreferrer nofollow"
+      target={isHttp && chatLinkTarget === "external" ? "_blank" : undefined}
+      rel={isHttp && chatLinkTarget === "external" ? "noopener noreferrer nofollow" : undefined}
+      onClick={isHttp ? handleClick : onClick}
     >
       {children}
     </a>

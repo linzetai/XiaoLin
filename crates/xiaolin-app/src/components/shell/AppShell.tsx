@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { GitBranch, Crosshair, Terminal, Robot, FileText, FolderOpen } from "@phosphor-icons/react";
+import { GitBranch, Crosshair, Terminal, Robot, FileText, FolderOpen, Globe } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -11,9 +11,12 @@ import { TerminalTabContent } from "./TerminalTabContent";
 import { SubAgentsTabContent } from "./CoordinatorPanel";
 import { PlanTabContent } from "../message-stream/PlanPanel";
 import { FilesTabContent } from "./FilesTabContent";
+import { BrowserTabContent } from "../browser/BrowserTabContent";
 import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
+import { useBrowserStore, shouldShowBrowserWebView } from "../../lib/stores/browser-store";
+import { useUIStore } from "../../lib/stores/ui-store";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
@@ -26,6 +29,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
   const activeChat = useChatMetaStore((s) => s.chats[s.activeChatId]);
   const prevChatRef = useRef<string | null>(null);
+  const browserPageCount = useBrowserStore((s) => Object.keys(s.pages).length);
+  const browserLayoutMode = useBrowserStore((s) => s.layoutMode);
+  const panelOpen = useWorkspaceTabs((s) => s.panelOpen);
+  const settingsOpen = useUIStore((s) => s.settingsOpen);
+  const mainView = useUIStore((s) => s.mainView);
+  const networkSettingsOpen = useBrowserStore((s) => s.networkSettingsOpen);
 
   useEffect(() => {
     if (activeChatId !== prevChatRef.current) {
@@ -38,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     registerTab({
       id: "review",
-      label: "Review",
+      label: t("tab_review"),
       icon: GitBranch,
       component: ReviewTabContent,
       footerComponent: ReviewTabFooter,
@@ -46,14 +55,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
     registerTab({
       id: "files",
-      label: "Files",
+      label: t("tab_files"),
       icon: FolderOpen,
       component: FilesTabContent,
       order: 2,
     });
     registerTab({
       id: "goal",
-      label: "Goal",
+      label: t("tab_goal"),
       icon: Crosshair,
       component: GoalTabContent,
       order: 3,
@@ -72,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (hasSubAgents) {
       registerTab({
         id: "subagents",
-        label: "SubAgents",
+        label: t("tab_subagents"),
         icon: Robot,
         component: SubAgentsTabContent,
         order: 5,
@@ -84,7 +93,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else {
       unregisterTab("subagents");
     }
-  }, [subAgentRuns, registerTab, unregisterTab]);
+  }, [subAgentRuns, registerTab, unregisterTab, t]);
 
   // Plan tab — show when plan mode is active or plan file exists
   const isPlanMode = activeChat?.executionMode === "plan";
@@ -93,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPlanMode || hasPlanFile) {
       registerTab({
         id: "plan",
-        label: "Plan",
+        label: t("tab_plan"),
         icon: FileText,
         component: PlanTabContent,
         order: 0,
@@ -105,7 +114,57 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else {
       unregisterTab("plan");
     }
-  }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
+  }, [isPlanMode, hasPlanFile, registerTab, unregisterTab, t]);
+
+  // Browser tab — always registered; auto-switch when first page opens
+  const prevBrowserLayoutRef = useRef(browserLayoutMode);
+  useEffect(() => {
+    const prev = prevBrowserLayoutRef.current;
+    prevBrowserLayoutRef.current = browserLayoutMode;
+
+    if (browserLayoutMode === "fullwidth") {
+      unregisterTab("browser");
+      return;
+    }
+    registerTab({
+      id: "browser",
+      label: t("tab_browser"),
+      icon: Globe,
+      component: BrowserTabContent,
+      order: 6,
+    });
+    if (prev === "fullwidth" && browserPageCount > 0) {
+      useWorkspaceTabs.getState().setActiveTab("browser");
+    }
+  }, [browserLayoutMode, browserPageCount, registerTab, unregisterTab, t]);
+
+  useEffect(() => {
+    if (browserPageCount !== 1 || browserLayoutMode !== "panel") return;
+    const { activeTabId: currentTab, panelOpen: open } = useWorkspaceTabs.getState();
+    if (currentTab !== "browser" && !open) {
+      useWorkspaceTabs.getState().setActiveTab("browser");
+    }
+  }, [browserPageCount, browserLayoutMode]);
+
+  // Browser WebView visibility: tab switch + panel open/close + layout mode + overlays
+  useEffect(() => {
+    if (browserPageCount === 0) return;
+
+    const visible = shouldShowBrowserWebView({
+      layoutMode: browserLayoutMode,
+      panelOpen,
+      activeTabId,
+      settingsOpen,
+      mainView,
+      networkSettingsOpen,
+    });
+
+    if (visible) {
+      void useBrowserStore.getState().showActivePage();
+    } else {
+      void useBrowserStore.getState().hideAllPages();
+    }
+  }, [activeTabId, panelOpen, browserLayoutMode, browserPageCount, settingsOpen, mainView, networkSettingsOpen]);
 
   useEffect(() => {
     const handler = (e: Event) => {

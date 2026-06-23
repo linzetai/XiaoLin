@@ -8,7 +8,7 @@ use std::sync::Arc;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use tokio::sync::{RwLock, Semaphore};
 
-use crate::config::{NetworkMode, NetworkProxySettings};
+use crate::config::{HostMapping, NetworkMode, NetworkProxySettings};
 use crate::mitm::MitmState;
 use crate::network_policy::{
     HostBlockDecision, HostBlockReason, NetworkDecision, NetworkDecisionSource,
@@ -193,6 +193,7 @@ pub struct NetworkProxyState {
     audit_metadata: NetworkProxyAuditMetadata,
     network_mode: Arc<RwLock<Option<NetworkMode>>>,
     dynamic_domains: Arc<RwLock<DynamicDomains>>,
+    host_mappings: Arc<RwLock<Vec<HostMapping>>>,
     mitm_state: Option<Arc<MitmState>>,
     connection_limit: Arc<Semaphore>,
 }
@@ -221,6 +222,7 @@ impl NetworkProxyState {
             audit_metadata,
             network_mode: Arc::new(RwLock::new(None)),
             dynamic_domains: Arc::new(RwLock::new(DynamicDomains::default())),
+            host_mappings: Arc::new(RwLock::new(Vec::new())),
             mitm_state: None,
             connection_limit: Arc::new(Semaphore::new(DEFAULT_MAX_CONNECTIONS)),
         }
@@ -371,6 +373,27 @@ impl NetworkProxyState {
         self.dynamic_domains.read().await.denied.clone()
     }
 
+    // ── Host mappings (browser DNS rewrite) ─────────────────────────────
+
+    pub async fn host_mappings(&self) -> Vec<HostMapping> {
+        self.host_mappings.read().await.clone()
+    }
+
+    pub async fn set_host_mappings(&self, mappings: Vec<HostMapping>) {
+        *self.host_mappings.write().await = mappings;
+    }
+
+    pub async fn replace_upstream_proxy_url(&self, url: Option<String>) {
+        let mut state = self.state.write().await;
+        state.settings.proxy_url = url;
+        let new_hot = ConfigSnapshot::from_settings(&state.settings);
+        *self.hot.write().await = new_hot;
+    }
+
+    pub async fn upstream_proxy_url(&self) -> Option<String> {
+        self.state.read().await.settings.proxy_url.clone()
+    }
+
     // ── Unix socket whitelist ───────────────────────────────────────────
 
     pub async fn is_unix_socket_allowed(&self, path: &Path) -> bool {
@@ -450,10 +473,18 @@ impl NetworkProxyState {
                         ));
                     }
                 }
-                Err(_) => {
-                    // DNS failure doesn't block by itself; we continue
-                    // to pattern-based checks. Only block if the host
-                    // isn't in any allowlist.
+                Err(e) => {
+                    if matches!(mode, NetworkMode::Limited) {
+                        tracing::warn!(
+                            host = %host,
+                            error = %e,
+                            "DNS resolution failed in Limited mode; denying host"
+                        );
+                        return Ok(HostBlockDecision::Blocked(
+                            HostBlockReason::DnsResolutionFailed,
+                        ));
+                    }
+                    // Full/Audit: DNS failure doesn't block by itself; continue to pattern checks.
                 }
             }
         }
@@ -591,7 +622,7 @@ fn host_matches(pattern: &str, host: &str) -> bool {
         return true;
     }
     if let Some(suffix) = pattern.strip_prefix("*.") {
-        return host.ends_with(suffix) && host.len() > suffix.len();
+        return host == suffix || host.ends_with(&format!(".{suffix}"));
     }
     false
 }
@@ -641,7 +672,8 @@ mod tests {
     #[test]
     fn host_matches_wildcard() {
         assert!(host_matches("*.example.com", "sub.example.com"));
-        assert!(!host_matches("*.example.com", "example.com"));
+        assert!(host_matches("*.example.com", "example.com"));
+        assert!(!host_matches("*.example.com", "notexample.com"));
     }
 
     fn make_request(host: &str) -> NetworkPolicyRequest {
@@ -744,6 +776,34 @@ mod tests {
         let settings = NetworkProxySettings::default();
         let state = ConfigState::from_settings(settings.clone());
         assert_eq!(state.settings.enabled, settings.enabled);
+    }
+
+    #[tokio::test]
+    async fn host_blocked_dns_failure_denies_in_limited_mode() {
+        let settings = NetworkProxySettings {
+            mode: Some(NetworkMode::Limited),
+            ..Default::default()
+        };
+        let state = NetworkProxyState::for_settings(settings);
+        let decision = state
+            .host_blocked("nonexistent-test-host.invalid", 443)
+            .await
+            .unwrap();
+        assert_eq!(
+            decision,
+            HostBlockDecision::Blocked(HostBlockReason::DnsResolutionFailed)
+        );
+    }
+
+    #[tokio::test]
+    async fn host_blocked_dns_failure_allows_in_full_mode() {
+        let settings = NetworkProxySettings::default();
+        let state = NetworkProxyState::for_settings(settings);
+        let decision = state
+            .host_blocked("nonexistent-test-host.invalid", 443)
+            .await
+            .unwrap();
+        assert_eq!(decision, HostBlockDecision::Allowed);
     }
 
     #[tokio::test]

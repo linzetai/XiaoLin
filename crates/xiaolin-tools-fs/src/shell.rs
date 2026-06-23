@@ -174,409 +174,38 @@ fn shell_parameter_schema(_include_is_background: bool) -> ToolParameterSchema {
     }
 }
 
-// --- Shell Injection Detection ---
-
-/// Commands considered safe (read-only) for Plan mode execution.
-/// These commands only read information and do not modify state.
-const READONLY_COMMANDS: &[&str] = &[
-    // File inspection
-    "ls", "ll", "la", "dir", "exa", "eza", "lsd", "cat", "bat", "head", "tail", "less", "more",
-    "wc", "file", "stat", "du", "df", // Search
-    "grep", "rg", "ag", "ack", "fgrep", "egrep", "find", "fd", "fdfind", "locate", "which",
-    "whereis", "type", // Text processing (readonly)
-    "sort", "uniq", "tr", "cut", "paste", "column", "awk",
-    "sed", // Only readonly when no -i flag (checked separately)
-    "diff", "comm", "cmp", "jq", "yq", "xq", // System info
-    "echo", "printf", "date", "whoami", "hostname", "uname", "env", "printenv", "id", "groups",
-    "ps", "top", "htop", "free", "uptime", "lsof", "pwd", "realpath", "dirname", "basename",
-    // Development tools (read-only subcommands handled separately)
-    "tree", "tokei", "cloc", "scc", "python3", "python", "node",
-    "ruby",  // Script execution for queries
-    "cargo", // Subcommand checked separately
-    "npm", "npx", "yarn", "pnpm",    // Subcommand checked separately
-    "git",     // Subcommand checked separately
-    "gh",      // Subcommand checked separately
-    "docker",  // Subcommand checked separately
-    "kubectl", // Subcommand checked separately
-    "rustc", "gcc", "g++",
-    "clang", // Compilation is treated as read since it doesn't modify source
-    "make",  // Build is read-only from source perspective
-    "test", "[", "true", "false", "sleep",
-    "xargs", // Only safe with readonly sub-commands (checked via pipeline)
-];
-
-/// Git subcommands that are read-only.
-const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
-    "status",
-    "log",
-    "diff",
-    "show",
-    "branch",
-    "tag",
-    "describe",
-    "shortlog",
-    "blame",
-    "ls-files",
-    "ls-tree",
-    "rev-parse",
-    "rev-list",
-    "remote",
-    "config",
-    "stash", // stash list/show are readonly; stash pop/apply are not but common enough
-];
-
-/// Cargo subcommands that are read-only.
-const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
-    "check",
-    "clippy",
-    "test",
-    "bench",
-    "doc",
-    "tree",
-    "metadata",
-    "pkgid",
-    "verify-project",
-    "version",
-    "help",
-    "search",
-];
-
-/// npm/yarn/pnpm subcommands that are read-only.
-const NPM_READONLY_SUBCOMMANDS: &[&str] = &[
-    "list", "ls", "info", "show", "view", "outdated", "audit", "explain", "why", "help", "version",
-    "test", "run", // run scripts are common in development
-];
-
-/// Docker subcommands that are read-only.
-const DOCKER_READONLY_SUBCOMMANDS: &[&str] = &[
-    "ps", "images", "inspect", "logs", "stats", "top", "port", "diff", "history", "version", "info",
-];
-
-/// Classify whether a single command segment is readonly.
-/// Returns Ok(()) if the command is readonly, Err(reason) if it's a write/dangerous command.
-fn classify_readonly(segment: &str) -> Result<(), String> {
-    let trimmed = segment.trim();
-    if trimmed.is_empty() {
-        return Ok(());
-    }
-
-    // Output redirection → write operation
-    if has_output_redirection(trimmed) {
-        return Err("output redirection (> or >>) makes this a write operation".into());
-    }
-
-    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    if tokens.is_empty() {
-        return Ok(());
-    }
-
-    let base_cmd = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
-
-    // Special handling for commands with subcommands
-    if base_cmd == "git" {
-        return classify_git_readonly(&tokens[1..]);
-    }
-    if base_cmd == "cargo" {
-        return classify_subcommand_readonly(&tokens[1..], CARGO_READONLY_SUBCOMMANDS, "cargo");
-    }
-    if matches!(base_cmd, "npm" | "npx" | "yarn" | "pnpm") {
-        return classify_subcommand_readonly(&tokens[1..], NPM_READONLY_SUBCOMMANDS, base_cmd);
-    }
-    if base_cmd == "docker" {
-        return classify_subcommand_readonly(&tokens[1..], DOCKER_READONLY_SUBCOMMANDS, "docker");
-    }
-
-    // sed -i is a write operation
-    if base_cmd == "sed" && tokens.iter().any(|t| *t == "-i" || t.starts_with("-i")) {
-        return Err("sed -i modifies files in place".into());
-    }
-
-    if READONLY_COMMANDS.contains(&base_cmd) {
-        return Ok(());
-    }
-
-    Err(format!(
-        "command '{base_cmd}' is not in the read-only allowlist"
-    ))
-}
-
-fn classify_git_readonly(args: &[&str]) -> Result<(), String> {
-    let subcommand = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .copied()
-        .unwrap_or("");
-
-    if subcommand.is_empty() || GIT_READONLY_SUBCOMMANDS.contains(&subcommand) {
-        Ok(())
-    } else {
-        Err(format!("git {subcommand} is not a read-only git operation"))
-    }
-}
-
-fn classify_subcommand_readonly(
-    args: &[&str],
-    allowed: &[&str],
-    parent: &str,
-) -> Result<(), String> {
-    let subcommand = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .copied()
-        .unwrap_or("");
-
-    if subcommand.is_empty() || allowed.contains(&subcommand) {
-        Ok(())
-    } else {
-        Err(format!(
-            "{parent} {subcommand} is not a read-only operation"
-        ))
-    }
-}
-
-/// Check if a command segment contains output redirection (> or >>).
-/// Skips redirections inside quotes.
-fn has_output_redirection(s: &str) -> bool {
-    let stripped = strip_single_quoted_regions(s);
-    let bytes = stripped.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-    while i < len {
-        if bytes[i] == b'>' {
-            // Skip 2> (stderr redirect, informational)
-            if i > 0 && bytes[i - 1] == b'2' {
-                i += 1;
-                continue;
-            }
-            // Skip >( (process substitution)
-            let next = if bytes[i + 1..].first() == Some(&b'>') {
-                i + 2
-            } else {
-                i + 1
-            };
-            if next < len && bytes[next] == b'(' {
-                i = next + 1;
-                continue;
-            }
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
 /// Validate that a full command (with pipes and chains) is entirely readonly.
 /// Every segment in pipes (|), AND (&&), OR (||), and semicolons (;) must be readonly.
+///
+/// Delegates to [`ReadOnlyClassifier`] so Plan mode and sandbox fast-path share one policy.
 pub fn validate_readonly_command(command: &str) -> Result<(), String> {
-    // Split on pipe first, then on chain operators within each pipe segment
-    for pipe_segment in command.split('|') {
-        let pipe_seg = pipe_segment.trim();
-        if pipe_seg.is_empty() {
-            continue;
-        }
-        // Further split on && || ;
-        for part in pipe_seg
-            .split("&&")
-            .flat_map(|s| s.split("||"))
-            .flat_map(|s| s.split(';'))
-        {
-            classify_readonly(part)?;
+    use crate::shell_readonly::{CommandClassification, ReadOnlyClassifier};
+
+    match ReadOnlyClassifier::classify(command) {
+        CommandClassification::ReadOnly => Ok(()),
+        CommandClassification::Write { reason } | CommandClassification::Dangerous { reason } => {
+            Err(reason)
         }
     }
-    Ok(())
 }
 
 // ─── Path Safety Validation ─────────────────────────────────────────────────
 //
-// TODO: Unify path/readonly validation — logic is duplicated and can drift across
-// `validate_readonly_command` + `classify_readonly` here, `validate_command_paths`
-// below, and `shell_readonly.rs` (`ReadOnlyClassifier`). Consolidate into one module.
-
-/// Sensitive paths under $HOME that should never be written to by shell commands.
-const SENSITIVE_HOME_PATHS: &[&str] = &[
-    ".ssh",
-    ".gnupg",
-    ".gpg",
-    ".bashrc",
-    ".bash_profile",
-    ".bash_login",
-    ".profile",
-    ".zshrc",
-    ".zshenv",
-    ".zprofile",
-    ".zlogin",
-    ".config/git/credentials",
-    ".gitconfig",
-    ".npmrc",
-    ".cargo/credentials",
-    ".cargo/credentials.toml",
-    ".aws/credentials",
-    ".kube/config",
-    ".docker/config.json",
-    ".netrc",
-    ".env",
-    ".xiaolin",
-];
-
-/// Commands known to write/modify files (for which path validation applies).
-const PATH_WRITE_COMMANDS: &[&str] = &[
-    "rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "chgrp", "ln", "unlink", "tee",
-];
-
-/// Extract file path arguments from a command string for validation.
-/// Returns (base_command, list of path arguments).
-fn extract_paths_from_command(segment: &str) -> (String, Vec<String>) {
-    let tokens: Vec<&str> = segment.split_whitespace().collect();
-    if tokens.is_empty() {
-        return (String::new(), Vec::new());
-    }
-
-    let base_cmd = tokens[0]
-        .rsplit('/')
-        .next()
-        .unwrap_or(tokens[0])
-        .to_string();
-    let args = &tokens[1..];
-
-    let mut paths = Vec::new();
-    let mut after_double_dash = false;
-
-    for (i, &arg) in args.iter().enumerate() {
-        if arg == "--" {
-            after_double_dash = true;
-            continue;
-        }
-        if after_double_dash {
-            paths.push(arg.to_string());
-            continue;
-        }
-        if arg.starts_with('-') {
-            // Skip flags and their arguments for known flag-with-value patterns
-            if matches!(arg, "-o" | "-t" | "--target-directory" | "--output") {
-                // next token is the value — include it as a path since it's an output target
-                if let Some(&next) = args.get(i + 1) {
-                    paths.push(next.to_string());
-                }
-            }
-            continue;
-        }
-        paths.push(arg.to_string());
-    }
-
-    (base_cmd, paths)
-}
-
-/// Check if a path resolves to a sensitive location that should be protected.
-/// `home_dir` is the user's home directory.
-fn is_sensitive_path(path: &std::path::Path, home_dir: &std::path::Path) -> Option<String> {
-    for sensitive in SENSITIVE_HOME_PATHS {
-        let sensitive_full = home_dir.join(sensitive);
-        if path == sensitive_full || path.starts_with(&sensitive_full) {
-            return Some(format!(
-                "path '{}' targets sensitive location ~/{sensitive}",
-                path.display()
-            ));
-        }
-    }
-    None
-}
-
-/// Check if a path contains traversal patterns that might escape allowed directories.
-fn has_traversal_attempt(raw_path: &str) -> bool {
-    let normalized = raw_path.replace('\\', "/");
-    normalized.contains("/../")
-        || normalized.starts_with("../")
-        || normalized.ends_with("/..")
-        || normalized == ".."
-}
+// Readonly classification lives in `shell_readonly.rs` (`ReadOnlyClassifier`).
+// Write-command path validation is implemented in `shell_path_validation.rs` (`PathValidator`).
 
 /// Validate paths extracted from a command against security rules.
 /// Only applies to write commands (rm, mv, cp, touch, etc.) since read commands
 /// are bounded by the OS file permissions and the sandbox directory restriction.
 pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<(), String> {
-    let stripped = strip_single_quoted_regions(command);
+    use crate::shell_path_validation::{PathValidator, PathVerdict};
 
-    for segment in stripped
-        .split("&&")
-        .flat_map(|s| s.split("||"))
-        .flat_map(|s| s.split(';'))
-        .flat_map(|s| s.split('|'))
-    {
-        let seg = segment.trim();
-        if seg.is_empty() {
-            continue;
-        }
-
-        let (base_cmd, paths) = extract_paths_from_command(seg);
-
-        // Only validate paths for write commands
-        if !PATH_WRITE_COMMANDS.contains(&base_cmd.as_str()) {
-            // Also check sed -i (write via in-place edit)
-            if base_cmd == "sed" {
-                let tokens: Vec<&str> = seg.split_whitespace().collect();
-                if !tokens.iter().any(|t| *t == "-i" || t.starts_with("-i")) {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-        }
-
-        let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/root"));
-
-        for raw_path in &paths {
-            // Strip surrounding quotes
-            let cleaned = raw_path.trim_matches(|c| c == '\'' || c == '"');
-
-            // 1. Check traversal attempt
-            if has_traversal_attempt(cleaned) {
-                return Err(format!(
-                    "path traversal detected in '{cleaned}' — canonicalize paths or use absolute paths within the workspace"
-                ));
-            }
-
-            // 2. Resolve path for sensitive-path check
-            let expanded = if cleaned.starts_with('~') {
-                home_dir.join(cleaned.trim_start_matches("~/").trim_start_matches('~'))
-            } else if cleaned.starts_with('/') {
-                std::path::PathBuf::from(cleaned)
-            } else {
-                // Relative path — try to resolve it; if allowed_dirs is set use first as base
-                let base = allowed_dirs
-                    .first()
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| {
-                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-                    });
-                base.join(cleaned)
-            };
-
-            // 3. Check sensitive path
-            if let Some(reason) = is_sensitive_path(&expanded, &home_dir) {
-                return Err(reason);
-            }
-
-            // 4. If allowed_dirs is configured, verify the path is within bounds
-            if !allowed_dirs.is_empty() {
-                let canonical = expanded.canonicalize().unwrap_or(expanded.clone());
-                let in_allowed = allowed_dirs.iter().any(|d| {
-                    let allowed = std::path::Path::new(d);
-                    let allowed_c = allowed
-                        .canonicalize()
-                        .unwrap_or_else(|_| allowed.to_path_buf());
-                    canonical.starts_with(&allowed_c)
-                });
-                if !in_allowed {
-                    return Err(format!(
-                        "path '{}' resolves outside allowed directories: {}",
-                        cleaned,
-                        allowed_dirs.join(", ")
-                    ));
-                }
-            }
-        }
+    let roots: Vec<std::path::PathBuf> = allowed_dirs.iter().map(std::path::PathBuf::from).collect();
+    let validator = PathValidator::new(roots);
+    match validator.validate(command) {
+        PathVerdict::Safe => Ok(()),
+        PathVerdict::Blocked { path, reason } => Err(format!("path '{path}' blocked: {reason}")),
     }
-    Ok(())
 }
 
 // ─── Permission Rule Engine ─────────────────────────────────────────────────
@@ -1056,25 +685,6 @@ pub fn sed_to_edit_suggestion(info: &SedEditInfo) -> String {
     )
 }
 
-/// Strip single-quoted regions from a command string.
-/// Content inside single quotes is not subject to shell expansion, so
-/// patterns within them are safe and should not trigger injection detection.
-fn strip_single_quoted_regions(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut in_single_quote = false;
-
-    for ch in s.chars() {
-        if ch == '\'' && !in_single_quote {
-            in_single_quote = true;
-        } else if ch == '\'' && in_single_quote {
-            in_single_quote = false;
-        } else if !in_single_quote {
-            result.push(ch);
-        }
-    }
-    result
-}
-
 /// Check for unescaped backtick command substitution.
 /// Returns true if the string contains backticks that are not preceded by `\`.
 #[allow(dead_code)]
@@ -1124,8 +734,13 @@ mod tests {
     fn readonly_allows_cargo_readonly() {
         assert!(super::validate_readonly_command("cargo check").is_ok());
         assert!(super::validate_readonly_command("cargo clippy").is_ok());
-        assert!(super::validate_readonly_command("cargo test").is_ok());
         assert!(super::validate_readonly_command("cargo tree").is_ok());
+    }
+
+    #[test]
+    fn readonly_blocks_cargo_test_and_bench() {
+        assert!(super::validate_readonly_command("cargo test").is_err());
+        assert!(super::validate_readonly_command("cargo bench").is_err());
     }
 
     #[test]
@@ -1170,8 +785,20 @@ mod tests {
     #[test]
     fn readonly_allows_npm_readonly() {
         assert!(super::validate_readonly_command("npm list").is_ok());
-        assert!(super::validate_readonly_command("npm test").is_ok());
-        assert!(super::validate_readonly_command("npm run lint").is_ok());
+    }
+
+    #[test]
+    fn readonly_blocks_npm_test_and_run() {
+        assert!(super::validate_readonly_command("npm test").is_err());
+        assert!(super::validate_readonly_command("npm run lint").is_err());
+    }
+
+    #[test]
+    fn readonly_blocks_generic_executors() {
+        assert!(super::validate_readonly_command("python3 -c 'print(1)'").is_err());
+        assert!(super::validate_readonly_command("node -e '1'").is_err());
+        assert!(super::validate_readonly_command("make build").is_err());
+        assert!(super::validate_readonly_command("curl -s http://example.com").is_err());
     }
 
     #[test]

@@ -173,7 +173,7 @@ function FileListPanel({
   onOpenFile,
   onBrowseActivate,
 }: Omit<FileListSidebarProps, "collapsed" | "overlayMode" | "overlayOpen" | "onOpenOverlay">) {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation("fileViewer");
 
   const handleOpenArtifact = useCallback(
     (path: string) => {
@@ -214,7 +214,7 @@ function FileListPanel({
         }}
       >
         <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fill-secondary)" }}>
-          {t("filesListTitle", { defaultValue: "Files" })}
+          {t("filesListTitle")}
         </span>
         <button
           type="button"
@@ -230,7 +230,7 @@ function FileListPanel({
             color: "var(--fill-tertiary)",
             cursor: "pointer",
           }}
-          title={t("collapseList", { defaultValue: "Collapse" })}
+          title={t("collapseList")}
           onClick={onToggleCollapse}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = "var(--bg-hover)";
@@ -256,7 +256,7 @@ function FileListPanel({
                 letterSpacing: "0.04em",
               }}
             >
-              {t("sessionArtifacts", { defaultValue: "Session" })}
+              {t("sessionArtifacts")}
             </div>
             {uniqueArtifacts.map((artifact) => (
               <ArtifactRow
@@ -284,7 +284,7 @@ function FileListPanel({
                 justifyContent: "space-between",
               }}
             >
-              <span>{t("workDirBrowse", { defaultValue: "Browse" })}</span>
+              <span>{t("workDirBrowse")}</span>
               {!browseActive && (
                 <button
                   type="button"
@@ -299,7 +299,7 @@ function FileListPanel({
                   }}
                   onClick={onBrowseActivate}
                 >
-                  {t("browseWorkDir", { defaultValue: "Open" })}
+                  {t("browseWorkDirOpen")}
                 </button>
               )}
             </div>
@@ -315,6 +315,7 @@ function FileListPanel({
 }
 
 export const FileListSidebar = memo(function FileListSidebar(props: FileListSidebarProps) {
+  const { t } = useTranslation("fileViewer");
   const { collapsed, overlayMode, overlayOpen, onOpenOverlay, onToggleCollapse } = props;
 
   if (collapsed) {
@@ -348,7 +349,7 @@ export const FileListSidebar = memo(function FileListSidebar(props: FileListSide
               color: "var(--fill-secondary)",
               cursor: "pointer",
             }}
-            title="Files"
+            title={t("filesListTitle")}
             onClick={() => {
               if (overlayMode) {
                 onOpenOverlay();
@@ -381,7 +382,7 @@ export const FileListSidebar = memo(function FileListSidebar(props: FileListSide
                 cursor: "pointer",
                 marginTop: 4,
               }}
-              title="Expand"
+              title={t("expandList")}
               onClick={onToggleCollapse}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";

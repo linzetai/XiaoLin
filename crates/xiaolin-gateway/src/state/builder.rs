@@ -521,6 +521,8 @@ impl StateBuilder {
         let legacy_pty_manager = Arc::new(
             xiaolin_agent::builtin_tools::exec_command::PtySessionManager::with_default_timeout(),
         );
+        legacy_pty_manager.start_cleanup_task();
+        tracing::info!("legacy exec_command PTY cleanup task started (runs every 60s)");
         xiaolin_agent::builtin_tools::register_exec_command_tools(
             &p3.tool_registry,
             legacy_pty_manager,
@@ -885,6 +887,11 @@ impl StateBuilder {
             .phase3
             .runtime
             .set_skills_allow(config.skills.allow.clone());
+        p5.phase2
+            .phase4
+            .phase3
+            .runtime
+            .set_skills_context_budget_percent(config.skills.context_budget_percent);
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let pty_max_sessions = config.terminal.max_sessions;

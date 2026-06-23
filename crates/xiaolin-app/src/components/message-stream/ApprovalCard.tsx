@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import { usePermissionStore } from "../../lib/stores/permission-store";
 
@@ -41,22 +42,20 @@ const SHORTCUT_MAP: Record<string, string> = {
   a: "abort",
 };
 
-function getIntentTitle(action?: ApprovalData["action"]): string {
-  switch (action?.action_type) {
-    case "shell_command":
-      return "允许执行此命令？";
-    case "file_write":
-      return "允许写入此文件？";
-    case "apply_patch":
-      return "允许修改此文件？";
-    case "network_access":
-      return "允许网络访问？";
-    case "mcp_tool_call":
-      return `允许调用 MCP 工具？`;
-    default:
-      return "需要你的许可";
-  }
-}
+const INTENT_TITLE_KEYS: Record<string, string> = {
+  shell_command: "approval_intentShellCommand",
+  file_write: "approval_intentFileWrite",
+  apply_patch: "approval_intentApplyPatch",
+  network_access: "approval_intentNetworkAccess",
+  mcp_tool_call: "approval_intentMcpToolCall",
+};
+
+const DECISION_LABEL_KEYS: Record<string, string> = {
+  approved: "decision_approved",
+  approved_for_session: "decision_approvedSession",
+  denied: "decision_denied",
+  abort: "decision_abort",
+};
 
 function shortcutForDecision(id: string): string | null {
   for (const [key, val] of Object.entries(SHORTCUT_MAP)) {
@@ -66,12 +65,16 @@ function shortcutForDecision(id: string): string | null {
 }
 
 export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps) {
+  const { t } = useTranslation("chat");
   const [submitted, setSubmitted] = useState<string | null>(null);
   const submittedRef = useRef(false);
   const setSessionPreset = usePermissionStore((s) => s.setSessionPreset);
 
   const borderColor = RISK_COLORS[data.riskLevel] ?? RISK_COLORS.medium;
-  const intentTitle = getIntentTitle(data.action);
+  const intentTitleKey = data.action?.action_type
+    ? INTENT_TITLE_KEYS[data.action.action_type]
+    : undefined;
+  const intentTitle = intentTitleKey ? t(intentTitleKey) : t("approval_intentDefault");
 
   const previewContent = data.action?.content || data.action?.diff;
   const previewLineCount = previewContent ? previewContent.split("\n").length : 0;
@@ -210,7 +213,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
             onClick={() => setPreviewExpanded(!previewExpanded)}
           >
             {previewExpanded ? <CaretUp size={12} /> : <CaretDown size={12} />}
-            {data.action?.diff ? "显示变更" : "显示内容"}
+            {data.action?.diff ? t("approval_showDiff") : t("approval_showContent")}
           </button>
           {previewExpanded && (
             <pre
@@ -255,7 +258,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
                     {shortcut}
                   </kbd>
                 )}
-                <span>记住「{prefix}」前缀，以后自动允许</span>
+                <span>{t("approval_rememberPrefix", { prefix })}</span>
               </button>
             );
           }
@@ -278,7 +281,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
                   {shortcut}
                 </kbd>
               )}
-              <span>{d.label}</span>
+              <span>{DECISION_LABEL_KEYS[d.id] ? t(DECISION_LABEL_KEYS[d.id]) : d.label}</span>
             </button>
           );
         })}
@@ -294,7 +297,7 @@ export function ApprovalCard({ data, onDecision, sessionId }: ApprovalCardProps)
               border: "1px dashed var(--separator)",
             }}
           >
-            <span>本次全部允许（跳过后续所有审批）</span>
+            <span>{t("approval_approveAllSessionSkip")}</span>
           </button>
         )}
       </div>

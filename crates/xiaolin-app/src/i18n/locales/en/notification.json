@@ -8,6 +8,7 @@
   "markRead": "Mark as read",
   "delete": "Delete",
   "type_cron": "Scheduled task",
+  "type_agent": "Agent",
   "type_error": "Error",
   "type_system": "System",
   "justNow": "Just now",

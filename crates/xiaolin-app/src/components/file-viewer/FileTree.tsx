@@ -17,6 +17,7 @@ import {
   FileMd,
   FileImage,
 } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { listDirectory, type DirEntry } from "../../lib/transport";
 
 const MAX_DIR_ENTRIES = 500;
@@ -71,6 +72,7 @@ const TreeNode = memo(function TreeNode({
   depth,
   onOpenFile,
 }: TreeNodeProps) {
+  const { t } = useTranslation("fileViewer");
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -198,12 +200,12 @@ const TreeNode = memo(function TreeNode({
         <div role="group">
           {loading && (
             <div style={{ padding: `3px 6px 3px ${paddingLeft + 22}px`, fontSize: 10, color: "var(--fill-quaternary)" }}>
-              Loading…
+              {t("loading")}
             </div>
           )}
           {error && !loading && (
             <div style={{ padding: `3px 6px 3px ${paddingLeft + 22}px`, fontSize: 10, color: "var(--red-text)" }}>
-              Failed to load
+              {t("loadNodeFailed")}
             </div>
           )}
           {!loading && !error && children.map((child) => (
@@ -218,7 +220,7 @@ const TreeNode = memo(function TreeNode({
           ))}
           {!loading && !error && truncated && (
             <div style={{ padding: `3px 6px 3px ${paddingLeft + 22}px`, fontSize: 10, color: "var(--fill-quaternary)", fontStyle: "italic" }}>
-              {MAX_DIR_ENTRIES}+ items…
+              {t("itemsTruncated", { count: MAX_DIR_ENTRIES })}
             </div>
           )}
         </div>
@@ -233,6 +235,7 @@ export interface FileTreeProps {
 }
 
 export const FileTree = memo(function FileTree({ workDir, onOpenFile }: FileTreeProps) {
+  const { t } = useTranslation("fileViewer");
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -263,27 +266,27 @@ export const FileTree = memo(function FileTree({ workDir, onOpenFile }: FileTree
   if (loading) {
     return (
       <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--fill-quaternary)" }}>
-        Loading…
+        {t("loading")}
       </div>
     );
   }
   if (error) {
     return (
       <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--red-text)" }}>
-        Unable to load directory
+        {t("loadDirectoryFailed")}
       </div>
     );
   }
   if (entries.length === 0) {
     return (
       <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--fill-quaternary)" }}>
-        Empty directory
+        {t("emptyDirectory")}
       </div>
     );
   }
 
   return (
-    <div role="tree" aria-label="File tree">
+    <div role="tree" aria-label={t("fileTreeAriaLabel")}>
       {entries.map((entry) => (
         <TreeNode
           key={`${workDir}/${entry.name}`}
@@ -296,7 +299,7 @@ export const FileTree = memo(function FileTree({ workDir, onOpenFile }: FileTree
       ))}
       {truncated && (
         <div style={{ padding: "3px 6px 3px 20px", fontSize: 10, color: "var(--fill-quaternary)", fontStyle: "italic" }}>
-          {MAX_DIR_ENTRIES}+ items…
+          {t("itemsTruncated", { count: MAX_DIR_ENTRIES })}
         </div>
       )}
     </div>

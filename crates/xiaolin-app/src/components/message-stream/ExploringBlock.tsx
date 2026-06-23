@@ -74,11 +74,11 @@ export function ExploringBlock({ tools, streaming }: ExploringBlockProps) {
         </span>
 
         <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>
-          {isActive ? t("exploring_active", "Exploring") : t("exploring_done", "Explored")}
+          {isActive ? t("exploring_active") : t("exploring_done")}
         </span>
 
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-          {tools.length} {t("exploring_items", "项")}
+          {tools.length} {t("exploring_items")}
         </span>
 
         {/* Chevron */}
@@ -107,7 +107,7 @@ export function ExploringBlock({ tools, streaming }: ExploringBlockProps) {
       >
         {grouped.reads.length > 0 && (
           <div className="flex items-baseline gap-1 py-[1px]">
-            <span className="shrink-0" style={{ color: "var(--tint)" }}>Read</span>
+            <span className="shrink-0" style={{ color: "var(--tint)" }}>{t("exploring_read")}</span>
             <span className="truncate min-w-0">
               {expanded ? grouped.reads.join(", ") : grouped.reads.length <= 3 ? grouped.reads.join(", ") : `${grouped.reads.slice(0, 3).join(", ")} +${grouped.reads.length - 3}`}
             </span>
@@ -115,15 +115,15 @@ export function ExploringBlock({ tools, streaming }: ExploringBlockProps) {
         )}
         {grouped.searches.length > 0 && grouped.searches.map((s, i) => (
           <div key={i} className="flex items-baseline gap-1 py-[1px]">
-            <span className="shrink-0" style={{ color: "var(--tint)" }}>Search</span>
+            <span className="shrink-0" style={{ color: "var(--tint)" }}>{t("exploring_search")}</span>
             <span className="truncate min-w-0">
-              {s.query}{s.path ? <span className="opacity-50"> in {s.path}</span> : null}
+              {s.query}{s.path ? <span className="opacity-50"> {t("exploring_inPath", { path: s.path })}</span> : null}
             </span>
           </div>
         ))}
         {grouped.lists.length > 0 && (
           <div className="flex items-baseline gap-1 py-[1px]">
-            <span className="shrink-0" style={{ color: "var(--tint)" }}>List</span>
+            <span className="shrink-0" style={{ color: "var(--tint)" }}>{t("exploring_list")}</span>
             <span className="truncate min-w-0">{grouped.lists.join(", ")}</span>
           </div>
         )}

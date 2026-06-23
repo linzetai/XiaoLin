@@ -1,3 +1,9 @@
+pub mod browser_bridge;
+pub mod browser_eval;
+#[cfg(target_os = "linux")]
+pub mod browser_gtk;
+pub mod browser_network;
+pub mod browser_panel;
 pub mod commands;
 pub mod embedded;
 
@@ -170,6 +176,10 @@ pub fn run() {
     xiaolin_observe::init_observability_with_level("pretty", default_level);
 
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "xiaolin-internal",
+            browser_panel::handle_xiaolin_internal_protocol,
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
@@ -204,6 +214,10 @@ pub fn run() {
             ));
 
             app.manage(commands::audio_capture::AudioCaptureState::new());
+
+            app.manage(browser_panel::BrowserPanelState(std::sync::Mutex::new(
+                browser_panel::BrowserPanelManager::new(),
+            )));
 
             setup_tray(app)?;
 
@@ -260,6 +274,15 @@ pub fn run() {
                     tracing::debug!("Global shortcut Ctrl+Shift+L skipped: {e}");
                 }
             }
+
+            browser_bridge::install_browser_bridge(app.handle());
+
+            let handle_for_network = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = browser_network::install_browser_network(&handle_for_network).await {
+                    tracing::error!(error = %e, "failed to install browser network");
+                }
+            });
 
             let handle = app.handle().clone();
 
@@ -341,6 +364,24 @@ pub fn run() {
             commands::file_viewer::read_file_for_viewer,
             commands::file_viewer::list_directory,
             commands::file_viewer::read_binary_for_viewer,
+            commands::browser::browser_open_page,
+            commands::browser::browser_close_page,
+            commands::browser::browser_navigate,
+            commands::browser::browser_go_back,
+            commands::browser::browser_go_forward,
+            commands::browser::browser_reload,
+            commands::browser::browser_resize_webview,
+            commands::browser::browser_list_pages,
+            commands::browser::browser_show_page,
+            commands::browser::browser_hide_all_pages,
+            commands::browser::browser_eval_js,
+            commands::browser::browser_webview_notify,
+            commands::browser::browser_request_takeover,
+            commands::browser::browser_clear_user_takeover,
+            commands::browser_network::browser_get_network_config,
+            commands::browser_network::browser_save_network_config,
+            commands::browser_network::browser_network_confirm_resolve,
+            commands::browser_network::browser_webview_proxy_url,
         ])
         .build(tauri::generate_context!());
 
@@ -354,6 +395,21 @@ pub fn run() {
 
     app.run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                // Close all browser WebViews to avoid resource leaks (rule #26)
+                if let Ok(guard) = app
+                    .state::<browser_panel::BrowserPanelState>()
+                    .0
+                    .lock()
+                {
+                    for page_info in guard.list_pages() {
+                        let label =
+                            format!("{}{}", browser_panel::BROWSER_WEBVIEW_PREFIX, page_info.page_id);
+                        if let Some(wv) = app.get_webview(&label) {
+                            let _ = wv.close();
+                        }
+                    }
+                }
+
                 let state = app.state::<AppData>();
                 let lock_result = tauri::async_runtime::block_on(async {
                     tokio::time::timeout(

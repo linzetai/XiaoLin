@@ -10,7 +10,11 @@ import { useLocaleStore, type Locale, type ResponseLang } from "../../lib/stores
 
 export function GeneralTab() {
   const { t } = useTranslation("settings");
-  const { mode, setMode, accent, setAccent, resolved } = useThemeStore();
+  const mode = useThemeStore((s) => s.mode);
+  const setMode = useThemeStore((s) => s.setMode);
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
+  const resolved = useThemeStore((s) => s.resolved);
   const [notifications, setNotifications] = useState(true);
   const [sounds, setSounds] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -136,9 +140,9 @@ export function GeneralTab() {
   );
 }
 
-const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+const LOCALE_OPTIONS: { value: Locale; labelKey: string }[] = [
+  { value: "zh", labelKey: "locale_zh" },
+  { value: "en", labelKey: "locale_en" },
 ];
 
 const RESPONSE_LANG_OPTIONS: { value: ResponseLang; labelKey: string }[] = [
@@ -150,7 +154,10 @@ const RESPONSE_LANG_OPTIONS: { value: ResponseLang; labelKey: string }[] = [
 
 function LanguageSection() {
   const { t } = useTranslation("settings");
-  const { locale, responseLang, setLocale, setResponseLang } = useLocaleStore();
+  const locale = useLocaleStore((s) => s.locale);
+  const responseLang = useLocaleStore((s) => s.responseLang);
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const setResponseLang = useLocaleStore((s) => s.setResponseLang);
 
   return (
     <div>
@@ -169,7 +176,7 @@ function LanguageSection() {
                   boxShadow: locale === opt.value ? "var(--shadow-sm)" : "none",
                 }}
               >
-                {opt.label}
+                {t(opt.labelKey)}
               </button>
             ))}
           </div>
@@ -206,7 +213,9 @@ const THRESHOLD_OPTIONS = [
 
 function DisplaySection() {
   const { t } = useTranslation("settings");
-  const { display, setDisplayConfig, loadDisplayConfig } = useConfigStore();
+  const display = useConfigStore((s) => s.display);
+  const setDisplayConfig = useConfigStore((s) => s.setDisplayConfig);
+  const loadDisplayConfig = useConfigStore((s) => s.loadDisplayConfig);
 
   const fontSizeOptions: { value: FontSize; label: string }[] = useMemo(() => [
     { value: "small", label: t("fontSize_small") },
@@ -241,6 +250,27 @@ function DisplaySection() {
         </SettingRow>
         <SettingRow label={t("lineNumbers")} description={t("lineNumbersDesc")}>
           <Toggle enabled={display.showLineNumbers} onChange={() => setDisplayConfig({ showLineNumbers: !display.showLineNumbers })} />
+        </SettingRow>
+        <SettingRow label={t("chatLinkTarget")} description={t("chatLinkTargetDesc")}>
+          <div className="flex rounded-[var(--radius-xs)] p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+            {([
+              { value: "builtin" as const, label: t("chatLinkTarget_builtin") },
+              { value: "external" as const, label: t("chatLinkTarget_external") },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setDisplayConfig({ chatLinkTarget: opt.value })}
+                className="cursor-pointer rounded-[var(--radius-xs)] px-2.5 py-1 text-center text-[12px] font-medium transition-all duration-200"
+                style={{
+                  background: display.chatLinkTarget === opt.value ? "var(--bg-elevated)" : "transparent",
+                  color: display.chatLinkTarget === opt.value ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                  boxShadow: display.chatLinkTarget === opt.value ? "var(--shadow-sm)" : "none",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </SettingRow>
         <SettingRow label={t("toolCallThreshold")} description={t("toolCallThresholdDesc")} isLast>
           <div className="flex rounded-[var(--radius-xs)] p-0.5" style={{ background: "var(--bg-tertiary)" }}>
@@ -305,19 +335,19 @@ function SkillExtractionSection() {
 
   return (
     <div>
-      <SectionTitle>{t("skillExtraction", "技能学习")}</SectionTitle>
+      <SectionTitle>{t("skillExtraction")}</SectionTitle>
       <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
         <SettingRow
-          label={t("skillExtractionEnabled", "自动提取技能")}
-          description={t("skillExtractionEnabledDesc", "从对话历史中自动学习使用模式（消耗 LLM 额度）")}
+          label={t("skillExtractionEnabled")}
+          description={t("skillExtractionEnabledDesc")}
         >
           <Toggle enabled={enabled} onChange={() => saveEnabled(!enabled)} />
         </SettingRow>
         {enabled && (
           <>
             <SettingRow
-              label={t("skillExtractionModel", "提取模型")}
-              description={t("skillExtractionModelDesc", "留空则使用系统默认模型")}
+              label={t("skillExtractionModel")}
+              description={t("skillExtractionModelDesc")}
             >
               <input
                 type="text"
@@ -334,8 +364,8 @@ function SkillExtractionSection() {
               />
             </SettingRow>
             <SettingRow
-              label={t("skillExtractionDailyLimit", "每日上限")}
-              description={t("skillExtractionDailyLimitDesc", "每天最多 LLM 调用次数")}
+              label={t("skillExtractionDailyLimit")}
+              description={t("skillExtractionDailyLimitDesc")}
               isLast
             >
               <input
@@ -358,7 +388,7 @@ function SkillExtractionSection() {
         {!enabled && (
           <SettingRow
             label=""
-            description={t("skillExtractionDisabledHint", "开启后将定期从对话历史中提取可复用的操作模式")}
+            description={t("skillExtractionDisabledHint")}
             isLast
           >
             <span />

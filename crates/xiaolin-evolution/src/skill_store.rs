@@ -371,7 +371,27 @@ impl SkillStore {
             return Ok(Vec::new());
         }
 
-        let rows: Vec<(
+        const CANDIDATE_LIMIT: i64 = 100;
+
+        let mut conditions: Vec<String> = Vec::with_capacity(tokens.len());
+        for _ in &tokens {
+            conditions.push(
+                "(LOWER(task_pattern) LIKE ? OR LOWER(name) LIKE ? OR LOWER(strategy_template) LIKE ?)"
+                    .to_string(),
+            );
+        }
+        let token_clause = conditions.join(" OR ");
+        let sql = format!(
+            "SELECT id, name, task_pattern, strategy_template, source_trajectory_ids,
+                    success_rate, usage_count, success_count, status, created_at, version, parent_id
+             FROM extracted_skills
+             WHERE status IN ('active', 'candidate')
+               AND ({token_clause})
+             ORDER BY usage_count DESC
+             LIMIT ?"
+        );
+
+        let mut query = sqlx::query_as::<_, (
             String,
             String,
             String,
@@ -384,14 +404,15 @@ impl SkillStore {
             String,
             i64,
             Option<String>,
-        )> = sqlx::query_as(
-            "SELECT id, name, task_pattern, strategy_template, source_trajectory_ids,
-                    success_rate, usage_count, success_count, status, created_at, version, parent_id
-             FROM extracted_skills
-             WHERE status IN ('active', 'candidate')",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        )>(&sql);
+
+        for t in &tokens {
+            let pattern = format!("%{t}%");
+            query = query.bind(pattern.clone()).bind(pattern.clone()).bind(pattern);
+        }
+        query = query.bind(CANDIDATE_LIMIT);
+
+        let rows = query.fetch_all(&self.pool).await?;
 
         let mut scored: Vec<(i32, ExtractedSkill)> = Vec::new();
         for row in rows {
