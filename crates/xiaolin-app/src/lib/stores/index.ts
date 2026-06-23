@@ -24,6 +24,21 @@ export { useQueueStore } from "./queue-store";
 export { useProjectStore } from "./project-store";
 export { useGitStore, initGitStore, destroyGitStore } from "./git-store";
 export { useUIStore, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "./ui-store";
+export {
+  useBrowserStore,
+  initBrowserEvents,
+  teardownBrowserEvents,
+  shouldShowBrowserWebView,
+  hasBrowserPages,
+  browserGoBack,
+  browserGoForward,
+  browserReload,
+  browserResizeWebview,
+  normalizeNavUrl,
+  isHttpsUrl,
+  MAX_BROWSER_PAGES,
+} from "./browser-store";
+export type { BrowserPage, BrowserDownload, PageLoadState } from "./browser-store";
 export { useSearchStore } from "./search-store";
 export type { SearchResult, SearchFilters, SearchIndexStatus } from "./search-store";
 export { useTerminalStore } from "./terminal-store";

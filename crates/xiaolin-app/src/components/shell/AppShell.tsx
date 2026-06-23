@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { GitBranch, Crosshair, Terminal, Robot, FileText, FolderOpen } from "@phosphor-icons/react";
+import { GitBranch, Crosshair, Terminal, Robot, FileText, FolderOpen, Globe } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
@@ -11,9 +11,11 @@ import { TerminalTabContent } from "./TerminalTabContent";
 import { SubAgentsTabContent } from "./CoordinatorPanel";
 import { PlanTabContent } from "../message-stream/PlanPanel";
 import { FilesTabContent } from "./FilesTabContent";
+import { BrowserTabContent } from "../browser/BrowserTabContent";
 import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/stores";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
+import { useBrowserStore, shouldShowBrowserWebView } from "../../lib/stores/browser-store";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
@@ -26,6 +28,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeChatId = useChatMetaStore((s) => s.activeChatId);
   const activeChat = useChatMetaStore((s) => s.chats[s.activeChatId]);
   const prevChatRef = useRef<string | null>(null);
+  const browserPageCount = useBrowserStore((s) => Object.keys(s.pages).length);
+  const browserLayoutMode = useBrowserStore((s) => s.layoutMode);
+  const panelOpen = useWorkspaceTabs((s) => s.panelOpen);
 
   useEffect(() => {
     if (activeChatId !== prevChatRef.current) {
@@ -106,6 +111,43 @@ export function AppShell({ children }: { children: ReactNode }) {
       unregisterTab("plan");
     }
   }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
+
+  // Browser tab — show when pages exist and not in fullwidth mode
+  useEffect(() => {
+    const shouldRegister = browserPageCount > 0 && browserLayoutMode === "panel";
+    if (shouldRegister) {
+      registerTab({
+        id: "browser",
+        label: "Browser",
+        icon: Globe,
+        component: BrowserTabContent,
+        order: 6,
+      });
+      const { activeTabId: currentTab, panelOpen: open } = useWorkspaceTabs.getState();
+      if (browserPageCount === 1 && currentTab !== "browser" && !open) {
+        useWorkspaceTabs.getState().setActiveTab("browser");
+      }
+    } else {
+      unregisterTab("browser");
+    }
+  }, [browserPageCount, browserLayoutMode, registerTab, unregisterTab]);
+
+  // Browser WebView visibility: tab switch + panel open/close + layout mode
+  useEffect(() => {
+    if (browserPageCount === 0) return;
+
+    const visible = shouldShowBrowserWebView({
+      layoutMode: browserLayoutMode,
+      panelOpen,
+      activeTabId,
+    });
+
+    if (visible) {
+      void useBrowserStore.getState().showActivePage();
+    } else {
+      void useBrowserStore.getState().hideAllPages();
+    }
+  }, [activeTabId, panelOpen, browserLayoutMode, browserPageCount]);
 
   useEffect(() => {
     const handler = (e: Event) => {

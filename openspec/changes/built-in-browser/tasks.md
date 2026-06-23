@@ -70,27 +70,27 @@
 
 ## 3. 前端 — Browser Store 和 UI 组件
 
-- [ ] 3.1 `lib/stores/browser-store.ts`：BrowserPage 接口 + Zustand store
+- [x] 3.1 `lib/stores/browser-store.ts`：BrowserPage 接口 + Zustand store
   - pages, activePageId, layoutMode, chatPanelWidth, chatPanelCollapsed
   - openPage, closePage, navigate, setLayoutMode, toggleChatPanel
   - Agent control 状态 per-page
-- [ ] 3.2 Tauri Event 监听注册（browser-url-changed、browser-title-changed、browser-loading、browser-user-action、browser-download-*）
-- [ ] 3.3 `components/browser/BrowserAddressBar.tsx`
+- [x] 3.2 Tauri Event 监听注册（browser-url-changed、browser-title-changed、browser-loading、browser-user-action、browser-download-*）
+- [x] 3.3 `components/browser/BrowserAddressBar.tsx`
   - 后退、前进、刷新 + URL 输入框 + 安全指示器（HTTPS 锁图标）
   - Agent Control Mode 状态条 + [取回控制] 按钮
   - [全宽/侧栏] 切换按钮
-- [ ] 3.4 `components/browser/BrowserPageTabs.tsx`：页面标签栏 + 新建按钮 + Agent 控制标记 (🤖)
-- [ ] 3.5 `components/browser/BrowserPlaceholder.tsx`：WebView 占位 div + ResizeObserver + IPC 定位（CSS px → LogicalPosition）
-- [ ] 3.6 `components/browser/BrowserTabContent.tsx`：组合 AddressBar + PageTabs + Placeholder + ActionLog + DownloadBar
-- [ ] 3.7 `components/browser/BrowserFullPanel.tsx`：全宽模式的 Browser 容器（复用 BrowserTabContent 内部组件）
-- [ ] 3.8 `components/browser/ChatSidePanel.tsx`：全宽模式下的 Chat 左侧面板（可拖拽、可折叠）
-- [ ] 3.9 `components/browser/DownloadNotificationBar.tsx`：下载通知栏
-- [ ] 3.10 AppShell.tsx 注册 Browser Tab（order: 6）
-- [ ] 3.11 Tab 切换隐显逻辑：切离时 `browser_hide_all_pages()`，切回时 `browser_show_page(activePageId)`
-- [ ] 3.12 页面切换隐显逻辑
-- [ ] 3.13 Panel 关闭/打开联动：`panelOpen` 变化时调用 `browser_hide_all_pages()` / `browser_show_page()`
-- [ ] 3.14 全宽模式实现：ContentBlock 条件渲染 + CSS transition + WebView 快照动画
-- [ ] 3.15 Agent Control Mode UI：半透明遮罩 + toast 拦截 + [中止 Agent] 按钮
+- [x] 3.4 `components/browser/BrowserPageTabs.tsx`：页面标签栏 + 新建按钮 + Agent 控制标记 (🤖)
+- [x] 3.5 `components/browser/BrowserPlaceholder.tsx`：WebView 占位 div + ResizeObserver + IPC 定位（CSS px → LogicalPosition）
+- [x] 3.6 `components/browser/BrowserTabContent.tsx`：组合 AddressBar + PageTabs + Placeholder + DownloadBar
+- [x] 3.7 `components/browser/BrowserFullPanel.tsx`：全宽模式的 Browser 容器（复用 BrowserTabContent 内部组件）
+- [x] 3.8 `components/browser/ChatSidePanel.tsx`：全宽模式下的 Chat 左侧面板（可拖拽、可折叠）
+- [x] 3.9 `components/browser/DownloadNotificationBar.tsx`：下载通知栏
+- [x] 3.10 AppShell.tsx 注册 Browser Tab（order: 6）
+- [x] 3.11 Tab 切换隐显逻辑：切离时 `browser_hide_all_pages()`，切回时 `browser_show_page(activePageId)`
+- [x] 3.12 页面切换隐显逻辑
+- [x] 3.13 Panel 关闭/打开联动：`panelOpen` 变化时调用 `browser_hide_all_pages()` / `browser_show_page()`
+- [x] 3.14 全宽模式实现：ContentBlock 条件渲染 + CSS transition + WebView 快照动画
+- [x] 3.15 Agent Control Mode UI：半透明遮罩 + toast 拦截 + [中止 Agent] 按钮
 
 ## 4. Chat 链接拦截
 
