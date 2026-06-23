@@ -1547,8 +1547,10 @@ impl CdpEngine {
                     .get("filePath")
                     .and_then(|v| v.as_str())
                     .ok_or("browser upload_file: missing 'filePath'.")?;
+                let validated_path = actions::validate_upload_path(file_path)?;
+                let validated_str = validated_path.to_string_lossy();
                 let el = CdpEngine::find_element(&tab, args)?;
-                el.set_input_files(&[file_path])
+                el.set_input_files(&[validated_str.as_ref()])
                     .map_err(|e| format!("browser upload_file: {e}."))?;
                 let include_snapshot = args
                     .get("includeSnapshot")

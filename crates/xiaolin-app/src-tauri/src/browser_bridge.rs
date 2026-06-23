@@ -216,7 +216,12 @@ impl BrowserBridge for TauriBrowserBridge {
         self.with_manager(|manager| {
             manager.remove_page(page_id);
             Ok(())
-        })
+        })?;
+        let _ = self.app.emit(
+            "browser-page-closed",
+            serde_json::json!({ "pageId": page_id }),
+        );
+        Ok(())
     }
 
     fn screenshot(&self, page_id: Option<&str>) -> Result<Vec<u8>, String> {
