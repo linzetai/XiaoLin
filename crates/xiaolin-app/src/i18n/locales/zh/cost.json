@@ -18,6 +18,7 @@
   "costCacheHit": "cache 命中",
   "costInputAmount": "输入: {{amount}}",
   "costOutputAmount": "输出: {{amount}}",
+  "costCacheAmount": "缓存: {{amount}}",
   "costTotalTokens": "总 Token",
   "costNoToolData": "暂无工具调用数据",
   "costNoSessionData": "暂无会话记录",

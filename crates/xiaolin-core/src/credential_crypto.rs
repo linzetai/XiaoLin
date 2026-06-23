@@ -152,18 +152,12 @@ pub fn decrypt_credential(data: &str) -> Result<String> {
     String::from_utf8(plaintext).context("decrypted credential is not valid UTF-8")
 }
 
-/// Encrypt with fallback to plaintext on failure (does not block config saves).
-pub fn maybe_encrypt_credential(plaintext: &str) -> String {
+/// Encrypt a credential value. Already-encrypted values pass through unchanged.
+pub fn maybe_encrypt_credential(plaintext: &str) -> Result<String> {
     if is_encrypted_value(plaintext) {
-        return plaintext.to_string();
+        return Ok(plaintext.to_string());
     }
-    match encrypt_credential(plaintext) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(error = %e, "credential encryption failed, storing plaintext");
-            plaintext.to_string()
-        }
-    }
+    encrypt_credential(plaintext)
 }
 
 /// Recursively decrypt secret config field values.
@@ -177,8 +171,8 @@ pub fn decrypt_config_secrets(val: &serde_json::Value) -> serde_json::Value {
                         let decrypted = match decrypt_credential(s) {
                             Ok(d) => d,
                             Err(e) => {
-                                tracing::warn!(key = %k, error = %e, "failed to decrypt config secret");
-                                s.to_string()
+                                tracing::error!(key = %k, error = %e, "failed to decrypt config secret");
+                                String::new()
                             }
                         };
                         out.insert(k.clone(), serde_json::Value::String(decrypted));
@@ -197,7 +191,7 @@ pub fn decrypt_config_secrets(val: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Recursively encrypt secret config field values (skips already-encrypted values).
-pub fn encrypt_config_secrets(val: &serde_json::Value) -> serde_json::Value {
+pub fn encrypt_config_secrets(val: &serde_json::Value) -> Result<serde_json::Value> {
     match val {
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
@@ -206,19 +200,21 @@ pub fn encrypt_config_secrets(val: &serde_json::Value) -> serde_json::Value {
                     if let Some(s) = v.as_str() {
                         out.insert(
                             k.clone(),
-                            serde_json::Value::String(maybe_encrypt_credential(s)),
+                            serde_json::Value::String(maybe_encrypt_credential(s)?),
                         );
                         continue;
                     }
                 }
-                out.insert(k.clone(), encrypt_config_secrets(v));
+                out.insert(k.clone(), encrypt_config_secrets(v)?);
             }
-            serde_json::Value::Object(out)
+            Ok(serde_json::Value::Object(out))
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(encrypt_config_secrets).collect())
-        }
-        other => other.clone(),
+        serde_json::Value::Array(arr) => Ok(serde_json::Value::Array(
+            arr.iter()
+                .map(encrypt_config_secrets)
+                .collect::<Result<Vec<_>>>()?,
+        )),
+        other => Ok(other.clone()),
     }
 }
 
@@ -254,7 +250,7 @@ mod tests {
                 }
             }
         });
-        let encrypted = encrypt_config_secrets(&val);
+        let encrypted = encrypt_config_secrets(&val).expect("encrypt");
         let enc_key = encrypted["credentials"]["openai"]["apiKey"]
             .as_str()
             .unwrap();
@@ -276,7 +272,7 @@ mod tests {
         let plain = "sk-once";
         let once = encrypt_credential(plain).unwrap();
         let val = serde_json::json!({ "apiKey": once });
-        let again = encrypt_config_secrets(&val);
+        let again = encrypt_config_secrets(&val).expect("encrypt");
         assert_eq!(
             again["apiKey"].as_str().unwrap(),
             once,

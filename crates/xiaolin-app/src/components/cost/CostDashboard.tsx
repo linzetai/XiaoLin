@@ -105,7 +105,7 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
                 <div className="mb-1 font-medium" style={{ color: "var(--fill-primary)" }}>{date}</div>
                 <div>{t("costInputAmount", { amount: formatTokens(v.input) })}</div>
                 <div>{t("costOutputAmount", { amount: formatTokens(v.output) })}</div>
-                {v.cache > 0 && <div>cache: {formatTokens(v.cache)}</div>}
+                {v.cache > 0 && <div>{t("costCacheAmount", { amount: formatTokens(v.cache) })}</div>}
                 <div className="mt-0.5 font-medium">{formatUsd(v.cost)}</div>
               </div>
             </div>
@@ -257,8 +257,8 @@ function SessionTable({ data }: { data: SessionCostSummary[] }) {
           <tr style={{ borderBottom: "0.5px solid var(--separator-opaque)" }}>
             <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costDate")}</th>
             <th className="px-3 py-2 text-left font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costModel")}</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>Input</th>
-            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>Output</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costInput")}</th>
+            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costOutput")}</th>
             <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costFee")}</th>
             <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("costTurns")}</th>
           </tr>

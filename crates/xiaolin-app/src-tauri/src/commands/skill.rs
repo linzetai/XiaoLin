@@ -42,7 +42,11 @@ fn allowed_upload_roots() -> Vec<PathBuf> {
             }
         }
     }
-    roots.push(std::env::temp_dir());
+    roots.push(
+        std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir()),
+    );
     roots
 }
 
@@ -67,16 +71,20 @@ fn ensure_allowed_source_path(path: &Path) -> Result<PathBuf, String> {
 
 fn dir_size(path: &Path) -> Result<u64, std::io::Error> {
     let mut total = 0u64;
-    if path.is_file() {
-        return Ok(path.metadata()?.len());
+    let meta = path.symlink_metadata()?;
+    if meta.is_file() {
+        return Ok(meta.len());
+    }
+    if !meta.is_dir() {
+        return Ok(0);
     }
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
-        let meta = entry.metadata()?;
-        if meta.is_dir() {
+        let entry_meta = entry.path().symlink_metadata()?;
+        if entry_meta.is_dir() {
             total = total.saturating_add(dir_size(&entry.path())?);
-        } else {
-            total = total.saturating_add(meta.len());
+        } else if entry_meta.is_file() {
+            total = total.saturating_add(entry_meta.len());
         }
     }
     Ok(total)

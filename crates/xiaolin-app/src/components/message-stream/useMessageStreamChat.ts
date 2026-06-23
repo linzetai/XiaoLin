@@ -77,6 +77,11 @@ export function useMessageStreamChat({
       : decision,
   [t]);
 
+  const tRef = useRef(t);
+  tRef.current = t;
+  const decisionLabelRef = useRef(decisionLabel);
+  decisionLabelRef.current = decisionLabel;
+
   const addMessage = useCallback((
     msg: Omit<ChatMessage, "id" | "chatId">,
     targetChatId?: string,
@@ -219,10 +224,10 @@ export function useMessageStreamChat({
             const policyAmendDec = decisions.find((dec) => dec.decision === "approved_with_policy_amend");
             setPendingQuestion({
               requestId: `approval:${approvalId}`,
-              question: t("approval_actionType", { reason, actionType }),
+              question: tRef.current("approval_actionType", { reason, actionType }),
               options: decisions.map((dec) => ({
                 id: dec.decision,
-                label: decisionLabel(dec.decision),
+                label: decisionLabelRef.current(dec.decision),
                 ...(dec.prefix ? { prefix: dec.prefix } : {}),
               })),
               timeoutSecs: 0,
@@ -256,7 +261,7 @@ export function useMessageStreamChat({
         detachedStreams.delete(newId);
       }
     }
-  }, [activeChat?.id, chatScrollKey, t, decisionLabel]);
+  }, [activeChat?.id, chatScrollKey]);
 
   useEffect(() => {
     return () => {

@@ -27,13 +27,7 @@ fn credential_path(account_id: &str) -> PathBuf {
 pub fn save_credential(account_id: &str, cred: &WechatCredential) -> anyhow::Result<()> {
     let path = credential_path(account_id);
     let json = serde_json::to_string_pretty(cred)?;
-    let payload = match xiaolin_core::credential_crypto::encrypt_credential(&json) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(error = %e, account_id, "wechat credential encryption failed, storing plaintext");
-            json
-        }
-    };
+    let payload = xiaolin_core::credential_crypto::encrypt_credential(&json)?;
     std::fs::write(&path, payload)?;
     #[cfg(unix)]
     {

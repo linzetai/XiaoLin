@@ -28,6 +28,30 @@ pub fn read_live_field_or<T: DeserializeOwned>(
         .unwrap_or(fallback)
 }
 
+/// Like [`read_live_field_or`], but logs a warning when deserialization fails.
+pub fn read_live_field_or_warn<T: DeserializeOwned>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+    fallback: T,
+) -> T {
+    match live.get(section).and_then(|s| s.get(field)) {
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(
+                    section,
+                    field,
+                    error = %e,
+                    "failed to deserialize live config field, using static fallback"
+                );
+                fallback
+            }
+        },
+        None => fallback,
+    }
+}
+
 /// Read and deserialize a nested field from a live config snapshot.
 ///
 /// Example: `read_live_field(live, "skills", "deny")` → `Vec<String>`.
@@ -160,7 +184,7 @@ pub fn persist_config_key(key: &str, value: &serde_json::Value) -> anyhow::Resul
         json!({})
     };
 
-    let encrypted_value = crate::credential_crypto::encrypt_config_secrets(value);
+    let encrypted_value = crate::credential_crypto::encrypt_config_secrets(value)?;
     set_nested_key(&mut cfg_value, key, encrypted_value)
         .map_err(|_| anyhow::anyhow!("failed to set nested key"))?;
 

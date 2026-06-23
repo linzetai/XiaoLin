@@ -590,9 +590,14 @@ export function ComposerCore({
     await api.exportSession(chatId, "json");
   }, []);
 
+  const handleNewTopicAction = useCallback(() => {
+    if (streamingRef.current) return;
+    handleNewTopicRef.current();
+  }, []);
+
   const slashCommands = useMemo((): SlashCommand[] => [
-    { id: "new", label: "new", desc: t("slashNew"), action: handleNewTopicRef.current },
-    { id: "clear", label: "clear", desc: t("slashClear"), action: handleNewTopicRef.current },
+    { id: "new", label: "new", desc: t("slashNew"), action: handleNewTopicAction },
+    { id: "clear", label: "clear", desc: t("slashClear"), action: handleNewTopicAction },
     { id: "compact", label: "compact", desc: t("slashCompact"), action: handleCompact },
     { id: "skillify", label: "skillify", desc: t("slashSkillify"), action: handleSkillify },
     { id: "plan", label: "plan", desc: executionMode === "plan" ? t("slashPlanToggle_toAgent") : t("slashPlanToggle_toPlan"), action: handlePlanSlash },
@@ -600,7 +605,7 @@ export function ComposerCore({
     { id: "export-json", label: "export json", desc: t("slashExportJson"), action: handleExportJson },
     { id: "model", label: "model", desc: t("slashModel") },
     { id: "tools", label: "tools", desc: t("slashTools") },
-  ], [t, executionMode, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson]);
+  ], [t, executionMode, handleCompact, handleSkillify, handlePlanSlash, handleExportMd, handleExportJson, handleNewTopicAction]);
 
   const handleInputTextChange = useCallback((text: string, mentions: InlineMention[]) => {
     setInputText(text);

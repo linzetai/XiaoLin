@@ -1075,7 +1075,7 @@ impl AgentRuntime {
 
         let budget_percent = **self.skills_context_budget_percent.load();
         if budget_percent > 0 {
-            let char_budget = (context_window as usize) * (budget_percent as usize) / 100 * 4;
+            let char_budget = (context_window as usize) * (budget_percent as usize) / 100;
             let block_chars = block.chars().count();
             if block_chars > char_budget {
                 block = block.chars().take(char_budget).collect();

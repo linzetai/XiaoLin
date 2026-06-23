@@ -870,6 +870,36 @@
 - **相关规则**：code-generation-quality #41
 - **修复记录**：2026-06-23 新增 `ssrf_check_*_pinned` + `build_pinned_client`；network/gateway 调用方改为 per-request pinned client
 
+#### BUG-003 🔴 加密失败静默回退明文（规则 #21、#23）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs` L156-165
+- **关联文件**：`extensions/wechat/src/auth/credential.rs`
+- **问题**：`maybe_encrypt_credential` 与微信 `save_credential` 在 AES 加密失败时仍写入明文凭证
+- **影响**：加密机制故障时凭证以明文落盘，用户无感知
+- **建议**：加密失败返回 `Err`，由调用方决定是否中止保存
+- **相关规则**：code-generation-quality #21、#23
+- **修复记录**：2026-06-23 `maybe_encrypt_credential` 改为 `Result<String>`；`encrypt_config_secrets` 传播错误；微信凭证保存失败即返回 Err
+
+#### BUG-004 🟡 解密失败注入密文到运行时（规则 #28）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/credential_crypto.rs` L177-181；`extensions/feishu/src/plugin.rs` L67-72
+- **问题**：`decrypt_config_secrets` / 飞书 `decrypt_secret_field` 解密失败时将 `XENC:...` 密文当作 secret 注入，API 调用静默失败
+- **影响**：配置损坏或密钥变更后 channel/LLM 调用失败且难以诊断
+- **建议**：解密失败时设为空字符串并 `tracing::error!`
+- **相关规则**：code-generation-quality #28
+- **修复记录**：2026-06-23 解密失败返回 `""` + error 日志
+
+#### BUG-005 🟡 read_live_field deny list fail-open
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-gateway/src/ws/skills.rs`；`crates/xiaolin-gateway/src/state/mod.rs`
+- **问题**：`read_live_field("deny")` 反序列化失败时返回空 Vec，被 deny 的 skill 可能被错误启用
+- **影响**：损坏的 live config 导致 deny list 失效
+- **建议**：反序列化失败时 warn 并回退静态 `config.skills.deny`
+- **修复记录**：2026-06-23 新增 `read_live_field_or_warn`，deny list 三处调用改为静态回退
+
 
 #### ✅ [MEDIUM] ContextTokenCache 无容量上限
 - **文件**: `extensions/wechat/src/plugin.rs:90-98`

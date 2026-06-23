@@ -80,16 +80,22 @@ impl FeishuWebhookState {
         }
     }
 
+    // TODO: wire up when gateway constructs FeishuWebhookState for legacy webhook route.
+    #[allow(dead_code)]
     pub fn with_unified_plugin(mut self, plugin: Arc<FeishuPlugin>) -> Self {
         self.unified_plugin = Some(plugin);
         self
     }
 
+    // TODO: wire up when gateway constructs FeishuWebhookState for legacy webhook route.
+    #[allow(dead_code)]
     pub fn with_reply_mode(mut self, reply_mode: impl Into<String>) -> Self {
         self.reply_mode = reply_mode.into();
         self
     }
 
+    // TODO: wire up when gateway constructs FeishuWebhookState for legacy webhook route.
+    #[allow(dead_code)]
     pub fn with_bot_open_id(mut self, bot_open_id: impl Into<String>) -> Self {
         self.bot_open_id = Some(bot_open_id.into());
         self

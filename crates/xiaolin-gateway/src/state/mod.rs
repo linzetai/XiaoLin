@@ -2439,7 +2439,12 @@ impl AppState {
             let live = self.cfg.config_live.load();
             (
                 xiaolin_core::config_access::read_live_field(&live, "skills", "allow"),
-                xiaolin_core::config_access::read_live_field(&live, "skills", "deny"),
+                xiaolin_core::config_access::read_live_field_or_warn(
+                    &live,
+                    "skills",
+                    "deny",
+                    self.cfg.config.skills.deny.clone(),
+                ),
                 xiaolin_core::config_access::read_live_field_or(
                     &live,
                     "skills",

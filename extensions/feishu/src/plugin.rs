@@ -68,8 +68,8 @@ impl FeishuPluginConfig {
         match xiaolin_core::credential_crypto::decrypt_credential(value) {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!(field, error = %e, "failed to decrypt feishu channel secret");
-                value.to_string()
+                tracing::error!(field, error = %e, "failed to decrypt feishu channel secret");
+                String::new()
             }
         }
     }

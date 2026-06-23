@@ -176,7 +176,9 @@ impl ToolRuntime for ShellRuntime {
                             }
                             build_plain_command(command, &cwd)
                         }
-                        SandboxPreference::Skip => build_plain_command(command, &cwd),
+                        SandboxPreference::Skip => {
+                            unreachable!("ShellRuntime never uses SandboxPreference::Skip")
+                        }
                     }
                 }
             }

@@ -18,6 +18,7 @@
   "costCacheHit": "Cache hit",
   "costInputAmount": "Input: {{amount}}",
   "costOutputAmount": "Output: {{amount}}",
+  "costCacheAmount": "cache: {{amount}}",
   "costTotalTokens": "Total Tokens",
   "costNoToolData": "No tool call data yet",
   "costNoSessionData": "No session records yet",

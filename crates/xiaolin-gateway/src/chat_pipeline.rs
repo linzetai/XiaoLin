@@ -657,12 +657,12 @@ async fn inject_skills_prompt(
             "promptMode",
             static_cfg.prompt_mode.clone(),
         );
-        let context_budget_percent = live
-            .get("skills")
-            .and_then(|s| s.get("contextBudgetPercent"))
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u8)
-            .unwrap_or(static_cfg.context_budget_percent);
+        let context_budget_percent = xiaolin_core::config_access::read_live_field_or(
+            &live,
+            "skills",
+            "contextBudgetPercent",
+            static_cfg.context_budget_percent,
+        );
         (prompt_mode, context_budget_percent)
     };
 
@@ -706,9 +706,7 @@ async fn inject_skills_prompt(
     let char_budget = if context_budget_percent == 0 {
         None
     } else {
-        context_window.map(|cw| {
-            (cw as usize) * (context_budget_percent as usize) / 100 * 4
-        })
+        context_window.map(|cw| (cw as usize) * (context_budget_percent as usize) / 100)
     };
 
     let usage_counts = match state.store.skill_usage_store.usage_counts(30).await {
