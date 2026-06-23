@@ -3,7 +3,7 @@ use crate::browser_panel::{
     browser_data_directory, default_download_directory, sanitize_download_filename,
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPage, BrowserPanelManager,
     BrowserPanelState, PageLoadState, PageVisibility, BROWSER_INIT_SCRIPT, BROWSER_WEBVIEW_PREFIX,
-    OFFSCREEN_POSITION,
+    FAVICON_EXTRACT_JS, OFFSCREEN_POSITION,
 };
 #[cfg(target_os = "macos")]
 use crate::browser_panel::browser_data_store_identifier;
@@ -193,6 +193,9 @@ fn build_browser_webview(
         if matches!(payload.event(), PageLoadEvent::Finished) {
             let _ = webview.eval(SELECTION_TOOLBAR_JS);
             let _ = webview.eval(CONTENT_EXTRACT_JS);
+            if let Err(e) = webview.eval(FAVICON_EXTRACT_JS) {
+                tracing::warn!(error = %e, page_id = %page_id_for_load, "favicon extract eval failed");
+            }
         }
     })
     .on_document_title_changed(move |_webview, title| {
@@ -774,6 +777,18 @@ pub async fn browser_webview_notify(
             };
             crate::browser_eval::complete_eval(id, outcome);
         }
+        return Ok(serde_json::json!({"ok": true}));
+    }
+
+    if msg_type == "favicon" {
+        let _ = app.emit(
+            "browser-favicon-changed",
+            serde_json::json!({
+                "pageId": page_id,
+                "dataUrl": data.get("dataUrl").cloned().unwrap_or(serde_json::Value::Null),
+                "url": data.get("url").cloned().unwrap_or(serde_json::Value::Null),
+            }),
+        );
         return Ok(serde_json::json!({"ok": true}));
     }
 

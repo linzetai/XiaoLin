@@ -23,6 +23,7 @@ export interface BrowserPage {
   visibility: "active" | "hidden";
   loadState: PageLoadState;
   agentControlled: boolean;
+  faviconUrl?: string;
 }
 
 export interface BrowserDownload {
@@ -201,7 +202,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       return {
         pages: {
           ...s.pages,
-          [pageId]: { ...page, url, loadState: { state: "loading" } },
+          [pageId]: { ...page, url, loadState: { state: "loading" }, faviconUrl: undefined },
         },
       };
     });
@@ -430,8 +431,21 @@ export async function initBrowserEvents(): Promise<void> {
   eventUnlisteners.push(
     await listen<{ pageId: string; url: string }>("browser-url-changed", (ev) => {
       const { pageId, url } = ev.payload;
-      updatePage(pageId, { url });
+      updatePage(pageId, { url, faviconUrl: undefined });
     }),
+  );
+
+  eventUnlisteners.push(
+    await listen<{ pageId: string; dataUrl?: string; url?: string }>(
+      "browser-favicon-changed",
+      (ev) => {
+        const { pageId, dataUrl, url } = ev.payload;
+        const faviconUrl = dataUrl ?? url;
+        if (faviconUrl) {
+          updatePage(pageId, { faviconUrl });
+        }
+      },
+    ),
   );
 
   eventUnlisteners.push(

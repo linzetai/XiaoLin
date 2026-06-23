@@ -21,6 +21,7 @@ pub(crate) const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] = &[
     "dialog",
     "eval_result",
     "user_action_blocked",
+    "favicon",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -308,6 +309,26 @@ window.prompt=function(msg,def){notify('dialog',{kind:'prompt',message:String(ms
 document.addEventListener('click',function(e){var el=e.target;while(el&&el.tagName!=='A'){el=el.parentElement;}if(!el||!el.href)return;var t=(el.target||'').toLowerCase();if(t==='_blank'){e.preventDefault();e.stopPropagation();window.open(el.href,'_blank');}},true);
 })();"#;
 
+/// Extract favicon via canvas and notify via __XIAOLIN__ (D9). Evaluated on page load Finished.
+pub const FAVICON_EXTRACT_JS: &str = r#"(function(){
+  var el = document.querySelector('link[rel*="icon"]');
+  var url = el ? el.href : (location.origin + '/favicon.ico');
+  var img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function(){
+    var c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    c.getContext('2d').drawImage(img, 0, 0, 16, 16);
+    try {
+      __XIAOLIN__.notify('favicon', { dataUrl: c.toDataURL('image/png') });
+    } catch(e) {
+      __XIAOLIN__.notify('favicon', { url: url });
+    }
+  };
+  img.onerror = function(){ __XIAOLIN__.notify('favicon', { url: url }); };
+  img.src = url;
+})()"#;
+
 fn http_response(status: StatusCode, body: &[u8]) -> http::Response<Vec<u8>> {
     http::Response::builder()
         .status(status)
@@ -436,6 +457,23 @@ pub fn handle_xiaolin_internal_protocol(
                 _ => Err("eval_result missing result and error".to_string()),
             };
             crate::browser_eval::complete_eval(id, outcome);
+        }
+        responder.respond(http_response(
+            StatusCode::OK,
+            br#"{"ok":true}"#,
+        ));
+        return;
+    }
+
+    if msg_type == "favicon" {
+        let data = payload.get("data");
+        let emit_payload = serde_json::json!({
+            "pageId": page_id,
+            "dataUrl": data.and_then(|d| d.get("dataUrl")).cloned().unwrap_or(serde_json::Value::Null),
+            "url": data.and_then(|d| d.get("url")).cloned().unwrap_or(serde_json::Value::Null),
+        });
+        if let Err(e) = app.emit("browser-favicon-changed", emit_payload) {
+            tracing::warn!(error = %e, "failed to emit browser-favicon-changed");
         }
         responder.respond(http_response(
             StatusCode::OK,

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, X, Globe } from "@phosphor-icons/react";
 import {
   useBrowserStore,
@@ -6,6 +6,27 @@ import {
 } from "../../lib/stores/browser-store";
 
 const NEW_TAB_URL = "https://example.com";
+
+function FaviconIcon({ url }: { url?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  if (!url || failed) return <Globe size={14} style={{ flexShrink: 0 }} />;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      width={14}
+      height={14}
+      style={{ borderRadius: 2, flexShrink: 0 }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 const tabStyle: React.CSSProperties = {
   display: "inline-flex",
@@ -114,7 +135,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
               title={label}
             >
               {page.agentControlled && <span aria-hidden>🤖</span>}
-              <Globe size={12} style={{ flexShrink: 0 }} />
+              <FaviconIcon url={page.faviconUrl} />
               <span
                 style={{
                   overflow: "hidden",

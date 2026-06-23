@@ -43,13 +43,13 @@
 
 ## 7. 标签页 Favicon
 
-- [ ] 7.1 `browser-store.ts`：`BrowserPage` 接口新增 `faviconUrl?: string` 字段
-- [ ] 7.2 `browser_panel.rs`：`ALLOWED_INTERNAL_MESSAGE_TYPES` 白名单新增 `"favicon"` 条目
-- [ ] 7.3 `browser_panel.rs` / `commands/browser.rs`：**专用** match arm 处理 `"favicon"` 类型，emit 扁平 JSON `{ pageId, dataUrl?, url? }`（不复用 generic `{ pageId, type, data }` wrapper）。事件名 `"browser-favicon-changed"`
-- [ ] 7.4 `commands/browser.rs`：`on_page_load Finished` 回调中新增 eval JS——在 browser WebView 内提取 favicon 并通过 canvas 转为 data URL 回传（CORS 失败时 fallback 到原始 URL）。JS 脚本提取为 `FAVICON_EXTRACT_JS` 常量（位于 Rust 侧），作为唯一来源
-- [ ] 7.5 `browser-store.ts`：在 `initBrowserEvents()` 中监听 `browser-favicon-changed` 事件。读取路径：`ev.payload.dataUrl ?? ev.payload.url`（扁平结构，非嵌套 `data`），更新对应页面的 `faviconUrl`
-- [ ] 7.6 `BrowserPageTabs.tsx`：将 Globe 图标替换为条件渲染——有 `faviconUrl` 时显示 `<img>`（14×14），加载失败 `onError` 回退到 Globe
-- [ ] 7.7 `browser-store.ts`：`browser-url-changed` 事件处理中**仅清空** `faviconUrl`（显示 Globe 回退图标），**不** re-eval favicon JS。Favicon 提取仅在 task 7.4 的 `on_page_load Finished` 路径触发——避免导航中途 eval 旧 DOM 拿到错误 favicon。SPA `pushState/replaceState` 不触发 `on_navigation` 也不触发 `on_page_load`，因此 SPA 内部导航后 favicon 不更新（MVP 可接受，同 host 通常同 favicon）
+- [x] 7.1 `browser-store.ts`：`BrowserPage` 接口新增 `faviconUrl?: string` 字段
+- [x] 7.2 `browser_panel.rs`：`ALLOWED_INTERNAL_MESSAGE_TYPES` 白名单新增 `"favicon"` 条目
+- [x] 7.3 `browser_panel.rs` / `commands/browser.rs`：**专用** match arm 处理 `"favicon"` 类型，emit 扁平 JSON `{ pageId, dataUrl?, url? }`（不复用 generic `{ pageId, type, data }` wrapper）。事件名 `"browser-favicon-changed"`
+- [x] 7.4 `commands/browser.rs`：`on_page_load Finished` 回调中新增 eval JS——在 browser WebView 内提取 favicon 并通过 canvas 转为 data URL 回传（CORS 失败时 fallback 到原始 URL）。JS 脚本提取为 `FAVICON_EXTRACT_JS` 常量（位于 Rust 侧），作为唯一来源
+- [x] 7.5 `browser-store.ts`：在 `initBrowserEvents()` 中监听 `browser-favicon-changed` 事件。读取路径：`ev.payload.dataUrl ?? ev.payload.url`（扁平结构，非嵌套 `data`），更新对应页面的 `faviconUrl`
+- [x] 7.6 `BrowserPageTabs.tsx`：将 Globe 图标替换为条件渲染——有 `faviconUrl` 时显示 `<img>`（14×14），加载失败 `onError` 回退到 Globe
+- [x] 7.7 `browser-store.ts`：`browser-url-changed` 事件处理中**仅清空** `faviconUrl`（显示 Globe 回退图标），**不** re-eval favicon JS。Favicon 提取仅在 task 7.4 的 `on_page_load Finished` 路径触发——避免导航中途 eval 旧 DOM 拿到错误 favicon。SPA `pushState/replaceState` 不触发 `on_navigation` 也不触发 `on_page_load`，因此 SPA 内部导航后 favicon 不更新（MVP 可接受，同 host 通常同 favicon）
 
 ## 8. 键盘快捷键补充
 
