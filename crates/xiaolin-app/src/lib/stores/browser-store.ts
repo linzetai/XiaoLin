@@ -3,6 +3,7 @@ import { isTauri } from "../transport";
 import i18n from "../../i18n";
 import { fillChatFromBrowserSelection } from "./composer-input-store";
 import { useChatMetaStore } from "./chat-meta-store";
+import type { MainView } from "./ui-store";
 
 export const MAX_BROWSER_PAGES = 8;
 export const MAX_BROWSER_DOWNLOADS = 50;
@@ -117,6 +118,7 @@ export interface BrowserState {
   userActionToast: string | null;
   userTakeoverActive: boolean;
   agentOperations: AgentOperation[];
+  networkSettingsOpen: boolean;
 
   openPage: (url: string) => Promise<string | null>;
   closePage: (pageId: string) => Promise<void>;
@@ -130,6 +132,7 @@ export interface BrowserState {
   dismissDownload: (id: string) => void;
   clearUserActionToast: () => void;
   clearAgentOperations: () => void;
+  setNetworkSettingsOpen: (open: boolean) => void;
   syncFromBackend: () => Promise<void>;
   hideAllPages: () => Promise<void>;
   showActivePage: () => Promise<void>;
@@ -164,6 +167,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
   userActionToast: null,
   userTakeoverActive: false,
   agentOperations: [],
+  networkSettingsOpen: false,
 
   openPage: async (url) => {
     if (!isTauri) {
@@ -323,6 +327,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
 
   clearAgentOperations: () => set({ agentOperations: [] }),
 
+  setNetworkSettingsOpen: (open: boolean) => set({ networkSettingsOpen: open }),
+
   syncFromBackend: async () => {
     if (!isTauri) return;
     try {
@@ -371,9 +377,15 @@ export function shouldShowBrowserWebView(opts: {
   layoutMode: "panel" | "fullwidth";
   panelOpen: boolean;
   activeTabId: string | null;
+  settingsOpen?: boolean;
+  mainView?: MainView;
+  networkSettingsOpen?: boolean;
 }): boolean {
   if (!hasBrowserPages()) return false;
-  if (opts.layoutMode === "fullwidth") return true;
+  if (opts.settingsOpen || opts.networkSettingsOpen) return false;
+  if (opts.layoutMode === "fullwidth") {
+    return opts.mainView === undefined || opts.mainView === "chat";
+  }
   return opts.panelOpen && opts.activeTabId === "browser";
 }
 

@@ -16,6 +16,7 @@ import { useGitStore, useTerminalStore, useActiveSubAgentRuns } from "../../lib/
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useBrowserStore, shouldShowBrowserWebView } from "../../lib/stores/browser-store";
+import { useUIStore } from "../../lib/stores/ui-store";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { t } = useTranslation("sidebar");
@@ -31,6 +32,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const browserPageCount = useBrowserStore((s) => Object.keys(s.pages).length);
   const browserLayoutMode = useBrowserStore((s) => s.layoutMode);
   const panelOpen = useWorkspaceTabs((s) => s.panelOpen);
+  const settingsOpen = useUIStore((s) => s.settingsOpen);
+  const mainView = useUIStore((s) => s.mainView);
+  const networkSettingsOpen = useBrowserStore((s) => s.networkSettingsOpen);
 
   useEffect(() => {
     if (activeChatId !== prevChatRef.current) {
@@ -142,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [browserPageCount, browserLayoutMode]);
 
-  // Browser WebView visibility: tab switch + panel open/close + layout mode
+  // Browser WebView visibility: tab switch + panel open/close + layout mode + overlays
   useEffect(() => {
     if (browserPageCount === 0) return;
 
@@ -150,6 +154,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       layoutMode: browserLayoutMode,
       panelOpen,
       activeTabId,
+      settingsOpen,
+      mainView,
+      networkSettingsOpen,
     });
 
     if (visible) {
@@ -157,7 +164,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else {
       void useBrowserStore.getState().hideAllPages();
     }
-  }, [activeTabId, panelOpen, browserLayoutMode, browserPageCount]);
+  }, [activeTabId, panelOpen, browserLayoutMode, browserPageCount, settingsOpen, mainView, networkSettingsOpen]);
 
   useEffect(() => {
     const handler = (e: Event) => {

@@ -75,19 +75,11 @@ export function BrowserPanelBody() {
   const openPage = useBrowserStore((s) => s.openPage);
   const closePage = useBrowserStore((s) => s.closePage);
   const addressBarRef = useRef<BrowserAddressBarHandle>(null);
-  const [networkSettingsOpen, setNetworkSettingsOpen] = useState(false);
+  const networkSettingsOpen = useBrowserStore((s) => s.networkSettingsOpen);
+  const setNetworkSettingsOpen = useBrowserStore((s) => s.setNetworkSettingsOpen);
   const [limitToast, setLimitToast] = useState(false);
 
   const webviewVisible = shouldShowBrowserWebView({ layoutMode, panelOpen, activeTabId });
-
-  useEffect(() => {
-    if (!hasPages) return;
-    if (networkSettingsOpen) {
-      void useBrowserStore.getState().hideAllPages();
-    } else {
-      void useBrowserStore.getState().showActivePage();
-    }
-  }, [networkSettingsOpen, hasPages]);
 
   const showLimitToast = useCallback(() => {
     setLimitToast(true);
