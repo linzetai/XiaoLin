@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 const MAX_SKILL_ZIP_ENTRIES: usize = 1000;
 const MAX_SKILL_ZIP_TOTAL_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_SKILL_UPLOAD_BYTES: u64 = MAX_SKILL_ZIP_TOTAL_BYTES;
 
 fn is_valid_skill_name(name: &str) -> bool {
     !name.is_empty()
@@ -26,6 +27,75 @@ fn ensure_within_skills_dir(skills_dir: &Path, target: &Path) -> Result<PathBuf,
     Ok(target_canon)
 }
 
+fn allowed_upload_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(canon) = home.canonicalize() {
+            roots.push(canon.clone());
+            for sub in ["Downloads", "Documents", "Desktop"] {
+                let dir = canon.join(sub);
+                if dir.exists() {
+                    if let Ok(c) = dir.canonicalize() {
+                        roots.push(c);
+                    }
+                }
+            }
+        }
+    }
+    roots.push(std::env::temp_dir());
+    roots
+}
+
+fn ensure_allowed_source_path(path: &Path) -> Result<PathBuf, String> {
+    let canonical = path.canonicalize().map_err(|e| {
+        tracing::warn!(path = %path.display(), error = %e, "upload_skill: invalid source path");
+        String::from("invalid source path")
+    })?;
+    let allowed = allowed_upload_roots();
+    if !allowed.iter().any(|root| canonical.starts_with(root)) {
+        tracing::warn!(
+            path = %canonical.display(),
+            "upload_skill: source path outside allowed upload directories"
+        );
+        return Err(
+            "source path must be under home, Downloads, Documents, Desktop, or temp directory"
+                .into(),
+        );
+    }
+    Ok(canonical)
+}
+
+fn dir_size(path: &Path) -> Result<u64, std::io::Error> {
+    let mut total = 0u64;
+    if path.is_file() {
+        return Ok(path.metadata()?.len());
+    }
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let meta = entry.metadata()?;
+        if meta.is_dir() {
+            total = total.saturating_add(dir_size(&entry.path())?);
+        } else {
+            total = total.saturating_add(meta.len());
+        }
+    }
+    Ok(total)
+}
+
+fn ensure_source_size_within_limit(path: &Path) -> Result<(), String> {
+    let size = dir_size(path).map_err(|e| {
+        tracing::warn!(path = %path.display(), error = %e, "upload_skill: failed to measure source size");
+        String::from("failed to read source")
+    })?;
+    if size > MAX_SKILL_UPLOAD_BYTES {
+        return Err(format!(
+            "source exceeds {} MB limit",
+            MAX_SKILL_UPLOAD_BYTES / (1024 * 1024)
+        ));
+    }
+    Ok(())
+}
+
 fn config_mode() -> xiaolin_core::config::ConfigMode {
     crate::resolve_config_mode()
 }
@@ -46,6 +116,9 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         tracing::warn!(path = %source_path, "upload_skill: path does not exist");
         return Err("file not found".into());
     }
+
+    let src = ensure_allowed_source_path(src)?;
+    ensure_source_size_within_limit(&src)?;
 
     let sd = state_dir();
     let skills_dir = sd.join("skills");
@@ -69,7 +142,7 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 String::from("operation failed")
             })?;
         }
-        copy_dir_recursive(src, &dest).map_err(|e| {
+        copy_dir_recursive(&src, &dest).map_err(|e| {
             tracing::warn!(error = %e, "upload_skill: failed to copy skill directory");
             String::from("operation failed")
         })?;
@@ -79,7 +152,7 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
 
     let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("");
     if ext == "zip" {
-        let file = std::fs::File::open(src).map_err(|e| {
+        let file = std::fs::File::open(&src).map_err(|e| {
             tracing::warn!(path = %source_path, error = %e, "failed to open zip");
             String::from("failed to open file")
         })?;

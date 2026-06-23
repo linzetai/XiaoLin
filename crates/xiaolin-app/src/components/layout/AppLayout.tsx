@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { useGatewayStore } from "../../lib/store";
-import { useUIStore } from "../../lib/stores";
+import { useUIStore } from "../../lib/stores/ui-store";
 import type { LayoutTier } from "../../lib/stores/ui-store";
 import { MessageStream } from "../message-stream/MessageStream";
-import { AutomationView } from "../automation/AutomationView";
-import { PluginsView } from "../plugins/PluginsView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { ElicitationDialog } from "../plugins/ElicitationDialog";
 import { BrowserNetworkConfirmOverlay } from "../browser/BrowserNetworkConfirmOverlay";
@@ -67,6 +65,13 @@ const OnboardingWizard = lazy(() =>
   import("../onboarding/OnboardingWizard").then((m) => ({ default: m.OnboardingWizard })),
 );
 
+const PluginsView = lazy(() =>
+  import("../plugins/PluginsView").then((m) => ({ default: m.PluginsView })),
+);
+const AutomationView = lazy(() =>
+  import("../automation/AutomationView").then((m) => ({ default: m.AutomationView })),
+);
+
 function Loading({ error }: { error: string | null }) {
   const { t } = useTranslation("common");
   if (error) {
@@ -103,7 +108,17 @@ function MainContent({ connected, mode }: { connected: boolean; mode: string }) 
     <>
       <UpdateBanner />
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {mainView === "automations" ? <AutomationView /> : mainView === "plugins" ? <PluginsView /> : <MessageStream />}
+        {mainView === "automations" ? (
+          <Suspense fallback={<Loading error={null} />}>
+            <AutomationView />
+          </Suspense>
+        ) : mainView === "plugins" ? (
+          <Suspense fallback={<Loading error={null} />}>
+            <PluginsView />
+          </Suspense>
+        ) : (
+          <MessageStream />
+        )}
         {!connected && mode !== "browser" && (
           <div
             className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5"

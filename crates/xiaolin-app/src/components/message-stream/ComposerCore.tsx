@@ -8,13 +8,10 @@ import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { MentionInput, type MentionInputHandle, type InlineMention, type MentionOption, type SlashCommand } from "./MentionInput";
 import { usePlanNudge } from "./usePlanNudge";
-import {
-  useChatMetaStore,
-  useQueueStore,
-  useActiveChatId,
-  useChatQueue,
-  useGoalStore,
-} from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useQueueStore } from "../../lib/stores/queue-store";
+import { useActiveChatId, useChatQueue } from "../../lib/stores/selectors";
+import { useGoalStore } from "../../lib/stores/goal-store";
 import { useComposerInputStore } from "../../lib/stores/composer-input-store";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { QueueIndicator } from "./QueueIndicator";

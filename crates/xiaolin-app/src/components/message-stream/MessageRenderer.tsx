@@ -1,6 +1,6 @@
 import { Component, memo, useMemo, useState, useRef, useCallback, useEffect, lazy, Suspense, type ReactNode, type ErrorInfo } from "react";
 import { useTranslation } from "react-i18next";
-import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/agent-store";
+import type { ChatMessage, ChatUsage, SubAgentRunUI } from "../../lib/stores/types";
 import type { BriefMessageData } from "../../lib/stores/types";
 import { BTN_ICON } from "../../lib/ui-tokens";
 import { StepIndicator } from "./StepIndicator";

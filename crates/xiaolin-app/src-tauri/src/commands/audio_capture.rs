@@ -6,6 +6,8 @@ use std::sync::{
 
 /// ~10 MiB of f32 PCM samples (4 bytes each).
 const MAX_AUDIO_SAMPLES: usize = 10 * 1024 * 1024 / 4;
+/// Bounded queue between cpal callback and consumer; drop oldest when full.
+const AUDIO_CHUNK_QUEUE_CAPACITY: usize = 256;
 
 pub struct AudioCaptureState {
     recording: Arc<AtomicBool>,
@@ -103,13 +105,14 @@ pub fn start_native_recording(
             *v = ch;
         }
 
-        let (sample_tx, sample_rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+        let (sample_tx, sample_rx) =
+            crossbeam_channel::bounded::<Vec<f32>>(AUDIO_CHUNK_QUEUE_CAPACITY);
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let _ = sample_tx.send(data.to_vec());
+                    let _ = sample_tx.try_send(data.to_vec());
                 },
                 |err| tracing::error!("audio capture error: {err}"),
                 None,
@@ -119,7 +122,7 @@ pub fn start_native_recording(
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     let converted: Vec<f32> =
                         data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    let _ = sample_tx.send(converted);
+                    let _ = sample_tx.try_send(converted);
                 },
                 |err| tracing::error!("audio capture error: {err}"),
                 None,
@@ -147,6 +150,9 @@ pub fn start_native_recording(
         }
 
         while recording.load(Ordering::SeqCst) {
+            while sample_rx.len() >= AUDIO_CHUNK_QUEUE_CAPACITY {
+                let _ = sample_rx.try_recv();
+            }
             while let Ok(chunk) = sample_rx.try_recv() {
                 if let Ok(mut buf) = samples.lock() {
                     append_samples_capped(&mut buf, &chunk);

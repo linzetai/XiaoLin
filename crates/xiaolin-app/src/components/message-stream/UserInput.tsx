@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, PencilSimple } from "@phosphor-icons/react";
-import type { ChatMessage } from "../../lib/agent-store";
+import type { ChatMessage } from "../../lib/stores/types";
 import { openLightbox } from "../common/ImageLightbox";
 
 const REF_PATTERN = /\n\n\[(引用|附件): ([^\]]+)\]$/;

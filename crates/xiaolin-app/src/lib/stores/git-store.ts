@@ -50,7 +50,7 @@ export const useGitStore = create<GitStore>((set) => ({
 
     set({ loading: true });
     try {
-      const data = (await transport.gitStatus(activeProjectId)) as GitStatus | null;
+      const data = await transport.gitStatus(activeProjectId);
       if (data) {
         set({
           status: data,
@@ -68,7 +68,7 @@ export const useGitStore = create<GitStore>((set) => ({
     if (!activeProjectId) return;
 
     set({ selectedFile: path, selectedFileStaged: staged });
-    const hunks = (await transport.gitDiff(activeProjectId, path, staged)) as DiffHunk[];
+    const hunks = await transport.gitDiff(activeProjectId, path, staged);
     set({ selectedDiff: hunks });
   },
 
@@ -91,7 +91,7 @@ export const useGitStore = create<GitStore>((set) => ({
   commitChanges: async (message: string) => {
     const activeProjectId = useProjectStore.getState().activeProjectId;
     if (!activeProjectId) return null;
-    const result = (await transport.gitCommit(activeProjectId, message)) as CommitResult | null;
+    const result = await transport.gitCommit(activeProjectId, message);
     return result;
   },
 
@@ -104,13 +104,10 @@ export const useGitStore = create<GitStore>((set) => ({
   fetchBranches: async () => {
     const activeProjectId = useProjectStore.getState().activeProjectId;
     if (!activeProjectId) return;
-    const data = (await transport.gitBranches(activeProjectId)) as {
-      branches?: Branch[];
-      current?: string;
-    };
+    const data = await transport.gitBranches(activeProjectId);
     set({
-      branches: data.branches ?? [],
-      currentBranch: data.current ?? "",
+      branches: data.branches,
+      currentBranch: data.current,
     });
   },
 }));
@@ -126,8 +123,8 @@ export function initGitStore() {
     const activeProjectId = useProjectStore.getState().activeProjectId;
     if (projectId === activeProjectId && status) {
       useGitStore.setState({
-        status: status as GitStatus,
-        currentBranch: (status as GitStatus).branch,
+        status,
+        currentBranch: status.branch,
         lastRefreshAt: Date.now(),
       });
     }

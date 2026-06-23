@@ -10,7 +10,11 @@ import { useLocaleStore, type Locale, type ResponseLang } from "../../lib/stores
 
 export function GeneralTab() {
   const { t } = useTranslation("settings");
-  const { mode, setMode, accent, setAccent, resolved } = useThemeStore();
+  const mode = useThemeStore((s) => s.mode);
+  const setMode = useThemeStore((s) => s.setMode);
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
+  const resolved = useThemeStore((s) => s.resolved);
   const [notifications, setNotifications] = useState(true);
   const [sounds, setSounds] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -150,7 +154,10 @@ const RESPONSE_LANG_OPTIONS: { value: ResponseLang; labelKey: string }[] = [
 
 function LanguageSection() {
   const { t } = useTranslation("settings");
-  const { locale, responseLang, setLocale, setResponseLang } = useLocaleStore();
+  const locale = useLocaleStore((s) => s.locale);
+  const responseLang = useLocaleStore((s) => s.responseLang);
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const setResponseLang = useLocaleStore((s) => s.setResponseLang);
 
   return (
     <div>
@@ -206,7 +213,9 @@ const THRESHOLD_OPTIONS = [
 
 function DisplaySection() {
   const { t } = useTranslation("settings");
-  const { display, setDisplayConfig, loadDisplayConfig } = useConfigStore();
+  const display = useConfigStore((s) => s.display);
+  const setDisplayConfig = useConfigStore((s) => s.setDisplayConfig);
+  const loadDisplayConfig = useConfigStore((s) => s.loadDisplayConfig);
 
   const fontSizeOptions: { value: FontSize; label: string }[] = useMemo(() => [
     { value: "small", label: t("fontSize_small") },

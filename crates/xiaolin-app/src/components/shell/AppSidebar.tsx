@@ -2,8 +2,10 @@ import { useState, useCallback, useRef, useEffect, useMemo, type CSSProperties, 
 import { Plus, MagnifyingGlass, PuzzlePiece, ArrowsClockwise, Gear, ChatCircle, PencilSimple, FolderOpen, Trash, CaretRight, CaretDown, PushPin, PushPinSlash, Archive, Palette, FolderPlus } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, useProjectStore, useSearchStore } from "../../lib/stores";
-import { useChatMetaStore } from "../../lib/stores";
+import { useUIStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../../lib/stores/ui-store";
+import { useProjectStore } from "../../lib/stores/project-store";
+import { useSearchStore } from "../../lib/stores/search-store";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { SearchPanel } from "./SearchPanel";
 import { useGatewayStore } from "../../lib/store";
 import type { ChatMeta } from "../../lib/stores/types";

@@ -4,7 +4,7 @@ import {
   Robot, CaretRight, Check, X as XIcon, MagnifyingGlass, Terminal,
   Globe, Wrench, Square, PaperPlaneRight,
 } from "@phosphor-icons/react";
-import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/agent-store";
+import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/stores/types";
 import { StepIndicator, type ToolCall } from "./StepIndicator";
 import * as api from "../../lib/api";
 

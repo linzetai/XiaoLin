@@ -10,7 +10,7 @@ use xiaolin_protocol::approval::PendingAction;
 use xiaolin_sandbox::SandboxManager;
 use xiaolin_security::dangerous_ops::{self, CheckResult};
 
-use xiaolin_tools_fs::shell::validate_readonly_command;
+use xiaolin_tools_fs::shell::{validate_command_paths, validate_readonly_command};
 
 /// Unified shell execution runtime.
 ///
@@ -170,6 +170,15 @@ impl ToolRuntime for ShellRuntime {
                 }
             }
         };
+
+        let run_without_sandbox_isolation =
+            effective_sandbox == SandboxBackend::None || without_sandbox_isolation;
+        if run_without_sandbox_isolation {
+            let allowed_dirs = vec![cwd.to_string_lossy().into_owned()];
+            if let Err(reason) = validate_command_paths(command, &allowed_dirs) {
+                return Err(ToolRuntimeError::Rejected { reason });
+            }
+        }
 
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());

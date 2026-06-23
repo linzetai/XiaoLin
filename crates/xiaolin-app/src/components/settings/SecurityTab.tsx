@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle, XCircle, X, Plus, Info } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
-import { useChatMetaStore } from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { usePermissionStore } from "../../lib/stores/permission-store";
 import { SectionTitle } from "./SettingsShared";
 import { inputCls as sharedInputCls, inputStyle as sharedInputStyle } from "../common/FormElements";
@@ -74,10 +74,12 @@ export function SecurityTab() {
   const [saving, setSaving] = useState(false);
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
-  const sessionOverrideCount = usePermissionStore(
-    (s) => Object.keys(s.sessionPresetIds).filter(
-      (sid) => s.sessionPresetIds[sid] !== MODE_TO_PRESET[executionMode]
-    ).length
+  const sessionPresetIds = usePermissionStore((s) => s.sessionPresetIds);
+  const sessionOverrideCount = useMemo(
+    () => Object.keys(sessionPresetIds).filter(
+      (sid) => sessionPresetIds[sid] !== MODE_TO_PRESET[executionMode]
+    ).length,
+    [sessionPresetIds, executionMode],
   );
 
   const showToast = useCallback((msg: string, type: "ok" | "err") => {

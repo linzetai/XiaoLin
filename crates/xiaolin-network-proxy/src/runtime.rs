@@ -473,10 +473,18 @@ impl NetworkProxyState {
                         ));
                     }
                 }
-                Err(_) => {
-                    // DNS failure doesn't block by itself; we continue
-                    // to pattern-based checks. Only block if the host
-                    // isn't in any allowlist.
+                Err(e) => {
+                    if matches!(mode, NetworkMode::Limited) {
+                        tracing::warn!(
+                            host = %host,
+                            error = %e,
+                            "DNS resolution failed in Limited mode; denying host"
+                        );
+                        return Ok(HostBlockDecision::Blocked(
+                            HostBlockReason::DnsResolutionFailed,
+                        ));
+                    }
+                    // Full/Audit: DNS failure doesn't block by itself; continue to pattern checks.
                 }
             }
         }
@@ -768,6 +776,34 @@ mod tests {
         let settings = NetworkProxySettings::default();
         let state = ConfigState::from_settings(settings.clone());
         assert_eq!(state.settings.enabled, settings.enabled);
+    }
+
+    #[tokio::test]
+    async fn host_blocked_dns_failure_denies_in_limited_mode() {
+        let settings = NetworkProxySettings {
+            mode: Some(NetworkMode::Limited),
+            ..Default::default()
+        };
+        let state = NetworkProxyState::for_settings(settings);
+        let decision = state
+            .host_blocked("nonexistent-test-host.invalid", 443)
+            .await
+            .unwrap();
+        assert_eq!(
+            decision,
+            HostBlockDecision::Blocked(HostBlockReason::DnsResolutionFailed)
+        );
+    }
+
+    #[tokio::test]
+    async fn host_blocked_dns_failure_allows_in_full_mode() {
+        let settings = NetworkProxySettings::default();
+        let state = NetworkProxyState::for_settings(settings);
+        let decision = state
+            .host_blocked("nonexistent-test-host.invalid", 443)
+            .await
+            .unwrap();
+        assert_eq!(decision, HostBlockDecision::Allowed);
     }
 
     #[tokio::test]

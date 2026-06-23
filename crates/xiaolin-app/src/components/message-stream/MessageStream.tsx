@@ -1,9 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useStreamStore } from "../../lib/stores/stream-store";
+import { useGoalStore } from "../../lib/stores/goal-store";
+import { useSearchStore } from "../../lib/stores/search-store";
 import {
-  useChatMetaStore,
-  useStreamStore,
   useActiveChatId,
   useActiveChatMeta,
   useActiveStream,
@@ -11,9 +13,7 @@ import {
   useChatLastSegments,
   useChatUsage,
   useActiveGoal,
-  useGoalStore,
-  useSearchStore,
-} from "../../lib/stores";
+} from "../../lib/stores/selectors";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
 import { MessageRendererRow } from "./MessageRenderer";

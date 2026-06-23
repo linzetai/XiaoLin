@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, PencilSimple, Check, WarningCircle, ArrowUp, ArrowDown } from "@phosphor-icons/react";
-import type { QueuedMessage } from "../../lib/agent-store";
+import type { QueuedMessage } from "../../lib/stores/types";
 
 interface QueuePanelProps {
   queue: QueuedMessage[];

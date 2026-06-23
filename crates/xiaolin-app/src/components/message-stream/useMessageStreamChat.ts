@@ -1,6 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type RefObject, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatMetaStore, useStreamStore, useQueueStore, useLocaleStore, useTerminalStore, usePtyStore } from "../../lib/stores";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useStreamStore } from "../../lib/stores/stream-store";
+import { useQueueStore } from "../../lib/stores/queue-store";
+import { useLocaleStore } from "../../lib/stores/locale-store";
+import { useTerminalStore } from "../../lib/stores/terminal-store";
+import { usePtyStore } from "../../lib/stores/pty-store";
 import { handleGoalClearedForChat, handleGoalUpdatedForChat } from "../../lib/stores/goal-store";
 import type { ChatMessage, SubAgentRunUI } from "../../lib/stores/types";
 import { type ToolCall } from "./ToolCallCard";
@@ -83,6 +88,10 @@ export function useMessageStreamChat({
   }, []);
 
   const [streaming, setStreaming] = useState(false);
+  const streamingRef = useRef(streaming);
+  streamingRef.current = streaming;
+  const activeAgentIdRef = useRef(activeAgentId);
+  activeAgentIdRef.current = activeAgentId;
   const [streamSegments, setStreamSegments] = useState<StreamSegment[]>([]);
   const segmentsRef = useRef<StreamSegment[]>([]);
   const [pendingQuestion, setPendingQuestion] = useState<{
@@ -151,13 +160,13 @@ export function useMessageStreamChat({
       mentionInputRef.current.setText(saved);
     }
 
-    if (prevId && prevId !== newId && streaming) {
+    if (prevId && prevId !== newId && streamingRef.current) {
       if (detachedStreams.size >= MAX_DETACHED_STREAMS) {
         const oldestKey = detachedStreams.keys().next().value;
         if (oldestKey) detachedStreams.delete(oldestKey);
       }
       detachedStreams.set(prevId, {
-        agentId: activeAgentId,
+        agentId: activeAgentIdRef.current,
         chatId: prevId,
         acc: streamAccRef.current,
         toolCalls: segmentsRef.current.filter((s) => s.type === "tool" && s.toolCall).map((s) => s.toolCall!),
@@ -247,8 +256,7 @@ export function useMessageStreamChat({
         detachedStreams.delete(newId);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChat?.id, chatScrollKey]);
+  }, [activeChat?.id, chatScrollKey, t, decisionLabel]);
 
   useEffect(() => {
     return () => {
@@ -1052,8 +1060,6 @@ export function useMessageStreamChat({
 
   const sendRef = useRef(sendWithContent);
   sendRef.current = sendWithContent;
-  const streamingRef = useRef(streaming);
-  streamingRef.current = streaming;
 
   const handleSlashCommand = useCallback(
     async (command: string): Promise<boolean> => {

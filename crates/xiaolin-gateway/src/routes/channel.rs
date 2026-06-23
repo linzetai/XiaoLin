@@ -49,7 +49,7 @@ pub(super) async fn channel_webhook(
         .await
         .map_err(|e| {
             tracing::warn!(channel = %channel_id, error = %e, "webhook signature verification failed");
-            AppError::Unauthorized(format!("webhook verification failed: {e}"))
+            AppError::Unauthorized("webhook verification failed".into())
         })?;
 
     let payload: serde_json::Value = channel

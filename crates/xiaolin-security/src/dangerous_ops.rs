@@ -48,8 +48,7 @@ pub fn get_dangerous_ops_policy() -> DangerousOpsPolicy {
         .unwrap_or_default()
 }
 
-const POLICY_NOT_LOADED_MSG: &str =
-    "Dangerous-ops policy not initialized; confirmation required before execution";
+const POLICY_NOT_LOADED_MSG: &str = "security policy not yet loaded";
 const POLICY_POISONED_MSG: &str =
     "Dangerous-ops policy lock poisoned; command blocked pending policy recovery";
 
@@ -72,11 +71,9 @@ pub fn check_dangerous_command(command: &str) -> Result<(), CheckResult> {
         None => {
             tracing::warn!(
                 command = %command.trim(),
-                "dangerous-ops policy not loaded; requiring confirmation"
+                "dangerous-ops policy not loaded; blocking command"
             );
-            return Err(CheckResult::NeedsConfirmation(
-                POLICY_NOT_LOADED_MSG.to_string(),
-            ));
+            return Err(CheckResult::Denied(POLICY_NOT_LOADED_MSG.to_string()));
         }
     };
 
@@ -174,10 +171,10 @@ mod tests {
             *guard = None;
         }
         match check_dangerous_command("rm -rf /") {
-            Err(CheckResult::NeedsConfirmation(msg)) => {
-                assert!(msg.contains("not initialized"));
+            Err(CheckResult::Denied(msg)) => {
+                assert!(msg.contains("security policy not yet loaded"));
             }
-            other => panic!("expected NeedsConfirmation when policy not loaded, got {other:?}"),
+            other => panic!("expected Denied when policy not loaded, got {other:?}"),
         }
     }
 }

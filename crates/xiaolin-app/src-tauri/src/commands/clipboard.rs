@@ -38,9 +38,13 @@ where
         .0
         .lock()
         .map_err(|_| "clipboard lock poisoned".to_string())?;
-    let cb = guard.get_or_insert(
-        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?,
-    );
+    if guard.is_none() {
+        *guard = Some(Clipboard::new().map_err(|e| {
+            tracing::warn!(error = %e, "failed to access clipboard");
+            String::from("clipboard unavailable")
+        })?);
+    }
+    let cb = guard.as_mut().expect("clipboard initialized above");
     f(cb)
 }
 
@@ -52,7 +56,10 @@ pub fn clipboard_read_text(
         Ok(text) if !text.is_empty() => Ok(Some(text)),
         Ok(_) => Ok(None),
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(e) => Err(format!("Failed to read clipboard text: {e}")),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read clipboard text");
+            Err("failed to read clipboard".into())
+        }
     })
 }
 
@@ -62,8 +69,10 @@ pub fn clipboard_write_text(
     state: tauri::State<'_, ClipboardState>,
 ) -> Result<(), String> {
     with_clipboard(&state, |cb| {
-        cb.set_text(&text)
-            .map_err(|e| format!("Failed to write clipboard text: {e}"))
+        cb.set_text(&text).map_err(|e| {
+            tracing::warn!(error = %e, "failed to write clipboard text");
+            String::from("failed to write clipboard")
+        })
     })
 }
 
@@ -73,12 +82,24 @@ pub fn clipboard_read_image(
 ) -> Result<Option<String>, String> {
     with_clipboard(&state, |cb| match cb.get_image() {
         Ok(img) => {
+            if img.bytes.len() > MAX_CLIPBOARD_PNG_BYTES {
+                tracing::warn!(
+                    bytes = img.bytes.len(),
+                    width = img.width,
+                    height = img.height,
+                    "clipboard image exceeds size limit"
+                );
+                return Err("clipboard image too large".into());
+            }
             let png_data = encode_rgba_to_png(&img.bytes, img.width as u32, img.height as u32)?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
             Ok(Some(b64))
         }
         Err(arboard::Error::ContentNotAvailable) => Ok(None),
-        Err(e) => Err(format!("Failed to read clipboard image: {e}")),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to read clipboard image");
+            Err("failed to read clipboard".into())
+        }
     })
 }
 
@@ -88,12 +109,14 @@ fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, S
         let mut encoder = png::Encoder::new(&mut buf, width, height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder
-            .write_header()
-            .map_err(|e| format!("PNG encode error: {e}"))?;
-        writer
-            .write_image_data(rgba)
-            .map_err(|e| format!("PNG write error: {e}"))?;
+        let mut writer = encoder.write_header().map_err(|e| {
+            tracing::warn!(error = %e, "clipboard PNG encode header failed");
+            String::from("failed to encode image")
+        })?;
+        writer.write_image_data(rgba).map_err(|e| {
+            tracing::warn!(error = %e, "clipboard PNG encode write failed");
+            String::from("failed to encode image")
+        })?;
     }
     Ok(buf)
 }
@@ -152,8 +175,10 @@ pub fn clipboard_write_image(
     };
 
     with_clipboard(&state, |cb| {
-        cb.set_image(img)
-            .map_err(|e| format!("Failed to write clipboard image: {e}"))
+        cb.set_image(img).map_err(|e| {
+            tracing::warn!(error = %e, "failed to write clipboard image");
+            String::from("failed to write clipboard")
+        })
     })
 }
 

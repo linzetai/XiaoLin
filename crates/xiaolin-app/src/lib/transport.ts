@@ -8,6 +8,15 @@
  */
 
 import * as wsClient from "./ws-client";
+import type {
+  GitStatus,
+  DiffHunk,
+  Branch,
+  CommitSummary,
+  CommitResult,
+} from "../../../xiaolin-protocol/generated/protocol";
+
+export type { GitStatus, DiffHunk, Branch, CommitSummary, CommitResult };
 
 export const isTauri =
   typeof window !== "undefined" &&
@@ -767,28 +776,28 @@ export function onProjectsChanged(handler: () => void): UnsubscribeFn {
 
 // ── Git API ──────────────────────────────────────────────────────────────
 
-export async function gitStatus(projectId: string) {
-  const resp = (await wsClient.send("git.status", { projectId })) as { data?: unknown };
+export async function gitStatus(projectId: string): Promise<GitStatus | null> {
+  const resp = (await wsClient.send("git.status", { projectId })) as { data?: GitStatus };
   return resp?.data ?? null;
 }
 
-export async function gitDiff(projectId: string, path: string, staged = false) {
+export async function gitDiff(projectId: string, path: string, staged = false): Promise<DiffHunk[]> {
   const resp = (await wsClient.send("git.diff", { projectId, path, staged })) as {
-    data?: { hunks?: unknown[] };
+    data?: { hunks?: DiffHunk[] };
   };
   return resp?.data?.hunks ?? [];
 }
 
-export async function gitBranches(projectId: string) {
+export async function gitBranches(projectId: string): Promise<{ branches: Branch[]; current: string }> {
   const resp = (await wsClient.send("git.branches", { projectId })) as {
-    data?: { branches?: unknown[]; current?: string };
+    data?: { branches?: Branch[]; current?: string };
   };
-  return resp?.data ?? { branches: [], current: "" };
+  return { branches: resp?.data?.branches ?? [], current: resp?.data?.current ?? "" };
 }
 
-export async function gitLog(projectId: string, limit = 20) {
+export async function gitLog(projectId: string, limit = 20): Promise<CommitSummary[]> {
   const resp = (await wsClient.send("git.log", { projectId, limit })) as {
-    data?: { commits?: unknown[] };
+    data?: { commits?: CommitSummary[] };
   };
   return resp?.data?.commits ?? [];
 }
@@ -801,9 +810,9 @@ export async function gitUnstage(projectId: string, files: string[] = []) {
   await wsClient.send("git.unstage", { projectId, files });
 }
 
-export async function gitCommit(projectId: string, message: string) {
+export async function gitCommit(projectId: string, message: string): Promise<CommitResult | null> {
   const resp = (await wsClient.send("git.commit", { projectId, message })) as {
-    data?: { sha?: string; message?: string };
+    data?: CommitResult;
   };
   return resp?.data ?? null;
 }
@@ -816,10 +825,10 @@ export async function gitInit(projectId: string) {
   return await wsClient.send("git.init", { projectId });
 }
 
-export function onGitStatusChanged(handler: (projectId: string, status: unknown) => void): UnsubscribeFn {
+export function onGitStatusChanged(handler: (projectId: string, status: GitStatus) => void): UnsubscribeFn {
   return wsClient.on("git.status_changed", (msg: unknown) => {
-    const data = (msg as { data?: { projectId?: string; status?: unknown } })?.data;
-    if (data?.projectId) handler(data.projectId, data.status);
+    const data = (msg as { data?: { projectId?: string; status?: GitStatus } })?.data;
+    if (data?.projectId && data.status) handler(data.projectId, data.status);
   });
 }
 

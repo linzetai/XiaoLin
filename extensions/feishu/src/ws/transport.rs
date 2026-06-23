@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use xiaolin_core::channel::InboundMessage;
 
-use crate::messaging::inbound::{MessageDedup, parse_im_mentions_from_message};
+use crate::messaging::inbound::{extract_inbound_text, MessageDedup, parse_im_mentions_from_message};
 
 use super::client::{EventReceiver, WsEvent};
 
@@ -219,26 +219,10 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
         .to_string();
 
     let content_str = message.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
-    // TODO: unify with webhook path — `extract_inbound_text` in messaging/inbound/parse.rs
-    // handles more message types; this inline match is stricter and may diverge.
-    let text = match msg_type {
-        "text" => {
-            let parsed = serde_json::from_str::<serde_json::Value>(content_str).ok()?;
-            parsed.get("text")?.as_str()?.to_string()
-        }
-        "image" => "[收到一张图片]".to_string(),
-        "file" => {
-            let file_name = serde_json::from_str::<serde_json::Value>(content_str)
-                .ok()
-                .and_then(|v| v.get("file_name").and_then(|n| n.as_str()).map(String::from))
-                .unwrap_or_else(|| "unknown".to_string());
-            format!("[收到一个文件: {file_name}]")
-        }
-        "audio" => "[收到一条语音消息]".to_string(),
-        "media" | "video" => "[收到一条媒体消息]".to_string(),
-        "sticker" => "[收到一张表情]".to_string(),
-        other => format!("[收到一条{other}消息]"),
-    };
+    let text = extract_inbound_text(msg_type, content_str);
+    if text.is_empty() && msg_type == "text" {
+        return None;
+    }
 
     let (bot_mentioned, text) =
         parse_im_mentions_from_message(message, text, bot_open_id);
@@ -382,7 +366,7 @@ mod tests {
             payload: serde_json::to_vec(&payload).unwrap(),
         };
         let msg = parse_event_payload(&evt, None).unwrap();
-        assert_eq!(msg.text, "[收到一张图片]");
+        assert_eq!(msg.text, "[图片]");
     }
 
     #[test]
@@ -406,6 +390,6 @@ mod tests {
             payload: serde_json::to_vec(&payload).unwrap(),
         };
         let msg = parse_event_payload(&evt, None).unwrap();
-        assert_eq!(msg.text, "[收到一个文件: report.pdf]");
+        assert_eq!(msg.text, "[文件: report.pdf]");
     }
 }
