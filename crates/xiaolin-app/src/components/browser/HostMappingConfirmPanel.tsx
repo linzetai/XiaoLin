@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { ShieldWarning, Check, X } from "@phosphor-icons/react";
 import { isTauri } from "../../lib/transport";
 import * as transport from "../../lib/transport";
@@ -41,6 +42,7 @@ async function resolveConfirm(requestId: string, approved: boolean): Promise<voi
 }
 
 export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConfirmPanelProps) {
+  const { t } = useTranslation("browser");
   const [remaining, setRemaining] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   const resolvedRef = useRef(false);
@@ -95,9 +97,7 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
   }, [request.requestId, request.expiresAt]);
 
   const title =
-    request.kind === "set_proxy"
-      ? "Agent 请求修改上游代理"
-      : "Agent 请求设置 Host 映射";
+    request.kind === "set_proxy" ? t("agentRequestProxy") : t("agentRequestHostMapping");
 
   return (
     <div
@@ -149,15 +149,15 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
 
         {request.kind === "set_proxy" && (
           <div className="mb-3 rounded-md px-3 py-2 text-[12px]" style={{ background: "var(--bg-secondary)" }}>
-            <span style={{ color: "var(--fill-tertiary)" }}>上游代理：</span>
+            <span style={{ color: "var(--fill-tertiary)" }}>{t("upstreamProxyLabel")}</span>
             <code style={{ color: "var(--fill-primary)" }}>
-              {request.proxyUrl ?? "(清除上游代理)"}
+              {request.proxyUrl ?? t("clearUpstreamProxy")}
             </code>
           </div>
         )}
 
         <p className="mb-3 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-          Host 映射可将域名指向指定 IP。恶意映射可能导致钓鱼攻击，请确认 Agent 的请求是否合理。
+          {t("hostMappingSecurityWarning")}
         </p>
 
         <div className="flex gap-2">
@@ -169,7 +169,7 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
             style={{ background: "var(--accent)", color: "var(--accent-fg, #fff)" }}
           >
             <Check size={16} weight="bold" />
-            允许
+            {t("approve")}
           </button>
           <button
             type="button"
@@ -183,7 +183,7 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
             }}
           >
             <X size={16} weight="bold" />
-            拒绝
+            {t("deny")}
           </button>
         </div>
       </div>

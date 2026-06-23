@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   HostMappingConfirmPanel,
   useBrowserNetworkConfirmListener,
@@ -5,6 +6,7 @@ import {
 
 /** Fixed overlay for Agent-initiated network change confirmations. */
 export function BrowserNetworkConfirmOverlay() {
+  const { t } = useTranslation("browser");
   const { pendingConfirm, pendingCount, dismissConfirm } = useBrowserNetworkConfirmListener();
 
   if (!pendingConfirm) return null;
@@ -20,7 +22,7 @@ export function BrowserNetworkConfirmOverlay() {
             className="mb-2 text-center text-[11px]"
             style={{ color: "var(--fill-tertiary)" }}
           >
-            待确认 {pendingCount} 项（当前第 1 项）
+            {t("pendingConfirms", { total: pendingCount })}
           </div>
         )}
         <HostMappingConfirmPanel

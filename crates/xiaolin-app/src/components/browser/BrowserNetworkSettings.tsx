@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Plus, Trash, FloppyDisk, X } from "@phosphor-icons/react";
 import { isTauri } from "../../lib/transport";
 
@@ -80,14 +81,17 @@ async function saveConfig(cfg: BrowserNetworkConfig): Promise<void> {
   await invoke("browser_save_network_config", { config: toBackend(cfg) });
 }
 
-const PROXY_MODES: { id: BrowserProxyMode; label: string; hint: string }[] = [
-  { id: "xiaolin_proxy", label: "XiaoLin 内置代理", hint: "Host 映射 + 上游代理热切换（推荐）" },
-  { id: "none", label: "不使用代理", hint: "WebView 直连" },
-  { id: "system", label: "跟随系统", hint: "使用 OS 代理设置" },
-  { id: "custom", label: "自定义代理", hint: "WebView 直接使用指定代理 URL" },
-];
+const PROXY_MODE_IDS: BrowserProxyMode[] = ["xiaolin_proxy", "none", "system", "custom"];
+
+const proxyModeKeys: Record<BrowserProxyMode, { label: string; hint: string }> = {
+  xiaolin_proxy: { label: "proxyXiaolinLabel", hint: "proxyXiaolinHint" },
+  none: { label: "proxyNoneLabel", hint: "proxyNoneHint" },
+  system: { label: "proxySystemLabel", hint: "proxySystemHint" },
+  custom: { label: "proxyCustomLabel", hint: "proxyCustomHint" },
+};
 
 export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettingsProps) {
+  const { t } = useTranslation("browser");
   const [config, setConfig] = useState<BrowserNetworkConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +108,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
       })
       .catch((e) => {
         console.warn("[browser-network] load config failed:", e);
-        setError("加载网络配置失败");
+        setError("loadConfigFailed");
         setLoaded(true);
       });
   }, [open]);
@@ -144,7 +148,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
       onClose();
     } catch (e) {
       console.warn("[browser-network] save config failed:", e);
-      setError("保存网络配置失败");
+      setError("saveConfigFailed");
     } finally {
       setSaving(false);
     }
@@ -172,13 +176,15 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
           style={{ borderBottom: "0.5px solid var(--separator)" }}
         >
           <h3 className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>
-            浏览器网络配置
+            {t("networkConfig")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             className="cursor-pointer rounded-md p-1"
             style={{ color: "var(--fill-tertiary)" }}
+            title={t("closeDialog")}
+            aria-label={t("closeDialog")}
           >
             <X size={18} />
           </button>
@@ -187,7 +193,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {!loaded && (
             <div className="text-[13px]" style={{ color: "var(--fill-secondary)" }}>
-              加载中…
+              {t("loadingConfig")}
             </div>
           )}
           {error && (
@@ -195,39 +201,39 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
               className="mb-3 rounded-md px-3 py-2 text-[12px]"
               style={{ background: "var(--color-red-900, rgba(127,29,29,0.2))", color: "var(--color-red-300, #fca5a5)" }}
             >
-              {error}
+              {t(error)}
             </div>
           )}
           {loaded && config && (
             <>
               <div className="mb-4">
                 <div className="mb-2 text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>
-                  代理模式
+                  {t("proxyMode")}
                 </div>
                 <div className="flex flex-col gap-2">
-                  {PROXY_MODES.map((mode) => (
+                  {PROXY_MODE_IDS.map((modeId) => (
                     <label
-                      key={mode.id}
+                      key={modeId}
                       className="flex cursor-pointer items-start gap-2 rounded-lg px-3 py-2"
                       style={{
                         background:
-                          config.proxyMode === mode.id ? "var(--bg-active)" : "var(--bg-secondary)",
+                          config.proxyMode === modeId ? "var(--bg-active)" : "var(--bg-secondary)",
                         border: "0.5px solid var(--separator)",
                       }}
                     >
                       <input
                         type="radio"
                         name="proxyMode"
-                        checked={config.proxyMode === mode.id}
-                        onChange={() => setConfig({ ...config, proxyMode: mode.id })}
+                        checked={config.proxyMode === modeId}
+                        onChange={() => setConfig({ ...config, proxyMode: modeId })}
                         className="mt-0.5"
                       />
                       <span>
                         <span className="block text-[13px] font-medium" style={{ color: "var(--fill-primary)" }}>
-                          {mode.label}
+                          {t(proxyModeKeys[modeId].label)}
                         </span>
                         <span className="text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-                          {mode.hint}
+                          {t(proxyModeKeys[modeId].hint)}
                         </span>
                       </span>
                     </label>
@@ -238,13 +244,13 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
               {config.proxyMode === "custom" && (
                 <div className="mb-4">
                   <label className="mb-1 block text-[12px]" style={{ color: "var(--fill-secondary)" }}>
-                    自定义代理 URL
+                    {t("customProxyUrl")}
                   </label>
                   <input
                     type="text"
                     value={config.customProxyUrl ?? ""}
                     onChange={(e) => setConfig({ ...config, customProxyUrl: e.target.value })}
-                    placeholder="socks5://127.0.0.1:1080"
+                    placeholder={t("customProxyPlaceholder")}
                     className="w-full rounded-md px-3 py-2 text-[13px]"
                     style={{
                       background: "var(--bg-secondary)",
@@ -258,13 +264,13 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
               {config.proxyMode === "xiaolin_proxy" && (
                 <div className="mb-4">
                   <label className="mb-1 block text-[12px]" style={{ color: "var(--fill-secondary)" }}>
-                    上游代理（可选，热切换）
+                    {t("upstreamProxy")}
                   </label>
                   <input
                     type="text"
                     value={config.upstreamProxyUrl ?? ""}
                     onChange={(e) => setConfig({ ...config, upstreamProxyUrl: e.target.value })}
-                    placeholder="http://corp-proxy:8080"
+                    placeholder={t("upstreamProxyPlaceholder")}
                     className="w-full rounded-md px-3 py-2 text-[13px]"
                     style={{
                       background: "var(--bg-secondary)",
@@ -278,7 +284,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[12px] font-medium" style={{ color: "var(--fill-secondary)" }}>
-                    Host 映射
+                    {t("hostMapping")}
                   </span>
                   <button
                     type="button"
@@ -287,15 +293,15 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
                     style={{ color: "var(--accent)" }}
                   >
                     <Plus size={14} />
-                    添加
+                    {t("addMapping")}
                   </button>
                 </div>
                 <p className="mb-2 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-                  支持通配符 *.example.com；修改后即时生效，无需重建 WebView。
+                  {t("hostMappingHint")}
                 </p>
                 {config.hostMappings.length === 0 && (
                   <div className="rounded-md px-3 py-4 text-center text-[12px]" style={{ color: "var(--fill-tertiary)", background: "var(--bg-secondary)" }}>
-                    暂无映射
+                    {t("noMapping")}
                   </div>
                 )}
                 <div className="flex flex-col gap-2">
@@ -305,7 +311,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
                         type="text"
                         value={m.pattern}
                         onChange={(e) => updateMapping(i, { pattern: e.target.value })}
-                        placeholder="*.internal.corp"
+                        placeholder={t("hostPatternPlaceholder")}
                         className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-[12px]"
                         style={{
                           background: "var(--bg-secondary)",
@@ -320,7 +326,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
                         type="text"
                         value={m.targetIp}
                         onChange={(e) => updateMapping(i, { targetIp: e.target.value })}
-                        placeholder="192.168.1.100"
+                        placeholder={t("targetIpPlaceholder")}
                         className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-[12px]"
                         style={{
                           background: "var(--bg-secondary)",
@@ -333,6 +339,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
                         onClick={() => removeMapping(i)}
                         className="cursor-pointer rounded-md p-1.5"
                         style={{ color: "var(--fill-tertiary)" }}
+                        aria-label={t("removeMapping")}
                       >
                         <Trash size={14} />
                       </button>
@@ -343,7 +350,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
 
               {config.sessionHostMappings.length > 0 && (
                 <div className="mt-4 rounded-md px-3 py-2 text-[11px]" style={{ background: "var(--bg-secondary)", color: "var(--fill-tertiary)" }}>
-                  Agent 临时映射（{config.sessionHostMappings.length} 条）将在会话结束后清除。
+                  {t("sessionMappings", { count: config.sessionHostMappings.length })}
                 </div>
               )}
             </>
@@ -360,7 +367,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
             className="cursor-pointer rounded-md px-4 py-2 text-[13px]"
             style={{ color: "var(--fill-secondary)" }}
           >
-            取消
+            {t("common:cancel")}
           </button>
           <button
             type="button"
@@ -370,7 +377,7 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
             style={{ background: "var(--accent)", color: "var(--accent-fg, #fff)" }}
           >
             <FloppyDisk size={16} />
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("saving") : t("common:save")}
           </button>
         </div>
       </div>
