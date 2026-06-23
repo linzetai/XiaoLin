@@ -1,11 +1,11 @@
 ## 1. 进度条组件
 
-- [ ] 1.1 新增 `components/browser/BrowserProgressBar.tsx`：2px 高的进度条，接收 `loading: boolean` prop，使用 CSS keyframes 实现 0→30%→60%→85% 的模拟进度动画
-- [ ] 1.2 进度条完成动画：`loading` 从 true 变为 false 时，进度条 200ms 到 100% → 150ms fade out
-- [ ] 1.3 进度条快速连续导航处理：重新进入 loading 时重置到 0% 重新开始
-- [ ] 1.4 进度条样式：颜色使用 `var(--tint)`，`pointer-events: none`，`position: relative` 渲染在 BrowserTabContent 中
-- [ ] 1.5 进度条 15s trickling 模式：超过 15s 仍在 loading 时，在 85% 附近做 ±2% 的微小来回抖动
-- [ ] 1.6 进度条 `failed` 状态处理：`loadState` 变为 `"failed"` 时立即 150ms fade out（不播 100% → fade out 完成动画），与 spec `browser-progress-bar` 对齐
+- [x] 1.1 新增 `components/browser/BrowserProgressBar.tsx`：2px 高的进度条，接收 `loading: boolean` prop，使用 CSS keyframes 实现 0→30%→60%→85% 的模拟进度动画
+- [x] 1.2 进度条完成动画：`loading` 从 true 变为 false 时，进度条 200ms 到 100% → 150ms fade out
+- [x] 1.3 进度条快速连续导航处理：重新进入 loading 时重置到 0% 重新开始
+- [x] 1.4 进度条样式：颜色使用 `var(--tint)`，`pointer-events: none`，`position: relative` 渲染在 BrowserTabContent 中
+- [x] 1.5 进度条 15s trickling 模式：超过 15s 仍在 loading 时，在 85% 附近做 ±2% 的微小来回抖动
+- [x] 1.6 进度条 `failed` 状态处理：`loadState` 变为 `"failed"` 时立即 150ms fade out（不播 100% → fade out 完成动画），与 spec `browser-progress-bar` 对齐
 
 ## 2. 浏览器 Chrome 结构调整
 
@@ -17,9 +17,9 @@
 
 ## 3. 后退/前进即时反馈
 
-- [ ] 3.1 `browser-store.ts`：修改 `browserGoBack` / `browserGoForward`，调用前乐观设置 `loadState: { state: "loading" }`
-- [ ] 3.2 `browser-store.ts`：乐观 loading 超时机制——使用 `Map<pageId, timeoutId>` 存储 per-page 定时器；5s 内无后端 `browser-loading` 事件则恢复 `ready`；新的乐观操作先 clear 旧 timeout
-- [ ] 3.3 `browser-store.ts`：在 `browser-loading` 事件 listener 中取消对应 pageId 的乐观超时定时器
+- [x] 3.1 `browser-store.ts`：修改 `browserGoBack` / `browserGoForward`，调用前乐观设置 `loadState: { state: "loading" }`
+- [x] 3.2 `browser-store.ts`：乐观 loading 超时机制——使用 `Map<pageId, timeoutId>` 存储 per-page 定时器；5s 内无后端 `browser-loading` 事件则恢复 `ready`；新的乐观操作先 clear 旧 timeout
+- [x] 3.3 `browser-store.ts`：在 `browser-loading` 事件 listener 中取消对应 pageId 的乐观超时定时器
 
 ## 4. 全宽布局翻转
 
@@ -65,7 +65,7 @@
 - [ ] 9.2 `BrowserAddressBar.tsx`：为 Stop/Reload 按钮添加无障碍 `aria-label`（「停止加载」/「重新加载」）
 - [ ] 9.3 `BrowserProgressBar.tsx`：进度条添加 `role="progressbar"` + `aria-busy` 属性
 - [ ] 9.4 `ContentBlock.tsx`/`BrowserFullPanel.tsx`：全宽首次进入或 Chat 侧移触发布局变化时，复用 `layoutTransitioning` 机制——hide all WebView → 等待 ResizeObserver 稳定 → show active，防止 WebView 跳动/闪烁（对应 R5）
-- [ ] 9.5 `browser-store.ts`：新增 `browserEvalJs(pageId: string, script: string)` 封装函数（invoke `browser_eval_js` 命令），供 Stop 按钮（`window.stop()`）和后续需要在 browser WebView 中执行 JS 的场景使用
+- [x] 9.5 `browser-store.ts`：新增 `browserEvalJs(pageId: string, script: string)` 封装函数（invoke `browser_eval_js` 命令），供 Stop 按钮（`window.stop()`）和后续需要在 browser WebView 中执行 JS 的场景使用
 
 ## 10. 验证
 

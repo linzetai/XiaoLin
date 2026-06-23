@@ -339,6 +339,28 @@ export function shouldShowBrowserWebView(opts: {
 
 const MAX_AGENT_OPERATIONS = 100;
 const eventUnlisteners: Array<() => void> = [];
+const optimisticLoadingTimeouts = new Map<string, number>();
+
+function clearOptimisticLoadingTimeout(pageId: string): void {
+  const id = optimisticLoadingTimeouts.get(pageId);
+  if (id !== undefined) {
+    window.clearTimeout(id);
+    optimisticLoadingTimeouts.delete(pageId);
+  }
+}
+
+function setOptimisticLoading(pageId: string): void {
+  clearOptimisticLoadingTimeout(pageId);
+  updatePage(pageId, { loadState: { state: "loading" } });
+  const timeoutId = window.setTimeout(() => {
+    optimisticLoadingTimeouts.delete(pageId);
+    const page = useBrowserStore.getState().pages[pageId];
+    if (page?.loadState.state === "loading") {
+      updatePage(pageId, { loadState: { state: "ready" } });
+    }
+  }, 5000);
+  optimisticLoadingTimeouts.set(pageId, timeoutId);
+}
 
 function pushAgentOperation(pageId: string, action: string, description: string, ts?: number) {
   const op: AgentOperation = {
@@ -394,6 +416,7 @@ export async function initBrowserEvents(): Promise<void> {
   eventUnlisteners.push(
     await listen<{ pageId: string }>("browser-page-closed", (ev) => {
       const { pageId } = ev.payload;
+      clearOptimisticLoadingTimeout(pageId);
       useBrowserStore.setState((s) => {
         const { [pageId]: _, ...rest } = s.pages;
         const ids = Object.keys(rest);
@@ -426,6 +449,7 @@ export async function initBrowserEvents(): Promise<void> {
       url?: string;
     }>("browser-loading", (ev) => {
       const { pageId, loadState, url } = ev.payload;
+      clearOptimisticLoadingTimeout(pageId);
       const patch: Partial<BrowserPage> = {};
       if (loadState) patch.loadState = normalizeLoadState(loadState);
       if (url) patch.url = url;
@@ -544,32 +568,53 @@ export function teardownBrowserEvents(): void {
     const unlisten = eventUnlisteners.pop();
     unlisten?.();
   }
+  for (const pageId of optimisticLoadingTimeouts.keys()) {
+    clearOptimisticLoadingTimeout(pageId);
+  }
 }
 
 export async function browserGoBack(pageId: string): Promise<void> {
   if (!isTauri) return;
+  setOptimisticLoading(pageId);
   try {
     await browserInvoke("browser_go_back", { pageId });
   } catch (e) {
     console.warn("[browser] goBack failed:", e);
+    clearOptimisticLoadingTimeout(pageId);
+    updatePage(pageId, { loadState: { state: "ready" } });
   }
 }
 
 export async function browserGoForward(pageId: string): Promise<void> {
   if (!isTauri) return;
+  setOptimisticLoading(pageId);
   try {
     await browserInvoke("browser_go_forward", { pageId });
   } catch (e) {
     console.warn("[browser] goForward failed:", e);
+    clearOptimisticLoadingTimeout(pageId);
+    updatePage(pageId, { loadState: { state: "ready" } });
+  }
+}
+
+export async function browserEvalJs(pageId: string, script: string): Promise<void> {
+  if (!isTauri) return;
+  try {
+    await browserInvoke("browser_eval_js", { pageId, script });
+  } catch (e) {
+    console.warn("[browser] evalJs failed:", e);
   }
 }
 
 export async function browserReload(pageId: string): Promise<void> {
   if (!isTauri) return;
+  setOptimisticLoading(pageId);
   try {
     await browserInvoke("browser_reload", { pageId });
   } catch (e) {
     console.warn("[browser] reload failed:", e);
+    clearOptimisticLoadingTimeout(pageId);
+    updatePage(pageId, { loadState: { state: "ready" } });
   }
 }
 
