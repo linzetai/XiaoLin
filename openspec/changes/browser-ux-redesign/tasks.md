@@ -53,18 +53,18 @@
 
 ## 8. 键盘快捷键补充
 
-- [ ] 8.1 `BrowserTabContent.tsx`：`useEffect` 中注册 `window` 级 `keydown` 监听。**作用域**：通过 `isBrowserVisible`（复用 `shouldShowBrowserWebView()`）+ `isEditableFocused`（INPUT/TEXTAREA/SELECT/contentEditable）判定，不使用 DOM `contains`（child WebView 是 OS 原生视图）
-- [ ] 8.2 Ctrl+Tab / Ctrl+Shift+Tab——循环切换标签页
-- [ ] 8.3 Ctrl+1~8——跳转到第 N 个标签页，Ctrl+9 跳转到最后一个
-- [ ] 8.4 F5 / Ctrl+R——调用 `browserReload`。F5 无修饰键，需确保焦点在 Chat 输入框时不拦截
-- [ ] 8.5 Escape——loading 时调用 `browserStopLoading`。同上，焦点在非浏览器区域时不拦截
+- [x] 8.1 `BrowserTabContent.tsx`：`useEffect` 中注册 `window` 级 `keydown` 监听。**作用域**：通过 `isBrowserVisible`（复用 `shouldShowBrowserWebView()`）+ `isEditableFocused`（INPUT/TEXTAREA/SELECT/contentEditable）判定，不使用 DOM `contains`（child WebView 是 OS 原生视图）
+- [x] 8.2 Ctrl+Tab / Ctrl+Shift+Tab——循环切换标签页
+- [x] 8.3 Ctrl+1~8——跳转到第 N 个标签页，Ctrl+9 跳转到最后一个
+- [x] 8.4 F5 / Ctrl+R——调用 `browserReload`。F5 无修饰键，需确保焦点在 Chat 输入框时不拦截
+- [x] 8.5 Escape——loading 时调用 `browserStopLoading`。同上，焦点在非浏览器区域时不拦截
 
 ## 9. 样式与边缘场景
 
 - [x] 9.1 `ContentBlock.tsx`：全宽模式移除 WorkspacePanel 后调整 borderRadius 逻辑（右侧不再有 Panel 时应有右侧圆角）
 - [x] 9.2 `BrowserAddressBar.tsx`：为 Stop/Reload 按钮添加无障碍 `aria-label`（「停止加载」/「重新加载」）
 - [x] 9.3 `BrowserProgressBar.tsx`：进度条添加 `role="progressbar"` + `aria-busy` 属性
-- [ ] 9.4 `ContentBlock.tsx`/`BrowserFullPanel.tsx`：全宽首次进入或 Chat 侧移触发布局变化时，复用 `layoutTransitioning` 机制——hide all WebView → 等待 ResizeObserver 稳定 → show active，防止 WebView 跳动/闪烁（对应 R5）
+- [x] 9.4 `ContentBlock.tsx`/`BrowserFullPanel.tsx`：全宽首次进入或 Chat 侧移触发布局变化时，复用 `layoutTransitioning` 机制——hide all WebView → 等待 ResizeObserver 稳定 → show active，防止 WebView 跳动/闪烁（对应 R5）
 - [x] 9.5 `browser-store.ts`：新增 `browserEvalJs(pageId: string, script: string)` 封装函数（invoke `browser_eval_js` 命令），供 Stop 按钮（`window.stop()`）和后续需要在 browser WebView 中执行 JS 的场景使用
 
 ## 10. 验证

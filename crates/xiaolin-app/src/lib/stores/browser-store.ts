@@ -102,6 +102,8 @@ function downloadFilenameFromPath(path: string): string {
   return parts[parts.length - 1] || "download";
 }
 
+const LAYOUT_TRANSITION_MS = 400;
+
 export interface BrowserState {
   pages: Record<string, BrowserPage>;
   activePageId: string | null;
@@ -130,7 +132,23 @@ export interface BrowserState {
   showActivePage: () => Promise<void>;
 }
 
-export const useBrowserStore = create<BrowserState>((set, get) => ({
+export const useBrowserStore = create<BrowserState>((set, get) => {
+  async function runLayoutTransition(applyChange: () => void): Promise<void> {
+    if (get().layoutTransitioning) return;
+    set({ layoutTransitioning: true });
+    try {
+      await get().hideAllPages();
+    } catch (e) {
+      console.warn("[browser] hide during layout transition failed:", e);
+    }
+    applyChange();
+    window.setTimeout(async () => {
+      set({ layoutTransitioning: false });
+      await get().showActivePage();
+    }, LAYOUT_TRANSITION_MS);
+  }
+
+  return {
   pages: {},
   activePageId: null,
   layoutMode: "panel",
@@ -240,20 +258,21 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   setLayoutMode: async (mode) => {
     const prev = get().layoutMode;
     if (prev === mode) return;
-    set({ layoutTransitioning: true });
-    try {
-      await browserInvoke("browser_hide_all_pages");
-    } catch (e) {
-      console.warn("[browser] hide during layout switch failed:", e);
-    }
-    set({ layoutMode: mode });
-    window.setTimeout(async () => {
-      set({ layoutTransitioning: false });
-      await get().showActivePage();
-    }, 400);
+    await runLayoutTransition(() => {
+      set({ layoutMode: mode });
+    });
   },
 
-  toggleChatPanel: () => set((s) => ({ chatPanelCollapsed: !s.chatPanelCollapsed })),
+  toggleChatPanel: () => {
+    const { layoutMode, layoutTransitioning } = get();
+    if (layoutMode !== "fullwidth" || layoutTransitioning) {
+      set((s) => ({ chatPanelCollapsed: !s.chatPanelCollapsed }));
+      return;
+    }
+    void runLayoutTransition(() => {
+      set((s) => ({ chatPanelCollapsed: !s.chatPanelCollapsed }));
+    });
+  },
 
   setChatPanelWidth: (width) => {
     const clamped = Math.round(
@@ -322,7 +341,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       console.warn("[browser] showActivePage failed:", e);
     }
   },
-}));
+};
+});
 
 export function hasBrowserPages(): boolean {
   return Object.keys(useBrowserStore.getState().pages).length > 0;

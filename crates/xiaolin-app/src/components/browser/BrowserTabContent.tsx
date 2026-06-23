@@ -3,6 +3,8 @@ import { Globe } from "@phosphor-icons/react";
 import {
   useBrowserStore,
   shouldShowBrowserWebView,
+  browserReload,
+  browserStopLoading,
   MAX_BROWSER_PAGES,
 } from "../../lib/stores/browser-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
@@ -102,15 +104,97 @@ export function BrowserPanelBody() {
       const el = document.activeElement;
       if (!el) return false;
       const tag = el.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return true;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
       if (el instanceof HTMLElement && el.isContentEditable) return true;
       return false;
     }
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (isEditableFocused()) return;
+    function isBrowserPanelActive(): boolean {
+      const ws = useWorkspaceTabs.getState();
+      const { layoutMode } = useBrowserStore.getState();
+      if (layoutMode === "fullwidth") return Object.keys(useBrowserStore.getState().pages).length > 0;
+      return ws.panelOpen && ws.activeTabId === "browser";
+    }
 
+    function isBrowserVisible(): boolean {
+      const ws = useWorkspaceTabs.getState();
+      const { layoutMode } = useBrowserStore.getState();
+      return shouldShowBrowserWebView({
+        layoutMode,
+        panelOpen: ws.panelOpen,
+        activeTabId: ws.activeTabId,
+      });
+    }
+
+    function orderedPageIds(): string[] {
+      return Object.values(useBrowserStore.getState().pages).map((p) => p.pageId);
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
+      const editableFocused = isEditableFocused();
+
+      if (e.key === "F5") {
+        if (editableFocused || !isBrowserVisible()) return;
+        e.preventDefault();
+        const pageId = useBrowserStore.getState().activePageId;
+        if (pageId) void browserReload(pageId);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (editableFocused || !isBrowserVisible()) return;
+        const state = useBrowserStore.getState();
+        const pageId = state.activePageId;
+        if (!pageId) return;
+        if (state.pages[pageId]?.loadState.state !== "loading") return;
+        e.preventDefault();
+        void browserStopLoading(pageId);
+        return;
+      }
+
+      if (!isBrowserPanelActive() && !isBrowserVisible()) return;
+
+      if (mod && e.key === "Tab") {
+        if (editableFocused) return;
+        if (!isBrowserVisible()) return;
+        e.preventDefault();
+        const ids = orderedPageIds();
+        if (ids.length === 0) return;
+        const { activePageId: currentId } = useBrowserStore.getState();
+        const idx = currentId ? ids.indexOf(currentId) : -1;
+        const nextIdx = e.shiftKey
+          ? idx <= 0
+            ? ids.length - 1
+            : idx - 1
+          : idx < 0 || idx >= ids.length - 1
+            ? 0
+            : idx + 1;
+        void useBrowserStore.getState().setActivePageId(ids[nextIdx]!);
+        return;
+      }
+
+      if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+        if (editableFocused) return;
+        if (!isBrowserVisible()) return;
+        e.preventDefault();
+        const ids = orderedPageIds();
+        const n = Number.parseInt(e.key, 10);
+        const targetIdx = n === 9 ? ids.length - 1 : n - 1;
+        if (targetIdx < 0 || targetIdx >= ids.length) return;
+        void useBrowserStore.getState().setActivePageId(ids[targetIdx]!);
+        return;
+      }
+
+      if (mod && !e.shiftKey && (e.key === "r" || e.key === "R")) {
+        if (editableFocused || !isBrowserVisible()) return;
+        e.preventDefault();
+        const pageId = useBrowserStore.getState().activePageId;
+        if (pageId) void browserReload(pageId);
+        return;
+      }
+
+      if (editableFocused) return;
       if (!mod) return;
 
       if (e.key === "t" || e.key === "T") {
@@ -120,7 +204,8 @@ export function BrowserPanelBody() {
       }
       if (e.key === "w" || e.key === "W") {
         e.preventDefault();
-        if (activePageId) void closePage(activePageId);
+        const pageId = useBrowserStore.getState().activePageId;
+        if (pageId) void closePage(pageId);
         return;
       }
       if (e.key === "l" || e.key === "L") {
@@ -138,7 +223,7 @@ export function BrowserPanelBody() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activePageId, closePage, handleNewTab]);
+  }, [closePage, handleNewTab]);
 
   if (!hasPages) {
     return (
