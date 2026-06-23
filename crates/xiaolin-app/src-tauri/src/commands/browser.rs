@@ -132,6 +132,7 @@ fn build_browser_webview(
     let page_id_for_title = page_id.clone();
     let page_id_for_download = page_id.clone();
 
+    #[allow(unused_mut)]
     let mut builder = WebviewBuilder::new(
         webview_label.clone(),
         WebviewUrl::External(parsed_url.clone()),
@@ -149,7 +150,7 @@ fn build_browser_webview(
                 serde_json::json!({
                     "pageId": page_id,
                     "loading": false,
-                    "loadState": PageLoadState::Failed("navigation blocked".into()),
+                    "loadState": {"state": "failed", "error": "navigation blocked"},
                 }),
             );
             return false;
@@ -248,6 +249,7 @@ fn build_browser_webview(
         }
     })
     .on_new_window(move |url, _features| {
+        tracing::debug!(url = %url, "on_new_window triggered");
         if !crate::browser_panel::is_navigation_allowed(&url) {
             return NewWindowResponse::Deny;
         }
@@ -261,6 +263,11 @@ fn build_browser_webview(
         NewWindowResponse::Deny
     });
 
+    // On Linux, do NOT set data_directory: it causes wry to create a separate
+    // WebKitWebContext, which breaks the custom protocol (xiaolin-internal://)
+    // registered on the default context. Cookie persistence is already handled
+    // via FFI in browser_gtk::configure_webview_cookies.
+    #[cfg(not(target_os = "linux"))]
     {
         let data_dir = browser_data_directory();
         if let Err(e) = std::fs::create_dir_all(&data_dir) {
@@ -360,6 +367,7 @@ pub(crate) fn create_browser_page(
                     crate::browser_gtk::ensure_fixed_container(&vbox);
                     crate::browser_gtk::reparent_child_webview(&vbox, &label_for_gtk);
                     crate::browser_gtk::configure_webview_cookies(&label_for_gtk, &data_dir);
+                    crate::browser_gtk::configure_webview_cors(&label_for_gtk);
                     if let Some(ref proxy) = proxy_url_for_gtk {
                         crate::browser_gtk::configure_webview_proxy(&label_for_gtk, proxy);
                     }
@@ -657,6 +665,81 @@ pub async fn browser_eval_js(
     webview
         .eval(script)
         .map_err(|_| "failed to evaluate script".to_string())
+}
+
+/// IPC-based notification from browser child WebViews.
+/// Replacement for the `xiaolin-internal://callback` custom protocol which
+/// doesn't work on Linux/WebKitGTK (fetch to custom schemes fails with
+/// "Load failed" regardless of CORS settings).
+#[tauri::command]
+pub async fn browser_webview_notify(
+    app: AppHandle,
+    webview: tauri::Webview<Wry>,
+    msg_type: String,
+    data: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use crate::browser_panel::{
+        is_browser_webview_label, ALLOWED_INTERNAL_MESSAGE_TYPES,
+    };
+
+    let webview_label = webview.label().to_string();
+
+    if !is_browser_webview_label(&webview_label) {
+        return Err("forbidden: not a browser webview".into());
+    }
+
+    if !ALLOWED_INTERNAL_MESSAGE_TYPES.contains(&msg_type.as_str()) {
+        return Err(format!("forbidden message type: {msg_type}"));
+    }
+
+    let page_id = {
+        let state = app.state::<BrowserPanelState>();
+        let guard = state.0.lock().map_err(|_| "lock poisoned".to_string())?;
+        guard
+            .get_page_by_webview_label(&webview_label)
+            .map(|p| p.page_id.clone())
+    };
+
+    let Some(page_id) = page_id else {
+        return Err("page not found".into());
+    };
+
+    if msg_type == "eval_result" {
+        let id = data.get("id").and_then(|v| v.as_str());
+        if let Some(id) = id {
+            let outcome = match (
+                data.get("result").and_then(|v| v.as_str()),
+                data.get("error").and_then(|v| v.as_str()),
+            ) {
+                (Some(result), _) => Ok(result.to_string()),
+                (_, Some(error)) => Err(error.to_string()),
+                _ => Err("eval_result missing result and error".to_string()),
+            };
+            crate::browser_eval::complete_eval(id, outcome);
+        }
+        return Ok(serde_json::json!({"ok": true}));
+    }
+
+    let event_name = match msg_type.as_str() {
+        "ready" => "browser-page-ready",
+        "snapshot" => "browser-snapshot",
+        "console" => "browser-console",
+        "network" => "browser-network",
+        "selection" | "user_action_blocked" => "browser-user-action",
+        "dialog" => "browser-dialog",
+        _ => return Err(format!("unhandled type: {msg_type}")),
+    };
+
+    let _ = app.emit(
+        event_name,
+        serde_json::json!({
+            "pageId": page_id,
+            "type": msg_type,
+            "data": data,
+        }),
+    );
+
+    Ok(serde_json::json!({"ok": true}))
 }
 
 #[cfg(test)]

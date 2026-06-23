@@ -959,6 +959,50 @@
 - **相关规则**：无新规则（平台特定 API 废弃兼容性问题，非通用模式）
 - **修复记录**：2026-06-23 FFI cookie 配置 + about:blank 时序修复 + 环境变量代理
 
+#### BUG-E2E-8 🔴 Browser WebView 自定义协议 fetch 失败（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（BROWSER_INIT_SCRIPT send 函数）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（新增 browser_webview_notify 命令）
+- **问题**：在 Linux WebKitGTK 上，Browser 子 WebView 中 `fetch('xiaolin-internal://callback', ...)` 返回 "Load failed"，导致所有 `__XIAOLIN__.notify()` 调用失败
+- **影响**：选中文本发送给 Agent、console 日志转发、network 监控、ready 通知等全部不可用
+- **根因**：WebKitGTK 的 `webkit_web_context_register_uri_scheme` 注册的自定义 scheme 不支持从 https:// origin 通过 Fetch API 访问。注册为 CORS-enabled 也无效（WebKitGTK 2.52 的已知限制）。wry/Tauri 的自定义协议实现依赖 `register_uri_scheme`，在 Linux 上对子 WebView 完全失效
+- **修复方案**：
+  1. 新增 Tauri IPC 命令 `browser_webview_notify`，功能等同于 `handle_xiaolin_internal_protocol` 的事件分发逻辑
+  2. 修改 `BROWSER_INIT_SCRIPT` 的 `send()` 函数：优先使用 `__TAURI_INTERNALS__.invoke('browser_webview_notify', ...)` 通过 WebKitGTK 原生 message handler (window.webkit.messageHandlers) 通信，不依赖自定义协议
+  3. 保留 `fetch('xiaolin-internal://callback')` 作为 fallback（macOS/Windows 可能仍需要）
+- **验证结果**：`notify('selection', {action:'ask'/'quote'})` → Chat 输入框正确接收引用文本
+- **相关规则**：无新规则（平台 WebView 引擎限制，非通用代码模式）
+- **修复记录**：2026-06-23 新增 browser_webview_notify IPC 命令 + BROWSER_INIT_SCRIPT send() 改用 Tauri IPC
+
+#### BUG-E2E-9 🔴 Browser 导航过滤阻止 about:blank + 序列化 panic
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（is_navigation_allowed）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（on_navigation emit json）
+- **问题**：
+  1. `is_navigation_allowed` 未允许 `about:` scheme，WebKitGTK 在页面跳转过程中会触发 `about:blank` 导航，被过滤器阻止后导致导航失败
+  2. `on_navigation` 回调中 `serde_json::json!()` 直接序列化 `PageLoadState::Failed(String)`，该 tagged enum 无法被 `json!` 正确序列化，导致 `unwrap()` panic，应用崩溃
+- **影响**：百度等使用中间 about:blank 跳转的站点无法正常导航，且导致整个应用崩溃退出
+- **修复方案**：
+  1. 在 `is_navigation_allowed` 中添加 `"about" => true` 允许 about:blank
+  2. 将 `json!()` 中的 `PageLoadState::Failed(...)` 替换为手写的 JSON 对象 `{"state": "failed", "error": "..."}`
+- **相关规则**：无
+- **修复记录**：2026-06-23 允许 about scheme + 修复 json 序列化 panic
+
+#### BUG-E2E-10 🔴 Browser target="_blank" 链接不触发新 tab（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（BROWSER_INIT_SCRIPT）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（on_new_window handler）
+- **问题**：在 Linux WebKitGTK 上，用户点击 `target="_blank"` 链接时，WebKitGTK 的 `create` 信号不触发，导致 `on_new_window` handler 从未被调用。但 `window.open()` 能正确触发该信号。
+- **影响**：百度首页的"新闻"、"hao123" 等导航链接无法在新 tab 中打开，用户体验严重受损
+- **根因**：WebKitGTK 对 `target="_blank"` 链接点击的 `create` 信号触发机制与 `window.open()` 不同。在 wry 的 `connect_decide_policy` 中，`NewWindowAction` 类型返回 `false`（使用默认策略），但 WebKitGTK 2.52 可能未正确传递该决策到 `create` 信号。`window.open()` 直接触发 `create` 信号绕过了 `decide-policy` 流程。
+- **修复方案**：在 `BROWSER_INIT_SCRIPT` 中添加 document-level click 事件拦截器（capturing phase），当点击的目标是 `<a target="_blank">` 链接时，`preventDefault()` 阻止默认行为，改用 `window.open(href, '_blank')` 打开。由于 `window.open()` 路径已确认工作，这确保所有 `target="_blank"` 链接都能正确触发新 tab 创建。
+- **验证结果**：百度首页"新闻"(news.baidu.com)、"hao123"(www.hao123.com)、自定义注入的 target=_blank 链接均成功在新 tab 打开
+- **相关规则**：无新规则（平台 WebView 引擎行为差异，通过 JS 层 polyfill 解决）
+- **修复记录**：2026-06-23 BROWSER_INIT_SCRIPT 添加 target=_blank click 拦截 → window.open() 转换
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

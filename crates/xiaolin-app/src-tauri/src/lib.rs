@@ -375,6 +375,7 @@ pub fn run() {
             commands::browser::browser_show_page,
             commands::browser::browser_hide_all_pages,
             commands::browser::browser_eval_js,
+            commands::browser::browser_webview_notify,
             commands::browser::browser_request_takeover,
             commands::browser::browser_clear_user_takeover,
             commands::browser_network::browser_get_network_config,

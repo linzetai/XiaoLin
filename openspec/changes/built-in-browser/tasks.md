@@ -9,7 +9,7 @@
 - [x] 1.3 **Spike: Cookie 持久化 + HttpOnly** _(validated during Phase 2 impl)_
   ✅ data_directory 配置正常
 - [ ] 1.4 **Spike: 原生截图 API** _(deferred: using JS canvas/SVG fallback instead)_
-- [ ] 1.5 **Spike: HiDPI 坐标一致性** _(deferred: requires 2x display testing)_
+- [x] 1.5 **Spike: HiDPI 坐标一致性** _(validated: Linux fractional DPR 1.25x fixed, CSS px × DPR → physical px)_
 - [x] 1.6 **Spike: IPC 隔离验证** _(validated during Phase 8 impl)_
   ✅ capability webviews:["main"] 生效，browser-{uuid} WebView 无 IPC 权限
 - [x] 1.7 **Spike: Custom Protocol + Capability 兼容性** _(validated during Phase 2 impl)_
@@ -131,7 +131,7 @@
 - [x] 9.1.2 Spike 1.2: Custom Protocol 通信 _(Phase 2 实现)_
 - [x] 9.1.3 Spike 1.3: Cookie 持久化 _(Phase 2 实现)_
 - [ ] 9.1.4 Spike 1.4: 原生截图 _(deferred: 使用 JS fallback)_
-- [ ] 9.1.5 Spike 1.5: HiDPI 坐标 _(deferred: 需要 2x 显示器)_
+- [x] 9.1.5 Spike 1.5: HiDPI 坐标 _(validated: 1.25x fractional DPR on Linux)_
 - [x] 9.1.6 Spike 1.6: IPC 隔离 _(Phase 8 实现)_
 - [x] 9.1.7 Spike 1.7: Custom Protocol + Capability _(Phase 2 实现)_
 - [x] 9.1.8 Spike 1.8: Object.freeze 保护 _(Phase 2 实现)_
@@ -145,13 +145,14 @@
 ### 9.3 功能测试
 - [x] 9.3.1 E2E: Browser Panel 打开页面、导航、多标签切换、关闭 _(E2E TC-2~TC-8 全通过)_
 - [x] 9.3.2 E2E: Panel 关闭后 WebView 隐藏，重开后恢复 _(E2E TC-6/TC-7 验证)_
-- [ ] 9.3.3 E2E: Cookie 持久化（登录 → 关闭 → 重开 → 登录状态保持）_(需手动验证)_
+- [x] 9.3.3 E2E: Cookie 持久化（登录 → 关闭 → 重开 → 登录状态保持）_(BUG-E2E-7 修复后验证通过：JS cookie + Set-Cookie + SQLite 跨重启 + proxy 共存)_
 - [ ] 9.3.4 E2E: Agent browser 工具操作在 Panel 中可见 _(需 Agent 集成测试)_
 - [ ] 9.3.5 E2E: Agent Control Mode 进入/退出/用户接管 _(需 Agent 集成测试)_
 - [ ] 9.3.6 E2E: Host 映射生效 _(需环境配置测试)_
-- [ ] 9.3.7 E2E: Chat 链接在内置浏览器打开（含配置切换）_(需 Chat 集成测试)_
-- [ ] 9.3.8 E2E: 选中文本发送给 Agent _(需 Chat 集成测试)_
+- [x] 9.3.7 E2E: Chat 链接在内置浏览器打开（含配置切换）_(handleChatLinkClick E2E 验证通过：builtin/external 配置 + Shift 反转逻辑正确，openPage 成功创建浏览器页面)_
+- [x] 9.3.8 E2E: 选中文本发送给 Agent _(BUG-E2E-8 修复后验证通过：自定义协议改用 Tauri IPC invoke，notify('selection',{action:'ask'/'quote'}) → Chat 输入框正确接收引用文本)_
 - [x] 9.3.9 E2E: 全宽布局模式切换 + Chat 面板折叠/展开 _(E2E TC-5 验证)_
+- [x] 9.3.9b E2E: target="_blank" 链接在新 tab 打开 _(BUG-E2E-10 修复：BROWSER_INIT_SCRIPT 拦截 target=_blank 点击 → window.open() 转换 + 前端自动切换活动页。百度"新闻"/"hao123" 验证通过)_
 - [ ] 9.3.10 E2E: 下载检测 + 通知 + 打开文件 _(需手动验证)_
 
 ### 9.4 跨平台

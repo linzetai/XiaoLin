@@ -269,6 +269,53 @@ pub fn configure_webview_proxy(label: &str, proxy_url: &str) {
     });
 }
 
+/// Register `xiaolin-internal` scheme as CORS-enabled on the WebView's context.
+/// Without this, WebKitGTK blocks fetch() calls from https:// origins to custom schemes.
+/// Must be called on the GTK main thread.
+pub fn configure_webview_cors(label: &str) {
+    use std::ffi::CString;
+
+    CHILD_WIDGETS.with(|widgets| {
+        let widgets = widgets.borrow();
+        let Some(widget) = widgets.get(label) else {
+            tracing::error!(label, "configure_webview_cors: widget not found");
+            return;
+        };
+
+        let Some(webview) = widget.downcast_ref::<webkit2gtk::WebView>() else {
+            tracing::error!(label, "configure_webview_cors: downcast failed");
+            return;
+        };
+
+        let scheme = match CString::new("xiaolin-internal") {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        unsafe {
+            let wv_ptr = webview.as_ptr() as *mut std::ffi::c_void;
+            let ctx_ptr = ffi_webkit::webkit_web_view_get_context(wv_ptr);
+            if ctx_ptr.is_null() {
+                tracing::error!(label, "configure_webview_cors: null WebContext");
+                return;
+            }
+
+            let sm_ptr = ffi_webkit::webkit_web_context_get_security_manager(ctx_ptr);
+            if sm_ptr.is_null() {
+                tracing::error!(label, "configure_webview_cors: null SecurityManager");
+                return;
+            }
+
+            ffi_webkit::webkit_security_manager_register_uri_scheme_as_cors_enabled(
+                sm_ptr,
+                scheme.as_ptr(),
+            );
+        }
+
+        tracing::info!(label, "configured xiaolin-internal scheme as CORS-enabled");
+    });
+}
+
 mod ffi_webkit {
     use std::os::raw::c_char;
 
@@ -309,6 +356,15 @@ mod ffi_webkit {
 
         pub fn webkit_network_proxy_settings_free(
             settings: *mut std::ffi::c_void,
+        );
+
+        pub fn webkit_web_context_get_security_manager(
+            context: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+
+        pub fn webkit_security_manager_register_uri_scheme_as_cors_enabled(
+            security_manager: *mut std::ffi::c_void,
+            scheme: *const c_char,
         );
     }
 }

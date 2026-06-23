@@ -370,8 +370,9 @@ export async function initBrowserEvents(): Promise<void> {
             agentControlled: false,
           },
         },
-        activePageId: s.activePageId ?? pageId,
+        activePageId: pageId,
       }));
+      void useBrowserStore.getState().showActivePage();
     }),
   );
 

@@ -11,8 +11,8 @@ pub const MAX_BROWSER_JS_LEN: usize = 512 * 1024;
 pub const OFFSCREEN_POSITION: f64 = -9999.0;
 pub const BROWSER_WEBVIEW_PREFIX: &str = "browser-";
 
-/// Whitelist message types for xiaolin-internal://callback.
-const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] = &[
+/// Whitelist message types for xiaolin-internal://callback and browser_webview_notify IPC.
+pub(crate) const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] = &[
     "ready",
     "snapshot",
     "console",
@@ -218,6 +218,7 @@ pub fn browser_data_store_identifier() -> [u8; 16] {
 pub fn is_navigation_allowed(url: &Url) -> bool {
     match url.scheme() {
         "http" | "https" => true,
+        "about" => true,
         "file" | "javascript" | "data" | "tauri" | "ipc" | "asset" => {
             tracing::warn!(url = %url, scheme = url.scheme(), "blocked browser navigation");
             false
@@ -275,7 +276,7 @@ pub fn validate_js_payload(js: &str) -> Result<(), String> {
 /// Layer 0-3 initialization script injected into every browser page (D13).
 pub const BROWSER_INIT_SCRIPT: &str = r#"(function(){
 'use strict';
-function send(msg){return fetch('xiaolin-internal://callback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(msg)}).then(function(r){return r.json().catch(function(){return{};});}).catch(function(){return{};});}
+function send(msg){if(window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke){return window.__TAURI_INTERNALS__.invoke('browser_webview_notify',{msgType:msg.type||'',data:msg.data||{}}).catch(function(){return{};});}return fetch('xiaolin-internal://callback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(msg)}).then(function(r){return r.json().catch(function(){return{};});}).catch(function(){return{};});}
 function notify(type,data){send({type:type,data:data,ts:Date.now()});}
 var api={send:send,notify:notify,version:1};
 Object.freeze(api);
@@ -292,6 +293,7 @@ XHR.send=function(){var self=this;this.addEventListener('loadend',function(){not
 window.alert=function(msg){notify('dialog',{kind:'alert',message:String(msg)});};
 window.confirm=function(msg){notify('dialog',{kind:'confirm',message:String(msg)});return true;};
 window.prompt=function(msg,def){notify('dialog',{kind:'prompt',message:String(msg),default:def!=null?String(def):''});return def!=null?String(def):'';};
+document.addEventListener('click',function(e){var el=e.target;while(el&&el.tagName!=='A'){el=el.parentElement;}if(!el||!el.href)return;var t=(el.target||'').toLowerCase();if(t==='_blank'){e.preventDefault();e.stopPropagation();window.open(el.href,'_blank');}},true);
 })();"#;
 
 fn http_response(status: StatusCode, body: &[u8]) -> http::Response<Vec<u8>> {
@@ -307,7 +309,7 @@ fn http_response(status: StatusCode, body: &[u8]) -> http::Response<Vec<u8>> {
         })
 }
 
-fn is_browser_webview_label(label: &str) -> bool {
+pub(crate) fn is_browser_webview_label(label: &str) -> bool {
     label.starts_with(BROWSER_WEBVIEW_PREFIX)
 }
 
