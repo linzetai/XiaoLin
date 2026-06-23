@@ -1,10 +1,11 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useBrowserStore, shouldShowBrowserWebView } from "../../lib/stores/browser-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
 import { BrowserPageTabs } from "./BrowserPageTabs";
 import { BrowserPlaceholder } from "./BrowserPlaceholder";
 import { DownloadNotificationBar } from "./DownloadNotificationBar";
+import { BrowserNetworkSettings } from "./BrowserNetworkSettings";
 
 const NEW_TAB_URL = "https://example.com";
 
@@ -16,6 +17,7 @@ export function BrowserPanelBody() {
   const openPage = useBrowserStore((s) => s.openPage);
   const closePage = useBrowserStore((s) => s.closePage);
   const addressBarRef = useRef<BrowserAddressBarHandle>(null);
+  const [networkSettingsOpen, setNetworkSettingsOpen] = useState(false);
 
   const webviewVisible = shouldShowBrowserWebView({ layoutMode, panelOpen, activeTabId });
 
@@ -68,10 +70,15 @@ export function BrowserPanelBody() {
         minHeight: 0,
       }}
     >
-      <BrowserAddressBar ref={addressBarRef} pageId={activePageId} />
+      <BrowserAddressBar
+        ref={addressBarRef}
+        pageId={activePageId}
+        onOpenNetworkSettings={() => setNetworkSettingsOpen(true)}
+      />
       <BrowserPageTabs />
       <BrowserPlaceholder pageId={activePageId} webviewVisible={webviewVisible} />
       <DownloadNotificationBar />
+      <BrowserNetworkSettings open={networkSettingsOpen} onClose={() => setNetworkSettingsOpen(false)} />
     </div>
   );
 }

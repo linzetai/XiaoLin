@@ -1,3 +1,4 @@
+use crate::browser_network::BrowserNetworkState;
 use crate::browser_panel::{
     browser_data_directory, default_download_directory, sanitize_download_filename,
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPage, BrowserPanelManager,
@@ -204,6 +205,19 @@ fn build_browser_webview(
     #[cfg(target_os = "macos")]
     {
         builder = builder.data_store_identifier(browser_data_store_identifier());
+    }
+
+    if let Some(net_state) = app.try_state::<BrowserNetworkState>() {
+        if let Some(proxy_url) = net_state.manager().webview_proxy_url_sync() {
+            match proxy_url.parse::<Url>() {
+                Ok(parsed) => {
+                    builder = builder.proxy_url(parsed);
+                }
+                Err(e) => {
+                    tracing::warn!(proxy_url = %proxy_url, error = %e, "invalid webview proxy URL");
+                }
+            }
+        }
     }
 
     Ok(builder)

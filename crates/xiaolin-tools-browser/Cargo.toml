@@ -7,6 +7,7 @@ edition.workspace = true
 xiaolin-core = { path = "../xiaolin-core" }
 xiaolin-security = { path = "../xiaolin-security" }
 xiaolin-tools-network = { path = "../xiaolin-tools-network" }
+xiaolin-network-proxy = { path = "../xiaolin-network-proxy" }
 async-trait.workspace = true
 tracing.workspace = true
 serde_json.workspace = true

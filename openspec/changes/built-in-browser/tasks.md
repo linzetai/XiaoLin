@@ -119,13 +119,13 @@
 
 ## 6. 网络配置 — Host 映射 & 代理
 
-- [ ] 6.1 `xiaolin-network-proxy/src/config.rs` 新增 HostMapping + 通配符标签边界匹配（规则 #42）
-- [ ] 6.2 代理连接阶段 DNS 重写（缓存解析结果复用，规则 #41）
-- [ ] 6.3 BrowserNetworkConfig struct + 持久化
-- [ ] 6.4 browser tool actions: set_hosts、set_proxy、get_network_config、clear_hosts
-- [ ] 6.5 Agent 网络变更用户确认机制
-- [ ] 6.6 前端 BrowserNetworkSettings 组件
-- [ ] 6.7 前端 HostMappingConfirmPanel 组件
+- [x] 6.1 `xiaolin-network-proxy/src/config.rs` 新增 HostMapping + 通配符标签边界匹配（规则 #42）
+- [x] 6.2 代理连接阶段 DNS 重写（缓存解析结果复用，规则 #41）
+- [x] 6.3 BrowserNetworkConfig struct + 持久化
+- [x] 6.4 browser tool actions: set_hosts、set_proxy、get_network_config、clear_hosts
+- [x] 6.5 Agent 网络变更用户确认机制
+- [x] 6.6 前端 BrowserNetworkSettings 组件
+- [x] 6.7 前端 HostMappingConfirmPanel 组件
 
 ## 7. Browser ↔ Chat 内容交互
 

@@ -15,6 +15,7 @@ import {
   LockOpen,
   ArrowsOut,
   ArrowsIn,
+  Globe,
 } from "@phosphor-icons/react";
 import {
   useBrowserStore,
@@ -32,6 +33,7 @@ export interface BrowserAddressBarHandle {
 
 interface BrowserAddressBarProps {
   pageId: string | null;
+  onOpenNetworkSettings?: () => void;
 }
 
 const iconBtnStyle: CSSProperties = {
@@ -50,7 +52,7 @@ const iconBtnStyle: CSSProperties = {
 };
 
 export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddressBarProps>(
-  function BrowserAddressBar({ pageId }, ref) {
+  function BrowserAddressBar({ pageId, onOpenNetworkSettings }, ref) {
     const page = useBrowserStore((s) => (pageId ? s.pages[pageId] : null));
     const layoutMode = useBrowserStore((s) => s.layoutMode);
     const setLayoutMode = useBrowserStore((s) => s.setLayoutMode);
@@ -213,6 +215,15 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
               }}
             />
           </div>
+
+          <button
+            type="button"
+            style={iconBtnStyle}
+            title="Network settings"
+            onClick={onOpenNetworkSettings}
+          >
+            <Globe size={14} />
+          </button>
 
           <button
             type="button"

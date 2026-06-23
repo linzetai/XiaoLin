@@ -42,6 +42,8 @@ xiaolin-protocol = { path = "../../xiaolin-protocol" }
 xiaolin-gateway = { path = "../../xiaolin-gateway" }
 xiaolin-agent = { path = "../../xiaolin-agent", features = ["browser"] }
 xiaolin-tools-browser = { path = "../../xiaolin-tools-browser" }
+async-trait = "0.1"
+xiaolin-network-proxy = { path = "../../xiaolin-network-proxy" }
 xiaolin-cron = { path = "../../xiaolin-cron" }
 xiaolin-observe = { path = "../../xiaolin-observe" }
 xiaolin-security = { path = "../../xiaolin-security" }

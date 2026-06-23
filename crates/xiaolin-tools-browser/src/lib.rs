@@ -1,6 +1,7 @@
 mod actions;
 mod engine;
 mod js;
+mod network;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -9,6 +10,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 
+pub use network::{
+    execute_network_action, network_bridge_configured, set_browser_network_bridge,
+    set_network_ws_broadcast, broadcast_network_event, validate_network_action,
+    BrowserNetworkBridge,
+};
 pub use engine::{
     default_engine, engine_kind_from_env, set_browser_bridge, BrowserBridge, BrowserEngine,
     CdpEngine, EngineActionResult, TauriWebViewEngine,
@@ -158,7 +164,8 @@ impl Tool for BrowserTool {
                 "list_pages", "select_page", "new_page", "close_page",
                 "cookies", "list_network_requests", "list_console_messages",
                 "get_console_message", "get_network_request",
-                "upload_file", "emulate", "resize_page"
+                "upload_file", "emulate", "resize_page",
+                "set_hosts", "set_proxy", "get_network_config", "clear_hosts"
             ],
             "description": "Action to perform. Workflow: screenshot → take_snapshot → uid-based actions → screenshot to verify. \
              Use navigate with type=back/forward/reload instead of separate go_back/go_forward/reload actions."
@@ -391,6 +398,48 @@ impl Tool for BrowserTool {
                 "description": "For emulate: dark/light mode."
             }),
         );
+        props.insert(
+            "mappings".to_string(),
+            serde_json::json!({
+                "type": "array",
+                "description": "For set_hosts: [{pattern, target_ip}] host mappings.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": { "type": "string" },
+                        "target_ip": { "type": "string" }
+                    }
+                }
+            }),
+        );
+        props.insert(
+            "temporary".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "For set_hosts: session-only mapping (default true when agent-initiated)."
+            }),
+        );
+        props.insert(
+            "temporary_only".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "For clear_hosts: only remove session mappings."
+            }),
+        );
+        props.insert(
+            "reason".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Agent-provided reason shown in user confirmation panel."
+            }),
+        );
+        props.insert(
+            "require_confirm".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Require user confirmation (default true for agent set_hosts/set_proxy)."
+            }),
+        );
         ToolParameterSchema {
             schema_type: "object".to_string(),
             properties: props,
@@ -421,6 +470,25 @@ impl Tool for BrowserTool {
 
         if let Err(e) = actions::validate_args(&action, &args) {
             return ToolResult::err(e);
+        }
+
+        if matches!(
+            action.as_str(),
+            "set_hosts" | "set_proxy" | "get_network_config" | "clear_hosts"
+        ) {
+            let result = tokio::time::timeout(
+                ACTION_TIMEOUT,
+                network::execute_network_action(&action, &args),
+            )
+            .await;
+            return match result {
+                Ok(Ok(ar)) => ToolResult::ok(ar.text),
+                Ok(Err(e)) => ToolResult::err(e),
+                Err(_) => ToolResult::err(
+                    "browser network: action timed out (60s). User may not have responded to confirmation."
+                        .to_string(),
+                ),
+            };
         }
 
         let engine = self.engine.clone();

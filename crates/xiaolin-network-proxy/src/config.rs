@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::policy::normalize_host;
+
 /// Top-level proxy configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkProxyConfig {
@@ -277,6 +279,94 @@ pub fn validate_unix_socket_allowlist_paths(
     paths.iter().map(|p| ValidatedUnixSocketPath::new(p.clone())).collect()
 }
 
+/// Custom host → IP mapping for browser / proxy DNS rewrite.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostMapping {
+    /// Host pattern: exact (`api.dev.com`) or wildcard (`*.internal.corp`).
+    pub pattern: String,
+    /// Target IPv4/IPv6 address.
+    pub target_ip: String,
+}
+
+impl HostMapping {
+    pub fn new(pattern: impl Into<String>, target_ip: impl Into<String>) -> Self {
+        Self {
+            pattern: pattern.into(),
+            target_ip: target_ip.into(),
+        }
+    }
+
+    /// Find the best matching mapping for `host` (exact beats wildcard).
+    pub fn lookup<'a>(mappings: &'a [Self], host: &str) -> Option<&'a Self> {
+        let host = normalize_host(host);
+        let mut best: Option<(&Self, u8)> = None;
+        for mapping in mappings {
+            if !host_mapping_matches(&mapping.pattern, &host) {
+                continue;
+            }
+            let priority = mapping_match_priority(&mapping.pattern, &host);
+            if best.map(|(_, p)| priority > p).unwrap_or(true) {
+                best = Some((mapping, priority));
+            }
+        }
+        best.map(|(m, _)| m)
+    }
+}
+
+/// Returns true when `host` matches `pattern` with label-boundary wildcard rules (rule #42).
+pub fn host_mapping_matches(pattern: &str, host: &str) -> bool {
+    let pattern = pattern.trim();
+    let host = normalize_host(host);
+    if pattern.is_empty() || host.is_empty() {
+        return false;
+    }
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        let suffix = normalize_host(suffix);
+        if suffix.is_empty() {
+            return false;
+        }
+        // `*.example.com` matches example.com and subdomains, not notexample.com
+        return host == suffix || host.ends_with(&format!(".{suffix}"));
+    }
+    normalize_host(pattern) == host
+}
+
+fn mapping_match_priority(pattern: &str, host: &str) -> u8 {
+    if pattern.strip_prefix("*.").is_some() {
+        if host == normalize_host(pattern.strip_prefix("*.").unwrap_or("")) {
+            1
+        } else {
+            0
+        }
+    } else {
+        2
+    }
+}
+
+/// Reject dangerous host-mapping targets (loopback / unspecified).
+pub fn validate_host_mapping_target(target_ip: &str) -> Result<(), String> {
+    let ip: std::net::IpAddr = target_ip
+        .trim()
+        .parse()
+        .map_err(|_| "target_ip must be a valid IPv4 or IPv6 address".to_string())?;
+    if ip.is_unspecified() || ip.is_loopback() {
+        return Err("host mapping target cannot be loopback or unspecified".to_string());
+    }
+    Ok(())
+}
+
+/// Validate a host mapping pattern + target pair.
+pub fn validate_host_mapping(mapping: &HostMapping) -> Result<(), String> {
+    let pattern = mapping.pattern.trim();
+    if pattern.is_empty() {
+        return Err("host mapping pattern must not be empty".to_string());
+    }
+    if pattern.contains('*') && !pattern.starts_with("*.") {
+        return Err("wildcard host patterns must use *.suffix form".to_string());
+    }
+    validate_host_mapping_target(&mapping.target_ip)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,5 +470,30 @@ mod tests {
         let deserialized: NetworkProxySettings = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.proxy_url, Some("http://proxy:8080".into()));
         assert_eq!(deserialized.allowed_domains(), vec!["example.com"]);
+    }
+
+    #[test]
+    fn host_mapping_wildcard_label_boundary() {
+        assert!(host_mapping_matches("*.example.com", "api.example.com"));
+        assert!(host_mapping_matches("*.example.com", "example.com"));
+        assert!(!host_mapping_matches("*.example.com", "notexample.com"));
+        assert!(host_mapping_matches("api.dev.com", "api.dev.com"));
+        assert!(!host_mapping_matches("api.dev.com", "other.dev.com"));
+    }
+
+    #[test]
+    fn host_mapping_lookup_prefers_exact() {
+        let mappings = vec![
+            HostMapping::new("*.example.com", "10.0.0.1"),
+            HostMapping::new("api.example.com", "10.0.0.2"),
+        ];
+        let found = HostMapping::lookup(&mappings, "api.example.com").unwrap();
+        assert_eq!(found.target_ip, "10.0.0.2");
+    }
+
+    #[test]
+    fn validate_host_mapping_rejects_loopback() {
+        let m = HostMapping::new("bank.com", "127.0.0.1");
+        assert!(validate_host_mapping(&m).is_err());
     }
 }

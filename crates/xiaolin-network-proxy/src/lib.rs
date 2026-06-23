@@ -1,6 +1,8 @@
+pub mod browser_network;
 pub mod certs;
 pub mod config;
 pub mod connect_policy;
+pub mod host_resolver;
 pub mod http_proxy;
 pub mod mitm;
 pub mod network_policy;
@@ -14,11 +16,17 @@ pub mod socks5;
 pub mod state;
 pub mod upstream;
 
-pub use config::{
-    NetworkDomainPermission, NetworkDomainPermissionEntry, NetworkDomainPermissions, NetworkMode,
-    NetworkProxyConfig, NetworkProxySettings, ValidatedUnixSocketPath,
-    clamp_bind_addrs, host_and_port_from_network_addr, validate_unix_socket_allowlist_paths,
+pub use browser_network::{
+    BrowserNetworkConfig, BrowserProxyMode, default_config_path, load_config, save_config,
+    validate_proxy_url,
 };
+pub use config::{
+    HostMapping, NetworkDomainPermission, NetworkDomainPermissionEntry, NetworkDomainPermissions,
+    NetworkMode, NetworkProxyConfig, NetworkProxySettings, ValidatedUnixSocketPath,
+    clamp_bind_addrs, host_and_port_from_network_addr, host_mapping_matches,
+    validate_host_mapping, validate_host_mapping_target, validate_unix_socket_allowlist_paths,
+};
+pub use host_resolver::{ResolvedConnectTarget, resolve_connect_target};
 pub use connect_policy::TargetCheckedTcpConnector;
 pub use network_policy::{
     NetworkDecision, NetworkDecisionSource, NetworkPolicyDecision, NetworkPolicyRequest,

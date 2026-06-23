@@ -1,5 +1,6 @@
 use crate::config::NetworkMode;
 use crate::connect_policy::TargetCheckedTcpConnector;
+use crate::host_resolver::resolve_connect_target;
 use crate::network_policy::{
     NetworkDecision, NetworkPolicyRequest, NetworkPolicyRequestArgs, NetworkProtocol,
 };
@@ -190,15 +191,11 @@ async fn handle_connect_cmd(
     info!("SOCKS5 CONNECT -> {host}:{port}");
 
     let connector = TargetCheckedTcpConnector::new(snap.allow_local_binding);
-    let target_addr: SocketAddr = match tokio::net::lookup_host(format!("{host}:{port}")).await {
-        Ok(mut addrs) => match addrs.next() {
-            Some(addr) => addr,
-            None => {
-                send_reply(stream, REP_HOST_UNREACHABLE, "0.0.0.0", 0).await?;
-                return Ok(());
-            }
-        },
-        Err(_) => {
+    let mappings = state.host_mappings().await;
+    let target_addr: SocketAddr = match resolve_connect_target(host, port, &mappings).await {
+        Ok(resolved) => resolved.address,
+        Err(e) => {
+            warn!("SOCKS5 resolve failed for {host}:{port}: {e}");
             send_reply(stream, REP_HOST_UNREACHABLE, "0.0.0.0", 0).await?;
             return Ok(());
         }

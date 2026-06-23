@@ -8,6 +8,7 @@ import { AutomationView } from "../automation/AutomationView";
 import { PluginsView } from "../plugins/PluginsView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { ElicitationDialog } from "../plugins/ElicitationDialog";
+import { BrowserNetworkConfirmOverlay } from "../browser/BrowserNetworkConfirmOverlay";
 import { TitleBar } from "./TitleBar";
 import { ClawIcon } from "./ClawIcon";
 import { UpdateBanner } from "./UpdateBanner";
@@ -239,6 +240,7 @@ export function AppLayout() {
       {content}
       <SettingsPanel open={settingsOpen} onClose={closeSettings} />
       <ElicitationDialog />
+      <BrowserNetworkConfirmOverlay />
     </div>
   );
 }

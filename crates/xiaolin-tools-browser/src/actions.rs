@@ -274,6 +274,18 @@ pub fn validate_args(action: &str, args: &serde_json::Value) -> Result<(), Strin
             }
         }
         "go_back" | "go_forward" | "reload" => {}
+        "set_hosts" => {
+            if args.get("mappings").and_then(|v| v.as_array()).is_none()
+                && args.get("hosts").and_then(|v| v.as_array()).is_none()
+            {
+                return Err(
+                    "browser set_hosts: missing 'mappings' array of {pattern, target_ip}."
+                        .to_string(),
+                );
+            }
+        }
+        "set_proxy" => {}
+        "get_network_config" | "clear_hosts" => {}
         other => {
             return Err(format!(
                 "browser: unknown action '{other}'. \
@@ -281,7 +293,8 @@ pub fn validate_args(action: &str, args: &serde_json::Value) -> Result<(), Strin
                  type_text, press_key, hover, select, wait_for, scroll, drag, handle_dialog, \
                  list_pages, select_page, new_page, close_page, cookies, pdf, interact, \
                  get_content, list_network_requests, list_console_messages, \
-                 get_console_message, get_network_request, upload_file, emulate, resize_page. \
+                 get_console_message, get_network_request, upload_file, emulate, resize_page, \
+                 set_hosts, set_proxy, get_network_config, clear_hosts. \
                  Legacy: type, go_back, go_forward, reload."
             ));
         }

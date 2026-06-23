@@ -10562,6 +10562,7 @@ dependencies = [
  "xiaolin-core",
  "xiaolin-cron",
  "xiaolin-gateway",
+ "xiaolin-network-proxy",
  "xiaolin-observe",
  "xiaolin-protocol",
  "xiaolin-security",
@@ -11039,6 +11040,7 @@ dependencies = [
  "tokio",
  "tracing",
  "xiaolin-core",
+ "xiaolin-network-proxy",
  "xiaolin-security",
  "xiaolin-tools-network",
 ]

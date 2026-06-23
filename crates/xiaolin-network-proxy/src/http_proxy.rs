@@ -1,5 +1,6 @@
 use crate::config::NetworkMode;
 use crate::connect_policy::TargetCheckedTcpConnector;
+use crate::host_resolver::resolve_connect_target;
 use crate::mitm;
 use crate::network_policy::{
     NetworkDecision, NetworkDecisionSource, NetworkPolicyDecision, NetworkPolicyRequest,
@@ -241,13 +242,13 @@ async fn handle_connect(
         info!("CONNECT tunnel -> {host}:{port}");
 
         let connector = TargetCheckedTcpConnector::new(snap.allow_local_binding);
-        let target_addr: SocketAddr = tokio::net::lookup_host(format!("{host}:{port}"))
-            .await?
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("DNS lookup failed for {host}:{port}"))?;
+        let mappings = state.host_mappings().await;
+        let resolved = resolve_connect_target(&host, port, &mappings)
+            .await
+            .map_err(|e| anyhow::anyhow!("resolve {host}:{port}: {e}"))?;
 
         let upstream = connector
-            .connect(target_addr)
+            .connect(resolved.address)
             .await
             .map_err(|e| anyhow::anyhow!("connect to {host}:{port}: {e}"))?;
 
@@ -399,13 +400,13 @@ async fn handle_plain_proxy(
     info!("HTTP proxy -> {method} {host}:{port}{}", uri.path());
 
     let connector = TargetCheckedTcpConnector::new(snap.allow_local_binding);
-    let target_addr: SocketAddr = tokio::net::lookup_host(format!("{host}:{port}"))
-        .await?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("DNS lookup failed for {host}:{port}"))?;
+    let mappings = state.host_mappings().await;
+    let resolved = resolve_connect_target(&host, port, &mappings)
+        .await
+        .map_err(|e| anyhow::anyhow!("resolve {host}:{port}: {e}"))?;
 
     let upstream = connector
-        .connect(target_addr)
+        .connect(resolved.address)
         .await
         .map_err(|e| anyhow::anyhow!("connect to {host}:{port}: {e}"))?;
 

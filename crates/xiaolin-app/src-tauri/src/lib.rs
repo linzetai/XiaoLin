@@ -1,4 +1,5 @@
 pub mod browser_bridge;
+pub mod browser_network;
 pub mod browser_panel;
 pub mod commands;
 pub mod embedded;
@@ -273,6 +274,13 @@ pub fn run() {
 
             browser_bridge::install_browser_bridge(app.handle());
 
+            let handle_for_network = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = browser_network::install_browser_network(&handle_for_network).await {
+                    tracing::error!(error = %e, "failed to install browser network");
+                }
+            });
+
             let handle = app.handle().clone();
 
             tauri::async_runtime::spawn(async move {
@@ -364,6 +372,10 @@ pub fn run() {
             commands::browser::browser_show_page,
             commands::browser::browser_hide_all_pages,
             commands::browser::browser_eval_js,
+            commands::browser_network::browser_get_network_config,
+            commands::browser_network::browser_save_network_config,
+            commands::browser_network::browser_network_confirm_resolve,
+            commands::browser_network::browser_webview_proxy_url,
         ])
         .build(tauri::generate_context!());
 

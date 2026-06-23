@@ -8,7 +8,7 @@ use std::sync::Arc;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use tokio::sync::{RwLock, Semaphore};
 
-use crate::config::{NetworkMode, NetworkProxySettings};
+use crate::config::{HostMapping, NetworkMode, NetworkProxySettings};
 use crate::mitm::MitmState;
 use crate::network_policy::{
     HostBlockDecision, HostBlockReason, NetworkDecision, NetworkDecisionSource,
@@ -193,6 +193,7 @@ pub struct NetworkProxyState {
     audit_metadata: NetworkProxyAuditMetadata,
     network_mode: Arc<RwLock<Option<NetworkMode>>>,
     dynamic_domains: Arc<RwLock<DynamicDomains>>,
+    host_mappings: Arc<RwLock<Vec<HostMapping>>>,
     mitm_state: Option<Arc<MitmState>>,
     connection_limit: Arc<Semaphore>,
 }
@@ -221,6 +222,7 @@ impl NetworkProxyState {
             audit_metadata,
             network_mode: Arc::new(RwLock::new(None)),
             dynamic_domains: Arc::new(RwLock::new(DynamicDomains::default())),
+            host_mappings: Arc::new(RwLock::new(Vec::new())),
             mitm_state: None,
             connection_limit: Arc::new(Semaphore::new(DEFAULT_MAX_CONNECTIONS)),
         }
@@ -369,6 +371,27 @@ impl NetworkProxyState {
 
     pub async fn dynamic_denied_domains(&self) -> Vec<String> {
         self.dynamic_domains.read().await.denied.clone()
+    }
+
+    // ── Host mappings (browser DNS rewrite) ─────────────────────────────
+
+    pub async fn host_mappings(&self) -> Vec<HostMapping> {
+        self.host_mappings.read().await.clone()
+    }
+
+    pub async fn set_host_mappings(&self, mappings: Vec<HostMapping>) {
+        *self.host_mappings.write().await = mappings;
+    }
+
+    pub async fn replace_upstream_proxy_url(&self, url: Option<String>) {
+        let mut state = self.state.write().await;
+        state.settings.proxy_url = url;
+        let new_hot = ConfigSnapshot::from_settings(&state.settings);
+        *self.hot.write().await = new_hot;
+    }
+
+    pub async fn upstream_proxy_url(&self) -> Option<String> {
+        self.state.read().await.settings.proxy_url.clone()
     }
 
     // ── Unix socket whitelist ───────────────────────────────────────────
