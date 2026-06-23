@@ -110,17 +110,24 @@ pub fn parse_webhook_payload(
     Ok(outer)
 }
 
-/// Verify signature headers when `encrypt_key` is configured; otherwise warn and skip.
+/// Verify signature headers when `encrypt_key` is configured.
+///
+/// When `encrypt_key` is missing, signature verification is only skipped if
+/// `allow_insecure_webhook` is explicitly enabled (dev/test); otherwise fail closed.
 pub fn verify_lark_webhook_headers(
     headers: &BTreeMap<String, String>,
     encrypt_key: Option<&str>,
+    allow_insecure_webhook: bool,
     raw_body: &[u8],
 ) -> anyhow::Result<()> {
     let Some(key) = encrypt_key.filter(|k| !k.is_empty()) else {
-        tracing::warn!(
-            "feishu: encrypt_key not configured — skipping signature verification, using token check only"
-        );
-        return Ok(());
+        if allow_insecure_webhook {
+            tracing::warn!(
+                "feishu: encrypt_key not configured — skipping signature verification (allow_insecure_webhook=true), using token check only"
+            );
+            return Ok(());
+        }
+        anyhow::bail!("encrypt_key required for webhook verification");
     };
 
     let timestamp = header_value(headers, "X-Lark-Request-Timestamp")
@@ -170,5 +177,23 @@ mod tests {
         let body = br#"{"type":"url_verification","challenge":"abc"}"#;
         let v = parse_webhook_payload(None, body).unwrap();
         assert_eq!(v.get("challenge").and_then(|c| c.as_str()), Some("abc"));
+    }
+
+    #[test]
+    fn missing_encrypt_key_rejected_without_insecure_flag() {
+        let headers = BTreeMap::new();
+        let body = br#"{"token":"t"}"#;
+        let err = verify_lark_webhook_headers(&headers, None, false, body).unwrap_err();
+        assert!(
+            err.to_string().contains("encrypt_key required"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn missing_encrypt_key_allowed_with_insecure_flag() {
+        let headers = BTreeMap::new();
+        let body = br#"{"token":"t"}"#;
+        assert!(verify_lark_webhook_headers(&headers, None, true, body).is_ok());
     }
 }

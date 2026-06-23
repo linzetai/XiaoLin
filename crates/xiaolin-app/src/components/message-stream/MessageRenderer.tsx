@@ -630,6 +630,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   highlightTurnId,
   executionMode,
 }: MessageRendererRowProps) {
+  const { t } = useTranslation("chat");
   const isBrief = item.type === "brief";
   const threshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
   const grouped = useMemo(
@@ -838,7 +839,7 @@ export const MessageRendererRow = memo(function MessageRendererRow({
           className="mb-1 inline-block rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider"
           style={{ color: "var(--plan-tint)", background: "var(--plan-tint-bg)" }}
         >
-          Plan
+          {t("planModeBadge")}
         </span>
       )}
       {chatMsg.role === "user" ? (

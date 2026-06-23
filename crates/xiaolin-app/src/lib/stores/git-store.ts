@@ -112,6 +112,25 @@ export const useGitStore = create<GitStore>((set) => ({
 
 let eventUnsub: (() => void) | null = null;
 let projectUnsub: (() => void) | null = null;
+let visibilityUnsub: (() => void) | null = null;
+let staleCheckTimer: ReturnType<typeof setInterval> | null = null;
+
+const STALE_REFRESH_MS = 5 * 60 * 1000;
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    void useGitStore.getState().refresh();
+  }
+}
+
+function checkStaleRefresh() {
+  const activeProjectId = useProjectStore.getState().activeProjectId;
+  if (!activeProjectId) return;
+  const { lastRefreshAt } = useGitStore.getState();
+  if (Date.now() - lastRefreshAt >= STALE_REFRESH_MS) {
+    void useGitStore.getState().refresh();
+  }
+}
 
 export function initGitStore() {
   destroyGitStore();
@@ -141,6 +160,10 @@ export function initGitStore() {
     }
   });
 
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  visibilityUnsub = () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  staleCheckTimer = setInterval(checkStaleRefresh, STALE_REFRESH_MS);
+
   useGitStore.getState().refresh();
 }
 
@@ -152,5 +175,13 @@ export function destroyGitStore() {
   if (projectUnsub) {
     projectUnsub();
     projectUnsub = null;
+  }
+  if (visibilityUnsub) {
+    visibilityUnsub();
+    visibilityUnsub = null;
+  }
+  if (staleCheckTimer) {
+    clearInterval(staleCheckTimer);
+    staleCheckTimer = null;
   }
 }

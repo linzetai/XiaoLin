@@ -292,10 +292,17 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dest)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        let ty = entry.file_type()?;
         let src_path = entry.path();
+        let meta = std::fs::symlink_metadata(&src_path)?;
+        if meta.file_type().is_symlink() {
+            tracing::warn!(
+                path = %src_path.display(),
+                "skipping symlink during skill directory copy"
+            );
+            continue;
+        }
         let dest_path = dest.join(entry.file_name());
-        if ty.is_dir() {
+        if meta.is_dir() {
             copy_dir_recursive(&src_path, &dest_path)?;
         } else {
             std::fs::copy(&src_path, &dest_path)?;

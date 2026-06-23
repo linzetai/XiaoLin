@@ -127,32 +127,40 @@ pub fn clipboard_write_image(
     state: tauri::State<'_, ClipboardState>,
 ) -> Result<(), String> {
     if base64_png.len() > MAX_CLIPBOARD_B64_LEN {
-        return Err(format!(
-            "PNG too large: base64 payload exceeds {} MB limit",
-            MAX_CLIPBOARD_PNG_BYTES / (1024 * 1024)
-        ));
+        tracing::warn!(
+            payload_len = base64_png.len(),
+            limit = MAX_CLIPBOARD_B64_LEN,
+            "clipboard_write_image: base64 payload too large"
+        );
+        return Err(String::from("invalid image data"));
     }
 
     let png_data = base64::engine::general_purpose::STANDARD
         .decode(&base64_png)
-        .map_err(|e| format!("Invalid base64: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "clipboard_write_image: invalid base64");
+            String::from("invalid image data")
+        })?;
 
     if png_data.len() > MAX_CLIPBOARD_PNG_BYTES {
-        return Err(format!(
-            "PNG too large: decoded size {} bytes exceeds {} MB limit",
-            png_data.len(),
-            MAX_CLIPBOARD_PNG_BYTES / (1024 * 1024)
-        ));
+        tracing::warn!(
+            decoded_bytes = png_data.len(),
+            limit = MAX_CLIPBOARD_PNG_BYTES,
+            "clipboard_write_image: PNG too large"
+        );
+        return Err(String::from("invalid image data"));
     }
 
     let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
-    let mut reader = decoder
-        .read_info()
-        .map_err(|e| format!("Invalid PNG: {e}"))?;
+    let mut reader = decoder.read_info().map_err(|e| {
+        tracing::warn!(error = %e, "clipboard_write_image: invalid PNG");
+        String::from("invalid image data")
+    })?;
     let mut img_buf = vec![0u8; reader.output_buffer_size()];
-    let info = reader
-        .next_frame(&mut img_buf)
-        .map_err(|e| format!("PNG decode error: {e}"))?;
+    let info = reader.next_frame(&mut img_buf).map_err(|e| {
+        tracing::warn!(error = %e, "clipboard_write_image: PNG decode failed");
+        String::from("invalid image data")
+    })?;
     img_buf.truncate(info.buffer_size());
 
     let rgba_data = match info.color_type {
@@ -165,7 +173,10 @@ pub fn clipboard_write_image(
             }
             rgba
         }
-        _ => return Err(format!("Unsupported PNG color type: {:?}", info.color_type)),
+        other => {
+            tracing::warn!(?other, "clipboard_write_image: unsupported PNG color type");
+            return Err(String::from("invalid image data"));
+        }
     };
 
     let img = arboard::ImageData {

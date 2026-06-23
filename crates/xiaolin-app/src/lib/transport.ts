@@ -828,7 +828,14 @@ export async function gitInit(projectId: string) {
 export function onGitStatusChanged(handler: (projectId: string, status: GitStatus) => void): UnsubscribeFn {
   return wsClient.on("git.status_changed", (msg: unknown) => {
     const data = (msg as { data?: { projectId?: string; status?: GitStatus } })?.data;
-    if (data?.projectId && data.status) handler(data.projectId, data.status);
+    if (!data?.projectId) return;
+    if (data.status) {
+      handler(data.projectId, data.status);
+      return;
+    }
+    void gitStatus(data.projectId).then((status) => {
+      if (status) handler(data.projectId!, status);
+    });
   });
 }
 

@@ -1152,7 +1152,7 @@ pub fn load_config(mode: &ConfigMode) -> XiaoLinResult<XiaoLinConfig> {
 
     if let Some(merged) = base {
         warn_unknown_keys(&merged);
-        let merged = crate::credential_crypto::decrypt_config_secrets(&merged);
+        let merged = crate::credential_crypto::decrypt_config_secrets(&merged)?;
         let mut config: XiaoLinConfig = serde_json::from_value(merged)?;
         if config.paths.state_dir.is_none() {
             let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));

@@ -64,12 +64,16 @@ fn default_reply_mode() -> String {
 }
 
 impl FeishuPluginConfig {
-    fn decrypt_secret_field(value: &str, field: &str) -> String {
+    fn decrypt_secret_field(value: &str, field: &str) -> Option<String> {
         match xiaolin_core::credential_crypto::decrypt_credential(value) {
-            Ok(v) => v,
+            Ok(v) if !v.is_empty() => Some(v),
+            Ok(_) => {
+                tracing::error!(field, "feishu channel secret decrypted to empty value");
+                None
+            }
             Err(e) => {
                 tracing::error!(field, error = %e, "failed to decrypt feishu channel secret");
-                String::new()
+                None
             }
         }
     }
@@ -77,8 +81,7 @@ impl FeishuPluginConfig {
     fn decrypt_optional_secret(value: &Option<String>, field: &str) -> Option<String> {
         value
             .as_ref()
-            .map(|s| Self::decrypt_secret_field(s, field))
-            .filter(|s| !s.is_empty())
+            .and_then(|s| Self::decrypt_secret_field(s, field))
     }
 
     /// Create from JSON channel config. All fields must be provided in the config file.
@@ -87,7 +90,7 @@ impl FeishuPluginConfig {
         let app_secret = cfg
             .app_secret
             .as_ref()
-            .map(|s| Self::decrypt_secret_field(s, "app_secret"))?;
+            .and_then(|s| Self::decrypt_secret_field(s, "app_secret"))?;
         Some(Self {
             app_id,
             app_secret,
@@ -401,7 +404,12 @@ impl ChannelPlugin for FeishuPlugin {
     ) -> anyhow::Result<()> {
         use crate::webhook_security::{parse_webhook_payload, verify_lark_webhook_headers};
 
-        verify_lark_webhook_headers(headers, self.config.encrypt_key.as_deref(), raw_body)?;
+        verify_lark_webhook_headers(
+            headers,
+            self.config.encrypt_key.as_deref(),
+            self.config.allow_insecure_webhook,
+            raw_body,
+        )?;
 
         let payload = parse_webhook_payload(self.config.encrypt_key.as_deref(), raw_body)?;
         let token = payload

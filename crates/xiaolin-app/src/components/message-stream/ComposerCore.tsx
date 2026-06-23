@@ -320,15 +320,16 @@ function ModeSelector({
   onSelectMode: (m: ComposerMode) => void;
   disabled: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const Icon = mode === "plan" ? Compass : mode === "goal" ? Crosshair : Code;
-  const label = mode === "plan" ? "Plan" : mode === "goal" ? "Goal" : "Agent";
+  const label = mode === "plan" ? t("modePlan") : mode === "goal" ? t("modeGoal") : t("modeAgent");
 
   const options: Array<{ id: ComposerMode; icon: typeof Code; label: string; color: string }> = [
-    { id: "agent", icon: Code, label: "Agent", color: "var(--tint)" },
-    { id: "plan", icon: Compass, label: "Plan", color: "var(--plan-tint)" },
-    { id: "goal", icon: Crosshair, label: "Goal", color: "var(--orange, #ED8936)" },
+    { id: "agent", icon: Code, label: t("modeAgent"), color: "var(--tint)" },
+    { id: "plan", icon: Compass, label: t("modePlan"), color: "var(--plan-tint)" },
+    { id: "goal", icon: Crosshair, label: t("modeGoal"), color: "var(--orange, #ED8936)" },
   ];
 
   const activeColor = options.find((o) => o.id === mode)?.color ?? "var(--fill-quaternary)";
@@ -840,7 +841,7 @@ export function ComposerCore({
             style={{ background: "color-mix(in srgb, var(--orange, #ED8936) 6%, transparent)", borderBottom: "0.5px solid color-mix(in srgb, var(--orange, #ED8936) 15%, transparent)", color: "var(--orange, #ED8936)" }}
           >
             <Crosshair className="shrink-0" />
-            <span>Goal 模式 — 描述目标后将自主工作直到完成</span>
+            <span>{t("goalModeBanner")}</span>
           </div>
         )}
         {executionMode === "agent" && planFileExists && planFilePath && (
@@ -857,7 +858,7 @@ export function ComposerCore({
         <div style={{ padding: "11px 14px 6px" }}>
           <MentionInput
             ref={mentionInputRef}
-            placeholder={streaming ? t("placeholderStreaming") : isGoalMode && !hasActiveGoal ? "描述你的目标，按 Enter 开始自主工作..." : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
+            placeholder={streaming ? t("placeholderStreaming") : isGoalMode && !hasActiveGoal ? t("placeholderGoal") : executionMode === "plan" ? t("placeholderPlan") : t("placeholderDefault")}
             options={mentionOptions}
             slashCommands={slashCommands}
             onSend={wrappedSend}

@@ -161,32 +161,29 @@ pub fn maybe_encrypt_credential(plaintext: &str) -> Result<String> {
 }
 
 /// Recursively decrypt secret config field values.
-pub fn decrypt_config_secrets(val: &serde_json::Value) -> serde_json::Value {
+pub fn decrypt_config_secrets(val: &serde_json::Value) -> Result<serde_json::Value> {
     match val {
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
                 if v.is_string() && SECRET_CONFIG_KEYS.contains(&k.as_str()) {
                     if let Some(s) = v.as_str() {
-                        let decrypted = match decrypt_credential(s) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                tracing::error!(key = %k, error = %e, "failed to decrypt config secret");
-                                String::new()
-                            }
-                        };
+                        let decrypted = decrypt_credential(s).map_err(|e| {
+                            tracing::error!(key = %k, error = %e, "failed to decrypt config secret");
+                            anyhow!("failed to decrypt config secret '{k}'")
+                        })?;
                         out.insert(k.clone(), serde_json::Value::String(decrypted));
                         continue;
                     }
                 }
-                out.insert(k.clone(), decrypt_config_secrets(v));
+                out.insert(k.clone(), decrypt_config_secrets(v)?);
             }
-            serde_json::Value::Object(out)
+            Ok(serde_json::Value::Object(out))
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(decrypt_config_secrets).collect())
-        }
-        other => other.clone(),
+        serde_json::Value::Array(arr) => Ok(serde_json::Value::Array(
+            arr.iter().map(decrypt_config_secrets).collect::<Result<Vec<_>>>()?,
+        )),
+        other => Ok(other.clone()),
     }
 }
 
@@ -256,7 +253,7 @@ mod tests {
             .unwrap();
         assert!(is_encrypted_value(enc_key));
 
-        let decrypted = decrypt_config_secrets(&encrypted);
+        let decrypted = decrypt_config_secrets(&encrypted).expect("decrypt");
         assert_eq!(
             decrypted["credentials"]["openai"]["apiKey"].as_str().unwrap(),
             "sk-secret"

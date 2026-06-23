@@ -23,6 +23,7 @@ use crate::webhook_security::{parse_webhook_payload, verify_lark_webhook_headers
 pub struct FeishuWebhookConfig {
     pub verification_token: String,
     pub encrypt_key: Option<String>,
+    pub allow_insecure_webhook: bool,
 }
 
 /// Feishu event callback payload (simplified)
@@ -142,6 +143,7 @@ pub async fn feishu_webhook_handler(
     if let Err(e) = verify_lark_webhook_headers(
         &header_map,
         state.config.encrypt_key.as_deref(),
+        state.config.allow_insecure_webhook,
         &body,
     ) {
         tracing::warn!(error = %e, "Feishu webhook signature verification failed");

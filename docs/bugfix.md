@@ -889,7 +889,36 @@
 - **影响**：配置损坏或密钥变更后 channel/LLM 调用失败且难以诊断
 - **建议**：解密失败时设为空字符串并 `tracing::error!`
 - **相关规则**：code-generation-quality #28
-- **修复记录**：2026-06-23 解密失败返回 `""` + error 日志
+- **修复记录**：2026-06-23 R3 复审：`decrypt_config_secrets` 解密 `XENC:` 失败返回 `Err` 阻断启动；飞书 `decrypt_secret_field` 失败返回 `None` 跳过 channel
+
+#### BUG-006 🔴 Feishu webhook 无 encrypt_key 时跳过签名校验（规则 #44）
+
+- **状态**：✅ FIXED
+- **文件**：`extensions/feishu/src/webhook_security.rs` L113-122
+- **问题**：`verify_lark_webhook_headers` 在 `encrypt_key` 未配置时 `return Ok(())`，回退到 body 内 token 比对，攻击者可伪造 webhook
+- **影响**：未配置 encrypt_key 的部署可被伪造/重放 webhook 事件
+- **建议**：默认 fail-closed；仅 `allow_insecure_webhook=true` 时允许 token-only 校验并 warn
+- **相关规则**：code-generation-quality #44
+- **修复记录**：2026-06-23 R3 复审：新增 `allow_insecure_webhook` 参数，默认要求 encrypt_key
+
+#### BUG-007 🟡 IPC/API 错误消息泄露内部细节
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-gateway/src/routes/channel.rs` L54-55；`crates/xiaolin-app/src-tauri/src/commands/clipboard.rs` L136-168
+- **问题**：webhook 解析与 clipboard 写入错误将内部解析/IO 细节返回给前端
+- **影响**：信息泄露，违反规则 #43
+- **建议**：用户侧固定文案，详情写 `tracing::warn!`
+- **相关规则**：code-generation-quality #43
+- **修复记录**：2026-06-23 R3 复审：统一为 `"invalid webhook payload"` / `"invalid image data"` / `"failed to write clipboard"`
+
+#### BUG-008 🟡 skill 目录复制 symlink 绕过
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/skill.rs` L291-304
+- **问题**：`copy_dir_recursive` 使用 `entry.file_type()` 跟随 symlink，可复制允许根目录外文件
+- **影响**：恶意 zip/目录可通过 symlink 逃逸 skills 目录白名单
+- **建议**：使用 `symlink_metadata`，遇到 symlink 跳过或拒绝
+- **修复记录**：2026-06-23 R3 复审：改用 `symlink_metadata` 并跳过 symlink
 
 #### BUG-005 🟡 read_live_field deny list fail-open
 

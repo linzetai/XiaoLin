@@ -8,6 +8,7 @@ import { SettingsPanel } from "../settings/SettingsPanel";
 import { ElicitationDialog } from "../plugins/ElicitationDialog";
 import { BrowserNetworkConfirmOverlay } from "../browser/BrowserNetworkConfirmOverlay";
 import { TitleBar } from "./TitleBar";
+import { SpinnerGap } from "@phosphor-icons/react";
 import { ClawIcon } from "./ClawIcon";
 import { UpdateBanner } from "./UpdateBanner";
 import { AppShell } from "../shell/AppShell";
@@ -101,6 +102,17 @@ function Loading({ error }: { error: string | null }) {
   );
 }
 
+function LazyViewFallback() {
+  return (
+    <div
+      className="flex h-full flex-1 items-center justify-center"
+      style={{ background: "var(--bg-primary)" }}
+    >
+      <SpinnerGap size={24} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
+    </div>
+  );
+}
+
 function MainContent({ connected, mode }: { connected: boolean; mode: string }) {
   const { t } = useTranslation("common");
   const mainView = useUIStore((s) => s.mainView);
@@ -109,11 +121,11 @@ function MainContent({ connected, mode }: { connected: boolean; mode: string }) 
       <UpdateBanner />
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {mainView === "automations" ? (
-          <Suspense fallback={<Loading error={null} />}>
+          <Suspense fallback={<LazyViewFallback />}>
             <AutomationView />
           </Suspense>
         ) : mainView === "plugins" ? (
-          <Suspense fallback={<Loading error={null} />}>
+          <Suspense fallback={<LazyViewFallback />}>
             <PluginsView />
           </Suspense>
         ) : (
