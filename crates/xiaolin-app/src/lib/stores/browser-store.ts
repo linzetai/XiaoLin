@@ -448,6 +448,10 @@ function updatePage(pageId: string, patch: Partial<BrowserPage>) {
   });
 }
 
+// TODO(refactor): Split browser-store.ts into separate modules:
+// - browser-store.ts: Zustand store (state + actions)
+// - browser-events.ts: Tauri event listeners (initBrowserEvents / teardown)
+// - browser-network-store.ts: Network settings state (if complexity grows)
 export async function initBrowserEvents(): Promise<void> {
   if (!isTauri) return;
   teardownBrowserEvents();

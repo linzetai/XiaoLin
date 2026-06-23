@@ -323,6 +323,10 @@ fn reconfigure_open_webview_proxies(
         );
     }
 
+    // TODO(platform): macOS/Windows lack runtime WebView proxy API.
+    // Tauri/wry only supports proxy at WebViewBuilder time. Investigate
+    // platform-specific runtime APIs (WKWebView URLSessionConfiguration,
+    // WebView2 put_ProxySettings) to enable hot-reload on non-Linux.
     #[cfg(not(target_os = "linux"))]
     {
         tracing::info!(

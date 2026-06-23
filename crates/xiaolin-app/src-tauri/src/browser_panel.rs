@@ -294,6 +294,9 @@ pub fn validate_js_payload(js: &str) -> Result<(), String> {
 }
 
 /// Layer 0-3 initialization script injected into every browser page (D13).
+// TODO(browser): Hook pushState/replaceState/popstate in init script to notify
+// SPA soft navigations. Currently SPA internal navigation doesn't trigger
+// url-changed or favicon refresh (MVP acceptable, same-host usually same favicon).
 pub const BROWSER_INIT_SCRIPT: &str = r#"(function(){
 'use strict';
 function send(msg){if(window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke){return window.__TAURI_INTERNALS__.invoke('browser_webview_notify',{msgType:msg.type||'',data:msg.data||{}}).catch(function(){return{};});}return fetch('xiaolin-internal://callback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(msg)}).then(function(r){return r.json().catch(function(){return{};});}).catch(function(){return{};});}

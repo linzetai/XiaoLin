@@ -107,6 +107,10 @@ fn bridge() -> Result<&'static Arc<dyn BrowserBridge>, String> {
     })
 }
 
+// TODO(browser): Implement console/network data pipeline for WebView engine.
+// Init script already captures console/fetch data via __XIAOLIN__.notify, but
+// the WebView engine doesn't expose list_console_messages / list_network_requests
+// to the Agent. Need to bridge init script data → BrowserBridge → Agent actions.
 const DEVTOOLS_UNSUPPORTED: &str = "DevTools actions require CDP engine. \
 In WebView mode, use Agent observe actions instead.";
 
@@ -384,6 +388,8 @@ impl TauriWebViewEngine {
                 ))
             }
 
+            // TODO(security): Consider adding optional user confirmation for evaluate action.
+            // Currently Agent can execute arbitrary JS in page context without approval.
             "evaluate" => {
                 let script = args
                     .get("function")
