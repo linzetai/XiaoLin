@@ -940,6 +940,25 @@
 - **相关规则**：无新规则（平台特定 bug，非通用模式）
 - **修复记录**：`browser_resize_webview` IPC 新增 `scaleFactor` 参数，`apply_webview_layout_gtk` 对坐标乘以 scale_factor
 
+#### BUG-E2E-7 🔴 Browser WebView Cookie 无法设置/持久化（Linux WebKitGTK）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`（FFI cookie 配置）
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs`（时序修复 + 环境变量代理）
+- **问题**：在 Linux WebKitGTK 2.52 环境下，Browser 子 WebView 无法接收或持久化 Cookie
+- **影响**：所有依赖 Cookie 的站点（登录态、会话保持）在 Browser 面板中不可用
+- **根因**：两个独立问题叠加：
+  1. **Rust crate API 失效**：`webkit2gtk` 2.0.2 crate 的 `WebsiteDataManager::cookie_manager().set_persistent_storage()` 在 WebKitGTK 2.52 上被静默忽略（该 API 自 2.40 起废弃，GTK3 API 无 NetworkSession 替代）
+  2. **时序问题**：`wry` 的 `WebviewBuilder` 在 `add_child()` 时立即开始加载页面，cookie 配置在首次导航之后才执行，导致 WebKitGTK 忽略 `set_persistent_storage` 调用
+  3. **预防性修复**：`builder.proxy_url()` 内部调用废弃的 `set_network_proxy_settings`，在 WebKitGTK 2.52 上会破坏 cookie jar（proxy_mode 为 "none" 时未触发，但 XiaolinProxy 模式下会触发）
+- **修复方案**：
+  1. `browser_gtk.rs` 新增 `configure_webview_cookies()` 通过 FFI 直接调用 `webkit_web_context_get_cookie_manager` + `webkit_cookie_manager_set_persistent_storage(SQLite)` + `webkit_cookie_manager_set_accept_policy(Always)`
+  2. `commands/browser.rs` Linux 路径先加载 `about:blank`，在 GTK 主线程上配置 cookie 后再 `webview.navigate()` 到目标 URL
+  3. `commands/browser.rs` Linux 不使用 `builder.proxy_url()`，改为 `std::env::set_var("http_proxy"/"https_proxy")` 避免触发废弃 API
+- **验证结果**：example.com、www.baidu.com 上 JS cookie + 服务器 Set-Cookie + SQLite 持久化均正常
+- **相关规则**：无新规则（平台特定 API 废弃兼容性问题，非通用模式）
+- **修复记录**：2026-06-23 FFI cookie 配置 + about:blank 时序修复 + 环境变量代理
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

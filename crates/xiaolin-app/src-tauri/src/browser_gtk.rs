@@ -15,6 +15,8 @@
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
+use gtk::glib::object::ObjectExt;
 
 thread_local! {
     static FIXED: RefCell<Option<gtk::Fixed>> = RefCell::new(None);
@@ -127,4 +129,186 @@ pub fn remove_child(label: &str) {
     CHILD_WIDGETS.with(|w| {
         w.borrow_mut().remove(label);
     });
+}
+
+/// Configure cookie persistence and acceptance for a browser child WebView.
+///
+/// On WebKitGTK 2.52+ (GTK3 API), calling `set_persistent_storage` through the
+/// Rust `webkit2gtk` crate's `WebsiteDataManager::cookie_manager()` is silently
+/// ignored. We work around this by calling the C API directly via FFI on the
+/// cookie manager obtained from the WebContext.
+///
+/// Must be called on the GTK main thread AFTER the WebView has been reparented.
+pub fn configure_webview_cookies(label: &str, data_dir: &Path) {
+    use std::ffi::CString;
+
+    CHILD_WIDGETS.with(|widgets| {
+        let widgets = widgets.borrow();
+        let Some(widget) = widgets.get(label) else {
+            tracing::error!(label, "configure_webview_cookies: widget not found");
+            return;
+        };
+
+        let widget_type = widget.type_().name().to_string();
+        tracing::info!(label, widget_type = %widget_type, "configure_webview_cookies: attempting downcast");
+
+        let Some(webview) = widget.downcast_ref::<webkit2gtk::WebView>() else {
+            tracing::error!(label, widget_type = %widget_type, "configure_webview_cookies: downcast failed");
+            return;
+        };
+
+        let cookie_path = data_dir.join("cookies.sqlite");
+        let cookie_path_c = match CString::new(cookie_path.to_string_lossy().as_bytes()) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "configure_webview_cookies: invalid cookie path");
+                return;
+            }
+        };
+
+        unsafe {
+            let wv_ptr = webview.as_ptr() as *mut std::ffi::c_void;
+            let ctx_ptr = ffi_webkit::webkit_web_view_get_context(wv_ptr);
+            if ctx_ptr.is_null() {
+                tracing::error!(label, "configure_webview_cookies: null WebContext");
+                return;
+            }
+
+            let cm_ptr = ffi_webkit::webkit_web_context_get_cookie_manager(ctx_ptr);
+            if cm_ptr.is_null() {
+                tracing::error!(label, "configure_webview_cookies: null CookieManager from context");
+                return;
+            }
+
+            tracing::info!(
+                label,
+                path = %cookie_path.display(),
+                "configure_webview_cookies: FFI set_persistent_storage (SQLite) + accept_policy"
+            );
+
+            ffi_webkit::webkit_cookie_manager_set_persistent_storage(
+                cm_ptr,
+                cookie_path_c.as_ptr(),
+                1, // WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE = 1
+            );
+            ffi_webkit::webkit_cookie_manager_set_accept_policy(
+                cm_ptr,
+                0, // WEBKIT_COOKIE_ACCEPT_POLICY_ALWAYS = 0
+            );
+        }
+
+        tracing::info!(label, "configure_webview_cookies: done (FFI path)");
+    });
+}
+
+/// Configure network proxy for a browser child WebView via FFI.
+///
+/// On WebKitGTK 2.52+ (GTK3 API), `builder.proxy_url()` calls the deprecated
+/// `WebsiteDataManager::set_network_proxy_settings` which breaks the cookie jar.
+/// This function sets the proxy AFTER cookies are configured, preserving cookie
+/// functionality. Call this AFTER `configure_webview_cookies`.
+///
+/// Must be called on the GTK main thread.
+pub fn configure_webview_proxy(label: &str, proxy_url: &str) {
+    use std::ffi::CString;
+
+    CHILD_WIDGETS.with(|widgets| {
+        let widgets = widgets.borrow();
+        let Some(widget) = widgets.get(label) else {
+            tracing::error!(label, "configure_webview_proxy: widget not found");
+            return;
+        };
+
+        let Some(webview) = widget.downcast_ref::<webkit2gtk::WebView>() else {
+            tracing::error!(label, "configure_webview_proxy: downcast failed");
+            return;
+        };
+
+        let proxy_c = match CString::new(proxy_url) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "configure_webview_proxy: invalid proxy URL");
+                return;
+            }
+        };
+
+        unsafe {
+            let wv_ptr = webview.as_ptr() as *mut std::ffi::c_void;
+            let ctx_ptr = ffi_webkit::webkit_web_view_get_context(wv_ptr);
+            if ctx_ptr.is_null() {
+                tracing::error!(label, "configure_webview_proxy: null WebContext");
+                return;
+            }
+
+            let dm_ptr = ffi_webkit::webkit_web_context_get_website_data_manager(ctx_ptr);
+            if dm_ptr.is_null() {
+                tracing::error!(label, "configure_webview_proxy: null WebsiteDataManager");
+                return;
+            }
+
+            let settings_ptr = ffi_webkit::webkit_network_proxy_settings_new(
+                proxy_c.as_ptr(),
+                std::ptr::null(),
+            );
+            if settings_ptr.is_null() {
+                tracing::error!(label, "configure_webview_proxy: failed to create proxy settings");
+                return;
+            }
+
+            // WEBKIT_NETWORK_PROXY_MODE_CUSTOM = 2
+            ffi_webkit::webkit_website_data_manager_set_network_proxy_settings(
+                dm_ptr,
+                2,
+                settings_ptr,
+            );
+
+            ffi_webkit::webkit_network_proxy_settings_free(settings_ptr);
+        }
+
+        tracing::info!(label, proxy_url, "configure_webview_proxy: FFI proxy set AFTER cookies");
+    });
+}
+
+mod ffi_webkit {
+    use std::os::raw::c_char;
+
+    extern "C" {
+        pub fn webkit_web_view_get_context(
+            webview: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+
+        pub fn webkit_web_context_get_cookie_manager(
+            context: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+
+        pub fn webkit_cookie_manager_set_persistent_storage(
+            cookie_manager: *mut std::ffi::c_void,
+            filename: *const c_char,
+            storage: u32,
+        );
+
+        pub fn webkit_cookie_manager_set_accept_policy(
+            cookie_manager: *mut std::ffi::c_void,
+            policy: u32,
+        );
+
+        pub fn webkit_web_context_get_website_data_manager(
+            context: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+
+        pub fn webkit_network_proxy_settings_new(
+            default_proxy_uri: *const c_char,
+            ignore_hosts: *const *const c_char,
+        ) -> *mut std::ffi::c_void;
+
+        pub fn webkit_website_data_manager_set_network_proxy_settings(
+            manager: *mut std::ffi::c_void,
+            proxy_mode: u32,
+            proxy_settings: *mut std::ffi::c_void,
+        );
+
+        pub fn webkit_network_proxy_settings_free(
+            settings: *mut std::ffi::c_void,
+        );
+    }
 }

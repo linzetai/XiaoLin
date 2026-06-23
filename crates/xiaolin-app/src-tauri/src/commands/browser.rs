@@ -274,6 +274,11 @@ fn build_browser_webview(
         builder = builder.data_store_identifier(browser_data_store_identifier());
     }
 
+    // On Linux/WebKitGTK 2.52+, wry's `proxy_url()` calls
+    // `set_network_proxy_settings` BEFORE cookies are configured, which breaks
+    // the cookie jar (BUG-E2E-7). We skip it here and apply the proxy via FFI
+    // AFTER configuring cookies in the GTK main thread block below.
+    #[cfg(not(target_os = "linux"))]
     if let Some(net_state) = app.try_state::<BrowserNetworkState>() {
         if let Some(proxy_url) = net_state.manager().webview_proxy_url_sync() {
             match proxy_url.parse::<Url>() {
@@ -312,12 +317,21 @@ pub(crate) fn create_browser_page(
         .get_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
 
-    let builder = build_browser_webview(app, webview_label.clone(), page_id.clone(), parsed_url)?;
+    // On Linux, create the WebView with about:blank first so that cookie
+    // persistence can be configured BEFORE the first real navigation.
+    // WebKitGTK 2.52 ignores set_persistent_storage calls made after a page
+    // has already been loaded.
+    #[cfg(target_os = "linux")]
+    let initial_url = "about:blank".parse::<Url>().unwrap();
+    #[cfg(not(target_os = "linux"))]
+    let initial_url = parsed_url.clone();
+
+    let builder = build_browser_webview(app, webview_label.clone(), page_id.clone(), initial_url)?;
 
     // add_child dispatches to GTK main thread which may synchronously fire
     // on_navigation (which acquires BrowserPanelState mutex). We MUST NOT hold
     // the mutex here.
-    let _webview = window
+    let webview = window
         .add_child(
             builder,
             LogicalPosition::new(OFFSCREEN_POSITION, OFFSCREEN_POSITION),
@@ -328,22 +342,37 @@ pub(crate) fn create_browser_page(
     // On Linux/GTK, reparent the child WebView from the GtkBox (where add_child
     // placed it) into a GtkFixed for absolute positioning. Without this, GTK
     // splits window space equally among all WebViews in the GtkBox.
+    // Configure cookies first, then proxy (order matters on WebKitGTK 2.52+),
+    // then navigate to the target URL.
     #[cfg(target_os = "linux")]
     {
+        let proxy_url_for_gtk = app
+            .try_state::<BrowserNetworkState>()
+            .and_then(|ns| ns.manager().webview_proxy_url_sync());
+
         let (tx, rx) = std::sync::mpsc::channel();
         let window_clone = window.clone();
         let label_for_gtk = webview_label.clone();
+        let data_dir = browser_data_directory();
         window
             .run_on_main_thread(move || {
                 if let Ok(vbox) = window_clone.default_vbox() {
                     crate::browser_gtk::ensure_fixed_container(&vbox);
                     crate::browser_gtk::reparent_child_webview(&vbox, &label_for_gtk);
+                    crate::browser_gtk::configure_webview_cookies(&label_for_gtk, &data_dir);
+                    if let Some(ref proxy) = proxy_url_for_gtk {
+                        crate::browser_gtk::configure_webview_proxy(&label_for_gtk, proxy);
+                    }
                 }
                 let _ = tx.send(());
             })
             .map_err(|_| "failed to dispatch GTK reparent".to_string())?;
         rx.recv()
             .map_err(|_| "GTK reparent channel closed".to_string())?;
+
+        webview
+            .navigate(parsed_url)
+            .map_err(|_| "failed to navigate after cookie setup".to_string())?;
     }
 
     let page = BrowserPage {
