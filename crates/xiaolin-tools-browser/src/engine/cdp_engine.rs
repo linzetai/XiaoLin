@@ -621,6 +621,7 @@ impl CdpEngine {
 
         // Element screenshot via uid
         let clip = if let Some(uid) = args.get("uid").and_then(|v| v.as_str()) {
+            crate::actions::validate_uid(uid)?;
             let selector = format!("[data-fc-uid=\"{uid}\"]");
             let rect_js = format!(
                 "(() => {{ const el = document.querySelector('{}'); \
@@ -816,6 +817,7 @@ impl CdpEngine {
         args: &serde_json::Value,
     ) -> Result<headless_chrome::Element<'a>, String> {
         if let Some(uid) = args.get("uid").and_then(|v| v.as_str()) {
+            crate::actions::validate_uid(uid)?;
             let selector = format!("[data-fc-uid=\"{uid}\"]");
             tab.find_element(&selector).map_err(|e| {
                 format!("browser: element with uid '{uid}' not found: {e}. Run take_snapshot for fresh UIDs.")

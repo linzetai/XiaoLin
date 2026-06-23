@@ -129,11 +129,11 @@
 
 ## 7. Browser ↔ Chat 内容交互
 
-- [ ] 7.1 BROWSER_INIT_SCRIPT Layer 6（选中文本浮动工具栏，eval 注入）
-- [ ] 7.2 Custom Protocol 通信：选中文本/引用 → `xiaolin-internal://callback` → Rust emit → 主 WebView
-- [ ] 7.3 前端 browser-user-action 事件 → Chat 输入框填充
-- [ ] 7.4 浏览器上下文自动注入 Agent 上下文
-- [ ] 7.5 Agent 操作日志面板
+- [x] 7.1 BROWSER_INIT_SCRIPT Layer 6（选中文本浮动工具栏，eval 注入）
+- [x] 7.2 Custom Protocol 通信：选中文本/引用 → `xiaolin-internal://callback` → Rust emit → 主 WebView
+- [x] 7.3 前端 browser-user-action 事件 → Chat 输入框填充
+- [x] 7.4 浏览器上下文自动注入 Agent 上下文
+- [x] 7.5 Agent 操作日志面板
 
 ## 8. Tauri 配置 & 权限
 

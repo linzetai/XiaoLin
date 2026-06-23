@@ -297,6 +297,7 @@ pub async fn setup_chat(
         request.work_dir.as_deref(),
         &mut enriched_request.messages,
     );
+    inject_browser_context_prompt(&mut enriched_request.messages);
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
     inject_mcp_instructions_delta(state, &mut enriched_request.messages).await;
     tracing::info!(
@@ -806,6 +807,20 @@ Guidance:\n\
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
         ..Default::default()
+        },
+    );
+}
+
+fn inject_browser_context_prompt(messages: &mut Vec<ChatMessage>) {
+    let Some(prompt) = xiaolin_agent::builtin_tools::browser::browser_context_for_prompt() else {
+        return;
+    };
+    messages.insert(
+        0,
+        ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(prompt)),
+            ..Default::default()
         },
     );
 }

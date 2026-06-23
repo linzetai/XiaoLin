@@ -3,6 +3,21 @@ use std::time::Duration;
 
 pub const DEFAULT_ELEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Validate UID format to prevent CSS selector injection (rule #40).
+/// Valid UIDs match `^e\d+$` (e.g. "e0", "e42", "e1023").
+pub fn validate_uid(uid: &str) -> Result<(), String> {
+    if uid.is_empty() {
+        return Err("empty uid".into());
+    }
+    if !uid.starts_with('e') {
+        return Err(format!("invalid uid format: {uid}"));
+    }
+    if !uid[1..].chars().all(|c| c.is_ascii_digit()) || uid.len() < 2 {
+        return Err(format!("invalid uid format: {uid}"));
+    }
+    Ok(())
+}
+
 pub fn parse_timeout(args: &serde_json::Value) -> Duration {
     args.get("timeout")
         .and_then(|v| v.as_u64())

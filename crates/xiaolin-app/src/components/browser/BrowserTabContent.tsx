@@ -6,6 +6,7 @@ import { BrowserPageTabs } from "./BrowserPageTabs";
 import { BrowserPlaceholder } from "./BrowserPlaceholder";
 import { DownloadNotificationBar } from "./DownloadNotificationBar";
 import { BrowserNetworkSettings } from "./BrowserNetworkSettings";
+import { AgentOperationLog } from "./AgentOperationLog";
 
 const NEW_TAB_URL = "https://example.com";
 
@@ -77,6 +78,7 @@ export function BrowserPanelBody() {
       />
       <BrowserPageTabs />
       <BrowserPlaceholder pageId={activePageId} webviewVisible={webviewVisible} />
+      <AgentOperationLog />
       <DownloadNotificationBar />
       <BrowserNetworkSettings open={networkSettingsOpen} onClose={() => setNetworkSettingsOpen(false)} />
     </div>

@@ -15,6 +15,7 @@ import {
   useChatQueue,
   useGoalStore,
 } from "../../lib/stores";
+import { useComposerInputStore } from "../../lib/stores/composer-input-store";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { QueueIndicator } from "./QueueIndicator";
 import { QueuePanel } from "./QueuePanel";
@@ -433,6 +434,8 @@ export function ComposerCore({
 
   const activeChatId = useActiveChatId();
   const messageQueue = useChatQueue(activeChatId);
+  const pendingInsert = useComposerInputStore((s) => s.pendingInsert);
+  const clearPendingInsert = useComposerInputStore((s) => s.clearPending);
   const updateQueuedMessage = useQueueStore((s) => s.updateQueuedMessage);
   const removeQueuedMessage = useQueueStore((s) => s.removeQueuedMessage);
   const reorderQueue = useQueueStore((s) => s.reorderQueue);
@@ -440,6 +443,22 @@ export function ComposerCore({
   useEffect(() => {
     if (streaming) setSendPending(false);
   }, [streaming]);
+
+  useEffect(() => {
+    if (!pendingInsert) return;
+    const input = mentionInputRef.current;
+    if (!input) return;
+    const current = input.getText();
+    const next =
+      pendingInsert.mode === "append"
+        ? (current ? `${current}\n\n` : "") + pendingInsert.text
+        : pendingInsert.text;
+    input.setText(next);
+    if (pendingInsert.focus) {
+      input.focus();
+    }
+    clearPendingInsert();
+  }, [pendingInsert, mentionInputRef, clearPendingInsert]);
 
   const executionMode = activeChat?.executionMode ?? "agent";
   const planFilePath = activeChat?.planFilePath;

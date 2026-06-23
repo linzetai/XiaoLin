@@ -16,9 +16,10 @@ pub use network::{
     BrowserNetworkBridge,
 };
 pub use engine::{
-    default_engine, engine_kind_from_env, set_browser_bridge, BrowserBridge, BrowserEngine,
-    CdpEngine, EngineActionResult, TauriWebViewEngine,
+    browser_context_for_prompt, default_engine, engine_kind_from_env, set_browser_bridge,
+    BrowserBridge, BrowserEngine, CdpEngine, EngineActionResult, TauriWebViewEngine,
 };
+pub use js::{CONTENT_EXTRACT_JS, SELECTION_TOOLBAR_JS, UNTRUSTED_SOURCE, UNTRUSTED_WARNING};
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(60);
 

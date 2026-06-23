@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { isTauri } from "../transport";
+import { fillChatFromBrowserSelection } from "./composer-input-store";
 
 export const MAX_BROWSER_PAGES = 8;
 export const MIN_CHAT_PANEL_WIDTH = 280;
@@ -30,6 +31,14 @@ export interface BrowserDownload {
   filename: string;
   path: string | null;
   status: "downloading" | "finished" | "failed";
+}
+
+export interface AgentOperation {
+  id: string;
+  pageId: string;
+  action: string;
+  description: string;
+  ts: number;
 }
 
 interface BackendPageInfo {
@@ -100,6 +109,7 @@ export interface BrowserState {
   layoutTransitioning: boolean;
   downloads: BrowserDownload[];
   userActionToast: string | null;
+  agentOperations: AgentOperation[];
 
   openPage: (url: string) => Promise<string | null>;
   closePage: (pageId: string) => Promise<void>;
@@ -111,6 +121,7 @@ export interface BrowserState {
   setAgentControlled: (pageId: string, controlled: boolean) => void;
   dismissDownload: (id: string) => void;
   clearUserActionToast: () => void;
+  clearAgentOperations: () => void;
   syncFromBackend: () => Promise<void>;
   hideAllPages: () => Promise<void>;
   showActivePage: () => Promise<void>;
@@ -125,6 +136,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   layoutTransitioning: false,
   downloads: [],
   userActionToast: null,
+  agentOperations: [],
 
   openPage: async (url) => {
     if (!isTauri) {
@@ -252,6 +264,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   clearUserActionToast: () => set({ userActionToast: null }),
 
+  clearAgentOperations: () => set({ agentOperations: [] }),
+
   syncFromBackend: async () => {
     if (!isTauri) return;
     try {
@@ -305,7 +319,21 @@ export function shouldShowBrowserWebView(opts: {
   return opts.panelOpen && opts.activeTabId === "browser";
 }
 
+const MAX_AGENT_OPERATIONS = 100;
 const eventUnlisteners: Array<() => void> = [];
+
+function pushAgentOperation(pageId: string, action: string, description: string, ts?: number) {
+  const op: AgentOperation = {
+    id: `${pageId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    pageId,
+    action,
+    description,
+    ts: ts ?? Date.now(),
+  };
+  useBrowserStore.setState((s) => ({
+    agentOperations: [...s.agentOperations, op].slice(-MAX_AGENT_OPERATIONS),
+  }));
+}
 
 function updatePage(pageId: string, patch: Partial<BrowserPage>) {
   useBrowserStore.setState((s) => {
@@ -352,16 +380,48 @@ export async function initBrowserEvents(): Promise<void> {
   );
 
   eventUnlisteners.push(
-    await listen<{ pageId: string; type?: string; data?: unknown }>("browser-user-action", (ev) => {
-      const { pageId, type, data } = ev.payload;
-      if (type === "selection" && data && typeof data === "object") {
-        const text = (data as { text?: string }).text;
-        if (text) {
-          useBrowserStore.setState({ userActionToast: `Selected: ${text.slice(0, 80)}` });
+    await listen<{ pageId: string; type?: string; data?: unknown; ts?: number }>(
+      "browser-user-action",
+      (ev) => {
+        const { pageId, type, data, ts } = ev.payload;
+
+        if (type === "agent_op" && data && typeof data === "object") {
+          const { action, description } = data as { action?: string; description?: string };
+          if (action) {
+            pushAgentOperation(pageId, action, description ?? action, ts);
+          }
+          return;
         }
-      }
-      console.info("[browser] user action", pageId, type, data);
-    }),
+
+        if (type === "selection" && data && typeof data === "object") {
+          const { action, text, url } = data as {
+            action?: string;
+            text?: string;
+            url?: string;
+          };
+          if (action === "copy") {
+            return;
+          }
+          if (text && (action === "ask" || action === "quote")) {
+            const page = useBrowserStore.getState().pages[pageId];
+            fillChatFromBrowserSelection({
+              action,
+              text,
+              url: url ?? page?.url ?? "",
+            });
+            useBrowserStore.setState({
+              userActionToast:
+                action === "ask" ? "已填入 Chat 输入框" : "已追加引用到 Chat",
+            });
+            window.setTimeout(() => {
+              useBrowserStore.getState().clearUserActionToast();
+            }, 2500);
+          }
+        }
+
+        console.info("[browser] user action", pageId, type, data);
+      },
+    ),
   );
 
   eventUnlisteners.push(

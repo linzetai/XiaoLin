@@ -173,6 +173,56 @@ impl BrowserBridge for TauriBrowserBridge {
         );
         Ok(())
     }
+
+    fn active_browser_context(&self) -> Result<Option<serde_json::Value>, String> {
+        self.with_manager(|manager| {
+            let pages = manager.list_pages();
+            if pages.is_empty() {
+                return Ok(None);
+            }
+            let active = manager
+                .active_page_id()
+                .and_then(|id| manager.get_page(id))
+                .or_else(|| {
+                    pages
+                        .first()
+                        .and_then(|info| manager.get_page(&info.page_id))
+                });
+            let Some(page) = active else {
+                return Ok(None);
+            };
+            Ok(Some(serde_json::json!({
+                "url": page.url,
+                "title": page.title,
+                "page_count": pages.len(),
+            })))
+        })
+    }
+
+    fn emit_agent_op(
+        &self,
+        page_id: Option<&str>,
+        action: &str,
+        description: &str,
+    ) -> Result<(), String> {
+        let page_id = match page_id {
+            Some(id) => id.to_string(),
+            None => self.resolve_page_id(None).unwrap_or_default(),
+        };
+        let _ = self.app.emit(
+            "browser-user-action",
+            serde_json::json!({
+                "pageId": page_id,
+                "type": "agent_op",
+                "data": {
+                    "action": action,
+                    "description": description,
+                },
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        );
+        Ok(())
+    }
 }
 
 /// Register the Tauri browser bridge and prefer WebView engine for agent tools.

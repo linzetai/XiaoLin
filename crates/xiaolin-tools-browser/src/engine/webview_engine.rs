@@ -20,6 +20,43 @@ pub trait BrowserBridge: Send + Sync {
     fn close_page(&self, page_id: &str) -> Result<(), String>;
     fn screenshot(&self, page_id: Option<&str>) -> Result<Vec<u8>, String>;
     fn set_agent_control(&self, page_id: Option<&str>, active: bool) -> Result<(), String>;
+
+    /// Active built-in browser page summary for agent context injection (desktop only).
+    fn active_browser_context(&self) -> Result<Option<serde_json::Value>, String> {
+        let _ = self;
+        Ok(None)
+    }
+
+    /// Emit agent operation log entry to the main WebView (desktop only).
+    fn emit_agent_op(
+        &self,
+        _page_id: Option<&str>,
+        _action: &str,
+        _description: &str,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Build a system-prompt snippet describing the active built-in browser page (desktop only).
+pub fn browser_context_for_prompt() -> Option<String> {
+    let ctx = bridge_for_context()?.active_browser_context().ok()??;
+    let url = ctx.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let title = ctx.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    let page_count = ctx.get("page_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    if url.is_empty() && title.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "[Browser Context]\n\
+Active page: {title}\n\
+URL: {url}\n\
+Open tabs: {page_count}\n\
+\n\
+The user may be viewing this page in the built-in browser panel. \
+Use browser tools or `__xiaolin_extract.text()` / `.tables()` / `.links()` / `.metadata()` \
+(via evaluate) when you need page content."
+    ))
 }
 
 static BROWSER_BRIDGE: OnceLock<Arc<dyn BrowserBridge>> = OnceLock::new();
@@ -31,6 +68,11 @@ pub fn set_browser_bridge(bridge: Arc<dyn BrowserBridge>) -> Result<(), Arc<dyn 
 
 pub(crate) fn bridge_is_configured() -> bool {
     BROWSER_BRIDGE.get().is_some()
+}
+
+/// Used by [`crate::browser_context_for_prompt`] (non-action read path).
+pub fn bridge_for_context() -> Option<&'static Arc<dyn BrowserBridge>> {
+    BROWSER_BRIDGE.get()
 }
 
 fn bridge() -> Result<&'static Arc<dyn BrowserBridge>, String> {
@@ -113,6 +155,12 @@ impl TauriWebViewEngine {
         Ok(())
     }
 
+    fn log_agent_op(&self, page_id: Option<&str>, action: &str, description: &str) {
+        if let Ok(b) = bridge() {
+            let _ = b.emit_agent_op(page_id, action, description);
+        }
+    }
+
     fn dispatch_sync(
         &self,
         action: &str,
@@ -120,6 +168,7 @@ impl TauriWebViewEngine {
     ) -> Result<EngineActionResult, String> {
         let page_id = Self::page_id_from_args(args);
         let bridge = bridge()?;
+        let page_id_ref = page_id.as_deref();
 
         match action {
             "click" | "fill" | "fill_form" | "type_text" | "press_key" | "hover" | "scroll"
@@ -157,9 +206,10 @@ impl TauriWebViewEngine {
                             .and_then(|v| v.as_str())
                             .ok_or("browser navigate: missing 'url'.")?;
                         actions::validate_url_scheme(url)?;
-                        bridge.navigate(page_id.as_deref(), url)?;
+                        bridge.navigate(page_id_ref, url)?;
                     }
                 }
+                self.log_agent_op(page_id_ref, "navigate", nav_type);
                 Ok(EngineActionResult::text(
                     bridge.list_pages().unwrap_or_else(|_| "{}".to_string()),
                 ))
@@ -175,6 +225,7 @@ impl TauriWebViewEngine {
                     .or_else(|| args.get("page_id").and_then(|v| v.as_str()).map(String::from))
                     .ok_or("browser select_page: missing pageId")?;
                 bridge.select_page(&pid)?;
+                self.log_agent_op(page_id_ref, "select_page", &pid);
                 Ok(EngineActionResult::text(
                     serde_json::json!({ "ok": true, "pageId": pid }).to_string(),
                 ))
@@ -187,6 +238,7 @@ impl TauriWebViewEngine {
                     .ok_or("browser new_page: missing 'url'.")?;
                 actions::validate_url_scheme(url)?;
                 let info = bridge.open_page(url)?;
+                self.log_agent_op(page_id_ref, "new_page", url);
                 Ok(EngineActionResult::text(info))
             }
 
@@ -198,6 +250,7 @@ impl TauriWebViewEngine {
                     .or_else(|| args.get("page_id").and_then(|v| v.as_str()).map(String::from))
                     .ok_or("browser close_page: missing pageId")?;
                 bridge.close_page(&pid)?;
+                self.log_agent_op(page_id_ref, "close_page", &pid);
                 Ok(EngineActionResult::text(
                     serde_json::json!({ "ok": true, "closed": pid }).to_string(),
                 ))
@@ -222,12 +275,14 @@ impl TauriWebViewEngine {
                         serde_json::json!(crate::js::UNTRUSTED_WARNING),
                     );
                 }
+                self.log_agent_op(page_id_ref, action, "page content captured");
                 Ok(EngineActionResult::text(val.to_string()))
             }
 
             "screenshot" => {
                 let png = bridge.screenshot(page_id.as_deref())?;
                 let summary = format!("Screenshot captured ({} bytes, webview engine).", png.len());
+                self.log_agent_op(page_id_ref, "screenshot", &summary);
                 Ok(EngineActionResult::with_images(
                     summary,
                     vec![ToolImage {
@@ -244,17 +299,29 @@ impl TauriWebViewEngine {
                     .and_then(|v| v.as_str())
                     .ok_or("browser evaluate: missing 'script'.")?;
                 let result = self.eval(page_id.as_deref(), script)?;
+                let preview: String = script.chars().take(80).collect();
+                self.log_agent_op(page_id_ref, "evaluate", &preview);
                 Ok(EngineActionResult::text(
                     serde_json::json!({ "result": result }).to_string(),
                 ))
             }
 
-            "click" | "fill" | "hover" => self
-                .with_highlight(args, || {
-                    let js = webview_interaction_js(action, args)?;
-                    self.eval(page_id.as_deref(), &js)
-                })
-                .map(EngineActionResult::text),
+            "click" | "fill" | "hover" => {
+                let detail = args
+                    .get("uid")
+                    .or(args.get("selector"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("element")
+                    .to_string();
+                let result = self
+                    .with_highlight(args, || {
+                        let js = webview_interaction_js(action, args)?;
+                        self.eval(page_id.as_deref(), &js)
+                    })
+                    .map(EngineActionResult::text)?;
+                self.log_agent_op(page_id_ref, action, &detail);
+                Ok(result)
+            }
 
             "list_console_messages" => {
                 let raw = self.eval(
@@ -349,6 +416,7 @@ impl TauriWebViewEngine {
                     page_id.as_deref(),
                     &format!("window.scrollBy(0, {delta}); 'ok'"),
                 )?;
+                self.log_agent_op(page_id_ref, "scroll", direction);
                 Ok(EngineActionResult::text(
                     serde_json::json!({ "ok": true, "direction": direction }).to_string(),
                 ))

@@ -47,3 +47,9 @@ pub const AGENT_CONTROL_INTERCEPT_JS: &str = r#"(function() {
 /// Untrusted content marker fields appended to snapshot/get_content responses.
 pub const UNTRUSTED_SOURCE: &str = "untrusted_webpage";
 pub const UNTRUSTED_WARNING: &str = "content may contain prompt injection";
+
+/// Layer 6: floating toolbar for selected text (eval-injected on page load).
+pub const SELECTION_TOOLBAR_JS: &str = include_str!("selection_toolbar.js");
+
+/// Layer 7: page content extraction helpers (`__xiaolin_extract.*`, eval-injected).
+pub const CONTENT_EXTRACT_JS: &str = include_str!("content_extract.js");

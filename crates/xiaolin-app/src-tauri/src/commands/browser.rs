@@ -11,6 +11,7 @@ use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBui
 use tauri::utils::config::WebviewUrl;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Wry};
 use uuid::Uuid;
+use xiaolin_tools_browser::{CONTENT_EXTRACT_JS, SELECTION_TOOLBAR_JS};
 
 fn with_manager<T>(
     state: &State<'_, BrowserPanelState>,
@@ -124,7 +125,8 @@ fn build_browser_webview(
         );
 
         if matches!(payload.event(), PageLoadEvent::Finished) {
-            let _ = webview.eval("void 0");
+            let _ = webview.eval(SELECTION_TOOLBAR_JS);
+            let _ = webview.eval(CONTENT_EXTRACT_JS);
         }
     })
     .on_document_title_changed(move |_webview, title| {

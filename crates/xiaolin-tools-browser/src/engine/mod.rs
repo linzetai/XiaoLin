@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 mod cdp_engine;
-mod webview_engine;
+pub(crate) mod webview_engine;
 
 pub use cdp_engine::CdpEngine;
-pub use webview_engine::{set_browser_bridge, BrowserBridge, TauriWebViewEngine};
+pub use webview_engine::{browser_context_for_prompt, set_browser_bridge, BrowserBridge, TauriWebViewEngine};
 
 use async_trait::async_trait;
 use xiaolin_core::tool::ToolImage;
