@@ -83,7 +83,7 @@ impl BrowserPanelManager {
         self.pages.len()
     }
 
-    pub fn active_page_id(&self) -> Option<&str> {
+    pub(crate) fn active_page_id(&self) -> Option<&str> {
         self.active_page_id.as_deref()
     }
 
@@ -297,6 +297,14 @@ pub fn handle_xiaolin_internal_protocol(
 ) {
     let app = ctx.app_handle().clone();
     let webview_label = ctx.webview_label().to_string();
+
+    if request.method() != http::Method::POST {
+        responder.respond(http_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            br#"{"ok":false,"error":"method not allowed"}"#,
+        ));
+        return;
+    }
 
     if !is_browser_webview_label(&webview_label) {
         tracing::warn!(

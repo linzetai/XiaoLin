@@ -50,15 +50,6 @@ fn apply_webview_layout(
     Ok(())
 }
 
-fn sync_all_webview_layouts(app: &AppHandle, manager: &BrowserPanelManager) -> Result<(), String> {
-    for page in manager.list_pages() {
-        if let Some(full) = manager.get_page(&page.page_id) {
-            apply_webview_layout(app, full)?;
-        }
-    }
-    Ok(())
-}
-
 fn build_browser_webview(
     app: &AppHandle,
     webview_label: String,
@@ -81,6 +72,19 @@ fn build_browser_webview(
     .initialization_script(BROWSER_INIT_SCRIPT)
     .on_navigation(move |url| {
         if !crate::browser_panel::is_navigation_allowed(url) {
+            if let Ok(mut guard) = app_for_nav.state::<BrowserPanelState>().0.lock() {
+                if let Some(page) = guard.get_page_mut(&page_id) {
+                    page.load_state = PageLoadState::Failed("navigation blocked".into());
+                }
+            }
+            let _ = app_for_nav.emit(
+                "browser-loading",
+                serde_json::json!({
+                    "pageId": page_id,
+                    "loading": false,
+                    "loadState": PageLoadState::Failed("navigation blocked".into()),
+                }),
+            );
             return false;
         }
         let _ = app_for_nav.emit(
@@ -271,10 +275,10 @@ pub async fn browser_close_page(
     validate_page_id(&page_id)?;
 
     let webview_label = with_manager(&state, |manager| {
-        let removed = manager
-            .remove_page(&page_id)
+        let page = manager
+            .get_page(&page_id)
             .ok_or_else(|| "page not found".to_string())?;
-        Ok(removed.webview_label)
+        Ok(page.webview_label.clone())
     })?;
 
     if let Ok(webview) = get_webview(&app, &webview_label) {
@@ -283,7 +287,10 @@ pub async fn browser_close_page(
         }
     }
 
-    Ok(())
+    with_manager(&state, |manager| {
+        manager.remove_page(&page_id);
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -413,16 +420,19 @@ pub async fn browser_show_page(
 ) -> Result<(), String> {
     validate_page_id(&page_id)?;
 
-    with_manager(&state, |manager| {
+    let pages_snapshot = with_manager(&state, |manager| {
         manager.set_active(&page_id)?;
-        Ok(())
+        Ok(manager
+            .list_pages()
+            .iter()
+            .filter_map(|info| manager.get_page(&info.page_id).cloned())
+            .collect::<Vec<_>>())
     })?;
 
-    let manager_guard = state
-        .0
-        .lock()
-        .map_err(|_| "browser manager lock poisoned".to_string())?;
-    sync_all_webview_layouts(&app, &manager_guard)
+    for page in &pages_snapshot {
+        apply_webview_layout(&app, page)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -430,16 +440,19 @@ pub async fn browser_hide_all_pages(
     app: AppHandle,
     state: State<'_, BrowserPanelState>,
 ) -> Result<(), String> {
-    with_manager(&state, |manager| {
+    let pages_snapshot = with_manager(&state, |manager| {
         manager.hide_all();
-        Ok(())
+        Ok(manager
+            .list_pages()
+            .iter()
+            .filter_map(|info| manager.get_page(&info.page_id).cloned())
+            .collect::<Vec<_>>())
     })?;
 
-    let manager_guard = state
-        .0
-        .lock()
-        .map_err(|_| "browser manager lock poisoned".to_string())?;
-    sync_all_webview_layouts(&app, &manager_guard)
+    for page in &pages_snapshot {
+        apply_webview_layout(&app, page)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

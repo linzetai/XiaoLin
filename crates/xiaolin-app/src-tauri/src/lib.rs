@@ -374,6 +374,21 @@ pub fn run() {
 
     app.run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                // Close all browser WebViews to avoid resource leaks (rule #26)
+                if let Ok(guard) = app
+                    .state::<browser_panel::BrowserPanelState>()
+                    .0
+                    .lock()
+                {
+                    for page_info in guard.list_pages() {
+                        let label =
+                            format!("{}{}", browser_panel::BROWSER_WEBVIEW_PREFIX, page_info.page_id);
+                        if let Some(wv) = app.get_webview(&label) {
+                            let _ = wv.close();
+                        }
+                    }
+                }
+
                 let state = app.state::<AppData>();
                 let lock_result = tauri::async_runtime::block_on(async {
                     tokio::time::timeout(
