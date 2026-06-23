@@ -324,5 +324,6 @@
   "clientSecret": "Client Secret",
   "hookUrl": "Hook URL",
   "method": "Method",
-  "protocol_anthropic": "Anthropic"
+  "protocol_anthropic": "Anthropic",
+  "tempTooltip": "{{desc}} (temperature = {{value}})"
 }

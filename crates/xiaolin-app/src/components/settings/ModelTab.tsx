@@ -237,7 +237,7 @@ function ModelFormModal({
                             <button
                               key={tier.value}
                               type="button"
-                              title={`${tier.desc}（temperature = ${tier.value}）`}
+                              title={t("tempTooltip", { desc: tier.desc, value: tier.value })}
                               onClick={() => patch("temperature", tier.value)}
                               style={{
                                 flex: 1,

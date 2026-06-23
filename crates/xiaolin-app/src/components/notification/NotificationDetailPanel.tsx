@@ -89,6 +89,7 @@ export function NotificationDetailPanel({ notification, onClose }: Props) {
             onClick={onClose}
             className="flex items-center justify-center rounded-md p-1.5 hover:bg-[var(--bg-hover)] transition-colors"
             style={{ color: "var(--fill-tertiary)" }}
+            aria-label={t("close", { ns: "common" })}
           >
             <X size={ICON_SIZE.md} />
           </button>
