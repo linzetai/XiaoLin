@@ -141,6 +141,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
               </span>
               <button
                 type="button"
+                tabIndex={-1}
                 aria-label="关闭标签"
                 onClick={(e) => handleClose(e, page.pageId)}
                 style={{

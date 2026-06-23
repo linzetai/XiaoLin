@@ -1,9 +1,9 @@
 //! Bridge between `xiaolin-tools-browser` WebView engine and Tauri BrowserPanelManager.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use base64::Engine as _;
+use dashmap::DashSet;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use uuid::Uuid;
 use xiaolin_tools_browser::BrowserBridge;
@@ -17,14 +17,15 @@ use crate::commands::browser::create_browser_page;
 
 pub struct TauriBrowserBridge {
     app: AppHandle,
-    user_takeover: Arc<AtomicBool>,
+    /// Per-page takeover: set of page IDs where user has taken control.
+    user_takeover_pages: Arc<DashSet<String>>,
 }
 
 impl TauriBrowserBridge {
     pub fn new(app: AppHandle) -> Self {
         Self {
             app,
-            user_takeover: Arc::new(AtomicBool::new(false)),
+            user_takeover_pages: Arc::new(DashSet::new()),
         }
     }
 
@@ -275,7 +276,7 @@ impl BrowserBridge for TauriBrowserBridge {
     fn set_agent_control(&self, page_id: Option<&str>, active: bool) -> Result<(), String> {
         let page_id = self.resolve_page_id(page_id)?;
         if active {
-            self.user_takeover.store(false, Ordering::SeqCst);
+            self.user_takeover_pages.remove(&page_id);
         }
         let _ = self.app.emit(
             "browser-agent-control",
@@ -285,8 +286,8 @@ impl BrowserBridge for TauriBrowserBridge {
     }
 
     fn request_user_takeover(&self, page_id: Option<&str>) -> Result<(), String> {
-        self.user_takeover.store(true, Ordering::SeqCst);
         let page_id = self.resolve_page_id(page_id)?;
+        self.user_takeover_pages.insert(page_id.clone());
         self.disable_agent_intercept(&page_id)?;
         let _ = self.app.emit(
             "browser-agent-control",
@@ -296,12 +297,19 @@ impl BrowserBridge for TauriBrowserBridge {
     }
 
     fn clear_user_takeover(&self) -> Result<(), String> {
-        self.user_takeover.store(false, Ordering::SeqCst);
+        self.user_takeover_pages.clear();
         Ok(())
     }
 
     fn is_user_takeover_active(&self) -> bool {
-        self.user_takeover.load(Ordering::SeqCst)
+        !self.user_takeover_pages.is_empty()
+    }
+
+    fn is_user_takeover_active_for_page(&self, page_id: Option<&str>) -> bool {
+        match page_id {
+            Some(id) => self.user_takeover_pages.contains(id),
+            None => !self.user_takeover_pages.is_empty(),
+        }
     }
 
     fn active_browser_context(&self) -> Result<Option<serde_json::Value>, String> {

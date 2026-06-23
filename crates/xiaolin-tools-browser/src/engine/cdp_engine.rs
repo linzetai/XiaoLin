@@ -323,6 +323,7 @@ impl CdpEngine {
             .recv_timeout(BROWSER_LAUNCH_TIMEOUT)
             .map_err(|_| {
                 cancel.store(true, Ordering::Relaxed);
+                CdpEngine::kill_orphan_chrome(&profile);
                 "browser: Chrome launch timed out (30s). Ensure Chrome/Chromium is installed."
                     .to_string()
             })?

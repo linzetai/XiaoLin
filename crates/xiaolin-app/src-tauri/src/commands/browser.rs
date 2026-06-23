@@ -150,7 +150,7 @@ fn build_browser_webview(
                 serde_json::json!({
                     "pageId": page_id,
                     "loading": false,
-                    "loadState": {"state": "failed", "error": "navigation blocked"},
+                    "loadState": {"state": "failed", "message": "navigation blocked"},
                 }),
             );
             return false;

@@ -48,15 +48,15 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
   const handleDecision = useCallback(
     async (approved: boolean) => {
       if (resolvedRef.current || submitting) return;
-      resolvedRef.current = true;
       setSubmitting(true);
       try {
         await resolveConfirm(request.requestId, approved);
+        resolvedRef.current = true;
+        onResolved();
       } catch (e) {
         console.warn("[browser-network] confirm resolve failed:", e);
       } finally {
         setSubmitting(false);
-        onResolved();
       }
     },
     [request.requestId, submitting, onResolved],
@@ -205,13 +205,19 @@ export function useBrowserNetworkConfirmListener(): {
     let cancelled = false;
     const unsubs: Array<() => void> = [];
 
+    function enqueueConfirm(payload: Record<string, unknown>) {
+      const item = normalizePayload(payload);
+      setPendingConfirms((prev) => {
+        if (prev.some((p) => p.requestId === item.requestId)) return prev;
+        return [...prev, item];
+      });
+    }
+
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
       const unlisten = await listen<Record<string, unknown>>(
         "browser-network-confirm-request",
-        (ev) => {
-          setPendingConfirms((prev) => [...prev, normalizePayload(ev.payload)]);
-        },
+        (ev) => enqueueConfirm(ev.payload),
       );
       if (cancelled) {
         unlisten();
@@ -222,9 +228,7 @@ export function useBrowserNetworkConfirmListener(): {
 
     const wsUnsub = transport.onWsEvent("browser_network_confirm", (msg: unknown) => {
       const data = (msg as { data?: Record<string, unknown> })?.data;
-      if (data) {
-        setPendingConfirms((prev) => [...prev, normalizePayload(data)]);
-      }
+      if (data) enqueueConfirm(data);
     });
     unsubs.push(wsUnsub);
 
