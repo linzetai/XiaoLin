@@ -117,6 +117,7 @@ impl TauriWebViewEngine {
         let page_id = Self::page_id_from_args(args);
 
         if let Some(u) = uid {
+            crate::actions::validate_uid(u)?;
             let _ = self.eval(
                 page_id.as_deref(),
                 &format!("{HIGHLIGHT_ELEMENT_JS}({:?}, null)", u),
@@ -151,7 +152,14 @@ impl TauriWebViewEngine {
 
     fn enter_agent_control(&self, page_id: Option<&str>) -> Result<(), String> {
         bridge()?.set_agent_control(page_id, true)?;
+        self.eval(page_id, "window.__XIAOLIN_AGENT_ACTIVE__ = true;")?;
         self.eval(page_id, AGENT_CONTROL_INTERCEPT_JS)?;
+        Ok(())
+    }
+
+    fn exit_agent_control(&self, page_id: Option<&str>) -> Result<(), String> {
+        self.eval(page_id, "window.__XIAOLIN_AGENT_ACTIVE__ = false;")?;
+        bridge()?.set_agent_control(page_id, false)?;
         Ok(())
     }
 
@@ -170,14 +178,42 @@ impl TauriWebViewEngine {
         let bridge = bridge()?;
         let page_id_ref = page_id.as_deref();
 
-        match action {
-            "click" | "fill" | "fill_form" | "type_text" | "press_key" | "hover" | "scroll"
-            | "drag" | "select" | "type" | "upload_file" | "wait_for" => {
-                self.enter_agent_control(page_id.as_deref())?;
-            }
-            _ => {}
+        let needs_agent_control = matches!(
+            action,
+            "click" | "fill"
+                | "fill_form"
+                | "type_text"
+                | "press_key"
+                | "hover"
+                | "scroll"
+                | "drag"
+                | "select"
+                | "type"
+                | "upload_file"
+                | "wait_for"
+        );
+
+        if needs_agent_control {
+            self.enter_agent_control(page_id.as_deref())?;
         }
 
+        let result = self.dispatch_sync_inner(action, args, &page_id, page_id_ref, bridge);
+
+        if needs_agent_control {
+            let _ = self.exit_agent_control(page_id.as_deref());
+        }
+
+        result
+    }
+
+    fn dispatch_sync_inner(
+        &self,
+        action: &str,
+        args: &serde_json::Value,
+        page_id: &Option<String>,
+        page_id_ref: Option<&str>,
+        bridge: &Arc<dyn BrowserBridge>,
+    ) -> Result<EngineActionResult, String> {
         match action {
             "navigate" | "go_back" | "go_forward" | "reload" => {
                 let nav_type = if action == "navigate" {
@@ -433,9 +469,10 @@ fn webview_interaction_js(action: &str, args: &serde_json::Value) -> Result<Stri
     let uid = args.get("uid").and_then(|v| v.as_str());
     let selector = args.get("selector").and_then(|v| v.as_str());
     let find = if let Some(u) = uid {
+        crate::actions::validate_uid(u)?;
         format!(
             "document.querySelector('[data-fc-uid=\"{}\"]')",
-            u.replace('"', "")
+            u
         )
     } else if let Some(sel) = selector {
         format!(

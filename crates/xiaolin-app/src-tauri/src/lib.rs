@@ -1,4 +1,5 @@
 pub mod browser_bridge;
+pub mod browser_eval;
 pub mod browser_network;
 pub mod browser_panel;
 pub mod commands;

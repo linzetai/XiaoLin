@@ -3,6 +3,7 @@ import { isTauri } from "../transport";
 import { fillChatFromBrowserSelection } from "./composer-input-store";
 
 export const MAX_BROWSER_PAGES = 8;
+export const MAX_BROWSER_DOWNLOADS = 50;
 export const MIN_CHAT_PANEL_WIDTH = 280;
 export const MAX_CHAT_PANEL_WIDTH = 500;
 export const DEFAULT_CHAT_PANEL_WIDTH = 360;
@@ -425,6 +426,13 @@ export async function initBrowserEvents(): Promise<void> {
   );
 
   eventUnlisteners.push(
+    await listen<{ pageId: string; active: boolean }>("browser-agent-control", (ev) => {
+      const { pageId, active } = ev.payload;
+      useBrowserStore.getState().setAgentControlled(pageId, active);
+    }),
+  );
+
+  eventUnlisteners.push(
     await listen<{ pageId: string; url: string; destination: string }>(
       "browser-download-requested",
       (ev) => {
@@ -438,7 +446,9 @@ export async function initBrowserEvents(): Promise<void> {
           path: destination,
           status: "downloading",
         };
-        useBrowserStore.setState((s) => ({ downloads: [...s.downloads, download] }));
+        useBrowserStore.setState((s) => ({
+          downloads: [...s.downloads, download].slice(-MAX_BROWSER_DOWNLOADS),
+        }));
       },
     ),
   );

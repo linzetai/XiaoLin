@@ -3,8 +3,10 @@
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager, Wry};
+use uuid::Uuid;
 use xiaolin_tools_browser::BrowserBridge;
 
+use crate::browser_eval::{self, cancel_eval, normalize_eval_result, register_eval};
 use crate::browser_panel::{
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPanelManager,
     BrowserPanelState, PageLoadState,
@@ -55,19 +57,48 @@ impl TauriBrowserBridge {
             .get_webview(label)
             .ok_or_else(|| "browser webview not found".to_string())
     }
-}
 
-impl BrowserBridge for TauriBrowserBridge {
-    fn eval_js(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
+    fn eval_js_with_result(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
         validate_js_payload(js)?;
         let page_id = self.resolve_page_id(page_id)?;
         let label = self.webview_label_for_page(&page_id)?;
         let webview = self.get_webview(&label)?;
+
+        let callback_id = Uuid::new_v4().to_string();
+        let wrapped_js = format!(
+            "(function(){{try{{var __r=({js});\
+             window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:JSON.stringify(__r)}}}});\
+             }}catch(e){{\
+             window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
+             }}}})()"
+        );
+
+        let rx = register_eval(callback_id.clone());
         webview
-            .eval(js)
+            .eval(&wrapped_js)
             .map_err(|_| "failed to evaluate script".to_string())?;
-        // Tauri eval is fire-and-forget; result capture via custom protocol in a later phase.
-        Ok("null".to_string())
+
+        match rx.recv_timeout(browser_eval::eval_timeout()) {
+            Ok(Ok(result_json)) => normalize_eval_result(&result_json),
+            Ok(Err(error)) => Err(error),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                cancel_eval(&callback_id);
+                Err(format!(
+                    "eval result timeout ({}s)",
+                    browser_eval::eval_timeout().as_secs()
+                ))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                cancel_eval(&callback_id);
+                Err("eval result channel closed".to_string())
+            }
+        }
+    }
+}
+
+impl BrowserBridge for TauriBrowserBridge {
+    fn eval_js(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
+        self.eval_js_with_result(page_id, js)
     }
 
     fn navigate(&self, page_id: Option<&str>, url: &str) -> Result<(), String> {

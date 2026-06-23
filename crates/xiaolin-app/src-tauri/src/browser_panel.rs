@@ -13,7 +13,7 @@ pub const BROWSER_WEBVIEW_PREFIX: &str = "browser-";
 
 /// Whitelist message types for xiaolin-internal://callback.
 const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] =
-    &["ready", "snapshot", "console", "network", "selection", "dialog"];
+    &["ready", "snapshot", "console", "network", "selection", "dialog", "eval_result"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -386,6 +386,27 @@ pub fn handle_xiaolin_internal_protocol(
         ));
         return;
     };
+
+    if msg_type == "eval_result" {
+        let data = payload.get("data");
+        let id = data.and_then(|d| d.get("id")).and_then(|v| v.as_str());
+        if let Some(id) = id {
+            let outcome = match (
+                data.and_then(|d| d.get("result")).and_then(|v| v.as_str()),
+                data.and_then(|d| d.get("error")).and_then(|v| v.as_str()),
+            ) {
+                (Some(result), _) => Ok(result.to_string()),
+                (_, Some(error)) => Err(error.to_string()),
+                _ => Err("eval_result missing result and error".to_string()),
+            };
+            crate::browser_eval::complete_eval(id, outcome);
+        }
+        responder.respond(http_response(
+            StatusCode::OK,
+            br#"{"ok":true}"#,
+        ));
+        return;
+    }
 
     let event_name = match msg_type {
         "ready" => "browser-page-ready",

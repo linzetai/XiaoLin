@@ -31,6 +31,7 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 
 uuid = { workspace = true }
+dashmap.workspace = true
 dirs = { workspace = true }
 json5 = { workspace = true }
 chrono = { workspace = true }

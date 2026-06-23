@@ -10534,6 +10534,7 @@ dependencies = [
  "cpal",
  "cron",
  "crossbeam-channel",
+ "dashmap",
  "dirs 5.0.1",
  "fix-path-env",
  "futures",
