@@ -246,9 +246,16 @@ pub fn configure_webview_proxy(label: &str, proxy_url: &str) {
                 return;
             }
 
+            let ignore_localhost = [
+                CString::new("localhost").unwrap(),
+                CString::new("127.0.0.1").unwrap(),
+                CString::new("::1").unwrap(),
+            ];
+            let ignore_ptrs: Vec<*const std::ffi::c_char> =
+                ignore_localhost.iter().map(|s| s.as_ptr()).chain(std::iter::once(std::ptr::null())).collect();
             let settings_ptr = ffi_webkit::webkit_network_proxy_settings_new(
                 proxy_c.as_ptr(),
-                std::ptr::null(),
+                ignore_ptrs.as_ptr(),
             );
             if settings_ptr.is_null() {
                 tracing::error!(label, "configure_webview_proxy: failed to create proxy settings");

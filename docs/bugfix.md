@@ -1088,6 +1088,16 @@
 - **相关规则**：无新规则（平台 WebView 引擎行为差异，通过 JS 层 polyfill 解决）
 - **修复记录**：2026-06-23 BROWSER_INIT_SCRIPT 添加 target=_blank click 拦截 → window.open() 转换
 
+#### BUG-E2E-12 🔴 浏览器代理阻止 localhost 导致 Lazy Import 崩溃
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs` L249
+- **关联文件**：`crates/xiaolin-network-proxy/src/runtime.rs`（`host_blocked` 中 `is_loopback_host` 检查）
+- **问题**：浏览器代理通过 `configure_webview_proxy` FFI 设置在 WebKitWebContext 上。由于 Linux WebKitGTK 上所有 WebView（含主 app WebView 和浏览器子 WebView）共享同一个 WebContext，代理会拦截主 WebView 的请求。在开发模式下，Vite dev server 在 localhost 提供 lazy-loaded chunks，代理以 `loopback_blocked` 拒绝这些请求，导致 Settings、Plugins、Automation 等 lazy import 的视图崩溃。
+- **影响**：开发模式下打开设置面板/插件/自动化视图时应用崩溃，进入 Error Boundary
+- **修复方案**：在 `webkit_network_proxy_settings_new` 的 `ignore_hosts` 参数中添加 `localhost`、`127.0.0.1`、`::1`，使 loopback 地址的流量绕过代理直连。生产模式不受影响（主 WebView 通过 custom protocol 加载，不涉及 localhost）。
+- **修复记录**：2026-06-23 browser_gtk.rs 添加 localhost/127.0.0.1/::1 到 proxy ignore_hosts
+
 #### BUG-E2E-11 🔴 BrowserNetworkSettings 对话框被原生 WebView 遮挡
 
 - **状态**：✅ FIXED
