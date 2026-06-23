@@ -434,9 +434,6 @@ export function ComposerCore({
   const messageQueue = useChatQueue(activeChatId);
   const pendingInsert = useComposerInputStore((s) => s.pendingInsert);
   const clearPendingInsert = useComposerInputStore((s) => s.clearPending);
-  const updateQueuedMessage = useQueueStore((s) => s.updateQueuedMessage);
-  const removeQueuedMessage = useQueueStore((s) => s.removeQueuedMessage);
-  const reorderQueue = useQueueStore((s) => s.reorderQueue);
 
   useEffect(() => {
     if (streaming) setSendPending(false);
