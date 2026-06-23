@@ -328,5 +328,9 @@
   "toolOutputAlt": "Tool output",
   "toolOutputAltFull": "Tool output (full size)",
   "duration": "duration",
-  "viewTerminal": "Terminal"
+  "viewTerminal": "Terminal",
+  "tokenBudgetExhausted": "Token budget exhausted (~{{tokens}} tokens generated). You can add more budget or end the task.",
+  "browserQuoteSource": "Source: {{url}}",
+  "viewFile": "View file",
+  "attachedImage": "Attached image"
 }

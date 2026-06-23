@@ -328,5 +328,9 @@
   "toolOutputAlt": "工具输出",
   "toolOutputAltFull": "工具输出（全尺寸）",
   "duration": "耗时",
-  "viewTerminal": "终端"
+  "viewTerminal": "终端",
+  "tokenBudgetExhausted": "Token 预算已用尽（已生成 ~{{tokens}} tokens）。你可以继续追加预算或结束本次任务。",
+  "browserQuoteSource": "来源: {{url}}",
+  "viewFile": "查看文件",
+  "attachedImage": "附件图片"
 }

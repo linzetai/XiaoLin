@@ -554,7 +554,7 @@ export function useMessageStreamChat({
               const completionTokens = budgetUsage?.completion_tokens ?? 0;
               addMessage({
                 role: "system",
-                content: `Token 预算已用尽（已生成 ~${completionTokens} tokens）。你可以继续追加预算或结束本次任务。`,
+                content: t("tokenBudgetExhausted", { tokens: completionTokens }),
                 timestamp: new Date(),
                 metadata: {
                   action: "token_budget_reached",

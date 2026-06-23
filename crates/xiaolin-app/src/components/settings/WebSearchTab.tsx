@@ -265,7 +265,7 @@ export function WebSearchTab() {
           <SectionTitle>{t("tavilyConfig")}</SectionTitle>
           <div className="space-y-3">
             <div>
-              <label className={labelCls} style={labelStyle}>API Key</label>
+              <label className={labelCls} style={labelStyle}>{t("apiKey")}</label>
               <div className="relative">
                 <input
                   type={showKey ? "text" : "password"}

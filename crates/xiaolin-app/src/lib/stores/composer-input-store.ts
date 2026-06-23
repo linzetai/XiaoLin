@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../../i18n";
 
 export interface ComposerInsertRequest {
   id: string;
@@ -46,7 +47,7 @@ export function fillChatFromBrowserSelection(opts: {
 }): void {
   const { action, text, url } = opts;
   if (action === "ask") {
-    const block = `${toBlockquote(text)}\n\n来源: ${url}\n\n`;
+    const block = `${toBlockquote(text)}\n\n${i18n.t("chat:browserQuoteSource", { url })}\n\n`;
     useComposerInputStore.getState().requestInsert({
       mode: "replace",
       text: block,
