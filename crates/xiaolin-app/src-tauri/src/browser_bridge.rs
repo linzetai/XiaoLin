@@ -1,7 +1,9 @@
 //! Bridge between `xiaolin-tools-browser` WebView engine and Tauri BrowserPanelManager.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use base64::Engine as _;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use uuid::Uuid;
 use xiaolin_tools_browser::BrowserBridge;
@@ -11,14 +13,19 @@ use crate::browser_panel::{
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPanelManager,
     BrowserPanelState, PageLoadState,
 };
+use crate::commands::browser::create_browser_page;
 
 pub struct TauriBrowserBridge {
     app: AppHandle,
+    user_takeover: Arc<AtomicBool>,
 }
 
 impl TauriBrowserBridge {
     pub fn new(app: AppHandle) -> Self {
-        Self { app }
+        Self {
+            app,
+            user_takeover: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     fn with_manager<T>(&self, f: impl FnOnce(&mut BrowserPanelManager) -> Result<T, String>) -> Result<T, String> {
@@ -58,20 +65,34 @@ impl TauriBrowserBridge {
             .ok_or_else(|| "browser webview not found".to_string())
     }
 
-    fn eval_js_with_result(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
+    fn eval_js_with_result(&self, page_id: Option<&str>, js: &str, await_promise: bool) -> Result<String, String> {
         validate_js_payload(js)?;
         let page_id = self.resolve_page_id(page_id)?;
         let label = self.webview_label_for_page(&page_id)?;
         let webview = self.get_webview(&label)?;
 
         let callback_id = Uuid::new_v4().to_string();
-        let wrapped_js = format!(
-            "(function(){{try{{var __r=({js});\
-             window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:JSON.stringify(__r)}}}});\
-             }}catch(e){{\
-             window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
-             }}}})()"
-        );
+        let wrapped_js = if await_promise {
+            format!(
+                "(function(){{try{{var __p=({js});\
+                 Promise.resolve(__p).then(function(__r){{\
+                 var __out=typeof __r==='string'?__r:JSON.stringify(__r);\
+                 window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:__out}}}});\
+                 }}).catch(function(e){{\
+                 window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
+                 }});}}catch(e){{\
+                 window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
+                 }}}})()"
+            )
+        } else {
+            format!(
+                "(function(){{try{{var __r=({js});\
+                 window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',result:JSON.stringify(__r)}}}});\
+                 }}catch(e){{\
+                 window.__XIAOLIN__.send({{type:'eval_result',data:{{id:'{callback_id}',error:String(e.message||e)}}}});\
+                 }}}})()"
+            )
+        };
 
         let rx = register_eval(callback_id.clone());
         webview
@@ -94,11 +115,18 @@ impl TauriBrowserBridge {
             }
         }
     }
+
+    fn disable_agent_intercept(&self, page_id: &str) -> Result<(), String> {
+        let label = self.webview_label_for_page(page_id)?;
+        self.get_webview(&label)?
+            .eval("window.__XIAOLIN_AGENT_ACTIVE__ = false;")
+            .map_err(|_| "failed to disable agent intercept".to_string())
+    }
 }
 
 impl BrowserBridge for TauriBrowserBridge {
     fn eval_js(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
-        self.eval_js_with_result(page_id, js)
+        self.eval_js_with_result(page_id, js, false)
     }
 
     fn navigate(&self, page_id: Option<&str>, url: &str) -> Result<(), String> {
@@ -153,13 +181,13 @@ impl BrowserBridge for TauriBrowserBridge {
             let pages: Vec<_> = manager
                 .list_pages()
                 .into_iter()
-                .enumerate()
-                .map(|(i, p)| {
+                .map(|p| {
                     serde_json::json!({
-                        "pageId": i,
-                        "page_id": p.page_id,
+                        "pageId": p.page_id,
                         "url": p.url,
                         "title": p.title,
+                        "visibility": p.visibility,
+                        "loadState": p.load_state,
                     })
                 })
                 .collect();
@@ -173,10 +201,8 @@ impl BrowserBridge for TauriBrowserBridge {
     }
 
     fn open_page(&self, url: &str) -> Result<String, String> {
-        validate_browser_url(url)?;
-        // Delegate to IPC-less open: emit to frontend or call browser_open_page internals.
-        // Stub: return instruction until full integration.
-        Err("browser webview open_page: use Browser Panel UI or browser_open_page IPC (agent integration pending)".into())
+        let page_id = self.with_manager(|manager| create_browser_page(&self.app, manager, url))?;
+        Ok(serde_json::json!({ "pageId": page_id, "url": url }).to_string())
     }
 
     fn close_page(&self, page_id: &str) -> Result<(), String> {
@@ -192,17 +218,83 @@ impl BrowserBridge for TauriBrowserBridge {
     }
 
     fn screenshot(&self, page_id: Option<&str>) -> Result<Vec<u8>, String> {
-        let _ = self.resolve_page_id(page_id)?;
-        Err("browser webview screenshot: native capture not wired yet (Phase 5 stub)".into())
+        let resolved = self.resolve_page_id(page_id)?;
+        let uid = None::<&str>;
+        let full_page = false;
+        let uid_j = uid.map(|u| serde_json::to_string(u).unwrap_or_default()).unwrap_or_else(|| "null".to_string());
+        let js = format!(
+            r#"(async function(){{
+  var uid={uid_j};
+  var fullPage={full_page};
+  var w,h,html;
+  if(uid){{
+    var el=document.querySelector('[data-fc-uid="'+uid+'"]');
+    if(!el)throw new Error('element not found');
+    var r=el.getBoundingClientRect();
+    w=Math.max(1,Math.floor(r.width));
+    h=Math.max(1,Math.floor(r.height));
+    html=el.outerHTML;
+  }}else{{
+    w=fullPage?Math.min(document.documentElement.scrollWidth,8192):window.innerWidth;
+    h=fullPage?Math.min(document.documentElement.scrollHeight,8192):window.innerHeight;
+    html=document.documentElement.outerHTML;
+  }}
+  var scale=window.devicePixelRatio||1;
+  var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'+
+    '<foreignObject width="100%" height="100%">'+
+    '<div xmlns="http://www.w3.org/1999/xhtml">'+html+'</div></foreignObject></svg>';
+  var canvas=document.createElement('canvas');
+  canvas.width=Math.floor(w*scale);
+  canvas.height=Math.floor(h*scale);
+  var ctx=canvas.getContext('2d');
+  ctx.scale(scale,scale);
+  await new Promise(function(resolve,reject){{
+    var img=new Image();
+    img.onload=function(){{resolve(img);}};
+    img.onerror=reject;
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  }}).then(function(img){{ctx.drawImage(img,0,0,w,h);}});
+  return canvas.toDataURL('image/png').split(',')[1];
+}})()"#
+        );
+
+        let b64 = self.eval_js_with_result(Some(&resolved), &js, true)?;
+        let b64 = b64.trim().trim_matches('"');
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|_| "browser screenshot: failed to decode image data".to_string())
     }
 
     fn set_agent_control(&self, page_id: Option<&str>, active: bool) -> Result<(), String> {
         let page_id = self.resolve_page_id(page_id)?;
+        if active {
+            self.user_takeover.store(false, Ordering::SeqCst);
+        }
         let _ = self.app.emit(
             "browser-agent-control",
             serde_json::json!({ "pageId": page_id, "active": active }),
         );
         Ok(())
+    }
+
+    fn request_user_takeover(&self, page_id: Option<&str>) -> Result<(), String> {
+        self.user_takeover.store(true, Ordering::SeqCst);
+        let page_id = self.resolve_page_id(page_id)?;
+        self.disable_agent_intercept(&page_id)?;
+        let _ = self.app.emit(
+            "browser-agent-control",
+            serde_json::json!({ "pageId": page_id, "active": false }),
+        );
+        Ok(())
+    }
+
+    fn clear_user_takeover(&self) -> Result<(), String> {
+        self.user_takeover.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn is_user_takeover_active(&self) -> bool {
+        self.user_takeover.load(Ordering::SeqCst)
     }
 
     fn active_browser_context(&self) -> Result<Option<serde_json::Value>, String> {

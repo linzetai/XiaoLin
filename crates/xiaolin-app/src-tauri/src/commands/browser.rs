@@ -225,7 +225,7 @@ fn build_browser_webview(
     Ok(builder)
 }
 
-fn create_browser_page(
+pub(crate) fn create_browser_page(
     app: &AppHandle,
     manager: &mut BrowserPanelManager,
     url: &str,
@@ -271,6 +271,17 @@ fn create_browser_page(
 async fn open_page_from_url(app: AppHandle, url: String) -> Result<String, String> {
     let state = app.state::<BrowserPanelState>();
     with_manager(&state, |manager| create_browser_page(&app, manager, &url))
+}
+
+#[tauri::command]
+pub async fn browser_request_takeover(page_id: String) -> Result<(), String> {
+    validate_page_id(&page_id)?;
+    xiaolin_tools_browser::browser_request_user_takeover(Some(&page_id))
+}
+
+#[tauri::command]
+pub async fn browser_clear_user_takeover() -> Result<(), String> {
+    xiaolin_tools_browser::browser_clear_user_takeover()
 }
 
 #[tauri::command]

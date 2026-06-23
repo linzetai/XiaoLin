@@ -12,8 +12,16 @@ pub const OFFSCREEN_POSITION: f64 = -9999.0;
 pub const BROWSER_WEBVIEW_PREFIX: &str = "browser-";
 
 /// Whitelist message types for xiaolin-internal://callback.
-const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] =
-    &["ready", "snapshot", "console", "network", "selection", "dialog", "eval_result"];
+const ALLOWED_INTERNAL_MESSAGE_TYPES: &[&str] = &[
+    "ready",
+    "snapshot",
+    "console",
+    "network",
+    "selection",
+    "dialog",
+    "eval_result",
+    "user_action_blocked",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -413,7 +421,7 @@ pub fn handle_xiaolin_internal_protocol(
         "snapshot" => "browser-snapshot",
         "console" => "browser-console",
         "network" => "browser-network",
-        "selection" => "browser-user-action",
+        "selection" | "user_action_blocked" => "browser-user-action",
         "dialog" => "browser-dialog",
         _ => unreachable!("validated above"),
     };

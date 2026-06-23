@@ -394,6 +394,16 @@ export async function initBrowserEvents(): Promise<void> {
           return;
         }
 
+        if (type === "user_action_blocked") {
+          useBrowserStore.setState({
+            userActionToast: "Agent 操作中，用户输入已拦截",
+          });
+          window.setTimeout(() => {
+            useBrowserStore.getState().clearUserActionToast();
+          }, 2500);
+          return;
+        }
+
         if (type === "selection" && data && typeof data === "object") {
           const { action, text, url } = data as {
             action?: string;
@@ -539,5 +549,26 @@ export function isHttpsUrl(url: string): boolean {
     return new URL(url).protocol === "https:";
   } catch {
     return false;
+  }
+}
+
+/** Request user takeover — stops agent browser actions and restores user control. */
+export async function browserRequestTakeover(pageId: string): Promise<void> {
+  if (!isTauri) return;
+  try {
+    await browserInvoke("browser_request_takeover", { pageId });
+    useBrowserStore.getState().setAgentControlled(pageId, false);
+  } catch (e) {
+    console.warn("[browser] requestTakeover failed:", e);
+  }
+}
+
+/** Clear user takeover flag so the agent may resume browser actions. */
+export async function browserClearUserTakeover(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    await browserInvoke("browser_clear_user_takeover");
+  } catch (e) {
+    console.warn("[browser] clearUserTakeover failed:", e);
   }
 }

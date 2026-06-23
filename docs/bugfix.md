@@ -333,6 +333,34 @@
 #### ✅ [LOW] 全局 Mutex 阻塞所有浏览器操作
 - **文件**: `crates/xiaolin-tools-browser/src/lib.rs:54-55`
 
+#### ✅ FIXED 🔴 [HIGH] WebView bridge `open_page` / `screenshot` / `list_pages` stub
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_bridge.rs`
+- **问题**：`open_page`/`screenshot` 为 stub；`list_pages` 返回 enumerate 索引而非 UUID pageId
+- **修复记录**：2026-06-23 复用 `create_browser_page`；JS canvas/SVG 截图 fallback；`list_pages` 使用真实 `page_id`
+
+#### ✅ FIXED 🔴 [HIGH] user_takeover 未连通后端
+- **状态**：✅ FIXED
+- **文件**：`browser_bridge.rs`, `webview_engine.rs`, `commands/browser.rs`, `browser-store.ts`
+- **问题**：「取回控制」仅改前端 state，Agent 仍继续执行
+- **修复记录**：2026-06-23 `AtomicBool` + `browser_request_takeover` IPC；`dispatch_sync` fail-closed
+
+#### ✅ FIXED 🔴 [HIGH] `user_action_blocked` 不在协议白名单
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_panel.rs`
+- **修复记录**：2026-06-23 加入 `ALLOWED_INTERNAL_MESSAGE_TYPES` 并映射到 `browser-user-action`
+
+#### ✅ FIXED 🔴 [HIGH] WebView 交互类 action 为 stub
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/webview_engine.rs`
+- **问题**：fill_form/type_text/press_key/drag/select/upload_file/interact 未实现
+- **修复记录**：2026-06-23 JS 注入实现全部交互 action
+
+#### ✅ FIXED 🟡 [MEDIUM] CDP drag 路径未 validate_uid
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-tools-browser/src/engine/cdp_engine.rs` L1254
+- **修复记录**：2026-06-23 drag 前对 from_uid/to_uid 调用 validate_uid
+
 ---
 
 ### 11. xiaolin-tools-code

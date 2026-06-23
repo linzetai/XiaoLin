@@ -58,7 +58,7 @@
   - 拒绝: `file://`, `javascript:`, `data:` (顶级导航), `tauri://`, `ipc://`, `asset://`
   - 未知协议: 拒绝 + `tracing::warn!` 记录
 - [x] 2.13 Custom Protocol handler: `xiaolin-internal://callback`
-  - 白名单消息类型: ready/snapshot/console/network/selection/dialog
+  - 白名单消息类型: ready/snapshot/console/network/selection/dialog/eval_result/user_action_blocked
   - 请求体大小限制
   - 未知类型返回 403
 - [x] 2.14 `on_download` 回调：下载检测 + 保存 + 通知前端
@@ -102,19 +102,19 @@
 
 - [x] 5.1 `crates/xiaolin-tools-browser/src/engine/mod.rs`：定义 BrowserEngine trait
 - [x] 5.2 `engine/cdp_engine.rs`：封装现有 headless_chrome 为 CdpEngine
-- [x] 5.3 `engine/webview_engine.rs`：TauriWebViewEngine 通过 AppHandle 操作内置 WebView
+- [x] 5.3 `engine/webview_engine.rs`：TauriWebViewEngine 通过 BrowserBridge 操作内置 WebView（含交互类 action JS 注入）
 - [x] 5.4 重构 BrowserTool：从直接使用 headless_chrome 改为 BrowserEngine trait
 - [x] 5.5 迁移导航类 actions（navigate、go_back、go_forward、reload）
-- [x] 5.6 迁移交互类 actions（click、fill、fill_form、type_text、press_key、hover、scroll、select）→ JS injection + Agent Control Mode 联动
+- [x] 5.6 迁移交互类 actions（click、fill、fill_form、type_text、press_key、hover、scroll、select、drag、upload_file）→ JS injection + Agent Control Mode 联动
 - [x] 5.7 迁移快照类 actions（take_snapshot、get_content）→ WebView eval + `untrusted_webpage` 标记
-- [x] 5.8 迁移截图 action → 平台原生 API + html2canvas fallback
-- [x] 5.9 迁移页面管理 actions（list_pages、select_page、new_page、close_page）→ BrowserPanelManager
+- [x] 5.8 迁移截图 action → JS canvas/SVG fallback（viewport；element/fullPage 待增强）
+- [x] 5.9 迁移页面管理 actions（list_pages、select_page、new_page/open_page、close_page）→ BrowserPanelManager + bridge
 - [x] 5.10 迁移 DevTools actions → custom protocol 回传 / initialization_script 捕获数据
 - [x] 5.11 迁移 cookies action → `document.cookie`（仅非 HttpOnly）
 - [x] 5.12 迁移 wait_for → JS 轮询
-- [x] 5.13 迁移 drag、handle_dialog、interact、emulate、resize_page、pdf、upload_file
+- [x] 5.13 迁移 drag、handle_dialog、interact（WebView）；emulate、resize_page、pdf 仍 CDP-only
 - [x] 5.14 操作可视化高亮 JS（Layer 5, eval 注入）
-- [x] 5.15 Agent Control Mode 拦截 JS（initialization_script 中的 capture phase 事件监听）
+- [x] 5.15 Agent Control Mode 拦截 JS + user_takeover IPC（取回控制 fail-closed）
 - [x] 5.16 gateway 启动逻辑分支：Tauri → TauriWebViewEngine，纯 gateway → CdpEngine
 
 ## 6. 网络配置 — Host 映射 & 代理

@@ -22,6 +22,7 @@ import {
   browserGoBack,
   browserGoForward,
   browserReload,
+  browserRequestTakeover,
   normalizeNavUrl,
   isHttpsUrl,
 } from "../../lib/stores/browser-store";
@@ -57,7 +58,6 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
     const layoutMode = useBrowserStore((s) => s.layoutMode);
     const setLayoutMode = useBrowserStore((s) => s.setLayoutMode);
     const navigate = useBrowserStore((s) => s.navigate);
-    const setAgentControlled = useBrowserStore((s) => s.setAgentControlled);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const [editing, setEditing] = useState(false);
@@ -120,7 +120,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             <span>Agent 操作中</span>
             <button
               type="button"
-              onClick={() => pageId && setAgentControlled(pageId, false)}
+              onClick={() => pageId && void browserRequestTakeover(pageId)}
               style={{
                 padding: "2px 8px",
                 borderRadius: 4,

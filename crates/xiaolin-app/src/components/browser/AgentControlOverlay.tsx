@@ -1,5 +1,5 @@
 import { Robot, HandGrabbing } from "@phosphor-icons/react";
-import { useBrowserStore } from "../../lib/stores/browser-store";
+import { useBrowserStore, browserRequestTakeover } from "../../lib/stores/browser-store";
 
 interface AgentControlOverlayProps {
   pageId: string;
@@ -8,7 +8,6 @@ interface AgentControlOverlayProps {
 /** Placeholder UI for Agent Control Mode — full agent integration in Phase 5. */
 export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
   const agentControlled = useBrowserStore((s) => s.pages[pageId]?.agentControlled ?? false);
-  const setAgentControlled = useBrowserStore((s) => s.setAgentControlled);
   const userActionToast = useBrowserStore((s) => s.userActionToast);
   const clearUserActionToast = useBrowserStore((s) => s.clearUserActionToast);
 
@@ -87,7 +86,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
           <span style={{ color: "var(--fill-secondary)" }}>Agent operating…</span>
           <button
             type="button"
-            onClick={() => setAgentControlled(pageId, false)}
+            onClick={() => void browserRequestTakeover(pageId)}
             style={{
               display: "inline-flex",
               alignItems: "center",

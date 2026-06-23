@@ -1262,6 +1262,8 @@ impl CdpEngine {
                     .get("to_uid")
                     .and_then(|v| v.as_str())
                     .ok_or("browser drag: missing 'to_uid'.")?;
+                actions::validate_uid(from_uid)?;
+                actions::validate_uid(to_uid)?;
 
                 let script = format!(
                     r#"(() => {{

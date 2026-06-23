@@ -4,7 +4,10 @@ mod cdp_engine;
 pub(crate) mod webview_engine;
 
 pub use cdp_engine::CdpEngine;
-pub use webview_engine::{browser_context_for_prompt, set_browser_bridge, BrowserBridge, TauriWebViewEngine};
+pub use webview_engine::{
+    browser_clear_user_takeover, browser_context_for_prompt, browser_request_user_takeover,
+    set_browser_bridge, BrowserBridge, TauriWebViewEngine,
+};
 
 use async_trait::async_trait;
 use xiaolin_core::tool::ToolImage;
