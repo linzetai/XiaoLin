@@ -77,6 +77,9 @@ impl BrowserPage {
 pub struct BrowserPanelManager {
     pages: HashMap<String, BrowserPage>,
     active_page_id: Option<String>,
+    /// CSS devicePixelRatio reported by the frontend, used on Linux to convert
+    /// CSS pixels to GtkFixed physical coordinates.
+    gtk_scale_factor: f64,
 }
 
 impl BrowserPanelManager {
@@ -84,7 +87,18 @@ impl BrowserPanelManager {
         Self {
             pages: HashMap::new(),
             active_page_id: None,
+            gtk_scale_factor: 1.0,
         }
+    }
+
+    pub fn set_gtk_scale_factor(&mut self, factor: f64) {
+        if factor > 0.0 && factor.is_finite() {
+            self.gtk_scale_factor = factor;
+        }
+    }
+
+    pub fn gtk_scale_factor(&self) -> f64 {
+        self.gtk_scale_factor
     }
 
     pub fn page_count(&self) -> usize {

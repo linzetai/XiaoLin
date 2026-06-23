@@ -909,6 +909,37 @@
 - **影响**：开发环境不稳定
 - **修复记录**：在 `main.tsx` 入口添加全局 `error` 事件监听器，拦截并阻止 ResizeObserver loop 错误的传播。
 
+#### BUG-E2E-4 🔴 地址栏输入 URL 回车后始终导航到 example.com
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserAddressBar.tsx` L85-95
+- **问题**：`handleSubmit` 的 `useCallback` 依赖数组缺少 `inputValue`。由于 `navigate`（zustand 稳定引用）和 `pageId` 在用户输入时不变，闭包捕获的 `inputValue` 始终是页面打开时的初始 URL（`https://example.com`），用户输入的新 URL 被忽略。
+- **影响**：Browser 完全无法导航到用户输入的 URL
+- **建议**：将 `inputValue` 加入 `useCallback` 依赖数组
+- **相关规则**：无新规则（React hooks 基础错误，已有 ESLint `exhaustive-deps` 规则覆盖）
+- **修复记录**：`handleSubmit` 依赖数组 `[pageId, navigate]` → `[pageId, inputValue, navigate]`
+
+#### BUG-E2E-5 🔴 browser_hide_all_pages IPC 挂起导致布局切换失败
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L574-592
+- **问题**：`browser_hide_all_pages` 和 `browser_show_page` 在循环中对每个页面独立调用 `apply_webview_layout_gtk`，每次都做 `window.run_on_main_thread(closure)` + `rx.recv()` 阻塞往返。当多页面同时存在时，GTK 主线程调度时序问题导致 `rx.recv()` 永远等不到信号。
+- **影响**：Fullwidth ↔ Panel 布局切换完全失败（按钮点击无响应）
+- **建议**：将多页面位置更新合并为一次 `run_on_main_thread` 调度
+- **相关规则**：无新规则（已有规则 #38 覆盖线程同步模式）
+- **修复记录**：新增 `apply_webview_layouts_gtk_batch` 将所有页面位置更新合并到单次 GTK 主线程调度中，`browser_show_page` 和 `browser_hide_all_pages` 改用批量 API
+
+#### BUG-E2E-6 🔴 Linux 125% 缩放下 Browser WebView 定位严重偏移
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L64-92
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`, `crates/xiaolin-app/src/components/browser/BrowserPlaceholder.tsx`
+- **问题**：在 fractional DPR (如 1.25x) 下，前端 `getBoundingClientRect()` 返回 CSS 像素坐标，但 Linux 的 `GtkFixed::move_()` 使用物理像素坐标。直接传递 CSS 坐标导致 WebView 偏移 `(1 - 1/DPR)` 倍距离（125% 下约偏 200+ CSS 像素）。
+- **影响**：Linux fractional scaling 环境下 Browser WebView 完全不在正确位置
+- **建议**：前端传递 `devicePixelRatio`，Linux GTK 路径乘以 DPR 转换为物理坐标
+- **相关规则**：无新规则（平台特定 bug，非通用模式）
+- **修复记录**：`browser_resize_webview` IPC 新增 `scaleFactor` 参数，`apply_webview_layout_gtk` 对坐标乘以 scale_factor
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

@@ -22,7 +22,7 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    void browserResizeWebview(pageId, rect.x, rect.y, rect.width, rect.height);
+    void browserResizeWebview(pageId, rect.x, rect.y, rect.width, rect.height, window.devicePixelRatio);
   }, [pageId, webviewVisible, layoutTransitioning]);
 
   useEffect(() => {
@@ -48,6 +48,10 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
 
   useEffect(() => {
     reportLayout();
+    if (webviewVisible && pageId) {
+      const timer = setTimeout(reportLayout, 100);
+      return () => clearTimeout(timer);
+    }
   }, [webviewVisible, pageId, layoutTransitioning, reportLayout]);
 
   const isEmpty = !page?.url || page.url === "about:blank";
@@ -63,6 +67,7 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
         position: "relative",
         background: "var(--bg-secondary)",
         overflow: "hidden",
+        marginLeft: 4,
       }}
     >
       {isEmpty && !isLoading && (

@@ -91,7 +91,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
         setEditing(false);
         void navigate(pageId, normalized);
       },
-      [pageId, navigate],
+      [pageId, inputValue, navigate],
     );
 
     const handleReload = useCallback(() => {

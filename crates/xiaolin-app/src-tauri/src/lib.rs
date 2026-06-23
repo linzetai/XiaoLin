@@ -1,5 +1,7 @@
 pub mod browser_bridge;
 pub mod browser_eval;
+#[cfg(target_os = "linux")]
+pub mod browser_gtk;
 pub mod browser_network;
 pub mod browser_panel;
 pub mod commands;

@@ -112,25 +112,35 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
 
-  // Browser tab — show when pages exist and not in fullwidth mode
+  // Browser tab — always registered; auto-switch when first page opens
+  const prevBrowserLayoutRef = useRef(browserLayoutMode);
   useEffect(() => {
-    const shouldRegister = browserPageCount > 0 && browserLayoutMode === "panel";
-    if (shouldRegister) {
-      registerTab({
-        id: "browser",
-        label: "Browser",
-        icon: Globe,
-        component: BrowserTabContent,
-        order: 6,
-      });
-      const { activeTabId: currentTab, panelOpen: open } = useWorkspaceTabs.getState();
-      if (browserPageCount === 1 && currentTab !== "browser" && !open) {
-        useWorkspaceTabs.getState().setActiveTab("browser");
-      }
-    } else {
+    const prev = prevBrowserLayoutRef.current;
+    prevBrowserLayoutRef.current = browserLayoutMode;
+
+    if (browserLayoutMode === "fullwidth") {
       unregisterTab("browser");
+      return;
     }
-  }, [browserPageCount, browserLayoutMode, registerTab, unregisterTab]);
+    registerTab({
+      id: "browser",
+      label: "Browser",
+      icon: Globe,
+      component: BrowserTabContent,
+      order: 6,
+    });
+    if (prev === "fullwidth" && browserPageCount > 0) {
+      useWorkspaceTabs.getState().setActiveTab("browser");
+    }
+  }, [browserLayoutMode, browserPageCount, registerTab, unregisterTab]);
+
+  useEffect(() => {
+    if (browserPageCount !== 1 || browserLayoutMode !== "panel") return;
+    const { activeTabId: currentTab, panelOpen: open } = useWorkspaceTabs.getState();
+    if (currentTab !== "browser" && !open) {
+      useWorkspaceTabs.getState().setActiveTab("browser");
+    }
+  }, [browserPageCount, browserLayoutMode]);
 
   // Browser WebView visibility: tab switch + panel open/close + layout mode
   useEffect(() => {

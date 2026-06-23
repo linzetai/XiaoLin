@@ -32,23 +32,88 @@ fn get_webview(app: &AppHandle, label: &str) -> Result<tauri::Webview<Wry>, Stri
 fn apply_webview_layout(
     app: &AppHandle,
     page: &BrowserPage,
+    scale_factor: f64,
 ) -> Result<(), String> {
-    let webview = get_webview(app, &page.webview_label)?;
-    if page.visibility == PageVisibility::Active
-        && page.layout_width > 0.0
-        && page.layout_height > 0.0
+    apply_webview_layouts_batch(app, std::slice::from_ref(page), scale_factor)
+}
+
+fn apply_webview_layouts_batch(
+    app: &AppHandle,
+    pages: &[BrowserPage],
+    scale_factor: f64,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
     {
-        webview
-            .set_position(LogicalPosition::new(page.layout_x, page.layout_y))
-            .map_err(|_| "failed to position browser webview".to_string())?;
-        webview
-            .set_size(LogicalSize::new(page.layout_width, page.layout_height))
-            .map_err(|_| "failed to resize browser webview".to_string())?;
-    } else {
-        webview
-            .set_position(LogicalPosition::new(OFFSCREEN_POSITION, OFFSCREEN_POSITION))
-            .map_err(|_| "failed to hide browser webview".to_string())?;
+        apply_webview_layouts_gtk_batch(app, pages, scale_factor)
     }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = scale_factor;
+        for page in pages {
+            let webview = get_webview(app, &page.webview_label)?;
+            if page.visibility == PageVisibility::Active
+                && page.layout_width > 0.0
+                && page.layout_height > 0.0
+            {
+                webview
+                    .set_position(LogicalPosition::new(page.layout_x, page.layout_y))
+                    .map_err(|_| "failed to position browser webview".to_string())?;
+                webview
+                    .set_size(LogicalSize::new(page.layout_width, page.layout_height))
+                    .map_err(|_| "failed to resize browser webview".to_string())?;
+            } else {
+                webview
+                    .set_position(LogicalPosition::new(OFFSCREEN_POSITION, OFFSCREEN_POSITION))
+                    .map_err(|_| "failed to hide browser webview".to_string())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn apply_webview_layouts_gtk_batch(
+    app: &AppHandle,
+    pages: &[BrowserPage],
+    scale_factor: f64,
+) -> Result<(), String> {
+    if pages.is_empty() {
+        return Ok(());
+    }
+
+    let sf = if scale_factor > 0.0 { scale_factor } else { 1.0 };
+
+    let positions: Vec<(String, i32, i32, i32, i32, bool)> = pages
+        .iter()
+        .map(|page| {
+            let visible = page.visibility == PageVisibility::Active
+                && page.layout_width > 0.0
+                && page.layout_height > 0.0;
+            let x = if visible { (page.layout_x * sf) as i32 } else { -9999 };
+            let y = if visible { (page.layout_y * sf) as i32 } else { -9999 };
+            let w = if visible { (page.layout_width * sf).ceil() as i32 } else { 1 };
+            let h = if visible { (page.layout_height * sf).ceil() as i32 } else { 1 };
+            (page.webview_label.clone(), x, y, w, h, visible)
+        })
+        .collect();
+
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .run_on_main_thread(move || {
+            for (label, x, y, w, h, visible) in &positions {
+                crate::browser_gtk::position_child(label, *x, *y, *w, *h, *visible);
+            }
+            let _ = tx.send(());
+        })
+        .map_err(|_| "failed to dispatch to main thread".to_string())?;
+
+    rx.recv()
+        .map_err(|_| "main thread channel closed".to_string())?;
     Ok(())
 }
 
@@ -260,6 +325,27 @@ pub(crate) fn create_browser_page(
         )
         .map_err(|_| "failed to create browser webview".to_string())?;
 
+    // On Linux/GTK, reparent the child WebView from the GtkBox (where add_child
+    // placed it) into a GtkFixed for absolute positioning. Without this, GTK
+    // splits window space equally among all WebViews in the GtkBox.
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let window_clone = window.clone();
+        let label_for_gtk = webview_label.clone();
+        window
+            .run_on_main_thread(move || {
+                if let Ok(vbox) = window_clone.default_vbox() {
+                    crate::browser_gtk::ensure_fixed_container(&vbox);
+                    crate::browser_gtk::reparent_child_webview(&vbox, &label_for_gtk);
+                }
+                let _ = tx.send(());
+            })
+            .map_err(|_| "failed to dispatch GTK reparent".to_string())?;
+        rx.recv()
+            .map_err(|_| "GTK reparent channel closed".to_string())?;
+    }
+
     let page = BrowserPage {
         page_id: page_id.clone(),
         webview_label,
@@ -325,6 +411,17 @@ pub async fn browser_close_page(
             .ok_or_else(|| "page not found".to_string())?;
         Ok(page.webview_label.clone())
     })?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let label_for_gtk = webview_label.clone();
+        let window = app
+            .get_window("main")
+            .ok_or_else(|| "main window not found".to_string())?;
+        let _ = window.run_on_main_thread(move || {
+            crate::browser_gtk::remove_child(&label_for_gtk);
+        });
+    }
 
     if let Ok(webview) = get_webview(&app, &webview_label) {
         if let Err(e) = webview.close() {
@@ -439,6 +536,7 @@ pub async fn browser_resize_webview(
     y: f64,
     width: f64,
     height: f64,
+    scale_factor: Option<f64>,
 ) -> Result<(), String> {
     validate_page_id(&page_id)?;
     if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
@@ -448,15 +546,19 @@ pub async fn browser_resize_webview(
         return Err("invalid layout size".into());
     }
 
-    let page_snapshot = with_manager(&state, |manager| {
+    let (page_snapshot, sf) = with_manager(&state, |manager| {
+        if let Some(sf) = scale_factor {
+            manager.set_gtk_scale_factor(sf);
+        }
         manager.update_layout(&page_id, x, y, width, height)?;
-        manager
+        let page = manager
             .get_page(&page_id)
             .cloned()
-            .ok_or_else(|| "page not found".to_string())
+            .ok_or_else(|| "page not found".to_string())?;
+        Ok((page, manager.gtk_scale_factor()))
     })?;
 
-    apply_webview_layout(&app, &page_snapshot)
+    apply_webview_layout(&app, &page_snapshot, sf)
 }
 
 #[tauri::command]
@@ -474,19 +576,17 @@ pub async fn browser_show_page(
 ) -> Result<(), String> {
     validate_page_id(&page_id)?;
 
-    let pages_snapshot = with_manager(&state, |manager| {
+    let (pages_snapshot, sf) = with_manager(&state, |manager| {
         manager.set_active(&page_id)?;
-        Ok(manager
+        let pages = manager
             .list_pages()
             .iter()
             .filter_map(|info| manager.get_page(&info.page_id).cloned())
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        Ok((pages, manager.gtk_scale_factor()))
     })?;
 
-    for page in &pages_snapshot {
-        apply_webview_layout(&app, page)?;
-    }
-    Ok(())
+    apply_webview_layouts_batch(&app, &pages_snapshot, sf)
 }
 
 #[tauri::command]
@@ -494,19 +594,17 @@ pub async fn browser_hide_all_pages(
     app: AppHandle,
     state: State<'_, BrowserPanelState>,
 ) -> Result<(), String> {
-    let pages_snapshot = with_manager(&state, |manager| {
+    let (pages_snapshot, sf) = with_manager(&state, |manager| {
         manager.hide_all();
-        Ok(manager
+        let pages = manager
             .list_pages()
             .iter()
             .filter_map(|info| manager.get_page(&info.page_id).cloned())
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        Ok((pages, manager.gtk_scale_factor()))
     })?;
 
-    for page in &pages_snapshot {
-        apply_webview_layout(&app, page)?;
-    }
-    Ok(())
+    apply_webview_layouts_batch(&app, &pages_snapshot, sf)
 }
 
 #[tauri::command]
