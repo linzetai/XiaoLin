@@ -8,6 +8,7 @@ import {
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
 import { BrowserPageTabs } from "./BrowserPageTabs";
+import { BrowserProgressBar } from "./BrowserProgressBar";
 import { BrowserPlaceholder } from "./BrowserPlaceholder";
 import { DownloadNotificationBar } from "./DownloadNotificationBar";
 import { BrowserNetworkSettings } from "./BrowserNetworkSettings";
@@ -59,6 +60,9 @@ function BrowserEmptyState() {
 
 export function BrowserPanelBody() {
   const activePageId = useBrowserStore((s) => s.activePageId);
+  const activePage = useBrowserStore((s) =>
+    s.activePageId ? s.pages[s.activePageId] : null,
+  );
   const layoutMode = useBrowserStore((s) => s.layoutMode);
   const panelOpen = useWorkspaceTabs((s) => s.panelOpen);
   const activeTabId = useWorkspaceTabs((s) => s.activeTabId);
@@ -153,12 +157,16 @@ export function BrowserPanelBody() {
         minHeight: 0,
       }}
     >
+      <BrowserPageTabs onLimitReached={showLimitToast} />
       <BrowserAddressBar
         ref={addressBarRef}
         pageId={activePageId}
         onOpenNetworkSettings={() => setNetworkSettingsOpen(true)}
       />
-      <BrowserPageTabs onLimitReached={showLimitToast} />
+      <BrowserProgressBar
+        loadState={activePage?.loadState.state ?? "ready"}
+        resetKey={activePage?.url}
+      />
       {limitToast && (
         <div
           style={{

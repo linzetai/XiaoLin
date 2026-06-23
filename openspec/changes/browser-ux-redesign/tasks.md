@@ -9,11 +9,11 @@
 
 ## 2. 浏览器 Chrome 结构调整
 
-- [ ] 2.1 `BrowserTabContent.tsx`：交换 `BrowserAddressBar` 和 `BrowserPageTabs` 渲染顺序（标签在上、地址栏在下）
-- [ ] 2.2 `BrowserTabContent.tsx`：在地址栏和占位 div 之间插入 `BrowserProgressBar` 组件
-- [ ] 2.3 `BrowserAddressBar.tsx`：loading 时将 ↻ ArrowClockwise 替换为 ✕ X 图标，点击执行 `browserStopLoading(pageId)`，并更新 title/aria-label
-- [ ] 2.4 `BrowserAddressBar.tsx`：移除 `browser-spin` 旋转动画（用 Stop 按钮替代视觉反馈）
-- [ ] 2.5 `browser-store.ts`：新增 `browserStopLoading(pageId)` 函数——通过 `browserEvalJs`（task 9.5）调用 `window.stop()` 后乐观设 `loadState: "ready"`，若 500ms 内又收到 `browser-loading Started` 则切回 loading
+- [x] 2.1 `BrowserTabContent.tsx`：交换 `BrowserAddressBar` 和 `BrowserPageTabs` 渲染顺序（标签在上、地址栏在下）
+- [x] 2.2 `BrowserTabContent.tsx`：在地址栏和占位 div 之间插入 `BrowserProgressBar` 组件
+- [x] 2.3 `BrowserAddressBar.tsx`：loading 时将 ↻ ArrowClockwise 替换为 ✕ X 图标，点击执行 `browserStopLoading(pageId)`，并更新 title/aria-label
+- [x] 2.4 `BrowserAddressBar.tsx`：移除 `browser-spin` 旋转动画（用 Stop 按钮替代视觉反馈）
+- [x] 2.5 `browser-store.ts`：新增 `browserStopLoading(pageId)` 函数——通过 `browserEvalJs`（task 9.5）调用 `window.stop()` 后乐观设 `loadState: "ready"`，若 500ms 内又收到 `browser-loading Started` 则切回 loading
 
 ## 3. 后退/前进即时反馈
 
@@ -36,10 +36,10 @@
 
 ## 6. Chat Toggle 按钮与选区联动
 
-- [ ] 6.1 `BrowserAddressBar.tsx`：全宽模式下在地址栏右端添加 Chat toggle 按钮（ChatCircle 图标）
-- [ ] 6.2 Chat toggle 按钮的未读 badge：从 `chatMetaStore.unread` 读取，显示红色圆点或数字，保留 pulse 动画
-- [ ] 6.3 Chat toggle 按钮仅在 `layoutMode === "fullwidth"` 时显示
-- [ ] 6.4 `browser-store.ts` / `fillChatFromBrowserSelection`：全宽 + Chat 折叠时自动调用 `toggleChatPanel()` 展开 Chat
+- [x] 6.1 `BrowserAddressBar.tsx`：全宽模式下在地址栏右端添加 Chat toggle 按钮（ChatCircle 图标）
+- [x] 6.2 Chat toggle 按钮的未读 badge：从 `chatMetaStore.unread` 读取，显示红色圆点或数字，保留 pulse 动画
+- [x] 6.3 Chat toggle 按钮仅在 `layoutMode === "fullwidth"` 时显示
+- [x] 6.4 `browser-store.ts` / `fillChatFromBrowserSelection`：全宽 + Chat 折叠时自动调用 `toggleChatPanel()` 展开 Chat
 
 ## 7. 标签页 Favicon
 
@@ -62,8 +62,8 @@
 ## 9. 样式与边缘场景
 
 - [x] 9.1 `ContentBlock.tsx`：全宽模式移除 WorkspacePanel 后调整 borderRadius 逻辑（右侧不再有 Panel 时应有右侧圆角）
-- [ ] 9.2 `BrowserAddressBar.tsx`：为 Stop/Reload 按钮添加无障碍 `aria-label`（「停止加载」/「重新加载」）
-- [ ] 9.3 `BrowserProgressBar.tsx`：进度条添加 `role="progressbar"` + `aria-busy` 属性
+- [x] 9.2 `BrowserAddressBar.tsx`：为 Stop/Reload 按钮添加无障碍 `aria-label`（「停止加载」/「重新加载」）
+- [x] 9.3 `BrowserProgressBar.tsx`：进度条添加 `role="progressbar"` + `aria-busy` 属性
 - [ ] 9.4 `ContentBlock.tsx`/`BrowserFullPanel.tsx`：全宽首次进入或 Chat 侧移触发布局变化时，复用 `layoutTransitioning` 机制——hide all WebView → 等待 ResizeObserver 稳定 → show active，防止 WebView 跳动/闪烁（对应 R5）
 - [x] 9.5 `browser-store.ts`：新增 `browserEvalJs(pageId: string, script: string)` 封装函数（invoke `browser_eval_js` 命令），供 Stop 按钮（`window.stop()`）和后续需要在 browser WebView 中执行 JS 的场景使用
 

@@ -491,6 +491,11 @@ export async function initBrowserEvents(): Promise<void> {
             return;
           }
           if (text && (action === "ask" || action === "quote")) {
+            const { layoutMode, chatPanelCollapsed, toggleChatPanel } =
+              useBrowserStore.getState();
+            if (layoutMode === "fullwidth" && chatPanelCollapsed) {
+              toggleChatPanel();
+            }
             const page = useBrowserStore.getState().pages[pageId];
             fillChatFromBrowserSelection({
               action,
@@ -616,6 +621,17 @@ export async function browserReload(pageId: string): Promise<void> {
     clearOptimisticLoadingTimeout(pageId);
     updatePage(pageId, { loadState: { state: "ready" } });
   }
+}
+
+export async function browserStopLoading(pageId: string): Promise<void> {
+  if (!isTauri) return;
+  clearOptimisticLoadingTimeout(pageId);
+  try {
+    await browserEvalJs(pageId, "window.stop()");
+  } catch (e) {
+    console.warn("[browser] stopLoading eval failed:", e);
+  }
+  updatePage(pageId, { loadState: { state: "ready" } });
 }
 
 export async function browserResizeWebview(

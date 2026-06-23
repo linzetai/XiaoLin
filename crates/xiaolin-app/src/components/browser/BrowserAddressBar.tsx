@@ -11,21 +11,25 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowClockwise,
+  X,
   Lock,
   LockOpen,
   ArrowsOut,
   ArrowsIn,
   Globe,
+  ChatCircle,
 } from "@phosphor-icons/react";
 import {
   useBrowserStore,
   browserGoBack,
   browserGoForward,
   browserReload,
+  browserStopLoading,
   browserRequestTakeover,
   normalizeNavUrl,
   isHttpsUrl,
 } from "../../lib/stores/browser-store";
+import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 
 export interface BrowserAddressBarHandle {
   focus: () => void;
@@ -57,7 +61,10 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
     const page = useBrowserStore((s) => (pageId ? s.pages[pageId] : null));
     const layoutMode = useBrowserStore((s) => s.layoutMode);
     const setLayoutMode = useBrowserStore((s) => s.setLayoutMode);
+    const chatPanelCollapsed = useBrowserStore((s) => s.chatPanelCollapsed);
+    const toggleChatPanel = useBrowserStore((s) => s.toggleChatPanel);
     const navigate = useBrowserStore((s) => s.navigate);
+    const unread = useChatMetaStore((s) => s.unread);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const [editing, setEditing] = useState(false);
@@ -96,6 +103,10 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
 
     const handleReload = useCallback(() => {
       if (pageId) void browserReload(pageId);
+    }, [pageId]);
+
+    const handleStopLoading = useCallback(() => {
+      if (pageId) void browserStopLoading(pageId);
     }, [pageId]);
 
     const toggleLayout = useCallback(() => {
@@ -163,18 +174,29 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
           >
             <ArrowRight size={14} />
           </button>
-          <button
-            type="button"
-            style={{
-              ...iconBtnStyle,
-              animation: isLoading ? "browser-spin 1s linear infinite" : undefined,
-            }}
-            title={isLoading ? "Loading" : "Reload"}
-            disabled={!pageId}
-            onClick={handleReload}
-          >
-            <ArrowClockwise size={14} />
-          </button>
+          {isLoading ? (
+            <button
+              type="button"
+              style={iconBtnStyle}
+              title="停止加载"
+              aria-label="停止加载"
+              disabled={!pageId}
+              onClick={handleStopLoading}
+            >
+              <X size={16} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              style={iconBtnStyle}
+              title="重新加载"
+              aria-label="重新加载"
+              disabled={!pageId}
+              onClick={handleReload}
+            >
+              <ArrowClockwise size={16} />
+            </button>
+          )}
 
           <div
             style={{
@@ -225,6 +247,46 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             <Globe size={14} />
           </button>
 
+          {layoutMode === "fullwidth" && (
+            <button
+              type="button"
+              style={{
+                ...iconBtnStyle,
+                position: "relative",
+                ...(chatPanelCollapsed ? {} : { background: "var(--bg-tertiary)", color: "var(--fill-primary)" }),
+              }}
+              title="Chat 面板"
+              aria-label={chatPanelCollapsed ? "展开 Chat" : "折叠 Chat"}
+              aria-expanded={!chatPanelCollapsed}
+              onClick={toggleChatPanel}
+            >
+              <ChatCircle size={14} />
+              {unread > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    minWidth: unread > 9 ? 16 : 8,
+                    height: unread > 9 ? 14 : 8,
+                    padding: unread > 9 ? "0 3px" : 0,
+                    borderRadius: unread > 9 ? 7 : "50%",
+                    background: "var(--red, #FF3B30)",
+                    color: "#fff",
+                    fontSize: 9,
+                    fontWeight: 600,
+                    lineHeight: "14px",
+                    textAlign: "center",
+                    pointerEvents: "none",
+                    animation: "pulse-subtle 1.5s ease-in-out infinite",
+                  }}
+                >
+                  {unread > 9 ? "9+" : unread > 1 ? unread : null}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             style={iconBtnStyle}
@@ -234,12 +296,6 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             {layoutMode === "panel" ? <ArrowsOut size={14} /> : <ArrowsIn size={14} />}
           </button>
         </form>
-        <style>{`
-          @keyframes browser-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   },
