@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type MutableRefObject, type RefObject, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
+import { useBrowserStore } from "../../lib/stores/browser-store";
 import { useStreamStore } from "../../lib/stores/stream-store";
 import { useQueueStore } from "../../lib/stores/queue-store";
 import { useLocaleStore } from "../../lib/stores/locale-store";
@@ -90,6 +91,13 @@ export function useMessageStreamChat({
     useStreamStore.getState().addMessage(chatId, msg);
     const title = msg.role === "user" ? msg.content.slice(0, 20) : undefined;
     useChatMetaStore.getState().incrementMessageCount(chatId, title);
+    if (msg.role === "assistant") {
+      const { layoutMode, chatPanelCollapsed } = useBrowserStore.getState();
+      if (layoutMode === "fullwidth" && chatPanelCollapsed) {
+        const content = typeof msg.content === "string" ? msg.content : "";
+        useChatMetaStore.getState().incrementUnread(content);
+      }
+    }
   }, []);
 
   const [streaming, setStreaming] = useState(false);

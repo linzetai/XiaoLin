@@ -48,10 +48,6 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
 
   useEffect(() => {
     reportLayout();
-    if (webviewVisible && pageId) {
-      const timer = setTimeout(reportLayout, 100);
-      return () => clearTimeout(timer);
-    }
   }, [webviewVisible, pageId, layoutTransitioning, reportLayout]);
 
   const isEmpty = !page?.url || page.url === "about:blank";

@@ -112,7 +112,7 @@ export function BrowserPanelBody() {
     function isBrowserPanelActive(): boolean {
       const ws = useWorkspaceTabs.getState();
       const { layoutMode } = useBrowserStore.getState();
-      if (layoutMode === "fullwidth") return Object.keys(useBrowserStore.getState().pages).length > 0;
+      if (layoutMode === "fullwidth") return true;
       return ws.panelOpen && ws.activeTabId === "browser";
     }
 

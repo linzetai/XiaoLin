@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { isTauri } from "../transport";
 import { fillChatFromBrowserSelection } from "./composer-input-store";
+import { useChatMetaStore } from "./chat-meta-store";
 
 export const MAX_BROWSER_PAGES = 8;
 export const MAX_BROWSER_DOWNLOADS = 50;
@@ -102,7 +103,7 @@ function downloadFilenameFromPath(path: string): string {
   return parts[parts.length - 1] || "download";
 }
 
-const LAYOUT_TRANSITION_MS = 400;
+const LAYOUT_TRANSITION_MS = 300;
 
 export interface BrowserState {
   pages: Record<string, BrowserPage>;
@@ -143,8 +144,10 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
     }
     applyChange();
     window.setTimeout(async () => {
-      set({ layoutTransitioning: false });
       await get().showActivePage();
+      requestAnimationFrame(() => {
+        set({ layoutTransitioning: false });
+      });
     }, LAYOUT_TRANSITION_MS);
   }
 
@@ -265,13 +268,21 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
 
   toggleChatPanel: () => {
     const { layoutMode, layoutTransitioning } = get();
-    if (layoutMode !== "fullwidth" || layoutTransitioning) {
-      set((s) => ({ chatPanelCollapsed: !s.chatPanelCollapsed }));
+    const applyToggle = () => {
+      set((s) => {
+        const nextCollapsed = !s.chatPanelCollapsed;
+        if (layoutMode === "fullwidth" && s.chatPanelCollapsed && !nextCollapsed) {
+          useChatMetaStore.getState().clearUnread();
+        }
+        return { chatPanelCollapsed: nextCollapsed };
+      });
+    };
+    if (layoutMode !== "fullwidth") {
+      applyToggle();
       return;
     }
-    void runLayoutTransition(() => {
-      set((s) => ({ chatPanelCollapsed: !s.chatPanelCollapsed }));
-    });
+    if (layoutTransitioning) return;
+    void runLayoutTransition(applyToggle);
   },
 
   setChatPanelWidth: (width) => {

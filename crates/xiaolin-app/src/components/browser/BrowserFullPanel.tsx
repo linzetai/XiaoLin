@@ -10,7 +10,7 @@ export function BrowserFullPanel() {
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        transition: "flex 0.4s ease, opacity 0.4s ease",
+        transition: "flex 0.3s ease, opacity 0.3s ease",
         overflow: "hidden",
       }}
     >

@@ -28,7 +28,7 @@ export function ContentBlock({ children }: { children: ReactNode }) {
           margin: "0 0 var(--gap-shell) 0",
           overflow: "hidden",
           opacity: layoutTransitioning ? 0.92 : 1,
-          transition: "opacity 0.4s ease",
+          transition: "opacity 0.3s ease",
         }}
       >
         <BrowserFullPanel />
