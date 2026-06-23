@@ -373,6 +373,7 @@ function PendingApprovalSection({
   onApprove: (id: string) => Promise<boolean>;
   onReject: (id: string) => Promise<boolean>;
 }) {
+  const { t } = useTranslation("plugins");
   return (
     <div
       className="mb-5 overflow-hidden rounded-[var(--radius-sm)] pv-fade-in"
@@ -387,7 +388,7 @@ function PendingApprovalSection({
       >
         <ShieldWarning size={ICON_SIZE.sm} weight="fill" style={{ color: "var(--orange, #ED8936)" }} />
         <span className="text-[12px] font-semibold" style={{ color: "var(--orange, #ED8936)" }}>
-          Project MCP Servers Need Approval
+          {t("pending_title")}
         </span>
       </div>
       <div className="flex flex-col">
@@ -416,6 +417,7 @@ function PendingApprovalCard({
   onReject: (id: string) => Promise<boolean>;
   isLast: boolean;
 }) {
+  const { t } = useTranslation("plugins");
   const [acting, setActing] = useState<"approve" | "reject" | null>(null);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
@@ -475,7 +477,7 @@ function PendingApprovalCard({
           ) : (
             <CheckFat size={ICON_SIZE.xs} weight="fill" />
           )}
-          Approve
+          {t("approve")}
         </button>
         <button
           onClick={handleReject}
@@ -493,7 +495,7 @@ function PendingApprovalCard({
           ) : (
             <XCircle size={ICON_SIZE.xs} />
           )}
-          Reject
+          {t("reject")}
         </button>
       </div>
     </div>
@@ -676,9 +678,9 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
   }, {});
 
   const subViewItems = useMemo(() => [
-    { value: "installed" as const, label: "Installed", count: allSkills.length },
-    { value: "marketplace" as const, label: "Marketplace" },
-  ], [allSkills.length]);
+    { value: "installed" as const, label: t("skills_sub.installed"), count: allSkills.length },
+    { value: "marketplace" as const, label: t("skills_sub.marketplace") },
+  ], [allSkills.length, t]);
 
   if (loading) {
     return (
@@ -739,7 +741,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                 border: "none",
               }}
             >
-              {f === "skills" ? `Skills (${allSkills.length})` : `Tools (${tools.length})`}
+              {f === "skills" ? t("skills.filter_skills", { count: allSkills.length }) : t("skills.filter_tools", { count: tools.length })}
             </button>
           ))}
         </div>
@@ -751,7 +753,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
               disabled={refreshing}
               className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
               style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
-              title="Refresh skills"
+              title={t("refresh_skills")}
             >
               <ArrowsClockwise size={ICON_SIZE.sm} className={refreshing ? "animate-spin" : ""} />
             </button>
@@ -761,7 +763,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                 disabled={uploading}
                 className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
                 style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
-                title="Upload skill"
+                title={t("upload_skill")}
               >
                 <UploadSimple size={ICON_SIZE.sm} />
               </button>
@@ -776,14 +778,14 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-primary)" }}
                   >
-                    <FolderOpen size={ICON_SIZE.sm} /> Select Folder
+                    <FolderOpen size={ICON_SIZE.sm} /> {t("skills.select_folder")}
                   </button>
                   <button
                     onClick={() => { setSkillMenuOpen(false); handleUploadZip(); }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-primary)" }}
                   >
-                    <FileText size={ICON_SIZE.sm} /> Select ZIP
+                    <FileText size={ICON_SIZE.sm} /> {t("skills.select_zip")}
                   </button>
                 </div>
               )}
@@ -804,7 +806,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
               />
               <input
                 type="text"
-                placeholder="Search skills..."
+                placeholder={t("skills.search_placeholder")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md py-1.5 pl-8 pr-3 text-[12px] outline-none"
@@ -835,7 +837,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                 cursor: "pointer",
               }}
             >
-              <option value="all">All ({allSkills.length})</option>
+              <option value="all">{t("skills.all_sources", { count: allSkills.length })}</option>
               {Object.entries(sourceCounts).map(([src, count]) => (
                 <option key={src} value={src}>{src} ({count})</option>
               ))}
@@ -847,7 +849,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
       {filter === "skills" ? (
         filteredSkills.length === 0 ? (
           <p className="py-12 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
-            {searchQuery ? "No skills match your search" : "No skills installed"}
+            {searchQuery ? t("skills.no_match") : t("skills.no_installed")}
           </p>
         ) : (
           <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
@@ -864,7 +866,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
         )
       ) : (
         tools.length === 0 ? (
-          <p className="py-12 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>No registered tools</p>
+          <p className="py-12 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>{t("no_registered_tools")}</p>
         ) : (
           <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
             {tools.map((tool, idx) => (
@@ -893,7 +895,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
             style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-secondary)" }}
           >
             {evoExpanded ? <CaretDown size={12} /> : <CaretRight size={12} />}
-            Evolved Skills ({evolutionSkills.length})
+            {t("skills.evolved_title", { count: evolutionSkills.length })}
           </button>
           {evoExpanded && (
             <div className="overflow-hidden rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
@@ -929,9 +931,9 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                       {evo.task_pattern}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
-                      <span>Success: {(evo.success_rate * 100).toFixed(0)}%</span>
-                      <span>Used: {evo.usage_count}×</span>
-                      <span>Sessions: {evo.source_trajectory_ids.length}</span>
+                      <span>{t("skills.evolution_success", { rate: (evo.success_rate * 100).toFixed(0) })}</span>
+                      <span>{t("skills.evolution_used", { count: evo.usage_count })}</span>
+                      <span>{t("skills.evolution_sessions", { count: evo.source_trajectory_ids.length })}</span>
                     </div>
                   </div>
                   <button
@@ -947,9 +949,9 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
                     }}
                   >
                     {promotingId === evo.id ? (
-                      <><SpinnerGap size={12} className="animate-spin" /> Promoting…</>
+                      <><SpinnerGap size={12} className="animate-spin" /> {t("skills.promoting")}</>
                     ) : (
-                      <><Star size={12} /> Promote</>
+                      <><Star size={12} /> {t("skills.promote")}</>
                     )}
                   </button>
                 </div>
@@ -977,6 +979,7 @@ function SkillsTabContent({ onCountChange }: { onCountChange: (n: number) => voi
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
+  const { t } = useTranslation("plugins");
   const [query, setQuery] = useState("");
   const [skills, setSkills] = useState<api.MarketplaceSkill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -991,9 +994,9 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
     setError(null);
     const result = await api.marketplaceBrowse(q, 50);
     setSkills(result.skills);
-    if (result.offline) setError("Marketplace is offline. Showing cached data.");
+    if (result.offline) setError(t("skills.marketplace.offline"));
     setLoading(false);
-  }, []);
+  }, [t]);
 
   useEffect(() => { doSearch(); }, [doSearch]);
 
@@ -1015,9 +1018,9 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
       setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, installed: true } : s));
       onInstalled();
     } else if (result.error) {
-      setError(`Install failed: ${result.error}`);
+      setError(t("skills.marketplace.install_failed", { error: result.error }));
     }
-  }, [onInstalled]);
+  }, [onInstalled, t]);
 
   const handleUninstall = useCallback(async (skillId: string) => {
     setUninstallingId(skillId);
@@ -1027,9 +1030,9 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
       setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, installed: false } : s));
       onInstalled();
     } else if (result.error) {
-      setError(`Uninstall failed: ${result.error}`);
+      setError(t("skills.marketplace.uninstall_failed", { error: result.error }));
     }
-  }, [onInstalled]);
+  }, [onInstalled, t]);
 
   return (
     <div className="mx-auto w-full max-w-[var(--content-max-w)] px-6 py-5 pv-fade-in">
@@ -1042,7 +1045,7 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
         />
         <input
           type="text"
-          placeholder="Search marketplace skills..."
+          placeholder={t("skills.marketplace.search_placeholder")}
           value={query}
           onChange={(e) => handleSearchChange(e.target.value)}
           className="w-full rounded-lg py-2.5 pl-9 pr-3 text-[13px] outline-none"
@@ -1077,7 +1080,7 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
       {loading ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16">
           <SpinnerGap size={ICON_SIZE.lg} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-          <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Loading marketplace…</p>
+          <p className="text-[12px]" style={{ color: "var(--fill-quaternary)" }}>{t("skills.marketplace.loading")}</p>
         </div>
       ) : skills.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-16">
@@ -1089,10 +1092,10 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
           </div>
           <div className="text-center">
             <p className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>
-              {query ? "No skills found" : "Marketplace Empty"}
+              {query ? t("skills.marketplace.no_found") : t("skills.marketplace.empty")}
             </p>
             <p className="mt-1 text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
-              {query ? "Try a different search term" : "Check back later for community skills"}
+              {query ? t("skills.marketplace.try_different") : t("skills.marketplace.check_back")}
             </p>
           </div>
         </div>
@@ -1107,6 +1110,7 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
               onInstall={() => handleInstall(skill.id)}
               onUninstall={() => handleUninstall(skill.id)}
               onPreview={() => setPreviewSkill(skill)}
+              t={t}
             />
           ))}
         </div>
@@ -1120,6 +1124,7 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
           onInstall={() => handleInstall(previewSkill.id)}
           onUninstall={() => handleUninstall(previewSkill.id)}
           onClose={() => setPreviewSkill(null)}
+          t={t}
         />
       )}
     </div>
@@ -1127,7 +1132,7 @@ function SkillMarketplacePanel({ onInstalled }: { onInstalled: () => void }) {
 }
 
 function MarketplaceSkillCard({
-  skill, installing, uninstalling, onInstall, onUninstall, onPreview,
+  skill, installing, uninstalling, onInstall, onUninstall, onPreview, t,
 }: {
   skill: api.MarketplaceSkill;
   installing: boolean;
@@ -1135,6 +1140,7 @@ function MarketplaceSkillCard({
   onInstall: () => void;
   onUninstall: () => void;
   onPreview: () => void;
+  t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   return (
     <div
@@ -1149,7 +1155,7 @@ function MarketplaceSkillCard({
           </h4>
           {skill.author && (
             <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
-              by {skill.author}
+              {t("skills.marketplace.by_author", { author: skill.author })}
             </span>
           )}
         </div>
@@ -1158,7 +1164,7 @@ function MarketplaceSkillCard({
             className="ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{ background: "rgba(72,187,120,0.1)", color: "var(--green)" }}
           >
-            Installed
+            {t("explore.installed")}
           </span>
         )}
       </div>
@@ -1206,13 +1212,13 @@ function MarketplaceSkillCard({
           }}
         >
           {installing ? (
-            <><SpinnerGap size={12} className="animate-spin" /> Installing…</>
+            <><SpinnerGap size={12} className="animate-spin" /> {t("skills.marketplace.installing")}</>
           ) : uninstalling ? (
-            <><SpinnerGap size={12} className="animate-spin" /> Removing…</>
+            <><SpinnerGap size={12} className="animate-spin" /> {t("skills.marketplace.removing")}</>
           ) : skill.installed ? (
-            <><TrashSimple size={12} /> Remove</>
+            <><TrashSimple size={12} /> {t("skills.marketplace.remove")}</>
           ) : (
-            <><DownloadSimple size={12} /> Install</>
+            <><DownloadSimple size={12} /> {t("skills.marketplace.install")}</>
           )}
         </button>
       </div>
@@ -1221,7 +1227,7 @@ function MarketplaceSkillCard({
 }
 
 function MarketplacePreviewModal({
-  skill, installing, uninstalling, onInstall, onUninstall, onClose,
+  skill, installing, uninstalling, onInstall, onUninstall, onClose, t,
 }: {
   skill: api.MarketplaceSkill;
   installing: boolean;
@@ -1229,6 +1235,7 @@ function MarketplacePreviewModal({
   onInstall: () => void;
   onUninstall: () => void;
   onClose: () => void;
+  t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   return (
     <div
@@ -1246,7 +1253,7 @@ function MarketplacePreviewModal({
           <div className="min-w-0 flex-1">
             <h3 className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>{skill.name}</h3>
             <div className="mt-1 flex items-center gap-2 text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
-              {skill.author && <span>by {skill.author}</span>}
+              {skill.author && <span>{t("skills.marketplace.by_author", { author: skill.author })}</span>}
               <span>&middot;</span>
               <span className="font-mono">{skill.version}</span>
               {skill.downloads > 0 && (
@@ -1272,7 +1279,7 @@ function MarketplacePreviewModal({
 
           {skill.tags.length > 0 && (
             <div className="mb-4">
-              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tags</div>
+              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{t("skills.marketplace.tags")}</div>
               <div className="flex flex-wrap gap-1.5">
                 {skill.tags.map((tag) => (
                   <span key={tag} className="rounded-full px-2 py-0.5 text-[11px]"
@@ -1286,7 +1293,7 @@ function MarketplacePreviewModal({
 
           {skill.repository && (
             <div className="mb-4">
-              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Repository</div>
+              <div className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{t("skills.marketplace.repository")}</div>
               <a
                 href={skill.repository}
                 target="_blank"
@@ -1315,13 +1322,13 @@ function MarketplacePreviewModal({
             }}
           >
             {installing ? (
-              <><SpinnerGap size={14} className="animate-spin" /> Installing…</>
+              <><SpinnerGap size={14} className="animate-spin" /> {t("skills.marketplace.installing")}</>
             ) : uninstalling ? (
-              <><SpinnerGap size={14} className="animate-spin" /> Removing…</>
+              <><SpinnerGap size={14} className="animate-spin" /> {t("skills.marketplace.removing")}</>
             ) : skill.installed ? (
-              <><TrashSimple size={14} /> Uninstall</>
+              <><TrashSimple size={14} /> {t("skills.marketplace.uninstall")}</>
             ) : (
-              <><DownloadSimple size={14} /> Install</>
+              <><DownloadSimple size={14} /> {t("skills.marketplace.install")}</>
             )}
           </button>
         </div>
@@ -1341,6 +1348,7 @@ function SkillRow({
   onToggle: (id: string, enabled: boolean) => void;
   onDetail: (id: string) => void;
 }) {
+  const { t } = useTranslation("plugins");
   const enabled = skill.enabled !== false;
   return (
     <div
@@ -1377,9 +1385,9 @@ function SkillRow({
             <span
               className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
               style={{ background: "var(--status-warning-bg, rgba(234, 179, 8, 0.15))", color: "var(--status-warning, #ca8a04)" }}
-              title={`Conditional: ${(skill.paths ?? []).join(", ")}`}
+              title={t("skills.conditional_title", { paths: (skill.paths ?? []).join(", ") })}
             >
-              conditional
+              {t("skills.conditional")}
             </span>
           )}
         </div>
@@ -1402,7 +1410,7 @@ function SkillRow({
         onClick={(e) => { e.stopPropagation(); onToggle(skill.id, enabled); }}
         className="shrink-0 rounded-md p-0.5"
         style={{ background: "none", border: "none", cursor: "pointer", color: enabled ? "var(--accent)" : "var(--fill-quaternary)" }}
-        title={enabled ? "Disable skill" : "Enable skill"}
+        title={enabled ? t("skills.disable_skill") : t("skills.enable_skill")}
       >
         {enabled ? <ToggleRight size={22} weight="fill" /> : <ToggleLeft size={22} />}
       </button>
@@ -1419,6 +1427,7 @@ function SkillDetailModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation("plugins");
   const [detail, setDetail] = useState<api.SkillDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -1476,7 +1485,7 @@ function SkillDetailModal({
         <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: "var(--separator)" }}>
           <div className="min-w-0 flex-1">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>
-              {loading ? "Loading..." : detail?.name || skillId}
+              {loading ? t("skills.loading_detail") : detail?.name || skillId}
             </h3>
             {detail && (
               <div className="mt-0.5 flex items-center gap-2 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
@@ -1501,7 +1510,7 @@ function SkillDetailModal({
                   onClick={() => { setEditing(true); setEditContent(detail?.content || ""); }}
                   className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
                   style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}
-                  title="Edit"
+                  title={t("skills.edit")}
                 >
                   <PencilSimple size={16} />
                 </button>
@@ -1509,7 +1518,7 @@ function SkillDetailModal({
                   onClick={handleDelete}
                   className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
                   style={{ background: "none", border: "none", cursor: "pointer", color: "var(--red, #e53e3e)" }}
-                  title="Delete"
+                  title={t("skills.delete")}
                 >
                   <Trash size={16} />
                 </button>
@@ -1522,7 +1531,7 @@ function SkillDetailModal({
                   disabled={saving}
                   className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
                   style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)" }}
-                  title="Save"
+                  title={t("save")}
                 >
                   <FloppyDisk size={16} />
                 </button>
@@ -1530,7 +1539,7 @@ function SkillDetailModal({
                   onClick={() => setEditing(false)}
                   className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
                   style={{ background: "none", border: "none", cursor: "pointer", color: "var(--fill-tertiary)" }}
-                  title="Cancel"
+                  title={t("cancel")}
                 >
                   <ArrowCounterClockwise size={16} />
                 </button>
@@ -1559,7 +1568,7 @@ function SkillDetailModal({
                 <div className="mb-4 flex flex-wrap gap-3">
                   {detail.tags && detail.tags.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tags:</span>
+                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{t("skills.tags")}</span>
                       {detail.tags.map((tag) => (
                         <span key={tag} className="rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
                           {tag}
@@ -1569,7 +1578,7 @@ function SkillDetailModal({
                   )}
                   {detail.tools && detail.tools.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>Tools:</span>
+                      <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{t("skills.tools_colon")}</span>
                       {detail.tools.map((tool) => (
                         <span key={tool} className="rounded-full px-1.5 py-0.5 font-mono text-[10px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
                           {tool}
@@ -1580,7 +1589,7 @@ function SkillDetailModal({
                   {detail.paths && detail.paths.length > 0 && (
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] font-medium" style={{ color: "var(--fill-quaternary)" }}>
-                        {detail.conditional ? "Paths (conditional):" : "Paths:"}
+                        {detail.conditional ? t("skills.paths_conditional") : t("skills.paths")}
                       </span>
                       {detail.paths.map((p) => (
                         <span key={p} className="rounded-full px-1.5 py-0.5 font-mono text-[10px]" style={{ background: "var(--status-warning-bg, rgba(234, 179, 8, 0.15))", color: "var(--status-warning, #ca8a04)" }}>
@@ -1621,7 +1630,7 @@ function SkillDetailModal({
             </>
           ) : (
             <p className="py-8 text-center text-[13px]" style={{ color: "var(--fill-tertiary)" }}>
-              Skill not found
+              {t("skills.skill_not_found")}
             </p>
           )}
         </div>
@@ -1634,20 +1643,20 @@ function SkillDetailModal({
 // Channels Tab
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const CH_STATUS_CONFIG: Record<string, { label: string; bg: string; fg: string }> = {
-  connected: { label: "Connected", bg: "rgba(72,187,120,0.12)", fg: "var(--green)" },
-  disconnected: { label: "Disconnected", bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" },
-  configured: { label: "Configured", bg: "rgba(237,137,54,0.12)", fg: "var(--yellow)" },
-  available: { label: "Available", bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" },
+const CH_STATUS_CONFIG: Record<string, { labelKey: string; bg: string; fg: string }> = {
+  connected: { labelKey: "connected", bg: "rgba(72,187,120,0.12)", fg: "var(--green)" },
+  disconnected: { labelKey: "channels_status.disconnected", bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" },
+  configured: { labelKey: "channels_status.configured", bg: "rgba(237,137,54,0.12)", fg: "var(--yellow)" },
+  available: { labelKey: "channels_status.available", bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" },
 };
 
-const CH_CAP_LABELS: Record<string, string> = {
-  directMessage: "Direct Message",
-  groupChat: "Group Chat",
-  media: "Media",
-  streaming: "Streaming",
-  reactions: "Reactions",
-  threads: "Threads",
+const CH_CAP_LABEL_KEYS: Record<string, string> = {
+  directMessage: "channels_cap.directMessage",
+  groupChat: "channels_cap.groupChat",
+  media: "channels_cap.media",
+  streaming: "channels_cap.streaming",
+  reactions: "channels_cap.reactions",
+  threads: "channels_cap.threads",
 };
 
 const EDITABLE_CONFIG_KEYS = ["appId", "appSecret", "verificationToken", "encryptKey", "domain", "replyMode"];
@@ -1791,6 +1800,7 @@ function ChannelCard({
   onDisconnect: (ch: ChannelStatus) => void;
   onClick: (id: string) => void;
 }) {
+  const { t } = useTranslation("plugins");
   const [disconnecting, setDisconnecting] = useState(false);
   const connected = channel.status === "connected";
   const activeCaps = Object.entries(channel.capabilities ?? {})
@@ -1815,7 +1825,7 @@ function ChannelCard({
         <div className="flex items-center gap-2">
           <span className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{channel.name}</span>
           <span className="rounded-full px-1.5 py-0.5 text-[11px] font-medium" style={{ background: statusCfg.bg, color: statusCfg.fg }}>
-            {statusCfg.label}
+            {t(statusCfg.labelKey)}
           </span>
           {channel.connectionMode && (
             <span className="text-[11px]" style={{ color: "var(--fill-quaternary)" }}>{channel.connectionMode}</span>
@@ -1826,7 +1836,7 @@ function ChannelCard({
           <div className="mt-1.5 flex flex-wrap gap-1">
             {activeCaps.map((cap) => (
               <span key={cap} className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: "var(--bg-tertiary)", color: "var(--fill-tertiary)" }}>
-                {CH_CAP_LABELS[cap] ?? cap}
+                {CH_CAP_LABEL_KEYS[cap] ? t(CH_CAP_LABEL_KEYS[cap]) : cap}
               </span>
             ))}
           </div>
@@ -1839,7 +1849,7 @@ function ChannelCard({
           className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]"
           style={{ cursor: "pointer", background: "none", border: "none", color: "var(--red)" }}
         >
-          <LinkBreak size={ICON_SIZE.xs} /> Disconnect
+          <LinkBreak size={ICON_SIZE.xs} /> {t("disconnect")}
         </button>
       ) : (
         <button
@@ -1847,7 +1857,7 @@ function ChannelCard({
           className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
           style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}
         >
-          <Link size={ICON_SIZE.xs} /> Connect
+          <Link size={ICON_SIZE.xs} /> {t("connect")}
         </button>
       )}
     </div>
@@ -1859,6 +1869,7 @@ function ChannelCard({
 type QrStep = "idle" | "loading" | "scanning" | "scanned" | "verify_code" | "confirmed" | "error";
 
 function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
+  const { t } = useTranslation("plugins");
   const [step, setStep] = useState<QrStep>("idle");
   const [qrUrl, setQrUrl] = useState("");
   const [sessionKey, setSessionKey] = useState("");
@@ -1887,7 +1898,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
     setStep("loading");
     try {
       const resp = await api.channelsWechatLogin();
-      if (!resp.sessionKey) { setStep("error"); setMessage("Cannot get QR code"); return; }
+      if (!resp.sessionKey) { setStep("error"); setMessage(t("channels.cannot_get_qrcode")); return; }
       setSessionKey(resp.sessionKey);
       setQrUrl(resp.qrUrl);
       setStep("scanning");
@@ -1897,16 +1908,16 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
           switch (poll.status) {
             case "waiting": break;
             case "scanned": setStep("scanned"); break;
-            case "need_verify_code": setStep("verify_code"); setMessage(poll.message ?? "Enter pair code"); cleanup(); break;
+            case "need_verify_code": setStep("verify_code"); setMessage(poll.message ?? t("channels.enter_pair_code")); cleanup(); break;
             case "confirmed":
             case "already_connected":
-              setStep("confirmed"); setMessage(poll.message ?? "Connected!"); cleanup(); setTimeout(() => onSuccess(), 1500); break;
+              setStep("confirmed"); setMessage(poll.message ?? t("connected_success")); cleanup(); setTimeout(() => onSuccess(), 1500); break;
             case "expired_refreshed": if (poll.qrUrl) setQrUrl(poll.qrUrl); setStep("scanning"); break;
-            default: setStep("error"); setMessage(poll.message ?? "Connection failed"); cleanup();
+            default: setStep("error"); setMessage(poll.message ?? t("connection_failed")); cleanup();
           }
-        } catch { setStep("error"); setMessage("Poll failed"); cleanup(); }
+        } catch { setStep("error"); setMessage(t("channels.poll_failed")); cleanup(); }
       }, 1500);
-    } catch { setStep("error"); setMessage("Start failed"); }
+    } catch { setStep("error"); setMessage(t("channels.start_failed")); }
   };
 
   const submitVerifyCode = async () => {
@@ -1918,11 +1929,11 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
       try {
         const poll = await api.channelsWechatPoll(sessionKey);
         if (poll.status === "confirmed") {
-          setStep("confirmed"); setMessage(poll.message ?? "Connected!"); cleanup(); setTimeout(() => onSuccess(), 1500);
+          setStep("confirmed"); setMessage(poll.message ?? t("connected_success")); cleanup(); setTimeout(() => onSuccess(), 1500);
         } else if (poll.status === "verify_blocked") {
-          setStep("verify_code"); setMessage("Code rejected"); cleanup();
+          setStep("verify_code"); setMessage(t("channels.code_rejected")); cleanup();
         } else if (poll.status !== "waiting" && poll.status !== "scanned") {
-          setStep("error"); setMessage(poll.message ?? "Connection failed"); cleanup();
+          setStep("error"); setMessage(poll.message ?? t("connection_failed")); cleanup();
         }
       } catch { cleanup(); }
     }, 1500);
@@ -1940,7 +1951,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
       <div className="w-[400px] rounded-[var(--radius-lg)] p-6" style={{ background: "var(--bg-card)", border: "0.5px solid var(--separator)" }} onClick={(e) => e.stopPropagation()}>
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>WeChat Login</h3>
+          <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("wechat_login")}</h3>
           <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={ICON_SIZE.md} /></button>
         </div>
 
@@ -1949,15 +1960,15 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
             <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "rgba(72,187,120,0.1)" }}>
               <QrCode size={ICON_SIZE.xl} style={{ color: "var(--green)" }} />
             </div>
-            <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>Scan QR code with WeChat to connect</p>
-            <button onClick={startLogin} className="rounded-md px-4 py-2 text-[13px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>Get QR Code</button>
+            <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>{t("scan_qrcode")}</p>
+            <button onClick={startLogin} className="rounded-md px-4 py-2 text-[13px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>{t("get_qrcode")}</button>
           </div>
         )}
 
         {step === "loading" && (
           <div className="flex flex-col items-center gap-3 py-8">
             <SpinnerGap size={ICON_SIZE.xl} className="animate-spin" style={{ color: "var(--tint)" }} />
-            <p className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>Fetching QR code…</p>
+            <p className="text-[12px]" style={{ color: "var(--fill-tertiary)" }}>{t("fetching_qrcode")}</p>
           </div>
         )}
 
@@ -1965,16 +1976,16 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
           <div className="flex flex-col items-center gap-4 py-2">
             {qrUrl ? (
               <div className="rounded-md p-3" style={{ background: "#fff" }}>
-                <img src={qrUrl} alt="WeChat QR Code" className="h-48 w-48" />
+                <img src={qrUrl} alt={t("channels.qr_code_alt")} className="h-48 w-48" />
               </div>
             ) : (
               <div className="flex h-48 w-48 items-center justify-center rounded-md bg-white"><QrCode size={ICON_SIZE["2xl"]} style={{ color: "#ccc" }} /></div>
             )}
             <div className="flex items-center gap-2">
               {step === "scanned" ? (
-                <><DeviceMobile size={ICON_SIZE.sm} style={{ color: "var(--green)" }} /><p className="text-[13px] font-medium" style={{ color: "var(--green)" }}>Scanned — confirm on phone</p></>
+                <><DeviceMobile size={ICON_SIZE.sm} style={{ color: "var(--green)" }} /><p className="text-[13px] font-medium" style={{ color: "var(--green)" }}>{t("scanned_confirm")}</p></>
               ) : (
-                <><QrCode size={ICON_SIZE.sm} style={{ color: "var(--fill-tertiary)" }} /><p className="text-[13px]" style={{ color: "var(--fill-secondary)" }}>Scan QR code with WeChat</p></>
+                <><QrCode size={ICON_SIZE.sm} style={{ color: "var(--fill-tertiary)" }} /><p className="text-[13px]" style={{ color: "var(--fill-secondary)" }}>{t("scan_qrcode_short")}</p></>
               )}
             </div>
           </div>
@@ -1986,10 +1997,10 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
               <Key size={ICON_SIZE.lg} style={{ color: "var(--yellow)" }} />
             </div>
             <p className="text-center text-[13px]" style={{ color: "var(--fill-secondary)" }}>{message}</p>
-            <input value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} placeholder="Enter code"
+            <input value={verifyCode} onChange={(e) => setVerifyCode(e.target.value)} placeholder={t("channels.enter_code_placeholder")}
               className="w-32 rounded-md px-3 py-2 text-center text-[16px] font-mono tracking-wider outline-none" style={inputStyle}
               autoFocus onKeyDown={(e) => e.key === "Enter" && submitVerifyCode()} />
-            <button onClick={submitVerifyCode} disabled={!verifyCode.trim()} className="rounded-md px-4 py-1.5 text-[12px] font-medium disabled:opacity-40" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>Submit</button>
+            <button onClick={submitVerifyCode} disabled={!verifyCode.trim()} className="rounded-md px-4 py-1.5 text-[12px] font-medium disabled:opacity-40" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>{t("submit")}</button>
           </div>
         )}
 
@@ -2003,7 +2014,7 @@ function WechatQrModal({ open, onClose, onSuccess }: { open: boolean; onClose: (
         {step === "error" && (
           <div className="flex flex-col items-center gap-4 py-6">
             <p className="text-[13px]" style={{ color: "var(--red)" }}>{message}</p>
-            <button onClick={startLogin} className="rounded-md px-4 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>Retry</button>
+            <button onClick={startLogin} className="rounded-md px-4 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>{t("retry")}</button>
           </div>
         )}
       </div>
@@ -2019,6 +2030,7 @@ function ChannelDetailModal({
   open: boolean; channelId: string; onClose: () => void;
   onConnect: (id: string) => void; onDisconnect: (id: string) => void; onUpdated: () => void;
 }) {
+  const { t } = useTranslation("plugins");
   const [data, setData] = useState<ChannelDetailResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -2051,10 +2063,10 @@ function ChannelDetailModal({
     const result = await api.channelsUpdate(channelId, config);
     setSaving(false);
     if (result.ok) {
-      setSaveMsg({ ok: true, text: "Saved & reloaded" }); setEditing(false); onUpdated();
+      setSaveMsg({ ok: true, text: t("channels.saved_reloaded") }); setEditing(false); onUpdated();
       api.channelsDetail(channelId).then(setData);
     } else {
-      setSaveMsg({ ok: false, text: result.reloadError ?? "Save failed" });
+      setSaveMsg({ ok: false, text: result.reloadError ?? t("save_failed") });
     }
   };
 
@@ -2063,10 +2075,10 @@ function ChannelDetailModal({
     const result = await api.channelsRestore(channelId);
     setRestoring(false);
     if (result.ok) {
-      setSaveMsg({ ok: true, text: "Restored & reloaded" }); setEditing(false); onUpdated();
+      setSaveMsg({ ok: true, text: t("channels.saved_reloaded") }); setEditing(false); onUpdated();
       api.channelsDetail(channelId).then(setData);
     } else {
-      setSaveMsg({ ok: false, text: result.reloadError ?? "Restore failed" });
+      setSaveMsg({ ok: false, text: result.reloadError ?? t("channels.restore_failed") });
     }
   };
 
@@ -2090,7 +2102,7 @@ function ChannelDetailModal({
           <div className="flex items-center gap-2">
             <WifiHigh size={ICON_SIZE.md} style={{ color: "var(--fill-secondary)" }} />
             <h3 className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{data?.name ?? channelId}</h3>
-            {statusCfg && <span className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: statusCfg.bg, color: statusCfg.fg }}>{statusCfg.label}</span>}
+            {statusCfg && <span className="rounded-full px-1.5 py-0.5 text-[11px]" style={{ background: statusCfg.bg, color: statusCfg.fg }}>{t(statusCfg.labelKey)}</span>}
           </div>
           <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}><X size={ICON_SIZE.md} /></button>
         </div>
@@ -2105,10 +2117,10 @@ function ChannelDetailModal({
               {/* Config section */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>Configuration</span>
+                  <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>{t("configuration")}</span>
                   {!editing && (
                     <button onClick={startEdit} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}>
-                      <PencilSimple size={ICON_SIZE.xs} /> Edit
+                      <PencilSimple size={ICON_SIZE.xs} /> {t("channels.edit")}
                     </button>
                   )}
                 </div>
@@ -2120,19 +2132,19 @@ function ChannelDetailModal({
                         <label className="mb-0.5 block text-[11px] font-medium" style={{ color: "var(--fill-quaternary)" }}>{k}</label>
                         <input value={editValues[k] ?? ""} onChange={(e) => setEditValues((prev) => ({ ...prev, [k]: e.target.value }))}
                           className="w-full rounded-md px-2 py-1.5 text-[12px] font-mono outline-none" style={inputStyle}
-                          placeholder={k.includes("Secret") || k.includes("Key") || k.includes("Token") ? "••••••" : ""} />
+                          placeholder={k.includes("Secret") || k.includes("Key") || k.includes("Token") ? t("channels.secret_placeholder") : ""} />
                       </div>
                     ))}
                     <div className="mt-1 flex items-center gap-2">
                       <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[11px] font-medium disabled:opacity-40" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                        <FloppyDisk size={ICON_SIZE.xs} /> {saving ? "Saving…" : "Save & Reload"}
+                        <FloppyDisk size={ICON_SIZE.xs} /> {saving ? t("channels.saving") : t("channels.save_reload")}
                       </button>
                       {data.hasBackup && (
                         <button onClick={handleRestore} disabled={restoring} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}>
-                          <ArrowCounterClockwise size={ICON_SIZE.xs} /> Restore
+                          <ArrowCounterClockwise size={ICON_SIZE.xs} /> {t("channels.restore")}
                         </button>
                       )}
-                      <button onClick={() => { setEditing(false); setSaveMsg(null); }} className="ml-auto text-[11px] transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}>Cancel</button>
+                      <button onClick={() => { setEditing(false); setSaveMsg(null); }} className="ml-auto text-[11px] transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}>{t("cancel")}</button>
                     </div>
                   </div>
                 ) : configEntries.length > 0 ? (
@@ -2145,7 +2157,7 @@ function ChannelDetailModal({
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-md py-4 text-center text-[11px]" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)", color: "var(--fill-quaternary)" }}>Not configured</div>
+                  <div className="rounded-md py-4 text-center text-[11px]" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)", color: "var(--fill-quaternary)" }}>{t("not_configured")}</div>
                 )}
               </div>
 
@@ -2158,26 +2170,26 @@ function ChannelDetailModal({
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <button className="flex items-center gap-1" onClick={() => setToolsExpanded((v) => !v)} style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}>
-                      <span className="text-[11px] font-medium uppercase tracking-wider">Tools ({data.tools.length})</span>
+                      <span className="text-[11px] font-medium uppercase tracking-wider">{t("tools")} ({data.tools.length})</span>
                       {toolsExpanded ? <CaretUp size={ICON_SIZE.xs} /> : <CaretDown size={ICON_SIZE.xs} />}
                     </button>
                     {toolsExpanded && data.tools.length > 5 && (
                       <div className="flex items-center gap-1 rounded-md px-2 py-1" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
                         <MagnifyingGlass size={ICON_SIZE.xs} style={{ color: "var(--fill-quaternary)" }} />
-                        <input value={toolSearch} onChange={(e) => setToolSearch(e.target.value)} placeholder="Search…" className="w-24 bg-transparent text-[11px] outline-none" style={{ color: "var(--fill-primary)" }} />
+                        <input value={toolSearch} onChange={(e) => setToolSearch(e.target.value)} placeholder={t("channels.search")} className="w-24 bg-transparent text-[11px] outline-none" style={{ color: "var(--fill-primary)" }} />
                       </div>
                     )}
                   </div>
                   {toolsExpanded && (
                     <div className="max-h-[200px] overflow-y-auto rounded-md" style={{ background: "var(--bg-primary)", border: "0.5px solid var(--separator)" }}>
                       {filteredTools.length === 0 ? (
-                        <div className="py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>{toolSearch ? "No matching tools" : "No tools"}</div>
-                      ) : filteredTools.map((t, i) => (
-                        <div key={t.name} className="flex items-start gap-2 px-3 py-2" style={{ borderBottom: i < filteredTools.length - 1 ? "0.5px solid var(--separator)" : undefined }}>
+                        <div className="py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>{toolSearch ? t("channels.no_matching_tools") : t("no_tools")}</div>
+                      ) : filteredTools.map((tool, i) => (
+                        <div key={tool.name} className="flex items-start gap-2 px-3 py-2" style={{ borderBottom: i < filteredTools.length - 1 ? "0.5px solid var(--separator)" : undefined }}>
                           <Terminal size={ICON_SIZE.xs} className="mt-0.5 shrink-0" style={{ color: "var(--fill-quaternary)" }} />
                           <div>
-                            <div className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>{t.name}</div>
-                            {t.description && <div className="mt-0.5 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>{t.description}</div>}
+                            <div className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>{tool.name}</div>
+                            {tool.description && <div className="mt-0.5 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>{tool.description}</div>}
                           </div>
                         </div>
                       ))}
@@ -2190,21 +2202,21 @@ function ChannelDetailModal({
               <div className="flex items-center gap-2 border-t pt-3" style={{ borderColor: "var(--separator)" }}>
                 {connected ? (
                   <button onClick={() => { onDisconnect(channelId); onClose(); }} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--bg-hover)]" style={{ cursor: "pointer", background: "none", border: "none", color: "var(--red)" }}>
-                    <LinkBreak size={ICON_SIZE.xs} /> Disconnect
+                    <LinkBreak size={ICON_SIZE.xs} /> {t("disconnect")}
                   </button>
                 ) : configEntries.length > 0 ? (
                   <button onClick={() => { onConnect(channelId); onClose(); }} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                    <Link size={ICON_SIZE.xs} /> Connect
+                    <Link size={ICON_SIZE.xs} /> {t("connect")}
                   </button>
                 ) : (
                   <button onClick={startEdit} className="flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-medium" style={{ cursor: "pointer", background: "var(--tint)", border: "none", color: "#fff" }}>
-                    <PencilSimple size={ICON_SIZE.xs} /> Configure & Connect
+                    <PencilSimple size={ICON_SIZE.xs} /> {t("channels.configure_connect")}
                   </button>
                 )}
               </div>
             </div>
           ) : (
-            <div className="py-8 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>Failed to load details</div>
+            <div className="py-8 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>{t("failed_load_details")}</div>
           )}
         </div>
       </div>
@@ -2287,14 +2299,14 @@ function PluginRow({
                 className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase"
                 style={{ background: "var(--bg-tertiary)", color: "var(--fill-quaternary)" }}
               >
-                {p.transport === "streamable_http" ? "HTTP" : p.transport.toUpperCase()}
+                {p.transport === "streamable_http" ? t("transport_http") : p.transport.toUpperCase()}
               </span>
             )}
           </div>
           {p.status === "needs_auth" && (
             <div className="mt-0.5 flex items-center gap-1 text-[11px]" style={{ color: "var(--yellow, #D69E2E)" }}>
               <Key size={ICON_SIZE.xs} />
-              <span>{t("needs_auth_hint", "OAuth authentication required")}</span>
+              <span>{t("needs_auth_hint")}</span>
             </div>
           )}
           {p.lastError && p.status !== "needs_auth" && (
@@ -2327,7 +2339,7 @@ function PluginRow({
               ) : (
                 <Key size={ICON_SIZE.xs} weight="fill" />
               )}
-              {t("oauth_login", "Login")}
+              {t("oauth_login")}
             </button>
           )}
           {p.toolCount > 0 && (
@@ -2358,7 +2370,7 @@ function PluginRow({
                 className="rounded-[var(--radius-xs)] p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-[var(--bg-hover)]"
                 style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-quaternary)" }}
                 title={t("remove_server")}
-                aria-label={`Remove ${p.name}`}
+                aria-label={t("removeServer", { name: p.name })}
               >
                 <Trash size={ICON_SIZE.sm} />
               </button>
@@ -2367,8 +2379,8 @@ function PluginRow({
                 disabled={restarting || !p.enabled}
                 className="rounded-[var(--radius-xs)] p-1.5 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-[var(--bg-hover)] disabled:opacity-30"
                 style={{ cursor: "pointer", background: "none", border: "none", color: "var(--fill-tertiary)" }}
-                title="Restart"
-                aria-label={`Restart ${p.name}`}
+                title={t("restart")}
+                aria-label={`${t("restart")} ${p.name}`}
               >
                 <ArrowsClockwise size={ICON_SIZE.sm} className={restarting ? "animate-spin" : ""} />
               </button>
@@ -2378,8 +2390,8 @@ function PluginRow({
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
             className="rounded-[var(--radius-xs)] p-1.5 transition-all duration-200"
             style={{ cursor: "pointer", background: "none", border: "none" }}
-            title={p.enabled ? "Disable" : "Enable"}
-            aria-label={`${p.enabled ? "Disable" : "Enable"} ${p.name}`}
+            title={p.enabled ? t("disable") : t("enable")}
+            aria-label={`${p.enabled ? t("disable") : t("enable")} ${p.name}`}
           >
             {p.enabled ? <ToggleRight size={ICON_SIZE.lg} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={ICON_SIZE.lg} style={{ color: "var(--fill-quaternary)" }} />}
           </button>
@@ -2389,26 +2401,26 @@ function PluginRow({
       {expanded && (
         <div className="px-4 pb-4 pv-fade-in">
           <div className="ml-6 border-l pl-4 pt-1" style={{ borderColor: "var(--separator)" }}>
-            {p.connectedAt && <DetailRow label="Connected" value={new Date(p.connectedAt).toLocaleString()} />}
-            <DetailRow label="Status" value={p.status} />
-            {p.lastError && <DetailRow label="Error" value={p.lastError} isError />}
+            {p.connectedAt && <DetailRow label={t("connected")} value={new Date(p.connectedAt).toLocaleString()} />}
+            <DetailRow label={t("status")} value={p.status} />
+            {p.lastError && <DetailRow label={t("error")} value={p.lastError} isError />}
             {tools && tools.length > 0 && (
               <div className="mt-3">
                 <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
-                  <Wrench size={ICON_SIZE.xs} /> Tools ({tools.length})
+                  <Wrench size={ICON_SIZE.xs} /> {t("tools")} ({tools.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
-                  {tools.map((t) => (
-                    <div key={t.name} className="rounded-[var(--radius-xs)] px-3 py-2" style={{ background: "var(--bg-card)" }}>
-                      <p className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>{t.name}</p>
-                      {t.description && <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--fill-quaternary)" }}>{t.description}</p>}
+                  {tools.map((tool) => (
+                    <div key={tool.name} className="rounded-[var(--radius-xs)] px-3 py-2" style={{ background: "var(--bg-card)" }}>
+                      <p className="text-[12px] font-medium" style={{ color: "var(--fill-primary)" }}>{tool.name}</p>
+                      {tool.description && <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--fill-quaternary)" }}>{tool.description}</p>}
                     </div>
                   ))}
                 </div>
               </div>
             )}
             {tools && tools.length === 0 && (
-              <p className="mt-1 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>No tools available</p>
+              <p className="mt-1 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>{t("no_tools")}</p>
             )}
           </div>
         </div>
@@ -2460,7 +2472,14 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
+const SCOPE_LABEL_KEYS: Record<string, string> = {
+  project: "project",
+  global: "global",
+  user: "scope_user",
+};
+
 function ScopeBadge({ scope }: { scope: string }) {
+  const { t } = useTranslation("plugins");
   return (
     <span
       className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
@@ -2469,7 +2488,7 @@ function ScopeBadge({ scope }: { scope: string }) {
         color: scope === "project" ? "var(--orange, #ED8936)" : "var(--fill-quaternary)",
       }}
     >
-      {scope}
+      {SCOPE_LABEL_KEYS[scope] ? t(SCOPE_LABEL_KEYS[scope]) : scope}
     </span>
   );
 }

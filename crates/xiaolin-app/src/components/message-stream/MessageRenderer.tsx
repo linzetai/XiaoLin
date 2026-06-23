@@ -77,18 +77,18 @@ import type { StreamSegment } from "./types";
 import { useConfigStore } from "../../lib/stores/config-store";
 
 
-function ts(d: Date) {
+function ts(d: Date, locale = "zh-CN") {
   const now = new Date();
   const isToday =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
   if (isToday) {
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) +
+  return d.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" }) +
     " " +
-    d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }: { content: string; sessionId?: string; turnId?: string }) {
@@ -166,7 +166,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
 });
 
 const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onToggleSelect, savedSegments }: { msg: ChatMessage; usage?: ChatUsage; copyable?: boolean; selected?: boolean; onToggleSelect?: () => void; savedSegments?: StreamSegment[] }) {
-  const { t } = useTranslation("chat");
+  const { t, i18n } = useTranslation("chat");
   const toolCalls = msg.toolCalls;
   const aiThreshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
   const fileChangeSummary = useFileChangeSummary(toolCalls, savedSegments);
@@ -202,7 +202,7 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
         <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 mb-1.5" style={{ maxWidth: "var(--content-max-w)" }}>
         <span className="text-[11px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-          {ts(msg.timestamp)}
+          {ts(msg.timestamp, i18n.language)}
         </span>
         {usage && (
           <span
@@ -311,14 +311,15 @@ const AiMessage = memo(function AiMessage({ msg, usage, copyable, selected, onTo
 });
 
 function SystemMsg({ msg }: { msg: ChatMessage }) {
-  const isError = typeof msg.content === "string" && msg.content.startsWith("错误:");
+  const { t } = useTranslation("chat");
+  const isError = typeof msg.content === "string" && (msg.content.startsWith("错误:") || msg.content.startsWith("Error:"));
   const isBudgetReached = msg.metadata?.action === "token_budget_reached";
 
   const handleContinue = useCallback((budget: string) => {
     import("@tauri-apps/api/event").then(({ emit }) => {
-      emit("quick-action-send", { content: `+${budget} 继续完成任务` });
+      emit("quick-action-send", { content: t("budgetContinueMessage", { budget }) });
     });
-  }, []);
+  }, [t]);
 
   if (isBudgetReached) {
     const tokens = msg.metadata?.completionTokens as number | undefined;
@@ -344,17 +345,17 @@ function SystemMsg({ msg }: { msg: ChatMessage }) {
             style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
             onClick={() => handleContinue("5k")}
           >
-            继续 (+5k)
+            {t("budgetContinue", { amount: "5k" })}
           </button>
           <button
             className="px-3 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors"
             style={{ background: "var(--tint)", color: "var(--bg-primary)" }}
             onClick={() => handleContinue("20k")}
           >
-            继续 (+20k)
+            {t("budgetContinue", { amount: "20k" })}
           </button>
           <span className="text-[11px] ml-auto" style={{ color: "var(--fill-tertiary)" }}>
-            已生成 ~{tokens ?? "?"} tokens
+            {t("budgetTokensGenerated", { tokens: tokens ?? "?" })}
           </span>
         </div>
       </div>

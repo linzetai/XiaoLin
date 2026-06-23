@@ -41,6 +41,8 @@
   "disconnect": "Disconnect",
   "global": "Global",
   "project": "Project",
+  "scope_user": "User",
+  "removeServer": "Remove {{name}}",
   "pending_title": "Pending project MCP servers",
   "pending_desc": "These MCP servers are from the project config and need approval before they can be enabled",
   "approve": "Approve",
@@ -132,7 +134,13 @@
     "cancel": "Cancel",
     "submit": "Add & Connect",
     "submitting": "Connecting…",
-    "submit_error": "Failed to add server. Check your config and try again."
+    "submit_error": "Failed to add server. Check your config and try again.",
+    "transport": {
+      "stdio": "Stdio",
+      "sse": "SSE",
+      "streamable_http": "Streamable HTTP",
+      "websocket": "WebSocket"
+    }
   },
   "needs_auth_hint": "OAuth authentication required",
   "oauth_login": "Login",
@@ -141,5 +149,91 @@
     "submit": "Submit",
     "cancel": "Cancel",
     "timeout_hint": "Will auto-close in {{minutes}} minutes"
-  }
+  },
+  "selectSkillFolder": "Select skill folder",
+  "selectSkillZip": "Select skill ZIP file",
+  "skills_sub": {
+    "installed": "Installed",
+    "marketplace": "Marketplace"
+  },
+  "skills": {
+    "filter_skills": "Skills ({{count}})",
+    "filter_tools": "Tools ({{count}})",
+    "search_placeholder": "Search skills…",
+    "no_match": "No skills match your search",
+    "no_installed": "No skills installed",
+    "all_sources": "All ({{count}})",
+    "select_folder": "Select Folder",
+    "select_zip": "Select ZIP",
+    "evolved_title": "Evolved Skills ({{count}})",
+    "evolution_success": "Success: {{rate}}%",
+    "evolution_used": "Used: {{count}}×",
+    "evolution_sessions": "Sessions: {{count}}",
+    "promote": "Promote",
+    "promoting": "Promoting…",
+    "conditional": "conditional",
+    "conditional_title": "Conditional: {{paths}}",
+    "disable_skill": "Disable skill",
+    "enable_skill": "Enable skill",
+    "skill_not_found": "Skill not found",
+    "edit": "Edit",
+    "delete": "Delete",
+    "tags": "Tags:",
+    "tools_colon": "Tools:",
+    "paths": "Paths:",
+    "paths_conditional": "Paths (conditional):",
+    "loading_detail": "Loading…",
+    "marketplace": {
+      "search_placeholder": "Search marketplace skills…",
+      "loading": "Loading marketplace…",
+      "offline": "Marketplace is offline. Showing cached data.",
+      "no_found": "No skills found",
+      "empty": "Marketplace Empty",
+      "try_different": "Try a different search term",
+      "check_back": "Check back later for community skills",
+      "install_failed": "Install failed: {{error}}",
+      "uninstall_failed": "Uninstall failed: {{error}}",
+      "by_author": "by {{author}}",
+      "installing": "Installing…",
+      "removing": "Removing…",
+      "install": "Install",
+      "remove": "Remove",
+      "uninstall": "Uninstall",
+      "tags": "Tags",
+      "repository": "Repository"
+    }
+  },
+  "channels_status": {
+    "disconnected": "Disconnected",
+    "configured": "Configured",
+    "available": "Available"
+  },
+  "channels_cap": {
+    "directMessage": "Direct Message",
+    "groupChat": "Group Chat",
+    "media": "Media",
+    "streaming": "Streaming",
+    "reactions": "Reactions",
+    "threads": "Threads"
+  },
+  "channels": {
+    "saved_reloaded": "Saved & reloaded",
+    "restore_failed": "Restore failed",
+    "restore": "Restore",
+    "saving": "Saving…",
+    "save_reload": "Save & Reload",
+    "edit": "Edit",
+    "configure_connect": "Configure & Connect",
+    "no_matching_tools": "No matching tools",
+    "search": "Search…",
+    "secret_placeholder": "••••••",
+    "qr_code_alt": "WeChat QR Code",
+    "enter_code_placeholder": "Enter code",
+    "cannot_get_qrcode": "Cannot get QR code",
+    "enter_pair_code": "Enter pair code",
+    "poll_failed": "Poll failed",
+    "start_failed": "Start failed",
+    "code_rejected": "Code rejected"
+  },
+  "transport_http": "HTTP"
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   Plus, Clock, Play, Trash, ClockCounterClockwise,
   ToggleLeft, ToggleRight, Robot, Globe, WarningCircle,
@@ -13,6 +14,7 @@ import { CronScheduleHelper } from "./CronScheduleHelper";
 type ViewMode = "list" | "form" | "history";
 
 export function AutomationView() {
+  const { t } = useTranslation("automation");
   const jobs = useAutomationStore((s) => s.jobs);
   const loading = useAutomationStore((s) => s.loading);
   const loadJobs = useAutomationStore((s) => s.loadJobs);
@@ -86,15 +88,15 @@ export function AutomationView() {
                     onClick={() => navigateTo("list")}
                     className="flex items-center gap-1 rounded-[var(--radius-xs)] py-1 pr-1.5 pl-0.5 transition-colors duration-150 hover:bg-[var(--bg-hover)]"
                     style={{ color: "var(--fill-tertiary)", cursor: "pointer", background: "none", border: "none" }}
-                    aria-label="Back to list"
+                    aria-label={t("backToList")}
                   >
                     <CaretLeft size={16} />
-                    <span className="text-[12px]">Back</span>
+                    <span className="text-[12px]">{t("back")}</span>
                   </button>
                 ) : (
                   <div className="flex items-center gap-2.5">
                     <Lightning size={18} style={{ color: "var(--tint)" }} />
-                    <h1 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--fill-primary)" }}>Automations</h1>
+                    <h1 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--fill-primary)" }}>{t("title")}</h1>
                     {jobs.length > 0 && (
                       <span
                         className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
@@ -107,11 +109,11 @@ export function AutomationView() {
                 )}
                 {view === "form" && (
                   <span className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>
-                    {editingJob ? "Edit Automation" : "New Automation"}
+                    {editingJob ? t("editAutomation") : t("newAutomation")}
                   </span>
                 )}
                 {view === "history" && (
-                  <span className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>Run History</span>
+                  <span className="text-[15px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("runHistory")}</span>
                 )}
               </div>
               {view === "list" && jobs.length > 0 && (
@@ -120,7 +122,7 @@ export function AutomationView() {
                   className="flex items-center gap-1.5 rounded-[var(--radius-sm)] px-4 py-2 text-[13px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
                   style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
                 >
-                  <Plus size={14} /> New
+                  <Plus size={14} /> {t("new")}
                 </button>
               )}
             </div>
@@ -157,7 +159,7 @@ export function AutomationView() {
 
       {/* Delete confirmation portal */}
       {deleteTarget && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label="Confirm deletion">
+        <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t("confirmDeletion")}>
           <div
             className="absolute inset-0 av-backdrop-enter"
             style={{ background: "rgba(0,0,0,0.18)", backdropFilter: "blur(6px)" }}
@@ -171,10 +173,10 @@ export function AutomationView() {
               <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ background: "color-mix(in srgb, var(--red, #E53E3E) 8%, transparent)" }}>
                 <WarningCircle size={15} style={{ color: "var(--red, #E53E3E)" }} />
               </div>
-              <span className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>Delete Automation</span>
+              <span className="text-[14px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("deleteAutomation")}</span>
             </div>
             <p className="mb-5 text-[13px] leading-relaxed" style={{ color: "var(--fill-secondary)" }}>
-              Are you sure you want to delete <strong>&ldquo;{deleteTarget.name}&rdquo;</strong>? All run history will be lost.
+              {t("deleteConfirmMessage", { name: deleteTarget.name })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -182,14 +184,14 @@ export function AutomationView() {
                 className="rounded-[var(--radius-xs)] px-4 py-2 text-[13px] font-medium transition-colors duration-150 hover:bg-[var(--bg-hover)]"
                 style={{ color: "var(--fill-secondary)", cursor: "pointer", background: "none", border: "none" }}
               >
-                Cancel
+                {t("cancel")}
               </button>
               <button
                 onClick={handleDeleteConfirm}
                 className="rounded-[var(--radius-xs)] px-4 py-2 text-[13px] font-medium text-white transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
                 style={{ background: "var(--red, #E53E3E)", cursor: "pointer", border: "none" }}
               >
-                Delete
+                {t("delete")}
               </button>
             </div>
           </div>
@@ -224,11 +226,13 @@ function JobList({
   onToggle: (j: CronJob) => void;
   onRunNow: (j: CronJob) => void;
 }) {
+  const { t } = useTranslation("automation");
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 av-fade-in">
         <SpinnerGap size={22} className="animate-spin" style={{ color: "var(--fill-quaternary)" }} />
-        <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>Loading automations…</p>
+        <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>{t("loading")}</p>
       </div>
     );
   }
@@ -243,9 +247,9 @@ function JobList({
           <Calendar size={28} style={{ color: "var(--tint)", opacity: 0.8 }} />
         </div>
         <div className="text-center">
-          <p className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>No automations yet</p>
+          <p className="text-[16px] font-semibold" style={{ color: "var(--fill-primary)" }}>{t("emptyTitle")}</p>
           <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--fill-quaternary)", maxWidth: 320 }}>
-            Schedule recurring tasks to run automatically — like daily reports, health checks, or data syncs.
+            {t("emptyDescription")}
           </p>
         </div>
         <button
@@ -253,7 +257,7 @@ function JobList({
           className="mt-2 flex items-center gap-1.5 rounded-[var(--radius-sm)] px-5 py-2.5 text-[13px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
           style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
         >
-          <Plus size={14} /> Create automation
+          <Plus size={14} /> {t("createAutomation")}
         </button>
       </div>
     );
@@ -296,10 +300,10 @@ function JobList({
             <div className="mt-1 flex items-center gap-3 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
               <span className="flex items-center gap-1">
                 <Clock size={10} />
-                {cronToHuman(job.schedule)}
+                {cronToHuman(job.schedule, t)}
               </span>
               {job.last_run && (
-                <span>Last run {relativeTime(job.last_run)}</span>
+                <span>{t("lastRun", { time: relativeTime(job.last_run, t) })}</span>
               )}
             </div>
           </div>
@@ -307,25 +311,25 @@ function JobList({
           <div className="flex shrink-0 items-center gap-1">
             <IconBtn
               icon={<Play size={13} style={{ color: "var(--tint)" }} />}
-              title="Run now"
+              title={t("runNow")}
               onClick={(e) => { e.stopPropagation(); onRunNow(job); }}
               className="opacity-60 group-hover:opacity-100"
             />
             <IconBtn
               icon={job.enabled ? <ToggleRight size={15} style={{ color: "var(--green, #38A169)" }} /> : <ToggleLeft size={15} style={{ color: "var(--fill-quaternary)" }} />}
-              title={job.enabled ? "Pause" : "Enable"}
+              title={job.enabled ? t("pause") : t("enable")}
               onClick={(e) => { e.stopPropagation(); onToggle(job); }}
               className="opacity-60 group-hover:opacity-100"
             />
             <IconBtn
               icon={<ClockCounterClockwise size={13} style={{ color: "var(--fill-tertiary)" }} />}
-              title="Run history"
+              title={t("runHistoryAction")}
               onClick={(e) => { e.stopPropagation(); onHistory(job); }}
               className="opacity-0 group-hover:opacity-100"
             />
             <IconBtn
               icon={<Trash size={13} style={{ color: "var(--red, #E53E3E)" }} />}
-              title="Delete"
+              title={t("delete")}
               onClick={(e) => { e.stopPropagation(); onDelete(job); }}
               className="opacity-0 group-hover:opacity-100"
             />
@@ -353,6 +357,7 @@ function JobForm({
   onSubmit: (data: AutoFormData) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("automation");
   const [name, setName] = useState(initial?.name ?? "");
   const [schedule, setSchedule] = useState(initial?.schedule ?? "0 9 * * *");
   const [actionType, setActionType] = useState<"agent_chat" | "webhook">(
@@ -395,10 +400,10 @@ function JobForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <fieldset disabled={submitting} className="flex flex-col gap-6">
-        <FormSection title="Basic info">
+        <FormSection title={t("basicInfo")}>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Name</span>
-            <input ref={nameRef} type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily health check" required className={inputCls} style={inputStyle} />
+            <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("name")}</span>
+            <input ref={nameRef} type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("namePlaceholder")} required className={inputCls} style={inputStyle} />
           </label>
           <label className="flex items-center gap-2.5 cursor-pointer select-none">
             <button type="button" role="switch" aria-checked={enabled} onClick={() => setEnabled(!enabled)}
@@ -408,27 +413,27 @@ function JobForm({
               <span className="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200" style={{ transform: enabled ? "translateX(20px)" : "translateX(3px)" }} />
             </button>
             <span className="text-[13px]" style={{ color: enabled ? "var(--fill-primary)" : "var(--fill-quaternary)" }}>
-              {enabled ? "Enabled" : "Paused"}
+              {enabled ? t("enabled") : t("paused")}
             </span>
           </label>
         </FormSection>
 
-        <FormSection title="Schedule">
+        <FormSection title={t("schedule")}>
           <CronScheduleHelper value={schedule} onChange={setSchedule} />
         </FormSection>
 
-        <FormSection title="Action">
+        <FormSection title={t("action")}>
           <div className="flex gap-2">
-            {(["agent_chat", "webhook"] as const).map((t) => {
-              const active = actionType === t;
-              const tint = t === "agent_chat" ? "var(--tint)" : "var(--orange, #ED8936)";
+            {(["agent_chat", "webhook"] as const).map((actionKey) => {
+              const active = actionType === actionKey;
+              const tint = actionKey === "agent_chat" ? "var(--tint)" : "var(--orange, #ED8936)";
               return (
-                <button key={t} type="button" onClick={() => setActionType(t)}
+                <button key={actionKey} type="button" onClick={() => setActionType(actionKey)}
                   className="flex items-center gap-1.5 rounded-[var(--radius-xs)] px-3.5 py-2 text-[12px] font-medium transition-all duration-150 active:scale-[0.97]"
                   style={{ background: active ? `color-mix(in srgb, ${tint} 10%, transparent)` : "var(--bg-card)", color: active ? tint : "var(--fill-secondary)", border: `1px solid ${active ? tint : "var(--separator)"}`, cursor: "pointer" }}
                 >
-                  {t === "agent_chat" ? <Robot size={13} /> : <Globe size={13} />}
-                  {t === "agent_chat" ? "Agent Chat" : "Webhook"}
+                  {actionKey === "agent_chat" ? <Robot size={13} /> : <Globe size={13} />}
+                  {actionKey === "agent_chat" ? t("agentChat") : t("webhook")}
                 </button>
               );
             })}
@@ -436,25 +441,25 @@ function JobForm({
 
           {actionType === "agent_chat" ? (
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Prompt</span>
-              <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Describe the task the agent should perform..." required rows={4} className={`${inputCls} resize-none`} style={inputStyle} />
+              <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("prompt")}</span>
+              <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("promptPlaceholder")} required rows={4} className={`${inputCls} resize-none`} style={inputStyle} />
             </label>
           ) : (
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>Webhook URL</span>
-              <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://example.com/webhook" required className={inputCls} style={inputStyle} />
+              <span className="text-[12px] font-medium" style={{ color: "var(--fill-tertiary)" }}>{t("webhookUrl")}</span>
+              <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder={t("webhookUrlPlaceholder")} required className={inputCls} style={inputStyle} />
             </label>
           )}
         </FormSection>
 
         {actionType === "agent_chat" && (
-          <FormSection title="Workspace">
+          <FormSection title={t("workspace")}>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={workDir}
                 onChange={(e) => setWorkDir(e.target.value)}
-                placeholder="Working directory (optional)"
+                placeholder={t("workDirPlaceholder")}
                 className={`${inputCls} flex-1`}
                 style={inputStyle}
               />
@@ -466,19 +471,19 @@ function JobForm({
                     const selected = await tauriOpen({ directory: true, multiple: false, defaultPath: workDir || undefined }) as string | null;
                     if (selected) setWorkDir(selected);
                   } catch {
-                    const selected = prompt("Enter working directory:", workDir);
+                    const selected = prompt(t("enterWorkDir"), workDir);
                     if (selected) setWorkDir(selected);
                   }
                 }}
                 className="flex shrink-0 items-center justify-center rounded-[var(--radius-xs)] p-2.5 transition-colors duration-150 hover:bg-[var(--bg-hover)]"
                 style={{ background: "var(--bg-card)", border: "1px solid var(--separator)", cursor: "pointer", color: "var(--fill-tertiary)" }}
-                title="Browse directory"
+                title={t("browseDirectory")}
               >
                 <FolderOpen size={14} />
               </button>
             </div>
             <p className="text-[11px] leading-relaxed" style={{ color: "var(--fill-quaternary)" }}>
-              The directory where the agent will execute commands. Leave empty for default.
+              {t("workDirHint")}
             </p>
           </FormSection>
         )}
@@ -488,13 +493,13 @@ function JobForm({
         <button type="button" onClick={onCancel} disabled={submitting}
           className="rounded-[var(--radius-xs)] px-4 py-2 text-[13px] font-medium transition-colors duration-150 hover:bg-[var(--bg-hover)]"
           style={{ color: "var(--fill-secondary)", cursor: "pointer", background: "none", border: "none" }}
-        >Cancel</button>
+        >{t("cancel")}</button>
         <button type="submit" disabled={submitting}
           className="flex items-center gap-1.5 rounded-[var(--radius-xs)] px-5 py-2 text-[13px] font-semibold text-white transition-all duration-150 disabled:opacity-50 hover:brightness-110 active:scale-[0.97]"
           style={{ background: "var(--tint)", cursor: "pointer", border: "none" }}
         >
           {submitting && <SpinnerGap size={13} className="animate-spin" />}
-          {initial ? "Save changes" : "Create"}
+          {initial ? t("saveChanges") : t("create")}
         </button>
       </div>
     </form>
@@ -518,12 +523,14 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 /* ─── Job History ─── */
 
 function JobHistory({ jobId, jobName, runs }: { jobId: string | null; jobName: string; runs: CronJobRun[] }) {
+  const { t } = useTranslation("automation");
+
   if (!jobId) return null;
 
   return (
     <div>
       <div className="mb-5 flex items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "var(--fill-quaternary)" }}>History</span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "var(--fill-quaternary)" }}>{t("history")}</span>
         <span style={{ color: "var(--separator)" }}>|</span>
         <span className="truncate text-[13px] font-medium" style={{ color: "var(--fill-secondary)" }}>{jobName}</span>
       </div>
@@ -532,9 +539,9 @@ function JobHistory({ jobId, jobName, runs }: { jobId: string | null; jobName: s
           <div className="av-float flex h-12 w-12 items-center justify-center rounded-[12px]" style={{ background: "var(--bg-primary)" }}>
             <Play size={20} style={{ color: "var(--fill-quaternary)" }} />
           </div>
-          <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>No runs yet</p>
+          <p className="text-[13px]" style={{ color: "var(--fill-quaternary)" }}>{t("noRunsYet")}</p>
           <p className="text-[11px] text-center leading-relaxed" style={{ color: "var(--fill-quaternary)", maxWidth: 260 }}>
-            This automation hasn&apos;t triggered yet. Runs will appear here once it executes.
+            {t("noRunsDescription")}
           </p>
         </div>
       ) : (
@@ -549,7 +556,7 @@ function JobHistory({ jobId, jobName, runs }: { jobId: string | null; jobName: s
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--fill-primary)" }}>
                   <span className="tabular-nums">{new Date(run.started_at).toLocaleString()}</span>
-                  {run.ended_at && <span className="tabular-nums" style={{ color: "var(--fill-quaternary)" }}>{fmtDuration(new Date(run.started_at), new Date(run.ended_at))}</span>}
+                  {run.ended_at && <span className="tabular-nums" style={{ color: "var(--fill-quaternary)" }}>{fmtDuration(new Date(run.started_at), new Date(run.ended_at), t)}</span>}
                 </div>
                 {run.error && <div className="mt-0.5 truncate text-[11px]" style={{ color: "var(--red, #E53E3E)" }}>{run.error}</div>}
                 {run.output && !run.error && <div className="mt-0.5 truncate text-[11px]" style={{ color: "var(--fill-quaternary)" }}>{run.output}</div>}
@@ -580,17 +587,18 @@ function IconBtn({ icon, title, onClick, className = "" }: { icon: React.ReactNo
 }
 
 function StatusPill({ status }: { status: "active" | "failed" | "paused" }) {
+  const { t } = useTranslation("automation");
   const c = {
-    active: { bg: "color-mix(in srgb, var(--green, #38A169) 10%, transparent)", fg: "var(--green, #38A169)" },
-    failed: { bg: "color-mix(in srgb, var(--red, #E53E3E) 10%, transparent)", fg: "var(--red, #E53E3E)" },
-    paused: { bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" },
+    active: { bg: "color-mix(in srgb, var(--green, #38A169) 10%, transparent)", fg: "var(--green, #38A169)", label: t("statusActive") },
+    failed: { bg: "color-mix(in srgb, var(--red, #E53E3E) 10%, transparent)", fg: "var(--red, #E53E3E)", label: t("statusFailed") },
+    paused: { bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)", label: t("statusPaused") },
   }[status];
   return (
     <span
       className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
       style={{ background: c.bg, color: c.fg }}
     >
-      {status}
+      {c.label}
     </span>
   );
 }
@@ -607,32 +615,35 @@ function RunDot({ status }: { status: string }) {
 }
 
 function RunPill({ status }: { status: string }) {
-  const m: Record<string, { bg: string; fg: string }> = {
-    completed: { bg: "color-mix(in srgb, var(--green, #38A169) 8%, transparent)", fg: "var(--green, #38A169)" },
-    ok: { bg: "color-mix(in srgb, var(--green, #38A169) 8%, transparent)", fg: "var(--green, #38A169)" },
-    running: { bg: "color-mix(in srgb, var(--orange, #ED8936) 8%, transparent)", fg: "var(--orange, #ED8936)" },
-    failed: { bg: "color-mix(in srgb, var(--red, #E53E3E) 8%, transparent)", fg: "var(--red, #E53E3E)" },
+  const { t } = useTranslation("automation");
+  const m: Record<string, { bg: string; fg: string; label: string }> = {
+    completed: { bg: "color-mix(in srgb, var(--green, #38A169) 8%, transparent)", fg: "var(--green, #38A169)", label: t("runStatusOk") },
+    ok: { bg: "color-mix(in srgb, var(--green, #38A169) 8%, transparent)", fg: "var(--green, #38A169)", label: t("runStatusOk") },
+    running: { bg: "color-mix(in srgb, var(--orange, #ED8936) 8%, transparent)", fg: "var(--orange, #ED8936)", label: t("runStatusRunning") },
+    failed: { bg: "color-mix(in srgb, var(--red, #E53E3E) 8%, transparent)", fg: "var(--red, #E53E3E)", label: t("runStatusFailed") },
   };
-  const c = m[status] ?? { bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)" };
-  return <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide" style={{ background: c.bg, color: c.fg }}>{status === "completed" ? "ok" : status}</span>;
+  const c = m[status] ?? { bg: "var(--bg-tertiary)", fg: "var(--fill-quaternary)", label: status };
+  return <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide" style={{ background: c.bg, color: c.fg }}>{c.label}</span>;
 }
 
-function relativeTime(iso: string): string {
+type AutoTr = (key: string, opts?: Record<string, unknown>) => string;
+
+function relativeTime(iso: string, tr: AutoTr): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return tr("justNow");
+  if (mins < 60) return tr("minutesAgo", { count: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return tr("hoursAgo", { count: hours });
+  return tr("daysAgo", { count: Math.floor(hours / 24) });
 }
 
-function fmtDuration(start: Date, end: Date): string {
+function fmtDuration(start: Date, end: Date, tr: AutoTr): string {
   const ms = end.getTime() - start.getTime();
-  if (ms < 1000) return `${ms}ms`;
+  if (ms < 1000) return tr("durationMs", { count: ms });
   const secs = Math.round(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  if (secs < 60) return tr("durationSec", { count: secs });
+  return tr("durationMinSec", { min: Math.floor(secs / 60), sec: secs % 60 });
 }
 
 /* ─── Animation CSS ─── */
