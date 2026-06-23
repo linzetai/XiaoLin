@@ -216,7 +216,14 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
       const ids = Object.keys(rest);
       const nextActive =
         s.activePageId === pageId ? (ids[0] ?? null) : s.activePageId;
-      return { pages: rest, activePageId: nextActive };
+      return {
+        pages: rest,
+        activePageId: nextActive,
+        agentOperations: s.agentOperations.filter((op) => op.pageId !== pageId),
+        downloads: s.downloads.filter(
+          (d) => d.pageId !== pageId || d.status !== "downloading",
+        ),
+      };
     });
     await get().showActivePage();
   },
@@ -479,7 +486,11 @@ export async function initBrowserEvents(): Promise<void> {
         const { [pageId]: _, ...rest } = s.pages;
         const ids = Object.keys(rest);
         const nextActive = s.activePageId === pageId ? (ids[0] ?? null) : s.activePageId;
-        return { pages: rest, activePageId: nextActive };
+        return {
+          pages: rest,
+          activePageId: nextActive,
+          agentOperations: s.agentOperations.filter((op) => op.pageId !== pageId),
+        };
       });
       void useBrowserStore.getState().showActivePage();
     }),

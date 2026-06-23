@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use gtk::glib::object::ObjectExt;
 
+use crate::browser_network::WebviewProxySetting;
+
 thread_local! {
     static FIXED: RefCell<Option<gtk::Fixed>> = RefCell::new(None);
     static MAIN_WV: RefCell<Option<gtk::Widget>> = RefCell::new(None);
@@ -210,69 +212,101 @@ pub fn configure_webview_cookies(label: &str, data_dir: &Path) {
 ///
 /// Must be called on the GTK main thread.
 pub fn configure_webview_proxy(label: &str, proxy_url: &str) {
+    reapply_webview_proxy(label, &WebviewProxySetting::Custom(proxy_url.to_string()));
+}
+
+/// Apply or clear WebView proxy settings (hot-reconfig after network settings change).
+///
+/// Must be called on the GTK main thread.
+pub(crate) fn reapply_webview_proxy(label: &str, setting: &WebviewProxySetting) {
     use std::ffi::CString;
+
+    const PROXY_MODE_DEFAULT: u32 = 0;
+    const PROXY_MODE_NO_PROXY: u32 = 1;
+    const PROXY_MODE_CUSTOM: u32 = 2;
 
     CHILD_WIDGETS.with(|widgets| {
         let widgets = widgets.borrow();
         let Some(widget) = widgets.get(label) else {
-            tracing::error!(label, "configure_webview_proxy: widget not found");
+            tracing::error!(label, "reapply_webview_proxy: widget not found");
             return;
         };
 
         let Some(webview) = widget.downcast_ref::<webkit2gtk::WebView>() else {
-            tracing::error!(label, "configure_webview_proxy: downcast failed");
+            tracing::error!(label, "reapply_webview_proxy: downcast failed");
             return;
-        };
-
-        let proxy_c = match CString::new(proxy_url) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "configure_webview_proxy: invalid proxy URL");
-                return;
-            }
         };
 
         unsafe {
             let wv_ptr = webview.as_ptr() as *mut std::ffi::c_void;
             let ctx_ptr = ffi_webkit::webkit_web_view_get_context(wv_ptr);
             if ctx_ptr.is_null() {
-                tracing::error!(label, "configure_webview_proxy: null WebContext");
+                tracing::error!(label, "reapply_webview_proxy: null WebContext");
                 return;
             }
 
             let dm_ptr = ffi_webkit::webkit_web_context_get_website_data_manager(ctx_ptr);
             if dm_ptr.is_null() {
-                tracing::error!(label, "configure_webview_proxy: null WebsiteDataManager");
+                tracing::error!(label, "reapply_webview_proxy: null WebsiteDataManager");
                 return;
             }
 
-            let ignore_localhost = [
-                CString::new("localhost").unwrap(),
-                CString::new("127.0.0.1").unwrap(),
-                CString::new("::1").unwrap(),
-            ];
-            let ignore_ptrs: Vec<*const std::ffi::c_char> =
-                ignore_localhost.iter().map(|s| s.as_ptr()).chain(std::iter::once(std::ptr::null())).collect();
-            let settings_ptr = ffi_webkit::webkit_network_proxy_settings_new(
-                proxy_c.as_ptr(),
-                ignore_ptrs.as_ptr(),
-            );
-            if settings_ptr.is_null() {
-                tracing::error!(label, "configure_webview_proxy: failed to create proxy settings");
-                return;
+            match setting {
+                WebviewProxySetting::Direct => {
+                    ffi_webkit::webkit_website_data_manager_set_network_proxy_settings(
+                        dm_ptr,
+                        PROXY_MODE_NO_PROXY,
+                        std::ptr::null_mut(),
+                    );
+                    tracing::info!(label, "reapply_webview_proxy: direct (no proxy)");
+                }
+                WebviewProxySetting::System => {
+                    ffi_webkit::webkit_website_data_manager_set_network_proxy_settings(
+                        dm_ptr,
+                        PROXY_MODE_DEFAULT,
+                        std::ptr::null_mut(),
+                    );
+                    tracing::info!(label, "reapply_webview_proxy: system proxy");
+                }
+                WebviewProxySetting::Custom(proxy_url) => {
+                    let proxy_c = match CString::new(proxy_url.as_str()) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!(error = %e, label, "reapply_webview_proxy: invalid proxy URL");
+                            return;
+                        }
+                    };
+
+                    let ignore_localhost = [
+                        CString::new("localhost").unwrap(),
+                        CString::new("127.0.0.1").unwrap(),
+                        CString::new("::1").unwrap(),
+                    ];
+                    let ignore_ptrs: Vec<*const std::ffi::c_char> = ignore_localhost
+                        .iter()
+                        .map(|s| s.as_ptr())
+                        .chain(std::iter::once(std::ptr::null()))
+                        .collect();
+                    let settings_ptr = ffi_webkit::webkit_network_proxy_settings_new(
+                        proxy_c.as_ptr(),
+                        ignore_ptrs.as_ptr(),
+                    );
+                    if settings_ptr.is_null() {
+                        tracing::error!(label, "reapply_webview_proxy: failed to create proxy settings");
+                        return;
+                    }
+
+                    ffi_webkit::webkit_website_data_manager_set_network_proxy_settings(
+                        dm_ptr,
+                        PROXY_MODE_CUSTOM,
+                        settings_ptr,
+                    );
+
+                    ffi_webkit::webkit_network_proxy_settings_free(settings_ptr);
+                    tracing::info!(label, proxy_url, "reapply_webview_proxy: custom proxy set");
+                }
             }
-
-            // WEBKIT_NETWORK_PROXY_MODE_CUSTOM = 2
-            ffi_webkit::webkit_website_data_manager_set_network_proxy_settings(
-                dm_ptr,
-                2,
-                settings_ptr,
-            );
-
-            ffi_webkit::webkit_network_proxy_settings_free(settings_ptr);
         }
-
-        tracing::info!(label, proxy_url, "configure_webview_proxy: FFI proxy set AFTER cookies");
     });
 }
 

@@ -1148,6 +1148,16 @@
 - **建议**：在打开 HTML 对话框/modal 时，必须先隐藏原生 WebView
 - **修复记录**：2026-06-23 在 BrowserPanelBody 中添加 useEffect 监听 networkSettingsOpen，打开时 hideAllPages()、关闭时 showActivePage()
 
+#### BUG-E2E-13 🔴 网络代理配置变更后已有 WebView 不热更新
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/browser_network.rs` L157-169
+- **关联文件**：`crates/xiaolin-app/src-tauri/src/browser_gtk.rs`（`reapply_webview_proxy`）、`crates/xiaolin-app/src-tauri/src/browser_panel.rs`（`webview_labels`）
+- **问题**：用户在 BrowserNetworkSettings 修改代理/host mapping 后，内置代理（`NetworkProxyState`）已热更新，但 WebView 侧代理仅在 `create_browser_page` 时通过 `configure_webview_proxy` 设置。Linux 上每个 browser 子 WebView 有独立 WebContext，已有页面继续使用旧代理。
+- **影响**：已打开的浏览器 tab 在修改代理模式或自定义代理 URL 后仍走旧路由，需关闭重开才能生效
+- **修复方案**：`apply_config` 完成后遍历 `BrowserPanelState` 中所有 webview label，在 GTK 主线程对每个调用 `reapply_webview_proxy`（支持 Direct/System/Custom 三种模式）
+- **修复记录**：2026-06-23 apply_config 后 reconfigure_open_webview_proxies + browser_gtk reapply_webview_proxy
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

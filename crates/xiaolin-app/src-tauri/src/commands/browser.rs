@@ -415,9 +415,9 @@ fn create_browser_webview_inner(
     // then navigate to the target URL.
     #[cfg(target_os = "linux")]
     {
-        let proxy_url_for_gtk = app
+        let proxy_setting_for_gtk = app
             .try_state::<BrowserNetworkState>()
-            .and_then(|ns| ns.manager().webview_proxy_url_sync());
+            .map(|ns| ns.manager().webview_proxy_setting_sync());
 
         let (tx, rx) = std::sync::mpsc::channel();
         let window_clone = window.clone();
@@ -430,8 +430,8 @@ fn create_browser_webview_inner(
                     crate::browser_gtk::reparent_child_webview(&vbox, &label_for_gtk);
                     crate::browser_gtk::configure_webview_cookies(&label_for_gtk, &data_dir);
                     crate::browser_gtk::configure_webview_cors(&label_for_gtk);
-                    if let Some(ref proxy) = proxy_url_for_gtk {
-                        crate::browser_gtk::configure_webview_proxy(&label_for_gtk, proxy);
+                    if let Some(setting) = proxy_setting_for_gtk {
+                        crate::browser_gtk::reapply_webview_proxy(&label_for_gtk, &setting);
                     }
                 }
                 let _ = tx.send(());

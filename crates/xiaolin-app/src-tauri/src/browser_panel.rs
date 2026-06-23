@@ -148,6 +148,13 @@ impl BrowserPanelManager {
         self.pages.values().map(BrowserPage::to_info).collect()
     }
 
+    pub fn webview_labels(&self) -> Vec<String> {
+        self.pages
+            .values()
+            .map(|page| page.webview_label.clone())
+            .collect()
+    }
+
     pub fn set_active(&mut self, page_id: &str) -> Result<(), String> {
         if !self.pages.contains_key(page_id) {
             return Err("page not found".into());

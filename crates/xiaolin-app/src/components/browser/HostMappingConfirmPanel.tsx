@@ -132,7 +132,7 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
           <div className="mb-3 rounded-md text-[12px]" style={{ background: "var(--bg-secondary)" }}>
             {request.mappings.map((m, i) => (
               <div
-                key={i}
+                key={`${m.pattern}-${m.targetIp}`}
                 className="flex items-center gap-2 px-3 py-2"
                 style={{
                   borderBottom:

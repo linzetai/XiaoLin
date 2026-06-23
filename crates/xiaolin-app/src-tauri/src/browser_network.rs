@@ -14,6 +14,8 @@ use xiaolin_network_proxy::{
     NetworkProxyBuilder, NetworkProxyHandle, NetworkProxySettings, NetworkProxyState, load_config,
     save_config,
 };
+
+use crate::browser_panel::BrowserPanelState;
 use xiaolin_tools_browser::{broadcast_network_event, BrowserNetworkBridge};
 
 const CONFIRM_TIMEOUT_SECS: u64 = 30;
@@ -63,6 +65,7 @@ pub struct BrowserNetworkManager {
     proxy_state: Arc<NetworkProxyState>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     cached_webview_proxy: Arc<std::sync::RwLock<Option<String>>>,
+    cached_webview_proxy_setting: Arc<std::sync::RwLock<WebviewProxySetting>>,
     app: AppHandle,
 }
 
@@ -96,6 +99,8 @@ impl BrowserNetworkManager {
         );
 
         let cached_webview_proxy = Arc::new(std::sync::RwLock::new(None));
+        let cached_webview_proxy_setting =
+            Arc::new(std::sync::RwLock::new(WebviewProxySetting::Direct));
         let manager = Self {
             config: Arc::new(RwLock::new(config.clone())),
             proxy,
@@ -103,6 +108,7 @@ impl BrowserNetworkManager {
             proxy_state,
             pending: Arc::new(Mutex::new(HashMap::new())),
             cached_webview_proxy,
+            cached_webview_proxy_setting,
             app,
         };
         manager.update_proxy_cache(&config);
@@ -110,14 +116,25 @@ impl BrowserNetworkManager {
     }
 
     fn update_proxy_cache(&self, cfg: &BrowserNetworkConfig) {
-        let url = webview_proxy_for_mode(cfg, &self.proxy.http_proxy_url());
+        let setting = webview_proxy_setting(cfg, &self.proxy.http_proxy_url());
         if let Ok(mut guard) = self.cached_webview_proxy.write() {
-            *guard = url;
+            *guard = setting.proxy_url();
+        }
+        if let Ok(mut guard) = self.cached_webview_proxy_setting.write() {
+            *guard = setting;
         }
     }
 
     pub fn webview_proxy_url_sync(&self) -> Option<String> {
         self.cached_webview_proxy.read().ok().and_then(|g| g.clone())
+    }
+
+    pub(crate) fn webview_proxy_setting_sync(&self) -> WebviewProxySetting {
+        self.cached_webview_proxy_setting
+            .read()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or(WebviewProxySetting::Direct)
     }
 
     pub fn proxy_http_url(&self) -> String {
@@ -163,7 +180,8 @@ impl BrowserNetworkManager {
             .replace_upstream_proxy_url(config.upstream_proxy_url.clone())
             .await;
         self.update_proxy_cache(&config);
-        *self.config.write().await = config;
+        *self.config.write().await = config.clone();
+        reconfigure_open_webview_proxies(&self.app, &config, &self.proxy.http_proxy_url());
         let _ = self.app.emit("browser-network-config-changed", ());
         Ok(())
     }
@@ -213,10 +231,105 @@ impl BrowserNetworkManager {
 }
 
 fn webview_proxy_for_mode(cfg: &BrowserNetworkConfig, xiaolin_url: &str) -> Option<String> {
+    webview_proxy_setting(cfg, xiaolin_url).proxy_url()
+}
+
+/// WebView-side proxy mode (distinct from built-in XiaoLin proxy host mappings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WebviewProxySetting {
+    /// Direct connection — no WebView proxy.
+    Direct,
+    /// Follow OS / environment proxy settings.
+    System,
+    /// Route through the given proxy URL.
+    Custom(String),
+}
+
+impl WebviewProxySetting {
+    pub fn proxy_url(&self) -> Option<String> {
+        match self {
+            Self::Custom(url) => Some(url.clone()),
+            Self::Direct | Self::System => None,
+        }
+    }
+}
+
+fn webview_proxy_setting(cfg: &BrowserNetworkConfig, xiaolin_url: &str) -> WebviewProxySetting {
     match cfg.proxy_mode {
-        BrowserProxyMode::None | BrowserProxyMode::System => None,
-        BrowserProxyMode::Custom => cfg.custom_proxy_url.clone(),
-        BrowserProxyMode::XiaolinProxy => Some(xiaolin_url.to_string()),
+        BrowserProxyMode::None => WebviewProxySetting::Direct,
+        BrowserProxyMode::System => WebviewProxySetting::System,
+        BrowserProxyMode::Custom => cfg
+            .custom_proxy_url
+            .clone()
+            .map(WebviewProxySetting::Custom)
+            .unwrap_or(WebviewProxySetting::Direct),
+        BrowserProxyMode::XiaolinProxy => {
+            WebviewProxySetting::Custom(xiaolin_url.to_string())
+        }
+    }
+}
+
+/// Re-apply WebView proxy settings to every open browser page after network config changes.
+fn reconfigure_open_webview_proxies(
+    app: &AppHandle,
+    cfg: &BrowserNetworkConfig,
+    xiaolin_url: &str,
+) {
+    let setting = webview_proxy_setting(cfg, xiaolin_url);
+    let labels: Vec<String> = match app.try_state::<BrowserPanelState>() {
+        Some(state) => match state.0.lock() {
+            Ok(guard) => guard.webview_labels(),
+            Err(e) => {
+                tracing::warn!(error = %e, "reconfigure webview proxy: browser panel lock poisoned");
+                return;
+            }
+        },
+        None => return,
+    };
+
+    if labels.is_empty() {
+        return;
+    }
+
+    let page_count = labels.len();
+    let setting_for_log = setting.clone();
+
+    #[cfg(target_os = "linux")]
+    {
+        let Some(window) = app.get_window("main") else {
+            tracing::warn!("reconfigure webview proxy: main window not found");
+            return;
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        if window
+            .run_on_main_thread(move || {
+                for label in &labels {
+                    crate::browser_gtk::reapply_webview_proxy(label, &setting);
+                }
+                let _ = tx.send(());
+            })
+            .is_err()
+        {
+            tracing::warn!("reconfigure webview proxy: failed to dispatch GTK main thread");
+            return;
+        }
+        if rx.recv().is_err() {
+            tracing::warn!("reconfigure webview proxy: GTK channel closed");
+        }
+        tracing::info!(
+            pages = page_count,
+            proxy = ?setting_for_log,
+            "reconfigured proxy on open browser webviews"
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        tracing::info!(
+            pages = page_count,
+            proxy = ?setting_for_log,
+            "network config changed; reload open browser pages to apply WebView proxy on this platform"
+        );
     }
 }
 
@@ -357,4 +470,39 @@ pub async fn install_browser_network(app: &AppHandle) -> Result<(), String> {
     }
     app.manage(state);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xiaolin_network_proxy::BrowserNetworkConfig;
+
+    #[test]
+    fn webview_proxy_setting_modes() {
+        let mut cfg = BrowserNetworkConfig::default();
+        cfg.proxy_mode = BrowserProxyMode::None;
+        assert_eq!(
+            webview_proxy_setting(&cfg, "http://127.0.0.1:1"),
+            WebviewProxySetting::Direct
+        );
+
+        cfg.proxy_mode = BrowserProxyMode::System;
+        assert_eq!(
+            webview_proxy_setting(&cfg, "http://127.0.0.1:1"),
+            WebviewProxySetting::System
+        );
+
+        cfg.proxy_mode = BrowserProxyMode::Custom;
+        cfg.custom_proxy_url = Some("http://proxy:8080".into());
+        assert_eq!(
+            webview_proxy_setting(&cfg, "http://127.0.0.1:1"),
+            WebviewProxySetting::Custom("http://proxy:8080".into())
+        );
+
+        cfg.proxy_mode = BrowserProxyMode::XiaolinProxy;
+        assert_eq!(
+            webview_proxy_setting(&cfg, "http://127.0.0.1:9999"),
+            WebviewProxySetting::Custom("http://127.0.0.1:9999".into())
+        );
+    }
 }

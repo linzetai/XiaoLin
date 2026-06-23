@@ -79,7 +79,7 @@ export function AgentOperationLog() {
         <span style={{ flex: 1, textAlign: "left" }}>
           {t("agentOps", { count: operations.length })}
         </span>
-        {expanded ? <CaretDown size={12} /> : <CaretUp size={12} />}
+        {expanded ? <CaretUp size={12} /> : <CaretDown size={12} />}
       </button>
 
       {expanded && (

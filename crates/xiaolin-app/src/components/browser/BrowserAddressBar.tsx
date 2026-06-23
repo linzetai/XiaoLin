@@ -26,7 +26,6 @@ import {
   browserGoForward,
   browserReload,
   browserStopLoading,
-  browserRequestTakeover,
   normalizeNavUrl,
   isHttpsUrl,
 } from "../../lib/stores/browser-store";
@@ -124,7 +123,6 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
               padding: "4px 10px",
               background: "rgba(88, 166, 255, 0.12)",
               borderBottom: "1px solid var(--border-shell-subtle)",
@@ -133,21 +131,6 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             }}
           >
             <span>{t("agentOperating")}</span>
-            <button
-              type="button"
-              onClick={() => pageId && void browserRequestTakeover(pageId)}
-              style={{
-                padding: "2px 8px",
-                borderRadius: 4,
-                border: "none",
-                background: "var(--bg-card)",
-                cursor: "pointer",
-                fontSize: 11,
-                color: "var(--fill-primary)",
-              }}
-            >
-              {t("takeControl")}
-            </button>
           </div>
         )}
         <form
