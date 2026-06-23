@@ -406,7 +406,7 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
           <SectionTitle>{t("middlewareConfig")}</SectionTitle>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Base URL</Label>
+              <Label>{t("baseUrl")}</Label>
               <Input value={form.baseUrl} onChange={(v) => update("baseUrl", v)} placeholder="https://llm-gateway.example.com/v1" />
             </div>
             <div>
@@ -416,7 +416,7 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
                 onChange={(v) => update("protocol", v as "openai" | "anthropic")}
                 options={[
                   { value: "openai", label: t("protocol_openai") },
-                  { value: "anthropic", label: "Anthropic" },
+                  { value: "anthropic", label: t("protocol_anthropic") },
                 ]}
               />
             </div>
@@ -429,17 +429,17 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
               onChange={(v) => update("authType", v as AuthType)}
               options={[
                 { value: "none", label: t("auth_none") },
-                { value: "bearer_token", label: "Bearer Token" },
+                { value: "bearer_token", label: t("auth_bearerToken") },
                 { value: "custom_header", label: t("auth_customHeader") },
-                { value: "oauth2_client_credentials", label: "OAuth2 Client Credentials" },
-                { value: "pre_request_hook", label: "Pre-Request Hook" },
+                { value: "oauth2_client_credentials", label: t("auth_oauth2ClientCredentials") },
+                { value: "pre_request_hook", label: t("auth_preRequestHook") },
               ]}
             />
           </div>
 
           {form.authType === "bearer_token" && (
             <div>
-              <Label>Token</Label>
+              <Label>{t("token")}</Label>
               <Input value={form.authToken} onChange={(v) => update("authToken", v)} placeholder="sk-..." type="password" />
             </div>
           )}
@@ -460,16 +460,16 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
           {form.authType === "oauth2_client_credentials" && (
             <div className="space-y-3">
               <div>
-                <Label>Token Endpoint</Label>
+                <Label>{t("tokenEndpoint")}</Label>
                 <Input value={form.oauth2TokenEndpoint} onChange={(v) => update("oauth2TokenEndpoint", v)} placeholder="https://auth.example.com/token" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Client ID</Label>
+                  <Label>{t("clientId")}</Label>
                   <Input value={form.oauth2ClientId} onChange={(v) => update("oauth2ClientId", v)} />
                 </div>
                 <div>
-                  <Label>Client Secret</Label>
+                  <Label>{t("clientSecret")}</Label>
                   <Input value={form.oauth2ClientSecret} onChange={(v) => update("oauth2ClientSecret", v)} type="password" />
                 </div>
               </div>
@@ -484,11 +484,11 @@ function PluginForm({ form, setForm, onSave, onCancel, isNew }: {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Hook URL</Label>
+                  <Label>{t("hookUrl")}</Label>
                   <Input value={form.preRequestUrl} onChange={(v) => update("preRequestUrl", v)} placeholder="https://auth.internal/token" />
                 </div>
                 <div>
-                  <Label>Method</Label>
+                  <Label>{t("method")}</Label>
                   <Select value={form.preRequestMethod} onChange={(v) => update("preRequestMethod", v)} options={[
                     { value: "POST", label: "POST" },
                     { value: "GET", label: "GET" },

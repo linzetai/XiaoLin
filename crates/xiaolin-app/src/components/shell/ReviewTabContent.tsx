@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   CaretDown, CaretRight, ArrowCounterClockwise,
   Plus as PlusIcon, Minus, GitBranch as GitBranchIcon,
@@ -42,6 +43,7 @@ function FileRow({
   actionIcon?: "stage" | "unstage";
   onAction?: () => void;
 }) {
+  const { t } = useTranslation("sidebar");
   const fileName = file.path.split("/").pop() ?? file.path;
   const dirPath = file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : "";
 
@@ -85,7 +87,7 @@ function FileRow({
             background: "transparent", color: "var(--fill-tertiary)",
             cursor: "pointer", marginLeft: 4, flexShrink: 0,
           }}
-          title={actionIcon === "stage" ? "Stage" : "Unstage"}
+          title={actionIcon === "stage" ? t("review_stage") : t("review_unstage")}
         >
           {actionIcon === "stage" ? <PlusIcon size={11} /> : <Minus size={11} />}
         </button>
@@ -171,10 +173,11 @@ function DiffLineRow({ line }: { line: DiffLine }) {
 }
 
 function DiffView({ hunks, file }: { hunks: DiffHunk[]; file: string }) {
+  const { t } = useTranslation("sidebar");
   if (hunks.length === 0) {
     return (
       <div style={{ padding: 16, fontSize: 12, color: "var(--fill-tertiary)", textAlign: "center" }}>
-        No diff available for {file.split("/").pop()}
+        {t("review_noDiffAvailable", { file: file.split("/").pop() })}
       </div>
     );
   }
@@ -196,6 +199,7 @@ function DiffView({ hunks, file }: { hunks: DiffHunk[]; file: string }) {
 }
 
 function CommitBox() {
+  const { t } = useTranslation("sidebar");
   const stagedCount = useGitStore((s) => s.status?.staged?.length ?? 0);
   const commitChanges = useGitStore((s) => s.commitChanges);
   const clearSelection = useGitStore((s) => s.clearSelection);
@@ -225,7 +229,7 @@ function CommitBox() {
     return (
       <div style={{ padding: "10px", borderTop: "1px solid var(--border-shell-subtle)", textAlign: "center" }}>
         <span style={{ fontSize: 11, color: "var(--green-text)", fontWeight: 500 }}>
-          ✓ Committed successfully
+          {t("review_committedSuccess")}
         </span>
       </div>
     );
@@ -239,7 +243,7 @@ function CommitBox() {
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleCommit(); }}
-          placeholder="Commit message… (⌘↩ to commit)"
+          placeholder={t("review_commitPlaceholder")}
           rows={2}
           style={{
             flex: 1, resize: "none", borderRadius: 6,
@@ -266,7 +270,7 @@ function CommitBox() {
           }}
         >
           <Check size={12} weight="bold" />
-          {committing ? "Committing..." : `Commit (${stagedCount})`}
+          {committing ? t("review_committing") : t("review_commit", { count: stagedCount })}
         </button>
       </div>
     </div>
@@ -274,6 +278,7 @@ function CommitBox() {
 }
 
 function BranchBar() {
+  const { t } = useTranslation("sidebar");
   const status = useGitStore((s) => s.status);
   const branch = useGitStore((s) => s.currentBranch);
 
@@ -305,7 +310,7 @@ function BranchBar() {
       <div style={{ flex: 1 }} />
       {(staged + unstaged) > 0 && (
         <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fill-tertiary)" }}>
-          {staged + unstaged} file{(staged + unstaged) > 1 ? "s" : ""} changed
+          {t("review_filesChanged", { count: staged + unstaged })}
         </span>
       )}
     </div>
@@ -313,6 +318,7 @@ function BranchBar() {
 }
 
 function GitInitView() {
+  const { t } = useTranslation("sidebar");
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const [initing, setIniting] = useState(false);
 
@@ -333,7 +339,7 @@ function GitInitView() {
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, padding: 24 }}>
       <GitBranchIcon size={28} weight="light" style={{ color: "var(--fill-tertiary)" }} />
       <span style={{ fontSize: 12, color: "var(--fill-secondary)", textAlign: "center" }}>
-        Not a Git repository
+        {t("review_notGitRepo")}
       </span>
       <button
         type="button"
@@ -348,23 +354,25 @@ function GitInitView() {
         }}
       >
         <GitBranchIcon size={12} />
-        {initing ? "Initializing..." : "Initialize Git"}
+        {initing ? t("review_initializing") : t("review_initializeGit")}
       </button>
     </div>
   );
 }
 
 function NoProjectView() {
+  const { t } = useTranslation("sidebar");
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8, padding: 24 }}>
       <span style={{ fontSize: 12, color: "var(--fill-tertiary)", textAlign: "center" }}>
-        Set a working directory to view changes
+        {t("review_setWorkDir")}
       </span>
     </div>
   );
 }
 
 export function ReviewTabContent() {
+  const { t } = useTranslation("sidebar");
   const status = useGitStore((s) => s.status);
   const selectedDiff = useGitStore((s) => s.selectedDiff);
   const selectedFile = useGitStore((s) => s.selectedFile);
@@ -404,13 +412,13 @@ export function ReviewTabContent() {
         {staged.length > 0 && (
           <>
             <SectionHeader
-              title="Staged"
+              title={t("review_staged")}
               count={staged.length}
               expanded={stagedExpanded}
               onToggle={() => setStagedExpanded(!stagedExpanded)}
               actions={
-                <SmallBtn onClick={() => unstageFiles()} title="Unstage all">
-                  <Minus size={10} /> All
+                <SmallBtn onClick={() => unstageFiles()} title={t("review_unstageAll")}>
+                  <Minus size={10} /> {t("review_all")}
                 </SmallBtn>
               }
             />
@@ -430,14 +438,14 @@ export function ReviewTabContent() {
         {allUnstaged.length > 0 && (
           <>
             <SectionHeader
-              title="Changes"
+              title={t("review_changes")}
               count={allUnstaged.length}
               expanded={unstagedExpanded}
               onToggle={() => setUnstagedExpanded(!unstagedExpanded)}
               actions={
                 <>
-                  <SmallBtn onClick={() => stageFiles()} title="Stage all">
-                    <PlusIcon size={10} /> All
+                  <SmallBtn onClick={() => stageFiles()} title={t("review_stageAll")}>
+                    <PlusIcon size={10} /> {t("review_all")}
                   </SmallBtn>
                   <SmallBtn
                     onClick={() => {
@@ -445,10 +453,10 @@ export function ReviewTabContent() {
                       revertFiles(allPaths);
                       setConfirmRevert(false);
                     }}
-                    title="Revert all changes"
+                    title={t("review_revertAll")}
                     variant="danger"
                   >
-                    <ArrowCounterClockwise size={10} /> {confirmRevert ? "Confirm?" : "Revert"}
+                    <ArrowCounterClockwise size={10} /> {confirmRevert ? t("review_confirm") : t("review_revert")}
                   </SmallBtn>
                 </>
               }
@@ -468,7 +476,7 @@ export function ReviewTabContent() {
 
         {staged.length === 0 && allUnstaged.length === 0 && (
           <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: "var(--fill-tertiary)" }}>
-            Working tree clean
+            {t("review_workingTreeClean")}
           </div>
         )}
       </div>
@@ -482,7 +490,7 @@ export function ReviewTabContent() {
             borderBottom: "1px solid var(--border-shell-subtle)",
           }}>
             <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              Diff: {selectedFile.split("/").pop()}
+              {t("review_diffLabel", { file: selectedFile.split("/").pop() })}
             </span>
             <button
               type="button"

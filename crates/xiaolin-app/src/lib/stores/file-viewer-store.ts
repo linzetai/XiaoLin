@@ -188,7 +188,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
           size = text.size;
         } catch (e) {
           console.warn("[file-viewer] failed to read SVG text:", resolved, e);
-          set({ lastOpenError: "无法打开文件，请确认文件路径和权限是否正确" });
+          set({ lastOpenError: "openFileFailed" });
           return;
         }
       }
@@ -201,7 +201,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         const msg = e instanceof Error ? e.message : String(e);
         console.warn("[file-viewer] failed to open file:", resolved, e);
         console.warn("[file-viewer] open error detail:", msg);
-        set({ lastOpenError: "无法打开文件，请确认文件路径和权限是否正确" });
+        set({ lastOpenError: "openFileFailed" });
         return;
       }
     }
@@ -316,7 +316,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       });
     } catch (err) {
       console.warn("[file-viewer] failed to reload:", resolved, err);
-      set({ lastOpenError: "文件重新加载失败" });
+      set({ lastOpenError: "reloadFailed" });
     }
   },
 

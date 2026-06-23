@@ -294,8 +294,8 @@ export function MessageStream(_props: MessageStreamProps) {
       }
     } else {
       opts.push(
-        { id: "s-web-search", label: "Web Search", type: "skill", desc: t("webSearch") },
-        { id: "s-code-exec", label: "Code Execution", type: "skill", desc: t("codeExec") },
+        { id: "s-web-search", label: t("skill_webSearch"), type: "skill", desc: t("webSearch") },
+        { id: "s-code-exec", label: t("skill_codeExec"), type: "skill", desc: t("codeExec") },
       );
     }
     return opts;

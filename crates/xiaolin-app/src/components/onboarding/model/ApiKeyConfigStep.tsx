@@ -90,7 +90,7 @@ export function ApiKeyConfigStep({
         </div>
 
         <div>
-          <label htmlFor="ob-baseurl" className={labelCls} style={labelStyle}>Base URL</label>
+          <label htmlFor="ob-baseurl" className={labelCls} style={labelStyle}>{t("baseUrl")}</label>
           <input
             id="ob-baseurl"
             value={state.baseUrl}
@@ -103,7 +103,7 @@ export function ApiKeyConfigStep({
 
         <div>
           <label htmlFor="ob-apikey" className={labelCls} style={labelStyle}>
-            API Key
+            {t("apiKey")}
             {state.selectedProvider?.apiKeyPrefix && (
               <span
                 className="ml-1.5 font-normal normal-case"

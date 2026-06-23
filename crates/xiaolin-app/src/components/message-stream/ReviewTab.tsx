@@ -36,7 +36,7 @@ export function ReviewTabContent() {
       <div className="flex-1 overflow-y-auto px-3 py-2">
         {status.staged.length > 0 && (
           <FileGroup
-            title="Staged"
+            title={t("review_staged")}
             files={status.staged}
             selectedFile={selectedFile}
             onSelect={(path) => selectFile(path, true)}
@@ -46,7 +46,7 @@ export function ReviewTabContent() {
         )}
         {status.unstaged.length > 0 && (
           <FileGroup
-            title="Unstaged"
+            title={t("review_unstaged")}
             files={status.unstaged}
             selectedFile={selectedFile}
             onSelect={(path) => selectFile(path, false)}
@@ -57,7 +57,7 @@ export function ReviewTabContent() {
         {status.untracked.length > 0 && (
           <div className="mt-2">
             <div className="mb-1 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--fill-tertiary)" }}>
-              Untracked
+              {t("review_untracked")}
             </div>
             {status.untracked.map((path) => (
               <div key={path} className="flex items-center gap-1 rounded px-2 py-0.5 text-[12px]" style={{ color: "var(--fill-secondary)" }}>
@@ -65,7 +65,7 @@ export function ReviewTabContent() {
                 <button
                   className="shrink-0 rounded p-0.5 hover:bg-[var(--bg-hover)]"
                   onClick={() => stageFiles([path])}
-                  title="Stage"
+                  title={t("review_stage")}
                 >
                   <Plus size={12} />
                 </button>
@@ -106,7 +106,7 @@ export function ReviewTabFooter() {
           style={{ color: "var(--accent-primary)" }}
           onClick={() => stageFiles()}
         >
-          <Plus size={10} className="mr-0.5 inline" /> Stage All
+          <Plus size={10} className="mr-0.5 inline" /> {t("review_stageAll")}
         </button>
       )}
       {hasUnstaged && (
@@ -139,7 +139,7 @@ export function ReviewTabFooter() {
               style={{ color: "var(--fill-danger)" }}
               onClick={() => setShowConfirm(true)}
             >
-              <ArrowCounterClockwise size={10} className="mr-0.5 inline" /> Revert All
+              <ArrowCounterClockwise size={10} className="mr-0.5 inline" /> {t("review_revertAll")}
             </button>
           )}
         </>
@@ -163,6 +163,7 @@ function FileGroup({
   action: "stage" | "unstage";
   onAction: (path: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const ActionIcon = action === "stage" ? Plus : Minus;
 
   return (
@@ -185,7 +186,7 @@ function FileGroup({
           <button
             className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-tertiary)]"
             onClick={(e) => { e.stopPropagation(); onAction(file.path); }}
-            title={action === "stage" ? "Stage" : "Unstage"}
+            title={action === "stage" ? t("review_stage") : t("review_unstage")}
           >
             <ActionIcon size={12} />
           </button>

@@ -77,7 +77,7 @@ function useMentionTypeMeta() {
     (): Record<MentionType, { text: string; icon: React.ReactNode; color: string }> => ({
       file: { text: t("mention_file"), icon: <File />, color: "var(--tint)" },
       dir: { text: t("mention_dir"), icon: <Folder />, color: "var(--orange)" },
-      skill: { text: "Skill", icon: <Sparkle />, color: "var(--green)" },
+      skill: { text: t("mention_skill"), icon: <Sparkle />, color: "var(--green)" },
     }),
     [t],
   );

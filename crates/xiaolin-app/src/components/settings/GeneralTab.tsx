@@ -140,9 +140,9 @@ export function GeneralTab() {
   );
 }
 
-const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+const LOCALE_OPTIONS: { value: Locale; labelKey: string }[] = [
+  { value: "zh", labelKey: "locale_zh" },
+  { value: "en", labelKey: "locale_en" },
 ];
 
 const RESPONSE_LANG_OPTIONS: { value: ResponseLang; labelKey: string }[] = [
@@ -176,7 +176,7 @@ function LanguageSection() {
                   boxShadow: locale === opt.value ? "var(--shadow-sm)" : "none",
                 }}
               >
-                {opt.label}
+                {t(opt.labelKey)}
               </button>
             ))}
           </div>
@@ -335,19 +335,19 @@ function SkillExtractionSection() {
 
   return (
     <div>
-      <SectionTitle>{t("skillExtraction", "技能学习")}</SectionTitle>
+      <SectionTitle>{t("skillExtraction")}</SectionTitle>
       <div className="overflow-hidden rounded-[var(--radius-sm)]" style={{ background: "var(--bg-elevated)", border: "0.5px solid var(--separator-opaque)" }}>
         <SettingRow
-          label={t("skillExtractionEnabled", "自动提取技能")}
-          description={t("skillExtractionEnabledDesc", "从对话历史中自动学习使用模式（消耗 LLM 额度）")}
+          label={t("skillExtractionEnabled")}
+          description={t("skillExtractionEnabledDesc")}
         >
           <Toggle enabled={enabled} onChange={() => saveEnabled(!enabled)} />
         </SettingRow>
         {enabled && (
           <>
             <SettingRow
-              label={t("skillExtractionModel", "提取模型")}
-              description={t("skillExtractionModelDesc", "留空则使用系统默认模型")}
+              label={t("skillExtractionModel")}
+              description={t("skillExtractionModelDesc")}
             >
               <input
                 type="text"
@@ -364,8 +364,8 @@ function SkillExtractionSection() {
               />
             </SettingRow>
             <SettingRow
-              label={t("skillExtractionDailyLimit", "每日上限")}
-              description={t("skillExtractionDailyLimitDesc", "每天最多 LLM 调用次数")}
+              label={t("skillExtractionDailyLimit")}
+              description={t("skillExtractionDailyLimitDesc")}
               isLast
             >
               <input
@@ -388,7 +388,7 @@ function SkillExtractionSection() {
         {!enabled && (
           <SettingRow
             label=""
-            description={t("skillExtractionDisabledHint", "开启后将定期从对话历史中提取可复用的操作模式")}
+            description={t("skillExtractionDisabledHint")}
             isLast
           >
             <span />

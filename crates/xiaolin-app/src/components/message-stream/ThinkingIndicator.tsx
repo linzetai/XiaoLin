@@ -14,10 +14,10 @@ export function PhaseIndicator({ phase = "thinking" }: PhaseIndicatorProps) {
 
   const label = useMemo(() => {
     switch (phase) {
-      case "connecting": return t("thinking_connecting", "连接中");
-      case "planning": return t("thinking_planning", "规划下一步");
+      case "connecting": return t("thinking_connecting");
+      case "planning": return t("thinking_planning");
       case "thinking":
-      default: return t("thinking_0", "思考中");
+      default: return t("thinking_0");
     }
   }, [phase, t]);
 

@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     registerTab({
       id: "review",
-      label: "Review",
+      label: t("tab_review"),
       icon: GitBranch,
       component: ReviewTabContent,
       footerComponent: ReviewTabFooter,
@@ -55,14 +55,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
     registerTab({
       id: "files",
-      label: "Files",
+      label: t("tab_files"),
       icon: FolderOpen,
       component: FilesTabContent,
       order: 2,
     });
     registerTab({
       id: "goal",
-      label: "Goal",
+      label: t("tab_goal"),
       icon: Crosshair,
       component: GoalTabContent,
       order: 3,
@@ -81,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (hasSubAgents) {
       registerTab({
         id: "subagents",
-        label: "SubAgents",
+        label: t("tab_subagents"),
         icon: Robot,
         component: SubAgentsTabContent,
         order: 5,
@@ -93,7 +93,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else {
       unregisterTab("subagents");
     }
-  }, [subAgentRuns, registerTab, unregisterTab]);
+  }, [subAgentRuns, registerTab, unregisterTab, t]);
 
   // Plan tab — show when plan mode is active or plan file exists
   const isPlanMode = activeChat?.executionMode === "plan";
@@ -102,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPlanMode || hasPlanFile) {
       registerTab({
         id: "plan",
-        label: "Plan",
+        label: t("tab_plan"),
         icon: FileText,
         component: PlanTabContent,
         order: 0,
@@ -114,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     } else {
       unregisterTab("plan");
     }
-  }, [isPlanMode, hasPlanFile, registerTab, unregisterTab]);
+  }, [isPlanMode, hasPlanFile, registerTab, unregisterTab, t]);
 
   // Browser tab — always registered; auto-switch when first page opens
   const prevBrowserLayoutRef = useRef(browserLayoutMode);
@@ -128,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
     registerTab({
       id: "browser",
-      label: "Browser",
+      label: t("tab_browser"),
       icon: Globe,
       component: BrowserTabContent,
       order: 6,
@@ -136,7 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (prev === "fullwidth" && browserPageCount > 0) {
       useWorkspaceTabs.getState().setActiveTab("browser");
     }
-  }, [browserLayoutMode, browserPageCount, registerTab, unregisterTab]);
+  }, [browserLayoutMode, browserPageCount, registerTab, unregisterTab, t]);
 
   useEffect(() => {
     if (browserPageCount !== 1 || browserLayoutMode !== "panel") return;

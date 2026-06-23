@@ -14,6 +14,7 @@ import {
   Code,
   Image as ImageIcon,
 } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { readBinaryForViewer } from "../../lib/transport";
 import { formatFileSize, isSvgPath } from "./file-types";
 import { base64ToBlobUrl } from "./blob-utils";
@@ -61,6 +62,7 @@ export const ImageViewer = memo(function ImageViewer({
   reloadToken,
   onViewModeChange,
 }: ImageViewerProps) {
+  const { t } = useTranslation("fileViewer");
   const containerRef = useRef<HTMLDivElement>(null);
   const blobUrlRef = useRef<string | null>(null);
 
@@ -150,7 +152,7 @@ export const ImageViewer = memo(function ImageViewer({
       } catch (err) {
         if (cancelled) return;
         console.warn("[ImageViewer] failed to load image:", filePath, err);
-        setError("无法加载图片");
+        setError(t("loadImageFailed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -165,7 +167,7 @@ export const ImageViewer = memo(function ImageViewer({
         blobUrlRef.current = null;
       }
     };
-  }, [filePath, workDir, isSvg, svgContent, reloadToken]);
+  }, [filePath, workDir, isSvg, svgContent, reloadToken, t]);
 
   useEffect(() => {
     if (!naturalSize) return;
@@ -357,7 +359,7 @@ export const ImageViewer = memo(function ImageViewer({
               fontSize: 13,
             }}
           >
-            加载中…
+            {t("loading")}
           </div>
         )}
         {error && !loading && (
@@ -434,6 +436,7 @@ function ImageToolbar({
   onZoomOut,
   hideZoomControls = false,
 }: ImageToolbarProps) {
+  const { t } = useTranslation("fileViewer");
   const dimText =
     naturalSize && naturalSize.w > 0
       ? `${naturalSize.w}×${naturalSize.h} px`
@@ -473,19 +476,19 @@ function ImageToolbar({
 
       {!hideZoomControls && (
         <>
-          <button type="button" title="缩小" style={toolbarButtonStyle()} onClick={onZoomOut}>
+          <button type="button" title={t("zoomOut")} style={toolbarButtonStyle()} onClick={onZoomOut}>
             <MagnifyingGlassMinus size={14} />
           </button>
           <span style={{ fontSize: 11, color: "var(--fill-secondary)", minWidth: 40, textAlign: "center" }}>
             {scalePercent}%
           </span>
-          <button type="button" title="放大" style={toolbarButtonStyle()} onClick={onZoomIn}>
+          <button type="button" title={t("zoomIn")} style={toolbarButtonStyle()} onClick={onZoomIn}>
             <MagnifyingGlassPlus size={14} />
           </button>
-          <button type="button" title="适应窗口" style={toolbarButtonStyle()} onClick={onFit}>
+          <button type="button" title={t("fitToWindow")} style={toolbarButtonStyle()} onClick={onFit}>
             <ArrowsOutSimple size={14} />
           </button>
-          <button type="button" title="原始大小 (100%)" style={toolbarButtonStyle()} onClick={onActualSize}>
+          <button type="button" title={t("actualSize")} style={toolbarButtonStyle()} onClick={onActualSize}>
             <ArrowsInSimple size={14} />
           </button>
         </>
@@ -495,7 +498,7 @@ function ImageToolbar({
         <>
           <button
             type="button"
-            title="图片预览"
+            title={t("imagePreview")}
             style={toolbarButtonStyle(viewMode === "preview")}
             onClick={() => onViewModeChange("preview")}
           >
@@ -503,7 +506,7 @@ function ImageToolbar({
           </button>
           <button
             type="button"
-            title="源码查看"
+            title={t("viewSourceCode")}
             style={toolbarButtonStyle(viewMode === "code")}
             onClick={() => onViewModeChange("code")}
           >

@@ -1,5 +1,6 @@
 import { memo, useCallback, useRef } from "react";
 import { X } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import type { OpenFile } from "../../lib/stores/file-viewer-store";
 
 export interface FileTabBarProps {
@@ -53,6 +54,7 @@ const FileTabItem = memo(function FileTabItem({
   onSelect,
   onClose,
 }: FileTabItemProps) {
+  const { t } = useTranslation("fileViewer");
   const name = path.split("/").pop() ?? path;
 
   const handleClose = useCallback(
@@ -100,8 +102,8 @@ const FileTabItem = memo(function FileTabItem({
       <button
         type="button"
         style={closeBtnStyle}
-        title={`Close ${name}`}
-        aria-label={`Close ${name}`}
+        title={t("closeFile", { name })}
+        aria-label={t("closeFile", { name })}
         onClick={handleClose}
         onMouseEnter={(e) => {
           e.currentTarget.style.opacity = "1";
@@ -124,6 +126,7 @@ export const FileTabBar = memo(function FileTabBar({
   onSelect,
   onClose,
 }: FileTabBarProps) {
+  const { t } = useTranslation("fileViewer");
   const paths = Object.keys(openFiles);
   const containerRef = useRef<HTMLDivElement>(null);
   if (paths.length === 0) return null;
@@ -145,7 +148,7 @@ export const FileTabBar = memo(function FileTabBar({
     <div
       ref={containerRef}
       role="tablist"
-      aria-label="Open files"
+      aria-label={t("openFilesAriaLabel")}
       onKeyDown={handleKeyDown}
       style={{
         display: "flex",
