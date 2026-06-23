@@ -123,6 +123,7 @@ export interface BrowserState {
   setActivePageId: (pageId: string) => Promise<void>;
   setLayoutMode: (mode: "panel" | "fullwidth") => Promise<void>;
   toggleChatPanel: () => void;
+  expandChatPanel: () => void;
   setChatPanelWidth: (width: number) => void;
   setAgentControlled: (pageId: string, controlled: boolean) => void;
   dismissDownload: (id: string) => void;
@@ -283,6 +284,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
     }
     if (layoutTransitioning) return;
     void runLayoutTransition(applyToggle);
+  },
+
+  expandChatPanel: () => {
+    if (!get().chatPanelCollapsed) return;
+    set({ chatPanelCollapsed: false });
+    useChatMetaStore.getState().clearUnread();
   },
 
   setChatPanelWidth: (width) => {
@@ -536,10 +543,10 @@ export async function initBrowserEvents(): Promise<void> {
             return;
           }
           if (text && (action === "ask" || action === "quote")) {
-            const { layoutMode, chatPanelCollapsed, toggleChatPanel } =
+            const { layoutMode, chatPanelCollapsed, expandChatPanel } =
               useBrowserStore.getState();
             if (layoutMode === "fullwidth" && chatPanelCollapsed) {
-              toggleChatPanel();
+              expandChatPanel();
             }
             const page = useBrowserStore.getState().pages[pageId];
             fillChatFromBrowserSelection({
