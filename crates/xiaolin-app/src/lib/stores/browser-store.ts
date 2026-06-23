@@ -354,6 +354,40 @@ export async function initBrowserEvents(): Promise<void> {
   const { listen } = await import("@tauri-apps/api/event");
 
   eventUnlisteners.push(
+    await listen<{ pageId: string; url: string }>("browser-page-created", (ev) => {
+      const { pageId, url } = ev.payload;
+      const existing = useBrowserStore.getState().pages[pageId];
+      if (existing) return;
+      useBrowserStore.setState((s) => ({
+        pages: {
+          ...s.pages,
+          [pageId]: {
+            pageId,
+            url,
+            title: "",
+            visibility: "hidden",
+            loadState: { state: "loading" },
+            agentControlled: false,
+          },
+        },
+        activePageId: s.activePageId ?? pageId,
+      }));
+    }),
+  );
+
+  eventUnlisteners.push(
+    await listen<{ pageId: string }>("browser-page-closed", (ev) => {
+      const { pageId } = ev.payload;
+      useBrowserStore.setState((s) => {
+        const { [pageId]: _, ...rest } = s.pages;
+        const ids = Object.keys(rest);
+        const nextActive = s.activePageId === pageId ? (ids[0] ?? null) : s.activePageId;
+        return { pages: rest, activePageId: nextActive };
+      });
+    }),
+  );
+
+  eventUnlisteners.push(
     await listen<{ pageId: string; url: string }>("browser-url-changed", (ev) => {
       const { pageId, url } = ev.payload;
       updatePage(pageId, { url });

@@ -201,7 +201,8 @@ impl BrowserBridge for TauriBrowserBridge {
     }
 
     fn open_page(&self, url: &str) -> Result<String, String> {
-        let page_id = self.with_manager(|manager| create_browser_page(&self.app, manager, url))?;
+        let state = self.app.state::<BrowserPanelState>();
+        let page_id = create_browser_page(&self.app, &state, url)?;
         Ok(serde_json::json!({ "pageId": page_id, "url": url }).to_string())
     }
 

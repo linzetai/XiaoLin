@@ -225,12 +225,17 @@ fn build_browser_webview(
     Ok(builder)
 }
 
+/// Create a browser page. MUST NOT be called while holding the BrowserPanelState
+/// mutex because `window.add_child()` dispatches to the GTK main thread, and
+/// the WebView's `on_navigation` callback also acquires this mutex — holding
+/// the lock across `add_child` causes a deadlock.
 pub(crate) fn create_browser_page(
     app: &AppHandle,
-    manager: &mut BrowserPanelManager,
+    state: &State<'_, BrowserPanelState>,
     url: &str,
 ) -> Result<String, String> {
-    if manager.page_count() >= MAX_BROWSER_PAGES {
+    let page_count = with_manager(state, |m| Ok(m.page_count()))?;
+    if page_count >= MAX_BROWSER_PAGES {
         return Err(format!("browser page limit reached ({MAX_BROWSER_PAGES})"));
     }
 
@@ -243,6 +248,10 @@ pub(crate) fn create_browser_page(
         .ok_or_else(|| "main window not found".to_string())?;
 
     let builder = build_browser_webview(app, webview_label.clone(), page_id.clone(), parsed_url)?;
+
+    // add_child dispatches to GTK main thread which may synchronously fire
+    // on_navigation (which acquires BrowserPanelState mutex). We MUST NOT hold
+    // the mutex here.
     let _webview = window
         .add_child(
             builder,
@@ -264,13 +273,22 @@ pub(crate) fn create_browser_page(
         layout_height: 0.0,
     };
 
-    manager.add_page(page)?;
+    with_manager(state, |manager| manager.add_page(page))?;
+
+    let _ = app.emit(
+        "browser-page-created",
+        serde_json::json!({
+            "pageId": page_id,
+            "url": url,
+        }),
+    );
+
     Ok(page_id)
 }
 
 async fn open_page_from_url(app: AppHandle, url: String) -> Result<String, String> {
     let state = app.state::<BrowserPanelState>();
-    with_manager(&state, |manager| create_browser_page(&app, manager, &url))
+    create_browser_page(&app, &state, &url)
 }
 
 #[tauri::command]
@@ -317,7 +335,16 @@ pub async fn browser_close_page(
     with_manager(&state, |manager| {
         manager.remove_page(&page_id);
         Ok(())
-    })
+    })?;
+
+    let _ = app.emit(
+        "browser-page-closed",
+        serde_json::json!({
+            "pageId": page_id,
+        }),
+    );
+
+    Ok(())
 }
 
 #[tauri::command]

@@ -884,6 +884,31 @@
 
 ---
 
+#### BUG-E2E-1 🔴 创建 Browser 子 WebView 导致 IPC 死锁
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` L228-292
+- **问题**：`create_browser_page` 在 `with_manager` 持有 `BrowserPanelState` mutex 的闭包内调用 `window.add_child()`。`add_child()` 需要 GTK main thread 参与，而新 WebView 的 `on_navigation` 回调也在 GTK main thread 上同步触发并尝试获取同一个 mutex → 经典死锁。第一个页面创建成功（因为还没有回调竞争），第二个页面永久阻塞所有 IPC。
+- **影响**：创建第一个 browser 页面后，所有后续 Tauri IPC 调用永久挂起
+- **修复记录**：将 `window.add_child()` 从 mutex 持有范围内移出。先释放 lock → 创建 WebView → 再重新获取 lock 添加 page。
+- **相关规则**：code-generation-quality #4 (State 字段初始化)
+
+#### BUG-E2E-2 🔴 IPC 创建页面不通知前端 Store
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src-tauri/src/commands/browser.rs` + `crates/xiaolin-app/src/lib/stores/browser-store.ts`
+- **问题**：`create_browser_page` 后端成功创建页面但未 emit 事件通知前端。前端 `browser-store` 仅在 `openPage()` 调用时更新，Agent/外部 IPC 直接调用时 Store 不同步 → Browser Tab 不出现。
+- **影响**：通过 Agent 工具或外部 IPC 创建的 browser 页面在 UI 中不可见
+- **修复记录**：后端 `create_browser_page` 和 `browser_close_page` 分别 emit `browser-page-created` 和 `browser-page-closed` 事件。前端在 `initBrowserEvents` 中监听这两个事件并更新 Store。
+
+#### BUG-E2E-3 🟡 ResizeObserver loop 错误导致 Vite dev server 崩溃
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/main.tsx`
+- **问题**：Browser 占位组件的 `ResizeObserver` 在某些 layout 场景下触发 "ResizeObserver loop completed with undelivered notifications" 错误。Vite HMR 客户端将其当作未处理错误，导致 dev server 进程退出。
+- **影响**：开发环境不稳定
+- **修复记录**：在 `main.tsx` 入口添加全局 `error` 事件监听器，拦截并阻止 ResizeObserver loop 错误的传播。
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |
