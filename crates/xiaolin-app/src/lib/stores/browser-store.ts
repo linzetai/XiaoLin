@@ -110,6 +110,7 @@ export interface BrowserState {
   layoutTransitioning: boolean;
   downloads: BrowserDownload[];
   userActionToast: string | null;
+  userTakeoverActive: boolean;
   agentOperations: AgentOperation[];
 
   openPage: (url: string) => Promise<string | null>;
@@ -137,6 +138,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   layoutTransitioning: false,
   downloads: [],
   userActionToast: null,
+  userTakeoverActive: false,
   agentOperations: [],
 
   openPage: async (url) => {
@@ -558,6 +560,7 @@ export async function browserRequestTakeover(pageId: string): Promise<void> {
   try {
     await browserInvoke("browser_request_takeover", { pageId });
     useBrowserStore.getState().setAgentControlled(pageId, false);
+    useBrowserStore.setState({ userTakeoverActive: true });
   } catch (e) {
     console.warn("[browser] requestTakeover failed:", e);
   }
@@ -568,6 +571,7 @@ export async function browserClearUserTakeover(): Promise<void> {
   if (!isTauri) return;
   try {
     await browserInvoke("browser_clear_user_takeover");
+    useBrowserStore.setState({ userTakeoverActive: false });
   } catch (e) {
     console.warn("[browser] clearUserTakeover failed:", e);
   }
