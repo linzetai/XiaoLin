@@ -122,6 +122,12 @@ pub trait ChannelPlugin: Send + Sync {
         Ok(())
     }
 
+    /// Parse the raw webhook body into JSON after verification.
+    /// Channels with encrypted payloads (e.g. Feishu encrypt_key) should override this.
+    fn parse_webhook_payload(&self, raw_body: &[u8]) -> anyhow::Result<serde_json::Value> {
+        serde_json::from_slice(raw_body).map_err(|e| anyhow::anyhow!("invalid webhook payload: {e}"))
+    }
+
     /// Parse an inbound webhook payload into messages.
     /// Returns `WebhookResult::Challenge` for verification challenges,
     /// `WebhookResult::Messages` for parsed messages, or `Ignored` otherwise.

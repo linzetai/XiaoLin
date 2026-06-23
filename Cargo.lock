@@ -10702,13 +10702,16 @@ dependencies = [
 name = "xiaolin-feishu"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "anyhow",
  "async-trait",
  "axum 0.7.9",
  "base64 0.22.1",
+ "cbc",
  "chrono",
  "dashmap",
  "futures",
+ "hex",
  "hmac",
  "prost",
  "rand 0.8.5",

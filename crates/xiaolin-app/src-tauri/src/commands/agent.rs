@@ -29,18 +29,19 @@ pub async fn upload_agent_avatar(
 
     let src = std::path::Path::new(&source_path);
     if !src.exists() {
-        return Err(format!("source file not found: {source_path}"));
+        tracing::warn!(path = %source_path, "upload_agent_avatar: source file not found");
+        return Err("file not found".into());
     }
 
     let meta = tokio::fs::metadata(src)
         .await
-        .map_err(|e| format!("read source metadata: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(path = %source_path, error = %e, "upload_agent_avatar: failed to read metadata");
+            String::from("operation failed")
+        })?;
     if meta.len() > MAX_AVATAR_BYTES {
-        return Err(format!(
-            "avatar file too large ({} bytes); maximum is {} MB",
-            meta.len(),
-            MAX_AVATAR_BYTES / (1024 * 1024)
-        ));
+        tracing::warn!(size = meta.len(), "upload_agent_avatar: file too large");
+        return Err("file too large".into());
     }
 
     let ext = src
@@ -49,22 +50,26 @@ pub async fn upload_agent_avatar(
         .unwrap_or("")
         .to_lowercase();
     if !ALLOWED_AVATAR_EXTS.contains(&ext.as_str()) {
-        return Err(format!(
-            "unsupported avatar extension '.{ext}'; allowed: {}",
-            ALLOWED_AVATAR_EXTS.join(", ")
-        ));
+        tracing::warn!(extension = %ext, "upload_agent_avatar: unsupported extension");
+        return Err("unsupported file type".into());
     }
 
     let sd = state_dir();
     let avatars_dir = sd.join("avatars");
     tokio::fs::create_dir_all(&avatars_dir)
         .await
-        .map_err(|e| format!("create avatars dir: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to create avatars directory");
+            String::from("operation failed")
+        })?;
 
     let dest = avatars_dir.join(format!("{agent_id}.{ext}"));
     tokio::fs::copy(src, &dest)
         .await
-        .map_err(|e| format!("copy avatar: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to copy avatar");
+            String::from("operation failed")
+        })?;
 
     let dest_str = dest.to_string_lossy().to_string();
 
@@ -74,15 +79,26 @@ pub async fn upload_agent_avatar(
     if cfg_path.exists() {
         let bytes = tokio::fs::read(&cfg_path)
             .await
-            .map_err(|e| format!("read agent config: {e}"))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "upload_agent_avatar: failed to read agent config");
+                String::from("operation failed")
+            })?;
         let mut val = serde_json::from_slice::<serde_json::Value>(&bytes)
-            .map_err(|e| format!("parse agent config: {e}"))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "upload_agent_avatar: failed to parse agent config");
+                String::from("operation failed")
+            })?;
         val["avatar"] = json!(dest_str);
-        let out =
-            serde_json::to_vec_pretty(&val).map_err(|e| format!("serialize agent config: {e}"))?;
+        let out = serde_json::to_vec_pretty(&val).map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to serialize agent config");
+            String::from("operation failed")
+        })?;
         tokio::fs::write(&cfg_path, out)
             .await
-            .map_err(|e| format!("write agent config: {e}"))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "upload_agent_avatar: failed to write agent config");
+                String::from("operation failed")
+            })?;
     }
 
     Ok(json!({ "ok": true, "path": dest_str }))

@@ -614,7 +614,7 @@ fn host_matches(pattern: &str, host: &str) -> bool {
         return true;
     }
     if let Some(suffix) = pattern.strip_prefix("*.") {
-        return host.ends_with(suffix) && host.len() > suffix.len();
+        return host == suffix || host.ends_with(&format!(".{suffix}"));
     }
     false
 }
@@ -664,7 +664,8 @@ mod tests {
     #[test]
     fn host_matches_wildcard() {
         assert!(host_matches("*.example.com", "sub.example.com"));
-        assert!(!host_matches("*.example.com", "example.com"));
+        assert!(host_matches("*.example.com", "example.com"));
+        assert!(!host_matches("*.example.com", "notexample.com"));
     }
 
     fn make_request(host: &str) -> NetworkPolicyRequest {

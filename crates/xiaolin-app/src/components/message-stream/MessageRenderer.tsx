@@ -630,24 +630,24 @@ export const MessageRendererRow = memo(function MessageRendererRow({
   highlightTurnId,
   executionMode,
 }: MessageRendererRowProps) {
-  if (item.type === "brief") {
-    return <BriefMessageCard data={item.data as BriefMessageData} />;
-  }
-
-  const m = item.data as StreamableMsg;
+  const isBrief = item.type === "brief";
   const threshold = useConfigStore((s) => s.display.toolCallGroupThreshold);
-  const grouped = useMemo(() => groupConsecutiveSegments(streamSegments, threshold), [streamSegments, threshold]);
+  const grouped = useMemo(
+    () => (isBrief ? [] : groupConsecutiveSegments(streamSegments, threshold)),
+    [isBrief, streamSegments, threshold],
+  );
 
-  const isStreaming = m.role === "streaming";
-  const cm = (isStreaming ? m : m) as ChatMessage;
+  const m = isBrief ? null : (item.data as StreamableMsg);
+  const isStreaming = m?.role === "streaming";
+  const cm = m && !isStreaming ? (m as ChatMessage) : null;
   const fullIdx = idx + paginationOffset;
-  const isMatch = !isStreaming && searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
+  const isMatch = !isStreaming && !!cm && !!searchQuery && cm.content?.toLowerCase().includes(searchQuery.toLowerCase());
   const isCurrent = isMatch && searchResults[searchIdx]?.idx === fullIdx;
-  const isHighlighted = !isStreaming && highlightTurnId != null && String(cm.id) === highlightTurnId;
+  const isHighlighted = !isStreaming && highlightTurnId != null && cm != null && String(cm.id) === highlightTurnId;
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isStreaming) return;
+    if (isBrief || isStreaming) return;
     const el = rowRef.current;
     if (!el) return;
     const existing = el.querySelectorAll("mark[data-search-highlight]");
@@ -699,7 +699,11 @@ export const MessageRendererRow = memo(function MessageRendererRow({
       }
       textNode.parentNode?.replaceChild(frag, textNode);
     }
-  }, [isStreaming, searchQuery, isMatch, isCurrent]);
+  }, [isBrief, isStreaming, searchQuery, isMatch, isCurrent]);
+
+  if (isBrief) {
+    return <BriefMessageCard data={item.data as BriefMessageData} />;
+  }
 
   if (isStreaming) {
     const hasContent = streamSegments.length > 0;
@@ -806,15 +810,16 @@ export const MessageRendererRow = memo(function MessageRendererRow({
     );
   }
 
+  const chatMsg = cm as ChatMessage;
   const isPlanMode = executionMode === "plan";
-  const isAssistant = cm.role === "assistant";
+  const isAssistant = chatMsg.role === "assistant";
 
   return (
     <MessageErrorBoundary>
     <div
       ref={rowRef}
       className="msg-row"
-      data-turn-id={String(cm.id)}
+      data-turn-id={String(chatMsg.id)}
       style={{
         paddingTop: 0,
         paddingRight: "clamp(24px, 5%, 80px)",
@@ -836,19 +841,19 @@ export const MessageRendererRow = memo(function MessageRendererRow({
           Plan
         </span>
       )}
-      {cm.role === "user" ? (
+      {chatMsg.role === "user" ? (
         <UserInput
-          msg={cm}
+          msg={chatMsg}
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}
         />
-      ) : cm.role === "system" ? (
-        <SystemMsg msg={cm} />
+      ) : chatMsg.role === "system" ? (
+        <SystemMsg msg={chatMsg} />
       ) : (
         <AiMessage
-          msg={cm}
-          usage={cm.usage}
+          msg={chatMsg}
+          usage={chatMsg.usage}
           copyable
           selected={selectMode ? isSelected : undefined}
           onToggleSelect={selectMode ? () => onToggleSelect?.(fullIdx) : undefined}

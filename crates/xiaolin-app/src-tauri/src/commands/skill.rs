@@ -12,12 +12,14 @@ fn is_valid_skill_name(name: &str) -> bool {
 }
 
 fn ensure_within_skills_dir(skills_dir: &Path, target: &Path) -> Result<PathBuf, String> {
-    let skills_canon = skills_dir
-        .canonicalize()
-        .map_err(|e| format!("skills directory unavailable: {e}"))?;
-    let target_canon = target
-        .canonicalize()
-        .map_err(|e| format!("invalid destination path: {e}"))?;
+    let skills_canon = skills_dir.canonicalize().map_err(|e| {
+        tracing::warn!(path = %skills_dir.display(), error = %e, "skills directory unavailable");
+        String::from("skills directory unavailable")
+    })?;
+    let target_canon = target.canonicalize().map_err(|e| {
+        tracing::warn!(path = %target.display(), error = %e, "invalid destination path");
+        String::from("invalid path")
+    })?;
     if !target_canon.starts_with(&skills_canon) {
         return Err("path escapes skills directory".into());
     }
@@ -41,7 +43,8 @@ fn state_dir() -> std::path::PathBuf {
 pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, String> {
     let src = Path::new(&source_path);
     if !src.exists() {
-        return Err(format!("path does not exist: {source_path}"));
+        tracing::warn!(path = %source_path, "upload_skill: path does not exist");
+        return Err("file not found".into());
     }
 
     let sd = state_dir();
@@ -61,21 +64,29 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         }
         let dest = skills_dir.join(dir_name);
         if dest.exists() {
-            std::fs::remove_dir_all(&dest)
-                .map_err(|e| format!("failed to clean existing skill dir: {e}"))?;
+            std::fs::remove_dir_all(&dest).map_err(|e| {
+                tracing::warn!(error = %e, "upload_skill: failed to clean existing skill dir");
+                String::from("operation failed")
+            })?;
         }
-        copy_dir_recursive(src, &dest)
-            .map_err(|e| format!("failed to copy skill dir: {e}"))?;
+        copy_dir_recursive(src, &dest).map_err(|e| {
+            tracing::warn!(error = %e, "upload_skill: failed to copy skill directory");
+            String::from("operation failed")
+        })?;
         ensure_within_skills_dir(&skills_dir, &dest)?;
         return Ok(json!({ "installed": dir_name }));
     }
 
     let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("");
     if ext == "zip" {
-        let file =
-            std::fs::File::open(src).map_err(|e| format!("failed to open zip: {e}"))?;
-        let mut archive =
-            zip::ZipArchive::new(file).map_err(|e| format!("invalid zip: {e}"))?;
+        let file = std::fs::File::open(src).map_err(|e| {
+            tracing::warn!(path = %source_path, error = %e, "failed to open zip");
+            String::from("failed to open file")
+        })?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| {
+            tracing::warn!(path = %source_path, error = %e, "invalid zip archive");
+            String::from("invalid zip archive")
+        })?;
         if archive.len() > MAX_SKILL_ZIP_ENTRIES {
             return Err(format!(
                 "zip archive has too many entries ({}); maximum is {MAX_SKILL_ZIP_ENTRIES}",
@@ -86,9 +97,10 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
         let mut has_skill_md = false;
         let mut total_uncompressed: u64 = 0;
         for i in 0..archive.len() {
-            let f = archive
-                .by_index(i)
-                .map_err(|e| format!("failed to read zip entry at index {i}: {e}"))?;
+            let f = archive.by_index(i).map_err(|e| {
+                tracing::warn!(index = i, error = %e, "failed to read zip entry");
+                String::from("failed to read zip entry")
+            })?;
             total_uncompressed = total_uncompressed.saturating_add(f.size());
             if total_uncompressed > MAX_SKILL_ZIP_TOTAL_BYTES {
                 return Err(format!(
@@ -97,10 +109,8 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 ));
             }
             let Some(enclosed) = f.enclosed_name() else {
-                return Err(format!(
-                    "zip contains unsafe path traversal entry: {}",
-                    f.name()
-                ));
+                tracing::warn!(entry_name = f.name(), "zip contains unsafe path traversal entry");
+                return Err("zip contains unsafe path".into());
             };
             if enclosed
                 .file_name()
@@ -132,23 +142,26 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
             }
             skills_dir.join(stem)
         };
-        std::fs::create_dir_all(&extract_to)
-            .map_err(|e| format!("failed to create extraction dir: {e}"))?;
+        std::fs::create_dir_all(&extract_to).map_err(|e| {
+            tracing::warn!(error = %e, "failed to create extraction directory");
+            String::from("failed to prepare extraction directory")
+        })?;
         let mut extracted_bytes: u64 = 0;
         for i in 0..archive.len() {
-            let mut f = archive
-                .by_index(i)
-                .map_err(|e| format!("failed to read zip entry at index {i}: {e}"))?;
+            let mut f = archive.by_index(i).map_err(|e| {
+                tracing::warn!(index = i, error = %e, "failed to read zip entry during extraction");
+                String::from("failed to read zip entry")
+            })?;
             let Some(enclosed) = f.enclosed_name().map(|p| p.to_path_buf()) else {
-                return Err(format!(
-                    "zip contains unsafe path traversal entry: {}",
-                    f.name()
-                ));
+                tracing::warn!(entry_name = f.name(), "zip contains unsafe path traversal entry");
+                return Err("zip contains unsafe path".into());
             };
             let out_path = extract_to.join(enclosed);
             if f.is_dir() {
-                std::fs::create_dir_all(&out_path)
-                    .map_err(|e| format!("failed to create dir during extraction: {e}"))?;
+                std::fs::create_dir_all(&out_path).map_err(|e| {
+                    tracing::warn!(error = %e, "failed to create directory during extraction");
+                    String::from("extraction failed")
+                })?;
             } else {
                 extracted_bytes = extracted_bytes.saturating_add(f.size());
                 if extracted_bytes > MAX_SKILL_ZIP_TOTAL_BYTES {
@@ -160,13 +173,18 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 }
                 if let Some(parent) = out_path.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| {
-                        format!("failed to create parent dir during extraction: {e}")
+                        tracing::warn!(error = %e, "failed to create parent dir during extraction");
+                        String::from("extraction failed")
                     })?;
                 }
-                let mut out_file = std::fs::File::create(&out_path)
-                    .map_err(|e| format!("failed to create extracted file: {e}"))?;
-                std::io::copy(&mut f, &mut out_file)
-                    .map_err(|e| format!("failed to write extracted file: {e}"))?;
+                let mut out_file = std::fs::File::create(&out_path).map_err(|e| {
+                    tracing::warn!(error = %e, "failed to create extracted file");
+                    String::from("extraction failed")
+                })?;
+                std::io::copy(&mut f, &mut out_file).map_err(|e| {
+                    tracing::warn!(error = %e, "failed to write extracted file");
+                    String::from("extraction failed")
+                })?;
             }
         }
 

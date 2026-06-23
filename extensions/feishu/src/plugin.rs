@@ -377,11 +377,14 @@ impl ChannelPlugin for FeishuPlugin {
 
     async fn verify_webhook(
         &self,
-        _headers: &BTreeMap<String, String>,
+        headers: &BTreeMap<String, String>,
         raw_body: &[u8],
     ) -> anyhow::Result<()> {
-        let payload: serde_json::Value = serde_json::from_slice(raw_body)
-            .map_err(|e| anyhow::anyhow!("invalid webhook payload: {e}"))?;
+        use crate::webhook_security::{parse_webhook_payload, verify_lark_webhook_headers};
+
+        verify_lark_webhook_headers(headers, self.config.encrypt_key.as_deref(), raw_body)?;
+
+        let payload = parse_webhook_payload(self.config.encrypt_key.as_deref(), raw_body)?;
         let token = payload
             .get("token")
             .and_then(|v| v.as_str())
@@ -685,6 +688,13 @@ impl ChannelPlugin for FeishuPlugin {
 
     fn supports_interactive_questions(&self) -> bool {
         true
+    }
+
+    fn parse_webhook_payload(&self, raw_body: &[u8]) -> anyhow::Result<serde_json::Value> {
+        crate::webhook_security::parse_webhook_payload(
+            self.config.encrypt_key.as_deref(),
+            raw_body,
+        )
     }
 }
 

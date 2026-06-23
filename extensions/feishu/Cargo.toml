@@ -27,3 +27,6 @@ tokio-tungstenite = { workspace = true, features = ["native-tls"] }
 rand = "0.8"
 base64 = "0.22"
 dashmap.workspace = true
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hex = "0.4"

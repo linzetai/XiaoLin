@@ -174,223 +174,25 @@ fn shell_parameter_schema(_include_is_background: bool) -> ToolParameterSchema {
     }
 }
 
-// --- Shell Injection Detection ---
-
-/// Commands considered safe (read-only) for Plan mode execution.
-/// These commands only read information and do not modify state.
-const READONLY_COMMANDS: &[&str] = &[
-    // File inspection
-    "ls", "ll", "la", "dir", "exa", "eza", "lsd", "cat", "bat", "head", "tail", "less", "more",
-    "wc", "file", "stat", "du", "df", // Search
-    "grep", "rg", "ag", "ack", "fgrep", "egrep", "find", "fd", "fdfind", "locate", "which",
-    "whereis", "type", // Text processing (readonly)
-    "sort", "uniq", "tr", "cut", "paste", "column", "awk",
-    "sed", // Only readonly when no -i flag (checked separately)
-    "diff", "comm", "cmp", "jq", "yq", "xq", // System info
-    "echo", "printf", "date", "whoami", "hostname", "uname", "env", "printenv", "id", "groups",
-    "ps", "top", "htop", "free", "uptime", "lsof", "pwd", "realpath", "dirname", "basename",
-    // Development tools (read-only subcommands handled separately)
-    "tree", "tokei", "cloc", "scc", "python3", "python", "node",
-    "ruby",  // Script execution for queries
-    "cargo", // Subcommand checked separately
-    "npm", "npx", "yarn", "pnpm",    // Subcommand checked separately
-    "git",     // Subcommand checked separately
-    "gh",      // Subcommand checked separately
-    "docker",  // Subcommand checked separately
-    "kubectl", // Subcommand checked separately
-    "rustc", "gcc", "g++",
-    "clang", // Compilation is treated as read since it doesn't modify source
-    "make",  // Build is read-only from source perspective
-    "test", "[", "true", "false", "sleep",
-    "xargs", // Only safe with readonly sub-commands (checked via pipeline)
-];
-
-/// Git subcommands that are read-only.
-const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
-    "status",
-    "log",
-    "diff",
-    "show",
-    "branch",
-    "tag",
-    "describe",
-    "shortlog",
-    "blame",
-    "ls-files",
-    "ls-tree",
-    "rev-parse",
-    "rev-list",
-    "remote",
-    "config",
-    "stash", // stash list/show are readonly; stash pop/apply are not but common enough
-];
-
-/// Cargo subcommands that are read-only.
-const CARGO_READONLY_SUBCOMMANDS: &[&str] = &[
-    "check",
-    "clippy",
-    "test",
-    "bench",
-    "doc",
-    "tree",
-    "metadata",
-    "pkgid",
-    "verify-project",
-    "version",
-    "help",
-    "search",
-];
-
-/// npm/yarn/pnpm subcommands that are read-only.
-const NPM_READONLY_SUBCOMMANDS: &[&str] = &[
-    "list", "ls", "info", "show", "view", "outdated", "audit", "explain", "why", "help", "version",
-    "test", "run", // run scripts are common in development
-];
-
-/// Docker subcommands that are read-only.
-const DOCKER_READONLY_SUBCOMMANDS: &[&str] = &[
-    "ps", "images", "inspect", "logs", "stats", "top", "port", "diff", "history", "version", "info",
-];
-
-/// Classify whether a single command segment is readonly.
-/// Returns Ok(()) if the command is readonly, Err(reason) if it's a write/dangerous command.
-fn classify_readonly(segment: &str) -> Result<(), String> {
-    let trimmed = segment.trim();
-    if trimmed.is_empty() {
-        return Ok(());
-    }
-
-    // Output redirection → write operation
-    if has_output_redirection(trimmed) {
-        return Err("output redirection (> or >>) makes this a write operation".into());
-    }
-
-    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    if tokens.is_empty() {
-        return Ok(());
-    }
-
-    let base_cmd = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
-
-    // Special handling for commands with subcommands
-    if base_cmd == "git" {
-        return classify_git_readonly(&tokens[1..]);
-    }
-    if base_cmd == "cargo" {
-        return classify_subcommand_readonly(&tokens[1..], CARGO_READONLY_SUBCOMMANDS, "cargo");
-    }
-    if matches!(base_cmd, "npm" | "npx" | "yarn" | "pnpm") {
-        return classify_subcommand_readonly(&tokens[1..], NPM_READONLY_SUBCOMMANDS, base_cmd);
-    }
-    if base_cmd == "docker" {
-        return classify_subcommand_readonly(&tokens[1..], DOCKER_READONLY_SUBCOMMANDS, "docker");
-    }
-
-    // sed -i is a write operation
-    if base_cmd == "sed" && tokens.iter().any(|t| *t == "-i" || t.starts_with("-i")) {
-        return Err("sed -i modifies files in place".into());
-    }
-
-    if READONLY_COMMANDS.contains(&base_cmd) {
-        return Ok(());
-    }
-
-    Err(format!(
-        "command '{base_cmd}' is not in the read-only allowlist"
-    ))
-}
-
-fn classify_git_readonly(args: &[&str]) -> Result<(), String> {
-    let subcommand = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .copied()
-        .unwrap_or("");
-
-    if subcommand.is_empty() || GIT_READONLY_SUBCOMMANDS.contains(&subcommand) {
-        Ok(())
-    } else {
-        Err(format!("git {subcommand} is not a read-only git operation"))
-    }
-}
-
-fn classify_subcommand_readonly(
-    args: &[&str],
-    allowed: &[&str],
-    parent: &str,
-) -> Result<(), String> {
-    let subcommand = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .copied()
-        .unwrap_or("");
-
-    if subcommand.is_empty() || allowed.contains(&subcommand) {
-        Ok(())
-    } else {
-        Err(format!(
-            "{parent} {subcommand} is not a read-only operation"
-        ))
-    }
-}
-
-/// Check if a command segment contains output redirection (> or >>).
-/// Skips redirections inside quotes.
-fn has_output_redirection(s: &str) -> bool {
-    let stripped = strip_single_quoted_regions(s);
-    let bytes = stripped.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-    while i < len {
-        if bytes[i] == b'>' {
-            // Skip 2> (stderr redirect, informational)
-            if i > 0 && bytes[i - 1] == b'2' {
-                i += 1;
-                continue;
-            }
-            // Skip >( (process substitution)
-            let next = if bytes[i + 1..].first() == Some(&b'>') {
-                i + 2
-            } else {
-                i + 1
-            };
-            if next < len && bytes[next] == b'(' {
-                i = next + 1;
-                continue;
-            }
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
 /// Validate that a full command (with pipes and chains) is entirely readonly.
 /// Every segment in pipes (|), AND (&&), OR (||), and semicolons (;) must be readonly.
+///
+/// Delegates to [`ReadOnlyClassifier`] so Plan mode and sandbox fast-path share one policy.
 pub fn validate_readonly_command(command: &str) -> Result<(), String> {
-    // Split on pipe first, then on chain operators within each pipe segment
-    for pipe_segment in command.split('|') {
-        let pipe_seg = pipe_segment.trim();
-        if pipe_seg.is_empty() {
-            continue;
-        }
-        // Further split on && || ;
-        for part in pipe_seg
-            .split("&&")
-            .flat_map(|s| s.split("||"))
-            .flat_map(|s| s.split(';'))
-        {
-            classify_readonly(part)?;
+    use crate::shell_readonly::{CommandClassification, ReadOnlyClassifier};
+
+    match ReadOnlyClassifier::classify(command) {
+        CommandClassification::ReadOnly => Ok(()),
+        CommandClassification::Write { reason } | CommandClassification::Dangerous { reason } => {
+            Err(reason)
         }
     }
-    Ok(())
 }
 
 // ─── Path Safety Validation ─────────────────────────────────────────────────
 //
-// TODO: Unify path/readonly validation — logic is duplicated and can drift across
-// `validate_readonly_command` + `classify_readonly` here, `validate_command_paths`
-// below, and `shell_readonly.rs` (`ReadOnlyClassifier`). Consolidate into one module.
+// Readonly classification lives in `shell_readonly.rs` (`ReadOnlyClassifier`).
+// Path validation below applies to write commands only.
 
 /// Sensitive paths under $HOME that should never be written to by shell commands.
 const SENSITIVE_HOME_PATHS: &[&str] = &[
@@ -1124,8 +926,13 @@ mod tests {
     fn readonly_allows_cargo_readonly() {
         assert!(super::validate_readonly_command("cargo check").is_ok());
         assert!(super::validate_readonly_command("cargo clippy").is_ok());
-        assert!(super::validate_readonly_command("cargo test").is_ok());
         assert!(super::validate_readonly_command("cargo tree").is_ok());
+    }
+
+    #[test]
+    fn readonly_blocks_cargo_test_and_bench() {
+        assert!(super::validate_readonly_command("cargo test").is_err());
+        assert!(super::validate_readonly_command("cargo bench").is_err());
     }
 
     #[test]
@@ -1170,8 +977,20 @@ mod tests {
     #[test]
     fn readonly_allows_npm_readonly() {
         assert!(super::validate_readonly_command("npm list").is_ok());
-        assert!(super::validate_readonly_command("npm test").is_ok());
-        assert!(super::validate_readonly_command("npm run lint").is_ok());
+    }
+
+    #[test]
+    fn readonly_blocks_npm_test_and_run() {
+        assert!(super::validate_readonly_command("npm test").is_err());
+        assert!(super::validate_readonly_command("npm run lint").is_err());
+    }
+
+    #[test]
+    fn readonly_blocks_generic_executors() {
+        assert!(super::validate_readonly_command("python3 -c 'print(1)'").is_err());
+        assert!(super::validate_readonly_command("node -e '1'").is_err());
+        assert!(super::validate_readonly_command("make build").is_err());
+        assert!(super::validate_readonly_command("curl -s http://example.com").is_err());
     }
 
     #[test]

@@ -1,11 +1,14 @@
+use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::client::FeishuClient;
+use crate::webhook_security::{parse_webhook_payload, verify_lark_webhook_headers};
 
 #[derive(Clone)]
 pub struct FeishuWebhookConfig {
@@ -57,13 +60,48 @@ pub trait FeishuMessageHandler: Send + Sync {
     ) -> anyhow::Result<String>;
 }
 
+fn headers_to_map(headers: &HeaderMap) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for (name, value) in headers.iter() {
+        if let Ok(v) = value.to_str() {
+            map.entry(name.as_str().to_string())
+                .or_insert_with(|| v.to_string());
+        }
+    }
+    map
+}
+
 /// Axum handler for Feishu event webhook endpoint.
 ///
 /// Mount at: `POST /webhook/feishu`
 pub async fn feishu_webhook_handler(
     State(state): State<Arc<FeishuWebhookState>>,
-    Json(payload): Json<serde_json::Value>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Response {
+    let header_map = headers_to_map(&headers);
+
+    if let Err(e) = verify_lark_webhook_headers(
+        &header_map,
+        state.config.encrypt_key.as_deref(),
+        &body,
+    ) {
+        tracing::warn!(error = %e, "Feishu webhook signature verification failed");
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"code": -1, "msg": "signature verification failed"})),
+        )
+            .into_response();
+    }
+
+    let payload = match parse_webhook_payload(state.config.encrypt_key.as_deref(), &body) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to parse Feishu webhook payload");
+            return Json(serde_json::json!({"code": -1, "msg": "invalid payload"})).into_response();
+        }
+    };
+
     let callback: EventCallback = match serde_json::from_value(payload.clone()) {
         Ok(c) => c,
         Err(e) => {
@@ -72,7 +110,7 @@ pub async fn feishu_webhook_handler(
         }
     };
 
-    // Token verification (required before challenge or event handling)
+    // Token verification (auxiliary; signature verified above when encrypt_key is set)
     let token = callback
         .token
         .as_deref()

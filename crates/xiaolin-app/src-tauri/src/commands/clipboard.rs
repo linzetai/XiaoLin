@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const ALLOWED_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+const MAX_IMAGE_FILE_BYTES: u64 = 20 * 1024 * 1024;
 
 /// Maximum decoded PNG payload size for clipboard writes.
 const MAX_CLIPBOARD_PNG_BYTES: usize = 50 * 1024 * 1024;
@@ -160,10 +161,14 @@ pub fn clipboard_write_image(
 pub async fn read_image_file(path: String) -> Result<(String, String), String> {
     let p = Path::new(&path);
     if !p.exists() {
-        return Err(format!("File not found: {path}"));
+        tracing::warn!(path = %path, "read_image_file: file not found");
+        return Err("file not found".into());
     }
 
-    let canonical = std::fs::canonicalize(p).map_err(|e| format!("invalid path: {e}"))?;
+    let canonical = std::fs::canonicalize(p).map_err(|e| {
+        tracing::warn!(path = %path, error = %e, "read_image_file: invalid path");
+        String::from("invalid path")
+    })?;
 
     let ext = canonical
         .extension()
@@ -171,14 +176,21 @@ pub async fn read_image_file(path: String) -> Result<(String, String), String> {
         .unwrap_or("")
         .to_lowercase();
     if !ALLOWED_IMAGE_EXTS.contains(&ext.as_str()) {
-        return Err(format!(
-            "unsupported image extension: .{ext} (allowed: png, jpg, jpeg, gif, webp, bmp, svg)"
-        ));
+        tracing::warn!(extension = %ext, "read_image_file: unsupported image extension");
+        return Err("unsupported file type".into());
     }
     if !is_path_under_allowed_roots(&canonical) {
-        return Err(
-            "path not allowed: must be under temp directory or ~/Pictures or ~/Downloads".into(),
-        );
+        tracing::warn!(path = %canonical.display(), "read_image_file: path not under allowed roots");
+        return Err("invalid path".into());
+    }
+
+    let meta = tokio::fs::metadata(&canonical).await.map_err(|e| {
+        tracing::warn!(error = %e, "read_image_file: failed to read metadata");
+        String::from("operation failed")
+    })?;
+    if meta.len() > MAX_IMAGE_FILE_BYTES {
+        tracing::warn!(size = meta.len(), "read_image_file: file too large");
+        return Err("file too large".into());
     }
 
     let mime = match ext.as_str() {
@@ -191,9 +203,10 @@ pub async fn read_image_file(path: String) -> Result<(String, String), String> {
         _ => unreachable!(),
     };
 
-    let bytes = tokio::fs::read(&canonical)
-        .await
-        .map_err(|e| format!("Failed to read {path}: {e}"))?;
+    let bytes = tokio::fs::read(&canonical).await.map_err(|e| {
+        tracing::warn!(error = %e, "read_image_file: failed to read file");
+        String::from("operation failed")
+    })?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok((b64, mime.to_string()))
 }

@@ -156,9 +156,11 @@ impl ToolRuntime for ShellRuntime {
                             });
                         }
                         SandboxPreference::Auto => {
+                            // TODO: emit UI notification via event bus (sandbox_degraded event)
                             tracing::warn!(
                                 sandbox = %effective_sandbox,
-                                "sandbox requested but not available, executing without sandbox isolation"
+                                command = %command,
+                                "SECURITY: sandbox unavailable in Auto mode — executing with host privileges (sandbox_degraded=true)"
                             );
                             without_sandbox_isolation = true;
                             build_plain_command(command, &cwd)
@@ -311,7 +313,10 @@ impl ToolRuntime for ShellRuntime {
         );
 
         if without_sandbox_isolation {
-            result = format!("[⚠️ 无沙箱隔离]\n{result}");
+            result = format!(
+                "[⚠️ 沙箱降级] sandbox_degraded=true requested_sandbox={effective_sandbox} — \
+                 命令将以宿主权限执行（无文件系统/网络隔离）。如需强制沙箱请设置 sandbox=required。\n{result}"
+            );
         }
 
         if stderr_str.is_empty() {
