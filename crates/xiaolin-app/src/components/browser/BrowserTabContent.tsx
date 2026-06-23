@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Globe } from "@phosphor-icons/react";
 import {
   useBrowserStore,
@@ -19,6 +20,7 @@ import { AgentOperationLog } from "./AgentOperationLog";
 const NEW_TAB_URL = "https://example.com";
 
 function BrowserEmptyState() {
+  const { t } = useTranslation("browser");
   const openPage = useBrowserStore((s) => s.openPage);
 
   return (
@@ -35,7 +37,7 @@ function BrowserEmptyState() {
       }}
     >
       <Globe size={40} weight="thin" />
-      <span style={{ fontSize: 13 }}>内置浏览器</span>
+      <span style={{ fontSize: 13 }}>{t("builtInBrowser")}</span>
       <button
         type="button"
         onClick={() => void openPage(NEW_TAB_URL)}
@@ -51,16 +53,17 @@ function BrowserEmptyState() {
           transition: "background 0.15s",
         }}
       >
-        打开新页面
+        {t("openNewPage")}
       </button>
       <span style={{ fontSize: 11, color: "var(--fill-quaternary)", marginTop: 2 }}>
-        Ctrl+T 快速打开
+        {t("ctrlTQuickOpen")}
       </span>
     </div>
   );
 }
 
 export function BrowserPanelBody() {
+  const { t } = useTranslation("browser");
   const activePageId = useBrowserStore((s) => s.activePageId);
   const activePage = useBrowserStore((s) =>
     s.activePageId ? s.pages[s.activePageId] : null,
@@ -263,7 +266,7 @@ export function BrowserPanelBody() {
             textAlign: "center",
           }}
         >
-          已达标签页上限（{MAX_BROWSER_PAGES} 个）
+          {t("tabLimitReached", { max: MAX_BROWSER_PAGES })}
         </div>
       )}
       <BrowserPlaceholder pageId={activePageId} webviewVisible={webviewVisible} />

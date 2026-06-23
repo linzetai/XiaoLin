@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { CaretDown, CaretUp, Robot, Trash } from "@phosphor-icons/react";
 import { useBrowserStore } from "../../lib/stores/browser-store";
+import type { TFunction } from "i18next";
 
 function formatTime(ts: number): string {
   try {
@@ -14,24 +16,30 @@ function formatTime(ts: number): string {
   }
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  navigate: "导航",
-  click: "点击",
-  fill: "填写",
-  hover: "悬停",
-  scroll: "滚动",
-  screenshot: "截图",
-  take_snapshot: "快照",
-  get_content: "获取内容",
-  evaluate: "执行脚本",
-  select_page: "切换标签",
-  new_page: "新建标签",
-  close_page: "关闭标签",
-  type_text: "输入",
-  press_key: "按键",
+const ACTION_LABEL_KEYS: Record<string, string> = {
+  navigate: "actionNavigate",
+  click: "actionClick",
+  fill: "actionFill",
+  hover: "actionHover",
+  scroll: "actionScroll",
+  screenshot: "actionScreenshot",
+  take_snapshot: "actionSnapshot",
+  get_content: "actionGetContent",
+  evaluate: "actionEvaluate",
+  select_page: "actionSelectPage",
+  new_page: "actionNewPage",
+  close_page: "actionClosePage",
+  type_text: "actionTypeText",
+  press_key: "actionPressKey",
 };
 
+function getActionLabel(t: TFunction<"browser">, action: string): string {
+  const key = ACTION_LABEL_KEYS[action];
+  return key ? t(key) : action;
+}
+
 export function AgentOperationLog() {
+  const { t } = useTranslation("browser");
   const operations = useBrowserStore((s) => s.agentOperations);
   const clearAgentOperations = useBrowserStore((s) => s.clearAgentOperations);
   const [expanded, setExpanded] = useState(false);
@@ -69,7 +77,7 @@ export function AgentOperationLog() {
       >
         <Robot size={14} weight="duotone" />
         <span style={{ flex: 1, textAlign: "left" }}>
-          Agent 操作 ({operations.length})
+          {t("agentOps", { count: operations.length })}
         </span>
         {expanded ? <CaretDown size={12} /> : <CaretUp size={12} />}
       </button>
@@ -108,7 +116,7 @@ export function AgentOperationLog() {
               {formatTime(op.ts)}
             </span>
             <span style={{ flexShrink: 0, color: "var(--tint, #4299E1)" }}>
-              {ACTION_LABELS[op.action] ?? op.action}
+              {getActionLabel(t, op.action)}
             </span>
             <span
               style={{
@@ -147,7 +155,7 @@ export function AgentOperationLog() {
             }}
           >
             <Trash size={10} />
-            清空
+            {t("clearOps")}
           </button>
         </div>
       )}

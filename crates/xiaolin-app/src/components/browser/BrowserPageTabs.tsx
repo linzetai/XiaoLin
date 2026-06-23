@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Plus, X, Globe } from "@phosphor-icons/react";
 import {
   useBrowserStore,
@@ -46,6 +47,7 @@ interface BrowserPageTabsProps {
 }
 
 export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
+  const { t } = useTranslation("browser");
   const pages = useBrowserStore((s) => s.pages);
   const activePageId = useBrowserStore((s) => s.activePageId);
   const setActivePageId = useBrowserStore((s) => s.setActivePageId);
@@ -117,7 +119,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
       >
         {pageList.map((page) => {
           const active = page.pageId === activePageId;
-          const label = page.title || page.url || "New Tab";
+          const label = page.title || page.url || t("newTab");
           return (
             <div
               key={page.pageId}
@@ -163,7 +165,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label="关闭标签"
+                aria-label={t("closeTab")}
                 onClick={(e) => handleClose(e, page.pageId)}
                 style={{
                   display: "flex",
@@ -191,7 +193,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
             color: atLimit ? "var(--fill-quaternary)" : "var(--fill-tertiary)",
             opacity: atLimit ? 0.5 : 1,
           }}
-          title={atLimit ? `Maximum ${MAX_BROWSER_PAGES} tabs` : "New tab"}
+          title={atLimit ? t("maxTabs", { max: MAX_BROWSER_PAGES }) : t("newTab")}
           disabled={atLimit}
           onClick={handleNewTab}
         >
@@ -209,7 +211,7 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
             textAlign: "center",
           }}
         >
-          已达标签页上限（{MAX_BROWSER_PAGES} 个）
+          {t("tabLimitReached", { max: MAX_BROWSER_PAGES })}
         </div>
       )}
     </div>

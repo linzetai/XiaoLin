@@ -1,4 +1,5 @@
 import { Robot, HandGrabbing, Play } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import { useBrowserStore, browserRequestTakeover, browserClearUserTakeover } from "../../lib/stores/browser-store";
 
 interface AgentControlOverlayProps {
@@ -6,6 +7,7 @@ interface AgentControlOverlayProps {
 }
 
 export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
+  const { t } = useTranslation("browser");
   const agentControlled = useBrowserStore((s) => s.pages[pageId]?.agentControlled ?? false);
   const userTakeoverActive = useBrowserStore((s) => s.userTakeoverActive);
   const userActionToast = useBrowserStore((s) => s.userActionToast);
@@ -68,7 +70,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
                 whiteSpace: "nowrap",
               }}
             >
-              中止 Agent
+              {t("abortAgent")}
             </button>
           )}
           <button
@@ -82,7 +84,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
               fontSize: 11,
             }}
           >
-            Dismiss
+            {t("dismiss")}
           </button>
         </div>
       )}
@@ -105,7 +107,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
           }}
         >
           <Robot size={16} weight="fill" style={{ color: "var(--tint)" }} />
-          <span style={{ color: "var(--fill-secondary)" }}>Agent operating…</span>
+          <span style={{ color: "var(--fill-secondary)" }}>{t("agentOperatingStatus")}</span>
           <button
             type="button"
             onClick={() => void browserRequestTakeover(pageId)}
@@ -124,7 +126,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
             }}
           >
             <HandGrabbing size={12} />
-            Take control
+            {t("takeControlBtn")}
           </button>
         </div>
       )}
@@ -147,7 +149,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
           }}
         >
           <HandGrabbing size={16} weight="fill" style={{ color: "var(--fill-secondary)" }} />
-          <span style={{ color: "var(--fill-secondary)" }}>You are in control</span>
+          <span style={{ color: "var(--fill-secondary)" }}>{t("userInControl")}</span>
           <button
             type="button"
             onClick={() => void browserClearUserTakeover()}
@@ -166,7 +168,7 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
             }}
           >
             <Play size={12} weight="fill" />
-            Resume Agent
+            {t("resumeAgent")}
           </button>
         </div>
       )}

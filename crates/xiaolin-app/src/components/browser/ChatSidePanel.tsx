@@ -1,4 +1,5 @@
 import { useRef, useCallback, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { CaretRight } from "@phosphor-icons/react";
 import {
   useBrowserStore,
@@ -22,6 +23,7 @@ const resizeHandleStyle: React.CSSProperties = {
 };
 
 export function ChatSidePanel({ children }: ChatSidePanelProps) {
+  const { t } = useTranslation("browser");
   const chatPanelWidth = useBrowserStore((s) => s.chatPanelWidth);
   const chatPanelCollapsed = useBrowserStore((s) => s.chatPanelCollapsed);
   const setChatPanelWidth = useBrowserStore((s) => s.setChatPanelWidth);
@@ -86,11 +88,11 @@ export function ChatSidePanel({ children }: ChatSidePanelProps) {
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fill-secondary)" }}>Chat</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fill-secondary)" }}>{t("chat")}</span>
         <button
           type="button"
           onClick={toggleChatPanel}
-          title="Collapse chat"
+          title={t("collapsePanel")}
           style={{
             width: 24,
             height: 24,

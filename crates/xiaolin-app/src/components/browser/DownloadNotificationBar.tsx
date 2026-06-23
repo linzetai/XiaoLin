@@ -1,9 +1,11 @@
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { X, FolderOpen, FileArrowDown } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useBrowserStore } from "../../lib/stores/browser-store";
 
 export function DownloadNotificationBar() {
+  const { t } = useTranslation("browser");
   const downloads = useBrowserStore((s) => s.downloads);
   const dismissDownload = useBrowserStore((s) => s.dismissDownload);
 
@@ -64,9 +66,9 @@ export function DownloadNotificationBar() {
               {dl.filename}
             </div>
             <div style={{ fontSize: 10, color: "var(--fill-quaternary)" }}>
-              {dl.status === "downloading" && "Downloading…"}
-              {dl.status === "finished" && "Complete"}
-              {dl.status === "failed" && "Failed"}
+              {dl.status === "downloading" && t("downloading")}
+              {dl.status === "finished" && t("downloadComplete")}
+              {dl.status === "failed" && t("downloadFailed")}
             </div>
           </div>
           {dl.status === "finished" && dl.path && (
@@ -76,7 +78,7 @@ export function DownloadNotificationBar() {
                 onClick={() => void handleOpenFile(dl.path!)}
                 style={actionBtnStyle}
               >
-                Open file
+                {t("openFile")}
               </button>
               <button
                 type="button"
@@ -84,7 +86,7 @@ export function DownloadNotificationBar() {
                 style={actionBtnStyle}
               >
                 <FolderOpen size={12} />
-                Folder
+                {t("openFolder")}
               </button>
             </>
           )}
@@ -96,7 +98,7 @@ export function DownloadNotificationBar() {
               padding: 2,
               color: "var(--fill-quaternary)",
             }}
-            title="Dismiss"
+            title={t("dismiss")}
           >
             <X size={12} />
           </button>

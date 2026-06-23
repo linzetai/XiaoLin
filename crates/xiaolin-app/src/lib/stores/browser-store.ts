@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { isTauri } from "../transport";
+import i18n from "../../i18n";
 import { fillChatFromBrowserSelection } from "./composer-input-store";
 import { useChatMetaStore } from "./chat-meta-store";
 
@@ -81,7 +82,7 @@ function normalizeLoadState(raw: BackendPageInfo["loadState"]): PageLoadState {
         ? raw.message
         : "0" in raw && typeof raw["0"] === "string"
           ? raw["0"]
-          : "load failed";
+          : i18n.t("browser:loadFailed");
     return { state: "failed", message: msg };
   }
   return { state: "loading" };
@@ -241,7 +242,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => {
             [pageId]: {
               ...page,
               url: prevUrl ?? page.url,
-              loadState: { state: "failed", message: "导航失败" },
+              loadState: { state: "failed", message: i18n.t("browser:navFailed") },
             },
           },
         };
@@ -525,7 +526,7 @@ export async function initBrowserEvents(): Promise<void> {
 
         if (type === "user_action_blocked") {
           useBrowserStore.setState({
-            userActionToast: "Agent 操作中，用户输入已拦截",
+            userActionToast: i18n.t("browser:userInputBlocked"),
           });
           window.setTimeout(() => {
             useBrowserStore.getState().clearUserActionToast();
@@ -556,7 +557,7 @@ export async function initBrowserEvents(): Promise<void> {
             });
             useBrowserStore.setState({
               userActionToast:
-                action === "ask" ? "已填入 Chat 输入框" : "已追加引用到 Chat",
+                i18n.t(action === "ask" ? "browser:filledInChat" : "browser:quotedToChat"),
             });
             window.setTimeout(() => {
               useBrowserStore.getState().clearUserActionToast();

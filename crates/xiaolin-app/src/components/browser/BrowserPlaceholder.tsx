@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Globe } from "@phosphor-icons/react";
 import { useBrowserStore, browserResizeWebview } from "../../lib/stores/browser-store";
 import { AgentControlOverlay } from "./AgentControlOverlay";
@@ -9,6 +10,7 @@ interface BrowserPlaceholderProps {
 }
 
 export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholderProps) {
+  const { t } = useTranslation("browser");
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const page = useBrowserStore((s) => (pageId ? s.pages[pageId] : null));
@@ -82,7 +84,7 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
           }}
         >
           <Globe size={32} weight="thin" />
-          <span style={{ fontSize: 13 }}>输入 URL 开始浏览</span>
+          <span style={{ fontSize: 13 }}>{t("enterUrlToStart")}</span>
         </div>
       )}
       {isFailed && (
@@ -101,7 +103,7 @@ export function BrowserPlaceholder({ pageId, webviewVisible }: BrowserPlaceholde
             zIndex: 1,
           }}
         >
-          {page.loadState.state === "failed" ? page.loadState.message : "Load failed"}
+          {(page.loadState.state === "failed" && page.loadState.message) || t("loadFailed")}
         </div>
       )}
       {pageId && <AgentControlOverlay pageId={pageId} />}

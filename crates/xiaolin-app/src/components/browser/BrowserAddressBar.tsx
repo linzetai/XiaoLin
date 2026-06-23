@@ -19,6 +19,7 @@ import {
   Globe,
   ChatCircle,
 } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import {
   useBrowserStore,
   browserGoBack,
@@ -58,6 +59,7 @@ const iconBtnStyle: CSSProperties = {
 
 export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddressBarProps>(
   function BrowserAddressBar({ pageId, onOpenNetworkSettings }, ref) {
+    const { t } = useTranslation("browser");
     const page = useBrowserStore((s) => (pageId ? s.pages[pageId] : null));
     const layoutMode = useBrowserStore((s) => s.layoutMode);
     const setLayoutMode = useBrowserStore((s) => s.setLayoutMode);
@@ -128,7 +130,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
               color: "var(--fill-secondary)",
             }}
           >
-            <span>Agent 操作中</span>
+            <span>{t("agentOperating")}</span>
             <button
               type="button"
               onClick={() => pageId && void browserRequestTakeover(pageId)}
@@ -142,7 +144,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
                 color: "var(--fill-primary)",
               }}
             >
-              取回控制
+              {t("takeControl")}
             </button>
           </div>
         )}
@@ -159,7 +161,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
           <button
             type="button"
             style={iconBtnStyle}
-            title="Back"
+            title={t("back")}
             disabled={!pageId}
             onClick={() => pageId && void browserGoBack(pageId)}
           >
@@ -168,7 +170,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
           <button
             type="button"
             style={iconBtnStyle}
-            title="Forward"
+            title={t("forward")}
             disabled={!pageId}
             onClick={() => pageId && void browserGoForward(pageId)}
           >
@@ -178,8 +180,8 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             <button
               type="button"
               style={iconBtnStyle}
-              title="停止加载"
-              aria-label="停止加载"
+              title={t("stopLoading")}
+              aria-label={t("stopLoading")}
               disabled={!pageId}
               onClick={handleStopLoading}
             >
@@ -189,8 +191,8 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             <button
               type="button"
               style={iconBtnStyle}
-              title="重新加载"
-              aria-label="重新加载"
+              title={t("reload")}
+              aria-label={t("reload")}
               disabled={!pageId}
               onClick={handleReload}
             >
@@ -224,7 +226,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
               onChange={(e) => { setInputValue(e.target.value); setEditing(true); }}
               onFocus={() => setEditing(true)}
               onBlur={() => setEditing(false)}
-              placeholder="Enter URL…"
+              placeholder={t("enterUrl")}
               disabled={!pageId}
               style={{
                 flex: 1,
@@ -241,7 +243,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
           <button
             type="button"
             style={iconBtnStyle}
-            title="Network settings"
+            title={t("networkSettings")}
             onClick={onOpenNetworkSettings}
           >
             <Globe size={14} />
@@ -255,8 +257,8 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
                 position: "relative",
                 ...(chatPanelCollapsed ? {} : { background: "var(--bg-tertiary)", color: "var(--fill-primary)" }),
               }}
-              title="Chat 面板"
-              aria-label={chatPanelCollapsed ? "展开 Chat" : "折叠 Chat"}
+              title={t("chatPanel")}
+              aria-label={chatPanelCollapsed ? t("expandChat") : t("collapseChat")}
               aria-expanded={!chatPanelCollapsed}
               onClick={toggleChatPanel}
             >
@@ -290,7 +292,7 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
           <button
             type="button"
             style={iconBtnStyle}
-            title={layoutMode === "panel" ? "Full width" : "Side panel"}
+            title={layoutMode === "panel" ? t("fullWidth") : t("sidePanel")}
             onClick={toggleLayout}
           >
             {layoutMode === "panel" ? <ArrowsOut size={14} /> : <ArrowsIn size={14} />}
