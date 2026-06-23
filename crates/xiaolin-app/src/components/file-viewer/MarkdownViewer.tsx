@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, memo } from "react";
 import { open } from "@tauri-apps/plugin-shell";
+import { isHttpUrl } from "../../lib/chat-link";
 import { MarkdownContent } from "../message-stream/MarkdownContent";
 import { openLightbox } from "../common/ImageLightbox";
 import { CodeViewer } from "./CodeViewer";
@@ -103,6 +104,7 @@ function MarkdownPreview({
       }
 
       if (isExternalUrl(href)) {
+        if (isHttpUrl(href)) return;
         e.preventDefault();
         void open(href).catch((err) => {
           console.warn("[MarkdownViewer] failed to open external link:", href, err);

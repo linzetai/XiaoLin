@@ -242,6 +242,27 @@ function DisplaySection() {
         <SettingRow label={t("lineNumbers")} description={t("lineNumbersDesc")}>
           <Toggle enabled={display.showLineNumbers} onChange={() => setDisplayConfig({ showLineNumbers: !display.showLineNumbers })} />
         </SettingRow>
+        <SettingRow label={t("chatLinkTarget")} description={t("chatLinkTargetDesc")}>
+          <div className="flex rounded-[var(--radius-xs)] p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+            {([
+              { value: "builtin" as const, label: t("chatLinkTarget_builtin") },
+              { value: "external" as const, label: t("chatLinkTarget_external") },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setDisplayConfig({ chatLinkTarget: opt.value })}
+                className="cursor-pointer rounded-[var(--radius-xs)] px-2.5 py-1 text-center text-[12px] font-medium transition-all duration-200"
+                style={{
+                  background: display.chatLinkTarget === opt.value ? "var(--bg-elevated)" : "transparent",
+                  color: display.chatLinkTarget === opt.value ? "var(--fill-primary)" : "var(--fill-tertiary)",
+                  boxShadow: display.chatLinkTarget === opt.value ? "var(--shadow-sm)" : "none",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
         <SettingRow label={t("toolCallThreshold")} description={t("toolCallThresholdDesc")} isLast>
           <div className="flex rounded-[var(--radius-xs)] p-0.5" style={{ background: "var(--bg-tertiary)" }}>
             {THRESHOLD_OPTIONS.map((opt) => (

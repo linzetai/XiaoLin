@@ -94,9 +94,9 @@
 
 ## 4. Chat 链接拦截
 
-- [ ] 4.1 `MarkdownContent.tsx` Link 组件：读取用户配置，http/https 默认内置浏览器打开，Shift+Click 反转
-- [ ] 4.2 同步修改 `StreamingMarkdown.tsx` / `MarkdownViewer.tsx`（如有链接组件）
-- [ ] 4.3 新增用户配置项：链接打开方式（内置浏览器 / 外部浏览器），存储于 settings store
+- [x] 4.1 `MarkdownContent.tsx` Link 组件：读取用户配置，http/https 默认内置浏览器打开，Shift+Click 反转
+- [x] 4.2 同步修改 `StreamingMarkdown.tsx` / `MarkdownViewer.tsx`（如有链接组件）
+- [x] 4.3 新增用户配置项：链接打开方式（内置浏览器 / 外部浏览器），存储于 settings store
 
 ## 5. BrowserEngine 抽象 & Agent 工具迁移
 
