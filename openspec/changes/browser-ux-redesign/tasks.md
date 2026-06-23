@@ -23,16 +23,16 @@
 
 ## 4. 全宽布局翻转
 
-- [ ] 4.1 `ContentBlock.tsx`：全宽模式渲染顺序从 `<ChatSidePanel> → <BrowserFullPanel>` 改为 `<BrowserFullPanel> → <ChatSidePanel>`
-- [ ] 4.2 `ContentBlock.tsx`：全宽模式下移除 `{showPanel && <WorkspacePanel />}`（全宽不显示 WorkspacePanel）
+- [x] 4.1 `ContentBlock.tsx`：全宽模式渲染顺序从 `<ChatSidePanel> → <BrowserFullPanel>` 改为 `<BrowserFullPanel> → <ChatSidePanel>`
+- [x] 4.2 `ContentBlock.tsx`：全宽模式下移除 `{showPanel && <WorkspacePanel />}`（全宽不显示 WorkspacePanel）
 
 ## 5. Chat 面板右侧化 + 折叠重设计
 
-- [ ] 5.1 `ChatSidePanel.tsx`：`borderRight` 改为 `borderLeft`，拖拽手柄从右侧移到左侧
-- [ ] 5.2 `ChatSidePanel.tsx`：拖拽方向反转——delta 计算从 `startWidth + delta` 改为 `startWidth - delta`
-- [ ] 5.3 `ChatSidePanel.tsx`：折叠态从条件 return 独立分支改为统一渲染——`width: 0; overflow: hidden` 但 children 保持挂载（不卸载 MessageStream）。同时移除旧 48px 窄条 UI（`ChatCircle` + 点击展开的折叠面板），折叠/展开改由地址栏 toggle 按钮（task 6.1）负责。全宽模式下 Chat header（标题栏 + 折叠按钮）保留，作为展开后的顶部操作区
-- [ ] 5.4 `browser-store.ts`：将 `COLLAPSED_CHAT_PANEL_WIDTH` 从 48 改为 0
-- [ ] 5.5 `ChatSidePanel.tsx`：折叠按钮图标从 `CaretLeft` 改为 `CaretRight`（Chat 在右侧时收起方向为右）
+- [x] 5.1 `ChatSidePanel.tsx`：`borderRight` 改为 `borderLeft`，拖拽手柄从右侧移到左侧
+- [x] 5.2 `ChatSidePanel.tsx`：拖拽方向反转——delta 计算从 `startWidth + delta` 改为 `startWidth - delta`
+- [x] 5.3 `ChatSidePanel.tsx`：折叠态从条件 return 独立分支改为统一渲染——`width: 0; overflow: hidden` 但 children 保持挂载（不卸载 MessageStream）。同时移除旧 48px 窄条 UI（`ChatCircle` + 点击展开的折叠面板），折叠/展开改由地址栏 toggle 按钮（task 6.1）负责。全宽模式下 Chat header（标题栏 + 折叠按钮）保留，作为展开后的顶部操作区
+- [x] 5.4 `browser-store.ts`：将 `COLLAPSED_CHAT_PANEL_WIDTH` 从 48 改为 0
+- [x] 5.5 `ChatSidePanel.tsx`：折叠按钮图标从 `CaretLeft` 改为 `CaretRight`（Chat 在右侧时收起方向为右）
 
 ## 6. Chat Toggle 按钮与选区联动
 
@@ -61,7 +61,7 @@
 
 ## 9. 样式与边缘场景
 
-- [ ] 9.1 `ContentBlock.tsx`：全宽模式移除 WorkspacePanel 后调整 borderRadius 逻辑（右侧不再有 Panel 时应有右侧圆角）
+- [x] 9.1 `ContentBlock.tsx`：全宽模式移除 WorkspacePanel 后调整 borderRadius 逻辑（右侧不再有 Panel 时应有右侧圆角）
 - [ ] 9.2 `BrowserAddressBar.tsx`：为 Stop/Reload 按钮添加无障碍 `aria-label`（「停止加载」/「重新加载」）
 - [ ] 9.3 `BrowserProgressBar.tsx`：进度条添加 `role="progressbar"` + `aria-busy` 属性
 - [ ] 9.4 `ContentBlock.tsx`/`BrowserFullPanel.tsx`：全宽首次进入或 Chat 侧移触发布局变化时，复用 `layoutTransitioning` 机制——hide all WebView → 等待 ResizeObserver 稳定 → show active，防止 WebView 跳动/闪烁（对应 R5）

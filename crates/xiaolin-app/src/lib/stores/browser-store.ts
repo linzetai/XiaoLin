@@ -7,7 +7,7 @@ export const MAX_BROWSER_DOWNLOADS = 50;
 export const MIN_CHAT_PANEL_WIDTH = 280;
 export const MAX_CHAT_PANEL_WIDTH = 500;
 export const DEFAULT_CHAT_PANEL_WIDTH = 360;
-export const COLLAPSED_CHAT_PANEL_WIDTH = 48;
+export const COLLAPSED_CHAT_PANEL_WIDTH = 0;
 
 const CHAT_PANEL_WIDTH_KEY = "xiaolin:browser-chat-panel-width";
 

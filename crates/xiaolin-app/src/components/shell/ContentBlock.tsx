@@ -24,18 +24,15 @@ export function ContentBlock({ children }: { children: ReactNode }) {
           display: "flex",
           flexDirection: "row",
           background: "var(--bg-card)",
-          borderRadius: showPanel
-            ? "var(--card-r) 0 0 var(--card-r)"
-            : "var(--card-r)",
+          borderRadius: "var(--card-r)",
           margin: "0 0 var(--gap-shell) 0",
           overflow: "hidden",
           opacity: layoutTransitioning ? 0.92 : 1,
           transition: "opacity 0.4s ease",
         }}
       >
-        <ChatSidePanel>{children}</ChatSidePanel>
         <BrowserFullPanel />
-        {showPanel && <WorkspacePanel />}
+        <ChatSidePanel>{children}</ChatSidePanel>
       </div>
     );
   }
