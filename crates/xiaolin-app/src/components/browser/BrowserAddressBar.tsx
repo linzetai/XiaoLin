@@ -1,5 +1,7 @@
 import {
   useRef,
+  useState,
+  useEffect,
   useCallback,
   forwardRef,
   useImperativeHandle,
@@ -56,9 +58,14 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
     const setAgentControlled = useBrowserStore((s) => s.setAgentControlled);
 
     const inputRef = useRef<HTMLInputElement>(null);
+    const [editing, setEditing] = useState(false);
+    const [inputValue, setInputValue] = useState("");
 
     useImperativeHandle(ref, () => ({
-      focus: () => inputRef.current?.focus(),
+      focus: () => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      },
       selectAll: () => inputRef.current?.select(),
     }));
 
@@ -67,13 +74,19 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
     const agentControlled = page?.agentControlled ?? false;
     const secure = url ? isHttpsUrl(url) : false;
 
+    useEffect(() => {
+      if (!editing) {
+        setInputValue(url);
+      }
+    }, [url, editing]);
+
     const handleSubmit = useCallback(
       (e: React.FormEvent) => {
         e.preventDefault();
         if (!pageId) return;
-        const value = inputRef.current?.value ?? "";
-        const normalized = normalizeNavUrl(value);
+        const normalized = normalizeNavUrl(inputValue);
         if (!normalized) return;
+        setEditing(false);
         void navigate(pageId, normalized);
       },
       [pageId, navigate],
@@ -182,9 +195,11 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
             )}
             <input
               ref={inputRef}
-              key={pageId ?? "none"}
               type="text"
-              defaultValue={url}
+              value={inputValue}
+              onChange={(e) => { setInputValue(e.target.value); setEditing(true); }}
+              onFocus={() => setEditing(true)}
+              onBlur={() => setEditing(false)}
               placeholder="Enter URL…"
               disabled={!pageId}
               style={{

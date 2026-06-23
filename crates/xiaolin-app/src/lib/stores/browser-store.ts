@@ -165,6 +165,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       await browserInvoke("browser_close_page", { pageId });
     } catch (e) {
       console.warn("[browser] closePage failed:", e);
+      return;
     }
     set((s) => {
       const { [pageId]: _, ...rest } = s.pages;
@@ -173,6 +174,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         s.activePageId === pageId ? (ids[0] ?? null) : s.activePageId;
       return { pages: rest, activePageId: nextActive };
     });
+    await get().showActivePage();
   },
 
   navigate: async (pageId, url) => {
