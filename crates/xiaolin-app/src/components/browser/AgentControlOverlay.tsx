@@ -49,6 +49,28 @@ export function AgentControlOverlay({ pageId }: AgentControlOverlayProps) {
           }}
         >
           <span style={{ flex: 1 }}>{userActionToast}</span>
+          {agentControlled && (
+            <button
+              type="button"
+              onClick={() => {
+                clearUserActionToast();
+                void browserRequestTakeover(pageId);
+              }}
+              style={{
+                border: "none",
+                background: "var(--tint)",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 5,
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+              }}
+            >
+              中止 Agent
+            </button>
+          )}
           <button
             type="button"
             onClick={clearUserActionToast}

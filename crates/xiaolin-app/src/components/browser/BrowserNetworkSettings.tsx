@@ -103,7 +103,8 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
         setLoaded(true);
       })
       .catch((e) => {
-        setError(String(e));
+        console.warn("[browser-network] load config failed:", e);
+        setError("加载网络配置失败");
         setLoaded(true);
       });
   }, [open]);
@@ -142,7 +143,8 @@ export function BrowserNetworkSettings({ open, onClose }: BrowserNetworkSettings
       await saveConfig(config);
       onClose();
     } catch (e) {
-      setError(String(e));
+      console.warn("[browser-network] save config failed:", e);
+      setError("保存网络配置失败");
     } finally {
       setSaving(false);
     }

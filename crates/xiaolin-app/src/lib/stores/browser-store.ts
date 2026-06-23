@@ -194,6 +194,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   navigate: async (pageId, url) => {
     if (!isTauri) return;
+    const prevUrl = get().pages[pageId]?.url;
     set((s) => {
       const page = s.pages[pageId];
       if (!page) return s;
@@ -208,6 +209,20 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       await browserInvoke("browser_navigate", { pageId, url });
     } catch (e) {
       console.warn("[browser] navigate failed:", e);
+      set((s) => {
+        const page = s.pages[pageId];
+        if (!page) return s;
+        return {
+          pages: {
+            ...s.pages,
+            [pageId]: {
+              ...page,
+              url: prevUrl ?? page.url,
+              loadState: { state: "failed", message: "导航失败" },
+            },
+          },
+        };
+      });
     }
   },
 
@@ -385,6 +400,7 @@ export async function initBrowserEvents(): Promise<void> {
         const nextActive = s.activePageId === pageId ? (ids[0] ?? null) : s.activePageId;
         return { pages: rest, activePageId: nextActive };
       });
+      void useBrowserStore.getState().showActivePage();
     }),
   );
 
@@ -505,9 +521,12 @@ export async function initBrowserEvents(): Promise<void> {
       "browser-download-finished",
       (ev) => {
         const { pageId, url, path, success } = ev.payload;
+        // Backend does not emit downloadId; match pageId+url+status and filename when available.
+        const finishedFilename = path ? downloadFilenameFromPath(path) : null;
         useBrowserStore.setState((s) => ({
           downloads: s.downloads.map((d) => {
             if (d.pageId !== pageId || d.url !== url || d.status !== "downloading") return d;
+            if (finishedFilename && d.filename !== finishedFilename) return d;
             return {
               ...d,
               path: path ?? d.path,
@@ -595,11 +614,12 @@ export async function browserRequestTakeover(pageId: string): Promise<void> {
   if (!isTauri) return;
   try {
     await browserInvoke("browser_request_takeover", { pageId });
-    useBrowserStore.getState().setAgentControlled(pageId, false);
-    useBrowserStore.setState({ userTakeoverActive: true });
   } catch (e) {
     console.warn("[browser] requestTakeover failed:", e);
+    return;
   }
+  useBrowserStore.getState().setAgentControlled(pageId, false);
+  useBrowserStore.setState({ userTakeoverActive: true });
 }
 
 /** Clear user takeover flag so the agent may resume browser actions. */

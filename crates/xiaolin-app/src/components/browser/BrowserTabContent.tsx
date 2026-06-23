@@ -1,6 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { Globe } from "@phosphor-icons/react";
-import { useBrowserStore, shouldShowBrowserWebView, hasBrowserPages } from "../../lib/stores/browser-store";
+import {
+  useBrowserStore,
+  shouldShowBrowserWebView,
+  MAX_BROWSER_PAGES,
+} from "../../lib/stores/browser-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
 import { BrowserPageTabs } from "./BrowserPageTabs";
@@ -63,19 +67,45 @@ export function BrowserPanelBody() {
   const closePage = useBrowserStore((s) => s.closePage);
   const addressBarRef = useRef<BrowserAddressBarHandle>(null);
   const [networkSettingsOpen, setNetworkSettingsOpen] = useState(false);
+  const [limitToast, setLimitToast] = useState(false);
 
   const webviewVisible = shouldShowBrowserWebView({ layoutMode, panelOpen, activeTabId });
 
+  const showLimitToast = useCallback(() => {
+    setLimitToast(true);
+    window.setTimeout(() => setLimitToast(false), 2500);
+  }, []);
+
   const handleNewTab = useCallback(async () => {
-    await openPage(NEW_TAB_URL);
+    const pageCount = Object.keys(useBrowserStore.getState().pages).length;
+    if (pageCount >= MAX_BROWSER_PAGES) {
+      showLimitToast();
+      return;
+    }
+    const pageId = await openPage(NEW_TAB_URL);
+    if (!pageId) {
+      showLimitToast();
+      return;
+    }
     requestAnimationFrame(() => {
       addressBarRef.current?.focus();
       addressBarRef.current?.selectAll();
     });
-  }, [openPage]);
+  }, [openPage, showLimitToast]);
 
   useEffect(() => {
+    function isEditableFocused(): boolean {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return true;
+      if (el instanceof HTMLElement && el.isContentEditable) return true;
+      return false;
+    }
+
     function onKeyDown(e: KeyboardEvent) {
+      if (isEditableFocused()) return;
+
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
 
@@ -128,7 +158,21 @@ export function BrowserPanelBody() {
         pageId={activePageId}
         onOpenNetworkSettings={() => setNetworkSettingsOpen(true)}
       />
-      <BrowserPageTabs />
+      <BrowserPageTabs onLimitReached={showLimitToast} />
+      {limitToast && (
+        <div
+          style={{
+            padding: "6px 12px",
+            fontSize: 12,
+            color: "var(--fill-secondary)",
+            background: "var(--bg-hover)",
+            borderBottom: "1px solid var(--border-shell-subtle)",
+            textAlign: "center",
+          }}
+        >
+          已达标签页上限（{MAX_BROWSER_PAGES} 个）
+        </div>
+      )}
       <BrowserPlaceholder pageId={activePageId} webviewVisible={webviewVisible} />
       <AgentOperationLog />
       <DownloadNotificationBar />

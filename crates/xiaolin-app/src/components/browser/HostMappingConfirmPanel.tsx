@@ -62,18 +62,27 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
     [request.requestId, submitting, onResolved],
   );
 
+  const handleDecisionRef = useRef(handleDecision);
+  handleDecisionRef.current = handleDecision;
+
+  useEffect(() => {
+    resolvedRef.current = false;
+    setRemaining(30);
+    setSubmitting(false);
+  }, [request.requestId]);
+
   useEffect(() => {
     const tick = () => {
       if (request.expiresAt > 0) {
         const left = Math.max(0, Math.ceil((request.expiresAt - Date.now()) / 1000));
         setRemaining(left);
         if (left <= 0 && !resolvedRef.current) {
-          void handleDecision(false);
+          void handleDecisionRef.current(false);
         }
       } else {
         setRemaining((r) => {
           if (r <= 1 && !resolvedRef.current) {
-            void handleDecision(false);
+            void handleDecisionRef.current(false);
             return 0;
           }
           return r - 1;
@@ -83,7 +92,7 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [request.expiresAt, handleDecision]);
+  }, [request.requestId, request.expiresAt]);
 
   const title =
     request.kind === "set_proxy"
@@ -185,36 +194,53 @@ export function HostMappingConfirmPanel({ request, onResolved }: HostMappingConf
 /** Global confirm queue — listens to Tauri + WS events. */
 export function useBrowserNetworkConfirmListener(): {
   pendingConfirm: NetworkConfirmPayload | null;
+  pendingCount: number;
   dismissConfirm: () => void;
 } {
-  const [pendingConfirm, setPendingConfirm] = useState<NetworkConfirmPayload | null>(null);
+  const [pendingConfirms, setPendingConfirms] = useState<NetworkConfirmPayload[]>([]);
 
   useEffect(() => {
     if (!isTauri) return;
 
+    let cancelled = false;
     const unsubs: Array<() => void> = [];
 
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unsubs.push(
-        await listen<Record<string, unknown>>("browser-network-confirm-request", (ev) => {
-          setPendingConfirm(normalizePayload(ev.payload));
-        }),
+      const unlisten = await listen<Record<string, unknown>>(
+        "browser-network-confirm-request",
+        (ev) => {
+          setPendingConfirms((prev) => [...prev, normalizePayload(ev.payload)]);
+        },
       );
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      unsubs.push(unlisten);
     })();
 
     const wsUnsub = transport.onWsEvent("browser_network_confirm", (msg: unknown) => {
       const data = (msg as { data?: Record<string, unknown> })?.data;
-      if (data) setPendingConfirm(normalizePayload(data));
+      if (data) {
+        setPendingConfirms((prev) => [...prev, normalizePayload(data)]);
+      }
     });
     unsubs.push(wsUnsub);
 
     return () => {
+      cancelled = true;
       for (const u of unsubs) u();
     };
   }, []);
 
-  const dismissConfirm = useCallback(() => setPendingConfirm(null), []);
+  const dismissConfirm = useCallback(() => {
+    setPendingConfirms((prev) => prev.slice(1));
+  }, []);
 
-  return { pendingConfirm, dismissConfirm };
+  return {
+    pendingConfirm: pendingConfirms[0] ?? null,
+    pendingCount: pendingConfirms.length,
+    dismissConfirm,
+  };
 }
