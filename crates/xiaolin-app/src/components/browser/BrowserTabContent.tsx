@@ -80,6 +80,15 @@ export function BrowserPanelBody() {
 
   const webviewVisible = shouldShowBrowserWebView({ layoutMode, panelOpen, activeTabId });
 
+  useEffect(() => {
+    if (!hasPages) return;
+    if (networkSettingsOpen) {
+      void useBrowserStore.getState().hideAllPages();
+    } else {
+      void useBrowserStore.getState().showActivePage();
+    }
+  }, [networkSettingsOpen, hasPages]);
+
   const showLimitToast = useCallback(() => {
     setLimitToast(true);
     window.setTimeout(() => setLimitToast(false), 2500);

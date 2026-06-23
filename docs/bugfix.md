@@ -1088,6 +1088,16 @@
 - **相关规则**：无新规则（平台 WebView 引擎行为差异，通过 JS 层 polyfill 解决）
 - **修复记录**：2026-06-23 BROWSER_INIT_SCRIPT 添加 target=_blank click 拦截 → window.open() 转换
 
+#### BUG-E2E-11 🔴 BrowserNetworkSettings 对话框被原生 WebView 遮挡
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-app/src/components/browser/BrowserTabContent.tsx`
+- **关联文件**：`crates/xiaolin-app/src/components/browser/BrowserNetworkSettings.tsx`
+- **问题**：`BrowserNetworkSettings` 使用 `fixed inset-0 z-[60]` 定位的 HTML 对话框，但 Tauri WebView 是原生 OS 层渲染，始终覆盖在 HTML 内容之上，导致网络设置对话框被 WebView 完全遮挡不可见。
+- **影响**：用户无法看到和操作网络设置对话框
+- **建议**：在打开 HTML 对话框/modal 时，必须先隐藏原生 WebView
+- **修复记录**：2026-06-23 在 BrowserPanelBody 中添加 useEffect 监听 networkSettingsOpen，打开时 hideAllPages()、关闭时 showActivePage()
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |
