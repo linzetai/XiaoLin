@@ -5,6 +5,7 @@ import { fillChatFromBrowserSelection } from "./composer-input-store";
 import { useChatMetaStore } from "./chat-meta-store";
 import type { MainView } from "./ui-store";
 
+export const NEW_TAB_URL = "https://example.com";
 export const MAX_BROWSER_PAGES = 8;
 export const MAX_BROWSER_DOWNLOADS = 50;
 export const MIN_CHAT_PANEL_WIDTH = 280;

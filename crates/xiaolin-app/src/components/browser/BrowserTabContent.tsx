@@ -7,6 +7,7 @@ import {
   browserReload,
   browserStopLoading,
   MAX_BROWSER_PAGES,
+  NEW_TAB_URL,
 } from "../../lib/stores/browser-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { BrowserAddressBar, type BrowserAddressBarHandle } from "./BrowserAddressBar";
@@ -16,8 +17,6 @@ import { BrowserPlaceholder } from "./BrowserPlaceholder";
 import { DownloadNotificationBar } from "./DownloadNotificationBar";
 import { BrowserNetworkSettings } from "./BrowserNetworkSettings";
 import { AgentOperationLog } from "./AgentOperationLog";
-
-const NEW_TAB_URL = "https://example.com";
 
 function BrowserEmptyState() {
   const { t } = useTranslation("browser");

@@ -81,6 +81,8 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
     }));
 
     const url = page?.url ?? "";
+    const isNewTab = !url || url === "about:blank";
+    const canGoBack = Boolean(pageId) && !isNewTab;
     const isLoading = page?.loadState.state === "loading";
     const agentControlled = page?.agentControlled ?? false;
     const secure = url ? isHttpsUrl(url) : false;
@@ -160,10 +162,14 @@ export const BrowserAddressBar = forwardRef<BrowserAddressBarHandle, BrowserAddr
         >
           <button
             type="button"
-            style={iconBtnStyle}
+            style={{
+              ...iconBtnStyle,
+              opacity: canGoBack ? 1 : 0.3,
+              cursor: canGoBack ? "pointer" : "default",
+            }}
             title={t("back")}
-            disabled={!pageId}
-            onClick={() => pageId && void browserGoBack(pageId)}
+            disabled={!canGoBack}
+            onClick={() => canGoBack && pageId && void browserGoBack(pageId)}
           >
             <ArrowLeft size={14} />
           </button>

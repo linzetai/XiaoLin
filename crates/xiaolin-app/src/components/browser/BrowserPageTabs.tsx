@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, X, Globe } from "@phosphor-icons/react";
+import { Plus, X, Globe, CircleNotch } from "@phosphor-icons/react";
 import {
   useBrowserStore,
   MAX_BROWSER_PAGES,
+  NEW_TAB_URL,
 } from "../../lib/stores/browser-store";
-
-const NEW_TAB_URL = "https://example.com";
 
 function FaviconIcon({ url }: { url?: string }) {
   const [failed, setFailed] = useState(false);
@@ -42,6 +41,90 @@ const tabStyle: React.CSSProperties = {
   transition: "background 0.1s",
 };
 
+interface BrowserPageTabItemProps {
+  pageId: string;
+  isActive: boolean;
+  onSelect: (pageId: string) => void;
+  onClose: (e: React.MouseEvent, pageId: string) => void;
+  onMiddleClick: (e: React.MouseEvent, pageId: string) => void;
+  onKeyDown: (e: React.KeyboardEvent, pageId: string) => void;
+}
+
+function BrowserPageTabItem({
+  pageId,
+  isActive,
+  onSelect,
+  onClose,
+  onMiddleClick,
+  onKeyDown,
+}: BrowserPageTabItemProps) {
+  const { t } = useTranslation("browser");
+  const page = useBrowserStore((s) => s.pages[pageId]);
+
+  if (!page) return null;
+
+  const label = page.title || page.url || t("newTab");
+  const isLoading = page.loadState.state === "loading";
+
+  return (
+    <div
+      role="tab"
+      tabIndex={0}
+      aria-selected={isActive}
+      style={{
+        ...tabStyle,
+        background: isActive ? "var(--bg-hover)" : "transparent",
+        color: isActive ? "var(--fill-primary)" : "var(--fill-quaternary)",
+      }}
+      onClick={() => onSelect(pageId)}
+      onKeyDown={(e) => onKeyDown(e, pageId)}
+      onMouseDown={(e) => onMiddleClick(e, pageId)}
+      title={label}
+    >
+      {page.agentControlled && <span aria-hidden>🤖</span>}
+      <FaviconIcon url={page.faviconUrl} />
+      <span
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {isLoading && (
+          <CircleNotch
+            size={10}
+            className="animate-spin"
+            style={{
+              display: "inline-block",
+              marginRight: 4,
+              verticalAlign: "middle",
+              color: "var(--tint)",
+            }}
+          />
+        )}
+        {label}
+      </span>
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t("closeTab")}
+        onClick={(e) => onClose(e, pageId)}
+        style={{
+          display: "flex",
+          padding: 2,
+          borderRadius: 3,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          color: "var(--fill-quaternary)",
+        }}
+      >
+        <X size={10} />
+      </button>
+    </div>
+  );
+}
+
 interface BrowserPageTabsProps {
   onLimitReached?: () => void;
 }
@@ -55,8 +138,8 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
   const openPage = useBrowserStore((s) => s.openPage);
   const [localLimitToast, setLocalLimitToast] = useState(false);
 
-  const pageList = Object.values(pages);
-  const atLimit = pageList.length >= MAX_BROWSER_PAGES;
+  const pageIds = useMemo(() => Object.keys(pages), [pages]);
+  const atLimit = pageIds.length >= MAX_BROWSER_PAGES;
 
   const showLimitToast = useCallback(() => {
     if (onLimitReached) {
@@ -104,6 +187,13 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
     [setActivePageId],
   );
 
+  const handleSelect = useCallback(
+    (pageId: string) => {
+      void setActivePageId(pageId);
+    },
+    [setActivePageId],
+  );
+
   return (
     <div style={{ flexShrink: 0 }}>
       <div
@@ -117,71 +207,17 @@ export function BrowserPageTabs({ onLimitReached }: BrowserPageTabsProps) {
           overflowX: "auto",
         }}
       >
-        {pageList.map((page) => {
-          const active = page.pageId === activePageId;
-          const label = page.title || page.url || t("newTab");
-          return (
-            <div
-              key={page.pageId}
-              role="tab"
-              tabIndex={0}
-              aria-selected={active}
-              style={{
-                ...tabStyle,
-                background: active ? "var(--bg-hover)" : "transparent",
-                color: active ? "var(--fill-primary)" : "var(--fill-quaternary)",
-              }}
-              onClick={() => void setActivePageId(page.pageId)}
-              onKeyDown={(e) => handleTabKeyDown(e, page.pageId)}
-              onMouseDown={(e) => handleMiddleClick(e, page.pageId)}
-              title={label}
-            >
-              {page.agentControlled && <span aria-hidden>🤖</span>}
-              <FaviconIcon url={page.faviconUrl} />
-              <span
-                style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {page.loadState.state === "loading" && (
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 8,
-                      height: 8,
-                      marginRight: 4,
-                      borderRadius: "50%",
-                      border: "1.5px solid var(--fill-quaternary)",
-                      borderTopColor: "var(--tint)",
-                      animation: "browser-spin 0.8s linear infinite",
-                      verticalAlign: "middle",
-                    }}
-                  />
-                )}
-                {label}
-              </span>
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-label={t("closeTab")}
-                onClick={(e) => handleClose(e, page.pageId)}
-                style={{
-                  display: "flex",
-                  padding: 2,
-                  borderRadius: 3,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  color: "var(--fill-quaternary)",
-                }}
-              >
-                <X size={10} />
-              </button>
-            </div>
-          );
-        })}
+        {pageIds.map((pageId) => (
+          <BrowserPageTabItem
+            key={pageId}
+            pageId={pageId}
+            isActive={pageId === activePageId}
+            onSelect={handleSelect}
+            onClose={handleClose}
+            onMiddleClick={handleMiddleClick}
+            onKeyDown={handleTabKeyDown}
+          />
+        ))}
         <button
           type="button"
           style={{

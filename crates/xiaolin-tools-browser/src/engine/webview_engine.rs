@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -109,35 +110,15 @@ fn bridge() -> Result<&'static Arc<dyn BrowserBridge>, String> {
 const DEVTOOLS_UNSUPPORTED: &str = "DevTools actions require CDP engine. \
 In WebView mode, use Agent observe actions instead.";
 
-struct AgentControlDebounce {
-    exit_generation: u64,
-}
-
-static AGENT_CONTROL_DEBOUNCE: OnceLock<Mutex<AgentControlDebounce>> = OnceLock::new();
-
-fn agent_control_debounce() -> &'static Mutex<AgentControlDebounce> {
-    AGENT_CONTROL_DEBOUNCE.get_or_init(|| Mutex::new(AgentControlDebounce { exit_generation: 0 }))
-}
+static AGENT_CONTROL_EXIT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Debounce agent-control overlay exit by 500ms to avoid UI flicker between consecutive actions.
 fn schedule_debounced_exit_agent_control(page_id: Option<String>) {
-    let generation = {
-        let mut state = agent_control_debounce()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.exit_generation += 1;
-        state.exit_generation
-    };
+    let generation = AGENT_CONTROL_EXIT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(500));
-        let should_exit = {
-            let state = agent_control_debounce()
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            state.exit_generation == generation
-        };
-        if should_exit {
+    tokio::runtime::Handle::current().spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if AGENT_CONTROL_EXIT_GENERATION.load(Ordering::SeqCst) == generation {
             let engine = TauriWebViewEngine;
             let _ = engine.exit_agent_control(page_id.as_deref());
         }
@@ -375,6 +356,16 @@ impl TauriWebViewEngine {
                         "warning".to_string(),
                         serde_json::json!(crate::js::UNTRUSTED_WARNING),
                     );
+                    if action == "take_snapshot" {
+                        obj.insert("engine".into(), serde_json::json!("webview"));
+                        obj.insert(
+                            "note".into(),
+                            serde_json::json!(
+                                "Simplified DOM snapshot from WebView engine. \
+                                 Use CDP engine for full accessibility tree with roles and ARIA attributes."
+                            ),
+                        );
+                    }
                 }
                 self.log_agent_op(page_id_ref, action, "page content captured");
                 Ok(EngineActionResult::text(val.to_string()))
@@ -755,29 +746,15 @@ impl TauriWebViewEngine {
                 ))
             }
 
-            "handle_dialog" => {
-                // NOTE: BROWSER_INIT_SCRIPT (xiaolin-app) hijacks confirm/prompt and always
-                // returns true/default — it does not read __fc_dialog_* vars. Agent must call
-                // handle_dialog before triggering the dialog, but full support requires
-                // xiaolin-app BROWSER_INIT_SCRIPT changes.
-                let dialog_action = args
-                    .get("dialog_action")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("accept");
-                let prompt_text = args.get("promptText").and_then(|v| v.as_str());
-                let js = if dialog_action == "dismiss" {
-                    "window.__fc_dialog_dismiss = true; 'ok'".to_string()
-                } else if let Some(pt) = prompt_text {
-                    let escaped = serde_json::to_string(pt).unwrap();
-                    format!("window.__fc_dialog_response = {escaped}; 'ok'")
-                } else {
-                    "'ok'".to_string()
-                };
-                self.eval(page_id.as_deref(), &js)?;
-                Ok(EngineActionResult::text(
-                    serde_json::json!({ "ok": true, "action": dialog_action }).to_string(),
-                ))
-            }
+            "handle_dialog" => Ok(EngineActionResult::text(
+                serde_json::json!({
+                    "ok": false,
+                    "note": "handle_dialog is partially supported in WebView mode. \
+                             The init script auto-accepts confirm/prompt dialogs. \
+                             Use the 'interact' action to let the user handle complex dialogs manually."
+                })
+                .to_string(),
+            )),
 
             "interact" => {
                 self.exit_agent_control(page_id.as_deref())?;
