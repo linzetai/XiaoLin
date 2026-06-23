@@ -60,10 +60,18 @@ pub(crate) async fn setup_turn(
     );
 
     // --- Skill injection ---
+    let context_window = config.model.context_window.unwrap_or(
+        xiaolin_context::infer_context_window_from_model(&config.model.model),
+    );
     let t0 = std::time::Instant::now();
     let mut injected_skill_ids: Vec<String> = Vec::new();
     if let Err(e) = runtime
-        .inject_relevant_skills(&mut messages, request, &mut injected_skill_ids)
+        .inject_relevant_skills(
+            &mut messages,
+            request,
+            &mut injected_skill_ids,
+            context_window,
+        )
         .await
     {
         tracing::warn!(error = %e, "skill injection skipped (stream)");
@@ -199,9 +207,7 @@ pub(crate) async fn setup_turn(
     }
 
     // --- Context window ---
-    let context_window = config.model.context_window.unwrap_or(
-        xiaolin_context::infer_context_window_from_model(&config.model.model),
-    );
+    // (computed above for skill injection budget)
 
     // --- ProductionDeps ---
     let provider_for_deps: Arc<dyn LlmProvider> = match &llm_override {

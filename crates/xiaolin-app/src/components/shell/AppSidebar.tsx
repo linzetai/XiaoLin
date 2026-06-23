@@ -24,7 +24,7 @@ const actionBtn: CSSProperties = {
   padding: "6px 10px",
   fontSize: 13,
   textAlign: "left",
-  transition: "background 0.1s, color 0.1s",
+  transition: "background var(--duration-instant) var(--ease-in-out), color var(--duration-instant) var(--ease-in-out)",
 };
 
 const ICON_SIZE = 15;
@@ -99,8 +99,11 @@ function ChatContextMenu({
           <button
             key={item.label}
             onClick={() => { item.action(); onClose(); }}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-            style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium hover:bg-[var(--bg-hover)]"
+            style={{
+              color: item.danger ? "var(--red)" : "var(--fill-secondary)",
+              transition: "background-color var(--duration-fast) var(--ease-in-out)",
+            }}
           >
             <Icon />
             {item.label}
@@ -170,8 +173,11 @@ function ProjectContextMenu({
           <button
             key={item.label}
             onClick={() => { item.action(); if (item.label !== t("changeColor")) onClose(); }}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium transition-colors duration-100 hover:bg-[var(--bg-hover)]"
-            style={{ color: item.danger ? "var(--red)" : "var(--fill-secondary)" }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] font-medium hover:bg-[var(--bg-hover)]"
+            style={{
+              color: item.danger ? "var(--red)" : "var(--fill-secondary)",
+              transition: "background-color var(--duration-fast) var(--ease-in-out)",
+            }}
           >
             <Icon />
             {item.label}
@@ -190,7 +196,7 @@ function ProjectContextMenu({
                 background: color, cursor: "pointer",
                 outline: project.color === color ? "2px solid var(--fill-primary)" : "none",
                 outlineOffset: 2,
-                transition: "transform 0.1s",
+                transition: "transform var(--duration-instant) var(--ease-in-out)",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.15)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
@@ -252,7 +258,7 @@ function SessionItem({
         paddingLeft: indent ? 34 : 10,
         borderRadius: 6,
         cursor: "pointer",
-        transition: "background 0.1s",
+        transition: "background var(--duration-instant) var(--ease-in-out)",
         background: active ? "var(--bg-active)" : "transparent",
         margin: "1px 0",
       }}
@@ -344,7 +350,7 @@ function ProjectGroup({
           padding: "6px 10px",
           borderRadius: 6,
           cursor: "pointer",
-          transition: "background 0.1s",
+          transition: "background var(--duration-instant) var(--ease-in-out)",
         }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; setHovered(true); }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; setHovered(false); }}
@@ -603,7 +609,7 @@ export function AppSidebar() {
           background: "var(--bg-shell)",
           minHeight: 0,
           overflow: "hidden",
-          transition: dragging ? "none" : "width 0.2s ease",
+          transition: dragging ? "none" : "width var(--duration-normal) var(--ease-in-out)",
           position: "relative",
           pointerEvents: collapsed ? "none" : "auto",
         }}
@@ -647,7 +653,7 @@ export function AppSidebar() {
                   background: "none", border: "none", padding: "2px",
                   cursor: "pointer", color: "var(--fill-quaternary)",
                   borderRadius: 4, display: "flex", alignItems: "center",
-                  transition: "color 0.1s, background 0.1s",
+                  transition: "color var(--duration-instant) var(--ease-in-out), background var(--duration-instant) var(--ease-in-out)",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--fill-secondary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "none"; }}
@@ -665,7 +671,7 @@ export function AppSidebar() {
                   width: "100%", border: "1px dashed var(--separator)",
                   borderRadius: 6, background: "transparent",
                   cursor: "pointer", fontSize: 12, color: "var(--fill-quaternary)",
-                  transition: "border-color 0.15s, color 0.15s, background 0.15s",
+                  transition: "border-color var(--duration-fast) var(--ease-in-out), color var(--duration-fast) var(--ease-in-out), background var(--duration-fast) var(--ease-in-out)",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--tint)"; e.currentTarget.style.color = "var(--fill-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--separator)"; e.currentTarget.style.color = "var(--fill-quaternary)"; e.currentTarget.style.background = "transparent"; }}
@@ -770,7 +776,7 @@ export function AppSidebar() {
                 borderRadius: 1,
                 background: dragging ? "var(--tint)" : "var(--fill-quaternary)",
                 opacity: (resizeHovered || dragging) ? (dragging ? 1 : 0.6) : 0,
-                transition: "opacity 0.15s, background 0.15s",
+                transition: "opacity var(--duration-fast) var(--ease-in-out), background var(--duration-fast) var(--ease-in-out)",
               }}
             />
           </div>

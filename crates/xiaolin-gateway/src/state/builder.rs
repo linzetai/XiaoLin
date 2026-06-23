@@ -887,6 +887,11 @@ impl StateBuilder {
             .phase3
             .runtime
             .set_skills_allow(config.skills.allow.clone());
+        p5.phase2
+            .phase4
+            .phase3
+            .runtime
+            .set_skills_context_budget_percent(config.skills.context_budget_percent);
 
         let prompt_injection_enabled = config.security.prompt_injection_detection;
         let pty_max_sessions = config.terminal.max_sessions;

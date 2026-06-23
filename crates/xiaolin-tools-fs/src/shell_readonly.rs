@@ -399,6 +399,33 @@ const DANGEROUS_COMMANDS: &[&str] = &[
 
 // ─── Classification logic ───────────────────────────────────────────────────
 
+fn classify_find(args: &[&str]) -> CommandClassification {
+    for arg in args {
+        if *arg == "-delete" {
+            return CommandClassification::Write {
+                reason: "find -delete removes matching files".into(),
+            };
+        }
+        if matches!(*arg, "-exec" | "-execdir" | "-ok") || arg.starts_with("-exec") {
+            return CommandClassification::Write {
+                reason: format!("find {arg} executes commands on matched files"),
+            };
+        }
+    }
+    CommandClassification::ReadOnly
+}
+
+fn classify_awk(args: &[&str]) -> CommandClassification {
+    let joined = args.join(" ");
+    let lower = joined.to_lowercase();
+    if lower.contains("system(") {
+        return CommandClassification::Write {
+            reason: "awk system() executes shell commands".into(),
+        };
+    }
+    CommandClassification::ReadOnly
+}
+
 fn classify_segment(segment: &str) -> CommandClassification {
     let trimmed = segment.trim();
     if trimmed.is_empty() {
@@ -482,6 +509,14 @@ fn classify_segment(segment: &str) -> CommandClassification {
                 };
             }
         }
+    }
+
+    if base_cmd == "find" {
+        return classify_find(args);
+    }
+
+    if base_cmd == "awk" {
+        return classify_awk(args);
     }
 
     // Generic script/network executors are never readonly (Plan mode safety)
@@ -1208,6 +1243,25 @@ mod tests {
     }
 
     // ── wget ────────────────────────────────────────────────────────
+
+    #[test]
+    fn write_find_exec() {
+        let cls = ReadOnlyClassifier::classify("find . -name '*.log' -exec rm {} \\;");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_find_delete() {
+        let cls = ReadOnlyClassifier::classify("find /tmp -type f -delete");
+        assert!(cls.is_write());
+    }
+
+    #[test]
+    fn write_awk_system() {
+        let cls = ReadOnlyClassifier::classify("awk 'BEGIN { system(\"touch /tmp/pwned\") }'");
+        // Blocked by ShellSecurityChecker (Dangerous) or classify_awk (Write)
+        assert!(cls.is_dangerous() || cls.is_write());
+    }
 
     #[test]
     fn wget_download_is_write() {

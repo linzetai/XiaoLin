@@ -487,6 +487,8 @@ pub struct AgentRuntime {
     skills_deny: ArcSwap<Vec<String>>,
     /// Live skills allow list (synced from gateway `config_live.skills.allow`).
     skills_allow: ArcSwap<Vec<String>>,
+    /// Live skills context budget percent (synced from gateway `config_live.skills.contextBudgetPercent`).
+    skills_context_budget_percent: ArcSwap<u8>,
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
     cached_runtime_registry: Arc<runtimes::RuntimeRegistry>,
     self_handle: std::sync::OnceLock<std::sync::Weak<Self>>,
@@ -515,6 +517,9 @@ impl AgentRuntime {
             skill_usage_store: ArcSwap::new(Arc::new(None)),
             skills_deny: ArcSwap::new(Arc::new(Vec::new())),
             skills_allow: ArcSwap::new(Arc::new(Vec::new())),
+            skills_context_budget_percent: ArcSwap::new(Arc::new(
+                xiaolin_core::config::SkillsConfig::default().context_budget_percent,
+            )),
             trajectory_store: ArcSwap::new(Arc::new(None)),
             cached_runtime_registry: Arc::new(runtimes::register_default_runtimes()),
             self_handle: std::sync::OnceLock::new(),
@@ -605,6 +610,11 @@ impl AgentRuntime {
     /// Update the live skills allow list used by evolution skill injection.
     pub fn set_skills_allow(&self, allow: Vec<String>) {
         self.skills_allow.store(Arc::new(allow));
+    }
+
+    /// Update the live skills context budget percent used by evolution skill injection.
+    pub fn set_skills_context_budget_percent(&self, percent: u8) {
+        self.skills_context_budget_percent.store(Arc::new(percent));
     }
 
     #[cfg(feature = "self-iter")]
@@ -1005,6 +1015,7 @@ impl AgentRuntime {
         messages: &mut Vec<ChatMessage>,
         request: &ChatRequest,
         injected_skill_ids: &mut Vec<String>,
+        context_window: u32,
     ) -> anyhow::Result<()> {
         let store: Arc<SkillStore> = match (*self.skill_store.load()).as_ref() {
             Some(s) => s.clone(),
@@ -1061,6 +1072,21 @@ impl AgentRuntime {
             block.push_str(&format_candidate_skills_for_prompt(&candidates));
         }
         block.push_str(SKILL_MANAGEMENT_GUIDANCE);
+
+        let budget_percent = **self.skills_context_budget_percent.load();
+        if budget_percent > 0 {
+            let char_budget = (context_window as usize) * (budget_percent as usize) / 100 * 4;
+            let block_chars = block.chars().count();
+            if block_chars > char_budget {
+                block = block.chars().take(char_budget).collect();
+                tracing::warn!(
+                    char_budget,
+                    block_chars,
+                    "evolution skill injection truncated to context budget"
+                );
+            }
+        }
+
         Self::inject_skill_block_into_system(messages, &block);
 
         let session_key = request.session_id.as_deref().unwrap_or("default");

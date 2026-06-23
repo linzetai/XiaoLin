@@ -32,8 +32,6 @@ interface GitActions {
 
 type GitStore = GitState & GitActions;
 
-const POLL_INTERVAL_MS = 30_000;
-
 export const useGitStore = create<GitStore>((set) => ({
   status: null,
   branches: [],
@@ -112,7 +110,6 @@ export const useGitStore = create<GitStore>((set) => ({
   },
 }));
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 let eventUnsub: (() => void) | null = null;
 let projectUnsub: (() => void) | null = null;
 
@@ -144,21 +141,10 @@ export function initGitStore() {
     }
   });
 
-  pollTimer = setInterval(() => {
-    const { lastRefreshAt } = useGitStore.getState();
-    if (Date.now() - lastRefreshAt >= POLL_INTERVAL_MS) {
-      useGitStore.getState().refresh();
-    }
-  }, POLL_INTERVAL_MS);
-
   useGitStore.getState().refresh();
 }
 
 export function destroyGitStore() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
   if (eventUnsub) {
     eventUnsub();
     eventUnsub = null;

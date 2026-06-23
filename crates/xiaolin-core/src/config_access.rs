@@ -1,6 +1,43 @@
+use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use crate::credential_crypto::SECRET_CONFIG_KEYS;
+
+/// Read and deserialize a top-level section from a live config snapshot.
+///
+/// Returns `T::default()` when the section is missing or fails to deserialize.
+pub fn read_live_section<T: DeserializeOwned + Default>(
+    live: &serde_json::Value,
+    section: &str,
+) -> T {
+    live.get(section)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Read a nested field, falling back to `fallback` when missing or invalid.
+pub fn read_live_field_or<T: DeserializeOwned>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+    fallback: T,
+) -> T {
+    live.get(section)
+        .and_then(|s| s.get(field))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(fallback)
+}
+
+/// Read and deserialize a nested field from a live config snapshot.
+///
+/// Example: `read_live_field(live, "skills", "deny")` → `Vec<String>`.
+pub fn read_live_field<T: DeserializeOwned + Default>(
+    live: &serde_json::Value,
+    section: &str,
+    field: &str,
+) -> T {
+    read_live_field_or(live, section, field, T::default())
+}
 
 /// Safe config keys that UIs and tool endpoints are allowed to read.
 pub const CONFIG_READABLE_KEYS: &[&str] = &[

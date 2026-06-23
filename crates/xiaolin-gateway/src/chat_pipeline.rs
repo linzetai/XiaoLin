@@ -651,25 +651,19 @@ async fn inject_skills_prompt(
     let (prompt_mode, context_budget_percent) = {
         let live = state.cfg.config_live.load();
         let static_cfg = &state.cfg.config.skills;
-        if let Some(skills) = live.get("skills") {
-            let prompt_mode = skills
-                .get("promptMode")
-                .and_then(|v| {
-                    serde_json::from_value::<xiaolin_core::config::SkillPromptMode>(v.clone()).ok()
-                })
-                .unwrap_or(static_cfg.prompt_mode.clone());
-            let context_budget_percent = skills
-                .get("contextBudgetPercent")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u8)
-                .unwrap_or(static_cfg.context_budget_percent);
-            (prompt_mode, context_budget_percent)
-        } else {
-            (
-                static_cfg.prompt_mode.clone(),
-                static_cfg.context_budget_percent,
-            )
-        }
+        let prompt_mode = xiaolin_core::config_access::read_live_field_or(
+            &live,
+            "skills",
+            "promptMode",
+            static_cfg.prompt_mode.clone(),
+        );
+        let context_budget_percent = live
+            .get("skills")
+            .and_then(|s| s.get("contextBudgetPercent"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u8)
+            .unwrap_or(static_cfg.context_budget_percent);
+        (prompt_mode, context_budget_percent)
     };
 
     let mut touched = xiaolin_core::skill::extract_touched_paths(messages);

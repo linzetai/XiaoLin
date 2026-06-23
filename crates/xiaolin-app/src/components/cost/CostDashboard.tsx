@@ -45,7 +45,7 @@ function SectionTitle({ children, action }: { children: React.ReactNode; action?
 }
 
 function TrendChart({ data }: { data: TokenUsageDaily[] }) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("cost");
   const grouped = useMemo(() => {
     const map = new Map<string, { input: number; output: number; cache: number; cost: number }>();
     for (const row of data) {
@@ -121,7 +121,7 @@ function TrendChart({ data }: { data: TokenUsageDaily[] }) {
 }
 
 function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("cost");
   const totals = useMemo(() => {
     let input = 0, output = 0, cache = 0;
     for (const row of data) {
@@ -182,7 +182,7 @@ function TokenComposition({ data }: { data: TokenUsageDaily[] }) {
 }
 
 function ToolTable({ data }: { data: ToolCallDaily[] }) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("cost");
   const sorted = useMemo(() => {
     const agg = new Map<string, { success: number; failure: number; duration: number }>();
     for (const row of data) {
@@ -241,7 +241,7 @@ function ToolTable({ data }: { data: ToolCallDaily[] }) {
 }
 
 function SessionTable({ data }: { data: SessionCostSummary[] }) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("cost");
   if (data.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-[12px]" style={{ color: "var(--fill-quaternary)" }}>
@@ -293,7 +293,7 @@ function SessionTable({ data }: { data: SessionCostSummary[] }) {
 }
 
 export function CostDashboard() {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("cost");
   const summary = useCostStore((s) => s.summary);
   const dailyTokens = useCostStore((s) => s.dailyTokens);
   const toolStats = useCostStore((s) => s.toolStats);

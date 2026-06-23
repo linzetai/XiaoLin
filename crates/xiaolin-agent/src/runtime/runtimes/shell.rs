@@ -5,6 +5,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt, SandboxBackend, SandboxPreference,
     Sandboxable, ToolExecContext, ToolProgressEvent, ToolRuntime, ToolRuntimeError,
+    ToolRunOutput,
 };
 use xiaolin_protocol::approval::PendingAction;
 use xiaolin_sandbox::SandboxManager;
@@ -89,7 +90,7 @@ impl ToolRuntime for ShellRuntime {
         args: &serde_json::Value,
         sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError> {
+    ) -> Result<ToolRunOutput, ToolRuntimeError> {
         let command = args
             .get("command")
             .and_then(|v| v.as_str())
@@ -156,13 +157,23 @@ impl ToolRuntime for ShellRuntime {
                             });
                         }
                         SandboxPreference::Auto => {
-                            // TODO: emit UI notification via event bus (sandbox_degraded event)
                             tracing::warn!(
                                 sandbox = %effective_sandbox,
                                 command = %command,
                                 "SECURITY: sandbox unavailable in Auto mode — executing with host privileges (sandbox_degraded=true)"
                             );
                             without_sandbox_isolation = true;
+                            if let Some(ref tx) = ctx.progress_tx {
+                                let _ = tx
+                                    .send(ToolProgressEvent {
+                                        message: format!(
+                                            "沙箱 {effective_sandbox} 不可用，命令将以宿主权限执行"
+                                        ),
+                                        partial_output: None,
+                                        progress: None,
+                                    })
+                                    .await;
+                            }
                             build_plain_command(command, &cwd)
                         }
                         SandboxPreference::Skip => build_plain_command(command, &cwd),
@@ -337,7 +348,19 @@ impl ToolRuntime for ShellRuntime {
             result.push_str(&stderr_str);
         }
 
-        Ok(result)
+        let metadata = if without_sandbox_isolation {
+            Some(serde_json::json!({
+                "sandbox_degraded": true,
+                "requested_sandbox": effective_sandbox.to_string(),
+            }))
+        } else {
+            None
+        };
+
+        Ok(ToolRunOutput {
+            output: result,
+            metadata,
+        })
     }
 
     fn name(&self) -> &str {
@@ -498,10 +521,10 @@ mod tests {
             progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
-        assert!(result.contains("hello"));
-        assert!(result.contains("exit_code=0"));
-        assert!(result.contains("duration_ms="));
-        assert!(result.contains("cwd=/tmp"));
+        assert!(result.output.contains("hello"));
+        assert!(result.output.contains("exit_code=0"));
+        assert!(result.output.contains("duration_ms="));
+        assert!(result.output.contains("cwd=/tmp"));
     }
 
     #[tokio::test]
@@ -521,8 +544,8 @@ mod tests {
             progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
-        assert!(result.contains("bypass_test"));
-        assert!(result.contains("exit_code=0"));
+        assert!(result.output.contains("bypass_test"));
+        assert!(result.output.contains("exit_code=0"));
     }
 
     #[tokio::test]
@@ -541,7 +564,7 @@ mod tests {
             progress_tx: None,
         };
         let result = rt.run(&args, &sandbox, &ctx).await.unwrap();
-        let lines: Vec<&str> = result.lines().collect();
+        let lines: Vec<&str> = result.output.lines().collect();
         assert!(lines[0].starts_with("exit_code="));
         assert!(lines[1].starts_with("duration_ms="));
         assert!(lines[2].starts_with("cwd="));

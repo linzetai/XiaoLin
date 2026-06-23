@@ -36,10 +36,7 @@ pub async fn handle_skills_list(
 
     let deny_list: Vec<String> = {
         let live = state.cfg.config_live.load();
-        live.get("skills")
-            .and_then(|s| s.get("deny"))
-            .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
-            .unwrap_or_default()
+        xiaolin_core::config_access::read_live_field(&live, "skills", "deny")
     };
     let deny_set: HashSet<&str> = deny_list.iter().map(String::as_str).collect();
 
@@ -103,10 +100,7 @@ pub async fn handle_skills_read(
         (*state.rt.unfiltered_skill_registry.load()).clone();
     let deny_list: Vec<String> = {
         let live = state.cfg.config_live.load();
-        live.get("skills")
-            .and_then(|s| s.get("deny"))
-            .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
-            .unwrap_or_default()
+        xiaolin_core::config_access::read_live_field(&live, "skills", "deny")
     };
     let deny_set: HashSet<&str> = deny_list.iter().map(String::as_str).collect();
 

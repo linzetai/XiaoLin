@@ -470,6 +470,13 @@ export function MessageStream(_props: MessageStreamProps) {
     useFlushSync: false,
   });
 
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  const measureElementRef = useCallback((node: Element | null) => {
+    virtualizerRef.current.measureElement(node);
+  }, []);
+
   useLayoutEffect(() => {
     virtualizer.scrollToEnd();
   }, [chatKey]);
@@ -906,7 +913,7 @@ export function MessageStream(_props: MessageStreamProps) {
               {virtualizer.getVirtualItems().map((virtualItem) => (
                 <div
                   key={virtualItem.key}
-                  ref={virtualizer.measureElement}
+                  ref={measureElementRef}
                   data-index={virtualItem.index}
                   style={{
                     position: "absolute",

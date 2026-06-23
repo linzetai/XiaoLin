@@ -2435,22 +2435,24 @@ impl AppState {
         base.merge_from(legacy_project_registry);
         base.merge_from(cross_tool_registry);
 
-        let (allow_list, deny_list): (Vec<String>, Vec<String>) = {
+        let (allow_list, deny_list, budget_percent): (Vec<String>, Vec<String>, u8) = {
             let live = self.cfg.config_live.load();
-            let allow = live
-                .get("skills")
-                .and_then(|s| s.get("allow"))
-                .and_then(|a| serde_json::from_value::<Vec<String>>(a.clone()).ok())
-                .unwrap_or_default();
-            let deny = live
-                .get("skills")
-                .and_then(|s| s.get("deny"))
-                .and_then(|d| serde_json::from_value::<Vec<String>>(d.clone()).ok())
-                .unwrap_or_default();
-            (allow, deny)
+            (
+                xiaolin_core::config_access::read_live_field(&live, "skills", "allow"),
+                xiaolin_core::config_access::read_live_field(&live, "skills", "deny"),
+                xiaolin_core::config_access::read_live_field_or(
+                    &live,
+                    "skills",
+                    "contextBudgetPercent",
+                    self.cfg.config.skills.context_budget_percent,
+                ),
+            )
         };
         self.rt.runtime.set_skills_deny(deny_list.clone());
         self.rt.runtime.set_skills_allow(allow_list.clone());
+        self.rt
+            .runtime
+            .set_skills_context_budget_percent(budget_percent);
 
         self.rt
             .unfiltered_skill_registry

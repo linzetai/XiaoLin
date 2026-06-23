@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt,
     SandboxPreference, Sandboxable, ToolExecContext, ToolRuntime, ToolRuntimeError,
+    ToolRunOutput,
 };
 use xiaolin_protocol::approval::PendingAction;
 
@@ -30,7 +31,7 @@ pub trait ErasedToolRuntime: Send + Sync {
         args: &serde_json::Value,
         sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError>;
+    ) -> Result<ToolRunOutput, ToolRuntimeError>;
 }
 
 #[async_trait]
@@ -61,7 +62,7 @@ impl<T: ToolRuntime + 'static> ErasedToolRuntime for T {
         args: &serde_json::Value,
         sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
-    ) -> Result<String, ToolRuntimeError> {
+    ) -> Result<ToolRunOutput, ToolRuntimeError> {
         ToolRuntime::run(self, args, sandbox, ctx).await
     }
 }
