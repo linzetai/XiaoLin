@@ -37,32 +37,32 @@
 
 ## 2. Rust 后端 — BrowserPanelManager
 
-- [ ] 2.1 新增 `crates/xiaolin-app/src-tauri/src/browser_panel.rs`：BrowserPanelManager + BrowserPage struct（含 PageVisibility/PageLoadState 正交状态）
-- [ ] 2.2 IPC: `browser_open_page` — 创建 Child WebView
+- [x] 2.1 新增 `crates/xiaolin-app/src-tauri/src/browser_panel.rs`：BrowserPanelManager + BrowserPage struct（含 PageVisibility/PageLoadState 正交状态）
+- [x] 2.2 IPC: `browser_open_page` — 创建 Child WebView
   - `data_directory` 配置
   - `on_navigation` deny-by-default 过滤
   - `on_page_load` / `on_document_title_changed` 回调
   - `register_asynchronous_uri_scheme_handler("xiaolin-internal", ...)` 注册
   - `initialization_script` 注入 Layer 0-3
-- [ ] 2.3 IPC: `browser_close_page` — 关闭 WebView 并清理资源
-- [ ] 2.4 IPC: `browser_navigate` — 对指定 page 调用 navigate
-- [ ] 2.5 IPC: `browser_go_back` / `browser_go_forward` / `browser_reload`
-- [ ] 2.6 IPC: `browser_resize_webview` — 使用 `LogicalPosition` / `LogicalSize`（前端传 CSS px）
-- [ ] 2.7 IPC: `browser_list_pages`
-- [ ] 2.8 IPC: `browser_show_page` / `browser_hide_all_pages` — 显示/隐藏控制（屏幕外定位策略）
-- [ ] 2.9 IPC: `browser_eval_js` — 在指定页面 WebView 中执行 JS
-- [ ] 2.10 注册所有 IPC 命令，添加 BrowserPanelManager 为 Tauri managed state
-- [ ] 2.11 `on_new_window` 回调：拦截 window.open，在内置浏览器中新建页面
-- [ ] 2.12 `on_navigation` 回调：deny-by-default 白名单过滤
+- [x] 2.3 IPC: `browser_close_page` — 关闭 WebView 并清理资源
+- [x] 2.4 IPC: `browser_navigate` — 对指定 page 调用 navigate
+- [x] 2.5 IPC: `browser_go_back` / `browser_go_forward` / `browser_reload`
+- [x] 2.6 IPC: `browser_resize_webview` — 使用 `LogicalPosition` / `LogicalSize`（前端传 CSS px）
+- [x] 2.7 IPC: `browser_list_pages`
+- [x] 2.8 IPC: `browser_show_page` / `browser_hide_all_pages` — 显示/隐藏控制（屏幕外定位策略）
+- [x] 2.9 IPC: `browser_eval_js` — 在指定页面 WebView 中执行 JS
+- [x] 2.10 注册所有 IPC 命令，添加 BrowserPanelManager 为 Tauri managed state
+- [x] 2.11 `on_new_window` 回调：拦截 window.open，在内置浏览器中新建页面
+- [x] 2.12 `on_navigation` 回调：deny-by-default 白名单过滤
   - 允许: `http://`, `https://`
   - 拒绝: `file://`, `javascript:`, `data:` (顶级导航), `tauri://`, `ipc://`, `asset://`
   - 未知协议: 拒绝 + `tracing::warn!` 记录
-- [ ] 2.13 Custom Protocol handler: `xiaolin-internal://callback`
+- [x] 2.13 Custom Protocol handler: `xiaolin-internal://callback`
   - 白名单消息类型: ready/snapshot/console/network/selection/dialog
   - 请求体大小限制
   - 未知类型返回 403
-- [ ] 2.14 `on_download` 回调：下载检测 + 保存 + 通知前端
-- [ ] 2.15 BROWSER_INIT_SCRIPT Layer 0-3（~3KB）
+- [x] 2.14 `on_download` 回调：下载检测 + 保存 + 通知前端
+- [x] 2.15 BROWSER_INIT_SCRIPT Layer 0-3（~3KB）
   - Layer 0: `__XIAOLIN__` 命名空间 + custom protocol send/notify + Object.freeze 保护
   - Layer 1: Console/Error 钩子
   - Layer 2: Network 监控钩子（fetch + XHR）

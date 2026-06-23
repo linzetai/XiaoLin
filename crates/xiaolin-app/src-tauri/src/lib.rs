@@ -1,3 +1,4 @@
+pub mod browser_panel;
 pub mod commands;
 pub mod embedded;
 
@@ -170,6 +171,10 @@ pub fn run() {
     xiaolin_observe::init_observability_with_level("pretty", default_level);
 
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "xiaolin-internal",
+            browser_panel::handle_xiaolin_internal_protocol,
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
@@ -204,6 +209,10 @@ pub fn run() {
             ));
 
             app.manage(commands::audio_capture::AudioCaptureState::new());
+
+            app.manage(browser_panel::BrowserPanelState(std::sync::Mutex::new(
+                browser_panel::BrowserPanelManager::new(),
+            )));
 
             setup_tray(app)?;
 
@@ -341,6 +350,17 @@ pub fn run() {
             commands::file_viewer::read_file_for_viewer,
             commands::file_viewer::list_directory,
             commands::file_viewer::read_binary_for_viewer,
+            commands::browser::browser_open_page,
+            commands::browser::browser_close_page,
+            commands::browser::browser_navigate,
+            commands::browser::browser_go_back,
+            commands::browser::browser_go_forward,
+            commands::browser::browser_reload,
+            commands::browser::browser_resize_webview,
+            commands::browser::browser_list_pages,
+            commands::browser::browser_show_page,
+            commands::browser::browser_hide_all_pages,
+            commands::browser::browser_eval_js,
         ])
         .build(tauri::generate_context!());
 
