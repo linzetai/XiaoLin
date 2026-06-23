@@ -1295,7 +1295,7 @@ impl AppState {
         }
 
         xiaolin_agent::builtin_tools::register_browser_tool(&tool_registry);
-        tracing::info!("registered browser tool (headless Chrome)");
+        tracing::info!("registered browser tool (engine selected via XIAOLIN_BROWSER_ENGINE or bridge)");
 
         if let Some(openai_key) = creds.get_api_key("openai") {
             let openai_base = creds

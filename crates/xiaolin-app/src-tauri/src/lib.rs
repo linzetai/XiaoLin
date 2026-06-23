@@ -1,3 +1,4 @@
+pub mod browser_bridge;
 pub mod browser_panel;
 pub mod commands;
 pub mod embedded;
@@ -269,6 +270,8 @@ pub fn run() {
                     tracing::debug!("Global shortcut Ctrl+Shift+L skipped: {e}");
                 }
             }
+
+            browser_bridge::install_browser_bridge(app.handle());
 
             let handle = app.handle().clone();
 

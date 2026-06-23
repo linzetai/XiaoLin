@@ -101,7 +101,10 @@ pub use xiaolin_tools_fs::shell_readonly;
 pub use xiaolin_tools_fs::shell_security;
 
 #[cfg(feature = "browser")]
-pub use browser::{register_browser_tool, BrowserTool};
+pub use browser::{
+    register_browser_tool, register_browser_tool_with_engine, set_browser_bridge, BrowserBridge,
+    BrowserEngine, BrowserTool, CdpEngine, TauriWebViewEngine,
+};
 
 /// Register all built-in tools into a registry.
 pub fn register_builtin_tools(registry: &ToolRegistry) {

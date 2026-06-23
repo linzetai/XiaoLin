@@ -10565,6 +10565,7 @@ dependencies = [
  "xiaolin-observe",
  "xiaolin-protocol",
  "xiaolin-security",
+ "xiaolin-tools-browser",
  "zip 8.5.1",
 ]
 
