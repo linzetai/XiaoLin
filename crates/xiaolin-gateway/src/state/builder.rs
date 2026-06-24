@@ -1009,6 +1009,7 @@ impl StateBuilder {
                 plan_step_store: p5.phase2.phase4.plan_step_store,
                 permission_preset_registry: permission_preset_registry.clone(),
                 embedding_update_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                skills_prompt_cache: Arc::new(dashmap::DashMap::new()),
             },
             store: super::StorageState {
                 session_store: p5.phase2.phase4.phase3.phase1.session_store,

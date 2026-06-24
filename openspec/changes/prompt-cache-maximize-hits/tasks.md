@@ -39,19 +39,35 @@
 
 ## 5. MCP instructions 事件驱动 invalidation
 
-- [ ] 5.1 `mcp_instructions_section` 的 `cache_break` 改为 `false`
-- [ ] 5.2 在 MCP server connect/disconnect 事件处调用 `prompt_engine.invalidate_sections(&["mcp_instructions"])`
-- [ ] 5.3 `code_context_section` 从 dynamic_sections 移除（内容改为 user context 注入）
+- [x] 5.1 `mcp_instructions_section` 的 `cache_break` 改为 `false`
+- [x] 5.2 在 MCP server connect/disconnect 事件处调用 `prompt_engine.invalidate_sections(&["mcp_instructions"])`
+      （实现方式：`ToolRegistry` 新增 `mcp_instructions_version`，`set/remove_mcp_instructions` 仅在内容真正变化时 bump；
+      `AgentRuntime::build_messages` 比对版本号做事件驱动失效，避免跨 crate 传递 prompt_engine 句柄）
+- [x] 5.3 `code_context_section` 从 dynamic_sections 移除（Phase 1 已完成，内容经 `inject_user_context` 注入）
 
-## 6. Session 级冻结与 Invalidation 事件
+## 6. Session 级冻结与 per-session section 确定性（见 design.md D4b）
 
-- [ ] 6.1 Skills injection 添加 per-session 缓存（key = session_id + registry_version）
-- [ ] 6.2 `tool_search` 激活后触发 `invalidate_sections(&["system", "using_tools", "session_guidance"])`
-- [ ] 6.3 `memory_store` 调用后触发 `invalidate_sections(&["memory"])`
-- [ ] 6.4 Plan mode 切换时触发 `invalidate_sections(&["session_guidance"])`
-- [ ] 6.5 `session_start_date` 在 session 创建时冻结，不每轮重新计算
+> **设计修正**：`cache_break` 仅控制内部 CPU memoize，与 provider 缓存无关；`prompt_engine` 是进程级全局单例。
+> 因此 per-session 内容必须**每轮确定性重算**（`cache_break: true`），而非全局 memoize + 按 session 失效
+> （后者在全局引擎上会污染其它 session，且重算已天然处理新鲜度）。
 
-## 7. Anthropic 4-Tier cache_control 对接
+- [x] 6.2 ~~`tool_search` 激活后 `invalidate_sections`~~ **SUPERSEDED**：`session_guidance`/`using_tools`/`system` 改为每轮确定性重算（`cache_break: true`），tool_search 激活后下一轮自动反映，无需显式失效
+- [x] 6.3 ~~`memory_store` 后 `invalidate_sections(&["memory"])`~~ **SUPERSEDED**：`memory_section` 改 `cache_break: true`，memory 更新下一轮自动反映
+- [x] 6.4 ~~Plan mode 切换 `invalidate_sections(&["session_guidance"])`~~ **SUPERSEDED**：`session_guidance_section` 改 `cache_break: true`，plan-mode 切换下一轮自动反映
+- [x] 6.6 （新增）`environment` / `language` / `token_budget` 同步改 `cache_break: true`，修复 per-request 内容（cwd 等）被全局 memoize 泄漏的预存 bug
+- [x] 6.1 Skills injection per-session 冻结（含 `usage_counts` + `touched_paths` 漂移稳定）
+      实现：`RuntimeState.skills_prompt_cache: DashMap<session_id, SkillsPromptCacheEntry>`，key=session_id，
+      失效信号 = agent skill registry 的 `Arc::as_ptr`（reload 后变化）。命中即复用冻结 prompt，使 Tier-2 前缀字节稳定；
+      容量上限 `SKILLS_PROMPT_CACHE_MAX=512` + 按 `last_access_ms` 淘汰（规则 #27）；get_mut 守卫不跨重算持有（规则 #45）
+- [ ] 6.5 `session_start_date` per-session 冻结 → **移交 Phase 4 §9**（需 session-scoped ctx 状态；当前经 §6.6 重算已确定性到「天」粒度，仅跨午夜 session 会刷新一次，低优先级）
+
+## 7. Anthropic 4-Tier cache_control 对接 — ⏭️ DEFERRED（用户决定暂不接入 Anthropic 显式缓存）
+
+> **决定（2026-06-24）**：暂不实现 Anthropic 显式 `cache_control` 适配。
+> 当前重点是 **provider 自动前缀缓存**（DeepSeek/OpenAI），其命中只依赖「发送字节稳定的前缀」，
+> 而前缀稳定性已由 Phase 1（Tier 分层 + 零污染注入）+ Phase 2（§5/§6 确定性）保证。
+> Anthropic 的 `ttl`/`scope` 是在此基础上的**额外增益**，待自动缓存验证完善后再行接入。
+> 保留以下任务作为未来 backlog。
 
 - [ ] 7.1 `llm.rs`：新增 `AnthropicSystemBlock` struct 支持 `cache_control` 字段（含 `scope` 和 `ttl`）
 - [ ] 7.2 `llm.rs`：`AnthropicRequest.system` 从 `Option<String>` 改为 `Option<Vec<AnthropicSystemBlock>>`
@@ -63,9 +79,13 @@
 - [ ] 7.8 `llm_call.rs`：Anthropic provider 时 `has_cache_control` 改为 true
 - [ ] 7.9 Fallback：对不支持 cache_control 的模型/proxy 退化为 plain String
 
-## 8. Beta Header 与 Scope 支持（P2 实验性）
+> **注意**：虽然不接入 Anthropic cache_control，但 §4 定义的 `CACHE_TIER1_BOUNDARY` / `CACHE_TIER2_BOUNDARY`
+> 标记**仍需保留**——它们对 provider 自动缓存同样有益（保证模板/会话稳定段在前、动态段在后），
+> 且是未来接入 Anthropic 的前置条件。
 
-> ⚠️ `scope: 'global'` 功能为实验性，已知有 bug 且 3P proxy 不支持。此节为可选增强，不影响核心命中率目标。
+## 8. Beta Header 与 Scope 支持（P2 实验性）— ⏭️ DEFERRED（随 §7 一并暂缓）
+
+> ⚠️ `scope: 'global'` 功能为实验性，已知有 bug 且 3P proxy 不支持。随 §7 一并暂缓。
 
 - [ ] 8.1 新增 `prompt-caching-scope-2026-01-05` beta header，当 provider 为 Anthropic firstParty 时添加
 - [ ] 8.2 检测 API 是否支持 scope/ttl：首次请求如返回 400 则 fallback 并标记 session 内不再尝试
@@ -92,7 +112,8 @@
 ## 11. DeepSeek 专项优化与验证
 
 - [ ] 11.1 验证 `reasoning_content` 透传完整性：确保 assistant message 的 reasoning_content 原样保留在后续请求中（已实现，需单测覆盖）
-- [ ] 11.2 tool_defs 排序确定性：序列化 tool definitions 前按 name 排序，保证跨轮 byte-identical
+- [x] 11.2 tool_defs 排序确定性：`filter_tool_definitions` 收口处调用 `sort_tool_definitions_by_name` 按 name 排序，
+      消除 `HashMap.values()` 顺序非确定，保证跨轮/跨 session/跨进程 byte-identical（`demote_tools_for_plan_mode` 仅 retain 保序）
 - [ ] 11.3 messages 历史只追加不修改：审查所有 `messages.retain/remove/swap/truncate` 调用，确认不会改变已发送消息的内容（compaction 除外）
 - [ ] 11.4 compaction 后 baseline reset：compaction 改变了消息前缀，需要在 CacheBreakDetector 中 reset prevCacheReadTokens（避免误报）
 - [ ] 11.5 新增集成测试：模拟 3 轮 DeepSeek 对话，验证 Turn 2/3 的 prompt_cache_hit_tokens > 0

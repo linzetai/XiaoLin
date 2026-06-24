@@ -422,6 +422,10 @@ pub struct ToolRegistry {
     /// Per-MCP-server instructions captured from `InitializeResult`.
     /// Key: server ID, Value: instructions text (if provided).
     mcp_instructions: RwLock<HashMap<String, String>>,
+    /// Monotonic version bumped whenever `mcp_instructions` changes (connect/disconnect).
+    /// Lets prompt-cache consumers detect MCP changes and invalidate the memoized
+    /// `mcp_instructions` prompt section without recomputing it every turn.
+    mcp_instructions_version: std::sync::atomic::AtomicU64,
     /// Cache of per-tool serialized JSON char counts, keyed by registry version.
     /// Avoids re-serializing tool definitions just to estimate token counts.
     json_sizes_cache: RwLock<(u64, HashMap<String, usize>)>,
@@ -435,6 +439,9 @@ impl Clone for ToolRegistry {
         let ver = self.version.load(std::sync::atomic::Ordering::Relaxed);
         let cache = self.def_cache.read();
         let mcp_instr = self.mcp_instructions.read();
+        let mcp_ver = self
+            .mcp_instructions_version
+            .load(std::sync::atomic::Ordering::Relaxed);
         let json_sizes = self.json_sizes_cache.read();
         Self {
             tools: RwLock::new(guard.clone()),
@@ -443,6 +450,7 @@ impl Clone for ToolRegistry {
             version: std::sync::atomic::AtomicU64::new(ver),
             def_cache: RwLock::new(cache.clone()),
             mcp_instructions: RwLock::new(mcp_instr.clone()),
+            mcp_instructions_version: std::sync::atomic::AtomicU64::new(mcp_ver),
             json_sizes_cache: RwLock::new(json_sizes.clone()),
         }
     }
@@ -457,6 +465,7 @@ impl ToolRegistry {
             version: std::sync::atomic::AtomicU64::new(0),
             def_cache: RwLock::new((u64::MAX, Arc::new(Vec::new()))),
             mcp_instructions: RwLock::new(HashMap::new()),
+            mcp_instructions_version: std::sync::atomic::AtomicU64::new(0),
             json_sizes_cache: RwLock::new((u64::MAX, HashMap::new())),
         }
     }
@@ -530,20 +539,41 @@ impl ToolRegistry {
     /// Store instructions for an MCP server. Overwrites any previous value.
     pub fn set_mcp_instructions(&self, server_id: &str, instructions: Option<&str>) {
         let mut guard = self.mcp_instructions.write();
-        match instructions {
+        let changed = match instructions {
             Some(instr) if !instr.trim().is_empty() => {
-                guard.insert(server_id.to_string(), instr.trim().to_string());
+                let trimmed = instr.trim();
+                guard
+                    .insert(server_id.to_string(), trimmed.to_string())
+                    .as_deref()
+                    != Some(trimmed)
             }
-            _ => {
-                guard.remove(server_id);
-            }
+            _ => guard.remove(server_id).is_some(),
+        };
+        if changed {
+            self.bump_mcp_instructions_version();
         }
     }
 
     /// Remove MCP instructions for a server (e.g. on disconnect).
     pub fn remove_mcp_instructions(&self, server_id: &str) {
         let mut guard = self.mcp_instructions.write();
-        guard.remove(server_id);
+        if guard.remove(server_id).is_some() {
+            self.bump_mcp_instructions_version();
+        }
+    }
+
+    fn bump_mcp_instructions_version(&self) {
+        self.mcp_instructions_version
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Current MCP-instructions version. Bumped only when an MCP server's
+    /// instructions actually change (connect/disconnect/update). Prompt-cache
+    /// consumers snapshot this and compare to detect when the memoized
+    /// `mcp_instructions` section must be invalidated.
+    pub fn mcp_instructions_version(&self) -> u64 {
+        self.mcp_instructions_version
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get a snapshot of all MCP server instructions. Sorted by key.
@@ -1414,6 +1444,39 @@ mod tests {
         reg.activate_deferred("b");
         let v4 = reg.version();
         assert!(v4 > v3);
+    }
+
+    #[test]
+    fn mcp_instructions_version_bumps_only_on_change() {
+        let reg = ToolRegistry::new();
+        let v0 = reg.mcp_instructions_version();
+
+        // New instructions → bump.
+        reg.set_mcp_instructions("srv", Some("hello"));
+        let v1 = reg.mcp_instructions_version();
+        assert!(v1 > v0);
+
+        // Identical instructions → no bump (prefix stays stable).
+        reg.set_mcp_instructions("srv", Some("hello"));
+        assert_eq!(reg.mcp_instructions_version(), v1);
+
+        // Changed instructions → bump.
+        reg.set_mcp_instructions("srv", Some("world"));
+        let v2 = reg.mcp_instructions_version();
+        assert!(v2 > v1);
+
+        // Removal → bump.
+        reg.remove_mcp_instructions("srv");
+        let v3 = reg.mcp_instructions_version();
+        assert!(v3 > v2);
+
+        // Removing absent server → no bump.
+        reg.remove_mcp_instructions("srv");
+        assert_eq!(reg.mcp_instructions_version(), v3);
+
+        // Tool register/unregister must NOT touch the MCP version.
+        reg.register(make_tool("a", ""));
+        assert_eq!(reg.mcp_instructions_version(), v3);
     }
 
     #[test]

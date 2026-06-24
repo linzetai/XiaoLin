@@ -1447,7 +1447,7 @@ pub(crate) fn filter_tool_definitions(
     all_defs: &[ToolDefinition],
     config: &AgentConfig,
 ) -> Vec<ToolDefinition> {
-    all_defs
+    let mut filtered: Vec<ToolDefinition> = all_defs
         .iter()
         .filter(|td| {
             let name = &td.function.name;
@@ -1457,7 +1457,20 @@ pub(crate) fn filter_tool_definitions(
             config.behavior.is_tool_allowed(name)
         })
         .cloned()
-        .collect()
+        .collect();
+    sort_tool_definitions_by_name(&mut filtered);
+    filtered
+}
+
+/// Sort tool definitions by name for deterministic, byte-stable ordering.
+///
+/// The source `definitions*` iterate a `HashMap`, whose order is
+/// non-deterministic across process restarts / rehashes. Sorting by tool name
+/// guarantees a byte-identical `tools` array across turns, sessions AND
+/// processes so the provider's automatic prefix cache hits.
+/// `demote_tools_for_plan_mode` only `retain`s, preserving this order. (Plan §11.2)
+pub(crate) fn sort_tool_definitions_by_name(defs: &mut [ToolDefinition]) {
+    defs.sort_by(|a, b| a.function.name.cmp(&b.function.name));
 }
 
 /// Tools to hide from the model when in Plan mode (avoids conflicting with plan file).
@@ -1574,6 +1587,40 @@ fn extract_args_from_recall_marker(text: &str) -> Option<String> {
         None
     } else {
         Some(args.to_string())
+    }
+}
+
+#[cfg(test)]
+mod sort_tests {
+    use super::sort_tool_definitions_by_name;
+    use xiaolin_core::tool::{FunctionDefinition, ToolDefinition, ToolParameterSchema};
+
+    fn td(name: &str) -> ToolDefinition {
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: name.to_string(),
+                description: String::new(),
+                parameters: ToolParameterSchema {
+                    schema_type: "object".to_string(),
+                    properties: Default::default(),
+                    required: Vec::new(),
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn sort_is_deterministic_and_alphabetical() {
+        let mut a = vec![td("read_file"), td("bash"), td("write_file"), td("apply_patch")];
+        let mut b = vec![td("write_file"), td("apply_patch"), td("read_file"), td("bash")];
+        sort_tool_definitions_by_name(&mut a);
+        sort_tool_definitions_by_name(&mut b);
+        let names_a: Vec<&str> = a.iter().map(|t| t.function.name.as_str()).collect();
+        let names_b: Vec<&str> = b.iter().map(|t| t.function.name.as_str()).collect();
+        // Two different input orders converge to the same byte-stable order.
+        assert_eq!(names_a, names_b);
+        assert_eq!(names_a, vec!["apply_patch", "bash", "read_file", "write_file"]);
     }
 }
 

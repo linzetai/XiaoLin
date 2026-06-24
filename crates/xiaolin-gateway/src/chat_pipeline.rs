@@ -281,6 +281,7 @@ pub async fn setup_chat(
     inject_skills_prompt(
         state,
         &agent_id,
+        &session_id,
         agent_config.model.context_window,
         &mut enriched_request.messages,
     )
@@ -616,10 +617,43 @@ fn apply_prompt_router(
 async fn inject_skills_prompt(
     state: &AppState,
     agent_id: &str,
+    session_id: &str,
     context_window: Option<u32>,
     messages: &mut Vec<ChatMessage>,
 ) {
     let agent_skill_reg = state.skill_registry_for(agent_id);
+    // Identity of the agent's skill registry. Changes only on skill reload,
+    // so we can freeze the rendered prompt per session in between (§6.1).
+    let registry_ptr = Arc::as_ptr(&agent_skill_reg) as *const () as usize;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    // Cache hit: reuse the session-frozen prompt while the registry is unchanged.
+    // This keeps the Tier-2 system prefix byte-stable across turns even as
+    // `usage_counts` (skill ordering) and `touched_paths` (conditional activation)
+    // drift — both of which would otherwise bust the provider's prefix cache.
+    let cached_prompt: Option<String> = {
+        if let Some(mut entry) = state.rt.skills_prompt_cache.get_mut(session_id) {
+            if entry.registry_ptr == registry_ptr {
+                entry.last_access_ms = now_ms;
+                Some(entry.prompt.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+        // get_mut guard dropped here — never held across recompute/insert (rule #45)
+    };
+    if let Some(prompt) = cached_prompt {
+        if !prompt.is_empty() {
+            xiaolin_agent::push_tier2_system_prefix(messages, &prompt);
+        }
+        return;
+    }
+
     let (prompt_mode, context_budget_percent) = {
         let live = state.cfg.config_live.load();
         let static_cfg = &state.cfg.config.skills;
@@ -692,6 +726,18 @@ async fn inject_skills_prompt(
     let (skills_prompt, truncation, injected_ids) =
         effective_reg.format_with_budget_ordered(&prompt_mode, char_budget, Some(&usage_counts));
 
+    // Freeze the result for this session (even when empty) so subsequent turns
+    // reuse identical bytes until the skill registry is reloaded (§6.1).
+    evict_skills_prompt_cache_if_needed(&state.rt.skills_prompt_cache);
+    state.rt.skills_prompt_cache.insert(
+        session_id.to_string(),
+        crate::state::SkillsPromptCacheEntry {
+            registry_ptr,
+            last_access_ms: now_ms,
+            prompt: skills_prompt.clone(),
+        },
+    );
+
     if skills_prompt.is_empty() {
         return;
     }
@@ -718,6 +764,27 @@ async fn inject_skills_prompt(
     }
 
     xiaolin_agent::push_tier2_system_prefix(messages, &skills_prompt);
+}
+
+/// Evict the oldest ~10% of frozen skills prompts once the cache exceeds its
+/// capacity, preventing unbounded growth across long-lived processes (rule #27).
+/// Called only on cache miss, before insert, while holding no shard guard.
+fn evict_skills_prompt_cache_if_needed(
+    cache: &dashmap::DashMap<String, crate::state::SkillsPromptCacheEntry>,
+) {
+    if cache.len() < crate::state::SKILLS_PROMPT_CACHE_MAX {
+        return;
+    }
+    let mut entries: Vec<(String, u64)> = cache
+        .iter()
+        .map(|e| (e.key().clone(), e.value().last_access_ms))
+        .collect();
+    entries.sort_by_key(|(_, ts)| *ts);
+    let keep = crate::state::SKILLS_PROMPT_CACHE_MAX * 9 / 10;
+    let remove_count = entries.len().saturating_sub(keep);
+    for (id, _) in entries.into_iter().take(remove_count) {
+        cache.remove(&id);
+    }
 }
 
 fn inject_runtime_paths_prompt(
@@ -1087,4 +1154,51 @@ pub async fn generate_smart_title(
             .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod skills_cache_tests {
+    use super::evict_skills_prompt_cache_if_needed;
+    use crate::state::{SkillsPromptCacheEntry, SKILLS_PROMPT_CACHE_MAX};
+    use dashmap::DashMap;
+
+    #[test]
+    fn eviction_bounds_cache_and_drops_oldest() {
+        let cache: DashMap<String, SkillsPromptCacheEntry> = DashMap::new();
+        // Fill beyond capacity; last_access_ms = index so order is well-defined.
+        for i in 0..(SKILLS_PROMPT_CACHE_MAX + 50) {
+            cache.insert(
+                format!("session-{i}"),
+                SkillsPromptCacheEntry {
+                    registry_ptr: 1,
+                    last_access_ms: i as u64,
+                    prompt: String::new(),
+                },
+            );
+        }
+        evict_skills_prompt_cache_if_needed(&cache);
+        // Eviction keeps ~90% of capacity and never exceeds the cap.
+        assert!(cache.len() <= SKILLS_PROMPT_CACHE_MAX);
+        // The very oldest entry must have been removed.
+        assert!(!cache.contains_key("session-0"));
+        // A recent entry must survive.
+        assert!(cache.contains_key(&format!("session-{}", SKILLS_PROMPT_CACHE_MAX + 49)));
+    }
+
+    #[test]
+    fn eviction_noop_below_capacity() {
+        let cache: DashMap<String, SkillsPromptCacheEntry> = DashMap::new();
+        for i in 0..10 {
+            cache.insert(
+                format!("s{i}"),
+                SkillsPromptCacheEntry {
+                    registry_ptr: 0,
+                    last_access_ms: i as u64,
+                    prompt: String::new(),
+                },
+            );
+        }
+        evict_skills_prompt_cache_if_needed(&cache);
+        assert_eq!(cache.len(), 10);
+    }
 }

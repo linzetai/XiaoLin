@@ -970,6 +970,18 @@
 - **修复记录**：2026-06-23 移除 pointerEvents 限制，添加 retry 按钮与 i18n
 
 
+#### BUG-013 🔴 TaskManager::stop 持锁调用 prune 导致 DashMap 自死锁（规则 #45）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/builtin_tools/task.rs` L224-243
+- **关联文件**：`crates/xiaolin-agent/src/builtin_tools/task.rs` L61-74（`prune_oldest_completed_tasks_map`）
+- **问题**：`stop()` 通过 `tasks.get_mut(task_id)` 取得 DashMap 分片写锁 `entry`，在 `entry` 仍存活时调用 `prune_oldest_completed_tasks_map(&self.tasks)`，后者 `tasks.iter()` 需锁定所有分片（含 `entry` 持有的分片）→ 自死锁。
+- **影响**：`stop_cancels_running_task` 单测**永久挂起**，导致整个 `xiaolin-agent` lib 测试套件无法完成（多线程下挂起在末尾，观测为「测试极慢」，实为死锁，进程 0.1% CPU 等锁 390s+）。生产环境中任何 `task_stop` 调用都可能挂起调用线程。
+- **建议**：在 block 内完成对 `entry` 的修改，**先释放分片锁**再调用 prune。
+- **相关规则**：新增规则 #45
+- **修复记录**：2026-06-24 将 `stop()` 重构为先在内层作用域修改并返回 `cancelled` bool（drop `entry`），再在锁外调用 `prune_oldest_completed_tasks_map`。`stop_cancels_running_task` 由挂起恢复为 0.05s 通过，整套 task 测试 6s 完成。
+
+
 #### ✅ [MEDIUM] ContextTokenCache 无容量上限
 - **文件**: `extensions/wechat/src/plugin.rs:90-98`
 

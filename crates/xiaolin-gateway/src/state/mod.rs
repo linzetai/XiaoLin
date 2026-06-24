@@ -128,6 +128,22 @@ pub struct ConfigState {
     pub live_agents_swap: Arc<ArcSwap<Vec<AgentConfig>>>,
 }
 
+/// Max number of per-session frozen skills prompts kept in memory (rule #27).
+pub const SKILLS_PROMPT_CACHE_MAX: usize = 512;
+
+/// A session-frozen skills prompt. Reused across turns to keep the Tier-2 system
+/// prefix byte-stable for provider prompt caching (§6.1).
+#[derive(Clone)]
+pub struct SkillsPromptCacheEntry {
+    /// Identity of the agent's `Arc<SkillRegistry>` at freeze time. When the
+    /// registry is reloaded (new Arc) the cached prompt is recomputed.
+    pub registry_ptr: usize,
+    /// Last access time (epoch ms) for capacity-based eviction.
+    pub last_access_ms: u64,
+    /// The frozen, rendered skills prompt (may be empty → "no skills").
+    pub prompt: String,
+}
+
 /// Agent runtime, tool registry, skill registries.
 #[derive(Clone)]
 pub struct RuntimeState {
@@ -149,6 +165,11 @@ pub struct RuntimeState {
     pub plan_step_store: xiaolin_agent::builtin_tools::PlanStepStore,
     pub permission_preset_registry: Arc<xiaolin_core::agent_config::PermissionPresetRegistry>,
     pub embedding_update_running: Arc<std::sync::atomic::AtomicBool>,
+    /// Per-session frozen skills prompt for prompt-cache stability (§6.1).
+    /// Reused while the agent's skill registry is unchanged, so `usage_counts`
+    /// and `touched_paths` drift do not bust the Tier-2 system prefix mid-session.
+    /// Bounded to `SKILLS_PROMPT_CACHE_MAX` entries (rule #27).
+    pub skills_prompt_cache: Arc<dashmap::DashMap<String, SkillsPromptCacheEntry>>,
 }
 
 /// Persistent stores.
@@ -3385,6 +3406,7 @@ impl AppState {
                     xiaolin_core::agent_config::PermissionPresetRegistry::default(),
                 ),
                 embedding_update_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                skills_prompt_cache: Arc::new(dashmap::DashMap::new()),
             },
             store: StorageState {
                 session_store: session_store.clone(),

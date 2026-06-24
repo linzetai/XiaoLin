@@ -13,6 +13,13 @@ use super::super::prompt_engine::{PromptContext, PromptSection};
 /// ask-question tool, etc. depending on what is actually available.
 ///
 /// Corresponds to Claude Code's `getSessionSpecificGuidanceSection()`.
+///
+/// `cache_break: true`: this is per-session content (mode / plan state / todo),
+/// so it is recomputed deterministically every turn. This keeps the output
+/// byte-stable when the context is unchanged (so the provider prompt cache
+/// still hits) while avoiding cross-session pollution of the global section
+/// cache and auto-reflecting plan-mode/mode switches without explicit
+/// invalidation. See `docs/` cache design notes.
 pub fn session_guidance_section() -> PromptSection {
     PromptSection {
         name: "session_guidance",
@@ -23,7 +30,7 @@ pub fn session_guidance_section() -> PromptSection {
                 _ => session_guidance_en(ctx),
             })
         }),
-        cache_break: false,
+        cache_break: true,
     }
 }
 
@@ -250,8 +257,13 @@ fn session_guidance_zh(ctx: &PromptContext) -> String {
 /// Environment section: runtime context about the working environment.
 ///
 /// Outputs: cwd, platform, shell, model, git status, knowledge cutoff,
-/// session date, etc. This section is cacheable (computed once per session)
-/// because the environment rarely changes mid-session.
+/// session date, etc.
+///
+/// `cache_break: true`: this is per-session/per-request content (notably `cwd`),
+/// so it is recomputed deterministically every turn. Memoizing it globally would
+/// leak the first session's `cwd` into all others. Recomputing keeps the bytes
+/// identical when the context is unchanged (provider cache still hits) while
+/// staying correct across concurrent sessions.
 ///
 /// Corresponds to Claude Code's `computeSimpleEnvInfo()`.
 pub fn environment_section() -> PromptSection {
@@ -264,7 +276,7 @@ pub fn environment_section() -> PromptSection {
                 _ => environment_en(ctx),
             })
         }),
-        cache_break: false,
+        cache_break: true,
     }
 }
 
@@ -351,6 +363,10 @@ Git 仓库：{git}
 ///
 /// Returns `None` when no memory prompt is available, causing
 /// `PromptEngine` to skip this section entirely.
+///
+/// `cache_break: true`: memory is per-session content. Recomputed deterministically
+/// every turn so a `memory_store` update is reflected immediately (replacing the
+/// old §6.3 explicit-invalidation approach) and never leaks across sessions.
 pub fn memory_section() -> PromptSection {
     PromptSection {
         name: "memory",
@@ -360,13 +376,16 @@ pub fn memory_section() -> PromptSection {
                 .filter(|m| !m.trim().is_empty())
                 .map(|m| format!("<memory>\n{m}\n</memory>"))
         }),
-        cache_break: false,
+        cache_break: true,
     }
 }
 
 /// Language preference section: tells the model which language to respond in.
 ///
 /// Returns `None` when no explicit preference is set (model uses its default).
+///
+/// `cache_break: true`: language is per-request content; recomputed deterministically
+/// so different sessions/requests never inherit a stale preference.
 pub fn language_section() -> PromptSection {
     PromptSection {
         name: "language",
@@ -380,14 +399,17 @@ pub fn language_section() -> PromptSection {
                 )
             })
         }),
-        cache_break: false,
+        cache_break: true,
     }
 }
 
 /// MCP instructions section: lists instructions from connected MCP servers.
 ///
-/// This is `cache_break: true` because MCP servers can connect/disconnect
-/// between turns, making the content potentially stale.
+/// This is `cache_break: false` (memoized) because MCP servers rarely change.
+/// Staleness on connect/disconnect is handled by event-driven invalidation:
+/// `AgentRuntime` tracks `ToolRegistry::mcp_instructions_version()` and calls
+/// `invalidate_sections(&["mcp_instructions"])` only when it changes. This keeps
+/// the prompt prefix byte-stable across turns for prompt caching.
 const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
 
 static MCP_SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
@@ -436,7 +458,7 @@ pub fn mcp_instructions_section() -> PromptSection {
             parts.push("</mcp_instructions>".to_string());
             Some(parts.join("\n\n"))
         }),
-        cache_break: true,
+        cache_break: false,
     }
 }
 
@@ -467,7 +489,8 @@ pub fn token_budget_section() -> PromptSection {
                 }
             })
         }),
-        cache_break: false,
+        // Per-request budget: recompute deterministically each turn.
+        cache_break: true,
     }
 }
 
@@ -704,13 +727,16 @@ mod tests {
     }
 
     #[test]
-    fn session_guidance_not_cache_break() {
-        assert!(!session_guidance_section().cache_break);
+    fn session_guidance_recomputes_per_turn() {
+        // Per-session content (mode/plan/todo) → recomputed deterministically each
+        // turn to avoid cross-session pollution and auto-reflect mode switches.
+        assert!(session_guidance_section().cache_break);
     }
 
     #[test]
-    fn environment_not_cache_break() {
-        assert!(!environment_section().cache_break);
+    fn environment_recomputes_per_turn() {
+        // Contains per-request cwd → must not be globally memoized.
+        assert!(environment_section().cache_break);
     }
 
     // ── memory section ──────────────────────────────────────────
@@ -797,8 +823,10 @@ mod tests {
     }
 
     #[test]
-    fn mcp_instructions_is_cache_break() {
-        assert!(mcp_instructions_section().cache_break);
+    fn mcp_instructions_is_memoized() {
+        // Memoized for prefix stability; staleness handled by event-driven
+        // invalidation keyed on ToolRegistry::mcp_instructions_version().
+        assert!(!mcp_instructions_section().cache_break);
     }
 
     // ── token_budget section ────────────────────────────────────

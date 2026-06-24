@@ -16,7 +16,7 @@ use super::trajectory::truncate_for_trajectory;
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::validation_pipeline::ValidationContext;
 use super::{
-    extract_file_path_from_args, extract_file_paths_from_args, inject_tool_recovery_guidance,
+    extract_file_paths_from_args, inject_tool_recovery_guidance,
     make_turn_summary, process_tool_output, tool_result_content, track_restoration_state,
 };
 

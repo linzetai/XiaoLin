@@ -721,10 +721,10 @@ mod integration_tests {
         );
     }
 
-    // ── 5. MCP section recomputes every call (cache_break=true) ──
+    // ── 5. A cache_break=true section recomputes every call ──
 
     #[test]
-    fn integration_mcp_section_recomputes_on_every_call() {
+    fn integration_cache_break_section_recomputes_on_every_call() {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
@@ -757,7 +757,11 @@ mod integration_tests {
     }
 
     #[test]
-    fn integration_default_mcp_section_changes_with_server_list() {
+    fn integration_default_mcp_section_is_memoized_until_invalidated() {
+        // The real `mcp_instructions_section` is `cache_break: false` (memoized)
+        // for prefix stability. Staleness is handled by event-driven invalidation
+        // keyed on `ToolRegistry::mcp_instructions_version()`, surfaced here via
+        // `invalidate_sections(&["mcp_instructions"])`.
         let engine = default_engine();
         let mut ctx = full_ctx(ExecutionMode::Agent, FULL_TOOLS, None);
 
@@ -767,14 +771,23 @@ mod integration_tests {
             "no MCP servers → no MCP section"
         );
 
+        // Change the server list WITHOUT invalidating: memoized empty result persists.
         ctx.mcp_servers = vec![McpServerInfo {
             id: "test-server".into(),
             instructions: Some("Use this for DB queries".into()),
         }];
+        let prompt_still_cached = engine.build_system_prompt(&ctx);
+        assert!(
+            !prompt_still_cached.iter().any(|s| s.contains("test-server")),
+            "memoized MCP section must NOT change without invalidation (prefix stability)"
+        );
+
+        // Simulate the MCP connect event → invalidate → section now reflects servers.
+        engine.invalidate_sections(&["mcp_instructions"]);
         let prompt_with_mcp = engine.build_system_prompt(&ctx);
         assert!(
             prompt_with_mcp.iter().any(|s| s.contains("test-server")),
-            "MCP servers present → MCP section appears (cache_break recomputes)"
+            "after invalidation the MCP section reflects the new server list"
         );
     }
 

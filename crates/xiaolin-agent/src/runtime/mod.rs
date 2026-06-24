@@ -523,6 +523,11 @@ pub struct AgentRuntime {
     skills_context_budget_percent: ArcSwap<u8>,
     trajectory_store: ArcSwap<Option<Arc<TrajectoryStore>>>,
     cached_runtime_registry: Arc<runtimes::RuntimeRegistry>,
+    /// Last-seen `ToolRegistry::mcp_instructions_version()`. When the live
+    /// registry version differs, the memoized `mcp_instructions` prompt section
+    /// is invalidated (event-driven, see §5.2). `u64::MAX` forces a sync on the
+    /// first build.
+    last_mcp_instructions_version: std::sync::atomic::AtomicU64,
     self_handle: std::sync::OnceLock<std::sync::Weak<Self>>,
 }
 
@@ -554,6 +559,7 @@ impl AgentRuntime {
             )),
             trajectory_store: ArcSwap::new(Arc::new(None)),
             cached_runtime_registry: Arc::new(runtimes::register_default_runtimes()),
+            last_mcp_instructions_version: std::sync::atomic::AtomicU64::new(u64::MAX),
             self_handle: std::sync::OnceLock::new(),
         }
     }
@@ -1155,6 +1161,18 @@ impl AgentRuntime {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
+
+        // Event-driven invalidation (§5.2): the `mcp_instructions` section is
+        // memoized for prefix stability. Only recompute it when the registry's
+        // MCP-instructions version actually changed (connect/disconnect/update).
+        let mcp_ver = ctx.tool_registry.mcp_instructions_version();
+        let prev_ver = self
+            .last_mcp_instructions_version
+            .swap(mcp_ver, std::sync::atomic::Ordering::Relaxed);
+        if prev_ver != mcp_ver {
+            self.prompt_engine
+                .invalidate_sections(&["mcp_instructions"]);
+        }
 
         let prompt_ctx = self.build_prompt_context(ctx);
         let parts = self.prompt_engine.build_effective_prompt(

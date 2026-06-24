@@ -222,24 +222,34 @@ impl TaskManager {
     /// Stop a running task by aborting its tokio JoinHandle.
     /// Returns `true` if the task was running and is now cancelled.
     pub fn stop(&self, task_id: &str) -> Result<bool, TaskManagerError> {
-        let mut entry = self
-            .tasks
-            .get_mut(task_id)
-            .ok_or(TaskManagerError::NotFound(task_id.to_string()))?;
+        // Mutate the task while holding the DashMap shard guard, then DROP the
+        // guard before pruning. `prune_oldest_completed_tasks_map` iterates the
+        // whole map (`tasks.iter()`), which locks every shard — calling it while
+        // still holding `entry`'s shard write-lock self-deadlocks.
+        let cancelled = {
+            let mut entry = self
+                .tasks
+                .get_mut(task_id)
+                .ok_or(TaskManagerError::NotFound(task_id.to_string()))?;
 
-        match entry.info.status {
-            TaskStatus::Running | TaskStatus::Pending => {
-                if let Some(handle) = entry.join_handle.take() {
-                    handle.abort();
-                    self.running_count.fetch_sub(1, Ordering::AcqRel);
+            match entry.info.status {
+                TaskStatus::Running | TaskStatus::Pending => {
+                    if let Some(handle) = entry.join_handle.take() {
+                        handle.abort();
+                        self.running_count.fetch_sub(1, Ordering::AcqRel);
+                    }
+                    entry.info.status = TaskStatus::Cancelled;
+                    entry.info.finished_at = Some(Self::now_ms());
+                    true
                 }
-                entry.info.status = TaskStatus::Cancelled;
-                entry.info.finished_at = Some(Self::now_ms());
-                prune_oldest_completed_tasks_map(&self.tasks);
-                Ok(true)
+                TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => false,
             }
-            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => Ok(false),
+        };
+
+        if cancelled {
+            prune_oldest_completed_tasks_map(&self.tasks);
         }
+        Ok(cancelled)
     }
 
     /// Update a task's metadata and/or status.

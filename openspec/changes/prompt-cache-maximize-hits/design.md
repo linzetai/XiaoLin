@@ -151,11 +151,38 @@ Provider 侧缓存机制：
 
 **风险**：部分模型对 system role vs user role 中的指令权重不同。通过保留 `<system_context>` XML 标签明确标记为系统级上下文来缓解。
 
-### D4: mcp_instructions 改为事件驱动 invalidation
+### D4: mcp_instructions 改为事件驱动 invalidation（已实现）
 
-**选择**：去掉 `cache_break: true`，在 MCP server connect/disconnect 事件时调用 `invalidate_sections(&["mcp_instructions"])`
+**选择**：`mcp_instructions_section` 改 `cache_break: false`（全局 memoize），通过版本号做事件驱动失效。
 
-**理由**：MCP server 列表在 session 中 99% 不变，每轮 recompute 毫无意义。事件驱动 invalidate 既保证正确性又不浪费缓存。
+**实现**（Phase 2 §5）：
+- `ToolRegistry` 新增 `mcp_instructions_version: AtomicU64`，`set_mcp_instructions` / `remove_mcp_instructions` **仅在内容真正变化时** bump（相同内容不 bump，保持前缀稳定）；工具 register/unregister **不**触碰该版本。
+- `AgentRuntime` 持有 `last_mcp_instructions_version`，`build_messages` 每轮 `swap` 比对，版本变化时才 `invalidate_sections(&["mcp_instructions"])`。
+- 不向 `xiaolin-mcp` / gateway 注入 `prompt_engine` 句柄——版本比对方案天然幂等、无锁、跨并发 turn 安全。
+
+**理由**：MCP server 列表是**进程级全局资源**（一份 MCP 配置服务所有 session），全局 memoize 正确且省去每轮 sanitize 正则开销；事件驱动失效保证连接/断开后及时更新。
+
+### D4b: cache_break 语义澄清与 per-session section 策略（关键修正）
+
+**背景**：审查实现时发现 `cache_break` 这个名字具有误导性。它**只控制 PromptEngine 内部的 CPU memoize**（`section_cache: DashMap`，仅以 section 名为 key），**与 provider 端 prompt cache 是否命中完全无关**。Provider 缓存只取决于**实际发送的字节是否稳定** + cache_control 断点。
+
+**架构事实**：
+- `AgentRuntime` 及其 `prompt_engine` 是**进程级全局单例**（`build_runtime` 只构造一次），被所有 session 共享。
+- `section_cache` 仅以 section 名为 key，`cache_break: false` = "全局首次计算后永久复用"。
+- 生产代码**从未**调用过 `clear_cache()`（仅 bench/test）。
+
+**因此**：把 per-session 内容（`environment` 含 cwd、`memory`、`session_guidance`、`language`、`token_budget`）设为 `cache_break: false` 是 **bug**——会把首个 session 的值泄漏给所有其它 session。
+
+**修正后的原则**（Phase 2 §6 落地）：
+
+| 内容类型 | 策略 | 跨 session provider 缓存 |
+|---|---|---|
+| 全局稳定（Tier-1 模板、`mcp_instructions`） | `cache_break: false` 全局 memoize（+ 事件失效） | ✅ 字节恒等 → 命中（共享前缀） |
+| per-session（cwd / memory / guidance / language / budget） | `cache_break: true` 每轮**确定性重算** | ✅ ctx 相同→字节相同仍命中；ctx 不同→正确隔离 |
+
+**关键洞察**：改为每轮重算**不损失任何跨 session 缓存收益**——provider 看到的字节在 ctx 相同时依然恒等（memoize 不改变发送的字节）；同时修复污染 bug，并让 plan-mode/memory 变更**自动新鲜**。
+
+**这使原 §6.2 / §6.3 / §6.4 的"显式 `invalidate_sections` 事件"机制变得多余**（重算天然处理新鲜度），并且这些事件在全局引擎上**本就不可能正确**（按 session 失效会污染其它 session）。故 §6.2/6.3/6.4 标记为 **SUPERSEDED**。
 
 ### D5: Skills injection 冻结策略
 
@@ -164,6 +191,15 @@ Provider 侧缓存机制：
 **替代方案**：
 - A) 每轮都依据 touched_paths 重新计算 → 当前行为，导致几乎每轮都不同
 - B) (**选择**) 首轮冻结 + 版本变化时刷新 → 稳定性极高，只在真正有变化时更新
+
+**新发现的缓存杀手（关键）**：`format_with_budget_ordered` 接收 `usage_counts`（`skill_usage_store.usage_counts(30)`，30 天滚动使用统计）参与排序。**使用量随时间漂移 → skills prompt 的 skill 顺序变化 → 注入字节每轮/每 session 不同**，直接 bust 前缀缓存。
+
+**含义**：
+- D5 的"首轮冻结"不仅是 CPU 优化，更是**缓存正确性必需**——冻结后整个 session 内 skills 注入字节恒定。
+- 该冻结依赖 per-session 状态（session_id keyed cache），与 Phase 4 的 Sticky-on Latch 共用同一套 session 状态层，故 §6.1 与 Phase 4（§9）合并实现，避免重复造 per-session 缓存基础设施。
+- 另需评估：是否让 `usage_counts` 的影响在 session 内冻结（首轮快照），即使不做整体 prompt 冻结也能稳定排序。
+
+**当前状态**：§6.1 移交 Phase 4 实现（见 §9 Sticky Latch）。
 
 ### D5b: DeepSeek 高命中率策略
 
