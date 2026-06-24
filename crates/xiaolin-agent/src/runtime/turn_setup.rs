@@ -25,8 +25,7 @@ use super::turn_state::{TurnMutableState, TurnServices};
 use super::undo_engine;
 use super::validation_pipeline;
 use super::{
-    create_tool_result_storage, build_skip_tool_names, inject_system_block,
-    AgentRuntime,
+    create_tool_result_storage, build_skip_tool_names, inject_user_context, AgentRuntime,
 };
 use crate::llm::LlmProvider;
 
@@ -54,6 +53,9 @@ pub(crate) async fn setup_turn(
     // --- Message building ---
     let t0 = std::time::Instant::now();
     let mut messages = runtime.build_messages(ctx);
+    if let Some(code_ctx) = crate::code_graph::CodeGraphCache::global().format_for_prompt(2000) {
+        inject_user_context(&mut messages, &code_ctx);
+    }
     tracing::info!(
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "perf: build_messages (stream)"
@@ -94,7 +96,7 @@ pub(crate) async fn setup_turn(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-            inject_system_block(&mut messages, &hints_block);
+            inject_user_context(&mut messages, &hints_block);
             tracing::info!(
                 hint_count = hints.len(),
                 "context_assembly: project hints injected"
@@ -106,7 +108,7 @@ pub(crate) async fn setup_turn(
                 "\n─── Git Context ───\n{}\n───────────────────\n",
                 git_snap
             );
-            inject_system_block(&mut messages, &git_block);
+            inject_user_context(&mut messages, &git_block);
             tracing::info!(
                 chars = git_snap.len(),
                 "context_assembly: git snapshot injected"
@@ -135,7 +137,7 @@ pub(crate) async fn setup_turn(
                 .await
         {
             if let Some(block) = task_decomposer::format_decomposition_for_prompt(&decomp) {
-                inject_system_block(&mut messages, &block);
+                inject_user_context(&mut messages, &block);
                 tracing::info!(
                     task_type = decomp.task_type.as_str(),
                     steps = decomp.steps.len(),
@@ -290,7 +292,7 @@ pub(crate) async fn setup_turn(
                     "\n─── Relevant Documentation ───\n{}\n──────────────────────────────\n",
                     docs_content
                 );
-                inject_system_block(&mut messages, &docs_block);
+                inject_user_context(&mut messages, &docs_block);
                 tracing::info!(
                     chars = docs_content.len(),
                     "magic_docs: documentation injected"
@@ -322,7 +324,7 @@ pub(crate) async fn setup_turn(
              ────────────────────\n",
             bt.budget.target_tokens
         );
-        inject_system_block(&mut messages, &budget_block);
+        inject_user_context(&mut messages, &budget_block);
         tracing::info!(
             target_tokens = bt.budget.target_tokens,
             "token_budget: budget injected into system prompt"

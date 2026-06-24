@@ -268,6 +268,30 @@ pub(crate) async fn perform_llm_call(
         Some(ms.tool_defs.as_slice())
     };
 
+    // Pre-compute cache-related hashes for CacheBreakDetector.
+    // System hash: concatenate all System-role message text.
+    let system_hash_input: String = ms
+        .messages
+        .iter()
+        .filter(|m| m.role == Role::System)
+        .filter_map(|m| m.text_content())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let tools_hash_input: String = ms
+        .tool_defs
+        .iter()
+        .map(|td| &td.function.name)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",");
+    let pre_call_cache_snapshot = ms.cache_detector.pre_call_snapshot(
+        &system_hash_input,
+        &tools_hash_input,
+        &svc.model,
+        false,
+        false,
+    );
+
     'stream_try: loop {
         let params = CompletionParams {
             model: &svc.model,
@@ -720,20 +744,26 @@ pub(crate) async fn perform_llm_call(
                         cache_read_tokens: u.effective_cache_read_tokens(),
                         cache_creation_tokens: u.effective_cache_creation_tokens(),
                     };
-                    let cache_snapshot = ms.cache_detector.pre_call_snapshot(
-                        "",
-                        "",
-                        &svc.model,
-                        false,
-                        false,
-                    );
                     if let Some(report) =
-                        ms.cache_detector.post_call_analyze(&cache_snapshot, &cache_usage)
+                        ms.cache_detector.post_call_analyze(&pre_call_cache_snapshot, &cache_usage)
                     {
                         tracing::warn!(
                             cause = %report.summary(),
+                            prev_cache_read = report.prev_cache_read_tokens,
+                            curr_cache_read = report.curr_cache_read_tokens,
                             "cache_break_detection: prompt cache break detected"
                         );
+                    } else {
+                        let effective_cache = u.effective_cache_read_tokens();
+                        if effective_cache > 0 {
+                            tracing::debug!(
+                                cache_read_tokens = effective_cache,
+                                cache_creation_tokens = u.effective_cache_creation_tokens(),
+                                prompt_tokens = u.prompt_tokens,
+                                cache_hit_pct = format_args!("{:.1}%", effective_cache as f64 / u.prompt_tokens.max(1) as f64 * 100.0),
+                                "cache_break_detection: prompt cache hit"
+                            );
+                        }
                     }
                 }
             }

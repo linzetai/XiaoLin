@@ -512,32 +512,28 @@ pub async fn spawn_chat(
                     .replace('>', "&gt;");
                 format!("\n<objective>{escaped}</objective>\n")
             }).unwrap_or_default();
-            let goal_instruction = ChatMessage {
-                role: xiaolin_core::types::Role::User,
-                content: Some(serde_json::Value::String(format!(
-                    "<goal_context>\n\
-                     [GOAL MODE]\n\n\
-                     The user has entered Goal Mode. Your objective has already been registered \
-                     in the system — do NOT call `create_goal`.{objective_block}\n\
-                     Work autonomously toward this goal. Use tools as needed. \
-                     Do NOT ask for clarification — start immediately.\n\n\
-                     Strategy:\n\
-                     1. Break the goal into subtasks using `todo_write`.\n\
-                     2. Parallelization rule: if you have 3 or more independent subtasks \
-                     (tasks with no data dependency on each other), you MUST use \
-                     `spawn_subagent` to run them concurrently. Give each subagent a \
-                     clear, self-contained prompt with all context it needs.\n\
-                     3. For sequential/dependent tasks, execute them yourself in order.\n\
-                     4. Self-verification: before calling `update_goal` to mark the goal \
-                     completed, verify the output actually works (run the code, check \
-                     the files, test the result). Do not mark complete without evidence.\n\
-                     5. When all subtasks are verified, call `update_goal` with status \
-                     `completed`.\n\
-                     </goal_context>"
-                ))),
-                ..Default::default()
-            };
-            messages.insert(0, goal_instruction);
+            let goal_text = format!(
+                "<goal_context>\n\
+                 [GOAL MODE]\n\n\
+                 The user has entered Goal Mode. Your objective has already been registered \
+                 in the system — do NOT call `create_goal`.{objective_block}\n\
+                 Work autonomously toward this goal. Use tools as needed. \
+                 Do NOT ask for clarification — start immediately.\n\n\
+                 Strategy:\n\
+                 1. Break the goal into subtasks using `todo_write`.\n\
+                 2. Parallelization rule: if you have 3 or more independent subtasks \
+                 (tasks with no data dependency on each other), you MUST use \
+                 `spawn_subagent` to run them concurrently. Give each subagent a \
+                 clear, self-contained prompt with all context it needs.\n\
+                 3. For sequential/dependent tasks, execute them yourself in order.\n\
+                 4. Self-verification: before calling `update_goal` to mark the goal \
+                 completed, verify the output actually works (run the code, check \
+                 the files, test the result). Do not mark complete without evidence.\n\
+                 5. When all subtasks are verified, call `update_goal` with status \
+                 `completed`.\n\
+                 </goal_context>"
+            );
+            xiaolin_agent::push_tier2_system_prefix(&mut messages, &goal_text);
         }
 
         let request = ChatRequest {

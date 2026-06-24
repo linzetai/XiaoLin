@@ -267,15 +267,9 @@ pub async fn setup_chat(
                 "请从当前会话中提取可复用的模式，生成一个新的 Skill。".to_string(),
             ));
         }
-        enriched_request.messages.insert(
-            0,
-            ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(
-                    xiaolin_agent::builtin_tools::skill::SKILLIFY_PROMPT.to_string(),
-                )),
-                ..Default::default()
-            },
+        xiaolin_agent::push_tier2_system_prefix(
+            &mut enriched_request.messages,
+            xiaolin_agent::builtin_tools::skill::SKILLIFY_PROMPT,
         );
     }
 
@@ -299,7 +293,6 @@ pub async fn setup_chat(
     );
     inject_browser_context_prompt(&mut enriched_request.messages);
     inject_mcp_tools_prompt(state, &mut enriched_request.messages);
-    inject_mcp_instructions_delta(state, &mut enriched_request.messages).await;
     tracing::info!(
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "perf: prompt_injections"
@@ -513,14 +506,7 @@ fn inject_slash_intent_context(
                     "[Slash Skill Activation]\nskill_id: {}\nname: {}\n\n{}",
                     skill.id, skill.name, skill.content
                 );
-                messages.insert(
-                    0,
-                    ChatMessage {
-                        role: Role::System,
-                        content: Some(serde_json::Value::String(injected)),
-                    ..Default::default()
-                    },
-                );
+                xiaolin_agent::push_tier2_system_prefix(messages, &injected);
                 skill_loaded = true;
                 if !skill.frontmatter.tools.is_empty() {
                     skill_tools = Some(skill.frontmatter.tools.clone());
@@ -532,14 +518,7 @@ fn inject_slash_intent_context(
             "[Slash Command Hint]\ntype: {}\nvalue: {}\nexact_match: {}",
             intent_type, value, exact_match
         );
-        messages.insert(
-            0,
-            ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(injected)),
-                ..Default::default()
-            },
-        );
+        xiaolin_agent::inject_user_context(messages, &injected);
     }
 
     Some(SlashIntentMeta {
@@ -621,14 +600,7 @@ fn apply_prompt_router(
                 "[Dynamic Role Prompt]\nintent: {selected_profile}\nrolePromptId: {role_prompt_id}\n\n{}",
                 role_prompt.trim()
             );
-            messages.insert(
-                0,
-                ChatMessage {
-                    role: Role::System,
-                    content: Some(serde_json::Value::String(dynamic)),
-                ..Default::default()
-                },
-            );
+            xiaolin_agent::push_tier2_system_prefix(messages, &dynamic);
         } else {
             route_reason = "missing-role-prompt-fallback";
         }
@@ -745,14 +717,7 @@ async fn inject_skills_prompt(
         });
     }
 
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(skills_prompt)),
-        ..Default::default()
-        },
-    );
+    xiaolin_agent::push_tier2_system_prefix(messages, &skills_prompt);
 }
 
 fn inject_runtime_paths_prompt(
@@ -793,28 +758,14 @@ Guidance:\n\
         process_cwd.display()
     );
 
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
-        },
-    );
+    xiaolin_agent::push_tier2_system_prefix(messages, &prompt);
 }
 
 fn inject_browser_context_prompt(messages: &mut Vec<ChatMessage>) {
     let Some(prompt) = xiaolin_agent::builtin_tools::browser::browser_context_for_prompt() else {
         return;
     };
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(prompt)),
-            ..Default::default()
-        },
-    );
+    xiaolin_agent::inject_user_context(messages, &prompt);
 }
 
 /// Cached MCP tools prompt: (registry_version, prompt_string).
@@ -827,14 +778,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
 
     if let Ok(cache) = MCP_TOOLS_PROMPT_CACHE.read() {
         if cache.0 == reg_version && !cache.1.is_empty() {
-            messages.insert(
-                0,
-                ChatMessage {
-                    role: Role::System,
-                    content: Some(serde_json::Value::String(cache.1.clone())),
-                    ..Default::default()
-                },
-            );
+            xiaolin_agent::push_tier2_system_prefix(messages, &cache.1);
             return;
         }
     }
@@ -926,86 +870,7 @@ fn inject_mcp_tools_prompt(state: &AppState, messages: &mut Vec<ChatMessage>) {
         *cache = (reg_version, prompt.clone());
     }
 
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
-        },
-    );
-}
-
-/// Max characters per server's instructions to prevent prompt bloat.
-const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
-
-static MCP_SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?i)ignore previous|system:|<\||\[INST\]").unwrap()
-});
-
-/// Inject MCP server instructions as a **stable, separate system message**.
-///
-/// Instructions are collected from connected MCP clients and inserted as an
-/// independent system message (after the tools prompt). The content is
-/// deterministically sorted by server ID, so it only changes when servers
-/// connect or disconnect — maximising prompt-cache hits on the LLM side.
-async fn inject_mcp_instructions_delta(state: &AppState, messages: &mut Vec<ChatMessage>) {
-    let instructions: std::collections::BTreeMap<String, String> = {
-        let handles = state.ext.mcp_handles.lock().await;
-        handles
-            .iter()
-            .filter_map(|(id, client)| {
-                client
-                    .instructions()
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|s| {
-                        let sanitized = xiaolin_mcp::sanitize::sanitize_unicode(s.trim());
-                        let truncated: String =
-                            sanitized.chars().take(MCP_INSTRUCTIONS_MAX_CHARS).collect();
-                        (id.clone(), truncated)
-                    })
-            })
-            .collect()
-    };
-
-    let instructions: std::collections::BTreeMap<String, String> = instructions
-        .into_iter()
-        .filter(|(id, instr)| {
-            if MCP_SUSPICIOUS_RE.is_match(instr) {
-                tracing::warn!(
-                    server_id = %id,
-                    "blocking MCP server instructions: suspicious prompt injection pattern detected"
-                );
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    if instructions.is_empty() {
-        return;
-    }
-
-    let mut prompt = String::from(
-        "[MCP Server Instructions]\n\
-         The following instructions are provided by connected MCP servers. \
-         Follow them when using that server's tools.\n\n",
-    );
-    for (server_id, instr) in &instructions {
-        prompt.push_str(&format!("### {server_id}:\n{instr}\n\n"));
-    }
-
-    tracing::debug!(
-        servers_with_instructions = instructions.len(),
-        "inject_mcp_instructions_delta"
-    );
-
-    messages.push(ChatMessage {
-        role: Role::System,
-        content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
-    });
+    xiaolin_agent::push_tier2_system_prefix(messages, &prompt);
 }
 
 /// Append the assistant message and record an episode when textual content is present.

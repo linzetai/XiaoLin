@@ -838,7 +838,7 @@ mod tests {
     }
 
     #[test]
-    fn inject_recovery_guidance_appends_to_existing_system_msg() {
+    fn inject_recovery_guidance_appends_to_last_user_msg() {
         use super::super::inject_tool_recovery_guidance;
         use xiaolin_core::types::{ChatMessage, Role};
 
@@ -862,14 +862,16 @@ mod tests {
         let sys = messages[0].text_content().unwrap();
         assert!(
             sys.contains("You are a helpful assistant"),
-            "should preserve original"
+            "system message should be unchanged"
         );
+        let user = messages[1].text_content().unwrap();
+        assert!(user.contains("<system_context>"));
         assert!(
-            sys.contains("Tool execution recovery"),
+            user.contains("Tool execution recovery"),
             "should have recovery header"
         );
         assert!(
-            sys.contains("Try a different approach"),
+            user.contains("Try a different approach"),
             "should include guidance"
         );
     }
@@ -1011,20 +1013,20 @@ mod tests {
     }
 
     #[test]
-    fn inject_recovery_guidance_inserts_system_when_missing() {
+    fn inject_recovery_guidance_appends_user_context_when_no_user_exists() {
         use super::super::inject_tool_recovery_guidance;
         use xiaolin_core::types::{ChatMessage, Role};
 
         let mut messages = vec![ChatMessage {
-            role: Role::User,
-            content: Some(serde_json::Value::String("hello".into())),
-        ..Default::default()
+            role: Role::System,
+            content: Some(serde_json::Value::String("sys".into())),
+            ..Default::default()
         }];
 
         inject_tool_recovery_guidance(&mut messages, "Check permissions.");
-        assert_eq!(messages.len(), 2, "should insert a new system message");
-        assert!(matches!(messages[0].role, Role::System));
-        assert!(messages[0]
+        assert_eq!(messages.len(), 2, "should append a user message");
+        assert!(matches!(messages[1].role, Role::User));
+        assert!(messages[1]
             .text_content()
             .unwrap()
             .contains("Check permissions"));

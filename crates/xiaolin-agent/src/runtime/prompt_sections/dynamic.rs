@@ -388,6 +388,29 @@ pub fn language_section() -> PromptSection {
 ///
 /// This is `cache_break: true` because MCP servers can connect/disconnect
 /// between turns, making the content potentially stale.
+const MCP_INSTRUCTIONS_MAX_CHARS: usize = 2048;
+
+static MCP_SUSPICIOUS_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)ignore previous|system:|<\||\[INST\]").expect("valid MCP filter regex")
+});
+
+fn sanitize_mcp_instructions(server_id: &str, instructions: &str) -> Option<String> {
+    let sanitized = xiaolin_mcp::sanitize::sanitize_unicode(instructions.trim());
+    if MCP_SUSPICIOUS_RE.is_match(&sanitized) {
+        tracing::warn!(
+            server_id = %server_id,
+            "blocking MCP server instructions: suspicious prompt injection pattern detected"
+        );
+        return None;
+    }
+    let truncated: String = sanitized.chars().take(MCP_INSTRUCTIONS_MAX_CHARS).collect();
+    if truncated.is_empty() {
+        None
+    } else {
+        Some(truncated)
+    }
+}
+
 pub fn mcp_instructions_section() -> PromptSection {
     PromptSection {
         name: "mcp_instructions",
@@ -396,10 +419,9 @@ pub fn mcp_instructions_section() -> PromptSection {
                 .mcp_servers
                 .iter()
                 .filter_map(|s| {
-                    s.instructions
-                        .as_ref()
-                        .filter(|i| !i.trim().is_empty())
-                        .map(|i| (&s.id, i.as_str()))
+                    s.instructions.as_ref().and_then(|i| {
+                        sanitize_mcp_instructions(&s.id, i).map(|clean| (s.id.as_str(), clean))
+                    })
                 })
                 .collect();
 

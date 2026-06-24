@@ -1033,7 +1033,7 @@ impl ToolOrchestrator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::tool_runtime::ToolRuntime;
+    use xiaolin_core::tool_runtime::{ToolRunOutput, ToolRuntime};
 
     #[tokio::test]
     async fn check_policy_returns_requirement() {

@@ -39,7 +39,8 @@ pub use runtime::prompt_engine::{
 pub use runtime::prompt_sections;
 pub use runtime::query_engine::QueryEngine;
 pub use runtime::{
-    build_subagent_prompt_block, AgentRuntime, ExecutionResult, SubAgentPromptContext,
+    append_to_tier2_system, build_subagent_prompt_block, inject_user_context,
+    push_tier2_system_prefix, AgentRuntime, ExecutionResult, SubAgentPromptContext,
 };
 pub use session_bridge::RuntimeTurnExecutor;
 pub use spawn_controller::{

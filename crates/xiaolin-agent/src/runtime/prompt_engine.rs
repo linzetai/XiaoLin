@@ -54,7 +54,10 @@ pub struct PromptSection {
     pub cache_break: bool,
 }
 
-pub(crate) const DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+pub(crate) const CACHE_TIER1_BOUNDARY: &str = "__SYSTEM_PROMPT_CACHE_TIER1_BOUNDARY__";
+pub(crate) const CACHE_TIER2_BOUNDARY: &str = "__SYSTEM_PROMPT_CACHE_TIER2_BOUNDARY__";
+/// Legacy alias kept for callers/tests that still refer to the first cache boundary.
+pub(crate) const DYNAMIC_BOUNDARY: &str = CACHE_TIER1_BOUNDARY;
 
 /// Layered, cacheable prompt engine that assembles system prompt from sections.
 ///
@@ -90,7 +93,7 @@ impl PromptEngine {
     /// Returns `Vec<String>` where each element is an independent section,
     /// suitable for API prompt cache segmentation.
     ///
-    /// Order: static sections → dynamic boundary → dynamic sections.
+    /// Order: Tier-1 sections → TIER1 boundary → Tier-2 sections → TIER2 boundary.
     pub fn build_system_prompt(&self, ctx: &PromptContext) -> Vec<String> {
         let mut parts = Vec::new();
 
@@ -100,7 +103,7 @@ impl PromptEngine {
             }
         }
 
-        parts.push(DYNAMIC_BOUNDARY.into());
+        parts.push(CACHE_TIER1_BOUNDARY.into());
 
         for section in &self.dynamic_sections {
             let value = if section.cache_break {
@@ -112,6 +115,8 @@ impl PromptEngine {
                 parts.push(v);
             }
         }
+
+        parts.push(CACHE_TIER2_BOUNDARY.into());
 
         parts
     }
@@ -304,11 +309,12 @@ mod tests {
         let ctx = make_ctx();
         let parts = engine.build_system_prompt(&ctx);
 
-        assert_eq!(parts.len(), 4);
+        assert_eq!(parts.len(), 5);
         assert_eq!(parts[0], "INTRO");
         assert_eq!(parts[1], "SYSTEM");
-        assert_eq!(parts[2], DYNAMIC_BOUNDARY);
+        assert_eq!(parts[2], CACHE_TIER1_BOUNDARY);
         assert_eq!(parts[3], "ENV");
+        assert_eq!(parts[4], CACHE_TIER2_BOUNDARY);
     }
 
     #[test]
@@ -324,7 +330,10 @@ mod tests {
         let ctx = make_ctx();
         let parts = engine.build_system_prompt(&ctx);
 
-        assert_eq!(parts, vec![DYNAMIC_BOUNDARY]);
+        assert_eq!(
+            parts,
+            vec![CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY]
+        );
     }
 
     #[test]
@@ -455,10 +464,11 @@ mod tests {
         let ctx = make_ctx();
 
         let result = engine.build_effective_prompt(&ctx, None, None, None, Some("SUBAGENT_BLOCK"));
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 4);
         assert_eq!(result[0], "BASE");
-        assert_eq!(result[1], DYNAMIC_BOUNDARY);
-        assert_eq!(result[2], "SUBAGENT_BLOCK");
+        assert_eq!(result[1], CACHE_TIER1_BOUNDARY);
+        assert_eq!(result[2], CACHE_TIER2_BOUNDARY);
+        assert_eq!(result[3], "SUBAGENT_BLOCK");
     }
 
     #[test]
@@ -474,7 +484,10 @@ mod tests {
         let ctx = make_ctx();
 
         let result = engine.build_effective_prompt(&ctx, None, None, None, None);
-        assert_eq!(result, vec!["INTRO", DYNAMIC_BOUNDARY]);
+        assert_eq!(
+            result,
+            vec!["INTRO", CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY]
+        );
     }
 
     #[test]
@@ -523,22 +536,22 @@ mod integration_tests {
     fn default_engine() -> PromptEngine {
         let static_sections: Vec<PromptSection> = vec![
             intro_section(),
-            system_section(),
             doing_tasks_section(),
             actions_section(),
-            using_tools_section(),
             tone_and_style_section(),
             output_efficiency_section(),
+            frc_section(),
         ];
 
         let dynamic_sections: Vec<PromptSection> = vec![
+            system_section(),
+            using_tools_section(),
             session_guidance_section(),
             environment_section(),
             memory_section(),
             language_section(),
             mcp_instructions_section(),
             token_budget_section(),
-            frc_section(),
         ];
 
         PromptEngine::new(static_sections, dynamic_sections)
@@ -913,8 +926,12 @@ mod integration_tests {
             "frc section must be present"
         );
         assert!(
-            joined.contains(DYNAMIC_BOUNDARY),
-            "dynamic boundary marker must be present"
+            joined.contains(CACHE_TIER1_BOUNDARY),
+            "tier-1 boundary marker must be present"
+        );
+        assert!(
+            joined.contains(CACHE_TIER2_BOUNDARY),
+            "tier-2 boundary marker must be present"
         );
     }
 
@@ -926,7 +943,7 @@ mod integration_tests {
 
         let boundary_idx = prompt
             .iter()
-            .position(|s| s == DYNAMIC_BOUNDARY)
+            .position(|s| s == CACHE_TIER1_BOUNDARY)
             .expect("boundary must exist");
 
         for part in &prompt[..boundary_idx] {

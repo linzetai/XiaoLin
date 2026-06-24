@@ -65,6 +65,7 @@ pub mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;
+pub mod message_injection;
 #[allow(dead_code)] // TODO(integrate): wire into AgentEvent::Suggestions
 pub mod prompt_suggestion;
 pub(crate) mod query_deps;
@@ -90,6 +91,10 @@ mod unified_compact;
 pub mod validation_pipeline;
 
 pub use prompt_builder::{build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext};
+pub use message_injection::{
+    append_to_tier2_system, inject_user_context, merge_leading_system_into_tier2,
+    push_tier2_system_prefix,
+};
 
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
 use query_state::QueryLoopState;
@@ -99,8 +104,69 @@ use tool_result_storage::{
     reconstruct_state, ContentReplacementState, ToolResultEntry, ToolResultStorage,
     MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
 };
-use trajectory::append_text_to_chat_content;
 use trajectory::last_user_turn_text;
+
+fn push_system_messages_from_prompt(messages: &mut Vec<ChatMessage>, system_text: &str) {
+    use prompt_engine::{CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY, DYNAMIC_BOUNDARY};
+
+    if let Some((tier1_raw, after_t1)) = system_text.split_once(CACHE_TIER1_BOUNDARY) {
+        let tier1 = tier1_raw.trim_end();
+        if let Some((tier2_raw, trailing)) = after_t1.split_once(CACHE_TIER2_BOUNDARY) {
+            let tier2 = tier2_raw.trim_end();
+            let trailing = trailing.trim();
+            if !tier1.is_empty() {
+                messages.push(ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(tier1.to_string())),
+                    ..Default::default()
+                });
+            }
+            let mut tier2_text = tier2.to_string();
+            if !trailing.is_empty() {
+                if !tier2_text.is_empty() {
+                    tier2_text.push_str("\n\n");
+                }
+                tier2_text.push_str(trailing);
+            }
+            if !tier2_text.is_empty() {
+                messages.push(ChatMessage {
+                    role: Role::System,
+                    content: Some(serde_json::Value::String(tier2_text)),
+                    ..Default::default()
+                });
+            }
+            return;
+        }
+    }
+
+    if let Some((static_part_raw, dynamic_part_raw)) = system_text.split_once(DYNAMIC_BOUNDARY) {
+        let static_part = static_part_raw.trim_end();
+        let dynamic_part = dynamic_part_raw.trim_start();
+        if !static_part.is_empty() {
+            messages.push(ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(static_part.to_string())),
+                ..Default::default()
+            });
+        }
+        if !dynamic_part.is_empty() {
+            messages.push(ChatMessage {
+                role: Role::System,
+                content: Some(serde_json::Value::String(dynamic_part.to_string())),
+                ..Default::default()
+            });
+        }
+        return;
+    }
+
+    if !system_text.trim().is_empty() {
+        messages.push(ChatMessage {
+            role: Role::System,
+            content: Some(serde_json::Value::String(system_text.to_string())),
+            ..Default::default()
+        });
+    }
+}
 
 /// Track restoration state from tool execution.
 /// Extracts file reads, skill invocations, and plan content for post-compact recovery.
@@ -384,46 +450,12 @@ pub(crate) fn format_basic_recovery_guidance(failure_streak: &[ToolCallTrace]) -
     Some(guidance)
 }
 
-/// Inject tool recovery guidance into the system message, or prepend a new
-/// system message if none exists.
+/// Inject tool recovery guidance into the last user message as system context.
 pub(crate) fn inject_tool_recovery_guidance(messages: &mut Vec<ChatMessage>, guidance: &str) {
     let block = format!(
-        "\n\n---\n[Tool execution recovery — review before your next tool_calls]\n{guidance}\n---\n"
+        "---\n[Tool execution recovery — review before your next tool_calls]\n{guidance}\n---"
     );
-    if let Some(first) = messages.first_mut() {
-        if matches!(first.role, Role::System) {
-            append_text_to_chat_content(&mut first.content, &block);
-            return;
-        }
-    }
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(format!(
-                "[Tool execution recovery — review before your next tool_calls]\n{guidance}"
-            ))),
-        ..Default::default()
-        },
-    );
-}
-
-/// Append a block to the system message (first message), or create one.
-fn inject_system_block(messages: &mut Vec<ChatMessage>, block: &str) {
-    if let Some(first) = messages.first_mut() {
-        if matches!(first.role, Role::System) {
-            append_text_to_chat_content(&mut first.content, block);
-            return;
-        }
-    }
-    messages.insert(
-        0,
-        ChatMessage {
-            role: Role::System,
-            content: Some(serde_json::Value::String(block.to_string())),
-        ..Default::default()
-        },
-    );
+    inject_user_context(messages, &block);
 }
 
 /// When adding tools with file path parameters, keep this list in sync.
@@ -546,34 +578,34 @@ impl AgentRuntime {
 
     fn default_prompt_engine() -> PromptEngine {
         use prompt_sections::dynamic::{
-            code_context_section, environment_section, frc_section, language_section,
-            mcp_instructions_section, memory_section, session_guidance_section,
-            token_budget_section,
+            environment_section, frc_section, language_section, mcp_instructions_section,
+            memory_section, session_guidance_section, token_budget_section,
         };
         use prompt_sections::{
             actions_section, doing_tasks_section, intro_section, output_efficiency_section,
             system_section, tone_and_style_section, using_tools_section,
         };
 
+        // Tier-1: pure templates (cross-session stable)
         let static_sections: Vec<PromptSection> = vec![
             intro_section(),
-            system_section(),
             doing_tasks_section(),
             actions_section(),
-            using_tools_section(),
             tone_and_style_section(),
             output_efficiency_section(),
+            frc_section(),
         ];
 
+        // Tier-2: session-stable (invalidated on explicit events)
         let dynamic_sections: Vec<PromptSection> = vec![
+            system_section(),
+            using_tools_section(),
             session_guidance_section(),
             environment_section(),
             memory_section(),
             language_section(),
             mcp_instructions_section(),
             token_budget_section(),
-            code_context_section(),
-            frc_section(),
         ];
 
         PromptEngine::new(static_sections, dynamic_sections)
@@ -1087,7 +1119,7 @@ impl AgentRuntime {
             }
         }
 
-        Self::inject_skill_block_into_system(messages, &block);
+        inject_user_context(messages, &block);
 
         let session_key = request.session_id.as_deref().unwrap_or("default");
         if let Err(e) = store
@@ -1112,26 +1144,6 @@ impl AgentRuntime {
         Ok(())
     }
 
-    fn inject_skill_block_into_system(messages: &mut Vec<ChatMessage>, block: &str) {
-        if block.trim().is_empty() {
-            return;
-        }
-        if let Some(first) = messages.first_mut() {
-            if matches!(first.role, Role::System) {
-                append_text_to_chat_content(&mut first.content, block);
-                return;
-            }
-        }
-        messages.insert(
-            0,
-            ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(block.to_string())),
-                ..Default::default()
-            },
-        );
-    }
-
     fn build_messages(&self, ctx: &agent_context::AgentContext) -> Vec<ChatMessage> {
         let config = &ctx.config;
         let user_messages = &ctx.request.messages;
@@ -1154,33 +1166,11 @@ impl AgentRuntime {
         );
 
         let system_text = parts.join("\n\n");
+        push_system_messages_from_prompt(&mut messages, &system_text);
 
-        if let Some((static_part_raw, dynamic_part_raw)) = system_text.split_once(prompt_engine::DYNAMIC_BOUNDARY) {
-            let static_part = static_part_raw.trim_end().to_string();
-            let dynamic_part = dynamic_part_raw.trim_start().to_string();
-            if !static_part.is_empty() {
-                messages.push(ChatMessage {
-                    role: Role::System,
-                    content: Some(serde_json::Value::String(static_part)),
-                    ..Default::default()
-                });
-            }
-            if !dynamic_part.is_empty() {
-                messages.push(ChatMessage {
-                    role: Role::System,
-                    content: Some(serde_json::Value::String(dynamic_part)),
-                    ..Default::default()
-                });
-            }
-        } else {
-            messages.push(ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(system_text)),
-                ..Default::default()
-            });
-        }
-
-        messages.extend_from_slice(user_messages);
+        let mut conversation: Vec<ChatMessage> = user_messages.to_vec();
+        messages.append(&mut conversation);
+        merge_leading_system_into_tier2(&mut messages);
 
         if let Some(ref req_model) = ctx.request.model {
             if !req_model.is_empty() {
