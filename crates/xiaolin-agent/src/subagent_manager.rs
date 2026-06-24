@@ -320,6 +320,7 @@ impl SubAgentManager {
             token_usage: None,
             depth: current_depth + 1,
             elapsed_ms: None,
+            current_tool: None,
         };
         self.runs.insert(run_id.clone(), run);
 
@@ -476,6 +477,7 @@ impl SubAgentManager {
                     Some(mq.clone()),
                     approval_strat,
                     artifact_store.clone(),
+                    runs.clone(),
                 ) => {
                     res
                 }
@@ -518,6 +520,7 @@ impl SubAgentManager {
                         r.iterations = iterations;
                         r.token_usage = usage;
                         r.elapsed_ms = Some(elapsed_ms);
+                        r.current_tool = None;
                     }
 
                     let result_preview = if response_text.len() > 2000 {
@@ -598,6 +601,9 @@ impl SubAgentManager {
                         }
                         r.completed_at = Some(Self::now_ms());
                         r.elapsed_ms = Some(elapsed_ms);
+                        // A worker that fails mid-tool has no matching ToolResult, so clear the
+                        // in-flight marker here to avoid a stale `current_tool` in get_run/list_runs.
+                        r.current_tool = None;
                     }
 
                     if let Some(tx) = completion_channels.get(&session_id_owned) {
@@ -867,9 +873,10 @@ impl SubAgentManager {
         message_queue: Option<Arc<MessageQueue>>,
         approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
         artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
+        live_runs: Arc<DashMap<String, SubAgentRun>>,
     ) -> anyhow::Result<(String, u32, u32, Option<Usage>)> {
         use crate::sidechain::{SidechainMessage, SidechainMeta, SidechainWriter};
-        use xiaolin_core::types::{ChatMessage, ChatRequest, Role, SessionId};
+        use xiaolin_core::types::{ChatMessage, ChatRequest, Role};
 
         let mut messages = Vec::new();
 
@@ -878,18 +885,18 @@ impl SubAgentManager {
             messages.extend_from_slice(inherited);
         }
 
-        if let Some(ctx) = context {
-            messages.push(ChatMessage {
-                role: Role::System,
-                content: Some(serde_json::Value::String(format!(
-                    "Context from parent agent:\n{ctx}"
-                ))),
-            ..Default::default()
-            });
-        }
+        // Parent context is merged into the task user message (not a System role
+        // message) so it does not pollute the sub-agent's cacheable Tier-2 system
+        // prefix, which can then be shared across same-type sub-agents
+        // (prompt-cache D3).
+        let task_content = if let Some(ctx) = context {
+            format!("Context from parent agent:\n{ctx}\n\n---\n\n{task}")
+        } else {
+            task.to_string()
+        };
         messages.push(ChatMessage {
             role: Role::User,
-            content: Some(serde_json::Value::String(task.to_string())),
+            content: Some(serde_json::Value::String(task_content)),
         ..Default::default()
         });
 
@@ -944,6 +951,7 @@ impl SubAgentManager {
         let forward_turn_id = turn_id.clone();
         let agent_id_for_sidechain = config.agent_id.to_string();
         let task_for_sidechain = task.to_string();
+        let live_runs_fwd = live_runs;
 
         let forwarder = tokio::spawn(async move {
             let mut accumulated_text = String::new();
@@ -1004,6 +1012,14 @@ impl SubAgentManager {
                         args,
                         ..
                     } => {
+                        // Live progress: bump tool count and record the in-flight tool so the
+                        // parent's per-turn active-runs context reflects real progress. Guard is
+                        // dropped before any .await below (no guard held across await — rule #45).
+                        if let Some(mut r) = live_runs_fwd.get_mut(&run_id_owned) {
+                            r.tool_calls_made = r.tool_calls_made.saturating_add(1);
+                            r.current_tool = Some(tool_name.clone());
+                        }
+
                         // Write tool call to sidechain
                         if let Some(ref mut w) = writer {
                             let tc_json = serde_json::json!([{
@@ -1047,6 +1063,11 @@ impl SubAgentManager {
                         success,
                         ..
                     } => {
+                        // Tool finished: clear the in-flight marker (guard dropped before await).
+                        if let Some(mut r) = live_runs_fwd.get_mut(&run_id_owned) {
+                            r.current_tool = None;
+                        }
+
                         // Write tool result to sidechain
                         if let Some(ref mut w) = writer {
                             let result_text = display_output.as_ref().unwrap_or(output);
@@ -1150,6 +1171,7 @@ impl SubAgentManager {
                 artifact_store,
                 None,
                 message_queue,
+                None,
             )
             .await;
 
@@ -1392,6 +1414,7 @@ mod tests {
             completed_at: None,
             token_usage: None,
             elapsed_ms: None,
+            current_tool: None,
         };
         let mut run2 = run1.clone();
         run2.run_id = "r2".into();
@@ -1424,6 +1447,7 @@ mod tests {
             completed_at: Some(1),
             token_usage: None,
             elapsed_ms: None,
+            current_tool: None,
         };
         let mut running = old_run.clone();
         running.run_id = "active".into();

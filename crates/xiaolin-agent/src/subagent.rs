@@ -1497,6 +1497,7 @@ mod tests {
             completed_at: Some(1),
             token_usage: None,
             elapsed_ms: None,
+            current_tool: None,
         }
     }
 
@@ -1517,6 +1518,7 @@ mod tests {
             completed_at: None,
             token_usage: None,
             elapsed_ms: None,
+            current_tool: None,
         }
     }
 

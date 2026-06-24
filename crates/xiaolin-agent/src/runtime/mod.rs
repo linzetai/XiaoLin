@@ -90,7 +90,9 @@ mod unified_compact;
 #[allow(dead_code)]
 pub mod validation_pipeline;
 
-pub use prompt_builder::{build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext};
+pub use prompt_builder::{
+    build_active_runs_context, build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext,
+};
 pub use message_injection::{
     append_to_tier2_system, inject_user_context, merge_leading_system_into_tier2,
     push_tier2_system_prefix,
@@ -836,6 +838,7 @@ impl AgentRuntime {
             event_tx: Some(tx.clone()),
             llm_override,
             subagent_prompt: None,
+            active_runs_context: None,
             mode_state: None,
             orchestrator: None,
             interaction_handle: None,
@@ -881,7 +884,7 @@ impl AgentRuntime {
         self.execute_unified_with_cost_store(
             config, request, tool_registry, tx, approval_strategy,
             llm_override, orchestrator, interaction_handle, subagent_prompt,
-            mode_state, session_store, todo_store, goal_store, None, None, None, None,
+            mode_state, session_store, todo_store, goal_store, None, None, None, None, None,
         ).await
     }
 
@@ -905,6 +908,7 @@ impl AgentRuntime {
         artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
         behavior_overrides: Option<std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>>,
         message_queue: Option<Arc<crate::message_queue::MessageQueue>>,
+        active_runs_context: Option<String>,
     ) -> anyhow::Result<TurnSummary> {
         let ctx = agent_context::AgentContext {
             config: config.clone(),
@@ -914,6 +918,7 @@ impl AgentRuntime {
             event_tx: Some(tx.clone()),
             llm_override,
             subagent_prompt,
+            active_runs_context,
             mode_state,
             orchestrator: Some(orchestrator),
             interaction_handle,
@@ -1189,6 +1194,13 @@ impl AgentRuntime {
         let mut conversation: Vec<ChatMessage> = user_messages.to_vec();
         messages.append(&mut conversation);
         merge_leading_system_into_tier2(&mut messages);
+
+        // Per-turn active sub-agent status: inject as `<system_context>` into the
+        // last user message instead of the system prompt, so the cacheable system
+        // prefix stays byte-stable even as `elapsed_ms` changes (prompt-cache D3).
+        if let Some(ref arc) = ctx.active_runs_context {
+            inject_user_context(&mut messages, arc);
+        }
 
         if let Some(ref req_model) = ctx.request.model {
             if !req_model.is_empty() {

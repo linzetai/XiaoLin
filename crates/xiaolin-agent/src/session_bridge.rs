@@ -304,6 +304,34 @@ impl RuntimeTurnExecutor {
             .unwrap_or_else(|| default.clone())
     }
 
+    /// Build the per-turn active sub-agent status block for injection into the
+    /// last user message (NOT the system prompt). Recomputed each turn / re-prompt
+    /// with fresh `elapsed_ms` so the cacheable system prefix stays byte-stable.
+    fn build_active_runs_context(&self, session_id: &str) -> Option<String> {
+        let mgr = self.subagent_manager.as_ref()?;
+        let active = mgr.active_runs(session_id);
+        // Running runs only persist `elapsed_ms` at completion, so derive a live
+        // elapsed from `created_at` for in-flight workers (else they always show 0s).
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let summaries: Vec<crate::runtime::ActiveRunSummary> = active
+            .iter()
+            .map(|r| crate::runtime::ActiveRunSummary {
+                run_id: r.run_id.clone(),
+                subagent_type: r.subagent_type.to_string(),
+                task: r.task.clone(),
+                elapsed_ms: r
+                    .elapsed_ms
+                    .unwrap_or_else(|| now_ms.saturating_sub(r.created_at)),
+                tool_calls_made: r.tool_calls_made,
+                current_tool: r.current_tool.clone(),
+            })
+            .collect();
+        crate::build_active_runs_context(&summaries)
+    }
+
     /// Reactive loop: after initial execute_unified, if sub-agents are active,
     /// wait for completions → inject notification → re-prompt until all done.
     #[allow(clippy::too_many_arguments)]
@@ -448,6 +476,10 @@ impl RuntimeTurnExecutor {
             let mode_state_c = mode_state.clone();
             let plan_ctx_c = plan_ctx.clone();
 
+            // Recompute active sub-agent status with fresh `elapsed_ms` for this
+            // re-prompt; injected into the user message, not the system prompt.
+            let active_runs_context = self.build_active_runs_context(session_id);
+
             let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified_with_cost_store(
                 config,
                 &reprompt_request,
@@ -466,6 +498,7 @@ impl RuntimeTurnExecutor {
                 self.artifact_store.clone(),
                 self.behavior_overrides.clone(),
                 None,
+                active_runs_context,
             ));
 
             let reprompt_result = {
@@ -672,28 +705,18 @@ impl TurnExecutor for RuntimeTurnExecutor {
         let subagent_prompt = self.subagent_manager.as_ref().and_then(|mgr| {
             let policy = &config.behavior.subagent;
             let available = mgr.agent_descriptions();
-            let active = mgr.active_runs(&params.session_id.to_string());
-            let active_summaries: Vec<crate::runtime::ActiveRunSummary> = active
-                .iter()
-                .map(|r| crate::runtime::ActiveRunSummary {
-                    run_id: r.run_id.clone(),
-                    subagent_type: r.subagent_type.to_string(),
-                    task: r.task.clone(),
-                    elapsed_ms: r.elapsed_ms.unwrap_or(0),
-                })
-                .collect();
             let ctx = crate::SubAgentPromptContext {
                 policy,
                 available_agents: &available,
                 current_depth: 0,
-                active_runs: if active_summaries.is_empty() {
-                    None
-                } else {
-                    Some(&active_summaries)
-                },
             };
             crate::build_subagent_prompt_block(&ctx)
         });
+
+        // Active sub-agent status is injected per-turn into the last user message
+        // (not the system prompt) to keep the cacheable system prefix byte-stable
+        // even as `elapsed_ms` changes (prompt-cache D1/D3).
+        let active_runs_context = self.build_active_runs_context(&session_id_str);
 
         let injector = {
             let outer_tx = tx.clone();
@@ -754,6 +777,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 artifact_store_for_runtime,
                 behavior_overrides_for_runtime,
                 None,
+                active_runs_context.clone(),
             ));
 
             let steer_inbox_inner = steer_inbox.clone();

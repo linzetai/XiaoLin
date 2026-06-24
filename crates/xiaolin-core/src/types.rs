@@ -459,6 +459,11 @@ pub struct SubAgentRun {
     pub depth: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+    /// Name of the tool the sub-agent is currently executing, if any. Live,
+    /// runtime-only progress signal updated by the event forwarder; not persisted
+    /// (the DB row schema does not include it, so loads default to `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_tool: Option<String>,
 }
 
 /// Status of an MCP server connection.

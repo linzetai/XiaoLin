@@ -155,11 +155,13 @@
 
 ## 13. Subagent 缓存策略
 
-- [ ] 13.1 分析 subagent 是否复用父 session 的 PromptEngine 实例（若独立实例，需单独冻结）
-- [ ] 13.2 subagent 若使用相同 system prompt 模板 → 确保 Tier-1 memoize 可跨 session/subagent 共享
-- [ ] 13.3 subagent 的 tool_defs 可能与父不同（如仅有 read-only tools）→ ToolSchemaCache 按 agent_id 隔离
-- [ ] 13.4 subagent lifecycle 短（通常 1-3 turns）→ 评估是否需要 1h TTL（短生命周期用 ephemeral 即可）
-- [ ] 13.5 确认 CacheBreakDetector 在 subagent 上下文中也正确追踪（独立计数器 vs 共享）
+> ✅ 本节由 `subagent-optimization` change（Phase 1 + design D1/D2/D3/D6）落地。详见该 change 的 design.md「Context」分析与 Decisions。
+
+- [x] 13.1 分析 subagent 是否复用父 PromptEngine：✅ 已确认 `AgentRuntime`/`prompt_engine` 为进程级全局单例，父子共享同一实例（subagent-optimization design「约束」）
+- [x] 13.2 subagent 相同 system prompt 模板 → Tier-1 memoize 跨 session/subagent 共享：✅ Tier-1 全局 memoize 天然 byte-identical；D3 将 parent context 从 System role 改为 user message，消除对 subagent Tier-2 的污染，使同类型 subagent Tier-2 可共享
+- [ ] 13.3 subagent tool_defs 可能与父不同 → ToolSchemaCache 按 agent_id 隔离：⏭️ 依赖 §10 ToolSchemaCache（尚未实现），随 §10 一并落地
+- [x] 13.4 subagent 短生命周期 → ephemeral TTL：✅ D6 决定短生命周期用 ephemeral（5min）而非 1h TTL（作为约束记录，待 §7 Anthropic cache_control 接入时生效）
+- [x] 13.5 确认 CacheBreakDetector 在 subagent 上下文正确追踪：✅ 已确认 `CacheBreakDetector` 在 `TurnState` 每 turn 新建（turn_setup.rs），父子独立不共享，§13.5 担忧不成立
 
 ## 14. `cached_message_boundary` 精确语义定义
 

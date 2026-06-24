@@ -1,19 +1,28 @@
 use xiaolin_core::types::{ChatMessage, Role};
 
-/// Append plain text to a message `content`, preserving prior text via [`ChatMessage::text_content`].
+/// Append plain text to a message `content`.
+///
+/// Preserves multimodal structure: when `content` is an array
+/// (`[{"type":"text",...}, {"type":"image_url",...}]`), a new text part is
+/// appended so image/other parts are NOT lost. Plain strings are concatenated;
+/// null/absent becomes the block. This matters because per-turn context
+/// injection (e.g. `inject_user_context`) targets the last user message, which
+/// may be multimodal.
 pub(crate) fn append_text_to_chat_content(content: &mut Option<serde_json::Value>, block: &str) {
-    let tmp = ChatMessage {
-        role: Role::System,
-        content: content.clone(),
-    ..Default::default()
-    };
-    let mut s = tmp.text_content().map(|c| c.into_owned()).unwrap_or_default();
-    s.push_str(block);
-    *content = if s.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::String(s))
-    };
+    if block.is_empty() {
+        return;
+    }
+    match content {
+        Some(serde_json::Value::Array(arr)) => {
+            arr.push(serde_json::json!({ "type": "text", "text": block }));
+        }
+        Some(serde_json::Value::String(s)) => {
+            s.push_str(block);
+        }
+        _ => {
+            *content = Some(serde_json::Value::String(block.to_string()));
+        }
+    }
 }
 
 pub(crate) fn last_user_turn_text(messages: &[ChatMessage]) -> String {

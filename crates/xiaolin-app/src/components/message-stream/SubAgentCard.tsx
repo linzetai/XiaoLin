@@ -1,12 +1,33 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Robot, CaretRight, Check, X as XIcon, MagnifyingGlass, Terminal,
-  Globe, Wrench, Square, PaperPlaneRight,
+  Globe, Wrench, Square, PaperPlaneRight, Lightning,
 } from "@phosphor-icons/react";
 import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/stores/types";
-import { StepIndicator, type ToolCall } from "./StepIndicator";
+import { StepIndicator, extractKeyInfo, type ToolCall } from "./StepIndicator";
+import { StreamingMarkdown } from "./StreamingMarkdown";
+import { useElapsedTimer, formatElapsed } from "../../lib/hooks/useElapsedTimer";
 import * as api from "../../lib/api";
+
+const MarkdownContent = lazy(() =>
+  import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
+);
+
+/** First non-empty line of a result, with light Markdown markers stripped. */
+function resultFirstLine(result: string): string {
+  const line = result
+    .split("\n")
+    .map((s) => s.trim())
+    .find((s) => s.length > 0);
+  if (!line) return "";
+  const cleaned = line
+    .replace(/^#+\s*/, "")
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/^>\s*/, "");
+  return cleaned.length > 80 ? cleaned.slice(0, 80) + "…" : cleaned;
+}
 
 function useSubAgentCardTypeMeta() {
   const { t } = useTranslation("chat");
@@ -40,11 +61,43 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
   const { t } = useTranslation("chat");
   const getTypeMeta = useSubAgentCardTypeMeta();
   const [expanded, setExpanded] = useState(false);
+  // Defer mounting the (heavy, Markdown-rendering) expanded body until the card
+  // is opened at least once, so collapsed cards stay cheap even in bulk.
+  const [hasExpanded, setHasExpanded] = useState(false);
   const [steerInput, setSteerInput] = useState("");
   const [steerSending, setSteerSending] = useState(false);
   const meta = getTypeMeta(run.subagentType);
   const isActive = run.status === "running" || run.status === "pending";
   const isFailed = run.status === "failed" || run.status === "cancelled";
+  const elapsed = useElapsedTimer(isActive, run.elapsedMs ?? 0);
+
+  const currentTool = useMemo(() => {
+    const running = run.toolCalls.find((tc) => tc.status === "running");
+    if (!running) return null;
+    const key = extractKeyInfo(adaptToolCall(running));
+    return { name: running.name, key };
+  }, [run.toolCalls]);
+
+  const toolCount = useMemo(
+    () => Math.max(run.toolCallsMade, run.toolCalls.length),
+    [run.toolCallsMade, run.toolCalls.length],
+  );
+
+  // Collapsed auxiliary line: live tool while running, else a result summary.
+  const auxText = useMemo(() => {
+    if (isActive && currentTool) {
+      return currentTool.key ? `${currentTool.name} · ${currentTool.key}` : currentTool.name;
+    }
+    if (!isActive && !isFailed && run.result) return resultFirstLine(run.result);
+    return null;
+  }, [isActive, isFailed, currentTool, run.result]);
+
+  const toggleExpand = useCallback(() => {
+    setExpanded((prev) => {
+      if (!prev) setHasExpanded(true);
+      return !prev;
+    });
+  }, []);
 
   const handleSteer = useCallback(async () => {
     const msg = steerInput.trim();
@@ -66,15 +119,26 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
   );
 
   return (
-    <div>
-      {/* Summary row — same visual pattern as StepIndicator */}
-      <button
-        onClick={() => setExpanded(!expanded)}
+    <div
+      className="rounded"
+      style={{
+        animation: "fade-slide-up 240ms var(--ease-out, ease-out) both",
+        borderLeft: `2px solid ${isFailed ? "var(--red)" : "transparent"}`,
+        background: isActive ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
+        transition: "background 200ms ease",
+      }}
+    >
+      {/* Summary row — same visual pattern as StepIndicator. Uses role=button
+          instead of <button> so the nested Cancel <button> stays valid HTML. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={toggleExpand}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(); } }}
         className="flex w-full items-center gap-1.5 py-0.5 text-left transition-colors duration-100 rounded"
         style={{
           cursor: "pointer",
           minHeight: "var(--step-height)",
-          background: isActive ? "color-mix(in srgb, var(--tint) 4%, transparent)" : undefined,
         }}
         onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "var(--step-hover-bg)"; }}
         onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = ""; }}
@@ -91,9 +155,9 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
               }}
             />
           ) : isFailed ? (
-            <XIcon style={{ color: "var(--red)" }} />
+            <XIcon style={{ color: "var(--red)", animation: "scale-spring 240ms var(--ease-out, ease-out) both" }} />
           ) : (
-            <Check style={{ color: "var(--green)" }} />
+            <Check style={{ color: "var(--green)", animation: "scale-spring 240ms var(--ease-out, ease-out) both" }} />
           )}
         </span>
 
@@ -112,12 +176,16 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
           </span>
         </span>
 
-        {/* Duration */}
-        {run.elapsedMs != null && (
-          <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-            {run.elapsedMs < 1000 ? `${run.elapsedMs}ms` : `${(run.elapsedMs / 1000).toFixed(1)}s`}
-          </span>
-        )}
+        {/* Tool count (always shown) */}
+        <span className="flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
+          <Lightning size={9} />
+          {isActive && toolCount === 0 ? t("subAgent_thinking") : t("subAgent_toolsCount", { count: toolCount })}
+        </span>
+
+        {/* Duration (live while active) */}
+        <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
+          {formatElapsed(isActive ? elapsed : run.elapsedMs)}
+        </span>
 
         {isActive && onCancel && (
           <button
@@ -138,10 +206,31 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             transform: expanded ? "rotate(90deg)" : "rotate(0)",
           }}
         />
-      </button>
+      </div>
 
-      {/* Expanded: task + tool calls as StepIndicator rows */}
-      {expanded && (
+      {/* Auxiliary line (collapsed only): current tool while running, else result summary */}
+      {!expanded && auxText && (
+        <div
+          className="flex items-center gap-1 pl-6 pr-2 pb-0.5 text-[10px]"
+          style={{ color: isActive ? meta.color : "var(--fill-quaternary)" }}
+        >
+          {isActive && <span className="shrink-0">▸</span>}
+          <span key={auxText} className="min-w-0 truncate" style={{ animation: "fade-in 180ms var(--ease-out, ease-out) both" }} title={auxText}>
+            {auxText}
+          </span>
+        </div>
+      )}
+
+      {/* Expanded body — grid-template-rows animation (StepIndicator pattern) */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateRows: expanded ? "1fr" : "0fr",
+          transition: "grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1)",
+        }}
+      >
+        <div className="overflow-hidden" inert={!expanded}>
+        {hasExpanded && (
         <div
           className="pl-6 pb-1"
           style={{
@@ -160,20 +249,15 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
 
           {/* Streaming content */}
           {run.content && (
-            <div className="mt-1">
-              <pre
-                className="overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2 text-[11px] leading-[1.55]"
-                style={{
-                  background: "var(--bg-primary)",
-                  color: "var(--fill-secondary)",
-                  border: "0.5px solid var(--separator)",
-                  fontFamily: 'var(--font-mono)',
-                  maxHeight: "200px",
-                  overflowY: "auto",
-                }}
-              >
-                {run.content}
-              </pre>
+            <div
+              className="subagent-md mt-1 overflow-auto rounded-md p-2"
+              style={{
+                background: "var(--bg-primary)",
+                border: "0.5px solid var(--separator)",
+                maxHeight: "200px",
+              }}
+            >
+              <StreamingMarkdown content={run.content} />
             </div>
           )}
 
@@ -191,25 +275,40 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             </div>
           )}
 
-          {/* Result */}
+          {/* Result — Markdown when succeeded, raw <pre> for errors */}
           {run.result && (
             <div className="mt-1.5">
               <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--fill-quaternary)" }}>
                 {t("subAgent_result")}
               </span>
-              <pre
-                className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2 text-[11px] leading-[1.55]"
-                style={{
-                  background: "var(--bg-primary)",
-                  color: isFailed ? "var(--red)" : "var(--fill-secondary)",
-                  border: "0.5px solid var(--separator)",
-                  fontFamily: 'var(--font-mono)',
-                  maxHeight: "300px",
-                  overflowY: "auto",
-                }}
-              >
-                {run.result}
-              </pre>
+              {isFailed ? (
+                <pre
+                  className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-words rounded-md p-2 text-[11px] leading-[1.55]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    color: "var(--red)",
+                    border: "0.5px solid var(--separator)",
+                    fontFamily: 'var(--font-mono)',
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {run.result}
+                </pre>
+              ) : (
+                <div
+                  className="subagent-md mt-0.5 overflow-auto rounded-md p-2"
+                  style={{
+                    background: "var(--bg-primary)",
+                    border: "0.5px solid var(--separator)",
+                    maxHeight: "300px",
+                  }}
+                >
+                  <Suspense fallback={<div className="animate-pulse rounded py-1" style={{ background: "var(--bg-tertiary)", height: 14 }} />}>
+                    <MarkdownContent content={run.result} />
+                  </Suspense>
+                </div>
+              )}
             </div>
           )}
 
@@ -270,7 +369,9 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             </div>
           )}
         </div>
-      )}
+        )}
+        </div>
+      </div>
     </div>
   );
 }

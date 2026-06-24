@@ -1170,6 +1170,35 @@
 - **修复方案**：`apply_config` 完成后遍历 `BrowserPanelState` 中所有 webview label，在 GTK 主线程对每个调用 `reapply_webview_proxy`（支持 Direct/System/Custom 三种模式）
 - **修复记录**：2026-06-23 apply_config 后 reconfigure_open_webview_proxies + browser_gtk reapply_webview_proxy
 
+#### BUG-014 🔴 active_runs 动态状态注入 system prompt 导致每轮 cache 失效
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/prompt_builder.rs`、`crates/xiaolin-agent/src/runtime/mod.rs`、`crates/xiaolin-agent/src/session_bridge.rs`、`crates/xiaolin-agent/src/runtime/agent_context.rs`
+- **问题**：`build_subagent_prompt_block` 把活跃 subagent 的 `elapsed_ms`（每秒变化）拼进 delegation guidance，经 `append_prompt` → `push_system_messages_from_prompt` 并入 Tier-2 system message。主 agent 每有活跃 subagent 时，system prompt 字节每轮变化 → provider 自动前缀缓存每轮 miss，成本显著上升。
+- **影响**：有活跃 subagent 时主 agent 的 Tier-2 缓存命中率掉到 ~0，多轮对话成本成倍增加
+- **修复方案**：剥离 active_runs 出 guidance（guidance 对同一 policy byte-stable）；active_runs 改为 `build_active_runs_context` 生成，经 `AgentContext.active_runs_context` + `inject_user_context` 注入到最后一条 user message 的 `<system_context>`，保持 system prefix byte-stable。reactive loop 每轮重算最新 elapsed（走 user context 不破坏 system 缓存）。
+- **相关规则**：prompt-cache D1/D3（零污染）
+- **修复记录**：2026-06-24 subagent-optimization Phase 1；新增 4 单测验证 guidance 跨调用 byte-identical
+
+#### BUG-015 🟡 subagent parent context 作为 System role 污染可共享 Tier-2
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/subagent_manager.rs` L882-895
+- **问题**：`run_subagent` 的 "Context from parent agent" 作为 `Role::System` message，经 `merge_leading_system_into_tier2` 并入 subagent 的 Tier-2。parent context 是 per-spawn 动态内容，使同类型 subagent 本可共享的 Tier-2 失效。
+- **影响**：同类型 subagent 无法复用 Tier-2 缓存
+- **修复方案**：parent context 合并进 task 的 `Role::User` message（语义上属于任务输入），不再进 system role
+- **相关规则**：prompt-cache D3
+- **修复记录**：2026-06-24 subagent-optimization Phase 1
+
+#### BUG-016 🟡 active runs 注入的 elapsed_ms 运行中恒为 0
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/session_bridge.rs`（`build_active_runs_context`）
+- **问题**：`SubAgentRun.elapsed_ms` 仅在完成时写入，运行中为 `None`。`build_active_runs_context` 用 `elapsed_ms.unwrap_or(0)`，导致注入给主 agent 的活跃 subagent 进度永远显示 0s elapsed，进度感知失效。
+- **影响**：主 agent 在 reactive loop 中无法感知 worker 真实耗时，进度注入形同虚设
+- **修复方案**：运行中 worker 从 `created_at` 实时派生 elapsed（`now_ms.saturating_sub(created_at)`）；同时新增运行时字段 `current_tool`，forwarder 在 ToolExecuting/ToolResult 增量更新 tool_calls_made + current_tool
+- **修复记录**：2026-06-24 subagent-optimization Phase 2；新增 `active_runs_context_shows_current_tool` 单测
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

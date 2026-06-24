@@ -720,6 +720,22 @@
   .markdown-body > *:first-child { margin-top: 0; }
   .markdown-body > *:last-child { margin-bottom: 0; }
 
+  /* Compact Markdown for sub-agent cards / coordinator panel (tight card space) */
+  .subagent-md .markdown-body { font-size: 11px; line-height: 1.55; }
+  .subagent-md .markdown-body h1 { font-size: 1.2em; }
+  .subagent-md .markdown-body h2 { font-size: 1.12em; }
+  .subagent-md .markdown-body h3,
+  .subagent-md .markdown-body h4 { font-size: 1.05em; }
+  .subagent-md .markdown-body h1,
+  .subagent-md .markdown-body h2,
+  .subagent-md .markdown-body h3,
+  .subagent-md .markdown-body h4 { margin: 0.4em 0 0.2em; }
+  .subagent-md .markdown-body p { margin: 0.3em 0; }
+  .subagent-md .markdown-body ul,
+  .subagent-md .markdown-body ol { margin: 0.3em 0; padding-left: 1.2em; }
+  .subagent-md .markdown-body li { margin: 0.1em 0; }
+  .subagent-md .markdown-body pre { font-size: 10px; margin: 0.3em 0; }
+
   .markdown-body p {
     margin-bottom: 0.85em;
   }

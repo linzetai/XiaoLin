@@ -38,6 +38,10 @@ pub struct AgentContext {
 
     // === Optional - SubAgent ===
     pub subagent_prompt: Option<String>,
+    /// Per-turn active sub-agent status, injected into the last user message as
+    /// `<system_context>` (NOT the system prompt) to keep the cacheable system
+    /// prefix byte-stable. Recomputed each turn / re-prompt with fresh `elapsed_ms`.
+    pub active_runs_context: Option<String>,
 
     // === Optional - Execution control ===
     pub mode_state: Option<ExecutionModeState>,
@@ -77,6 +81,7 @@ impl AgentContext {
             event_tx: None,
             llm_override: None,
             subagent_prompt: None,
+            active_runs_context: None,
             mode_state: None,
             orchestrator: None,
             interaction_handle: None,
