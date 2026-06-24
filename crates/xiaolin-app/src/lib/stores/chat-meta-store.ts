@@ -20,14 +20,14 @@ function parseUtcTimestamp(ts: string): Date {
   return new Date(ts.replace(" ", "T") + "Z");
 }
 
-function createChatMeta(workDir?: string): ChatMeta {
+function createChatMeta(workDir?: string, projectId?: string | null): ChatMeta {
   const chatId = `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     id: chatId,
     localKey: chatId,
     title: i18n.t("common:newConversation"),
     workDir: workDir ?? null,
-    projectId: null,
+    projectId: projectId ?? null,
     source: "client",
     createdAt: new Date(),
     messageCount: 0,
@@ -46,7 +46,7 @@ export interface ChatMetaState {
   lastMsg: string | null;
   lastTime: string | null;
 
-  newChat: (workDir?: string) => void;
+  newChat: (workDir?: string, projectId?: string | null) => void;
   setActiveChat: (chatId: string) => void;
   closeChat: (chatId: string) => void;
   reopenChat: (chatId: string) => void;
@@ -84,8 +84,8 @@ export const useChatMetaStore = create<ChatMetaState>((set, get) => ({
   lastMsg: null,
   lastTime: null,
 
-  newChat: (workDir) => {
-    const chat = createChatMeta(workDir);
+  newChat: (workDir, projectId) => {
+    const chat = createChatMeta(workDir, projectId);
     useStreamStore.getState().initStream(chat.id);
     set((state) => ({
       chats: { ...state.chats, [chat.id]: chat },

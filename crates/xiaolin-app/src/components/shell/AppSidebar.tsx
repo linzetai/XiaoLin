@@ -541,8 +541,8 @@ export function AppSidebar() {
     setCollapsedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
   }, []);
 
-  const handleNewChatInProject = useCallback((rootPath: string) => {
-    newChat(rootPath);
+  const handleNewChatInProject = useCallback((rootPath: string, projectId: string) => {
+    newChat(rootPath, projectId);
   }, [newChat]);
 
   const createProject = useProjectStore((s) => s.createProject);
@@ -689,7 +689,7 @@ export function AppSidebar() {
                 collapsed={!!collapsedProjects[project.id]}
                 onToggle={() => toggleProjectCollapsed(project.id)}
                 onSelectChat={handleSelectChat}
-                onNewChatInProject={() => handleNewChatInProject(project.rootPath)}
+                onNewChatInProject={() => handleNewChatInProject(project.rootPath, project.id)}
                 onContextMenuChat={(chatId, e) => {
                   e.preventDefault();
                   setContextMenu({ chatId, x: e.clientX, y: e.clientY });
