@@ -2,7 +2,50 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use xiaolin_core::tool::{
+    Tool, ToolKind, ToolParameterSchema, ToolResult, format_soft_failure_error,
+    no_retry_recovery_hint,
+};
+
+/// Whether a memory search error looks like a backend/I/O failure rather than a query issue.
+fn is_memory_backend_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("database")
+        || lower.contains("sqlite")
+        || lower.contains("connection")
+        || lower.contains("i/o")
+        || lower.contains("io error")
+        || lower.contains("unavailable")
+        || lower.contains("disk")
+        || lower.contains("locked")
+        || lower.contains("corrupt")
+}
+
+fn facts_search_error_field(err: impl std::fmt::Display) -> String {
+    let detail = err.to_string();
+    let hint = if is_memory_backend_error(&detail) {
+        no_retry_recovery_hint(
+            "Try scope 'episodes' if you only need session recaps; report persistent backend errors to the operator.",
+        )
+    } else {
+        "Retry with a shorter, more concrete query; try scope 'episodes' if you only need session recaps."
+            .to_string()
+    };
+    format_soft_failure_error(format!("Semantic memory search failed: {detail}"), hint)
+}
+
+fn episodes_search_error_field(err: impl std::fmt::Display) -> String {
+    let detail = err.to_string();
+    let hint = if is_memory_backend_error(&detail) {
+        no_retry_recovery_hint(
+            "Try scope 'facts' if semantic triples are enough; report persistent backend errors to the operator.",
+        )
+    } else {
+        "Retry with different keywords, a lower limit, or scope 'facts' if semantic triples are enough."
+            .to_string()
+    };
+    format_soft_failure_error(format!("Episodic memory search failed: {detail}"), hint)
+}
 
 // ---------- Memory Tools ----------
 
@@ -132,10 +175,7 @@ impl Tool for MemorySearchTool {
                     result["facts"] = serde_json::json!(items);
                 }
                 Err(e) => {
-                    result["facts_error"] = serde_json::json!(format!(
-                        "Semantic memory search failed: {e}. \
-                         What to do next: retry with a shorter, more concrete query; try scope 'episodes' if you only need session recaps; if the error looks like I/O or database connectivity, stop looping and report the backend issue to the operator."
-                    ));
+                    result["facts_error"] = serde_json::json!(facts_search_error_field(e));
                 }
             }
         }
@@ -163,10 +203,8 @@ impl Tool for MemorySearchTool {
                     result["episodes"] = serde_json::json!(items);
                 }
                 Err(e) => {
-                    result["episodes_error"] = serde_json::json!(format!(
-                        "Episodic memory search failed: {e}. \
-                         What to do next: retry with different keywords, a lower limit, or scope 'facts' if semantic triples are enough; if errors persist, the episodic store may be unavailable—surface the failure instead of hammering memory_search."
-                    ));
+                    result["episodes_error"] =
+                        serde_json::json!(episodes_search_error_field(e));
                 }
             }
         }
@@ -553,5 +591,34 @@ impl Tool for MemoryStoreTool {
                  Use exactly the string 'fact' (requires subject, predicate, object) or 'episode' (requires summary), then retry."
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_search_error_tests {
+    use super::{episodes_search_error_field, facts_search_error_field, is_memory_backend_error};
+
+    #[test]
+    fn backend_error_includes_stop_retrying() {
+        let out = facts_search_error_field("database connection refused");
+        assert!(out.contains("What to do next:"));
+        assert!(out.contains("Stop retrying"));
+        assert!(is_memory_backend_error("database connection refused"));
+    }
+
+    #[test]
+    fn query_error_omits_stop_retrying() {
+        let out = facts_search_error_field("query tokenization failed");
+        assert!(out.contains("What to do next:"));
+        assert!(!out.contains("Stop retrying"));
+        assert!(!is_memory_backend_error("query tokenization failed"));
+    }
+
+    #[test]
+    fn episodes_backend_error_includes_recovery_guidance() {
+        let out = episodes_search_error_field("sqlite disk I/O error");
+        assert!(out.contains("Episodic memory search failed"));
+        assert!(out.contains("What to do next:"));
+        assert!(out.contains("Stop retrying"));
     }
 }

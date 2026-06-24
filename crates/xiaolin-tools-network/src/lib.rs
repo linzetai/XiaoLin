@@ -4,11 +4,53 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use xiaolin_core::tool::{
+    Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint,
+};
 use xiaolin_security::ssrf::{
     build_pinned_client, ssrf_check_parsed_url_pinned, ssrf_safe_redirect_policy,
 };
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+/// Split a message that already embeds a `What to do next:` recovery suffix.
+fn split_embedded_recovery_hint(full: &str) -> (&str, String) {
+    if let Some(idx) = full.find("What to do next:") {
+        (full[..idx].trim_end(), full[idx..].trim().to_string())
+    } else {
+        (full.trim(), String::new())
+    }
+}
+
+fn network_invalid_params(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::InvalidToolParams, message, hint)
+}
+
+fn network_http_fetch_failed(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::HttpFetchFailed, message, hint)
+}
+
+fn network_web_fetch_failed(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::WebFetchFailed, message, hint)
+}
+
+fn network_search_failed(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::WebSearchFailed, message, hint)
+}
+
+fn network_invalid_from_embedded(full: String) -> ToolResult {
+    let (msg, hint) = split_embedded_recovery_hint(&full);
+    let hint = if hint.is_empty() {
+        "Fix the parameter values and retry.".to_string()
+    } else {
+        hint
+    };
+    network_invalid_params(msg, hint)
+}
+
+/// Short error codes returned by search engines for structured matching in `web_search`.
+pub const SEARCH_ERR_NO_ENGINES: &str = "SEARCH_ERR_NO_ENGINES";
+pub const SEARCH_ERR_ALL_FAILED: &str = "SEARCH_ERR_ALL_FAILED";
+pub const SEARCH_ERR_UNCONFIGURED: &str = "SEARCH_ERR_UNCONFIGURED";
 
 const HTTP_FETCH_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 
@@ -193,27 +235,27 @@ impl Tool for HttpFetchTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "http_fetch arguments are not valid JSON: {e}. \
-                 Pass {{\"url\": \"https://example.com/path\"}} with a string URL; optional \"method\", \"headers\", and \"body\" as needed, then retry."
-            )),
+            Err(e) => {
+                return network_invalid_params(
+                    format!("http_fetch arguments are not valid JSON: {e}"),
+                    "Pass {\"url\": \"https://example.com/path\"} with a string URL; optional \"method\", \"headers\", and \"body\" as needed, then retry.",
+                );
+            }
         };
 
         let url = match args.get("url").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => {
-                return ToolResult::err(
-                    "http_fetch is missing string field 'url'. \
-                 Example: {\"url\": \"https://httpbin.org/get\"}. \
-                 Relative paths like '/api' are not accepted—include scheme and host."
-                        .to_string(),
-                )
+                return network_invalid_params(
+                    "http_fetch is missing string field 'url'.",
+                    "Example: {\"url\": \"https://httpbin.org/get\"}. Relative paths like '/api' are not accepted—include scheme and host.",
+                );
             }
         };
 
         let method = match parse_http_fetch_method(args.get("method")) {
             Ok(m) => m,
-            Err(e) => return ToolResult::err(e),
+            Err(e) => return network_invalid_from_embedded(e),
         };
 
         let mut request_headers = HeaderMap::new();
@@ -224,44 +266,42 @@ impl Tool for HttpFetchTool {
                     let val = match v.as_str() {
                         Some(s) => s,
                         None => {
-                            return ToolResult::err(
-                                "http_fetch: 'headers' values must be strings. \
-                                 What to do next: use only string values, e.g. {\"Content-Type\": \"application/json\"}."
-                                    .to_string(),
+                            return network_invalid_params(
+                                "http_fetch: 'headers' values must be strings.",
+                                "What to do next: use only string values, e.g. {\"Content-Type\": \"application/json\"}.",
                             );
                         }
                     };
                     let name = match HeaderName::from_str(k) {
                         Ok(n) => n,
                         Err(e) => {
-                            return ToolResult::err(format!(
-                                "http_fetch: invalid header name '{k}': {e}. \
-                                 What to do next: use a valid header field name, or remove the key."
-                            ));
+                            return network_invalid_params(
+                                format!("http_fetch: invalid header name '{k}': {e}."),
+                                "What to do next: use a valid header field name, or remove the key.",
+                            );
                         }
                     };
                     let value = match HeaderValue::from_str(val) {
                         Ok(v) => v,
                         Err(e) => {
-                            return ToolResult::err(format!(
-                                "http_fetch: invalid header value for '{k}': {e}. \
-                                 What to do next: use ASCII-only header values or encodings the API documents (e.g. base64 in Authorization)."
-                            ));
+                            return network_invalid_params(
+                                format!("http_fetch: invalid header value for '{k}': {e}."),
+                                "What to do next: use ASCII-only header values or encodings the API documents (e.g. base64 in Authorization).",
+                            );
                         }
                     };
                     if request_headers.insert(name, value).is_some() {
-                        return ToolResult::err(format!(
-                            "http_fetch: duplicate header '{k}'. \
-                             What to do next: send each header name once, or merge values per RFC if the API allows."
-                        ));
+                        return network_invalid_params(
+                            format!("http_fetch: duplicate header '{k}'."),
+                            "What to do next: send each header name once, or merge values per RFC if the API allows.",
+                        );
                     }
                 }
             }
             _ => {
-                return ToolResult::err(
-                    "http_fetch: 'headers' must be a JSON object or omitted. \
-                     What to do next: use {{\"Content-Type\": \"application/json\"}} with string values, or omit 'headers'."
-                        .to_string(),
+                return network_invalid_params(
+                    "http_fetch: 'headers' must be a JSON object or omitted.",
+                    "What to do next: use {\"Content-Type\": \"application/json\"} with string values, or omit 'headers'.",
                 );
             }
         }
@@ -271,11 +311,12 @@ impl Tool for HttpFetchTool {
         }) {
             Ok(c) => c,
             Err(e) => {
-                return ToolResult::err(format!(
-                    "http_fetch URL was rejected before the HTTP request: {e}. \
-                     Use a public http(s) URL that resolves outside private networks; avoid localhost, RFC1918 ranges, link-local addresses, and non-http schemes. \
-                     If you believe the URL is legitimate, verify spelling, try web_search for an alternate public endpoint, or ask the operator about SSRF policy."
-                ));
+                return network_http_fetch_failed(
+                    format!("http_fetch URL was rejected before the HTTP request: {e}."),
+                    no_retry_recovery_hint(
+                        "Use a public http(s) URL outside private networks; verify spelling, try web_search for an alternate endpoint, or ask the operator about SSRF policy.",
+                    ),
+                );
             }
         };
 
@@ -295,10 +336,9 @@ impl Tool for HttpFetchTool {
                     request = request.body(s.clone());
                 }
                 _ => {
-                    return ToolResult::err(
-                        "http_fetch: 'body' must be a string, or omitted. \
-                         What to do next: pass raw text (JSON you stringify yourself) as a string, e.g. \"body\": \"{}\" or omit 'body'."
-                            .to_string(),
+                    return network_invalid_params(
+                        "http_fetch: 'body' must be a string, or omitted.",
+                        "What to do next: pass raw text (JSON you stringify yourself) as a string, e.g. \"body\": \"{}\" or omit 'body'.",
                     );
                 }
             }
@@ -334,17 +374,22 @@ impl Tool for HttpFetchTool {
                                 .to_string(),
                         )
                     }
-                    Err(e) => ToolResult::err(format!(
-                        "http_fetch: failed while reading the response body after HTTP {status} from '{url}': {e}. \
-                         What to do next: retry once for transient transport errors; if the payload is HTML or huge, use web_fetch with extract_mode \"text\" or \"raw\"; if the server streams indefinitely, add Range headers only if the API supports them, or use a smaller endpoint.",
-                    )),
+                    Err(e) => network_http_fetch_failed(
+                        format!(
+                            "http_fetch: failed while reading the response body after HTTP {status} from '{url}': {e}."
+                        ),
+                        "What to do next: retry once for transient transport errors; if the payload is HTML or huge, use web_fetch with extract_mode \"text\" or \"raw\"; if the server streams indefinitely, add Range headers only if the API supports them, or use a smaller endpoint.",
+                    ),
                 }
             }
-            Err(e) => ToolResult::err(format!(
-                "http_fetch: could not complete HTTP {method_name} to '{url}' before a response arrived: {e}. \
-                 What to do next: verify DNS resolves, TLS certificates are valid for the host, the URL is reachable from this environment, and outbound HTTPS is allowed. \
-                 If the site blocks bots, try a documented API URL or ask the user for a mirror."
-            )),
+            Err(e) => network_http_fetch_failed(
+                format!(
+                    "http_fetch: could not complete HTTP {method_name} to '{url}' before a response arrived: {e}."
+                ),
+                no_retry_recovery_hint(
+                    "Verify DNS, TLS, and outbound HTTPS access; if the site blocks bots, try a documented API URL, web_fetch on a mirror, or ask the user for an alternate endpoint.",
+                ),
+            ),
         }
     }
 }
@@ -1160,7 +1205,7 @@ impl SearchEngine for BuiltinMetaEngine {
 
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         if self.engines.is_empty() {
-            return Err("No built-in search engines are enabled. Open Settings → 联网搜索 and enable at least one engine.".to_string());
+            return Err(SEARCH_ERR_NO_ENGINES.to_string());
         }
 
         let futs: Vec<_> = self.engines.iter().map(|engine| {
@@ -1203,7 +1248,7 @@ impl SearchEngine for BuiltinMetaEngine {
         }
 
         if merged.is_empty() {
-            return Err("All built-in search engines failed to return results. Check your network connection.".to_string());
+            return Err(SEARCH_ERR_ALL_FAILED.to_string());
         }
 
         Ok(merged)
@@ -1225,9 +1270,7 @@ impl SearchEngine for UnconfiguredSearchEngine {
         false
     }
     async fn search(&self, _query: &str, _max_results: usize) -> Result<Vec<SearchResult>, String> {
-        Err(
-            "web_search is not configured. Open Settings → 联网搜索 and set up Tavily, SearXNG, or enable built-in search engines.".to_string()
-        )
+        Err(SEARCH_ERR_UNCONFIGURED.to_string())
     }
 }
 
@@ -1337,21 +1380,21 @@ impl Tool for WebSearchTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "web_search arguments are not valid JSON: {e}. \
-                 Pass {{\"query\": \"your keywords\", \"max_results\": 5}} with double-quoted keys; max_results is optional."
-            )),
+            Err(e) => {
+                return network_invalid_params(
+                    format!("web_search arguments are not valid JSON: {e}"),
+                    "Pass {\"query\": \"your keywords\", \"max_results\": 5} with double-quoted keys; max_results is optional.",
+                );
+            }
         };
 
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q,
             _ => {
-                return ToolResult::err(
-                    "web_search is missing a non-empty string field 'query'. \
-                 Example: {\"query\": \"Rust tokio select! example\"}. \
-                 Add disambiguating terms (year, vendor, version) instead of a blank string."
-                        .to_string(),
-                )
+                return network_invalid_params(
+                    "web_search is missing a non-empty string field 'query'.",
+                    "Example: {\"query\": \"Rust tokio select! example\"}. Add disambiguating terms (year, vendor, version) instead of a blank string.",
+                );
             }
         };
 
@@ -1384,7 +1427,32 @@ impl Tool for WebSearchTool {
                     .to_string(),
                 )
             }
-            Err(e) => ToolResult::err(e),
+            Err(e) => {
+                let (message, hint) = match e.as_str() {
+                    SEARCH_ERR_NO_ENGINES | SEARCH_ERR_UNCONFIGURED => (
+                        "web_search: no search engines enabled",
+                        no_retry_recovery_hint(
+                            "Open Settings → 联网搜索 and enable at least one engine, or use search_in_files for local code.",
+                        ),
+                    ),
+                    SEARCH_ERR_ALL_FAILED => (
+                        "web_search: all search engines failed",
+                        no_retry_recovery_hint(
+                            "Check network connectivity and search engine configuration; refine the query or try web_fetch on a known URL.",
+                        ),
+                    ),
+                    _ => {
+                        tracing::warn!(error = %e, "web_search engine failed");
+                        (
+                            "web_search failed",
+                            no_retry_recovery_hint(
+                                "Refine the query with more specific terms, try web_fetch on a known documentation URL, or use search_in_files for local code patterns.",
+                            ),
+                        )
+                    }
+                };
+                network_search_failed(message, hint)
+            }
         }
     }
 }
@@ -1475,19 +1543,22 @@ impl Tool for WebFetchTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "web_fetch arguments are not valid JSON: {e}. \
-                 Pass {{\"url\": \"https://example.com/doc\", \"extract_mode\": \"text\"}}; extract_mode is optional (defaults to text)."
-            )),
+            Err(e) => {
+                return network_invalid_params(
+                    format!("web_fetch arguments are not valid JSON: {e}"),
+                    "Pass {\"url\": \"https://example.com/doc\", \"extract_mode\": \"text\"}; extract_mode is optional (defaults to text).",
+                );
+            }
         };
 
         let url = match args.get("url").and_then(|v| v.as_str()) {
             Some(u) => u,
-            None => return ToolResult::err(
-                "web_fetch is missing required string field 'url'. \
-                 Example: {\"url\": \"https://doc.rust-lang.org/book/\", \"extract_mode\": \"text\"}."
-                    .to_string(),
-            ),
+            None => {
+                return network_invalid_params(
+                    "web_fetch is missing required string field 'url'.",
+                    "Example: {\"url\": \"https://doc.rust-lang.org/book/\", \"extract_mode\": \"text\"}.",
+                );
+            }
         };
 
         let client = match ssrf_pinned_client_for_url(url, |b| {
@@ -1497,11 +1568,12 @@ impl Tool for WebFetchTool {
         }) {
             Ok(c) => c,
             Err(e) => {
-                return ToolResult::err(format!(
-                    "web_fetch rejected the URL before download: {e}. \
-                     Use a public http(s) URL that resolves on the public internet; avoid localhost, RFC1918, link-local, and file://. \
-                     If the document lives inside a VPN, ask the user to paste accessible text or expose an approved public mirror."
-                ));
+                return network_web_fetch_failed(
+                    format!("web_fetch rejected the URL before download: {e}."),
+                    no_retry_recovery_hint(
+                        "Use a public http(s) URL on the public internet; if the document is behind a VPN, ask the user to paste text or expose an approved mirror.",
+                    ),
+                );
             }
         };
 
@@ -1512,10 +1584,14 @@ impl Tool for WebFetchTool {
 
         let resp = match client.get(url).send().await {
             Ok(r) => r,
-            Err(e) => return ToolResult::err(format!(
-                "web_fetch could not complete HTTP GET to '{url}': {e}. \
-                 Check spelling/scheme, DNS resolution, TLS trust, and outbound firewall rules; if the site blocks bots, try an official API endpoint or a different mirror from web_search."
-            )),
+            Err(e) => {
+                return network_web_fetch_failed(
+                    format!("web_fetch could not complete HTTP GET to '{url}': {e}."),
+                    no_retry_recovery_hint(
+                        "Check spelling/scheme, DNS resolution, TLS trust, and outbound firewall rules; if the site blocks bots, try an official API endpoint or a different mirror from web_search.",
+                    ),
+                );
+            }
         };
 
         let status = resp.status().as_u16();
@@ -1530,12 +1606,12 @@ impl Tool for WebFetchTool {
         let body = match read_response_body_limited(resp, self.max_content_bytes).await {
             Ok(t) => t,
             Err(e) => {
-                return ToolResult::err(format!(
-                "web_fetch received HTTP {status} for '{final_url}' but failed reading body: {e}. \
-                 Retry, or switch extract_mode if the payload type is unexpected.",
-                status = status,
-                final_url = final_url,
-            ))
+                return network_web_fetch_failed(
+                    format!(
+                        "web_fetch received HTTP {status} for '{final_url}' but failed reading body: {e}."
+                    ),
+                    "Retry once for transient errors, or switch extract_mode if the payload type is unexpected.",
+                );
             }
         };
 
@@ -1790,7 +1866,32 @@ mod tests {
         let tool = WebSearchTool::unconfigured();
         let result = tool.execute(r#"{"max_results": 3}"#).await;
         assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::InvalidToolParams));
         assert!(result.output.contains("missing"));
+        assert!(result.output.contains("What to do next:"));
+    }
+
+    #[tokio::test]
+    async fn web_search_unconfigured_reports_recovery() {
+        let tool = WebSearchTool::unconfigured();
+        let result = tool.execute(r#"{"query": "rust async"}"#).await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::WebSearchFailed));
+        assert!(result.output.contains("no search engines enabled"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("Stop retrying"));
+    }
+
+    #[tokio::test]
+    async fn web_search_no_engines_builtin_reports_recovery() {
+        let engine: Arc<dyn SearchEngine> = Arc::new(BuiltinMetaEngine::new(&[]));
+        let tool = WebSearchTool::from_engine(engine);
+        let result = tool.execute(r#"{"query": "test"}"#).await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::WebSearchFailed));
+        assert!(result.output.contains("no search engines enabled"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("Stop retrying"));
     }
 
     #[tokio::test]
@@ -2034,9 +2135,7 @@ mod tests {
         let engine = BuiltinMetaEngine::new(&[]);
         let result = engine.search("test", 5).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("No built-in search engines are enabled"));
+        assert_eq!(result.unwrap_err(), SEARCH_ERR_NO_ENGINES);
     }
 
     #[test]
@@ -2226,9 +2325,7 @@ mod tests {
         };
         let result = meta.search("test", 5).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("All built-in search engines failed"));
+        assert_eq!(result.unwrap_err(), SEARCH_ERR_ALL_FAILED);
     }
 
     #[test]

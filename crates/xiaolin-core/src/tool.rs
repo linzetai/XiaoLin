@@ -175,6 +175,7 @@ pub enum ToolErrorType {
     // ── Network ──
     WebFetchFailed,
     HttpFetchFailed,
+    WebSearchFailed,
 
     // ── LSP ──
     LspUnavailable,
@@ -263,6 +264,25 @@ impl ToolResult {
         }
     }
 
+    /// Error with structured type and agent-facing recovery guidance.
+    ///
+    /// The recovery `hint` is appended as `What to do next: …` unless it already
+    /// starts with that phrase (matching the `memory_search` soft-failure style).
+    pub fn err_with_recovery(
+        error_type: ToolErrorType,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: false,
+            output: format_recovery_output(&message.into(), &hint.into()),
+            display_output: None,
+            error_type: Some(error_type),
+            metadata: None,
+            images: vec![],
+        }
+    }
+
     /// Build a result with separate LLM and UI outputs.
     pub fn ok_split(llm_output: impl Into<String>, display: impl Into<String>) -> Self {
         Self {
@@ -290,6 +310,43 @@ impl ToolResult {
     /// Convenience: the content the UI should display (prefers `display_output`).
     pub fn ui_output(&self) -> &str {
         self.display_output.as_deref().unwrap_or(&self.output)
+    }
+}
+
+/// Format a tool failure message with agent-facing recovery guidance.
+pub fn format_recovery_output(message: &str, hint: &str) -> String {
+    let message = message.trim();
+    let hint = hint.trim();
+    if hint.is_empty() {
+        return message.to_string();
+    }
+    if hint.starts_with("What to do next:") {
+        if message.is_empty() {
+            return hint.to_string();
+        }
+        return format!("{message} {hint}");
+    }
+    if message.is_empty() {
+        return format!("What to do next: {hint}");
+    }
+    format!("{message} What to do next: {hint}")
+}
+
+/// Format a soft-failure `*_error` field embedded in a success=true tool result.
+pub fn format_soft_failure_error(message: impl std::fmt::Display, hint: impl Into<String>) -> String {
+    format_recovery_output(&message.to_string(), &hint.into())
+}
+
+/// Standard hint when retrying the same tool call is unlikely to help.
+pub fn no_retry_recovery_hint(alternative: impl AsRef<str>) -> String {
+    let alt = alternative.as_ref().trim();
+    if alt.is_empty() {
+        "Stop retrying this tool in a loop. If the failure persists, report it to the operator."
+            .to_string()
+    } else {
+        format!(
+            "Stop retrying this tool in a loop. {alt} If the failure persists, report it to the operator."
+        )
     }
 }
 
@@ -1256,6 +1313,47 @@ mod tests {
 
     fn make_tool(name: &'static str, hint: &'static str) -> Arc<dyn Tool> {
         Arc::new(FakeTool { name, hint })
+    }
+
+    #[test]
+    fn err_with_recovery_sets_type_and_formats_hint() {
+        let r = ToolResult::err_with_recovery(
+            ToolErrorType::ShellExecuteError,
+            "command failed with exit code 1",
+            "check the command path and stderr; fix the underlying issue before retrying",
+        );
+        assert!(!r.success);
+        assert_eq!(r.error_type, Some(ToolErrorType::ShellExecuteError));
+        assert!(r.output.contains("command failed"));
+        assert!(r.output.contains("What to do next:"));
+        assert!(r.output.contains("check the command path"));
+    }
+
+    #[test]
+    fn format_recovery_output_preserves_existing_prefix() {
+        let out = format_recovery_output(
+            "backend down",
+            "What to do next: stop looping and report to the operator.",
+        );
+        assert_eq!(out, "backend down What to do next: stop looping and report to the operator.");
+    }
+
+    #[test]
+    fn no_retry_recovery_hint_includes_alternative() {
+        let hint = no_retry_recovery_hint("Use read_file instead of shell cat.");
+        assert!(hint.contains("Stop retrying"));
+        assert!(hint.contains("read_file"));
+    }
+
+    #[test]
+    fn format_soft_failure_error_includes_what_to_do_next() {
+        let out = format_soft_failure_error(
+            "Semantic memory search failed: database locked",
+            no_retry_recovery_hint("Try scope 'episodes' or report the backend issue."),
+        );
+        assert!(out.contains("Semantic memory search failed"));
+        assert!(out.contains("What to do next:"));
+        assert!(out.contains("Stop retrying"));
     }
 
     #[test]

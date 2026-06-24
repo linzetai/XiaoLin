@@ -158,6 +158,22 @@ impl MetricsCollector {
         )
     }
 
+    fn tool_failure_counter_key(tool_name: &str, error_type: &str) -> String {
+        format!(
+            "tool_failure|{}|{}",
+            escape_label_value(tool_name),
+            escape_label_value(error_type)
+        )
+    }
+
+    fn tool_repetition_counter_key(action: &str, tool_name: &str) -> String {
+        format!(
+            "tool_repetition|{}|{}",
+            escape_label_value(action),
+            escape_label_value(tool_name)
+        )
+    }
+
     pub fn record_request(&self, agent: &str, channel: &str) {
         let key = Self::request_counter_key(agent, channel);
         if let Some(entry) = self.try_counter_entry(key) {
@@ -179,6 +195,22 @@ impl MetricsCollector {
 
     pub fn record_error(&self, error_type: &str) {
         let key = Self::error_counter_key(error_type);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Record a failed tool call with low-cardinality error_type label (from ToolErrorType).
+    pub fn record_tool_failure(&self, tool_name: &str, error_type: &str) {
+        let key = Self::tool_failure_counter_key(tool_name, error_type);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Record a repetition-detection escalation (`warn` or `force_stop`).
+    pub fn record_tool_repetition(&self, action: &str, tool_name: &str) {
+        let key = Self::tool_repetition_counter_key(action, tool_name);
         if let Some(entry) = self.try_counter_entry(key) {
             entry.fetch_add(1, Ordering::Relaxed);
         }
@@ -316,6 +348,46 @@ impl MetricsCollector {
                     typ,
                     e.value().load(Ordering::Relaxed)
                 );
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_tool_failures_total Failed tool calls by tool and error_type\n",
+        );
+        out.push_str("# TYPE xiaolin_tool_failures_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(rest) = key.strip_prefix("tool_failure|") {
+                let parts: Vec<&str> = rest.splitn(2, '|').collect();
+                if parts.len() == 2 {
+                    let _ = writeln!(
+                        &mut out,
+                        "xiaolin_tool_failures_total{{tool=\"{}\",error_type=\"{}\"}} {}",
+                        parts[0],
+                        parts[1],
+                        e.value().load(Ordering::Relaxed)
+                    );
+                }
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_tool_repetitions_total Tool repetition detections by action and tool\n",
+        );
+        out.push_str("# TYPE xiaolin_tool_repetitions_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(rest) = key.strip_prefix("tool_repetition|") {
+                let parts: Vec<&str> = rest.splitn(2, '|').collect();
+                if parts.len() == 2 {
+                    let _ = writeln!(
+                        &mut out,
+                        "xiaolin_tool_repetitions_total{{action=\"{}\",tool=\"{}\"}} {}",
+                        parts[0],
+                        parts[1],
+                        e.value().load(Ordering::Relaxed)
+                    );
+                }
             }
         }
 
@@ -532,5 +604,45 @@ mod tests {
         assert!(text.contains("provider=\"anthropic\",model=\"claude\"} 1"));
         assert!(text.contains("provider=\"openai\",model=\"gpt-4o\"} 100"));
         assert!(text.contains("provider=\"anthropic\",model=\"claude\"} 200"));
+    }
+
+    #[test]
+    fn tool_failure_metrics_recorded() {
+        let c = MetricsCollector::new();
+        c.record_tool_failure("read_file", "file_not_found");
+        c.record_tool_failure("read_file", "file_not_found");
+        c.record_tool_failure("shell_exec", "unknown");
+
+        let text = c.render_prometheus();
+        assert!(
+            text.contains(
+                "xiaolin_tool_failures_total{tool=\"read_file\",error_type=\"file_not_found\"} 2"
+            ),
+            "missing tool failure metric:\n{text}"
+        );
+        assert!(
+            text.contains("xiaolin_tool_failures_total{tool=\"shell_exec\",error_type=\"unknown\"} 1"),
+            "missing shell_exec failure metric:\n{text}"
+        );
+    }
+
+    #[test]
+    fn tool_repetition_metrics_recorded() {
+        let c = MetricsCollector::new();
+        c.record_tool_repetition("warn", "read_file");
+        c.record_tool_repetition("force_stop", "read_file");
+        c.record_tool_repetition("force_stop", "read_file");
+
+        let text = c.render_prometheus();
+        assert!(
+            text.contains("xiaolin_tool_repetitions_total{action=\"warn\",tool=\"read_file\"} 1"),
+            "missing warn repetition metric:\n{text}"
+        );
+        assert!(
+            text.contains(
+                "xiaolin_tool_repetitions_total{action=\"force_stop\",tool=\"read_file\"} 2"
+            ),
+            "missing force_stop repetition metric:\n{text}"
+        );
     }
 }

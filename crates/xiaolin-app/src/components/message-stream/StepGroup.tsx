@@ -146,7 +146,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-const FILE_READ_TOOLS = new Set(["file_read", "read_file", "read_skill"]);
+const FILE_READ_TOOLS = new Set(["file_read", "read_file", "read_files", "read_skill"]);
 const FILE_SEARCH_TOOLS = new Set(["file_search", "list_directory", "list_skills"]);
 const SHELL_TOOLS = new Set(["shell", "shell_exec"]);
 const WEB_TOOLS = new Set(["web_search", "web_fetch", "http_fetch"]);

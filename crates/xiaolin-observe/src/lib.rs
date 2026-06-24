@@ -95,6 +95,11 @@ pub fn record_tool_call(tool_name: &str, success: bool) {
         .increment(1);
 }
 
+/// Record a tool repetition-detection escalation (warn / force_stop).
+pub fn record_tool_repetition(action: &str, tool_name: &str) {
+    shared_metrics_collector().record_tool_repetition(action, tool_name);
+}
+
 pub fn record_ws_connection(delta: i64) {
     if delta > 0 {
         gauge!("xiaolin_ws_connections").increment(delta as f64);

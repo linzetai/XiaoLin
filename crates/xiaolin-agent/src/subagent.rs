@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -6,7 +7,10 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use xiaolin_core::agent_config::SubAgentPolicy;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolRegistry, ToolResult};
+use xiaolin_core::tool::{
+    Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema, ToolRegistry, ToolResult,
+    no_retry_recovery_hint,
+};
 use xiaolin_core::types::{SubAgentStatus, SubAgentType};
 use xiaolin_protocol::AgentEvent;
 
@@ -14,6 +18,66 @@ use xiaolin_core::types::ChatMessage;
 use xiaolin_protocol::Role;
 
 use crate::subagent_manager::SubAgentManager;
+
+fn subagent_invalid_args(e: impl Display) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        format!("invalid arguments: {e}"),
+        "Fix the tool arguments JSON schema (required fields, types) before retrying.",
+    )
+}
+
+fn subagent_denied(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::ExecutionDenied, message, hint)
+}
+
+fn subagent_not_found(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::InvalidToolParams, message, hint)
+}
+
+fn subagent_execution_failed(message: impl Into<String>, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(ToolErrorType::ExecutionFailed, message, hint)
+}
+
+/// Whether a spawn/wait error is caused by policy or concurrency — retrying won't help.
+fn is_subagent_no_retry_spawn_error(detail: &str) -> bool {
+    detail.contains("sub-agent delegation is disabled")
+        || detail.contains("depth limit reached")
+        || detail.contains("slot acquisition failed")
+        || detail.contains("concurrency")
+        || detail.contains("not allowed")
+}
+
+fn subagent_spawn_failed(e: impl Display, operation: &str) -> ToolResult {
+    let detail = e.to_string();
+    tracing::warn!(error = %detail, operation, "sub-agent spawn failed");
+    let message = match operation {
+        "background" => "failed to spawn sub-agent",
+        "sync" => "sub-agent failed",
+        "resume" => "resumed sub-agent failed",
+        _ => "sub-agent operation failed",
+    };
+    if is_subagent_no_retry_spawn_error(&detail) {
+        subagent_execution_failed(
+            message,
+            no_retry_recovery_hint(
+                "Check concurrency limits and sub-agent configuration via subagent_list; do not retry spawn in a tight loop.",
+            ),
+        )
+    } else if operation == "sync" || operation == "resume" {
+        subagent_execution_failed(
+            message,
+            "Review the task description and context; use subagent_get for partial output or spawn a narrower follow-up task.",
+        )
+    } else {
+        subagent_execution_failed(
+            message,
+            no_retry_recovery_hint(
+                "Check concurrency limits and sub-agent configuration via subagent_list; do not retry spawn in a tight loop.",
+            ),
+        )
+    }
+}
 
 tokio::task_local! {
     /// Session ID available to SubAgentTool during execution.
@@ -266,10 +330,45 @@ impl Tool for SubAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Spawn a sub-agent to handle a delegated task. Use the `type` parameter to select \
-         a sub-agent type (e.g. 'explore', 'code', 'shell', 'research'). Use list_agents \
-         to discover available types. By default, runs synchronously and returns the result \
-         directly. Set background=true for async execution."
+        "Spawn a sub-agent to delegate work. Returns run_id (background) or result (sync)."
+    }
+
+    fn prompt(&self) -> String {
+        "Spawn a specialized sub-agent to handle delegated work in an isolated context.\n\n\
+## When to Use\n\
+- Multi-step exploration or implementation that benefits from a fresh context window\n\
+- Parallel work: spawn multiple sub-agents with non-overlapping scopes\n\
+- Specialized types (explore, code, shell, research) with tailored tool sets\n\
+- Mid-conversation delegation when the sub-agent should NOT see full chat history\n\n\
+## Background Delegation (This Session)\n\
+- Use **spawn_subagent** with `background=true` for async in-session delegation; returns `run_id` immediately\n\
+- Poll with `subagent_get` / `wait_agent`, steer with `send_message`, resume with `resume_subagent`\n\
+- `task_create` (separate task_id lifecycle) is **not exposed** to the main agent — do not call it\n\n\
+## Sync vs Background\n\
+- **Sync** (`background=false`, default for many types): blocks until done, returns `result` directly\n\
+- **Background** (`background=true`): returns `run_id` immediately; poll with `subagent_get`, \
+block with `wait_agent`, or steer with `send_message`\n\
+Coordinator mode always forces background.\n\n\
+## Type Selection\n\
+- `type`: pick from available sub-agent types (explore=read-only, code=edit, shell=commands, etc.)\n\
+- `inherit_context=true`: pass filtered parent messages (use sparingly — increases token cost)\n\
+- `context`: extra facts the sub-agent cannot discover on its own\n\
+- `timeout_seconds`: 60–1800 override for long runs\n\n\
+## Depth & Policy\n\
+- Each spawn increases depth; hitting `max_depth` denies further spawns\n\
+- Child registries exclude `spawn_subagent` unless depth allows nesting\n\
+- Check `subagent_list` when spawn fails due to limits or concurrency\n\n\
+## Tool Cooperation\n\
+1. `spawn_subagent` → get `run_id`\n\
+2. `subagent_get` / `wait_agent` → collect results\n\
+3. `send_message` → steer running background agents\n\
+4. `subagent_list` → discover all runs and valid run_ids\n\n\
+## Anti-Patterns\n\
+- Do NOT spawn for 1–3 trivial tool calls — do them directly\n\
+- Do NOT spawn overlapping file editors without coordination (merge conflicts)\n\
+- Do NOT retry spawn in a tight loop on depth/limit errors — use subagent_list or work locally\n\
+- Do NOT use vague tasks — include paths, goals, and success criteria like briefing a new colleague"
+            .to_string()
     }
 
     fn supports_parallel(&self) -> bool {
@@ -348,18 +447,28 @@ impl Tool for SubAgentTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let params: SpawnParams = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         if !self.policy.enabled {
-            return ToolResult::err("sub-agent delegation is disabled for this agent".to_string());
+            return subagent_denied(
+                "sub-agent delegation is disabled for this agent",
+                no_retry_recovery_hint(
+                    "Complete the work in the current agent instead of spawning sub-agents.",
+                ),
+            );
         }
 
         if self.current_depth >= self.policy.max_depth {
-            return ToolResult::err(format!(
-                "sub-agent depth limit reached ({}/{}). Cannot spawn deeper.",
-                self.current_depth, self.policy.max_depth
-            ));
+            return subagent_denied(
+                format!(
+                    "sub-agent depth limit reached ({}/{})",
+                    self.current_depth, self.policy.max_depth
+                ),
+                no_retry_recovery_hint(
+                    "Break the work into smaller steps at the current depth, or use subagent_get/subagent_list to collect results from existing runs.",
+                ),
+            );
         }
 
         let type_id = params
@@ -369,10 +478,15 @@ impl Tool for SubAgentTool {
             .unwrap_or("code");
 
         if !self.policy.allowed_types.is_empty() && !self.policy.allowed_types.contains(&type_id.to_string()) {
-            return ToolResult::err(format!(
-                "sub-agent type '{}' not allowed. Allowed: {:?}",
-                type_id, self.policy.allowed_types
-            ));
+            return subagent_denied(
+                format!(
+                    "sub-agent type '{type_id}' not allowed (allowed: {:?})",
+                    self.policy.allowed_types
+                ),
+                no_retry_recovery_hint(
+                    "Pick an allowed sub-agent type from the list, or complete the task without spawning a disallowed type.",
+                ),
+            );
         }
 
         let def = self.manager.resolve_subagent_def(type_id);
@@ -436,7 +550,14 @@ impl Tool for SubAgentTool {
                         }
                         c
                     }
-                    None => return ToolResult::err("no agent config available".to_string()),
+                    None => {
+                        return subagent_denied(
+                            "no agent config available",
+                            no_retry_recovery_hint(
+                                "Ask the operator to configure at least one agent, or continue without spawning a sub-agent.",
+                            ),
+                        );
+                    }
                 }
             }
         };
@@ -558,7 +679,7 @@ impl Tool for SubAgentTool {
                 .await
             {
                 Ok(id) => id,
-                Err(e) => return ToolResult::err(format!("failed to spawn sub-agent: {e}")),
+                Err(e) => return subagent_spawn_failed(e, "background"),
             };
 
             ToolResult::ok(serde_json::json!({
@@ -605,7 +726,7 @@ impl Tool for SubAgentTool {
                         "result": result,
                     }).to_string())
                 }
-                Err(e) => ToolResult::err(format!("sub-agent failed: {e}")),
+                Err(e) => subagent_spawn_failed(e, "sync"),
             }
         }
     }
@@ -632,7 +753,31 @@ impl Tool for SubAgentGetTool {
     }
 
     fn description(&self) -> &str {
-        "Check the status and result of a previously spawned sub-agent by its run_id. Returns the current status (running/completed/failed/cancelled) and, if finished, the sub-agent's response."
+        "Non-blocking status and result lookup for a sub-agent run by run_id."
+    }
+
+    fn prompt(&self) -> String {
+        "Check status and result of a previously spawned sub-agent (non-blocking).\n\n\
+## When to Use\n\
+- After `spawn_subagent` with `background=true` to poll progress\n\
+- Before modifying files a sub-agent may still be editing\n\
+- To retrieve the final `result` when status is completed/failed/cancelled\n\n\
+## Tool Cooperation\n\
+- Get `run_id` from `spawn_subagent` or find it via `subagent_list`\n\
+- Use `wait_agent` when you want to block until completion instead of polling\n\
+- Use `send_message` only while status is **running**\n\
+- Use `resume_subagent` for interrupted runs with persisted sidechains\n\n\
+## Parameters\n\
+- `run_id`: exact id returned by spawn (copy verbatim)\n\n\
+## Anti-Patterns\n\
+- Do NOT guess run_ids — call `subagent_list` first if unsure\n\
+- Do NOT poll subagent_get in a tight loop — use `wait_agent` with a timeout\n\
+- Do NOT assume result is ready when status is still running"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -662,7 +807,7 @@ impl Tool for SubAgentGetTool {
         }
         let params: Params = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         match self.manager.get_run(&params.run_id) {
@@ -680,10 +825,10 @@ impl Tool for SubAgentGetTool {
                 });
                 ToolResult::ok(json.to_string())
             }
-            None => ToolResult::err(format!(
-                "no sub-agent run found with id '{}'",
-                params.run_id
-            )),
+            None => subagent_not_found(
+                format!("no sub-agent run found with id '{}'", params.run_id),
+                "Call subagent_list to see valid run_ids, then retry subagent_get with a matching id.",
+            ),
         }
     }
 }
@@ -709,7 +854,29 @@ impl Tool for SubAgentListTool {
     }
 
     fn description(&self) -> &str {
-        "List all sub-agent runs in the current session with their status and summary."
+        "List all sub-agent runs in the current session with status summaries."
+    }
+
+    fn prompt(&self) -> String {
+        "List all sub-agent runs in the current session.\n\n\
+## When to Use\n\
+- Discover valid `run_id` values before `subagent_get`, `wait_agent`, or `send_message`\n\
+- Monitor parallel background spawns at a glance\n\
+- Debug spawn failures (depth limits, concurrency) by seeing active runs\n\n\
+## Tool Cooperation\n\
+- After listing, call `subagent_get` for details on one run\n\
+- Batch-wait with `wait_agent` using multiple run_ids from this list\n\
+- Cross-check before `resume_subagent` that the run exists and was persisted\n\n\
+## Parameters\n\
+- No parameters — pass `{}`\n\n\
+## Anti-Patterns\n\
+- Do NOT call repeatedly every turn when nothing was spawned — once per orchestration phase is enough\n\
+- Do NOT use list output as a substitute for reading `result` via subagent_get"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -782,7 +949,32 @@ impl Tool for WaitAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Wait for one or more sub-agent runs to complete. Use mode='all' to wait for all, or mode='any' to return as soon as the first one finishes."
+        "Block until one or more sub-agent runs finish (mode all/any, optional timeout)."
+    }
+
+    fn prompt(&self) -> String {
+        "Wait for one or more sub-agent runs to reach a terminal state.\n\n\
+## When to Use\n\
+- After spawning multiple background agents and you need all (or any) results before continuing\n\
+- Fan-in step of parallel explore/implement patterns\n\
+- Prefer over tight polling loops of `subagent_get`\n\n\
+## Tool Cooperation\n\
+- Collect `run_id`s from `spawn_subagent` or `subagent_list`\n\
+- After wait completes, read per-run results from the returned `results` map\n\
+- On `timed_out: true`, use `subagent_get` on still-pending runs\n\n\
+## Parameters\n\
+- `run_ids`: non-empty array of run ids\n\
+- `mode`: `all` (default) wait for every run; `any` return when first completes\n\
+- `timeout_seconds`: max wait (default 300); returns partial results on timeout\n\n\
+## Anti-Patterns\n\
+- Do NOT pass unknown run_ids — validate via `subagent_list` first\n\
+- Do NOT use wait_agent on sync spawns that already returned results\n\
+- Do NOT set timeout to 0 expecting instant results for long tasks"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -827,11 +1019,11 @@ impl Tool for WaitAgentTool {
 
         let params: WaitParams = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         if params.run_ids.is_empty() {
-            return ToolResult::err("run_ids must not be empty".to_string());
+            return subagent_invalid_args("run_ids must not be empty");
         }
 
         let wait_all = params.mode == "all";
@@ -839,7 +1031,10 @@ impl Tool for WaitAgentTool {
 
         for rid in &params.run_ids {
             if self.manager.get_run(rid).is_none() {
-                return ToolResult::err(format!("unknown run_id: {rid}"));
+                return subagent_not_found(
+                    format!("unknown run_id: {rid}"),
+                    "Call subagent_list to see valid run_ids before calling wait_agent.",
+                );
             }
         }
 
@@ -1039,8 +1234,31 @@ impl Tool for ResumeSubagentTool {
     }
 
     fn description(&self) -> &str {
-        "Resume a previously interrupted sub-agent run by replaying its sidechain transcript \
-         as initial context and continuing execution. Optionally append a new user message."
+        "Resume an interrupted sub-agent from its persisted sidechain transcript."
+    }
+
+    fn prompt(&self) -> String {
+        "Resume a previously interrupted sub-agent by replaying its sidechain transcript.\n\n\
+## When to Use\n\
+- A background run was interrupted but its sidechain was persisted\n\
+- You need to continue with optional new instructions (`message`)\n\
+- `subagent_get` shows incomplete work and sidechain exists\n\n\
+## Tool Cooperation\n\
+- Confirm `run_id` via `subagent_list` before resuming\n\
+- If resume fails (corrupt/missing sidechain), `spawn_subagent` fresh with context\n\
+- Runs synchronously and returns a new completion result\n\n\
+## Parameters\n\
+- `run_id`: the persisted run to resume (required)\n\
+- `message`: optional new user message appended before continuing\n\n\
+## Anti-Patterns\n\
+- Do NOT resume runs that already completed — use `subagent_get` for results\n\
+- Do NOT retry resume in a loop on metadata errors — spawn anew\n\
+- Do NOT resume when a simple new spawn with a clear task is cleaner"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -1081,7 +1299,7 @@ impl Tool for ResumeSubagentTool {
         }
         let params: Params = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         let effective_session_id = SUBAGENT_SESSION_ID
@@ -1089,26 +1307,40 @@ impl Tool for ResumeSubagentTool {
             .unwrap_or_else(|_| self.parent_session_id.clone());
 
         if !SidechainReader::exists(&effective_session_id, &params.run_id).await {
-            return ToolResult::err(format!(
-                "sidechain not found for run_id: {}",
-                params.run_id
-            ));
+            return subagent_not_found(
+                format!("sidechain not found for run_id: {}", params.run_id),
+                "Call subagent_list to confirm the run_id exists and was persisted before resuming.",
+            );
         }
 
         // Load the original run's metadata to determine agent type
         let meta = match SidechainReader::load_meta(&effective_session_id, &params.run_id).await {
             Ok(m) => m,
-            Err(e) => return ToolResult::err(format!("failed to read sidechain metadata: {e}")),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    run_id = %params.run_id,
+                    "failed to read sidechain metadata for resume"
+                );
+                return subagent_execution_failed(
+                    "failed to read sidechain metadata",
+                    no_retry_recovery_hint(
+                        "The sidechain may be corrupted; use subagent_list and spawn a new sub-agent if resume keeps failing.",
+                    ),
+                );
+            }
         };
 
         // Resolve the agent config for the resumed run
         let agent_config = match self.manager.resolve_agent(&meta.agent_id) {
             Some(cfg) => cfg,
             None => {
-                return ToolResult::err(format!(
-                    "agent '{}' is no longer available",
-                    meta.agent_id
-                ))
+                return subagent_denied(
+                    format!("agent '{}' is no longer available", meta.agent_id),
+                    no_retry_recovery_hint(
+                        "Spawn a new sub-agent with an available agent type instead of resuming this run.",
+                    ),
+                );
             }
         };
 
@@ -1119,7 +1351,17 @@ impl Tool for ResumeSubagentTool {
             {
                 Ok(msgs) => msgs,
                 Err(e) => {
-                    return ToolResult::err(format!("failed to load sidechain transcript: {e}"))
+                    tracing::warn!(
+                        error = %e,
+                        run_id = %params.run_id,
+                        "failed to load sidechain transcript for resume"
+                    );
+                    return subagent_execution_failed(
+                        "failed to load sidechain transcript",
+                        no_retry_recovery_hint(
+                            "If the transcript is missing, spawn a fresh sub-agent with the needed context instead of retrying resume.",
+                        ),
+                    );
                 }
             };
 
@@ -1190,7 +1432,7 @@ impl Tool for ResumeSubagentTool {
                 })
                 .to_string(),
             ),
-            Err(e) => ToolResult::err(format!("resumed sub-agent failed: {e}")),
+            Err(e) => subagent_spawn_failed(e, "resume"),
         }
     }
 }
@@ -1216,9 +1458,32 @@ impl Tool for SendMessageTool {
     }
 
     fn description(&self) -> &str {
-        "Send a steering message to a running sub-agent. The message will be injected \
-         into the sub-agent's context at its next tool-round boundary, allowing you to \
-         guide or redirect its execution mid-flight."
+        "Inject a steering message into a running background sub-agent."
+    }
+
+    fn prompt(&self) -> String {
+        "Send a steering message to a **running** background sub-agent.\n\n\
+## When to Use\n\
+- Redirect or refine a background agent mid-flight without cancelling\n\
+- Provide new constraints discovered after spawn\n\
+- Urgent corrections (`priority: high`)\n\n\
+## Tool Cooperation\n\
+- Requires `spawn_subagent` with `background=true` (sync runs have no message queue)\n\
+- Verify status via `subagent_get` — only **running** agents accept messages\n\
+- Find `run_id` via `subagent_list` if needed\n\n\
+## Parameters\n\
+- `run_id`: target sub-agent (required)\n\
+- `message`: steering content (required)\n\
+- `priority`: `low` | `normal` (default) | `high`\n\n\
+## Anti-Patterns\n\
+- Do NOT send_message to completed/failed runs — spawn a follow-up instead\n\
+- Do NOT spam high-priority messages — dilutes urgency\n\
+- Do NOT use send_message when you could have passed context in the initial spawn task"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -1266,7 +1531,7 @@ impl Tool for SendMessageTool {
         }
         let params: Params = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         let priority = match params.priority.as_deref() {
@@ -1279,16 +1544,19 @@ impl Tool for SendMessageTool {
         match run {
             Some(r) if r.status == SubAgentStatus::Running => {}
             Some(_) => {
-                return ToolResult::err(format!(
-                    "sub-agent '{}' is not running (cannot receive messages)",
-                    params.run_id
-                ));
+                return subagent_denied(
+                    format!(
+                        "sub-agent '{}' is not running (cannot receive messages)",
+                        params.run_id
+                    ),
+                    "Call subagent_get to check status; send_message only works while status is running.",
+                );
             }
             None => {
-                return ToolResult::err(format!(
-                    "no sub-agent run found with id '{}'",
-                    params.run_id
-                ));
+                return subagent_not_found(
+                    format!("no sub-agent run found with id '{}'", params.run_id),
+                    "Call subagent_list to see valid run_ids.",
+                );
             }
         }
 
@@ -1301,10 +1569,12 @@ impl Tool for SendMessageTool {
                     "queue_size": queue.len(),
                 }).to_string())
             }
-            None => ToolResult::err(format!(
-                "sub-agent '{}' does not have a message queue (may be running in sync mode)",
-                params.run_id
-            )),
+            None => subagent_execution_failed(
+                "sub-agent does not have a message queue",
+                no_retry_recovery_hint(
+                    "Spawn the sub-agent in background mode to enable send_message, or wait for sync completion via subagent_get.",
+                ),
+            ),
         }
     }
 }
@@ -1328,9 +1598,35 @@ impl Tool for TaskStopTool {
     }
 
     fn description(&self) -> &str {
-        "Signal that the coordination task is complete and provide a final summary. \
-         Only available to coordinator-mode sub-agents. Calling this tool ends \
-         the coordinator's execution loop."
+        "Coordinator-only: signal orchestration complete with a final summary."
+    }
+
+    fn prompt(&self) -> String {
+        "Signal that a **coordinator-mode** sub-agent has finished orchestrating workers.\n\n\
+## When to Use\n\
+- You are a coordinator sub-agent that spawned worker sub-agents and collected outcomes\n\
+- All delegated work is done (or acceptably partial) and you must return a final summary\n\
+- Calling this ends the coordinator's execution loop\n\n\
+## vs background_task_stop\n\
+- **task_stop** (this tool): coordinator-only signal that orchestration is complete\n\
+- **background_task_stop**: cancels TaskManager background jobs by task_id — a different system; \
+not the same as ending coordinator orchestration\n\n\
+## Tool Cooperation\n\
+- Workers: `spawn_subagent` (background) → `wait_agent` / `subagent_get` → aggregate here\n\
+- Parent agent receives the summary as the coordinator's final tool result\n\n\
+## Parameters\n\
+- `summary`: final orchestration report (required)\n\
+- `status`: `success` (default) | `partial` | `failed`\n\n\
+## Anti-Patterns\n\
+- Do NOT call from non-coordinator agents — tool may be unavailable\n\
+- Do NOT call before workers finish unless status is `partial` with explanation\n\
+- Do NOT use task_stop for regular single sub-agent work or to cancel background TaskManager jobs — \
+only coordinator orchestration; use `background_task_stop` for the latter when available"
+            .to_string()
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn kind(&self) -> ToolKind {
@@ -1374,7 +1670,7 @@ impl Tool for TaskStopTool {
 
         let params: Params = match serde_json::from_str(arguments) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("invalid arguments: {e}")),
+            Err(e) => return subagent_invalid_args(e),
         };
 
         ToolResult::ok(
@@ -1429,6 +1725,97 @@ mod tests {
         let def = tool.to_definition();
         assert_eq!(def.function.name, "spawn_subagent");
         assert!(def.function.description.contains("sub-agent"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_prompt_does_not_imply_task_create_available() {
+        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
+            crate::OpenAiProvider::new("http://example.com", "fake"),
+        )));
+        runtime.init_self_arc();
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let controller = Arc::new(crate::spawn_controller::SpawnController::new(
+            crate::spawn_controller::SpawnConfig::default(),
+        ));
+        let manager = Arc::new(SubAgentManager::new(
+            runtime,
+            vec![],
+            SubAgentPolicy::default(),
+            controller,
+        ));
+        let tool = SubAgentTool::new(manager, tool_reg, SubAgentPolicy::default());
+        let prompt = tool.prompt();
+        assert!(
+            prompt.contains("not exposed"),
+            "prompt should state task_create is not exposed"
+        );
+        assert!(
+            !prompt.contains("Use spawn_subagent for interactive orchestration; task_create"),
+            "prompt should not suggest task_create as an alternative"
+        );
+    }
+
+    #[test]
+    fn coordinator_task_stop_prompt_distinguishes_background_task_stop() {
+        let tool = TaskStopTool::new();
+        let prompt = tool.prompt();
+        assert!(prompt.contains("background_task_stop"));
+        assert!(prompt.contains("coordinator"));
+    }
+
+    #[tokio::test]
+    async fn deferred_subagent_tools_use_deferred_exposure() {
+        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
+            crate::OpenAiProvider::new("http://example.com", "fake"),
+        )));
+        runtime.init_self_arc();
+        let controller = Arc::new(crate::spawn_controller::SpawnController::new(
+            crate::spawn_controller::SpawnConfig::default(),
+        ));
+        let manager = Arc::new(SubAgentManager::new(
+            runtime,
+            vec![],
+            SubAgentPolicy::default(),
+            controller,
+        ));
+        let deferred: Vec<Box<dyn Tool>> = vec![
+            Box::new(SubAgentGetTool::new(Arc::clone(&manager))),
+            Box::new(SubAgentListTool::new(Arc::clone(&manager))),
+            Box::new(WaitAgentTool::new(Arc::clone(&manager))),
+            Box::new(ResumeSubagentTool::new(
+                Arc::clone(&manager),
+                Arc::new(ToolRegistry::new()),
+                SubAgentPolicy::default(),
+            )),
+            Box::new(SendMessageTool::new(Arc::clone(&manager))),
+            Box::new(TaskStopTool::new()),
+        ];
+        for tool in &deferred {
+            assert!(
+                tool.exposure() == ToolExposure::Deferred,
+                "{} should be deferred",
+                tool.name()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_stays_direct_exposure() {
+        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
+            crate::OpenAiProvider::new("http://example.com", "fake"),
+        )));
+        runtime.init_self_arc();
+        let controller = Arc::new(crate::spawn_controller::SpawnController::new(
+            crate::spawn_controller::SpawnConfig::default(),
+        ));
+        let manager = Arc::new(SubAgentManager::new(
+            runtime,
+            vec![],
+            SubAgentPolicy::default(),
+            controller,
+        ));
+        let tool = SubAgentTool::new(manager, Arc::new(ToolRegistry::new()), SubAgentPolicy::default());
+        assert_eq!(tool.exposure(), ToolExposure::Direct);
     }
 
     #[test]
@@ -1602,5 +1989,76 @@ mod tests {
             .await;
         assert!(!result.success);
         assert!(result.output.contains("unknown run_id"));
+    }
+
+    // --- recovery field assertions ---
+
+    fn make_subagent_tool(
+        policy: SubAgentPolicy,
+        depth: u32,
+    ) -> SubAgentTool {
+        let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
+            crate::OpenAiProvider::new("http://example.com", "fake"),
+        )));
+        runtime.init_self_arc();
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let controller = Arc::new(crate::spawn_controller::SpawnController::new(
+            crate::spawn_controller::SpawnConfig::default(),
+        ));
+        let manager = Arc::new(SubAgentManager::new(
+            runtime,
+            vec![],
+            policy.clone(),
+            controller,
+        ));
+        SubAgentTool::new(manager, tool_reg, policy)
+            .with_depth(depth)
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_disabled_policy_recovery() {
+        let mut policy = SubAgentPolicy::default();
+        policy.enabled = false;
+        let tool = make_subagent_tool(policy.clone(), 0);
+
+        let result = tool
+            .execute(r#"{"task": "do something", "type": "explore"}"#)
+            .await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("disabled"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("Stop retrying"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_depth_limit_recovery() {
+        let mut policy = SubAgentPolicy::default();
+        policy.max_depth = 1;
+        let tool = make_subagent_tool(policy.clone(), 1);
+
+        let result = tool
+            .execute(r#"{"task": "nested work", "type": "explore"}"#)
+            .await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("depth limit"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("Stop retrying"));
+    }
+
+    #[tokio::test]
+    async fn send_message_non_running_uses_execution_denied() {
+        let mgr = make_wait_manager();
+        mgr.insert_run(completed_run("done-run", "finished"));
+        let tool = SendMessageTool::new(mgr);
+
+        let result = tool
+            .execute(r#"{"run_id": "done-run", "message": "hello"}"#)
+            .await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("not running"));
+        assert!(result.output.contains("What to do next:"));
     }
 }

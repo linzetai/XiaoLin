@@ -23,11 +23,7 @@ impl Tool for GetIdentityTool {
     }
 
     fn description(&self) -> &str {
-        "Read agent workspace identity files: IDENTITY.md (persona, name, style, operating rules) \
-         and USER.md (user profile). \
-         file must be identity | user | all; all returns both in one JSON object. \
-         Missing files surface as \"(empty)\" — normal for new workspaces. \
-         Example: {\"file\": \"identity\"}; {\"file\": \"all\"}"
+        "Read IDENTITY.md and/or USER.md from the agent workspace."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -104,7 +100,7 @@ impl Tool for SetIdentityTool {
     }
 
     fn description(&self) -> &str {
-        "Overwrite one identity Markdown in the workspace (identity or user)."
+        "Overwrite IDENTITY.md or USER.md in the agent workspace."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -183,13 +179,31 @@ impl Tool for UnifiedIdentityTool {
     }
 
     fn description(&self) -> &str {
-        "Read or write agent identity files (IDENTITY.md, USER.md). \
-         action 'get': read identity files (file: identity|user|all). \
-         action 'set': overwrite one identity file (file + content required). \
-         Always get before set to avoid clobbering existing content. \
-         NOTE: Identity files are already injected into your context as <user_provided_context> at session start. \
-         Do NOT call get just to answer 'who are you' — the content is already available. \
-         MUST use set when the user changes your name, personality, vibe, or any identity attribute."
+        "Read or write workspace identity files (IDENTITY.md, USER.md)."
+    }
+
+    fn prompt(&self) -> String {
+        "Read or write agent identity Markdown files in the workspace.\n\n\
+## When to Use\n\
+- **get**: load IDENTITY.md (persona/rules) or USER.md (user profile) when not already in context\n\
+- **set**: persist changes when the user updates name, personality, vibe, or profile\n\n\
+## Already in Context\n\
+Identity files are injected as `<user_provided_context>` at session start. \
+**Do NOT call get just to answer \"who are you\"** — use injected context first. \
+Call get only when you need the latest on-disk version or a specific file slice.\n\n\
+## Workflow (get before set)\n\
+1. `action: get` with `file: identity` | `user` | `all` → read current content\n\
+2. `action: set` with `file: identity` | `user` and full replacement `content`\n\
+Missing files return `\"(empty)\"` — normal for new workspaces.\n\n\
+## Parameters\n\
+- `action`: `get` | `set` (required)\n\
+- `file`: `identity` | `user` | `all` (`all` only for get)\n\
+- `content`: full Markdown replacement (required for set)\n\n\
+## Anti-Patterns\n\
+- Do NOT set without get when existing content matters — you will clobber user edits\n\
+- Do NOT repeatedly get identity every turn — trust session injection\n\
+- Do NOT use set for casual chat — only when the user changes identity attributes"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {

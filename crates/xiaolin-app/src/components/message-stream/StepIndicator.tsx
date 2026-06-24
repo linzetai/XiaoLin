@@ -30,7 +30,7 @@ export type ToolCategory = "shell" | "read" | "write" | "edit" | "search" | "web
 
 const CATEGORY_MAP: Record<string, ToolCategory> = {
   shell: "shell", shell_exec: "shell", code_execute: "shell",
-  file_read: "read", read_file: "read", read_skill: "read",
+  file_read: "read", read_file: "read", read_files: "read", read_skill: "read",
   list_skills: "read", list_directory: "read",
   file_write: "write", write_file: "write", write_skill: "write",
   edit_file: "edit",
@@ -63,6 +63,7 @@ export function buildToolMeta(t: TFunction<"chat">): Record<string, { icon: Reac
     sql_query: { icon: <Table />, label: t("tool_sql_query") },
     code_execute: { icon: <Play  />, label: t("tool_code_execute") },
     read_file: { icon: <FileText  />, label: t("tool_read_file") },
+    read_files: { icon: <FileText  />, label: t("tool_read_files") },
     write_file: { icon: <PenNib />, label: t("tool_write_file") },
     list_directory: { icon: <MagnifyingGlass />, label: t("tool_list_directory") },
     read_skill: { icon: <FileText  />, label: t("tool_read_skill") },
@@ -103,10 +104,21 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatReadFilesPathsPreview(paths: unknown[]): string | null {
+  const normalized = paths.filter((p): p is string => typeof p === "string");
+  if (normalized.length === 0) return null;
+  const shown = normalized.slice(0, 2);
+  const extra = normalized.length > 2 ? ` (+${normalized.length - 2})` : "";
+  return `${shown.join(", ")}${extra}`;
+}
+
 export function extractKeyInfo(tool: ToolCall): string | null {
   if (!tool.args) return null;
   try {
     const args = JSON.parse(tool.args);
+    if (tool.name === "read_files" && Array.isArray(args.paths)) {
+      return formatReadFilesPathsPreview(args.paths);
+    }
     if (args.path || args.file) return args.path ?? args.file;
     if (args.command || args.cmd) return args.command ?? args.cmd;
     if (args.query) return args.query;

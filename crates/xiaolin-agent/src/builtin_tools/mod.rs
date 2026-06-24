@@ -52,6 +52,7 @@ pub use xiaolin_tools_fs::filesystem::{
     ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
     SearchInFilesTool, WriteFileTool,
 };
+pub use xiaolin_tools_fs::ReadFilesTool;
 pub use goal::{
     ContinuationActivityResult, CreateGoalTool, GetGoalTool, Goal, GoalStatus, GoalStore,
     UpdateGoalTool,
@@ -82,7 +83,7 @@ pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool}
 pub use snip::SnipTool;
 pub use task::{
     NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
-    TaskManagerError, TaskStatus, TaskStopTool, TaskUpdateTool, TaskWorkFactory,
+    TaskManagerError, TaskStatus, BackgroundTaskStopTool, TaskUpdateTool, TaskWorkFactory,
 };
 pub use xiaolin_tools_fs::terminal::TerminalCaptureTool;
 pub use todo::{TodoItem, TodoReadTool, TodoStatus, TodoStore, TodoWriteTool};
@@ -144,6 +145,7 @@ pub fn register_builtin_tools_full(
     // ── Deferred tools (available via tool_search) ──────────────────────────
     registry.register_deferred(Arc::new(CurrentTimeTool));
     registry.register_deferred(Arc::new(SleepTool));
+    registry.register_deferred(Arc::new(ReadFilesTool));
     registry.register_deferred(Arc::new(FileOutlineTool));
     registry.register_deferred(Arc::new(CodeSectionsTool));
     registry.register_deferred(Arc::new(MultiEditTool));
@@ -262,7 +264,7 @@ pub fn register_task_tools(
     registry.register_deferred(Arc::new(TaskListTool::new(Arc::clone(&manager))));
     registry.register_deferred(Arc::new(TaskGetTool::new(Arc::clone(&manager))));
     registry.register_deferred(Arc::new(TaskUpdateTool::new(Arc::clone(&manager))));
-    registry.register_deferred(Arc::new(TaskStopTool::new(manager)));
+    registry.register_deferred(Arc::new(BackgroundTaskStopTool::new(manager)));
 }
 
 /// Register plan mode tools (enter/exit) with shared execution mode state.

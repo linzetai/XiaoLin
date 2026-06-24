@@ -858,7 +858,6 @@ pub(crate) fn extract_build_command(tool_name: &str, arguments: &str) -> Option<
 }
 
 /// Extract the exit code from a shell_exec result output.
-#[allow(dead_code)]
 pub(crate) fn extract_exit_code(output: &str) -> Option<i32> {
     // Terminal-file compact summary format: "exit_code=N, ..."
     if let Some(rest) = output.strip_prefix("exit_code=") {

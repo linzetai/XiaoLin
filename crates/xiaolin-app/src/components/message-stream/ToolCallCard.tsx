@@ -52,10 +52,21 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatReadFilesPathsPreview(paths: unknown[]): string | null {
+  const normalized = paths.filter((p): p is string => typeof p === "string");
+  if (normalized.length === 0) return null;
+  const shown = normalized.slice(0, 2);
+  const extra = normalized.length > 2 ? ` (+${normalized.length - 2})` : "";
+  return `${shown.join(", ")}${extra}`;
+}
+
 function extractKeyInfo(tool: ToolCall): string | null {
   if (!tool.args) return null;
   try {
     const args = JSON.parse(tool.args);
+    if (tool.name === "read_files" && Array.isArray(args.paths)) {
+      return formatReadFilesPathsPreview(args.paths);
+    }
     if (args.path || args.file) return args.path ?? args.file;
     if (args.command || args.cmd) return args.command ?? args.cmd;
     if (args.query) return args.query;

@@ -93,6 +93,9 @@ pub(crate) struct QueryLoopState {
     /// Tracks the highest escalation level we've already applied,
     /// so each level fires at most once.
     repetition_escalation: u32,
+    /// Cumulative warn / force-stop triggers for this query (metrics snapshot).
+    repetition_warn_count: u32,
+    repetition_force_stop_count: u32,
 
     // ── Auto-fix loop state ───────────────────────────────────────────
     pub autofix: crate::autofix::AutoFixState,
@@ -185,6 +188,8 @@ impl QueryLoopState {
 
             tool_call_exact_counts: HashMap::new(),
             repetition_escalation: 0,
+            repetition_warn_count: 0,
+            repetition_force_stop_count: 0,
 
             autofix: crate::autofix::AutoFixState::default(),
 
@@ -217,13 +222,20 @@ impl QueryLoopState {
 
         if *count >= TOOL_REPEAT_HARD_LIMIT && self.repetition_escalation < 2 {
             self.repetition_escalation = 2;
+            self.repetition_force_stop_count += 1;
             return ToolRepetitionAction::ForceStop;
         }
         if *count >= TOOL_REPEAT_WARN_THRESHOLD && self.repetition_escalation < 1 {
             self.repetition_escalation = 1;
+            self.repetition_warn_count += 1;
             return ToolRepetitionAction::Warn;
         }
         ToolRepetitionAction::None
+    }
+
+    /// Read-only snapshot of repetition-detection triggers in this query.
+    pub fn repetition_stats(&self) -> (u32, u32) {
+        (self.repetition_warn_count, self.repetition_force_stop_count)
     }
 
     /// Build a guidance message when exact tool call repetition is detected.
@@ -893,6 +905,7 @@ mod tests {
             ToolRepetitionAction::Warn,
             "3rd identical call should trigger Warn"
         );
+        assert_eq!(s.repetition_stats(), (1, 0));
     }
 
     #[test]
@@ -907,6 +920,7 @@ mod tests {
             ToolRepetitionAction::ForceStop,
             "5th identical call should trigger ForceStop"
         );
+        assert_eq!(s.repetition_stats(), (1, 1));
     }
 
     #[test]

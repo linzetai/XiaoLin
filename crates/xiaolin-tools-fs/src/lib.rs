@@ -1,10 +1,14 @@
 pub mod exec_command;
 pub mod file_state_cache;
 pub mod filesystem;
+pub mod read_files;
 pub mod git;
 pub mod shell;
 pub mod shell_path_validation;
 pub mod shell_readonly;
 pub mod shell_security;
+pub mod snippet;
 pub mod terminal;
 pub mod worktree;
+
+pub use read_files::ReadFilesTool;

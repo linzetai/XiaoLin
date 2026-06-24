@@ -102,6 +102,40 @@ pub enum ToolRuntimeError {
     Internal { message: String },
 }
 
+impl ToolRuntimeError {
+    /// Convert a runtime execution failure into a structured [`crate::tool::ToolResult`].
+    pub fn to_tool_result(&self) -> crate::tool::ToolResult {
+        use crate::tool::{ToolErrorType, ToolResult, no_retry_recovery_hint};
+
+        match self {
+            Self::Rejected { reason } => ToolResult::err_with_recovery(
+                ToolErrorType::ExecutionDenied,
+                format!("Denied: {reason}"),
+                "Obtain user approval or revise the request before retrying; do not repeat the same denied operation.",
+            ),
+            Self::SandboxDenied { reason } => ToolResult::err_with_recovery(
+                ToolErrorType::ExecutionDenied,
+                format!("Sandbox denied execution: {reason}"),
+                no_retry_recovery_hint(
+                    "Use read_file, edit_file, or write_file for file operations instead of shell redirection.",
+                ),
+            ),
+            Self::Timeout { elapsed_ms } => ToolResult::err_with_recovery(
+                ToolErrorType::ShellExecuteError,
+                format!("Timeout after {elapsed_ms}ms"),
+                "Increase timeout for long-running operations, split the work into smaller steps, or investigate why it is slow; do not retry with the same timeout if it already timed out.",
+            ),
+            Self::Internal { message } => ToolResult::err_with_recovery(
+                ToolErrorType::ShellExecuteError,
+                format!("Internal error: {message}"),
+                no_retry_recovery_hint(
+                    "Verify arguments and environment; if execution keeps failing, report a host configuration issue.",
+                ),
+            ),
+        }
+    }
+}
+
 /// How the orchestrator resolves approval based on the entry point.
 #[derive(Debug, Clone)]
 pub enum ApprovalStrategy {
@@ -176,6 +210,90 @@ impl BubbleApprovalPort {
 
     pub fn pending_count(&self) -> usize {
         self.pending.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolRuntimeError;
+    use crate::tool::{ToolErrorType, ToolResult};
+
+    fn assert_recovery_result(
+        result: ToolResult,
+        expected_type: ToolErrorType,
+        message_fragment: &str,
+        hint_fragment: &str,
+    ) {
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(expected_type));
+        assert!(
+            result.output.contains(message_fragment),
+            "output missing {message_fragment:?}: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("What to do next:"),
+            "output missing recovery prefix: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains(hint_fragment),
+            "output missing hint {hint_fragment:?}: {}",
+            result.output
+        );
+    }
+
+    #[test]
+    fn to_tool_result_rejected_includes_recovery() {
+        let result = ToolRuntimeError::Rejected {
+            reason: "policy forbid".into(),
+        }
+        .to_tool_result();
+        assert_recovery_result(
+            result,
+            ToolErrorType::ExecutionDenied,
+            "Denied: policy forbid",
+            "do not repeat the same denied operation",
+        );
+    }
+
+    #[test]
+    fn to_tool_result_sandbox_denied_includes_recovery() {
+        let result = ToolRuntimeError::SandboxDenied {
+            reason: "landlock blocked write".into(),
+        }
+        .to_tool_result();
+        assert_recovery_result(
+            result,
+            ToolErrorType::ExecutionDenied,
+            "Sandbox denied execution",
+            "read_file",
+        );
+    }
+
+    #[test]
+    fn to_tool_result_timeout_includes_recovery() {
+        let result = ToolRuntimeError::Timeout { elapsed_ms: 30_000 }.to_tool_result();
+        assert_recovery_result(
+            result,
+            ToolErrorType::ShellExecuteError,
+            "Timeout after 30000ms",
+            "do not retry with the same timeout",
+        );
+    }
+
+    #[test]
+    fn to_tool_result_internal_includes_recovery() {
+        let result = ToolRuntimeError::Internal {
+            message: "spawn failed".into(),
+        }
+        .to_tool_result();
+        assert_recovery_result(
+            result,
+            ToolErrorType::ShellExecuteError,
+            "Internal error: spawn failed",
+            "Stop retrying",
+        );
     }
 }
 

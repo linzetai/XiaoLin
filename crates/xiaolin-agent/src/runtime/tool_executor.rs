@@ -630,6 +630,7 @@ pub(crate) fn semantic_header(
 
     let target = match tool_name {
         "read_file" => extract_str(&v, &["path", "file_path"]),
+        "read_files" => summarize_read_files_paths(&v),
         "write_file" | "edit_file" | "apply_patch" | "multi_edit" | "create_file" => {
             extract_str(&v, &["path", "file_path"])
         }
@@ -681,6 +682,31 @@ fn extract_str(v: &Option<serde_json::Value>, keys: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+fn path_basename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+fn summarize_read_files_paths(v: &Option<serde_json::Value>) -> Option<String> {
+    let paths = v.as_ref()?.get("paths")?.as_array()?;
+    let names: Vec<String> = paths
+        .iter()
+        .filter_map(|p| p.as_str())
+        .map(path_basename)
+        .map(|s| s.to_string())
+        .take(3)
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    let total = paths.iter().filter(|p| p.as_str().is_some()).count();
+    let extra = total.saturating_sub(names.len());
+    if extra > 0 {
+        Some(format!("{} (+{extra})", names.join(", ")))
+    } else {
+        Some(names.join(", "))
+    }
 }
 
 fn truncate_str(s: &str, max: usize) -> String {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use xiaolin_core::tool::{
-    Tool, ToolGroup, ToolKind, ToolParameterSchema, ToolResult,
+    Tool, ToolErrorType, ToolGroup, ToolKind, ToolParameterSchema, ToolResult,
 };
 
 /// Definition-only stub for ToolRegistry. Execution is handled by RuntimeRegistry.
@@ -127,10 +127,11 @@ If a command times out, do NOT retry with the same timeout — increase it or in
         30_000
     }
     async fn execute(&self, _arguments: &str) -> ToolResult {
-        ToolResult::err(
+        ToolResult::err_with_recovery(
+            ToolErrorType::ExecutionFailed,
             "shell_exec execution should go through RuntimeRegistry/orchestrator. \
-             This is a definition-only stub."
-                .to_string(),
+             This is a definition-only stub.",
+            "Do not call this stub directly; shell_exec is executed by the runtime orchestrator.",
         )
     }
 }

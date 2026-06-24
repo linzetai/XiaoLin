@@ -6,9 +6,65 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use xiaolin_core::tool::{
+    Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint,
+};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
+
+fn task_invalid_args(e: impl std::fmt::Display) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        format!("Invalid arguments: {e}"),
+        "Fix the tool arguments JSON schema (required fields, types) before retrying.",
+    )
+}
+
+fn task_not_found(task_id: &str) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        format!("Task not found: {task_id}"),
+        "Call task_list to see available task IDs, then retry with a valid task_id.",
+    )
+}
+
+fn task_concurrency_denied(current: usize, max: usize) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::ExecutionDenied,
+        format!("Cannot create task: concurrency limit reached ({current}/{max} running)."),
+        no_retry_recovery_hint(
+            "Wait for existing tasks to complete via task_list/task_get, or stop one with background_task_stop before spawning another.",
+        ),
+    )
+}
+
+fn task_create_failed(e: impl std::fmt::Display) -> ToolResult {
+    let detail = e.to_string();
+    tracing::warn!(error = %detail, "task_create failed");
+    ToolResult::err_with_recovery(
+        ToolErrorType::ExecutionFailed,
+        "Failed to create task",
+        "Check subject/description parameters and concurrency limits; call task_list to inspect running tasks.",
+    )
+}
+
+fn task_operation_failed(action: &str, e: impl std::fmt::Display) -> ToolResult {
+    let detail = e.to_string();
+    tracing::warn!(error = %detail, action, "task operation failed");
+    ToolResult::err_with_recovery(
+        ToolErrorType::ExecutionFailed,
+        format!("Failed to {action} task"),
+        "Call task_get for details or task_list for available tasks.",
+    )
+}
+
+fn task_no_fields_to_update() -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        "No fields to update.",
+        "Provide at least one of: subject, description, status.",
+    )
+}
 
 /// Status of a managed background task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -511,7 +567,7 @@ For large codebase changes:\n\
 - `task_create` → launches the agent, returns task_id immediately\n\
 - `task_list` → shows all active/completed tasks\n\
 - `task_get` → retrieves result (blocks if still running, or returns current status)\n\
-- `task_stop` → cancels a running task (agent's partial work remains on disk)\n\n\
+- `background_task_stop` → cancels a running task (agent's partial work remains on disk)\n\n\
 ## Anti-Patterns\n\n\
 - Don't delegate trivial tasks (reading one file, running one command)\n\
 - Don't delegate tasks that need user interaction\n\
@@ -548,11 +604,7 @@ For large codebase changes:\n\
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: TaskCreateArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Invalid arguments: {e}. Expected {{\"subject\": \"...\", \"description\": \"...\"}}"
-                ))
-            }
+            Err(e) => return task_invalid_args(e),
         };
 
         let desc = args.description.unwrap_or_default();
@@ -574,12 +626,9 @@ For large codebase changes:\n\
                 .to_string(),
             ),
             Err(TaskManagerError::ConcurrencyLimitReached { max, current }) => {
-                ToolResult::err(format!(
-                    "Cannot create task: concurrency limit reached ({current}/{max} running). \
-                     Wait for existing tasks to complete or stop one first."
-                ))
+                task_concurrency_denied(current, max)
             }
-            Err(e) => ToolResult::err(format!("Failed to create task: {e}")),
+            Err(e) => task_create_failed(e),
         }
     }
 }
@@ -710,21 +759,12 @@ impl Tool for TaskGetTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: TaskGetArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Invalid arguments: {e}. Expected {{\"task_id\": \"...\"}}"
-                ))
-            }
+            Err(e) => return task_invalid_args(e),
         };
 
         let info = match self.manager.get(&args.task_id) {
             Some(info) => info,
-            None => {
-                return ToolResult::err(format!(
-                    "Task not found: {}. Use task_list to see available tasks.",
-                    args.task_id
-                ))
-            }
+            None => return task_not_found(&args.task_id),
         };
 
         let status = serde_json::to_value(info.status)
@@ -758,32 +798,32 @@ impl Tool for TaskGetTool {
     }
 }
 
-// ─── TaskStopTool ────────────────────────────────────────────────────
+// ─── BackgroundTaskStopTool ──────────────────────────────────────────
 
 /// Tool that stops/cancels a running background task.
-pub struct TaskStopTool {
+pub struct BackgroundTaskStopTool {
     manager: Arc<TaskManager>,
 }
 
-impl TaskStopTool {
+impl BackgroundTaskStopTool {
     pub fn new(manager: Arc<TaskManager>) -> Self {
         Self { manager }
     }
 }
 
 #[derive(Deserialize)]
-struct TaskStopArgs {
+struct BackgroundTaskStopArgs {
     task_id: String,
 }
 
 #[async_trait]
-impl Tool for TaskStopTool {
+impl Tool for BackgroundTaskStopTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Execute
     }
 
     fn name(&self) -> &str {
-        "task_stop"
+        "background_task_stop"
     }
 
     fn description(&self) -> &str {
@@ -815,13 +855,9 @@ impl Tool for TaskStopTool {
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
-        let args: TaskStopArgs = match serde_json::from_str(arguments) {
+        let args: BackgroundTaskStopArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Invalid arguments: {e}. Expected {{\"task_id\": \"...\"}}"
-                ))
-            }
+            Err(e) => return task_invalid_args(e),
         };
 
         match self.manager.stop(&args.task_id) {
@@ -830,11 +866,8 @@ impl Tool for TaskStopTool {
                 "Task {} already finished (not running).",
                 args.task_id
             )),
-            Err(TaskManagerError::NotFound(_)) => ToolResult::err(format!(
-                "Task not found: {}. Use task_list to see available tasks.",
-                args.task_id
-            )),
-            Err(e) => ToolResult::err(format!("Failed to stop task: {e}")),
+            Err(TaskManagerError::NotFound(_)) => task_not_found(&args.task_id),
+            Err(e) => task_operation_failed("stop", e),
         }
     }
 }
@@ -927,17 +960,11 @@ impl Tool for TaskUpdateTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: TaskUpdateArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => {
-                return ToolResult::err(format!(
-                    "Invalid arguments: {e}. Expected {{\"task_id\": \"...\", ...}}"
-                ))
-            }
+            Err(e) => return task_invalid_args(e),
         };
 
         if args.subject.is_none() && args.description.is_none() && args.status.is_none() {
-            return ToolResult::err(
-                "No fields to update. Provide at least one of: subject, description, status.",
-            );
+            return task_no_fields_to_update();
         }
 
         match self
@@ -958,11 +985,8 @@ impl Tool for TaskUpdateTool {
                     ))
                 }
             }
-            Err(TaskManagerError::NotFound(_)) => ToolResult::err(format!(
-                "Task not found: {}. Use task_list to see available tasks.",
-                args.task_id
-            )),
-            Err(e) => ToolResult::err(format!("Failed to update task: {e}")),
+            Err(TaskManagerError::NotFound(_)) => task_not_found(&args.task_id),
+            Err(e) => task_operation_failed("update", e),
         }
     }
 }
@@ -1368,7 +1392,10 @@ mod tests {
         let tool = TaskCreateTool::with_noop(Arc::clone(&mgr));
         let result = tool.execute(r#"{"subject": "will be rejected"}"#).await;
         assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
         assert!(result.output.contains("concurrency limit"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("Stop retrying"));
     }
 
     struct EchoWorkFactory;
@@ -1530,11 +1557,11 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TaskStopTool tests
+    // BackgroundTaskStopTool tests
     // ═══════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn task_stop_tool_cancels_running() {
+    async fn background_task_stop_tool_cancels_running() {
         let mgr = Arc::new(TaskManager::new(5));
         let id = mgr
             .spawn("long task".into(), "".into(), async {
@@ -1545,7 +1572,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let tool = TaskStopTool::new(Arc::clone(&mgr));
+        let tool = BackgroundTaskStopTool::new(Arc::clone(&mgr));
         let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("cancelled"));
@@ -1555,7 +1582,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_stop_tool_already_finished() {
+    async fn background_task_stop_tool_already_finished() {
         let mgr = Arc::new(TaskManager::new(5));
         let id = mgr
             .spawn("quick".into(), "".into(), async { Ok("done".into()) })
@@ -1563,16 +1590,16 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        let tool = TaskStopTool::new(Arc::clone(&mgr));
+        let tool = BackgroundTaskStopTool::new(Arc::clone(&mgr));
         let result = tool.execute(&format!(r#"{{"task_id": "{}"}}"#, id)).await;
         assert!(result.success);
         assert!(result.output.contains("already finished"));
     }
 
     #[tokio::test]
-    async fn task_stop_tool_not_found() {
+    async fn background_task_stop_tool_not_found() {
         let mgr = Arc::new(TaskManager::new(5));
-        let tool = TaskStopTool::new(Arc::clone(&mgr));
+        let tool = BackgroundTaskStopTool::new(Arc::clone(&mgr));
 
         let result = tool.execute(r#"{"task_id": "nonexistent"}"#).await;
         assert!(!result.success);
@@ -1580,11 +1607,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_stop_tool_is_deferred() {
+    async fn background_task_stop_tool_is_deferred() {
         let mgr = Arc::new(TaskManager::new(5));
-        let tool = TaskStopTool::new(mgr);
+        let tool = BackgroundTaskStopTool::new(mgr);
         assert!(tool.is_deferred());
         assert_eq!(tool.kind(), ToolKind::Execute);
+        assert_eq!(tool.name(), "background_task_stop");
     }
 
     // ═══════════════════════════════════════════════════════════════

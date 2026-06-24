@@ -1,5 +1,7 @@
 use xiaolin_core::types::{ChatMessage, ChatRequest, Role, SessionId, ToolCall};
+use xiaolin_core::tool::ToolErrorType;
 use xiaolin_evolution::TrajectoryStep;
+use xiaolin_observe::{record_tool_call, record_tool_repetition, shared_metrics_collector};
 use xiaolin_protocol::{ExecutionMode, TurnSummary};
 
 use crate::builtin_tools::GoalStatus;
@@ -493,6 +495,7 @@ pub(crate) async fn execute_tool_round(
         svc.services
             .record_tool_call_stat(&tool_name, result.success, tool_duration.as_millis() as u64)
             .await;
+        record_tool_call(&tool_name, result.success);
 
         ms.trajectory_steps.push(TrajectoryStep {
             role: "assistant".into(),
@@ -504,12 +507,28 @@ pub(crate) async fn execute_tool_round(
 
         match rep_action {
             query_state::ToolRepetitionAction::ForceStop => {
+                record_tool_repetition("force_stop", &tool_name);
+                let (warn_n, stop_n) = ms.query_loop.repetition_stats();
+                tracing::debug!(
+                    tool = %tool_name,
+                    warn_triggers = warn_n,
+                    force_stop_triggers = stop_n,
+                    "tool repetition force_stop"
+                );
                 if let Some(nudge) = ms.query_loop.build_repetition_nudge(true) {
                     inject_tool_recovery_guidance(&mut ms.messages, &nudge);
                 }
                 force_stop_loop = true;
             }
             query_state::ToolRepetitionAction::Warn => {
+                record_tool_repetition("warn", &tool_name);
+                let (warn_n, stop_n) = ms.query_loop.repetition_stats();
+                tracing::debug!(
+                    tool = %tool_name,
+                    warn_triggers = warn_n,
+                    force_stop_triggers = stop_n,
+                    "tool repetition warn"
+                );
                 if let Some(nudge) = ms.query_loop.build_repetition_nudge(false) {
                     inject_tool_recovery_guidance(&mut ms.messages, &nudge);
                 }
@@ -518,6 +537,11 @@ pub(crate) async fn execute_tool_round(
         }
 
         if !result.success {
+            let error_type = result
+                .error_type
+                .unwrap_or(ToolErrorType::Unknown)
+                .to_string();
+            shared_metrics_collector().record_tool_failure(&tool_name, &error_type);
             ms.query_loop.record_tool_error(&tool_name, &result.output);
             ms.undo_engine.record_failure(&tool_name);
         } else {

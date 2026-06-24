@@ -11,7 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use xiaolin_core::agent_config::BehaviorConfig;
-use xiaolin_core::tool::{PostToolInfo, PreToolAction, ToolHook, ToolHookContext, ToolKind, ToolRegistry, ToolResult};
+use xiaolin_core::tool::{
+    PostToolInfo, PreToolAction, ToolErrorType, ToolHook, ToolHookContext, ToolKind, ToolRegistry,
+    ToolResult,
+};
 use xiaolin_core::tool_runtime::{ApprovalStrategy, SandboxPreference};
 use xiaolin_core::types::ToolCall;
 use xiaolin_protocol::{AgentEvent, TurnId};
@@ -29,6 +32,26 @@ use xiaolin_tools_fs::filesystem::{with_additional_allowed_paths, with_file_acce
 
 /// Result tuple returned by dispatch: (tool_name, call_id, arguments, result).
 pub type DispatchResult = (String, String, String, ToolResult);
+
+const SHELL_NONZERO_EXIT_HINT: &str =
+    "Read exit_code and stderr; fix the underlying issue before retrying; do not repeat the same failing command.";
+
+/// Treat `shell_exec` non-zero exit codes as structured failures even when the
+/// runtime completed without a transport/orchestrator error.
+fn shell_nonzero_exit_as_error(tool_name: &str, output: String) -> ToolResult {
+    if tool_name == "shell_exec" {
+        if let Some(code) = crate::autofix::extract_exit_code(&output) {
+            if code != 0 {
+                return ToolResult::err_with_recovery(
+                    ToolErrorType::ShellExecuteError,
+                    output,
+                    SHELL_NONZERO_EXIT_HINT,
+                );
+            }
+        }
+    }
+    ToolResult::ok(output)
+}
 
 /// Outcome of running pre-tool-use hooks.
 enum PreHookOutcome {
@@ -540,15 +563,7 @@ impl ToolDispatcher {
             };
 
             if let Err(e) = self.orchestrator.authorize(rt.as_ref(), &args, &mut orch_ctx).await {
-                return match e {
-                    xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason } => {
-                        ToolResult::err(format!("Denied: {reason}"))
-                    }
-                    xiaolin_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms } => {
-                        ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
-                    }
-                    other => ToolResult::err(other.to_string()),
-                };
+                return e.to_tool_result();
             }
 
             return self.execute_with_full_access(tc, ctx).await;
@@ -572,17 +587,12 @@ impl ToolDispatcher {
 
         match self.orchestrator.run(rt.as_ref(), &args, &mut orch_ctx).await {
             Ok(orch_result) => {
-                let mut result = ToolResult::ok(orch_result.output);
+                let mut result =
+                    shell_nonzero_exit_as_error(tool_name, orch_result.output);
                 result.metadata = orch_result.metadata;
                 result
             }
-            Err(xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason }) => {
-                ToolResult::err(format!("Denied: {reason}"))
-            }
-            Err(xiaolin_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms }) => {
-                ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
-            }
-            Err(e) => ToolResult::err(e.to_string()),
+            Err(e) => e.to_tool_result(),
         }
     }
 
@@ -652,15 +662,7 @@ impl ToolDispatcher {
             .authorize_mcp_tool(tool_name, &tc.function.arguments, &mut orch_ctx)
             .await
         {
-            return match e {
-                xiaolin_core::tool_runtime::ToolRuntimeError::Rejected { reason } => {
-                    ToolResult::err(format!("Denied: {reason}"))
-                }
-                xiaolin_core::tool_runtime::ToolRuntimeError::Timeout { elapsed_ms } => {
-                    ToolResult::err(format!("Timeout after {elapsed_ms}ms"))
-                }
-                other => ToolResult::err(other.to_string()),
-            };
+            return e.to_tool_result();
         }
 
         self.execute_unguarded(tc, ctx).await
@@ -1026,6 +1028,33 @@ fn resolve_additional_allowed_paths(raw: &[String]) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xiaolin_core::tool::ToolErrorType;
+
+    #[test]
+    fn shell_nonzero_exit_as_error_marks_failure_with_recovery() {
+        let output = "exit_code=1\nduration_ms=10\ncwd=.\n---\nstderr: not found\n".to_string();
+        let result = shell_nonzero_exit_as_error("shell_exec", output.clone());
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ShellExecuteError));
+        assert!(result.output.contains("exit_code=1"));
+        assert!(result.output.contains("What to do next:"));
+        assert!(result.output.contains("do not repeat the same failing command"));
+    }
+
+    #[test]
+    fn shell_nonzero_exit_as_error_zero_exit_stays_ok() {
+        let output = "exit_code=0\nduration_ms=5\ncwd=.\n---\nok\n".to_string();
+        let result = shell_nonzero_exit_as_error("shell_exec", output);
+        assert!(result.success);
+        assert_eq!(result.error_type, None);
+    }
+
+    #[test]
+    fn shell_nonzero_exit_as_error_ignores_other_tools() {
+        let output = "exit_code=2\n".to_string();
+        let result = shell_nonzero_exit_as_error("read_file", output);
+        assert!(result.success);
+    }
 
     #[test]
     fn is_tool_allowed_respects_allow_list() {

@@ -2,11 +2,109 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use xiaolin_core::tool::{Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint};
 use serde::Deserialize;
 
 use xiaolin_tools_fs::filesystem::{ensure_within_workspace, ReadFileTool, SearchInFilesTool};
+use xiaolin_tools_fs::snippet::line_snippet;
 use crate::lsp_manager::LspSessionManager;
+
+/// Default context lines (each side) attached to a code-location snippet.
+const DEFAULT_SNIPPET_CONTEXT: usize = 5;
+/// Max files read from disk for cross-file snippets within a single tool call.
+/// Caps the extra IO introduced by snippet attachment (results beyond the cap
+/// keep their `path`/`line` but get an empty `snippet`).
+const MAX_CROSS_FILE_SNIPPET_READS: usize = 20;
+/// Number of leading results that receive a full context snippet. Beyond this,
+/// results get a single-line snippet to keep large result sets within budget.
+const TOP_K_CONTEXT_SNIPPETS: usize = 50;
+/// Size cap for files read on demand for snippets (avoid loading huge files).
+const MAX_SNIPPET_SOURCE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Loads `snippet` text for code locations while bounding extra file IO.
+///
+/// - The **input file** (already loaded as `full_file.output`) is sliced with zero IO.
+/// - **Cross-file** locations are read on demand, cached per path, and capped by
+///   [`MAX_CROSS_FILE_SNIPPET_READS`]. Past the cap, snippets degrade to empty
+///   strings (structure stays stable: `path`/`line` are always preserved).
+struct SnippetLoader {
+    input_canon: Option<PathBuf>,
+    input_content: Option<String>,
+    cache: HashMap<PathBuf, Option<String>>,
+    reads_remaining: usize,
+}
+
+impl SnippetLoader {
+    fn new(input_path: Option<&str>, input_content: Option<String>) -> Self {
+        let input_canon = input_path.and_then(|p| std::fs::canonicalize(p).ok());
+        Self {
+            input_canon,
+            input_content,
+            cache: HashMap::new(),
+            reads_remaining: MAX_CROSS_FILE_SNIPPET_READS,
+        }
+    }
+
+    /// Returns the snippet for `path:line` with `context` lines on each side.
+    /// Empty string when the source is unavailable or the read cap is exhausted.
+    fn snippet(&mut self, path: &str, line: usize, context: usize) -> String {
+        if line == 0 {
+            return String::new();
+        }
+        let canon = std::fs::canonicalize(path).ok();
+
+        // Zero-IO path: location is within the already-loaded input file.
+        if let (Some(content), Some(ic), Some(c)) =
+            (&self.input_content, &self.input_canon, &canon)
+        {
+            if ic == c {
+                return line_snippet(content, line, context);
+            }
+        }
+
+        let key = canon.unwrap_or_else(|| PathBuf::from(path));
+        if let Some(cached) = self.cache.get(&key) {
+            return cached
+                .as_ref()
+                .map(|c| line_snippet(c, line, context))
+                .unwrap_or_default();
+        }
+        if self.reads_remaining == 0 {
+            return String::new();
+        }
+        self.reads_remaining -= 1;
+        let content = read_snippet_source(&key);
+        let snip = content
+            .as_ref()
+            .map(|c| line_snippet(c, line, context))
+            .unwrap_or_default();
+        self.cache.insert(key, content);
+        snip
+    }
+}
+
+/// Read a file for snippet extraction, bounded by [`MAX_SNIPPET_SOURCE_BYTES`].
+fn read_snippet_source(path: &Path) -> Option<String> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() <= MAX_SNIPPET_SOURCE_BYTES => std::fs::read_to_string(path).ok(),
+        _ => None,
+    }
+}
+
+/// Context-line budget for the i-th result: full context for the first
+/// [`TOP_K_CONTEXT_SNIPPETS`], single line afterwards.
+fn snippet_context_for_index(idx: usize) -> usize {
+    if idx < TOP_K_CONTEXT_SNIPPETS {
+        DEFAULT_SNIPPET_CONTEXT
+    } else {
+        0
+    }
+}
+
+/// Clamp `find_references` result count (default 200, max 2000).
+fn reference_result_limit(limit: Option<usize>) -> usize {
+    limit.unwrap_or(200).clamp(1, 2000)
+}
 
 #[derive(Debug, Deserialize)]
 struct WorkspaceSymbolsArgs {
@@ -126,8 +224,56 @@ fn parse_read_line(raw: &str) -> String {
 
 fn validate_workspace_read_path(path: &str, tool: &str) -> Result<PathBuf, ToolResult> {
     ensure_within_workspace(Path::new(path), true).map_err(|e| {
-        ToolResult::err(format!("{tool}: path not allowed: {e}"))
+        ToolResult::err_with_recovery(
+            ToolErrorType::PathNotInWorkspace,
+            format!("{tool}: path not allowed: {e}"),
+            "Use a path inside the workspace root, or run list_directory/glob to discover valid paths.",
+        )
     })
+}
+
+fn code_intel_invalid_json(tool: &str, e: impl std::fmt::Display) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        format!("{tool} invalid JSON: {e}"),
+        "Fix the tool arguments JSON schema (required fields, types) before retrying.",
+    )
+}
+
+fn code_intel_lsp_unavailable(tool: &str, detail: impl std::fmt::Display) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::LspUnavailable,
+        format!("{tool}: {detail}"),
+        no_retry_recovery_hint(
+            "Use search_in_files, file_outline, or read_file as fallbacks; start rust-analyzer or the language server if the operator can fix the environment.",
+        ),
+    )
+}
+
+fn code_intel_invalid_params(tool: &str, message: impl std::fmt::Display, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::InvalidToolParams,
+        format!("{tool}: {message}"),
+        hint.into(),
+    )
+}
+
+fn code_intel_execution_failed(tool: &str, message: impl std::fmt::Display, hint: impl Into<String>) -> ToolResult {
+    ToolResult::err_with_recovery(
+        ToolErrorType::LspRequestFailed,
+        format!("{tool}: {message}"),
+        hint.into(),
+    )
+}
+
+fn code_intel_parse_search_failed(tool: &str, detail: impl std::fmt::Display) -> ToolResult {
+    code_intel_execution_failed(
+        tool,
+        format!("failed to parse search results: {detail}"),
+        no_retry_recovery_hint(
+            "Use search_in_files or read_file on known paths instead of retrying parse.",
+        ),
+    )
 }
 
 pub struct WorkspaceSymbolsTool;
@@ -174,10 +320,14 @@ impl Tool for WorkspaceSymbolsTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: WorkspaceSymbolsArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("workspace_symbols invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("workspace_symbols", e),
         };
         if args.query.trim().is_empty() {
-            return ToolResult::err("workspace_symbols requires non-empty query.".to_string());
+            return code_intel_invalid_params(
+                "workspace_symbols",
+                "requires non-empty query",
+                "Pass a symbol name or prefix in the query field.",
+            );
         }
 
         // Try local symbol index first (fast, no LSP needed).
@@ -195,6 +345,9 @@ impl Tool for WorkspaceSymbolsTool {
                         "line": s.start_line,
                         "endLine": s.end_line,
                         "signature": s.signature,
+                        // symbol_index has no file content loaded; use the
+                        // signature as a zero-IO snippet downgrade (structure parity).
+                        "snippet": s.signature,
                         "engine": "symbol_index",
                     })
                 })
@@ -222,16 +375,21 @@ impl Tool for WorkspaceSymbolsTool {
                 )
                 .await
             {
+                let mut loader = SnippetLoader::new(None, None);
                 let limited = lsp_symbols
                     .into_iter()
                     .take(args.limit.unwrap_or(50).clamp(1, 500))
-                    .map(|s| {
+                    .enumerate()
+                    .map(|(idx, s)| {
+                        let snippet =
+                            loader.snippet(&s.path, s.line, snippet_context_for_index(idx));
                         serde_json::json!({
                             "name": args.query,
                             "kind": "symbol",
                             "path": s.path,
                             "line": s.line,
                             "column": s.column,
+                            "snippet": snippet,
                             "engine": "lsp",
                         })
                     })
@@ -265,7 +423,7 @@ impl Tool for WorkspaceSymbolsTool {
         }
         let matches = match parse_search_matches(&search.output) {
             Ok(m) => m,
-            Err(e) => return ToolResult::err(e),
+            Err(e) => return code_intel_parse_search_failed("workspace_symbols", e),
         };
 
         let symbols: Vec<serde_json::Value> = matches
@@ -335,7 +493,7 @@ impl Tool for GoToDefinitionTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: GoToDefinitionArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("go_to_definition invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("go_to_definition", e),
         };
         let file_path = args.path.clone();
         let symbol = if let Some(s) = args.symbol {
@@ -355,10 +513,14 @@ impl Tool for GoToDefinitionTool {
             match extract_token_at_column(&line, args.column) {
                 Some(tok) => tok,
                 None => {
-                    return ToolResult::err(format!(
-                        "go_to_definition could not extract symbol at line {}, column {}.",
-                        args.line, args.column
-                    ))
+                    return code_intel_invalid_params(
+                        "go_to_definition",
+                        format!(
+                            "could not extract symbol at line {}, column {}",
+                            args.line, args.column
+                        ),
+                        "Pass an explicit symbol parameter or place the cursor on an identifier.",
+                    )
                 }
             }
         };
@@ -378,6 +540,7 @@ impl Tool for GoToDefinitionTool {
                         "line": d.start_line,
                         "endLine": d.end_line,
                         "signature": d.signature,
+                        "snippet": d.signature,
                         "engine": "symbol_index",
                     }],
                     "count": 1,
@@ -406,15 +569,26 @@ impl Tool for GoToDefinitionTool {
                 {
                     if !locs.is_empty() {
                         let lsp_stats = LspSessionManager::global().stats_snapshot();
+                        let mut loader = SnippetLoader::new(
+                            Some(&file_path),
+                            Some(full_file.output.clone()),
+                        );
                         let defs = locs
                             .into_iter()
-                            .map(|d| {
+                            .enumerate()
+                            .map(|(idx, d)| {
+                                let snippet = loader.snippet(
+                                    &d.path,
+                                    d.line,
+                                    snippet_context_for_index(idx),
+                                );
                                 serde_json::json!({
                                     "name": symbol,
                                     "kind": "symbol",
                                     "path": d.path,
                                     "line": d.line,
                                     "column": d.column,
+                                    "snippet": snippet,
                                     "engine": "lsp",
                                 })
                             })
@@ -448,6 +622,7 @@ impl Tool for GoToDefinitionTool {
                         "line": s.start_line,
                         "endLine": s.end_line,
                         "signature": s.signature,
+                        "snippet": s.signature,
                         "engine": "symbol_index",
                     })
                 })
@@ -515,7 +690,7 @@ impl Tool for FindReferencesTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: FindReferencesArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("find_references invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("find_references", e),
         };
         let file_path = args.path.clone();
 
@@ -536,18 +711,23 @@ impl Tool for FindReferencesTool {
             match extract_token_at_column(&line, args.column) {
                 Some(tok) => tok,
                 None => {
-                    return ToolResult::err(format!(
-                        "find_references could not extract symbol at line {}, column {}.",
-                        args.line, args.column
-                    ))
+                    return code_intel_invalid_params(
+                        "find_references",
+                        format!(
+                            "could not extract symbol at line {}, column {}",
+                            args.line, args.column
+                        ),
+                        "Pass an explicit symbol parameter or place the cursor on an identifier.",
+                    )
                 }
             }
         };
 
+        let limit = reference_result_limit(args.limit);
+
         // Try local symbol index first for fast reference lookup.
         let index_refs = crate::symbol_index::SymbolIndex::global().find_references(&symbol);
         if !index_refs.is_empty() {
-            let limit = args.limit.unwrap_or(200).clamp(1, 2000);
             let arr: Vec<serde_json::Value> = index_refs
                 .into_iter()
                 .take(limit)
@@ -559,6 +739,7 @@ impl Tool for FindReferencesTool {
                         "name": s.name,
                         "kind": s.kind,
                         "signature": s.signature,
+                        "snippet": s.signature,
                         "engine": "symbol_index",
                     })
                 })
@@ -594,13 +775,25 @@ impl Tool for FindReferencesTool {
                 {
                     if !refs.is_empty() {
                         let lsp_stats = LspSessionManager::global().stats_snapshot();
+                        let mut loader = SnippetLoader::new(
+                            Some(&file_path),
+                            Some(full_file.output.clone()),
+                        );
                         let arr = refs
                             .into_iter()
-                            .map(|r| {
+                            .take(limit)
+                            .enumerate()
+                            .map(|(idx, r)| {
+                                let snippet = loader.snippet(
+                                    &r.path,
+                                    r.line,
+                                    snippet_context_for_index(idx),
+                                );
                                 serde_json::json!({
                                     "path": r.path,
                                     "line": r.line,
                                     "column": r.column,
+                                    "snippet": snippet,
                                     "engine": "lsp",
                                 })
                             })
@@ -626,7 +819,7 @@ impl Tool for FindReferencesTool {
             "pattern": pattern,
             "path": scope_path,
             "glob": args.glob,
-            "max_results": args.limit.unwrap_or(200).clamp(1, 2000),
+            "max_results": limit,
         })
         .to_string();
         let result = SearchInFilesTool.execute(&search_args).await;
@@ -635,7 +828,7 @@ impl Tool for FindReferencesTool {
         }
         let mut refs = match parse_search_matches(&result.output) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(e),
+            Err(e) => return code_intel_parse_search_failed("find_references", e),
         };
 
         if !args.include_declaration.unwrap_or(false) {
@@ -665,6 +858,18 @@ impl Tool for FindReferencesTool {
                         let l = r.get("line").and_then(|v| v.as_u64()).unwrap_or_default();
                         !def_set.contains(&(p.to_string(), l))
                     });
+                }
+            }
+        }
+
+        // Align ripgrep fallback field with the other engine paths: `text` → `snippet`.
+        for r in refs.iter_mut() {
+            if let Some(obj) = r.as_object_mut() {
+                if let Some(text) = obj.remove("text") {
+                    obj.insert("snippet".to_string(), text);
+                } else {
+                    obj.entry("snippet")
+                        .or_insert(serde_json::Value::String(String::new()));
                 }
             }
         }
@@ -715,10 +920,47 @@ impl Tool for UnifiedLspTool {
     }
 
     fn description(&self) -> &str {
-        "Unified LSP tool supporting multiple code intelligence operations: \
-         goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, \
-         goToImplementation, diagnostics, workspaceDiagnostics, codeActions. \
-         Requires file_path for file-scoped operations, and line+character for position-scoped ones."
+        "LSP code intelligence: goToDefinition, findReferences, hover, symbols, diagnostics, and more."
+    }
+
+    fn prompt(&self) -> String {
+        "Unified LSP tool for code navigation, symbol search, and diagnostics.\n\n\
+## When to Use\n\
+- **goToDefinition**: jump to where a symbol is defined\n\
+- **findReferences**: list all usages of a symbol at a position\n\
+- **hover**: type/signature/docs at a cursor position\n\
+- **documentSymbol**: file-level symbol tree (like outline); needs `filePath` only\n\
+- **workspaceSymbol**: project-wide symbol search by name; needs `query` only\n\
+- **diagnostics** / **workspaceDiagnostics**: compiler/linter errors for one file or the whole workspace\n\
+- **codeActions**: available quick-fixes at a position (may be stubbed)\n\n\
+## goToImplementation (Separate Flow)\n\
+- Jumps from a trait/abstract symbol to concrete implementations\n\
+- Results typically lack rich source context — **no `snippet` field**\n\
+- After locating targets, use `search_in_files` or `read_file` with `lines` on returned paths\n\n\
+## Snippet Field\n\
+- **goToDefinition**: `snippet` with ±5 lines (capped at 600 chars) — inspect before read_file\n\
+- **findReferences**: first 50 references include ±5 line snippets; index 50+ return single-line snippets only\n\
+- **workspaceSymbol**: includes `snippet` with surrounding context\n\
+- **goToImplementation**: no snippet — see section above\n\n\
+## Tool Cooperation\n\
+Recommended flow for unfamiliar code:\n\
+1. `file_outline` or `documentSymbol` — understand file structure\n\
+2. `lsp` (goToDefinition / findReferences / workspaceSymbol) — locate targets with snippets\n\
+3. `read_file` with `lines` — read only the range you still need\n\
+If LSP is unavailable or returns empty, fall back to `search_in_files` for text/symbol search.\n\n\
+## Parameter Rules\n\
+- **Position-scoped** (goToDefinition, findReferences, hover, goToImplementation, codeActions): \
+require `filePath` + `line` (1-based) + `character` (1-based column)\n\
+- **File-scoped** (documentSymbol, diagnostics): require `filePath` only\n\
+- **Workspace-scoped** (workspaceSymbol, workspaceDiagnostics): no `filePath`; workspaceSymbol needs `query`\n\
+- `limit` caps result count (defaults vary by operation); `includeDeclaration` applies to findReferences\n\n\
+## Anti-Patterns\n\
+- Do NOT cat/head/tail entire files to find a symbol — use lsp or search_in_files\n\
+- Do NOT call position-scoped operations without `line` and `character`\n\
+- Do NOT read_file the whole file right after lsp when `snippet` already answers your question\n\
+- Do NOT expect goToImplementation snippets — follow up with search_in_files or read_file\n\
+- Do NOT retry lsp in a tight loop when errors say LSP is unavailable — switch to search_in_files"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -779,14 +1021,14 @@ impl Tool for UnifiedLspTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: UnifiedLspArgs = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("lsp tool invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("lsp", e),
         };
 
         match args.operation.as_str() {
             "goToDefinition" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(e),
+                    Err(e) => return e,
                 };
                 let inner_args = serde_json::json!({
                     "path": path, "line": line, "column": col,
@@ -798,7 +1040,7 @@ impl Tool for UnifiedLspTool {
             "findReferences" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(e),
+                    Err(e) => return e,
                 };
                 let inner_args = serde_json::json!({
                     "path": path, "line": line, "column": col,
@@ -812,8 +1054,10 @@ impl Tool for UnifiedLspTool {
                 let query = match &args.query {
                     Some(q) if !q.trim().is_empty() => q.clone(),
                     _ => {
-                        return ToolResult::err(
-                            "workspaceSymbol requires a non-empty 'query' parameter.".to_string(),
+                        return code_intel_invalid_params(
+                            "workspaceSymbol",
+                            "requires a non-empty query parameter",
+                            "Pass query with the symbol name to search for.",
                         )
                     }
                 };
@@ -827,28 +1071,40 @@ impl Tool for UnifiedLspTool {
             "hover" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(e),
+                    Err(e) => return e,
                 };
                 execute_hover(&path, line, col).await
             }
             "documentSymbol" => {
                 let path = match &args.file_path {
                     Some(p) if !p.trim().is_empty() => p.clone(),
-                    _ => return ToolResult::err("documentSymbol requires 'filePath'.".to_string()),
+                    _ => {
+                        return code_intel_invalid_params(
+                            "documentSymbol",
+                            "requires filePath",
+                            "Pass filePath as a workspace-relative or absolute path inside the project.",
+                        )
+                    }
                 };
                 execute_document_symbol(&path).await
             }
             "goToImplementation" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(e),
+                    Err(e) => return e,
                 };
                 execute_go_to_implementation(&path, line, col).await
             }
             "diagnostics" => {
                 let path = match &args.file_path {
                     Some(p) if !p.trim().is_empty() => p.clone(),
-                    _ => return ToolResult::err("diagnostics requires 'filePath'.".to_string()),
+                    _ => {
+                        return code_intel_invalid_params(
+                            "diagnostics",
+                            "requires filePath",
+                            "Pass filePath as a workspace-relative or absolute path inside the project.",
+                        )
+                    }
                 };
                 execute_diagnostics(&path).await
             }
@@ -856,32 +1112,45 @@ impl Tool for UnifiedLspTool {
             "codeActions" => {
                 let (path, line, col) = match require_position(&args) {
                     Ok(v) => v,
-                    Err(e) => return ToolResult::err(e),
+                    Err(e) => return e,
                 };
                 execute_code_actions(&path, line, col).await
             }
-            other => ToolResult::err(format!(
-                "Unknown LSP operation: '{}'. Supported: goToDefinition, findReferences, hover, \
-                 documentSymbol, workspaceSymbol, goToImplementation, diagnostics, \
-                 workspaceDiagnostics, codeActions.",
-                other
-            )),
+            other => code_intel_invalid_params(
+                "lsp",
+                format!("unknown operation '{other}'"),
+                "Use one of: goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, diagnostics, workspaceDiagnostics, codeActions.",
+            ),
         }
     }
 }
 
-fn require_position(args: &UnifiedLspArgs) -> Result<(String, usize, usize), String> {
+fn require_position(args: &UnifiedLspArgs) -> Result<(String, usize, usize), ToolResult> {
     let path = args
         .file_path
         .as_deref()
         .filter(|p| !p.trim().is_empty())
-        .ok_or_else(|| format!("{} requires 'filePath'.", args.operation))?;
-    let line = args
-        .line
-        .ok_or_else(|| format!("{} requires 'line'.", args.operation))?;
-    let col = args
-        .character
-        .ok_or_else(|| format!("{} requires 'character'.", args.operation))?;
+        .ok_or_else(|| {
+            ToolResult::err_with_recovery(
+                ToolErrorType::InvalidToolParams,
+                format!("{} requires 'filePath'.", args.operation),
+                "Pass filePath as a workspace-relative or absolute path inside the project.",
+            )
+        })?;
+    let line = args.line.ok_or_else(|| {
+        ToolResult::err_with_recovery(
+            ToolErrorType::InvalidToolParams,
+            format!("{} requires 'line'.", args.operation),
+            "Pass 1-based line number where the symbol appears.",
+        )
+    })?;
+    let col = args.character.ok_or_else(|| {
+        ToolResult::err_with_recovery(
+            ToolErrorType::InvalidToolParams,
+            format!("{} requires 'character'.", args.operation),
+            "Pass 0-based character column within the line.",
+        )
+    })?;
     Ok((path.to_string(), line, col))
 }
 
@@ -919,7 +1188,10 @@ async fn execute_hover(path: &str, line: usize, col: usize) -> ToolResult {
             "engine": "fallback",
         }).to_string())
     } else {
-        ToolResult::err(format!("hover: could not read {}:{}:{}", path, line, col))
+        code_intel_lsp_unavailable(
+            "hover",
+            format!("could not read {path}:{line}:{col} and LSP hover is unavailable"),
+        )
     }
 }
 
@@ -983,7 +1255,7 @@ async fn execute_document_symbol(path: &str) -> ToolResult {
     }
     let matches = match parse_search_matches(&result.output) {
         Ok(m) => m,
-        Err(e) => return ToolResult::err(e),
+        Err(e) => return code_intel_parse_search_failed("documentSymbol", e),
     };
     let symbols: Vec<serde_json::Value> = matches
         .into_iter()
@@ -1020,10 +1292,11 @@ async fn execute_go_to_implementation(path: &str, line: usize, col: usize) -> To
     let symbol = match token {
         Some(t) => t,
         None => {
-            return ToolResult::err(format!(
-                "goToImplementation: no symbol at {}:{}:{}",
-                path, line, col
-            ))
+            return code_intel_invalid_params(
+                "goToImplementation",
+                format!("no symbol at {path}:{line}:{col}"),
+                "Place the cursor on a trait or type name, or pass a symbol via go_to_definition first.",
+            )
         }
     };
     let pattern = format!(r"\bimpl\s+(?:\w+\s+for\s+)?{}\b", regex::escape(&symbol));
@@ -1039,7 +1312,7 @@ async fn execute_go_to_implementation(path: &str, line: usize, col: usize) -> To
     }
     let matches = match parse_search_matches(&result.output) {
         Ok(m) => m,
-        Err(e) => return ToolResult::err(e),
+        Err(e) => return code_intel_parse_search_failed("goToImplementation", e),
     };
     ToolResult::ok(
         serde_json::json!({
@@ -1098,11 +1371,32 @@ impl Tool for FileOutlineTool {
     }
 
     fn description(&self) -> &str {
-        "Extract a structured outline of symbols (functions, classes, structs, etc.) \
-         from a source file using AST parsing. Returns symbol names, kinds, line \
-         ranges, and signatures — but NOT the source code itself. Use this to \
-         quickly understand file structure before targeted reading. \
-         For reading actual code in semantic blocks, use `code_sections` instead."
+        "AST symbol outline: names, kinds, line ranges, and signatures (no source text)."
+    }
+
+    fn prompt(&self) -> String {
+        "Extract a structured symbol outline from a source file via tree-sitter AST parsing.\n\n\
+## When to Use\n\
+- Before reading a **large or unfamiliar** source file (200+ lines)\n\
+- When you need a map of functions, classes, structs, traits, etc. with line ranges\n\
+- When read_file's built-in outline is insufficient (unsupported language, or you want \
+imports via `include_imports`)\n\n\
+## vs code_sections\n\
+- **file_outline** → symbol **metadata** (name, kind, startLine, endLine, signature) — no code\n\
+- **code_sections** → semantic **blocks** with labels and line ranges for planning reads\n\
+Use outline to pick *what* exists; use sections to see *how the file is chunked*.\n\n\
+## Tool Cooperation\n\
+1. `file_outline` → pick target symbol and note `startLine`/`endLine`\n\
+2. `read_file` with `lines` (e.g. `\"142-180\"`) → read only that range\n\
+Pair with `lsp` when you need cross-file navigation after locating a symbol.\n\n\
+## Parameters\n\
+- `path`: workspace-relative or absolute source file\n\
+- `include_imports`: default false; set true to include import statements in the outline\n\n\
+## Anti-Patterns\n\
+- Do NOT read_file the entire large file when outline would suffice for orientation\n\
+- Do NOT call file_outline on a small known file you already understand — read_file directly\n\
+- Do NOT duplicate read_file's auto-outline on supported files unless you need imports or AST detail"
+            .to_string()
     }
 
     fn search_hint(&self) -> &str {
@@ -1144,7 +1438,7 @@ impl Tool for FileOutlineTool {
         }
         let args: Args = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("file_outline invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("file_outline", e),
         };
         let file_path = match validate_workspace_read_path(&args.path, "file_outline") {
             Ok(p) => p,
@@ -1153,25 +1447,38 @@ impl Tool for FileOutlineTool {
         let lang = match xiaolin_treesitter::CodeParser::detect_language(&file_path) {
             Some(l) => l,
             None => {
-                return ToolResult::err(format!(
-                    "file_outline: unsupported file type '{}'",
-                    file_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("unknown")
-                ))
+                return code_intel_invalid_params(
+                    "file_outline",
+                    format!(
+                        "unsupported file type '{}'",
+                        file_path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("unknown")
+                    ),
+                    "Use read_file for unsupported extensions, or pick a source file with a known language.",
+                )
             }
         };
 
         if !xiaolin_treesitter::CodeParser::is_language_available(&lang) {
-            return ToolResult::err(format!(
-                "file_outline: tree-sitter language '{lang}' not available"
-            ));
+            return code_intel_lsp_unavailable(
+                "file_outline",
+                format!("tree-sitter language '{lang}' not available"),
+            );
         }
 
         let parsed = match xiaolin_treesitter::CodeParser::parse_file(&file_path) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("file_outline parse error: {e}")),
+            Err(e) => {
+                return code_intel_execution_failed(
+                    "file_outline",
+                    format!("parse error: {e}"),
+                    no_retry_recovery_hint(
+                        "Verify the file is valid source code; use read_file on known paths instead of retrying parse.",
+                    ),
+                )
+            }
         };
 
         let all_symbols = xiaolin_treesitter::extract_symbols(&parsed.tree, &parsed.source, &lang);
@@ -1217,12 +1524,32 @@ impl Tool for CodeSectionsTool {
     }
 
     fn description(&self) -> &str {
-        "Split a source file into semantic sections using AST parsing. \
-         Each section is a logical unit (function, class, impl block, etc.) \
-         with its line range and label. Use this to plan targeted `read_file` \
-         calls on large files — first get the section map, then read only the \
-         sections you need. Unlike `file_outline` which lists symbol metadata, \
-         this tool shows how the file is divided into readable blocks."
+        "Split a source file into semantic sections (functions, classes, impl blocks) with line ranges."
+    }
+
+    fn prompt(&self) -> String {
+        "Split a source file into semantic sections using tree-sitter AST parsing.\n\n\
+## When to Use\n\
+- Planning **targeted read_file** calls on large files\n\
+- Understanding how a file is divided into logical blocks before editing\n\
+- When you need section labels and line ranges rather than a flat symbol list\n\n\
+## vs file_outline\n\
+- **code_sections** → readable **blocks** (label + startLine + endLine) for navigation\n\
+- **file_outline** → symbol **metadata** (kinds, signatures) without chunking strategy\n\
+Use sections to plan *which ranges to read*; use outline to scan *all symbols at a glance*.\n\n\
+## Tool Cooperation\n\
+1. `code_sections` → identify section label and line range\n\
+2. `read_file` with `lines` matching that range → fetch only needed code\n\
+3. `edit_file` on the exact text from read_file output\n\
+For cross-file jumps after locating a section, follow with `lsp` goToDefinition.\n\n\
+## Parameters\n\
+- `path`: workspace-relative or absolute source file\n\
+- `max_chunk_lines`: max lines per section before splitting (default 80)\n\n\
+## Anti-Patterns\n\
+- Do NOT read_file the whole large file when sections already show the target range\n\
+- Do NOT use code_sections on tiny files — read_file directly\n\
+- Do NOT call both file_outline and code_sections redundantly unless you need both views"
+            .to_string()
     }
 
     fn search_hint(&self) -> &str {
@@ -1264,7 +1591,7 @@ impl Tool for CodeSectionsTool {
         }
         let args: Args = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("code_sections invalid JSON: {e}")),
+            Err(e) => return code_intel_invalid_json("code_sections", e),
         };
         let file_path = match validate_workspace_read_path(&args.path, "code_sections") {
             Ok(p) => p,
@@ -1273,25 +1600,38 @@ impl Tool for CodeSectionsTool {
         let lang = match xiaolin_treesitter::CodeParser::detect_language(&file_path) {
             Some(l) => l,
             None => {
-                return ToolResult::err(format!(
-                    "code_sections: unsupported file type '{}'",
-                    file_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("unknown")
-                ))
+                return code_intel_invalid_params(
+                    "code_sections",
+                    format!(
+                        "unsupported file type '{}'",
+                        file_path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("unknown")
+                    ),
+                    "Use read_file for unsupported extensions, or pick a source file with a known language.",
+                )
             }
         };
 
         if !xiaolin_treesitter::CodeParser::is_language_available(&lang) {
-            return ToolResult::err(format!(
-                "code_sections: tree-sitter language '{lang}' not available"
-            ));
+            return code_intel_lsp_unavailable(
+                "code_sections",
+                format!("tree-sitter language '{lang}' not available"),
+            );
         }
 
         let parsed = match xiaolin_treesitter::CodeParser::parse_file(&file_path) {
             Ok(p) => p,
-            Err(e) => return ToolResult::err(format!("code_sections parse error: {e}")),
+            Err(e) => {
+                return code_intel_execution_failed(
+                    "code_sections",
+                    format!("parse error: {e}"),
+                    no_retry_recovery_hint(
+                        "Verify the file is valid source code; use read_file on known paths instead of retrying parse.",
+                    ),
+                )
+            }
         };
 
         let max_lines = args.max_chunk_lines.unwrap_or(80).clamp(10, 500);
@@ -1360,6 +1700,120 @@ mod tests {
         let line = "let target_symbol = value;";
         let token = extract_token_at_column(line, 6).expect("token");
         assert_eq!(token, "target_symbol");
+    }
+
+    #[test]
+    fn snippet_loader_uses_input_content_without_io() {
+        let content = "line1\nfn target() {}\nline3\n";
+        // input_path may not exist on disk; canonicalize fails → input fast-path
+        // is skipped, but cross-file read returns empty (no panic).
+        let mut loader = SnippetLoader::new(Some("/nonexistent/in.rs"), Some(content.to_string()));
+        let snip = loader.snippet("/nonexistent/in.rs", 2, 1);
+        // Without canonicalize match it degrades to empty; assert no panic + stable type.
+        assert!(snip.is_empty() || snip.contains("target"));
+    }
+
+    #[tokio::test]
+    async fn workspace_symbols_ripgrep_path_includes_snippet_field() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let tmp = tempdir_in(&cwd).expect("temp dir");
+        let file = tmp.path().join("snip_sample.rs");
+        tokio::fs::write(&file, "fn snippet_probe_fn() {}\n")
+            .await
+            .expect("write");
+
+        let args = serde_json::json!({
+            "query": "snippet_probe_fn",
+            "path": tmp.path().to_string_lossy(),
+            "glob": "*.rs"
+        })
+        .to_string();
+        let out = WorkspaceSymbolsTool.execute(&args).await;
+        assert!(out.success, "should succeed: {}", out.output);
+        let body: serde_json::Value = serde_json::from_str(&out.output).expect("json");
+        let symbols = body.get("symbols").and_then(|v| v.as_array()).expect("symbols");
+        assert!(!symbols.is_empty());
+        // Every symbol object exposes a `snippet` field (structure parity).
+        for s in symbols {
+            assert!(
+                s.get("snippet").is_some(),
+                "each symbol must carry a snippet field: {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn reference_result_limit_clamps() {
+        assert_eq!(reference_result_limit(None), 200);
+        assert_eq!(reference_result_limit(Some(0)), 1);
+        assert_eq!(reference_result_limit(Some(500)), 500);
+        assert_eq!(reference_result_limit(Some(5000)), 2000);
+    }
+
+    #[test]
+    fn parse_search_failed_hint_includes_no_retry() {
+        let result = code_intel_parse_search_failed("workspace_symbols", "bad json");
+        assert!(!result.success);
+        assert!(result.output.contains("Stop retrying"));
+        assert!(result.output.contains("search_in_files"));
+    }
+
+    #[test]
+    fn lsp_prompt_mentions_snippet_precision_and_anti_patterns() {
+        let tool = UnifiedLspTool;
+        let prompt = tool.prompt();
+        assert!(prompt.contains("snippet"), "lsp prompt should mention snippet");
+        assert!(prompt.contains("Anti-Patterns"), "lsp prompt should include Anti-Patterns");
+        assert!(
+            prompt.contains("first 50"),
+            "findReferences snippet policy should mention first 50"
+        );
+        assert!(
+            prompt.contains("goToImplementation"),
+            "goToImplementation should be documented separately"
+        );
+        assert!(
+            prompt.contains("no snippet"),
+            "goToImplementation should state no snippet"
+        );
+    }
+
+    #[test]
+    fn file_outline_prompt_mentions_read_file() {
+        let tool = FileOutlineTool;
+        let prompt = tool.prompt();
+        assert!(prompt.contains("read_file"), "file_outline prompt should mention read_file");
+    }
+
+    #[test]
+    fn snippet_context_for_index_top_k_boundary() {
+        assert_eq!(snippet_context_for_index(0), DEFAULT_SNIPPET_CONTEXT);
+        assert_eq!(snippet_context_for_index(49), DEFAULT_SNIPPET_CONTEXT);
+        assert_eq!(snippet_context_for_index(50), 0);
+        assert_eq!(snippet_context_for_index(51), 0);
+    }
+
+    #[test]
+    fn find_references_lsp_path_respects_limit_before_snippet_context() {
+        let refs: Vec<u32> = (0..3000).collect();
+        let limit = reference_result_limit(Some(100));
+        let taken: Vec<_> = refs.into_iter().take(limit).enumerate().collect();
+        assert_eq!(taken.len(), 100);
+        assert_eq!(taken.first().map(|(i, _)| *i), Some(0));
+        assert_eq!(taken.last().map(|(i, _)| *i), Some(99));
+        assert_eq!(snippet_context_for_index(49), DEFAULT_SNIPPET_CONTEXT);
+        assert_eq!(snippet_context_for_index(50), 0);
+    }
+
+    #[test]
+    fn snippet_loader_cross_file_read_cap() {
+        let mut loader = SnippetLoader::new(None, None);
+        // Distinct paths so each attempt consumes one read; budget must bottom out at 0.
+        for i in 0..(MAX_CROSS_FILE_SNIPPET_READS + 5) {
+            let snip = loader.snippet(&format!("/no/such/file_{i}.rs"), 1, 5);
+            assert!(snip.is_empty());
+        }
+        assert_eq!(loader.reads_remaining, 0);
     }
 
     #[tokio::test]

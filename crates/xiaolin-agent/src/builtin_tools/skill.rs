@@ -29,12 +29,7 @@ impl Tool for ListSkillsTool {
     }
 
     fn description(&self) -> &str {
-        "Return JSON listing enabled skills: id, name, short description, and tags from each SKILL.md frontmatter. \
-         Call list_skills before read_skill whenever procedures might live outside the base prompt, or when the user references a workflow by nickname and you need the exact id. \
-         Disabled entries are hidden; layering (project vs global) is already merged by the host—treat this output as authoritative for ids. \
-         Metadata only—always follow with read_skill to fetch full Markdown and tool hooks. \
-         Anti-pattern: inventing ids; anti-pattern: assuming skills exist when count is zero (author with write_skill first). \
-         No parameters—pass {}."
+        "List enabled skills (id, name, description, tags). Call before read_skill when you need valid ids."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -102,12 +97,7 @@ impl Tool for ReadSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch one skill by id: full Markdown body plus name, description, and declared tools from frontmatter. \
-         After list_skills, call read_skill when tags/name/description match the task; obey the Markdown unless the user explicitly contradicts it. \
-         Skills are runbooks, not secret storage—do not treat them as permission to leak credentials; still follow safety policy. \
-         On skill not found, re-list and copy ids verbatim (often path-like, e.g. 'wps365-skills/drive'). \
-         Anti-pattern: guessing ids without list_skills. \
-         Example: {\"skill_id\": \"greeting\"}."
+        "Read one skill's full Markdown body by id from list_skills output."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -225,12 +215,7 @@ impl Tool for WriteSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Create or overwrite SKILL.md for a skill_id with the full Markdown document (optional YAML frontmatter included). \
-         Targets: 'workspace' (default) writes under agent-private tree; 'project' writes to <workspace>/.xiaolin/skills/ (shared within this project, preferred for /skillify); \
-         'global' writes to ~/.xiaolin/skills/ (shared across all projects). \
-         Whole-file replace—identical contract to write_file: partial bodies delete the rest of the file. \
-         Anti-pattern: embedding API keys or tokens—reference env-based configuration instead. \
-         Example: {\"skill_id\": \"deploy-checklist\", \"content\": \"---\\nname: Deploy\\ntags: [ops]\\n---\\n# Steps\\n1. ...\", \"target\": \"project\"}."
+        "Create or overwrite a SKILL.md file for a skill_id (workspace, project, or global target)."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -405,9 +390,32 @@ impl Tool for UnifiedSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Manage agent skills: list available skills, read a skill's full content, search by keyword, or write/update a skill. \
-         Actions: 'list' (no params needed), 'read' (requires skill_id), 'search' (requires query), 'write' (requires skill_id + content). \
-         Always list or search before read to get valid ids. Skills are runbooks with instructions—obey them unless the user explicitly contradicts."
+        "Manage skills: list, read, search, or write SKILL.md runbooks."
+    }
+
+    fn prompt(&self) -> String {
+        "Manage agent skills — reusable Markdown runbooks with frontmatter.\n\n\
+## When to Use\n\
+- **list**: discover enabled skill ids before any read/write\n\
+- **read**: load full SKILL.md body when a skill matches the task\n\
+- **search**: keyword (and optional tag) lookup when you know the topic but not the id\n\
+- **write**: create or overwrite a SKILL.md (not available in read-only mode)\n\n\
+## Workflow (list → read)\n\
+1. `action: list` or `action: search` with `query` → get exact `id` values\n\
+2. `action: read` with `skill_id` copied verbatim from output\n\
+3. Follow the skill instructions unless the user explicitly contradicts them\n\
+Skills are runbooks, not secret storage — still obey safety policy.\n\n\
+## Write Notes\n\
+- `action: write` requires `skill_id` + `content` (full SKILL.md with frontmatter)\n\
+- `target`: `workspace` (default), `project` (<workspace>/.xiaolin/skills/), or `global`\n\
+- After write, registry reload may run automatically\n\
+- If list returns count 0, author a skill with write before assuming one exists\n\n\
+## Anti-Patterns\n\
+- Do NOT guess skill ids — always list or search first\n\
+- Do NOT invent ids (often path-like, e.g. `wps365-skills/drive`)\n\
+- Do NOT write without user confirmation when skillifying a conversation\n\
+- Do NOT treat skills as permission to leak credentials"
+            .to_string()
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {
@@ -799,10 +807,7 @@ impl Tool for SearchSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Search skills by keyword query with optional tag filter. Returns ranked results \
-         with relevance scores. Use before starting any multi-step task to check if a \
-         matching skill already exists. Prefer this over list_skills when you have a \
-         specific task in mind. Example: {\"query\": \"deploy backend\", \"tag\": \"ops\"}."
+        "Search skills by keyword with optional tag filter; returns ranked matches."
     }
 
     fn parameters_schema(&self) -> ToolParameterSchema {

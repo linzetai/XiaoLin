@@ -159,6 +159,7 @@
   "tool_sql_query": "SQL query",
   "tool_code_execute": "Execute code",
   "tool_read_file": "Read file",
+  "tool_read_files": "Read files (batch)",
   "tool_write_file": "Write file",
   "tool_list_directory": "List directory",
   "tool_read_skill": "Read skill",
