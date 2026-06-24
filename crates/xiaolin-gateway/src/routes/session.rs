@@ -92,12 +92,21 @@ pub async fn resolve_session_context(
     if let Some(sid) = session_id {
         if let Some(session) = state.store.session_store.get_session(sid).await? {
             let history_items = state.store.session_store.load_history(sid).await?;
-            let messages = if history_items.is_empty() {
+            let mut messages = if history_items.is_empty() {
                 let arc = state.store.session_store.load_chat_messages(sid).await?;
                 std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
-            } else {
+            } else if history_compat::history_has_tool_results(&history_items) {
                 history_compat::history_items_to_chat_messages(&history_items)
+            } else {
+                tracing::debug!(
+                    session_id = sid,
+                    history_items = history_items.len(),
+                    "history_items missing ToolUse records; using messages table for tool outputs"
+                );
+                let arc = state.store.session_store.load_chat_messages(sid).await?;
+                std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
             };
+            history_compat::expand_assistant_tool_outputs(&mut messages);
             return Ok(ResolvedSession {
                 session_id: sid.to_string(),
                 messages,

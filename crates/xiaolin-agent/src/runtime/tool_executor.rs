@@ -228,6 +228,26 @@ const TIER2_FULL_RETAIN: &[&str] = &[
     "multi_edit",
 ];
 
+/// Extra full-retain slots for `read_file` beyond the default `base_keep + 2`.
+const READ_FILE_FULL_RETAIN_BONUS: usize = 8;
+/// Preview-tier width for `read_file` before clearing (default FullRetain: 3).
+const READ_FILE_PREVIEW_WINDOW: usize = 6;
+/// Chars kept when a `read_file` result enters the faded tier (default: 300).
+const READ_FILE_FADE_PREVIEW_CHARS: usize = 2000;
+
+/// FullRetain microcompact windows: `(full_keep, preview_tier_width, fade_max_chars)`.
+fn full_retain_tiers(tool_name: &str, base_keep: usize) -> (usize, usize, usize) {
+    if tool_name.starts_with("read_file") {
+        (
+            base_keep + 2 + READ_FILE_FULL_RETAIN_BONUS,
+            READ_FILE_PREVIEW_WINDOW,
+            READ_FILE_FADE_PREVIEW_CHARS,
+        )
+    } else {
+        (base_keep + 2, 3, 300)
+    }
+}
+
 /// Classify a tool by name into a retention tier.
 pub(crate) fn classify_retention_tier(tool_name: &str) -> RetentionTier {
     if TIER2_FULL_RETAIN.iter().any(|t| tool_name.starts_with(t)) {
@@ -724,26 +744,16 @@ fn truncate_str(s: &str, max: usize) -> String {
 /// / FullRetain). The compaction strategy varies by tier:
 ///
 /// - **FullRetain** tools (read_file, shell, edit_file, …):
-///   Most recent `full_keep + 2` kept in full, next 3 faded to preview,
-///   older ones get a recall-enabled summary.
+///   `read_file` keeps a wider window (`base_keep + 10` full, then 6 faded at 2K
+///   chars); other FullRetain tools use `base_keep + 2` full, 3 faded at 300 chars;
+///   oldest get a recall-enabled summary.
 /// - **Summarize** tools (grep, search, lsp, …):
 ///   Most recent `full_keep` kept in full, older ones get a compact summary.
 /// - **Ephemeral** tools (list_dir, glob, web_search, …):
 ///   Most recent 1 kept in full, all older immediately cleared with recall hint.
 ///
-/// Error results are always preserved regardless of age or tier.
-pub(crate) fn microcompact_tool_results(
-    messages: &mut [xiaolin_core::types::ChatMessage],
-    keep_recent: usize,
-) {
-    microcompact_tool_results_with_protection(
-        messages,
-        keep_recent,
-        &std::collections::HashSet::new(),
-    )
-}
-
-/// Like [`microcompact_tool_results`] but skips messages in the `protected` set.
+/// Messages in `protected` are never modified. Error results are always preserved
+/// regardless of age or tier.
 pub(crate) fn microcompact_tool_results_with_protection(
     messages: &mut [xiaolin_core::types::ChatMessage],
     keep_recent: usize,
@@ -825,12 +835,12 @@ pub(crate) fn microcompact_tool_results_with_protection(
 
         match tier {
             RetentionTier::FullRetain => {
-                let full_window = base_keep + 2;
-                let preview_window = 3;
+                let (full_window, preview_window, fade_chars) =
+                    full_retain_tiers(tool_name, base_keep);
                 if rank_from_end < full_window {
                     // Keep fully
                 } else if rank_from_end < full_window + preview_window {
-                    let faded = format!("{FADED_MARKER} {}", fade_to_preview(&text, 300));
+                    let faded = format!("{FADED_MARKER} {}", fade_to_preview(&text, fade_chars));
                     msg.content = Some(serde_json::Value::String(faded));
                 } else {
                     let cleared = build_cleared_with_recall(tool_name, tier, &text, args_json);
@@ -882,7 +892,7 @@ pub(crate) fn cache_window_for_occupancy(
     }
 }
 
-/// Compute the `keep_recent` window for `microcompact_tool_results`
+/// Compute the `keep_recent` window for `microcompact_tool_results_with_protection`
 /// based on the model's context window size.
 ///
 /// Larger context windows can afford to keep more recent tool results
@@ -1618,7 +1628,7 @@ fn extract_args_from_recall_marker(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod sort_tests {
-    use super::sort_tool_definitions_by_name;
+    use super::{full_retain_tiers, sort_tool_definitions_by_name};
     use xiaolin_core::tool::{FunctionDefinition, ToolDefinition, ToolParameterSchema};
 
     fn td(name: &str) -> ToolDefinition {
@@ -1647,6 +1657,17 @@ mod sort_tests {
         // Two different input orders converge to the same byte-stable order.
         assert_eq!(names_a, names_b);
         assert_eq!(names_a, vec!["apply_patch", "bash", "read_file", "write_file"]);
+    }
+
+    #[test]
+    fn read_file_gets_wider_full_retain_window() {
+        let base_keep = 4;
+        let (read_full, read_preview, read_fade) = full_retain_tiers("read_file", base_keep);
+        let (shell_full, shell_preview, shell_fade) = full_retain_tiers("shell_exec", base_keep);
+        assert!(read_full > shell_full);
+        assert!(read_preview > shell_preview);
+        assert!(read_fade > shell_fade);
+        assert_eq!(read_full, base_keep + 2 + 8);
     }
 }
 

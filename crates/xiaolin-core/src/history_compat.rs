@@ -1,6 +1,6 @@
 use xiaolin_protocol::{ContentPart, HistoryItem, TurnId};
 
-use crate::types::{ChatMessage, Role};
+use crate::types::{ChatMessage, Role, ToolCall};
 
 fn content_parts_to_value(content: &[ContentPart]) -> serde_json::Value {
     match serde_json::to_value(content) {
@@ -8,6 +8,87 @@ fn content_parts_to_value(content: &[ContentPart]) -> serde_json::Value {
         Err(e) => {
             tracing::warn!(error = %e, "failed to serialize ContentPart slice to JSON");
             serde_json::json!(format!("{content:?}"))
+        }
+    }
+}
+
+/// Tool calls attached to a message for persistence (history dual-write / DB).
+///
+/// WS streaming persists tool output in `enriched_tool_calls_json` only; HTTP SSE
+/// uses `tool_calls` directly. Both must round-trip into `HistoryItem::ToolUse`.
+fn tool_calls_for_persistence(msg: &ChatMessage) -> Option<Vec<ToolCall>> {
+    if let Some(ref tcs) = msg.tool_calls {
+        if !tcs.is_empty() {
+            return Some(tcs.clone());
+        }
+    }
+    msg.enriched_tool_calls_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str(json).ok())
+}
+
+/// Whether a history slice contains persisted tool outputs.
+pub fn history_has_tool_results(items: &[HistoryItem]) -> bool {
+    items
+        .iter()
+        .any(|i| matches!(i, HistoryItem::ToolUse { .. }))
+}
+
+/// Synthesize `Role::Tool` messages for assistant `tool_calls[].output` that were
+/// persisted without matching tool-result rows (legacy WS dual-write gap).
+///
+/// LLM APIs require `assistant(tool_use)` + `tool(tool_result)` pairs;
+/// `sanitize_tool_call_pairing` strips orphaned `tool_calls` when results are missing.
+pub fn expand_assistant_tool_outputs(messages: &mut Vec<ChatMessage>) {
+    use std::collections::HashSet;
+
+    let mut pending: Vec<(usize, Vec<ChatMessage>)> = Vec::new();
+
+    for i in 0..messages.len() {
+        if messages[i].role != Role::Assistant {
+            continue;
+        }
+        let Some(tool_calls) = messages[i].tool_calls.clone() else {
+            continue;
+        };
+        if tool_calls.is_empty() {
+            continue;
+        }
+
+        let mut existing = HashSet::new();
+        for msg in messages[i + 1..].iter() {
+            if msg.role != Role::Tool {
+                break;
+            }
+            if let Some(id) = &msg.tool_call_id {
+                existing.insert(id.clone());
+            }
+        }
+
+        let mut batch = Vec::new();
+        for tc in tool_calls {
+            if existing.contains(&tc.id) {
+                continue;
+            }
+            let Some(output) = tc.output.as_ref().filter(|o| !o.is_empty()) else {
+                continue;
+            };
+            batch.push(ChatMessage {
+                role: Role::Tool,
+                content: Some(serde_json::Value::String(output.clone())),
+                name: Some(tc.function.name.clone()),
+                tool_call_id: Some(tc.id.clone()),
+                ..Default::default()
+            });
+        }
+        if !batch.is_empty() {
+            pending.push((i + 1, batch));
+        }
+    }
+
+    for (pos, batch) in pending.into_iter().rev() {
+        for (offset, msg) in batch.into_iter().enumerate() {
+            messages.insert(pos + offset, msg);
         }
     }
 }
@@ -73,8 +154,8 @@ pub fn chat_message_to_history(msg: &ChatMessage, turn_id: TurnId) -> Vec<Histor
         });
     }
 
-    if let Some(ref tool_calls) = msg.tool_calls {
-        for tc in tool_calls {
+    if let Some(tool_calls) = tool_calls_for_persistence(msg) {
+        for tc in &tool_calls {
             items.push(HistoryItem::ToolUse {
                 turn_id: turn_id.clone(),
                 call_id: tc.id.clone(),
@@ -434,5 +515,74 @@ mod tests {
             duration_ms: None,
         };
         assert!(history_to_chat_message(&item).is_none());
+    }
+
+    #[test]
+    fn expand_assistant_tool_outputs_synthesizes_missing_tool_messages() {
+        use crate::types::{FunctionCall, ToolCall};
+
+        let mut messages = vec![
+            ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String("read src".into())),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                content: Some(serde_json::Value::String("checking".into())),
+                tool_calls: Some(vec![ToolCall {
+                    id: "tc-1".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "read_file".into(),
+                        arguments: r#"{"path":"/tmp/a.rs"}"#.into(),
+                    },
+                    output: Some("fn main() {}".into()),
+                    success: Some(true),
+                    duration_ms: Some(12),
+                }]),
+                ..Default::default()
+            },
+        ];
+
+        expand_assistant_tool_outputs(&mut messages);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[2].role, Role::Tool);
+        assert_eq!(messages[2].tool_call_id.as_deref(), Some("tc-1"));
+        assert_eq!(messages[2].text_content().as_deref(), Some("fn main() {}"));
+    }
+
+    #[test]
+    fn chat_message_to_history_reads_enriched_tool_calls_json() {
+        use crate::types::{FunctionCall, ToolCall};
+
+        let msg = ChatMessage {
+            role: Role::Assistant,
+            content: Some(serde_json::Value::String("done".into())),
+            enriched_tool_calls_json: Some(
+                serde_json::to_string(&vec![ToolCall {
+                    id: "tc-9".into(),
+                    call_type: "function".into(),
+                    function: FunctionCall {
+                        name: "read_file".into(),
+                        arguments: r#"{"path":"b.rs"}"#.into(),
+                    },
+                    output: Some("contents".into()),
+                    success: Some(true),
+                    duration_ms: None,
+                }])
+                .unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let items = chat_message_to_history(&msg, TurnId::new("t9"));
+        assert_eq!(items.len(), 2);
+        assert!(matches!(items[1], HistoryItem::ToolUse { .. }));
+        if let HistoryItem::ToolUse { output, .. } = &items[1] {
+            assert_eq!(output, "contents");
+        } else {
+            panic!("expected ToolUse");
+        }
     }
 }

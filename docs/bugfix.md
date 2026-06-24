@@ -1199,6 +1199,26 @@
 - **修复方案**：运行中 worker 从 `created_at` 实时派生 elapsed（`now_ms.saturating_sub(created_at)`）；同时新增运行时字段 `current_tool`，forwarder 在 ToolExecuting/ToolResult 增量更新 tool_calls_made + current_tool
 - **修复记录**：2026-06-24 subagent-optimization Phase 2；新增 `active_runs_context_shows_current_tool` 单测
 
+#### BUG-017 🔴 post_tool microcompact 无保护窗口清掉 read_file 全文
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/post_tool.rs` L93-106；`crates/xiaolin-agent/src/runtime/tool_executor.rs` L220-248, L848-860
+- **关联文件**：`crates/xiaolin-agent/src/runtime/unified_compact.rs`（已有 `microcompact_tool_results_with_protection` 但未在 post_tool 使用）
+- **问题**：每轮工具执行后 `post_tool_processing` 调用无保护的 `microcompact_tool_results`，`read_file`（FullRetain）在超过 `base_keep+2`（128K 上下文仅 6 次）后被 `[faded]`/`[recall-available]` 替换，LLM 失去文件内容被迫反复 read_file；而 `unified_compact` 路径有 3 轮 iteration 保护窗口，post_tool 路径完全未启用。
+- **影响**：排查类任务（并行读多文件 + 验证）在同一 turn 内陷入重读循环，无法基于已读内容推进
+- **建议**：post_tool 改用 `microcompact_tool_results_with_protection`；`read_file` 单独放宽 FullRetain 窗口（full +8、preview +6、faded 2000 chars）
+- **修复记录**：2026-06-24 post_tool 启用 `compute_protected_indices` + `read_file` 专用 `full_retain_tiers`；新增 `read_file_gets_wider_full_retain_window` 单测
+
+#### BUG-018 🔴 跨 turn 加载历史时 read_file 结果未进入 LLM 上下文
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-core/src/history_compat.rs`（`expand_assistant_tool_outputs`、`tool_calls_for_persistence`）；`crates/xiaolin-gateway/src/routes/session.rs`（`resolve_session_context`）
+- **关联文件**：`crates/xiaolin-gateway/src/ws/chat.rs`（`enriched_tool_calls_json` 仅 UI 持久化）；`crates/xiaolin-context/src/compressor.rs`（`sanitize_tool_call_pairing` 剥离无配对的 tool_calls）
+- **问题**：Tool 结果只存在 assistant 的 `tool_calls_json.output` 中，加载后无 `Role::Tool` 消息；`sanitize_tool_call_pairing` 剥离孤儿 tool_calls，LLM 看不到上轮 read_file 内容。WS 双写 history 时 `chat_message_to_history` 不读 `enriched_tool_calls_json`，且 `resolve_session_context` 在 history 非空时完全跳过 messages 表。
+- **影响**：新 turn / 刷新后 agent 反复 read_file，UI 有输出但模型上下文为空
+- **修复方案**：`expand_assistant_tool_outputs` 合成 Tool 消息；history 无 ToolUse 时回退 messages 表；`chat_message_to_history` 支持 enriched JSON
+- **修复记录**：2026-06-24 实现 expand + history 回退 + 双写修复；新增 2 个 history_compat 单测
+
 ## 按类型分布的问题模式
 
 | 问题模式 | 出现次数 | 涉及 crate |

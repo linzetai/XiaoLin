@@ -92,7 +92,17 @@ pub(crate) async fn post_tool_processing(
     //    call will actually see, rather than the raw uncompressed accumulation.
     {
         let keep_recent = tool_executor::keep_recent_for_context_window(svc.context_window);
-        tool_executor::microcompact_tool_results(&mut ms.messages, keep_recent);
+        let protection_config = tool_executor::ProtectionWindowConfig::default();
+        let protected = tool_executor::compute_protected_indices(
+            &ms.messages,
+            &ms.query_loop.iteration_msg_boundaries,
+            &protection_config,
+        );
+        tool_executor::microcompact_tool_results_with_protection(
+            &mut ms.messages,
+            keep_recent,
+            &protected,
+        );
         tool_executor::dedup_repeated_tool_calls(&mut ms.messages);
         let post_tool_tokens = xiaolin_context::estimate_messages_tokens(&ms.messages);
         ms.query_loop.last_estimated_tokens = post_tool_tokens;
