@@ -284,13 +284,17 @@ pub(crate) async fn perform_llm_call(
         .cloned()
         .collect::<Vec<_>>()
         .join(",");
-    let pre_call_cache_snapshot = ms.cache_detector.pre_call_snapshot(
+    let mut pre_call_cache_snapshot = ms.cache_detector.pre_call_snapshot(
         &system_hash_input,
         &tools_hash_input,
         &svc.model,
         false,
         false,
     );
+    // Track the conversation prefix so a cache break can be attributed to
+    // history compaction/edits (expected) vs an unexpected prefix mutation (§11.4).
+    pre_call_cache_snapshot.message_prefix_hashes =
+        cache_break_detection::hash_message_prefix(&ms.messages);
 
     'stream_try: loop {
         let params = CompletionParams {

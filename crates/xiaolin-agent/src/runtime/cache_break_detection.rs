@@ -12,6 +12,7 @@
 use std::collections::hash_map::DefaultHasher;
 // DefaultHasher: in-memory only (same-process comparison). Use blake3 if persistence is needed.
 use std::hash::{Hash, Hasher};
+use xiaolin_core::types::ChatMessage;
 
 /// Extended usage data that includes cache-specific token counts.
 /// Not all providers return these; fields are optional.
@@ -32,6 +33,12 @@ pub struct PreCallSnapshot {
     pub tool_count: usize,
     pub has_cache_control: bool,
     pub cache_edits_active: bool,
+    /// Per-message content hashes of the conversation prefix (in order).
+    /// Empty when the caller did not supply messages (e.g. unit tests).
+    /// Used to attribute cache breaks to history mutation/compaction: a clean
+    /// append keeps the previous hashes as a prefix of the current ones, while
+    /// compaction/editing diverges the prefix. (§11.4)
+    pub message_prefix_hashes: Vec<u64>,
 }
 
 /// Why the prompt cache broke.
@@ -50,6 +57,13 @@ pub enum BreakCause {
     CacheControlChanged,
     /// cache_edits API removed cached content (expected, not a real break).
     CacheEditsEviction,
+    /// Conversation history prefix diverged (compaction / micro-compact / snip /
+    /// editing of already-sent messages). Expected when compaction ran; a real
+    /// concern only if it happens without an intentional compaction (§11.3/§11.4).
+    HistoryChanged {
+        prev_len: usize,
+        curr_len: usize,
+    },
     /// Multiple causes detected simultaneously.
     Multiple(Vec<BreakCause>),
     /// Could not determine the specific cause.
@@ -80,6 +94,9 @@ impl CacheBreakReport {
             }
             BreakCause::CacheControlChanged => "cache_control annotations changed".to_string(),
             BreakCause::CacheEditsEviction => "cache_edits eviction (expected)".to_string(),
+            BreakCause::HistoryChanged { prev_len, curr_len } => {
+                format!("history compacted/edited ({prev_len} → {curr_len} msgs, expected)")
+            }
             BreakCause::Multiple(causes) => {
                 let descs: Vec<String> = causes
                     .iter()
@@ -147,6 +164,7 @@ impl CacheBreakDetector {
             tool_count,
             has_cache_control,
             cache_edits_active,
+            message_prefix_hashes: Vec::new(),
         }
     }
 
@@ -183,7 +201,14 @@ impl CacheBreakDetector {
         };
 
         let cause = self.diagnose_cause(&prev, current_snapshot);
-        let is_expected = matches!(cause, BreakCause::CacheEditsEviction);
+        // Compaction-induced history changes and cache_edits evictions are
+        // expected (they intentionally rewrite the prefix). A `Multiple` that
+        // *also* contains a system/tools/model change is NOT expected — those
+        // are real regressions even if compaction happened in the same turn.
+        let is_expected = matches!(
+            cause,
+            BreakCause::CacheEditsEviction | BreakCause::HistoryChanged { .. }
+        );
 
         if !is_expected {
             self.total_breaks += 1;
@@ -215,6 +240,19 @@ impl CacheBreakDetector {
         }
 
         let mut causes = Vec::new();
+
+        // History prefix divergence: the previous message hashes are no longer a
+        // prefix of the current ones → history was compacted/edited (not a clean
+        // append). Only check when both snapshots carry message hashes. (§11.4)
+        if !prev.message_prefix_hashes.is_empty()
+            && !curr.message_prefix_hashes.is_empty()
+            && !is_prefix(&prev.message_prefix_hashes, &curr.message_prefix_hashes)
+        {
+            causes.push(BreakCause::HistoryChanged {
+                prev_len: prev.message_prefix_hashes.len(),
+                curr_len: curr.message_prefix_hashes.len(),
+            });
+        }
 
         if prev.system_hash != curr.system_hash {
             causes.push(BreakCause::SystemPromptChanged);
@@ -275,6 +313,30 @@ fn hash_str(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Returns true if `prefix` is an ordered prefix of `full` (a clean append).
+fn is_prefix(prefix: &[u64], full: &[u64]) -> bool {
+    prefix.len() <= full.len() && full.starts_with(prefix)
+}
+
+/// Compute per-message content hashes for cache-break attribution (§11.4).
+///
+/// In-memory only (DefaultHasher); compared within the same process across
+/// consecutive LLM calls to distinguish a clean append (prefix preserved) from
+/// a compaction/edit (prefix diverged). Cheap relative to the LLM call itself.
+pub fn hash_message_prefix(messages: &[ChatMessage]) -> Vec<u64> {
+    messages
+        .iter()
+        .map(|m| {
+            // Serialize for a stable, content-sensitive hash. Fall back to the
+            // role discriminator if serialization somehow fails.
+            match serde_json::to_string(m) {
+                Ok(s) => hash_str(&s),
+                Err(_) => hash_str(&format!("{:?}", m.role)),
+            }
+        })
+        .collect()
 }
 
 /// Count the number of tool definitions in a JSON tools string.
@@ -399,6 +461,81 @@ mod tests {
             }
             _ => panic!("expected ModelSwitched, got {:?}", report.cause),
         }
+    }
+
+    fn snapshot_with_history(
+        system: &str,
+        tools: &str,
+        model: &str,
+        msg_hashes: Vec<u64>,
+    ) -> PreCallSnapshot {
+        let mut s = make_snapshot(system, tools, model);
+        s.message_prefix_hashes = msg_hashes;
+        s
+    }
+
+    #[test]
+    fn clean_append_is_not_history_change() {
+        // prev hashes are a prefix of curr (an assistant+user turn was appended).
+        let mut detector = CacheBreakDetector::new();
+        let snap1 = snapshot_with_history("sys", "[]", "m", vec![1, 2, 3]);
+        detector.post_call_analyze(&snap1, &usage_with_cache(5000));
+
+        let snap2 = snapshot_with_history("sys", "[]", "m", vec![1, 2, 3, 4, 5]);
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
+        // No history/system/tools/model change → Unknown (genuine provider miss).
+        assert_eq!(report.cause, BreakCause::Unknown);
+    }
+
+    #[test]
+    fn compaction_diverges_prefix_and_is_expected() {
+        // Compaction rewrote the prefix: hashes diverge (not an append).
+        let mut detector = CacheBreakDetector::new();
+        let snap1 = snapshot_with_history("sys", "[]", "m", vec![1, 2, 3, 4, 5]);
+        detector.post_call_analyze(&snap1, &usage_with_cache(5000));
+
+        let snap2 = snapshot_with_history("sys", "[]", "m", vec![1, 99, 6]);
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
+        match report.cause {
+            BreakCause::HistoryChanged { prev_len, curr_len } => {
+                assert_eq!(prev_len, 5);
+                assert_eq!(curr_len, 3);
+            }
+            other => panic!("expected HistoryChanged, got {other:?}"),
+        }
+        // Compaction is expected → not counted as a break.
+        assert!(report.is_expected);
+        assert_eq!(detector.total_breaks(), 0);
+    }
+
+    #[test]
+    fn history_change_plus_system_change_is_unexpected() {
+        // Prefix diverged AND system prompt changed → real regression, warns.
+        let mut detector = CacheBreakDetector::new();
+        let snap1 = snapshot_with_history("sys", "[]", "m", vec![1, 2, 3]);
+        detector.post_call_analyze(&snap1, &usage_with_cache(5000));
+
+        let snap2 = snapshot_with_history("new sys", "[]", "m", vec![9, 8]);
+        let report = detector
+            .post_call_analyze(&snap2, &usage_with_cache(0))
+            .unwrap();
+        match report.cause {
+            BreakCause::Multiple(ref causes) => {
+                assert!(causes
+                    .iter()
+                    .any(|c| matches!(c, BreakCause::HistoryChanged { .. })));
+                assert!(causes
+                    .iter()
+                    .any(|c| matches!(c, BreakCause::SystemPromptChanged)));
+            }
+            other => panic!("expected Multiple, got {other:?}"),
+        }
+        assert!(!report.is_expected);
+        assert_eq!(detector.total_breaks(), 1);
     }
 
     #[test]

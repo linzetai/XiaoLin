@@ -114,8 +114,15 @@
 - [ ] 11.1 验证 `reasoning_content` 透传完整性：确保 assistant message 的 reasoning_content 原样保留在后续请求中（已实现，需单测覆盖）
 - [x] 11.2 tool_defs 排序确定性：`filter_tool_definitions` 收口处调用 `sort_tool_definitions_by_name` 按 name 排序，
       消除 `HashMap.values()` 顺序非确定，保证跨轮/跨 session/跨进程 byte-identical（`demote_tools_for_plan_mode` 仅 retain 保序）
-- [ ] 11.3 messages 历史只追加不修改：审查所有 `messages.retain/remove/swap/truncate` 调用，确认不会改变已发送消息的内容（compaction 除外）
-- [ ] 11.4 compaction 后 baseline reset：compaction 改变了消息前缀，需要在 CacheBreakDetector 中 reset prevCacheReadTokens（避免误报）
+- [x] 11.3 messages 历史只追加不修改：已稽查全部 `messages.insert/remove/retain/swap/truncate` 调用点。
+      结论：装配期注入（`message_injection.rs` 的 `push_tier2_system_prefix`/`merge_leading_system_into_tier2`、
+      `keyword_interceptor`、model-switch reminder）均在每轮重建的 messages 上**确定性操作头/尾**，不改持久化历史；
+      中段变更**仅来自 compaction 模块**（`unified_compact`/`context engine`/`microcompact`/`time_based_microcompact`/`snip`），属意图内。
+      新增 §11.4 的 HistoryChanged 检测在运行时可捕获任何「前缀被破坏」事件，叠加 system/tools 变更时归为 unexpected 并 warn，可兜底发现意外突变。
+- [x] 11.4 compaction 后 baseline 归因：在 `CacheBreakDetector` 中新增 `PreCallSnapshot.message_prefix_hashes`（逐消息哈希），
+      `diagnose_cause` 用「前一轮哈希是否为当前的前缀」区分**干净追加**（前缀保持→provider 端 miss 记为 Unknown）与
+      **compaction/编辑**（前缀发散→`BreakCause::HistoryChanged`，`is_expected=true`，不计入 break、不误报 warn）。
+      消除了 compaction 导致的 Unknown 误报与命中率统计失真。单测覆盖 clean-append / compaction / history+system 叠加三场景。
 - [ ] 11.5 新增集成测试：模拟 3 轮 DeepSeek 对话，验证 Turn 2/3 的 prompt_cache_hit_tokens > 0
 - [ ] 11.6 验证 gateway `insert(0)` 消除后的效果：确认所有 7 个 `chat_pipeline.rs` 的 insert(0) 改为 append 后，DeepSeek cache hit 提升
 
