@@ -18,6 +18,14 @@ export interface ChatMessageToolCall {
   displayOutput?: string;
   duration?: number;
   metadata?: Record<string, unknown> | null;
+  /** When true, `result`/`displayOutput` are truncated and the full text must be lazy-loaded via `getToolOutput`. */
+  truncated?: boolean;
+  /** Original (untruncated) length of `result` in chars, for display. */
+  fullLength?: number;
+  /** Message row id in the DB — used to locate the tool call for lazy-load. */
+  messageId?: number;
+  /** Session id — needed to call `getToolOutput`. */
+  sessionId?: string;
 }
 
 export interface ChatMessageImage {
@@ -45,6 +53,8 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   id: number;
+  /** Persisted DB message id, present for messages restored from session history. */
+  backendId?: number;
   timestamp: Date;
   chatId: string;
   toolCalls?: ChatMessageToolCall[];
@@ -211,6 +221,8 @@ export interface BackendMessage {
     success?: boolean;
     duration_ms?: number;
     metadata?: Record<string, unknown>;
+    truncated?: boolean;
+    full_length?: number;
   }> | null;
   createdAt: string;
   reasoningContent?: string | null;

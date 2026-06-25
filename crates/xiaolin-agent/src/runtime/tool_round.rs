@@ -1,5 +1,5 @@
-use xiaolin_core::types::{ChatMessage, ChatRequest, Role, SessionId, ToolCall};
 use xiaolin_core::tool::ToolErrorType;
+use xiaolin_core::types::{ChatMessage, ChatRequest, Role, SessionId, ToolCall};
 use xiaolin_evolution::TrajectoryStep;
 use xiaolin_observe::{record_tool_call, record_tool_repetition, shared_metrics_collector};
 use xiaolin_protocol::{ExecutionMode, TurnSummary};
@@ -18,8 +18,8 @@ use super::trajectory::truncate_for_trajectory;
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::validation_pipeline::ValidationContext;
 use super::{
-    extract_file_paths_from_args, inject_tool_recovery_guidance,
-    make_turn_summary, process_tool_output, tool_result_content, track_restoration_state,
+    extract_file_paths_from_args, inject_tool_recovery_guidance, make_turn_summary,
+    process_tool_output, tool_result_content, track_restoration_state,
 };
 
 const FILE_ARTIFACT_TOOLS: &[&str] = &[
@@ -117,10 +117,7 @@ fn minimal_chat_request(svc: &TurnServices) -> ChatRequest {
         model: None,
         messages: Vec::new(),
         agent_id: None,
-        session_id: svc
-            .session_id
-            .as_ref()
-            .map(|s| SessionId::from(s.clone())),
+        session_id: svc.session_id.as_ref().map(|s| SessionId::from(s.clone())),
         stream: false,
         temperature: None,
         max_tokens: None,
@@ -196,9 +193,7 @@ pub(crate) async fn execute_tool_round(
             false,
         )
         .await;
-        svc.services
-            .fire_stop_hooks(&ms.messages, &[])
-            .await;
+        svc.services.fire_stop_hooks(&ms.messages, &[]).await;
         svc.runtime
             .finalize_injected_skills(&ms.injected_skill_ids, true)
             .await;
@@ -257,10 +252,7 @@ pub(crate) async fn execute_tool_round(
     // When no streaming executor, dispatch_batch handles everything.
     let tool_dispatch_t0 = std::time::Instant::now();
     let tool_count = assembled_calls.len();
-    let file_pre_snapshots: std::collections::HashMap<
-        std::path::PathBuf,
-        (Option<String>, bool),
-    > = {
+    let file_pre_snapshots: std::collections::HashMap<std::path::PathBuf, (Option<String>, bool)> = {
         let mut snaps = std::collections::HashMap::new();
         for tc in &assembled_calls {
             if is_file_artifact_tool(&tc.function.name) {
@@ -292,16 +284,17 @@ pub(crate) async fn execute_tool_round(
             }
         }
         let completed = executor.drain_remaining().await;
-        let mut all_results: Vec<
-            Option<(String, String, String, xiaolin_core::tool::ToolResult)>,
-        > = vec![None; assembled_calls.len()];
+        let mut all_results: Vec<Option<(String, String, String, xiaolin_core::tool::ToolResult)>> =
+            vec![None; assembled_calls.len()];
 
         // Place streaming results by call_id lookup
-        let completed_map: std::collections::HashMap<String, (String, xiaolin_core::tool::ToolResult)> =
-            completed
-                .into_iter()
-                .map(|ct| (ct.call_id, (ct.tool_name, ct.result)))
-                .collect();
+        let completed_map: std::collections::HashMap<
+            String,
+            (String, xiaolin_core::tool::ToolResult),
+        > = completed
+            .into_iter()
+            .map(|ct| (ct.call_id, (ct.tool_name, ct.result)))
+            .collect();
         for (i, tc) in assembled_calls.iter().enumerate() {
             if !svc.dispatcher.is_guarded(&tc.function.name) {
                 if let Some((name, result)) = completed_map.get(&tc.id) {
@@ -383,17 +376,14 @@ pub(crate) async fn execute_tool_round(
     for (tool_name, call_id, arguments, mut result) in stream_results {
         let tool_start_time = std::time::Instant::now();
         ms.query_loop.total_tool_calls += 1;
-        let rep_action = ms
-            .query_loop
-            .record_tool_call(&tool_name, &arguments);
+        let rep_action = ms.query_loop.record_tool_call(&tool_name, &arguments);
 
         // ── Permission check ──
         if let Some(permissions::PermissionDecision::Denied(reason)) =
             svc.services.check_permission(&tool_name)
         {
-            let msg = reason.unwrap_or_else(|| {
-                format!("Tool '{}' is denied by permission rules", tool_name)
-            });
+            let msg = reason
+                .unwrap_or_else(|| format!("Tool '{}' is denied by permission rules", tool_name));
             tracing::warn!(tool = %tool_name, %msg, "tool blocked by permission engine");
             result = xiaolin_core::tool::ToolResult::err(&msg);
         }
@@ -403,13 +393,15 @@ pub(crate) async fn execute_tool_round(
             let raw_paths = extract_file_paths_from_args(&tool_name, &arguments);
             for raw_path in raw_paths {
                 let resolved = resolve_artifact_path(svc.work_dir.as_deref(), &raw_path);
-                let (file_exists, content) = if let Some((snap_content, snap_exists)) =
-                    file_pre_snapshots.get(&raw_path)
-                {
-                    (*snap_exists, snap_content.clone())
-                } else {
-                    (resolved.exists(), tokio::fs::read_to_string(&resolved).await.ok())
-                };
+                let (file_exists, content) =
+                    if let Some((snap_content, snap_exists)) = file_pre_snapshots.get(&raw_path) {
+                        (*snap_exists, snap_content.clone())
+                    } else {
+                        (
+                            resolved.exists(),
+                            tokio::fs::read_to_string(&resolved).await.ok(),
+                        )
+                    };
                 if let Some(ref c) = content {
                     ms.undo_engine.capture_before_edit(&resolved, c);
                 }
@@ -423,8 +415,7 @@ pub(crate) async fn execute_tool_round(
         }
 
         // ── Pre-tool hook ──
-        let input_json: serde_json::Value =
-            serde_json::from_str(&arguments).unwrap_or_default();
+        let input_json: serde_json::Value = serde_json::from_str(&arguments).unwrap_or_default();
         if let Some(hook_result) = svc
             .services
             .fire_pre_tool_hooks(&tool_name, &call_id, &input_json)
@@ -509,11 +500,19 @@ pub(crate) async fn execute_tool_round(
             query_state::ToolRepetitionAction::ForceStop => {
                 record_tool_repetition("force_stop", &tool_name);
                 let (warn_n, stop_n) = ms.query_loop.repetition_stats();
-                tracing::debug!(
+                let rep_key = super::tool_executor::tool_repetition_key(&tool_name, &arguments);
+                tracing::warn!(
+                    target: "agent.loop",
+                    agent_id = %svc.config.agent_id,
+                    session_id = svc.session_id.as_deref().unwrap_or(""),
+                    turn_id = %svc.turn_id,
+                    iteration = ms.query_loop.iteration,
                     tool = %tool_name,
+                    repetition_key = %rep_key,
                     warn_triggers = warn_n,
                     force_stop_triggers = stop_n,
-                    "tool repetition force_stop"
+                    action = "force_stop",
+                    "tool repetition hard limit reached"
                 );
                 if let Some(nudge) = ms.query_loop.build_repetition_nudge(true) {
                     inject_tool_recovery_guidance(&mut ms.messages, &nudge);
@@ -523,11 +522,19 @@ pub(crate) async fn execute_tool_round(
             query_state::ToolRepetitionAction::Warn => {
                 record_tool_repetition("warn", &tool_name);
                 let (warn_n, stop_n) = ms.query_loop.repetition_stats();
-                tracing::debug!(
+                let rep_key = super::tool_executor::tool_repetition_key(&tool_name, &arguments);
+                tracing::warn!(
+                    target: "agent.loop",
+                    agent_id = %svc.config.agent_id,
+                    session_id = svc.session_id.as_deref().unwrap_or(""),
+                    turn_id = %svc.turn_id,
+                    iteration = ms.query_loop.iteration,
                     tool = %tool_name,
+                    repetition_key = %rep_key,
                     warn_triggers = warn_n,
                     force_stop_triggers = stop_n,
-                    "tool repetition warn"
+                    action = "warn",
+                    "tool repetition warning"
                 );
                 if let Some(nudge) = ms.query_loop.build_repetition_nudge(false) {
                     inject_tool_recovery_guidance(&mut ms.messages, &nudge);
@@ -678,9 +685,7 @@ pub(crate) async fn execute_tool_round(
 
         // ── Auto-fix loop (streaming path) ──
         if !result.success {
-            if let Some(build_cmd) =
-                crate::autofix::extract_build_command(&tool_name, &arguments)
-            {
+            if let Some(build_cmd) = crate::autofix::extract_build_command(&tool_name, &arguments) {
                 if let Some(guide) = crate::autofix::detect_and_plan(
                     &build_cmd,
                     &result.output,

@@ -114,7 +114,10 @@ impl McpServerConfig {
             McpTransportType::Stdio => {
                 format!("stdio:{}:{}", self.command, self.args.join(" "))
             }
-            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::Http | McpTransportType::WebSocket => {
+            McpTransportType::Sse
+            | McpTransportType::StreamableHttp
+            | McpTransportType::Http
+            | McpTransportType::WebSocket => {
                 format!("url:{}", self.url.as_deref().unwrap_or(""))
             }
         }
@@ -139,12 +142,13 @@ impl McpServerConfig {
                     ));
                 }
             }
-            McpTransportType::Sse | McpTransportType::StreamableHttp | McpTransportType::WebSocket => {
+            McpTransportType::Sse
+            | McpTransportType::StreamableHttp
+            | McpTransportType::WebSocket => {
                 if self.url.as_ref().is_none_or(|u| u.is_empty()) {
                     return Err(format!(
                         "MCP server '{}': {} transport requires a non-empty 'url'",
-                        self.id,
-                        self.transport
+                        self.id, self.transport
                     ));
                 }
             }
@@ -983,7 +987,11 @@ impl SubAgentToolFilter {
     /// Check whether a tool name is permitted by this filter.
     /// Profile demote list is merged with explicit denied patterns.
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
-        if self.denied.iter().any(|p| tool_pattern_matches(p, tool_name)) {
+        if self
+            .denied
+            .iter()
+            .any(|p| tool_pattern_matches(p, tool_name))
+        {
             return false;
         }
         if let Some(ref profile_name) = self.profile {
@@ -999,7 +1007,9 @@ impl SubAgentToolFilter {
         if self.allowed.is_empty() {
             return true;
         }
-        self.allowed.iter().any(|p| tool_pattern_matches(p, tool_name))
+        self.allowed
+            .iter()
+            .any(|p| tool_pattern_matches(p, tool_name))
     }
 }
 
@@ -1071,9 +1081,11 @@ pub fn load_subagent_defs_markdown(dir: &std::path::Path) -> anyhow::Result<Vec<
 /// Parse a Markdown file with YAML frontmatter into a `SubAgentDef`.
 /// Delegates to `agent_markdown::parse_agent_markdown` for robust parsing with
 /// schema validation (unknown fields rejected, required `id` check).
-fn parse_markdown_subagent_def(content: &str, path: &std::path::Path) -> anyhow::Result<SubAgentDef> {
-    crate::agent_markdown::parse_agent_markdown(content, path)
-        .map_err(|e| anyhow::anyhow!("{e}"))
+fn parse_markdown_subagent_def(
+    content: &str,
+    path: &std::path::Path,
+) -> anyhow::Result<SubAgentDef> {
+    crate::agent_markdown::parse_agent_markdown(content, path).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Return the built-in sub-agent definitions that ship with XiaoLin.
@@ -1138,7 +1150,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                  you cannot modify files or run commands."
                     .into(),
             ),
-            background: false,
+            background: true,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             max_result_chars: None,
@@ -1231,7 +1243,7 @@ pub fn builtin_subagent_defs() -> Vec<SubAgentDef> {
                  information to answer questions thoroughly. Cite sources when possible."
                     .into(),
             ),
-            background: false,
+            background: true,
             concurrency_safe: true,
             max_context_messages: default_max_context_messages(),
             max_result_chars: None,
@@ -1293,7 +1305,9 @@ pub fn load_all_subagent_defs(
                     }
                 }
             }
-            Err(e) => tracing::warn!(dir = %dir.display(), error = %e, "failed to load JSON sub-agent defs"),
+            Err(e) => {
+                tracing::warn!(dir = %dir.display(), error = %e, "failed to load JSON sub-agent defs")
+            }
         }
     }
 
@@ -1309,7 +1323,9 @@ pub fn load_all_subagent_defs(
                     }
                 }
             }
-            Err(e) => tracing::warn!(dir = %dir.display(), error = %e, "failed to load markdown sub-agent defs"),
+            Err(e) => {
+                tracing::warn!(dir = %dir.display(), error = %e, "failed to load markdown sub-agent defs")
+            }
         }
     }
 
@@ -1439,10 +1455,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(b.tool_permission("shell_exec"), ToolPermission::Ask);
-        assert_eq!(
-            b.tool_permission("mcp__dangerous__rm"),
-            ToolPermission::Ask
-        );
+        assert_eq!(b.tool_permission("mcp__dangerous__rm"), ToolPermission::Ask);
         assert_eq!(b.tool_permission("http_fetch"), ToolPermission::Allow);
         assert!(b.is_tool_allowed("shell_exec"));
         assert!(b.requires_confirmation("shell_exec"));
@@ -1566,7 +1579,10 @@ You are a code review specialist. Analyze the provided code carefully."#;
         let def = parse_markdown_subagent_def(md, std::path::Path::new("test.md")).unwrap();
         assert_eq!(def.id, "reviewer");
         assert_eq!(def.name.as_deref(), Some("Code Reviewer"));
-        assert!(def.system_prompt.unwrap().contains("code review specialist"));
+        assert!(def
+            .system_prompt
+            .unwrap()
+            .contains("code review specialist"));
         assert!(def.tools.is_tool_allowed("read_file"));
         assert!(!def.tools.is_tool_allowed("write_file"));
     }
@@ -1583,7 +1599,10 @@ You are a code review specialist. Analyze the provided code carefully."#;
 
         let explore = defs.iter().find(|d| d.id == "explore").unwrap();
         assert!(explore.concurrency_safe);
-        assert!(!explore.background);
+        assert!(
+            explore.background,
+            "explore should default to background to avoid blocking main"
+        );
         assert!(explore.tools.is_tool_allowed("read_file"));
         assert!(!explore.tools.is_tool_allowed("write_file"));
         assert!(!explore.tools.is_tool_allowed("shell_exec"));
@@ -1770,7 +1789,10 @@ You are a code review specialist. Analyze the provided code carefully."#;
             http_headers: None,
         };
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("stdio"), "should reject bearer_token on stdio: {err}");
+        assert!(
+            err.contains("stdio"),
+            "should reject bearer_token on stdio: {err}"
+        );
     }
 
     #[test]
@@ -1788,7 +1810,10 @@ You are a code review specialist. Analyze the provided code carefully."#;
             http_headers: None,
         };
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("must not be empty"), "empty env var name: {err}");
+        assert!(
+            err.contains("must not be empty"),
+            "empty env var name: {err}"
+        );
     }
 
     #[test]

@@ -350,12 +350,11 @@ impl SessionStore {
         }
 
         // Migration: normalize all sessions.agent_id to "main" (single-agent refactoring)
-        let non_main_count: i32 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sessions WHERE agent_id != 'main'",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        let non_main_count: i32 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE agent_id != 'main'")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
         if non_main_count > 0 {
             sqlx::query("UPDATE sessions SET agent_id = 'main' WHERE agent_id != 'main'")
                 .execute(&self.pool)
@@ -380,17 +379,13 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_hi_session ON history_items(session_id, id)",
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_hi_session ON history_items(session_id, id)")
+            .execute(&self.pool)
+            .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_hi_turn ON history_items(session_id, turn_id)",
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_hi_turn ON history_items(session_id, turn_id)")
+            .execute(&self.pool)
+            .await?;
 
         // projects table: global project registry
         sqlx::query(
@@ -442,11 +437,9 @@ impl SessionStore {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id)",
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id)")
+            .execute(&self.pool)
+            .await?;
 
         // Migration: add pause_reason and continuation_rounds columns if missing
         match sqlx::query("ALTER TABLE goals ADD COLUMN pause_reason TEXT")
@@ -455,7 +448,9 @@ impl SessionStore {
         {
             Ok(_) => {}
             Err(e) if e.to_string().contains("duplicate") => {}
-            Err(e) => tracing::warn!(error = %e, "failed to migrate goals table: add pause_reason column"),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to migrate goals table: add pause_reason column")
+            }
         }
         match sqlx::query(
             "ALTER TABLE goals ADD COLUMN continuation_rounds INTEGER NOT NULL DEFAULT 0",
@@ -609,8 +604,8 @@ impl SessionStore {
         name: Option<&str>,
         color: Option<&str>,
     ) -> anyhow::Result<crate::models::Project> {
-        use xiaolin_core::project::generate_project_id;
         use std::path::Path;
+        use xiaolin_core::project::generate_project_id;
 
         let canonical = Path::new(root_path)
             .canonicalize()
@@ -618,14 +613,12 @@ impl SessionStore {
         let canonical_str = canonical.to_string_lossy().to_string();
         let id = generate_project_id(&canonical);
 
-        let effective_name = name
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                canonical
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "unnamed".to_string())
-            });
+        let effective_name = name.map(|s| s.to_string()).unwrap_or_else(|| {
+            canonical
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unnamed".to_string())
+        });
 
         let effective_color = color.unwrap_or("#0066cc");
 
@@ -677,10 +670,7 @@ impl SessionStore {
         Ok(projects)
     }
 
-    pub async fn get_project(
-        &self,
-        id: &str,
-    ) -> anyhow::Result<Option<crate::models::Project>> {
+    pub async fn get_project(&self, id: &str) -> anyhow::Result<Option<crate::models::Project>> {
         let project = sqlx::query_as::<_, crate::models::Project>(
             "SELECT id, name, root_path, color, pinned, archived, created_at, last_opened_at
              FROM projects WHERE id = ?",
@@ -766,11 +756,10 @@ impl SessionStore {
 
     /// Count sessions per project (for listing).
     pub async fn count_sessions_for_project(&self, project_id: &str) -> anyhow::Result<i64> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE project_id = ?")
-                .bind(project_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE project_id = ?")
+            .bind(project_id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 
@@ -1103,10 +1092,58 @@ impl SessionStore {
         Ok(messages)
     }
 
+    /// Load up to `limit` messages older than `before_id` (exclusive), in ASC order.
+    /// Uses `idx_messages_session(session_id, id)` for cursor-based pagination.
+    pub async fn load_messages_before(
+        &self,
+        session_id: &str,
+        before_id: i64,
+        limit: u32,
+    ) -> anyhow::Result<Vec<SessionMessage>> {
+        let messages = sqlx::query_as::<_, SessionMessage>(
+            "SELECT * FROM (
+                SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
+                       prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
+                       reasoning_content, compact_metadata_json, segment_order_json
+                FROM messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?
+             ) sub ORDER BY id ASC",
+        )
+        .bind(session_id)
+        .bind(before_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(messages)
+    }
+
+    /// Load a single message by id, scoped to a session. Returns `None` if not found.
+    pub async fn load_message_by_id(
+        &self,
+        session_id: &str,
+        message_id: i64,
+    ) -> anyhow::Result<Option<SessionMessage>> {
+        let message = sqlx::query_as::<_, SessionMessage>(
+            "SELECT id, session_id, role, content, name, tool_calls_json, tool_call_id, created_at,
+                    prompt_tokens, completion_tokens, total_tokens, elapsed_ms,
+                    reasoning_content, compact_metadata_json, segment_order_json
+             FROM messages WHERE session_id = ? AND id = ? LIMIT 1",
+        )
+        .bind(session_id)
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(message)
+    }
+
     /// Convert stored messages back into ChatMessage format for the LLM.
     /// Uses an in-memory cache to avoid re-reading from SQLite on every turn.
     /// Returns `Arc<Vec<ChatMessage>>` so callers share the same allocation.
-    pub async fn load_chat_messages(&self, session_id: &str) -> anyhow::Result<Arc<Vec<ChatMessage>>> {
+    pub async fn load_chat_messages(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Arc<Vec<ChatMessage>>> {
         {
             let cache = self.msg_cache.read().await;
             if let Some(cached) = cache.get(session_id) {
@@ -1709,12 +1746,11 @@ impl SessionStore {
         &self,
         session_id: &str,
     ) -> anyhow::Result<Vec<xiaolin_protocol::HistoryItem>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT item_json FROM history_items WHERE session_id = ? ORDER BY id",
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT item_json FROM history_items WHERE session_id = ? ORDER BY id")
+                .bind(session_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         rows.iter()
             .map(|(json,)| serde_json::from_str(json).map_err(Into::into))
@@ -1894,23 +1930,17 @@ impl SessionStore {
         description: &str,
     ) -> anyhow::Result<bool> {
         let now = Self::unix_timestamp_secs();
-        let result = sqlx::query(
-            "UPDATE goals SET description = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(description)
-        .bind(now)
-        .bind(goal_id)
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("UPDATE goals SET description = ?, updated_at = ? WHERE id = ?")
+            .bind(description)
+            .bind(now)
+            .bind(goal_id)
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected() > 0)
     }
 
     /// Add token budget to a goal (for budget追加).
-    pub async fn add_goal_budget(
-        &self,
-        goal_id: &str,
-        amount: i64,
-    ) -> anyhow::Result<bool> {
+    pub async fn add_goal_budget(&self, goal_id: &str, amount: i64) -> anyhow::Result<bool> {
         let now = Self::unix_timestamp_secs();
         let result = sqlx::query(
             "UPDATE goals SET token_budget = COALESCE(token_budget, 0) + ?, status = 'active', pause_reason = NULL, updated_at = ? WHERE id = ?",
@@ -1958,11 +1988,7 @@ impl SessionStore {
     }
 
     /// Add wall-clock time to a goal.
-    pub async fn add_goal_time(
-        &self,
-        goal_id: &str,
-        seconds: i64,
-    ) -> anyhow::Result<()> {
+    pub async fn add_goal_time(&self, goal_id: &str, seconds: i64) -> anyhow::Result<()> {
         let now = Self::unix_timestamp_secs();
         sqlx::query(
             "UPDATE goals SET time_used_seconds = time_used_seconds + ?, updated_at = ? WHERE id = ?",
@@ -2126,7 +2152,7 @@ mod tests {
         let msgs = vec![ChatMessage {
             role: Role::User,
             content: Some("x".into()),
-        ..Default::default()
+            ..Default::default()
         }];
         assert!(store.append_messages("missing", &msgs).await.is_err());
     }

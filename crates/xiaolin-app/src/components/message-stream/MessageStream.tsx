@@ -51,6 +51,9 @@ export function MessageStream(_props: MessageStreamProps) {
   const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
   const loadChatStream = useStreamStore((s) => s.loadChatStream);
+  const prependChatStream = useStreamStore((s) => s.prependChatStream);
+  const setHasMore = useStreamStore((s) => s.setHasMore);
+  const hasMoreBackend = useStreamStore((s) => s.hasMore[activeChatId ?? ""] ?? false);
   const pendingScrollTurnId = useSearchStore((s) => s.pendingScrollTurnId);
   const pendingScrollSessionId = useSearchStore((s) => s.pendingScrollSessionId);
   const highlightTurnId = useSearchStore((s) => s.highlightTurnId);
@@ -137,14 +140,14 @@ export function MessageStream(_props: MessageStreamProps) {
 
     const ac = new AbortController();
     loadingChats.current.add(chatId);
-    transport.getSessionMessages(chatId).then((messages) => {
+    transport.getSessionMessages(chatId).then((page) => {
       if (ac.signal.aborted) return;
       const currentActiveId = useChatMetaStore.getState().activeChatId;
       if (currentActiveId !== chatId) return;
       const currentStream = useStreamStore.getState().streams[chatId] ?? [];
       if (currentStream.length > 0) return;
-      if (messages && messages.length > 0) {
-        loadChatStream(chatId, messages);
+      if (page && page.messages && page.messages.length > 0) {
+        loadChatStream(chatId, page.messages, page.hasMore);
       }
       loadedChats.current.add(chatId);
     }).catch(() => {
@@ -520,7 +523,53 @@ export function MessageStream(_props: MessageStreamProps) {
 
   const { t: tSidebar } = useTranslation("sidebar");
 
-  const { handleScroll, handleStartReached: _handleStartReached } = useStreamScroll({
+  const loadingOlderRef = useRef(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const clearLoadingMoreRef = useRef<() => void>(() => {});
+  const onLoadOlderPage = useCallback(() => {
+    if (loadingOlderRef.current) return;
+    const chatId = activeChatId;
+    if (!chatId) return;
+    const currentStream = useStreamStore.getState().streams[chatId] ?? [];
+    const firstItem = currentStream[0];
+    if (!firstItem || firstItem.type !== "message") return;
+    const beforeId = firstItem.data.backendId ?? firstItem.data.id;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    // Capture scroll anchor so we can restore after prepending.
+    const container = scrollContainerRef.current;
+    const anchorScrollTop = container?.scrollTop ?? 0;
+    const anchorHeight = container?.scrollHeight ?? 0;
+    transport
+      .getSessionMessages(chatId, { beforeId, limit: 30 })
+      .then((page) => {
+        if (!page.messages || page.messages.length === 0) {
+          setHasMore(chatId, false);
+          return;
+        }
+        prependChatStream(chatId, page.messages, page.hasMore);
+        // Preserve scroll position: after prepend the container grew by (newHeight - anchorHeight).
+        requestAnimationFrame(() => {
+          if (container) {
+            const newHeight = container.scrollHeight;
+            const delta = newHeight - anchorHeight;
+            runProgrammaticScroll(() => {
+              container.scrollTop = anchorScrollTop + delta;
+            }, 360);
+          }
+        });
+      })
+      .catch(() => {
+        // Leave hasMoreBackend as-is so user can retry by scrolling again.
+      })
+      .finally(() => {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+        clearLoadingMoreRef.current();
+      });
+  }, [activeChatId, prependChatStream, runProgrammaticScroll, scrollContainerRef, setHasMore]);
+
+  const { handleScroll, handleStartReached: _handleStartReached, clearLoadingMore } = useStreamScroll({
     virtualizer,
     scrollContainerRef,
     scrollPositions,
@@ -528,6 +577,10 @@ export function MessageStream(_props: MessageStreamProps) {
     displayDataLength: displayData.length,
     streamLength: stream.length,
     hasMore,
+    hasMoreBackend,
+    onLoadOlderPage: () => {
+      onLoadOlderPage();
+    },
     setVisibleCount,
     paginationOffsetRef,
     searchIdx,
@@ -538,6 +591,7 @@ export function MessageStream(_props: MessageStreamProps) {
     suppressScrollTrackingUntilRef,
     runProgrammaticScroll,
   });
+  clearLoadingMoreRef.current = clearLoadingMore;
 
   const handleScrollWithAtBottom = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     handleScroll(e);
@@ -908,7 +962,14 @@ export function MessageStream(_props: MessageStreamProps) {
                 </span>
               </div>
             )}
-            {!hasMore && <div className="h-8" />}
+            {!hasMore && hasMoreBackend && (
+              <div className="m-prev flex h-8 cursor-pointer items-center justify-center">
+                <span className="text-[13px] transition-colors" style={{ color: "var(--fill-tertiary)" }}>
+                  {loadingOlder ? "Loading older messages…" : "Load older messages ›"}
+                </span>
+              </div>
+            )}
+            {!hasMore && !hasMoreBackend && <div className="h-8" />}
             <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
               {virtualizer.getVirtualItems().map((virtualItem) => (
                 <div

@@ -2,7 +2,8 @@ use xiaolin_core::types::{ChatMessage, Role};
 
 use super::tool_executor::{
     build_cleared_with_recall, classify_retention_tier, summarize_tool_result, RetentionTier,
-    RECALL_HINT_MARKER,
+    BUDGET_RECENT_EPHEMERAL_CHARS, BUDGET_RECENT_FULL_RETAIN_CHARS, BUDGET_RECENT_SUMMARIZE_CHARS,
+    RECALL_HINT_MARKER, SUMMARIZE_MAX_CHARS, TIME_COMPACT_FULL_RETAIN_CHARS,
 };
 
 /// Semantic importance score for a tool result.
@@ -334,11 +335,12 @@ pub(crate) fn apply_token_budget(
                     build_cleared_with_recall(&tool_name, tier, &text, None)
                 }
                 RetentionTier::Summarize => {
-                    let summary = summarize_tool_result(&tool_name, &text, 300);
+                    let summary = summarize_tool_result(&tool_name, &text, SUMMARIZE_MAX_CHARS);
                     format!("[summarized] {summary}")
                 }
                 RetentionTier::FullRetain => {
-                    let summary = summarize_tool_result(&tool_name, &text, 500);
+                    let summary =
+                        summarize_tool_result(&tool_name, &text, TIME_COMPACT_FULL_RETAIN_CHARS);
                     format!("[summarized] {summary}")
                 }
             };
@@ -396,9 +398,9 @@ pub(crate) fn apply_token_budget(
 
             // For recent results, only fade — don't fully clear.
             let max_chars = match tier {
-                RetentionTier::FullRetain => 600,
-                RetentionTier::Summarize => 400,
-                RetentionTier::Ephemeral => 150,
+                RetentionTier::FullRetain => BUDGET_RECENT_FULL_RETAIN_CHARS,
+                RetentionTier::Summarize => BUDGET_RECENT_SUMMARIZE_CHARS,
+                RetentionTier::Ephemeral => BUDGET_RECENT_EPHEMERAL_CHARS,
             };
             let summary = summarize_tool_result(&tool_name, &text, max_chars);
             let replacement = format!("[summarized] {summary}");

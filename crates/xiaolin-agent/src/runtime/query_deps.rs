@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use xiaolin_core::types::{ChatMessage, ChatResponse, StreamDelta};
 use futures::stream::BoxStream;
 use tokio::sync::Mutex;
+use xiaolin_core::types::{ChatMessage, ChatResponse, StreamDelta};
 
 use super::post_compact_restore::RestorationState;
 use super::unified_compact::{unified_pre_query_compact, UnifiedCompactResult};
@@ -34,7 +34,7 @@ pub(crate) trait QueryDeps: Send + Sync {
         max_tokens: Option<u32>,
         model: &str,
         last_estimated_tokens: usize,
-        iteration_boundaries: &[(usize, std::time::Instant)],
+        iteration_boundaries: &[super::query_state::IterationMsgBoundary],
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
         restoration_state: Option<&RestorationState>,
@@ -42,8 +42,7 @@ pub(crate) trait QueryDeps: Send + Sync {
     ) -> UnifiedCompactResult;
 
     /// Emergency reactive compaction (prompt_too_long recovery).
-    fn reactive_compact(&self, messages: &[ChatMessage])
-        -> xiaolin_context::ReactiveCompactResult;
+    fn reactive_compact(&self, messages: &[ChatMessage]) -> xiaolin_context::ReactiveCompactResult;
 
     /// Provider name for metrics.
     fn provider_name(&self) -> &str;
@@ -59,10 +58,7 @@ pub(crate) struct ProductionDeps {
 }
 
 impl ProductionDeps {
-    pub fn new(
-        provider: Arc<dyn LlmProvider>,
-        pipeline: xiaolin_context::ContextPipeline,
-    ) -> Self {
+    pub fn new(provider: Arc<dyn LlmProvider>, pipeline: xiaolin_context::ContextPipeline) -> Self {
         Self {
             provider,
             pipeline: Mutex::new(pipeline),
@@ -90,7 +86,7 @@ impl QueryDeps for ProductionDeps {
         max_tokens: Option<u32>,
         model: &str,
         last_estimated_tokens: usize,
-        iteration_boundaries: &[(usize, std::time::Instant)],
+        iteration_boundaries: &[super::query_state::IterationMsgBoundary],
         todo_store: Option<&crate::builtin_tools::TodoStore>,
         enable_smart_compression: bool,
         restoration_state: Option<&RestorationState>,
@@ -114,10 +110,7 @@ impl QueryDeps for ProductionDeps {
         .await
     }
 
-    fn reactive_compact(
-        &self,
-        messages: &[ChatMessage],
-    ) -> xiaolin_context::ReactiveCompactResult {
+    fn reactive_compact(&self, messages: &[ChatMessage]) -> xiaolin_context::ReactiveCompactResult {
         let pipeline = self.pipeline.blocking_lock();
         pipeline.reactive_compact(messages)
     }
@@ -187,7 +180,7 @@ pub(crate) mod mock {
             _max_tokens: Option<u32>,
             _model: &str,
             _last_estimated_tokens: usize,
-            _iteration_boundaries: &[(usize, std::time::Instant)],
+            _iteration_boundaries: &[super::super::query_state::IterationMsgBoundary],
             _todo_store: Option<&crate::builtin_tools::TodoStore>,
             _enable_smart_compression: bool,
             _restoration_state: Option<&RestorationState>,
@@ -246,7 +239,7 @@ mod tests {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::json!(content)),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -303,7 +296,7 @@ mod tests {
         let mut messages = vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!("test message")),
-        ..Default::default()
+            ..Default::default()
         }];
 
         let result = deps

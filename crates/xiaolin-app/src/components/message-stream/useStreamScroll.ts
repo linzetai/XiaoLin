@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, type RefObject, type MutableRefObject, type Dispatch, type SetStateAction } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
 
-export const STREAM_PAGE_SIZE = 50;
+export const STREAM_PAGE_SIZE = 30;
 
 export function useStreamScroll({
   virtualizer,
@@ -11,6 +11,8 @@ export function useStreamScroll({
   displayDataLength,
   streamLength,
   hasMore,
+  hasMoreBackend,
+  onLoadOlderPage,
   setVisibleCount,
   paginationOffsetRef,
   searchIdx,
@@ -27,7 +29,12 @@ export function useStreamScroll({
   chatKey: string;
   displayDataLength: number;
   streamLength: number;
+  /** Local virtualization has more (stream.length > visibleCount). */
   hasMore: boolean;
+  /** Backend has older messages not yet fetched (cursor pagination). */
+  hasMoreBackend: boolean;
+  /** Called when the user scrolls to the top and backend has more. Receives the first message's id as cursor. */
+  onLoadOlderPage: (beforeId: number) => void;
   setVisibleCount: Dispatch<SetStateAction<number>>;
   paginationOffsetRef: MutableRefObject<number>;
   searchIdx: number;
@@ -38,22 +45,36 @@ export function useStreamScroll({
   suppressScrollTrackingUntilRef: MutableRefObject<number>;
   runProgrammaticScroll: (action: () => void, suppressMs?: number) => void;
 }) {
-  const loadingMore = useRef(false);
+  const loadingMoreRef = useRef(false);
   const streamLengthRef = useRef(streamLength);
   streamLengthRef.current = streamLength;
   const hasMoreRef = useRef(hasMore);
   hasMoreRef.current = hasMore;
+  const hasMoreBackendRef = useRef(hasMoreBackend);
+  hasMoreBackendRef.current = hasMoreBackend;
+  const onLoadOlderPageRef = useRef(onLoadOlderPage);
+  onLoadOlderPageRef.current = onLoadOlderPage;
   const runProgrammaticScrollRef = useRef(runProgrammaticScroll);
   runProgrammaticScrollRef.current = runProgrammaticScroll;
 
   const handleStartReached = useCallback(() => {
-    if (!hasMoreRef.current || loadingMore.current) return;
-    loadingMore.current = true;
-    setVisibleCount((prev) => {
-      const next = Math.min(prev + STREAM_PAGE_SIZE, streamLengthRef.current);
-      loadingMore.current = false;
-      return next;
-    });
+    if (loadingMoreRef.current) return;
+    if (hasMoreRef.current) {
+      loadingMoreRef.current = true;
+      setVisibleCount((prev) => {
+        const next = Math.min(prev + STREAM_PAGE_SIZE, streamLengthRef.current);
+        loadingMoreRef.current = false;
+        return next;
+      });
+      return;
+    }
+    if (hasMoreBackendRef.current) {
+      loadingMoreRef.current = true;
+      // Caller is responsible for fetching via `onLoadOlderPage` and clearing `loadingMoreRef`
+      // in its `.finally()`. Scroll anchor preservation is handled in MessageStream
+      // via `pendingRestoreScrollTopRef`.
+      onLoadOlderPageRef.current(-1);
+    }
   }, [setVisibleCount]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -69,7 +90,7 @@ export function useStreamScroll({
     }
     scrollPositions.current[chatKey] = top;
 
-    if (hasMoreRef.current && top < 200) {
+    if ((hasMoreRef.current || hasMoreBackendRef.current) && top < 200) {
       handleStartReached();
     }
   }, [chatKey, scrollPositions, atBottomRef, suppressScrollTrackingUntilRef, handleStartReached]);
@@ -150,5 +171,9 @@ export function useStreamScroll({
   return {
     handleScroll,
     handleStartReached,
+    loadingMoreRef,
+    clearLoadingMore: () => {
+      loadingMoreRef.current = false;
+    },
   };
 }

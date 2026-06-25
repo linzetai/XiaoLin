@@ -13,6 +13,19 @@ use super::stream_engine::ToolCallTrace;
 /// by escalating the token limit before giving up.
 pub(crate) const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT: u32 = 3;
 
+/// A boundary marker for the start of an agent iteration.
+///
+/// - `.0`: `messages.len()` at the time the boundary was pushed. May become
+///   stale when later compaction steps delete messages — treat as a hint, not
+///   as an authoritative index.
+/// - `.1`: Wall-clock time when the boundary was pushed. Used by
+///   `time_based_microcompact` to decide which iterations are outside the
+///   cache window.
+/// - `.2`: `tool_call_id` of the most recent Tool message at push time, if
+///   any. Used by `compute_protected_indices` to re-resolve the boundary's
+///   position in the current (possibly-compacted) Vec.
+pub(crate) type IterationMsgBoundary = (usize, std::time::Instant, Option<String>);
+
 /// When the same tool+args pair is called this many times, inject a
 /// "change your approach" nudge into the system message.
 const TOOL_REPEAT_WARN_THRESHOLD: u32 = 3;
@@ -82,14 +95,20 @@ pub(crate) struct QueryLoopState {
     pub compact_warning_sent: bool,
 
     // ── Time-based microcompact tracking (6E-01) ─────────────────────
-    /// Message count at the start of each iteration, paired with wall-clock time.
-    /// Used to determine which tool results are outside the cache window.
-    pub iteration_msg_boundaries: Vec<(usize, std::time::Instant)>,
+    /// Message count at the start of each iteration, paired with wall-clock time
+    /// and an optional `tool_call_id` anchor for stable re-resolution after
+    /// later compaction steps delete messages (BUG-023).
+    ///
+    /// The anchor is the `tool_call_id` of the most recent Tool message at the
+    /// time the boundary was pushed. When compaction deletes earlier messages,
+    /// `compute_protected_indices` looks the anchor up in the current Vec to
+    /// re-resolve the boundary's true position, falling back to the (clamped)
+    /// stored index if the anchor has also been evicted.
+    pub iteration_msg_boundaries: Vec<IterationMsgBoundary>,
 
     // ── Tool repetition detection ────────────────────────────────────
-    /// Per-(tool_name, arguments) call count within this query.
-    /// Key = "tool_name\0arguments" to detect exact-same calls across turns.
-    tool_call_exact_counts: HashMap<String, u32>,
+    /// Per logical tool target call count within this query (path for read_file, etc.).
+    tool_call_repetition_counts: HashMap<String, u32>,
     /// Tracks the highest escalation level we've already applied,
     /// so each level fires at most once.
     repetition_escalation: u32,
@@ -113,6 +132,11 @@ pub(crate) struct QueryLoopState {
     /// When true, the loop should stop after the next LLM call completes
     /// (regardless of whether stop hooks say to continue).
     pub force_stop_after_next: bool,
+
+    /// Consecutive agent iterations that invoked tools but made no write/progress.
+    pub iterations_without_progress: u32,
+    /// Whether the no-progress stall warning has been injected this turn.
+    pub no_progress_stall_warn_sent: bool,
 }
 
 /// The outcome of one loop iteration: continue or terminate.
@@ -186,7 +210,7 @@ impl QueryLoopState {
 
             iteration_msg_boundaries: Vec::new(),
 
-            tool_call_exact_counts: HashMap::new(),
+            tool_call_repetition_counts: HashMap::new(),
             repetition_escalation: 0,
             repetition_warn_count: 0,
             repetition_force_stop_count: 0,
@@ -198,6 +222,8 @@ impl QueryLoopState {
             session_memory: None,
 
             force_stop_after_next: false,
+            iterations_without_progress: 0,
+            no_progress_stall_warn_sent: false,
         }
     }
 
@@ -212,12 +238,12 @@ impl QueryLoopState {
     /// Record a tool call with its arguments and return what action the
     /// runtime should take.
     ///
-    /// - `Warn` at [`TOOL_REPEAT_WARN_THRESHOLD`] identical calls (fires once).
-    /// - `ForceStop` at [`TOOL_REPEAT_HARD_LIMIT`] identical calls.
-    /// - Different arguments for the same tool are perfectly fine.
+    /// - `Warn` at [`TOOL_REPEAT_WARN_THRESHOLD`] repeated calls to the same target.
+    /// - `ForceStop` at [`TOOL_REPEAT_HARD_LIMIT`] repeated calls.
+    /// - `read_file` counts by file path (offset/limit variants are the same target).
     pub fn record_tool_call(&mut self, tool_name: &str, arguments: &str) -> ToolRepetitionAction {
-        let key = format!("{}\0{}", tool_name, arguments);
-        let count = self.tool_call_exact_counts.entry(key).or_insert(0);
+        let key = super::tool_executor::tool_repetition_key(tool_name, arguments);
+        let count = self.tool_call_repetition_counts.entry(key).or_insert(0);
         *count += 1;
 
         if *count >= TOOL_REPEAT_HARD_LIMIT && self.repetition_escalation < 2 {
@@ -245,23 +271,19 @@ impl QueryLoopState {
     /// - Level 2 (ForceStop): explains the loop is being terminated.
     pub fn build_repetition_nudge(&self, force_stop: bool) -> Option<String> {
         let repeated: Vec<_> = self
-            .tool_call_exact_counts
+            .tool_call_repetition_counts
             .iter()
             .filter(|(_, &count)| count >= TOOL_REPEAT_WARN_THRESHOLD)
-            .map(|(key, &count)| {
-                let (name, _args) = key.split_once('\0').unwrap_or((key.as_str(), ""));
-                (name, count)
-            })
+            .map(|(key, &count)| (format_repetition_key(key), count))
             .collect();
         if repeated.is_empty() {
             return None;
         }
 
-        let mut msg = String::from(
-            "[Tool loop detected] You have called the same tool with identical arguments repeatedly:\n"
-        );
-        for (name, count) in &repeated {
-            msg.push_str(&format!("  - `{}`: {} identical calls\n", name, count));
+        let mut msg =
+            String::from("[Tool loop detected] You have repeatedly called the same tool target:\n");
+        for (label, count) in &repeated {
+            msg.push_str(&format!("  - {label}: {count} calls\n"));
         }
 
         if force_stop {
@@ -284,6 +306,49 @@ impl QueryLoopState {
             );
         }
         Some(msg)
+    }
+
+    /// Consecutive tool-only iterations without write/shell/subagent progress.
+    pub fn record_iteration_progress(&mut self, had_tool_calls: bool, had_progress: bool) {
+        if had_progress {
+            self.iterations_without_progress = 0;
+            self.no_progress_stall_warn_sent = false;
+        } else if had_tool_calls {
+            self.iterations_without_progress = self.iterations_without_progress.saturating_add(1);
+        }
+    }
+
+    /// Check read-only stall and return guidance or force-stop flag.
+    pub fn check_no_progress_stall(&mut self) -> NoProgressStallAction {
+        const WARN_ITERATIONS: u32 = 12;
+        const HARD_ITERATIONS: u32 = 25;
+
+        if self.iterations_without_progress >= HARD_ITERATIONS {
+            return NoProgressStallAction::ForceStop;
+        }
+        if self.iterations_without_progress >= WARN_ITERATIONS && !self.no_progress_stall_warn_sent
+        {
+            self.no_progress_stall_warn_sent = true;
+            return NoProgressStallAction::Warn;
+        }
+        NoProgressStallAction::None
+    }
+
+    pub fn build_no_progress_stall_nudge(force_stop: bool) -> String {
+        if force_stop {
+            "[Read-only stall] You have spent many iterations reading/searching without \
+             making changes (edit_file, write_file, shell_exec, etc.).\n\
+             The loop is being terminated. Summarize what you learned, explain what is \
+             blocking progress, and tell the user what you recommend next. \
+             Do NOT call more read/search tools."
+                .to_string()
+        } else {
+            "[Read-only stall warning] You have had many consecutive tool rounds with only \
+             reads/searches and no edits or commands.\n\
+             STOP re-reading the same files. Use the content already in context, make your \
+             best edit with `edit_file`, or explain to the user what you are stuck on."
+                .to_string()
+        }
     }
 
     pub fn record_tool_error(&mut self, tool_name: &str, error_output: &str) {
@@ -433,6 +498,24 @@ impl QueryLoopState {
             Some(LoopTransition::Terminal(TerminalReason::ConsecutiveErrors))
         }
     }
+}
+
+fn format_repetition_key(key: &str) -> String {
+    if let Some(path) = key.strip_prefix("read_file\0path:") {
+        return format!("read_file → {path}");
+    }
+    if let Some((tool, rest)) = key.split_once('\0') {
+        return format!("{tool} ({rest})");
+    }
+    key.to_string()
+}
+
+/// Action to take when the agent stalls in read-only loops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoProgressStallAction {
+    None,
+    Warn,
+    ForceStop,
 }
 
 impl std::fmt::Display for TerminalReason {
@@ -984,7 +1067,7 @@ mod tests {
             nudge.contains("read_file"),
             "should mention the repeated tool"
         );
-        assert!(nudge.contains("4 identical"), "should show call count");
+        assert!(nudge.contains("4 calls"), "should show call count");
         assert!(
             !nudge.contains("`write_file`"),
             "write_file called only once, should not be listed"
@@ -1015,6 +1098,57 @@ mod tests {
             nudge.contains("Summarize"),
             "should advise summarizing the issue"
         );
+    }
+
+    #[test]
+    fn record_tool_call_same_path_different_offset_counts_together() {
+        let mut s = QueryLoopState::new(10);
+        let path_a = r#"{"file_path":"src/foo.ts","offset":1,"limit":100}"#;
+        let path_b = r#"{"file_path":"src/foo.ts","offset":101,"limit":100}"#;
+        assert_eq!(
+            s.record_tool_call("read_file", path_a),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", path_b),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", path_a),
+            ToolRepetitionAction::Warn,
+            "3rd read of same path (different offset) should trigger Warn"
+        );
+    }
+
+    #[test]
+    fn no_progress_stall_warns_then_force_stops() {
+        let mut s = QueryLoopState::new(10);
+        for _ in 0..11 {
+            s.record_iteration_progress(true, false);
+            assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
+        }
+        s.record_iteration_progress(true, false);
+        assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::Warn);
+        assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
+        for _ in 0..13 {
+            s.record_iteration_progress(true, false);
+        }
+        assert_eq!(
+            s.check_no_progress_stall(),
+            NoProgressStallAction::ForceStop,
+            "25 consecutive read-only iterations should force stop"
+        );
+    }
+
+    #[test]
+    fn no_progress_stall_resets_on_progress() {
+        let mut s = QueryLoopState::new(10);
+        for _ in 0..10 {
+            s.record_iteration_progress(true, false);
+        }
+        s.record_iteration_progress(true, true);
+        assert_eq!(s.iterations_without_progress, 0);
+        assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
     }
 
     #[test]

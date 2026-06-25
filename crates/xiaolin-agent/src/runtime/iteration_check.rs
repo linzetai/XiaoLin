@@ -2,19 +2,17 @@ use xiaolin_core::types::{ChatMessage, Role};
 use xiaolin_protocol::{ContextWarningLevel, TurnSummary};
 
 use super::agent_step::AgentStep;
+use super::make_turn_summary;
 use super::query_deps::QueryDeps;
 use super::query_state;
 use super::session_memory;
 use super::stream_engine::send_step;
 use super::turn_state::{TurnMutableState, TurnServices};
-use super::make_turn_summary;
 
 /// Outcome of the per-iteration pre-check phase.
 pub(crate) enum PreCheckOutcome {
     /// All checks passed; proceed to LLM call.
-    Continue {
-        estimated_tokens: usize,
-    },
+    Continue { estimated_tokens: usize },
     /// Turn should terminate gracefully (e.g. blocking limit reached).
     EarlyFinish(TurnSummary),
     /// Turn should terminate with a fatal error.
@@ -82,7 +80,10 @@ pub(crate) async fn iteration_pre_check(
 
     let _ = send_step(
         &svc.step_tx,
-        AgentStep::ToolRoundBoundary { turn_id: svc.turn_id.clone(), iteration: ms.query_loop.iteration },
+        AgentStep::ToolRoundBoundary {
+            turn_id: svc.turn_id.clone(),
+            iteration: ms.query_loop.iteration,
+        },
         true,
     )
     .await;
@@ -91,7 +92,11 @@ pub(crate) async fn iteration_pre_check(
     if let Some(ref mut tracker) = ms.budget_tracker {
         let output_tokens = ms.query_loop.acc_completion_tokens as u64;
         let target = tracker.budget.target_tokens;
-        let pct = if target > 0 { output_tokens * 100 / target } else { 0 };
+        let pct = if target > 0 {
+            output_tokens * 100 / target
+        } else {
+            0
+        };
 
         if pct >= 120 {
             // Hard stop: significantly over budget → force terminate
@@ -152,9 +157,23 @@ pub(crate) async fn iteration_pre_check(
     }
 
     // ── 4. Record iteration message boundaries ─────────────────────────
-    ms.query_loop
-        .iteration_msg_boundaries
-        .push((ms.messages.len(), std::time::Instant::now()));
+    // Capture the tool_call_id of the most recent Tool message as a stable
+    // anchor. Later compaction steps (ContentFilterHook, pre_query_compact,
+    // collapse::project, LLM autocompact) may delete messages, which would
+    // invalidate the stored `messages.len()` index. The anchor lets
+    // `compute_protected_indices` re-resolve the boundary position against
+    // the current Vec. (BUG-023)
+    let anchor_tool_call_id = ms
+        .messages
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::Tool))
+        .and_then(|m| m.tool_call_id.clone());
+    ms.query_loop.iteration_msg_boundaries.push((
+        ms.messages.len(),
+        std::time::Instant::now(),
+        anchor_tool_call_id,
+    ));
 
     // ── 5. Populate plan content for restoration ───────────────────────
     if let Some(ref plan_path) = svc.plan_file_path {
@@ -292,14 +311,14 @@ pub(crate) async fn iteration_pre_check(
 
     // ── 11. Blocking limit check (95% context) ─────────────────────────
     let just_compacted = compact_result.compressed_by_llm || compact_result.pipeline_applied;
-    if let Some(query_state::LoopTransition::Terminal(
-        query_state::TerminalReason::BlockingLimit,
-    )) = ms.query_loop.check_blocking_limit(
-        estimated_tokens,
-        svc.context_window,
-        svc.auto_compact_enabled,
-        just_compacted,
-    ) {
+    if let Some(query_state::LoopTransition::Terminal(query_state::TerminalReason::BlockingLimit)) =
+        ms.query_loop.check_blocking_limit(
+            estimated_tokens,
+            svc.context_window,
+            svc.auto_compact_enabled,
+            just_compacted,
+        )
+    {
         tracing::warn!(
             agent_id = %svc.config.agent_id,
             estimated_tokens,

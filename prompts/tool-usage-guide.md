@@ -136,7 +136,7 @@ For files over 200 lines, follow this workflow to avoid redundant reads:
 ### Context-Efficient Patterns
 Large outputs are automatically written to temp files to keep your context window lean. Instead of re-reading large content, use targeted approaches:
 - **Shell output**: Full terminal output is saved to `/tmp/xiaolin_terminals/shell_*.txt`. Read the summary in context; use `read_file(offset: -30)` to tail, or `search_in_files` on the file to grep for specific patterns.
-- **Tool results**: Large tool outputs are saved to `/tmp/xiaolin_truncated/`. The file path is included in the truncation notice.
+- **Tool results**: Large tool outputs are saved to `~/.xiaolin/data/truncated/` (under the XiaoLin state directory). The exact file path is included in the truncation notice.
 - **After compression**: When context is compressed, the full pre-compression history is saved to `/tmp/xiaolin_history/chat_history_*.md`. If the summary misses details you need, use `read_file` or `search_in_files` to recover them from the history file.
 - **Prefer targeted reads**: Instead of `read_file` on an entire large file, use `offset`/`limit` to read only the section you need, or `search_in_files` to find specific content.
 

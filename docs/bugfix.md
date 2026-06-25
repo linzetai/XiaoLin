@@ -1207,7 +1207,7 @@
 - **问题**：每轮工具执行后 `post_tool_processing` 调用无保护的 `microcompact_tool_results`，`read_file`（FullRetain）在超过 `base_keep+2`（128K 上下文仅 6 次）后被 `[faded]`/`[recall-available]` 替换，LLM 失去文件内容被迫反复 read_file；而 `unified_compact` 路径有 3 轮 iteration 保护窗口，post_tool 路径完全未启用。
 - **影响**：排查类任务（并行读多文件 + 验证）在同一 turn 内陷入重读循环，无法基于已读内容推进
 - **建议**：post_tool 改用 `microcompact_tool_results_with_protection`；`read_file` 单独放宽 FullRetain 窗口（full +8、preview +6、faded 2000 chars）
-- **修复记录**：2026-06-24 post_tool 启用 `compute_protected_indices` + `read_file` 专用 `full_retain_tiers`；新增 `read_file_gets_wider_full_retain_window` 单测
+- **修复记录**：2026-06-24 post_tool 启用 `compute_protected_indices` + `read_file` 专用 `full_retain_tiers`；新增 `read_file_gets_wider_full_retain_window` 单测；2026-06-24 二次调大全系工具保留窗口（base_keep、FullRetain/Summarize/Ephemeral 分层、保护轮次 5）
 
 #### BUG-018 🔴 跨 turn 加载历史时 read_file 结果未进入 LLM 上下文
 
@@ -1218,6 +1218,94 @@
 - **影响**：新 turn / 刷新后 agent 反复 read_file，UI 有输出但模型上下文为空
 - **修复方案**：`expand_assistant_tool_outputs` 合成 Tool 消息；history 无 ToolUse 时回退 messages 表；`chat_message_to_history` 支持 enriched JSON
 - **修复记录**：2026-06-24 实现 expand + history 回退 + 双写修复；新增 2 个 history_compat 单测
+
+#### BUG-019 🔴 截断工具输出写入 /tmp 导致 read_file 沙箱拒绝
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/tool_executor.rs`（`truncated_output_dir`、`save_truncated_output`）
+- **问题**：超长工具结果被截断后全文保存到 `/tmp/xiaolin_truncated`，提示 agent 用 `read_file` 取回；该路径不在沙箱允许目录内，agent 陷入「截断 → read_file 失败 → 重试」陷阱。
+- **影响**：shell/grep 等大输出任务无法取回完整内容，反复失败空转
+- **修复方案**：改为 `resolve_state_dir()/data/truncated`（与 read_file 白名单一致）
+- **修复记录**：2026-06-24 迁移截断落盘目录；新增 `truncated_output_dir_is_under_state_dir` 单测
+
+#### BUG-020 🔴 read_file 同路径不同 offset 绕过重复检测
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/tool_executor.rs`（`tool_repetition_key`）；`crates/xiaolin-agent/src/runtime/query_state.rs`（`record_tool_call`）
+- **问题**：重复检测用 `tool_name\0arguments` 精确匹配，同一文件分段 read（不同 offset/limit）不计入重复，线上出现单文件 30+ 次 read。
+- **影响**：排查类任务在单 turn 内反复读同一文件，无法推进
+- **修复方案**：`read_file` 按 path 归一化；grep/search 按 pattern+path；shell 按 command
+- **修复记录**：2026-06-24 实现 `tool_repetition_key`；新增 `read_file_repetition_key_ignores_offset`、`record_tool_call_same_path_different_offset_counts_together` 单测
+
+#### BUG-021 🟡 只读空转无进展迭代停止
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/query_state.rs`；`crates/xiaolin-agent/src/runtime/post_tool.rs`
+- **问题**：连续多轮仅 read/search 无 edit/shell 时无硬性止损，会话可跑 100+ 轮无进展。
+- **影响**：长任务空转浪费 token 与时间
+- **修复方案**：`record_iteration_progress` + `check_no_progress_stall`（12 轮 warn、25 轮 force_stop）；post_tool 注入 guidance
+- **修复记录**：2026-06-24 实现无进展计数与止损；新增 `no_progress_stall_warns_then_force_stops` 单测
+
+#### BUG-022 🔴 子 agent 可嵌套 spawn 导致 sync 链卡死
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/subagent.rs`；`crates/xiaolin-agent/src/runtime/prompt_builder.rs`；`crates/xiaolin-core/src/agent_config.rs`
+- **问题**：`current_depth >= 1` 时仍将 `SubAgentTool` 注入子 registry，explore 子 agent 可再 spawn explore/shell；配合 `background:false` 形成 `spawn_and_wait` 同步链，底层 read 空转时整棵子树与主 turn 挂起（会话 `new-1782316465028-ilvswq`：depth 1→2→3 套娃）。
+- **影响**：主 agent turn 长时间无 `turn_end`，UI 表现为卡死
+- **修复方案**：`current_depth >= 1` 硬拒绝 `spawn_subagent`；移除子 registry 动态注入；子 agent prompt 明确禁止嵌套；`explore`/`research` 默认 `background: true` 避免 Main sync 阻塞
+- **修复记录**：2026-06-24 实现嵌套禁止 + explore/research 默认 background；新增 `spawn_subagent_nested_denied_at_depth_one` 单测
+
+#### BUG-023 🔴 `iteration_msg_boundaries` 索引在压缩删消息后失效，保护集为空
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/query_state.rs`；`crates/xiaolin-agent/src/runtime/iteration_check.rs`；`crates/xiaolin-agent/src/runtime/tool_executor.rs`；`crates/xiaolin-agent/src/runtime/unified_compact.rs`；`crates/xiaolin-agent/src/runtime/query_deps.rs`；`crates/xiaolin-agent/src/runtime/post_tool.rs`
+- **问题**：`iteration_msg_boundaries` 存的是 push 时刻的 `messages.len()` 位置索引。`unified_pre_query_compact` 内部多步（ContentFilterHook `retain_mut`/`remove`、`pipeline.pre_query_compact`、`collapse::project`、LLM autocompact）会删除消息，使 `messages.len()` 变小，存储的索引失效。`compute_protected_indices` 用 `boundaries[len-N].0` 作为 `protect_from_boundary`：
+  - 索引 > 当前 `messages.len()` → 保护集为空
+  - 索引指向压缩前较后位置 → 保护集太小，最近读的文件没被保护
+
+  叠加 `cache_window_for_occupancy` ≥90% 占用 2 分钟地板，刚读完的 tool 结果立即被 `time_based_microcompact` 打成 `[time-compacted]`，agent 看到 recall 提示 → 重读 → 再被压缩 → 死循环。会话 `chat_history_1782314914329.md`（1831 行）和 `chat_history_1782314627522.md`（1575 行）即此症状。
+- **影响**：agent 反复读同一批文件，永不进入 edit/write 阶段；token 与时间浪费；用户体验上"任务永不完成"
+- **修复方案**：
+  1. boundary 元组从 `(usize, Instant)` 扩展为 `(usize, Instant, Option<String>)`，第三项是 push 时刻最近 Tool 消息的 `tool_call_id`（stable anchor）
+  2. `compute_protected_indices` 优先按 anchor 在当前（已压缩）Vec 里重新定位；anchor 被蒸发时顺序向后找下一个 boundary 的 anchor；都查不到回退到 clamp 后的位置索引
+  3. `iteration_check.rs` 在 push 时捕获 anchor
+  4. 所有调用点签名同步更新
+- **修复记录**：2026-06-25 实现稳定 anchor 重定位 + 向后回退；新增 `compute_protected_indices_resolves_anchor_after_compaction`、`compute_protected_indices_falls_back_when_anchor_evicted`、`t7_protected_reads_survive_pre_query_compact` 集成测试
+
+#### BUG-024 🟡 截断措辞触发 agent 重读（"truncated" → "omitted from this view"）
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-context/src/engine.rs`；`crates/xiaolin-agent/src/runtime/tool_executor.rs`
+- **问题**：多层截断栈（工具执行 → ToolResultStorage → time_based_microcompact → microcompact_tool_results_with_protection → ContentFilterHook → post_tool 第二轮 microcompact）中，`ContentFilterHook` 用 `…(N chars truncated)` 措辞，`fade_to_preview` 用 `[N more chars faded. ...]`，`[summarized]` marker 体不带恢复提示。LLM 看到"truncated"/"faded"判断"内容被截断了，很影响质量"，重新读文件——加剧 BUG-023 的循环。
+- **影响**：agent 对自身上下文失去信任，倾向于重新读文件，加剧读文件死循环
+- **修复方案**：
+  1. `ContentFilterHook` 截断通知：`{truncated}\n…({removed} chars truncated)` → `{truncated}\n…({removed} chars omitted from this view; use read_file with offset/limit to see the full content)`
+  2. `fade_to_preview`：`[{remaining} more chars faded. Original: ...]` → `[preview only — {remaining} more chars available via read_file. Original: ...]`
+  3. `[summarized]` marker 末尾追加 `\n[summary of older tool result — use read_file/grep to re-fetch if needed]`
+- **修复记录**：2026-06-25 改文案为"可恢复"措辞；新增 `fade_to_preview_wording_mentions_recoverable` 单测；更新 `content_filter_truncates_long_tool_result` 断言
+
+#### BUG-025 🟡 `microcompact_tool_results_with_protection` 跳过表不全，产生双重标记
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/tool_executor.rs`
+- **问题**：`microcompact_tool_results_with_protection` 的跳过表只含 `ONELINER_MARKER`/`FADED_MARKER`/`RECALL_HINT_MARKER`/`TOOL_RESULT_CLEARED_MESSAGE`，缺 `TIME_COMPACTED_MARKER`、`[summarized]`、`[superseded`。`time_based_microcompact` 把结果打成 `[time-compacted] ...` 后，`microcompact_tool_results_with_protection` 再次处理同一消息，把 `[time-compacted]` 当作普通文本截断，产生 `[faded] [time-compacted] ...` 这种嵌套/双重标记。LLM 解读为"数据多次丢失"，重读。
+- **影响**：上下文中出现 `[faded] [time-compacted] § ...` 双重标记，LLM 失去信任，重读文件
+- **修复方案**：
+  1. 新增共享 helper `is_already_compacted(text)`，覆盖所有 marker：`[oneliner]`/`[faded]`/`[time-compacted]`/`[summarized]`/`[recall-available]`/`[superseded`/`[Old tool result content cleared]`（即 `TOOL_RESULT_CLEARED_MESSAGE`）
+  2. `microcompact_tool_results_with_protection`、`time_based_microcompact_with_protection`、`collect_eviction_manifest` 三处跳过检查统一调用 helper
+  3. `engine.rs::ContentFilterHook::on_assemble` 复制一份同样逻辑（避免 `xiaolin-context` 反向依赖 `xiaolin-agent`），注释指向 `tool_executor::is_already_compacted` 作为 source of truth
+- **修复记录**：2026-06-25 抽 `is_already_compacted` helper + 三处调用点统一；新增 `microcompact_skips_time_compacted_and_summarized`、`content_filter_skips_already_compressed` 单测
+
+#### BUG-026 🟡 `cache_window_for_occupancy` ≥90% 地板 2 min 太激进
+
+- **状态**：✅ FIXED
+- **文件**：`crates/xiaolin-agent/src/runtime/tool_executor.rs`；`crates/xiaolin-agent/src/runtime/unified_compact.rs`
+- **问题**：`cache_window_for_occupancy` 在 ≥90% 占用时返回 2 min 窗口。2 min 短于 LLM round-trip + 工具执行时间，刚读完的 tool 结果在下一轮 pre_query_compact 就超过窗口，被 `time_based_microcompact` 打成 `[time-compacted]`。叠加 BUG-023（保护集为空），形成"读 → 压缩 → recall → 重读"循环。
+- **影响**：高占用时最近 read_file 结果立即被压缩，agent 不得不重读
+- **修复方案**：
+  1. ≥90% 占用地板从 2 min 提到 5 min（300s），和 <90% 档一致
+  2. `unified_pre_query_compact` Step 0 智能跳过：计算 cutoff 后，若所有 cutoff 之前的 Tool 消息都在保护集里，整个 Step 0 跳过（不会浪费时间遍历 Vec）
+- **修复记录**：2026-06-25 提高地板 + Step 0 智能跳过；新增 `cache_window_floor_is_5min_at_high_occupancy` 单测
 
 ## 按类型分布的问题模式
 

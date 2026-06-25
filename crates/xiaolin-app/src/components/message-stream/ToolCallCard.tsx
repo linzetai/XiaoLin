@@ -14,6 +14,7 @@ import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from ".
 import { buildToolMeta } from "./StepIndicator";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { parseMcpToolName } from "../../lib/mcpNaming";
+import * as transport from "../../lib/transport";
 
 export interface ToolCall {
   id: string;
@@ -24,7 +25,18 @@ export interface ToolCall {
   duration?: number;
   startTime?: number;
   metadata?: Record<string, unknown> | null;
+  /** When true, `result` is a truncated preview; fetch the full output via `getToolOutput`. */
+  truncated?: boolean;
+  /** Original (untruncated) length of `result` in chars. */
+  fullLength?: number;
+  /** DB message row id — used to locate the tool call for lazy-load. */
+  messageId?: number;
+  /** Session id — needed to call `getToolOutput`. */
+  sessionId?: string;
 }
+
+/** Threshold above which we avoid eager regex/JSON.parse on the result string. */
+const OUTPUT_HEAVY_THRESHOLD = 50_000;
 
 const DEFAULT_META = { icon: <Wrench  /> };
 
@@ -299,8 +311,16 @@ function extractImages(text: string): { images: string[]; textOnly: string } {
 function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
-  const { images, textOnly } = extractImages(content);
-  const formatted = textOnly ? tryPrettyJson(textOnly) : "";
+  // Skip regex/JSON.parse for huge strings; render raw text instead.
+  const isHeavy = content.length > OUTPUT_HEAVY_THRESHOLD;
+  const { images, textOnly } = useMemo(
+    () => (isHeavy ? { images: [] as string[], textOnly: content } : extractImages(content)),
+    [content, isHeavy],
+  );
+  const formatted = useMemo(
+    () => (textOnly && !isHeavy ? tryPrettyJson(textOnly) : textOnly),
+    [textOnly, isHeavy],
+  );
   const lines = formatted.split("\n");
   const needsTruncate = lines.length > MAX_OUTPUT_LINES || formatted.length > MAX_OUTPUT_CHARS;
   const display = expanded
@@ -347,6 +367,8 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
   const { t } = useTranslation("chat");
   const toolMeta = useMemo(() => buildToolMeta(t), [t]);
   const [expanded, setExpanded] = useState(false);
+  const [fullOutput, setFullOutput] = useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = useState(false);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? toolMeta[tool.name] ?? DEFAULT_META;
   const label = meta.label ?? tool.name;
@@ -356,7 +378,35 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
 
-  const resultImages = tool.result ? extractImages(tool.result).images : [];
+  // Avoid eager regex over huge strings (the 1.67 MB tool result path).
+  // Only run extractImages when the result is small enough or the card is expanded.
+  const resultIsHeavy = (tool.result?.length ?? 0) > OUTPUT_HEAVY_THRESHOLD;
+  const resultImages = useMemo(() => {
+    if (!tool.result || resultIsHeavy) return [];
+    return extractImages(tool.result).images;
+  }, [tool.result, resultIsHeavy]);
+
+  // Lazy-load the full output when the user expands a truncated tool call.
+  const handleExpand = useCallback(() => {
+    const next = !expanded;
+    setExpanded(next);
+    if (!next) return;
+    if (!tool.truncated || fullOutput !== null || loadingFull) return;
+    if (!tool.sessionId || tool.messageId == null) return;
+    setLoadingFull(true);
+    transport
+      .getToolOutput(tool.sessionId, tool.messageId, tool.id)
+      .then((resp) => {
+        const full = resp.displayOutput ?? resp.output ?? null;
+        setFullOutput(full);
+      })
+      .catch(() => {
+        // Leave the truncated preview in place on error.
+      })
+      .finally(() => setLoadingFull(false));
+  }, [expanded, fullOutput, loadingFull, tool.id, tool.messageId, tool.sessionId, tool.truncated]);
+
+  const displayResult = fullOutput ?? tool.result;
 
   return (
     <div
@@ -372,7 +422,7 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
     >
       {/* Header — always visible, clickable to expand */}
       <button
-        onClick={() => hasDetails && setExpanded(!expanded)}
+        onClick={() => hasDetails && handleExpand()}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100"
         style={{ cursor: hasDetails ? "pointer" : "default" }}
         aria-expanded={hasDetails ? expanded : undefined}
@@ -494,7 +544,12 @@ export const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCal
               </pre>
             </div>
           )}
-          {tool.result && <OutputBlock content={tool.result} error={isError} />}
+          {displayResult && <OutputBlock content={displayResult} error={isError} />}
+          {tool.truncated && loadingFull && (
+            <div className="mt-1 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+              Loading full output…
+            </div>
+          )}
         </div>
       )}
     </div>

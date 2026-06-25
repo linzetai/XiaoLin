@@ -14,6 +14,7 @@ import { PlanApprovalCard, isPlanExitResult, type PlanApprovalMetadata } from ".
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { parseMcpToolName } from "../../lib/mcpNaming";
 import { useStreamStore } from "../../lib/stores";
+import * as transport from "../../lib/transport";
 
 export interface ToolCall {
   id: string;
@@ -24,7 +25,18 @@ export interface ToolCall {
   duration?: number;
   startTime?: number;
   metadata?: Record<string, unknown> | null;
+  /** When true, `result` is a truncated preview; fetch the full output via `getToolOutput`. */
+  truncated?: boolean;
+  /** Original (untruncated) length of `result` in chars. */
+  fullLength?: number;
+  /** DB message row id — used to locate the tool call for lazy-load. */
+  messageId?: number;
+  /** Session id — needed to call `getToolOutput`. */
+  sessionId?: string;
 }
+
+/** Threshold above which we avoid eager regex/JSON.parse on the result string. */
+const OUTPUT_HEAVY_THRESHOLD = 50_000;
 
 export type ToolCategory = "shell" | "read" | "write" | "edit" | "search" | "web" | "mcp" | "default";
 
@@ -349,8 +361,16 @@ const MAX_OUTPUT_CHARS = 1200;
 function OutputBlock({ content, error }: { content: string; error?: boolean }) {
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
-  const { images, textOnly } = extractImages(content);
-  const formatted = textOnly ? tryPrettyJson(textOnly) : "";
+  // Skip regex/JSON.parse for huge strings; render raw text instead.
+  const isHeavy = content.length > OUTPUT_HEAVY_THRESHOLD;
+  const { images, textOnly } = useMemo(
+    () => (isHeavy ? { images: [] as string[], textOnly: content } : extractImages(content)),
+    [content, isHeavy],
+  );
+  const formatted = useMemo(
+    () => (textOnly && !isHeavy ? tryPrettyJson(textOnly) : textOnly),
+    [textOnly, isHeavy],
+  );
   const lines = formatted.split("\n");
   const needsTruncate = lines.length > MAX_OUTPUT_LINES || formatted.length > MAX_OUTPUT_CHARS;
   const display = expanded
@@ -444,6 +464,8 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
   const { t } = useTranslation("chat");
   const toolMeta = useMemo(() => buildToolMeta(t), [t]);
   const [expanded, setExpanded] = useState(false);
+  const [fullOutput, setFullOutput] = useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = useState(false);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? toolMeta[tool.name] ?? DEFAULT_META;
   const label = meta.label ?? tool.name;
@@ -477,13 +499,40 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
 
   const progressData = useStreamStore((s) => s.toolProgress[tool.id]);
 
-  const resultImages = tool.result ? extractImages(tool.result).images : [];
+  // Avoid eager regex over huge strings (the 1.67 MB tool result path).
+  const resultIsHeavy = (tool.result?.length ?? 0) > OUTPUT_HEAVY_THRESHOLD;
+  const resultImages = useMemo(() => {
+    if (!tool.result || resultIsHeavy) return [];
+    return extractImages(tool.result).images;
+  }, [tool.result, resultIsHeavy]);
   const hasSpecialResult = tool.result && (
     isTodoResult(tool.name, tool.result) ||
     isEditResult(tool.name, tool.result) ||
     isPlanExitResult(tool.name, tool.result, tool.metadata as PlanApprovalMetadata | undefined)
   );
   const canExpand = hasDetails && !hasSpecialResult;
+
+  // Lazy-load the full output when the user expands a truncated tool call.
+  const handleExpand = useCallback(() => {
+    const next = !expanded;
+    setExpanded(next);
+    if (!next) return;
+    if (!tool.truncated || fullOutput !== null || loadingFull) return;
+    if (!tool.sessionId || tool.messageId == null) return;
+    setLoadingFull(true);
+    transport
+      .getToolOutput(tool.sessionId, tool.messageId, tool.id)
+      .then((resp) => {
+        const full = resp.displayOutput ?? resp.output ?? null;
+        setFullOutput(full);
+      })
+      .catch(() => {
+        // Leave the truncated preview in place on error.
+      })
+      .finally(() => setLoadingFull(false));
+  }, [expanded, fullOutput, loadingFull, tool.id, tool.messageId, tool.sessionId, tool.truncated]);
+
+  const displayResult = fullOutput ?? tool.result;
 
   return (
     <div
@@ -495,7 +544,7 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
     >
       {/* Header row — borderless Codex style */}
       <button
-        onClick={() => canExpand && setExpanded(!expanded)}
+        onClick={() => canExpand && handleExpand()}
         className="tc-h flex w-full items-center gap-1.5 px-1 py-1 text-left rounded transition-colors duration-100"
         style={{
           cursor: canExpand ? "pointer" : "default",
@@ -652,7 +701,12 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
                     </pre>
                   </div>
                 )}
-                {tool.result && <OutputBlock content={tool.result} error={isError} />}
+                {displayResult && <OutputBlock content={displayResult} error={isError} />}
+                {tool.truncated && loadingFull && (
+                  <div className="mt-1 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
+                    Loading full output…
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -14,10 +14,7 @@ pub async fn handle_sessions_list(
     req_id: Option<String>,
     params: SessionsListParams,
 ) {
-    let limit = params
-        .limit
-        .unwrap_or(50)
-        .clamp(1, 200) as i64;
+    let limit = params.limit.unwrap_or(50).clamp(1, 200) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
     match state.store.session_store.list_sessions(limit, offset).await {
         Ok(sessions) => {
@@ -116,6 +113,39 @@ pub async fn handle_sessions_get(
     }
 }
 
+/// Maximum size (in chars) of inline `display_output`/`output` fields sent over the wire.
+/// Larger outputs are truncated and the frontend lazy-loads them on expand.
+const INLINE_TOOL_OUTPUT_MAX_CHARS: usize = 8_192;
+
+fn parse_tool_calls_json(raw: Option<&str>) -> Vec<serde_json::Value> {
+    match raw.and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()) {
+        Some(serde_json::Value::Array(arr)) => arr,
+        Some(other) => vec![other],
+        None => Vec::new(),
+    }
+}
+
+/// Rewrite each tool call's `display_output` and `output` to at most
+/// `INLINE_TOOL_OUTPUT_MAX_CHARS` chars, marking `truncated: true` and
+/// attaching `full_length` so the frontend knows to lazy-load.
+fn truncate_tool_calls_for_wire(tool_calls: &mut Vec<serde_json::Value>) {
+    for tc in tool_calls.iter_mut() {
+        for field in ["display_output", "output"] {
+            if let Some(s) = tc
+                .get(field)
+                .and_then(|v| v.as_str())
+                .filter(|s| s.len() > INLINE_TOOL_OUTPUT_MAX_CHARS)
+            {
+                let full_len = s.len();
+                let head: String = s.chars().take(INLINE_TOOL_OUTPUT_MAX_CHARS).collect();
+                tc[field] = json!(head);
+                tc["truncated"] = json!(true);
+                tc["full_length"] = json!(full_len);
+            }
+        }
+    }
+}
+
 pub async fn handle_sessions_messages(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
@@ -135,17 +165,49 @@ pub async fn handle_sessions_messages(
         .await;
         return;
     };
-    match state.store.session_store.load_messages(sid).await {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30)
+        .clamp(1, 200) as u32;
+    let before_id = params.get("beforeId").and_then(|v| v.as_i64());
+
+    let messages_result = match before_id {
+        Some(before) => {
+            state
+                .store
+                .session_store
+                .load_messages_before(sid, before, limit)
+                .await
+        }
+        None => {
+            state
+                .store
+                .session_store
+                .load_tail_messages(sid, limit)
+                .await
+        }
+    };
+
+    match messages_result {
         Ok(messages) => {
+            let has_more = messages.len() as u32 == limit;
             let data: Vec<_> = messages
                 .iter()
                 .map(|m| {
+                    let mut tool_calls = parse_tool_calls_json(m.tool_calls_json.as_deref());
+                    truncate_tool_calls_for_wire(&mut tool_calls);
+                    let tool_calls_json = if tool_calls.is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        serde_json::Value::Array(tool_calls)
+                    };
                     let mut obj = json!({
                         "id": m.id,
                         "role": m.role,
                         "content": m.content.as_ref().and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok()),
                         "name": m.name, "toolCallId": m.tool_call_id, "createdAt": m.created_at,
-                        "toolCallsJson": m.tool_calls_json.as_ref().and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()),
+                        "toolCallsJson": tool_calls_json,
                     });
                     if let Some(ref rc) = m.reasoning_content {
                         if !rc.is_empty() {
@@ -171,8 +233,150 @@ pub async fn handle_sessions_messages(
                 &WsResponse {
                     id: req_id,
                     msg_type: "sessions.messages".into(),
-                    data: Some(json!({"messages": data})),
+                    data: Some(json!({"messages": data, "hasMore": has_more})),
                     error: None,
+                },
+            )
+            .await;
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"message": format!("{e}")})),
+                },
+            )
+            .await;
+        }
+    }
+}
+
+/// Fetch the full, untruncated `output`/`display_output` for a single tool call.
+/// Used by the frontend to lazy-load large tool outputs when the user expands a card.
+pub async fn handle_sessions_tool_output(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    params: serde_json::Value,
+) {
+    let Some(sid) = params.get("sessionId").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "sessionId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+    let Some(message_id) = params.get("messageId").and_then(|v| v.as_i64()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "messageId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+    let Some(call_id) = params.get("callId").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "callId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+
+    match state
+        .store
+        .session_store
+        .load_message_by_id(sid, message_id)
+        .await
+    {
+        Ok(Some(message)) => {
+            let found = parse_tool_calls_json(message.tool_calls_json.as_deref())
+                .into_iter()
+                .find(|item| {
+                    item.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s == call_id)
+                        .unwrap_or(false)
+                });
+
+            match found {
+                Some(tc) => {
+                    let output = tc.get("output").and_then(|v| v.as_str()).map(String::from);
+                    let display_output = tc
+                        .get("display_output")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    if output.is_none() && display_output.is_none() {
+                        send_resp(
+                            sender,
+                            &WsResponse {
+                                id: req_id,
+                                msg_type: "error".into(),
+                                data: None,
+                                error: Some(
+                                    json!({"code": 404, "message": "tool output not found"}),
+                                ),
+                            },
+                        )
+                        .await;
+                        return;
+                    }
+                    send_resp(
+                        sender,
+                        &WsResponse {
+                            id: req_id,
+                            msg_type: "sessions.tool_output".into(),
+                            data: Some(json!({
+                                "output": output,
+                                "displayOutput": display_output,
+                                "truncated": false,
+                            })),
+                            error: None,
+                        },
+                    )
+                    .await;
+                }
+                None => {
+                    send_resp(
+                        sender,
+                        &WsResponse {
+                            id: req_id,
+                            msg_type: "error".into(),
+                            data: None,
+                            error: Some(json!({"code": 404, "message": "tool call not found"})),
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+        Ok(None) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": 404, "message": "message not found"})),
                 },
             )
             .await;
@@ -513,11 +717,10 @@ pub async fn handle_session_scoped(
     match op {
         "get" => handle_sessions_get(sender, state, req_id, params).await,
         "messages" => handle_sessions_messages(sender, state, req_id, params).await,
+        "tool_output" => handle_sessions_tool_output(sender, state, req_id, params).await,
         "delete" => handle_sessions_delete(sender, state, req_id, params).await,
         "update_title" => handle_sessions_update_title(sender, state, req_id, params).await,
-        "set_work_dir" => {
-            handle_sessions_set_work_dir(sender, state, req_id, params).await
-        }
+        "set_work_dir" => handle_sessions_set_work_dir(sender, state, req_id, params).await,
         _ => {}
     }
 }
@@ -575,7 +778,11 @@ pub async fn handle_sessions_set_work_dir(
                         .to_string(),
                 );
                 if let Some(wd) = work_dir {
-                    state.strm.git_watcher_manager.ensure_watcher(pid, &std::path::PathBuf::from(wd)).await;
+                    state
+                        .strm
+                        .git_watcher_manager
+                        .ensure_watcher(pid, &std::path::PathBuf::from(wd))
+                        .await;
                 }
             }
             let _ = state.strm.ws_broadcast.send(
@@ -729,5 +936,25 @@ pub async fn handle_workspace_init(
             )
             .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tool_calls_json;
+
+    #[test]
+    fn parse_tool_calls_json_accepts_single_object() {
+        let raw = r#"{"id":"call-1","output":"full"}"#;
+        let calls = parse_tool_calls_json(Some(raw));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].get("id").and_then(|v| v.as_str()), Some("call-1"));
+    }
+
+    #[test]
+    fn parse_tool_calls_json_accepts_array() {
+        let raw = r#"[{"id":"call-1"},{"id":"call-2"}]"#;
+        let calls = parse_tool_calls_json(Some(raw));
+        assert_eq!(calls.len(), 2);
     }
 }

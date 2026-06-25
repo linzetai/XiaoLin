@@ -8,7 +8,7 @@ use super::post_compact_restore::RestorationState;
 use super::session_memory;
 use super::tool_executor::{
     cache_window_for_occupancy, collect_eviction_manifest, compute_protected_indices,
-    dedup_repeated_tool_calls, keep_recent_for_context_window,
+    dedup_repeated_tool_calls, keep_recent_for_context_window, log_microcompact_event,
     microcompact_tool_results_with_protection, rebuild_recall_registry, snapshot_tool_contents,
     time_based_microcompact_with_protection, ProtectionWindowConfig,
 };
@@ -138,7 +138,7 @@ pub(crate) async fn unified_pre_query_compact(
     provider: &Arc<dyn LlmProvider>,
     model: &str,
     last_estimated_tokens: usize,
-    iteration_boundaries: &[(usize, std::time::Instant)],
+    iteration_boundaries: &[super::query_state::IterationMsgBoundary],
     todo_store: Option<&crate::builtin_tools::TodoStore>,
     enable_smart_compression: bool,
     restoration_state: Option<&RestorationState>,
@@ -172,8 +172,11 @@ pub(crate) async fn unified_pre_query_compact(
             &protected,
         );
         if time_compacted > 0 {
-            tracing::debug!(
+            tracing::info!(
+                target: "agent.compaction",
+                source = "time_based",
                 time_compacted,
+                tokens_before = pre_estimate,
                 "time-based microcompact collapsed stale tool results"
             );
         }
@@ -194,7 +197,21 @@ pub(crate) async fn unified_pre_query_compact(
     // Step 1: Tier-aware microcompact of old tool results.
     if enable_smart_compression && gates.enable_importance_microcompact {
         let keep_recent = keep_recent_for_context_window(context_window);
-        microcompact_tool_results_with_protection(messages, keep_recent, &protected);
+        let tokens_before_mc = xiaolin_context::estimate_messages_tokens(messages);
+        let mc_stats = microcompact_tool_results_with_protection(messages, keep_recent, &protected);
+        let tokens_after_mc = xiaolin_context::estimate_messages_tokens(messages);
+        log_microcompact_event(
+            "pre_query",
+            &mc_stats,
+            tokens_before_mc,
+            tokens_after_mc,
+            "", // agent_id not available in compact pipeline
+            None,
+            None,
+            0,
+            keep_recent,
+            protected.len(),
+        );
     }
 
     // Step 1.5: Token budget allocation — enforce the 30/40/20/10 split
@@ -252,10 +269,13 @@ pub(crate) async fn unified_pre_query_compact(
             };
             if occupancy < 0.50 {
                 8000
-            } else if occupancy < 0.80 {
-                4000
             } else {
-                2000
+                // Gap C3: previously <80% → 4000 and ≥80% → 2000. The 2000-
+                // char floor (~500 tokens) was too aggressive — at 128K
+                // context the agent couldn't see a full function and would
+                // re-read. 4000 chars (~1000 tokens) is a small cost for
+                // much better visibility at high occupancy.
+                4000
             }
         } else {
             2000
@@ -288,8 +308,7 @@ pub(crate) async fn unified_pre_query_compact(
     // When enabled, collapses old API rounds into summaries stored in CollapseStore,
     // then projects them into the message list. Mutually exclusive with autocompact.
     if pipeline.config().enable_collapse {
-        let engine =
-            xiaolin_context::collapse::CollapseEngine::new(Default::default());
+        let engine = xiaolin_context::collapse::CollapseEngine::new(Default::default());
         let summarizer = LlmCollapseSummarizer {
             provider: provider.clone(),
             model: model.to_string(),
@@ -517,11 +536,8 @@ pub(crate) async fn unified_pre_query_compact(
     }
 
     // Step 8: Hard fit messages within context window budget
-    let estimated_tokens = xiaolin_context::ContextEngine::fit_to_context_window(
-        messages,
-        context_window,
-        max_tokens,
-    );
+    let estimated_tokens =
+        xiaolin_context::ContextEngine::fit_to_context_window(messages, context_window, max_tokens);
 
     // Step 9: Rebuild the auto-recall registry from the compacted messages
     // so cleared results can be re-executed on demand.
@@ -575,4 +591,216 @@ fn estimate_token_distribution(messages: &[ChatMessage]) -> (usize, usize, usize
     }
 
     (system_tokens, tool_tokens, conversation_tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::CompletionParams;
+    use xiaolin_core::types::{
+        ChatChoice, ChatResponse, FunctionCall, Role, StreamDelta, ToolCall,
+    };
+
+    /// Stub LLM provider that returns an empty end-turn response.
+    ///
+    /// T7 only exercises the non-LLM compression branches (Step 0
+    /// time-based, Step 1 microcompact, Step 3 ContentFilterHook). The
+    /// LLM autocompact branch is gated on estimated tokens exceeding the
+    /// context window, which we avoid by setting a large context window.
+    struct StubProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for StubProvider {
+        async fn chat_completion(
+            &self,
+            _params: &CompletionParams<'_>,
+        ) -> anyhow::Result<ChatResponse> {
+            Ok(ChatResponse {
+                id: "stub".into(),
+                object: "chat.completion".into(),
+                created: 0,
+                model: "stub".into(),
+                choices: vec![ChatChoice {
+                    index: 0,
+                    message: ChatMessage {
+                        role: Role::Assistant,
+                        content: Some(serde_json::json!("stub")),
+                        ..Default::default()
+                    },
+                    finish_reason: Some("stop".into()),
+                }],
+                usage: None,
+            })
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _params: &CompletionParams<'_>,
+        ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamDelta>>>
+        {
+            anyhow::bail!("StubProvider: streaming not supported")
+        }
+
+        fn provider_name(&self) -> &str {
+            "stub"
+        }
+    }
+
+    fn user_msg(text: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::User,
+            content: Some(serde_json::Value::String(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    fn asst_with_tool_call(call_id: &str, name: &str, args: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Assistant,
+            tool_calls: Some(vec![ToolCall {
+                id: call_id.to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: name.to_string(),
+                    arguments: args.to_string(),
+                },
+                output: None,
+                success: None,
+                duration_ms: None,
+            }]),
+            ..Default::default()
+        }
+    }
+
+    fn tool_msg(call_id: &str, name: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Tool,
+            name: Some(name.to_string()),
+            tool_call_id: Some(call_id.to_string()),
+            content: Some(serde_json::Value::String(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// T7 (integration): five rounds of read_file each producing a 10000-char
+    /// result must NOT be time-compacted or faded when the protection window
+    /// covers them and overall occupancy is well under 80%.
+    ///
+    /// Pre-Gap-A behavior: `compute_protected_indices` returned an empty/too-
+    /// small set because the stored `messages.len()` indices went stale after
+    /// microcompact deleted earlier messages. The protected window never
+    /// covered the recent reads, and `time_based_microcompact` immediately
+    /// collapsed them into `[time-compacted]` — agent saw the recall hint and
+    /// re-read, producing the 1831-line infinite-loop chat history.
+    ///
+    /// Post-Gap-A: anchors re-resolve to the current Vec position, and the
+    /// protected set covers the last `DEFAULT_PROTECTED_ITERATIONS` (10)
+    /// iterations while `time_based_microcompact_with_protection` skips them.
+    #[tokio::test]
+    async fn t7_protected_reads_survive_pre_query_compact() {
+        let mut messages: Vec<ChatMessage> = vec![user_msg("read these files and report sizes")];
+        // 5 read_file rounds, each with a 10000-char payload.
+        // Total tool payload: ~50K chars (~12.5K tokens) — well under 80% of
+        // a 128K-token context window.
+        let payload = "abcdefghij".repeat(1000); // 10000 chars
+        let mut anchors: Vec<Option<String>> = Vec::new();
+        for i in 1..=5 {
+            let call_id = format!("tc{i}");
+            messages.push(asst_with_tool_call(
+                &call_id,
+                "read_file",
+                &format!("{{\"file_path\":\"f{i}.rs\"}}"),
+            ));
+            messages.push(tool_msg(&call_id, "read_file", &payload));
+            anchors.push(Some(call_id));
+        }
+
+        // Build boundaries: each marks the start of iteration i+1, anchored on
+        // the most recent Tool message at push time (which is tc{i}).
+        let now = std::time::Instant::now();
+        let mut boundaries: Vec<super::super::query_state::IterationMsgBoundary> =
+            Vec::with_capacity(5);
+        // Iteration 1 starts at index 1 (after the user msg), no prior anchor.
+        boundaries.push((1usize, now, None));
+        for (i, anchor) in anchors.iter().enumerate() {
+            // Iteration i+2 starts after asst(tc{i+1}) + tool(tc{i+1}); the
+            // most recent Tool message at push time is tc{i+1}, whose index
+            // in the pre-compaction Vec is 1 + 2*(i+1) = 2i+3.
+            let start_idx = 1 + 2 * (i + 1);
+            boundaries.push((start_idx, now, anchor.clone()));
+        }
+
+        let original_payloads: Vec<String> = messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::Tool))
+            .map(|m| m.text_content().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(original_payloads.len(), 5);
+        for p in &original_payloads {
+            assert_eq!(p.len(), 10000, "payload setup is wrong");
+        }
+
+        let mut pipeline = xiaolin_context::ContextPipeline::new(Default::default());
+        let provider: Arc<dyn LlmProvider> = Arc::new(StubProvider);
+
+        let result = unified_pre_query_compact(
+            &mut messages,
+            &mut pipeline,
+            128_000,
+            None,
+            &provider,
+            "stub-model",
+            0,
+            &boundaries,
+            None,
+            true,
+            None,
+            None,
+        )
+        .await;
+
+        // The protected window (DEFAULT_PROTECTED_ITERATIONS = 10) covers all
+        // 5 iterations, so no tool result should have been collapsed by the
+        // Gap A/B-gated steps (time_based_microcompact, microcompact_tool_results).
+        // Note: cached microcompact (Step 0.5) is a separate layer that does
+        // not yet respect the protection set — it's explicitly deferred per
+        // the plan's "后续" section (BUG-027). We therefore assert only that
+        // the Gap A/B-targeted markers (`[time-compacted]`, `[faded]`,
+        // `[summarized]`) do not appear on protected messages.
+        let after_payloads: Vec<String> = messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::Tool))
+            .map(|m| m.text_content().unwrap_or_default().to_string())
+            .collect();
+
+        assert_eq!(
+            after_payloads.len(),
+            5,
+            "no tool messages should have been dropped, got {} tool msgs",
+            after_payloads.len()
+        );
+        for (i, p) in after_payloads.iter().enumerate() {
+            assert!(
+                !p.starts_with("[time-compacted]"),
+                "tool result {i} must not be time-compacted (Gap A/B failure), got: {:?}",
+                p.chars().take(80).collect::<String>()
+            );
+            assert!(
+                !p.starts_with("[faded]"),
+                "tool result {i} must not be faded (Gap A/B failure), got: {:?}",
+                p.chars().take(80).collect::<String>()
+            );
+            assert!(
+                !p.starts_with("[summarized]"),
+                "tool result {i} must not be summarized (Gap A/B failure), got: {:?}",
+                p.chars().take(80).collect::<String>()
+            );
+        }
+
+        // Compression should not have fired at all.
+        assert!(
+            !result.compressed_by_llm,
+            "LLM autocompact should not fire (occupancy is low)"
+        );
+    }
 }

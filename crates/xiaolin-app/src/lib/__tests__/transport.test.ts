@@ -127,22 +127,66 @@ describe("transport layer (browser mode)", () => {
   // ═══════════════════════════════════════════════════════════════════
 
   describe("getSessionMessages", () => {
-    it("returns messages array", async () => {
+    it("returns messages with hasMore flag", async () => {
       const messages = [
         { id: 1, role: "user", content: "hello", name: null, toolCallId: null, createdAt: "2024-01-01" },
         { id: 2, role: "assistant", content: "hi", name: null, toolCallId: null, createdAt: "2024-01-01" },
       ];
-      mockSend.mockResolvedValueOnce({ data: { messages } });
+      mockSend.mockResolvedValueOnce({ data: { messages, hasMore: true } });
       const result = await transport.getSessionMessages("s1");
-      expect(mockSend).toHaveBeenCalledWith("sessions.messages", { sessionId: "s1" });
-      expect(result).toHaveLength(2);
-      expect(result[0].role).toBe("user");
+      expect(mockSend).toHaveBeenCalledWith("sessions.messages", {
+        sessionId: "s1",
+        beforeId: undefined,
+        limit: 30,
+      });
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].role).toBe("user");
+      expect(result.hasMore).toBe(true);
     });
 
-    it("returns empty array on no messages", async () => {
+    it("passes beforeId for cursor pagination", async () => {
+      mockSend.mockResolvedValueOnce({ data: { messages: [], hasMore: false } });
+      const result = await transport.getSessionMessages("s1", { beforeId: 42, limit: 10 });
+      expect(mockSend).toHaveBeenCalledWith("sessions.messages", {
+        sessionId: "s1",
+        beforeId: 42,
+        limit: 10,
+      });
+      expect(result.messages).toEqual([]);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it("returns empty page on no messages", async () => {
       mockSend.mockResolvedValueOnce({ data: {} });
       const result = await transport.getSessionMessages("s1");
-      expect(result).toEqual([]);
+      expect(result.messages).toEqual([]);
+      expect(result.hasMore).toBe(false);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // getToolOutput
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe("getToolOutput", () => {
+    it("fetches full output for a tool call", async () => {
+      mockSend.mockResolvedValueOnce({
+        data: { output: "full-output", displayOutput: "full-display", truncated: false },
+      });
+      const result = await transport.getToolOutput("s1", 10, "call-1");
+      expect(mockSend).toHaveBeenCalledWith("sessions.tool_output", {
+        sessionId: "s1",
+        messageId: 10,
+        callId: "call-1",
+      });
+      expect(result.output).toBe("full-output");
+      expect(result.displayOutput).toBe("full-display");
+    });
+
+    it("returns empty object on missing data", async () => {
+      mockSend.mockResolvedValueOnce({});
+      const result = await transport.getToolOutput("s1", 10, "call-1");
+      expect(result).toEqual({});
     });
   });
 

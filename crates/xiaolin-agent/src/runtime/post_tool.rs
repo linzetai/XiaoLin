@@ -4,11 +4,12 @@ use xiaolin_protocol::TurnSummary;
 use super::agent_step::{AgentStep, TurnEndReason};
 use super::goal_prompts;
 use super::llm_call::LlmStreamOutput;
+use super::query_state::{self, NoProgressStallAction};
 use super::stream_engine::send_step;
 use super::tool_executor;
 use super::tool_round::PreToolSnapshot;
 use super::turn_state::{TurnMutableState, TurnServices};
-use super::make_turn_summary;
+use super::{inject_tool_recovery_guidance, make_turn_summary};
 
 /// Outcome of the post-tool processing phase.
 pub(crate) enum PostToolOutcome {
@@ -82,8 +83,14 @@ pub(crate) async fn post_tool_processing(
     // 2. Force-stop (repetition hard limit) → skip remaining post-processing.
     if force_stop_loop {
         tracing::warn!(
+            target: "agent.loop",
             agent_id = %svc.config.agent_id,
-            "tool repetition hard limit reached — giving LLM one final turn to explain (stream)"
+            session_id = svc.session_id.as_deref().unwrap_or(""),
+            turn_id = %svc.turn_id,
+            iteration = ms.query_loop.iteration,
+            action = "force_stop",
+            reason = "tool_repetition",
+            "tool repetition hard limit reached — giving LLM one final turn to explain"
         );
         return PostToolOutcome::ForceContinue;
     }
@@ -98,13 +105,26 @@ pub(crate) async fn post_tool_processing(
             &ms.query_loop.iteration_msg_boundaries,
             &protection_config,
         );
-        tool_executor::microcompact_tool_results_with_protection(
+        let tokens_before = xiaolin_context::estimate_messages_tokens(&ms.messages);
+        let mc_stats = tool_executor::microcompact_tool_results_with_protection(
             &mut ms.messages,
             keep_recent,
             &protected,
         );
         tool_executor::dedup_repeated_tool_calls(&mut ms.messages);
         let post_tool_tokens = xiaolin_context::estimate_messages_tokens(&ms.messages);
+        tool_executor::log_microcompact_event(
+            "post_tool",
+            &mc_stats,
+            tokens_before,
+            post_tool_tokens,
+            &svc.config.agent_id,
+            svc.session_id.as_deref(),
+            Some(svc.turn_id.as_str()),
+            ms.query_loop.iteration,
+            keep_recent,
+            protected.len(),
+        );
         ms.query_loop.last_estimated_tokens = post_tool_tokens;
         let _ = send_step(
             &svc.step_tx,
@@ -120,8 +140,55 @@ pub(crate) async fn post_tool_processing(
         .await;
     }
 
+    // 3b. Read-only stall detection (consecutive tool rounds without writes).
+    ms.query_loop
+        .record_iteration_progress(ms.had_tool_calls_this_round, ms.had_progress_this_round);
+    match ms.query_loop.check_no_progress_stall() {
+        NoProgressStallAction::ForceStop => {
+            tracing::warn!(
+                target: "agent.loop",
+                agent_id = %svc.config.agent_id,
+                session_id = svc.session_id.as_deref().unwrap_or(""),
+                turn_id = %svc.turn_id,
+                iteration = ms.query_loop.iteration,
+                iterations_without_progress = ms.query_loop.iterations_without_progress,
+                had_tool_calls = ms.had_tool_calls_this_round,
+                had_progress = ms.had_progress_this_round,
+                action = "force_stop",
+                "read-only stall hard limit — giving LLM one final turn to summarize"
+            );
+            inject_tool_recovery_guidance(
+                &mut ms.messages,
+                &query_state::QueryLoopState::build_no_progress_stall_nudge(true),
+            );
+            ms.query_loop.force_stop_after_next = true;
+            return PostToolOutcome::ForceContinue;
+        }
+        NoProgressStallAction::Warn => {
+            tracing::warn!(
+                target: "agent.loop",
+                agent_id = %svc.config.agent_id,
+                session_id = svc.session_id.as_deref().unwrap_or(""),
+                turn_id = %svc.turn_id,
+                iteration = ms.query_loop.iteration,
+                iterations_without_progress = ms.query_loop.iterations_without_progress,
+                had_tool_calls = ms.had_tool_calls_this_round,
+                had_progress = ms.had_progress_this_round,
+                action = "warn",
+                "read-only stall warning injected"
+            );
+            inject_tool_recovery_guidance(
+                &mut ms.messages,
+                &query_state::QueryLoopState::build_no_progress_stall_nudge(false),
+            );
+        }
+        NoProgressStallAction::None => {}
+    }
+
     // 4. Mode change detection.
-    if let (Some(before), Some(mode_state_ref)) = (pre_snapshot.mode_before, svc.mode_state.as_ref()) {
+    if let (Some(before), Some(mode_state_ref)) =
+        (pre_snapshot.mode_before, svc.mode_state.as_ref())
+    {
         let after = mode_state_ref.current_mode();
         if before != after {
             let _ = send_step(
@@ -308,10 +375,7 @@ pub(crate) async fn post_tool_processing(
                 "injecting steering messages from message queue"
             );
             for msg in &queued {
-                let steering_content = format!(
-                    "[Steering from {}]: {}",
-                    msg.source, msg.content
-                );
+                let steering_content = format!("[Steering from {}]: {}", msg.source, msg.content);
                 ms.messages.push(ChatMessage {
                     role: Role::User,
                     content: Some(serde_json::Value::String(steering_content)),

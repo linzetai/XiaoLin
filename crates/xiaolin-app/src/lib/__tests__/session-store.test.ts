@@ -34,6 +34,7 @@ function resetStores() {
     usage: {},
     lastSegments: {},
     subAgentRuns: {},
+    hasMore: {},
   });
 }
 
@@ -133,6 +134,29 @@ describe("store integration (new multi-store)", () => {
       if (item.type === "message") {
         expect(item.data.toolCalls).toHaveLength(1);
         expect(item.data.toolCalls![0].name).toBe("file_read");
+      }
+    });
+
+    it("preserves backend ids when restoring session history", () => {
+      const chatId = useChatMetaStore.getState().activeChatId;
+
+      useStreamStore.getState().loadChatStream(chatId, [
+        {
+          id: 4242,
+          role: "user",
+          content: "restored",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: null,
+          createdAt: "2024-01-01 00:00:00",
+        },
+      ]);
+
+      const item = useStreamStore.getState().streams[chatId][0];
+      expect(item.type).toBe("message");
+      if (item.type === "message") {
+        expect(item.data.id).not.toBe(4242);
+        expect(item.data.backendId).toBe(4242);
       }
     });
   });

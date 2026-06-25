@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 
 use xiaolin_core::agent_config::SubAgentPolicy;
 use xiaolin_core::tool::{
-    Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema, ToolRegistry, ToolResult,
-    no_retry_recovery_hint,
+    no_retry_recovery_hint, Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema,
+    ToolRegistry, ToolResult,
 };
 use xiaolin_core::types::{SubAgentStatus, SubAgentType};
 use xiaolin_protocol::AgentEvent;
@@ -130,7 +130,8 @@ pub fn filter_parent_messages(messages: &[ChatMessage], max_messages: usize) -> 
     // Remove trailing assistant messages with tool_calls that have no tool results
     // (incomplete exchanges at the end of the conversation)
     while let Some(last) = filtered.last() {
-        if last.role == Role::Assistant && last.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty()) {
+        if last.role == Role::Assistant && last.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
+        {
             // Check if the next messages after this (which would be tool results) exist
             // Since this is the last message, there are no results — remove it
             filtered.pop();
@@ -249,8 +250,8 @@ fn parse_subagent_type(s: Option<&str>) -> SubAgentType {
 
 /// Build a child tool registry filtered by sub-agent type.
 ///
-/// - `General`: inherits all parent tools except `spawn_subagent` (added back if depth allows)
-/// - `Explore`: read-only tools only
+/// - `General`: inherits all parent tools except `spawn_subagent`
+/// - `Explore`: read-only tools only (spawn_subagent denied in SubAgentDef)
 /// - `Shell`: shell + file tools
 /// - `Browser`: browser + web tools
 /// - `Custom`: same as General (custom filtering is done via agent config `tools_allow`/`tools_deny`)
@@ -355,8 +356,8 @@ Coordinator mode always forces background.\n\n\
 - `context`: extra facts the sub-agent cannot discover on its own\n\
 - `timeout_seconds`: 60–1800 override for long runs\n\n\
 ## Depth & Policy\n\
-- Each spawn increases depth; hitting `max_depth` denies further spawns\n\
-- Child registries exclude `spawn_subagent` unless depth allows nesting\n\
+- Only the **main agent** (depth 0) may call `spawn_subagent`; sub-agents cannot nest further spawns\n\
+- Hitting `max_depth` denies further spawns from the main agent\n\
 - Check `subagent_list` when spawn fails due to limits or concurrency\n\n\
 ## Tool Cooperation\n\
 1. `spawn_subagent` → get `run_id`\n\
@@ -471,13 +472,25 @@ Coordinator mode always forces background.\n\n\
             );
         }
 
+        if self.current_depth >= 1 {
+            return subagent_denied(
+                "sub-agents cannot spawn nested sub-agents (only the main agent may delegate)",
+                no_retry_recovery_hint(
+                    "Complete the task with your available tools (read_file, exec_command, etc.) \
+                     or return partial findings to the parent agent. Do not retry spawn_subagent.",
+                ),
+            );
+        }
+
         let type_id = params
             .r#type
             .as_deref()
             .or(params.subagent_type.as_deref())
             .unwrap_or("code");
 
-        if !self.policy.allowed_types.is_empty() && !self.policy.allowed_types.contains(&type_id.to_string()) {
+        if !self.policy.allowed_types.is_empty()
+            && !self.policy.allowed_types.contains(&type_id.to_string())
+        {
             return subagent_denied(
                 format!(
                     "sub-agent type '{type_id}' not allowed (allowed: {:?})",
@@ -493,10 +506,8 @@ Coordinator mode always forces background.\n\n\
         let subagent_type = parse_subagent_type(Some(type_id));
 
         let (child_registry, use_background) = if let Some(ref def) = def {
-            let registry = SubAgentManager::build_child_registry_from_def(
-                &self.parent_tool_registry,
-                def,
-            );
+            let registry =
+                SubAgentManager::build_child_registry_from_def(&self.parent_tool_registry, def);
             let bg = params.background.unwrap_or(def.background);
             (registry, bg)
         } else {
@@ -512,21 +523,7 @@ Coordinator mode always forces background.\n\n\
             use_background
         };
 
-        let is_coordinator = def
-            .as_ref()
-            .is_some_and(|d| d.mode == xiaolin_core::agent_config::SubAgentMode::Coordinator);
-
-        if self.current_depth + 1 < self.policy.max_depth {
-            let child_subagent = SubAgentTool::new(
-                self.manager.clone(),
-                self.parent_tool_registry.clone(),
-                self.policy.clone(),
-            )
-            .with_depth(self.current_depth + 1)
-            .with_coordinator_mode(is_coordinator);
-            child_registry.register(Arc::new(child_subagent));
-        }
-
+        // Sub-agents must not nest further spawns (see depth >= 1 guard above).
         let child_registry = Arc::new(child_registry);
 
         let agent_config = match self.manager.resolve_agent("main") {
@@ -570,10 +567,7 @@ Coordinator mode always forces background.\n\n\
         }
 
         let concurrency_safe = def.as_ref().map(|d| d.concurrency_safe).unwrap_or(true);
-        let permission_mode = def
-            .as_ref()
-            .map(|d| d.permission_mode)
-            .unwrap_or_default();
+        let permission_mode = def.as_ref().map(|d| d.permission_mode).unwrap_or_default();
 
         tracing::info!(
             parent_depth = self.current_depth,
@@ -609,18 +603,16 @@ Coordinator mode always forces background.\n\n\
             work_dir: xiaolin_tools_fs::filesystem::current_effective_work_dir()
                 .map(|p| p.to_string_lossy().to_string()),
             file_access: xiaolin_tools_fs::filesystem::current_file_access_mode(),
-            additional_allowed_paths: xiaolin_tools_fs::filesystem::current_additional_allowed_paths()
-                .into_iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect(),
+            additional_allowed_paths:
+                xiaolin_tools_fs::filesystem::current_additional_allowed_paths()
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
         });
 
         // Load and filter parent messages when inherit_context is requested
         let initial_messages = if params.inherit_context {
-            let max_msgs = def
-                .as_ref()
-                .map(|d| d.max_context_messages)
-                .unwrap_or(20);
+            let max_msgs = def.as_ref().map(|d| d.max_context_messages).unwrap_or(20);
             if let Some(ref store) = self.session_store {
                 match store.load_chat_messages(&effective_session_id).await {
                     Ok(msgs) => {
@@ -718,14 +710,15 @@ Coordinator mode always forces background.\n\n\
                 )
                 .await
             {
-                Ok((result, run_id)) => {
-                    ToolResult::ok(serde_json::json!({
+                Ok((result, run_id)) => ToolResult::ok(
+                    serde_json::json!({
                         "run_id": run_id,
                         "type": type_id,
                         "status": "completed",
                         "result": result,
-                    }).to_string())
-                }
+                    })
+                    .to_string(),
+                ),
                 Err(e) => subagent_spawn_failed(e, "sync"),
             }
         }
@@ -1096,7 +1089,11 @@ impl Tool for WaitAgentTool {
             receivers.push(pool.subscribe_events());
         }
         if receivers.is_empty() {
-            receivers.push(controller.get_or_create_session_pool("__wait__").subscribe_events());
+            receivers.push(
+                controller
+                    .get_or_create_session_pool("__wait__")
+                    .subscribe_events(),
+            );
         }
 
         let deadline = tokio::time::Instant::now() + timeout;
@@ -1345,25 +1342,27 @@ impl Tool for ResumeSubagentTool {
         };
 
         // Load sidechain messages as initial context
-        let mut initial_messages =
-            match SidechainReader::load_as_chat_messages(&effective_session_id, &params.run_id)
-                .await
-            {
-                Ok(msgs) => msgs,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        run_id = %params.run_id,
-                        "failed to load sidechain transcript for resume"
-                    );
-                    return subagent_execution_failed(
+        let mut initial_messages = match SidechainReader::load_as_chat_messages(
+            &effective_session_id,
+            &params.run_id,
+        )
+        .await
+        {
+            Ok(msgs) => msgs,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    run_id = %params.run_id,
+                    "failed to load sidechain transcript for resume"
+                );
+                return subagent_execution_failed(
                         "failed to load sidechain transcript",
                         no_retry_recovery_hint(
                             "If the transcript is missing, spawn a fresh sub-agent with the needed context instead of retrying resume.",
                         ),
                     );
-                }
-            };
+            }
+        };
 
         // Append new user message if provided
         if let Some(msg_text) = &params.message {
@@ -1687,7 +1686,7 @@ only coordinator orchestration; use `background_task_stop` for the latter when a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::agent_config::{AgentConfig, SubAgentPolicy, builtin_subagent_defs};
+    use xiaolin_core::agent_config::{builtin_subagent_defs, AgentConfig, SubAgentPolicy};
 
     #[tokio::test]
     async fn subagent_tool_definition() {
@@ -1814,7 +1813,11 @@ mod tests {
             SubAgentPolicy::default(),
             controller,
         ));
-        let tool = SubAgentTool::new(manager, Arc::new(ToolRegistry::new()), SubAgentPolicy::default());
+        let tool = SubAgentTool::new(
+            manager,
+            Arc::new(ToolRegistry::new()),
+            SubAgentPolicy::default(),
+        );
         assert_eq!(tool.exposure(), ToolExposure::Direct);
     }
 
@@ -1970,9 +1973,7 @@ mod tests {
         let tool = WaitAgentTool::new(mgr);
 
         let t0 = tokio::time::Instant::now();
-        let result = tool
-            .execute(r#"{"run_ids":["r1"],"mode":"all"}"#)
-            .await;
+        let result = tool.execute(r#"{"run_ids":["r1"],"mode":"all"}"#).await;
         let elapsed = t0.elapsed();
         assert!(result.success);
         assert!(elapsed < std::time::Duration::from_millis(50));
@@ -1993,10 +1994,7 @@ mod tests {
 
     // --- recovery field assertions ---
 
-    fn make_subagent_tool(
-        policy: SubAgentPolicy,
-        depth: u32,
-    ) -> SubAgentTool {
+    fn make_subagent_tool(policy: SubAgentPolicy, depth: u32) -> SubAgentTool {
         let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
             crate::OpenAiProvider::new("http://example.com", "fake"),
         )));
@@ -2011,8 +2009,7 @@ mod tests {
             policy.clone(),
             controller,
         ));
-        SubAgentTool::new(manager, tool_reg, policy)
-            .with_depth(depth)
+        SubAgentTool::new(manager, tool_reg, policy).with_depth(depth)
     }
 
     #[tokio::test]
@@ -2029,6 +2026,20 @@ mod tests {
         assert!(result.output.contains("disabled"));
         assert!(result.output.contains("What to do next:"));
         assert!(result.output.contains("Stop retrying"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_nested_denied_at_depth_one() {
+        let policy = SubAgentPolicy::default();
+        let tool = make_subagent_tool(policy.clone(), 1);
+
+        let result = tool
+            .execute(r#"{"task": "spawn another worker", "type": "explore"}"#)
+            .await;
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("cannot spawn nested"));
+        assert!(result.output.contains("What to do next:"));
     }
 
     #[tokio::test]

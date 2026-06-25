@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use xiaolin_core::types::{ChatMessage, Role};
 use std::sync::Arc;
+use xiaolin_core::types::{ChatMessage, Role};
 
 /// Whitespace-split word count below which memory retrieval is skipped.
 /// Trivial inputs like "hi", "ok", "thanks" don't benefit from embedding + search.
@@ -1295,10 +1295,32 @@ impl ContextHook for ContentFilterHook {
             // Truncate tool-result content.
             if matches!(msg.role, Role::Tool) {
                 if let Some(ref t) = text {
-                    if t.chars().count() > max {
+                    // BUG-024 / Gap C2: skip tool results that already carry a
+                    // compaction marker. They are already small by construction
+                    // (≤4000 chars), and re-truncating them would nest markers
+                    // (e.g. `[faded] …\n…(N chars truncated)`) which the LLM
+                    // interprets as cascading data loss.
+                    // Mirror of `tool_executor::is_already_compacted`; kept
+                    // duplicated here to avoid a reverse dependency from
+                    // xiaolin-context on xiaolin-agent.
+                    let already_compressed = t.starts_with("[faded]")
+                        || t.starts_with("[time-compacted]")
+                        || t.starts_with("[summarized]")
+                        || t.starts_with("[oneliner]")
+                        || t.starts_with("[recall-available]")
+                        || t.starts_with("[superseded")
+                        || t == "[Old tool result content cleared]";
+                    if !already_compressed && t.chars().count() > max {
                         let truncated: String = t.chars().take(max).collect();
                         let removed = t.chars().count() - max;
-                        let new_content = format!("{truncated}\n…({removed} chars truncated)");
+                        // Gap C1: "truncated" (implies loss) → "omitted from
+                        // this view" (implies recoverable). The agent is less
+                        // likely to re-read when the wording suggests the data
+                        // is still accessible.
+                        let new_content = format!(
+                            "{truncated}\n…({removed} chars omitted from this view; \
+                             use read_file with offset/limit to see the full content)"
+                        );
                         msg.content = Some(serde_json::Value::String(new_content));
                     }
                 }
@@ -1504,8 +1526,42 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         let text = msgs[0].text_content().unwrap();
         assert!(text.starts_with("xxxxxxxxxx"));
-        assert!(text.contains("truncated"));
-        assert!(text.chars().count() < 60);
+        // Gap C1: wording changed from "truncated" → "omitted from this view"
+        // to signal recoverability rather than data loss.
+        assert!(text.contains("omitted from this view"));
+        assert!(text.chars().count() < 120);
+    }
+
+    // T4 (BUG-024 / Gap C2): ContentFilterHook must NOT re-truncate tool
+    // results that already carry a compaction marker — doing so would nest
+    // markers (e.g. `[faded] …\n…(N chars omitted)`) which the LLM reads as
+    // cascading data loss.
+    #[tokio::test]
+    async fn content_filter_skips_already_compressed() {
+        let hook = ContentFilterHook::new(10); // very small threshold
+        let markers = [
+            "[faded] original was big",
+            "[time-compacted] [read_file: foo.rs — file exists on disk]",
+            "[summarized] 3 matches in foo.rs",
+            "[oneliner] short summary",
+            "[recall-available] foo.rs",
+            "[superseded by tc2] old result",
+            "[Old tool result content cleared]",
+        ];
+        for original in markers {
+            let mut msgs = vec![tool_result(original)];
+            hook.on_assemble(&mut msgs).await.unwrap();
+            assert_eq!(msgs.len(), 1, "message should not be dropped: {original}");
+            let after = msgs[0].text_content().unwrap();
+            assert_eq!(
+                after, original,
+                "already-compacted tool result must not be re-truncated: {original}"
+            );
+            assert!(
+                !after.contains("omitted from this view"),
+                "no nested truncation marker expected: {original}"
+            );
+        }
     }
 
     #[tokio::test]

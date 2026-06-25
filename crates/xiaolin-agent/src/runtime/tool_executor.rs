@@ -1,12 +1,9 @@
-
+use serde::Serialize;
 use xiaolin_core::agent_config::AgentConfig;
 use xiaolin_core::tool::ToolDefinition;
-use serde::Serialize;
-
 
 use super::prompt_builder::memory_tool_suffix;
 use super::tool_result_storage::TOOL_RESULT_CLEARED_MESSAGE;
-
 
 /// Legacy fallback character limit for tool output.
 /// Now superseded by `Tool::max_result_size_chars()` (100_000 default).
@@ -41,13 +38,22 @@ const MAX_TOOL_RESULT_LINES: usize = 100;
 
 const TRUNCATION_SEPARATOR: &str = "\n\n---\n... [CONTENT TRUNCATED] ...\n---\n\n";
 
-/// Save the full untruncated output to a temp file so the agent can
-/// `read_file` it later if needed. Returns the file path on success.
+/// Directory for full copies of truncated tool output.
+///
+/// Must live under the XiaoLin state dir so `read_file` sandbox allows access
+/// (`/tmp/xiaolin_truncated` is outside allowed locations and traps the agent).
+fn truncated_output_dir() -> Option<std::path::PathBuf> {
+    let dir = xiaolin_core::paths::resolve_state_dir()
+        .join("data")
+        .join("truncated");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// Save the full untruncated output to disk so the agent can `read_file` it
+/// later if needed. Returns the file path on success.
 fn save_truncated_output(tool_name: &str, output: &str) -> Option<String> {
-    let dir = std::env::temp_dir().join("xiaolin_truncated");
-    if std::fs::create_dir_all(&dir).is_err() {
-        return None;
-    }
+    let dir = truncated_output_dir()?;
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -142,6 +148,13 @@ pub(crate) fn truncate_tool_result_output_with_limit(
     );
 
     if let Some(saved_path) = save_truncated_output(tool_name, output) {
+        tracing::info!(
+            target: "agent.compaction",
+            tool = tool_name,
+            path = %saved_path,
+            output_chars = total_chars,
+            "truncated tool output saved for read_file recovery"
+        );
         format!(
             "{truncated_body}\n\n[Full output ({total_chars} chars) saved to: {saved_path} — use read_file to view if needed]"
         )
@@ -192,11 +205,7 @@ pub(crate) enum RetentionTier {
 
 /// Tools whose results are ephemeral (Level 0): low-value metadata that the
 /// model rarely needs to re-read once it has processed the output.
-const TIER0_EPHEMERAL: &[&str] = &[
-    "web_search",
-    "web_fetch",
-    "fetch_url",
-];
+const TIER0_EPHEMERAL: &[&str] = &["web_search", "web_fetch", "fetch_url"];
 
 /// Tools whose results should be summarized (Level 1): contain useful
 /// information but can be represented compactly.
@@ -228,23 +237,55 @@ const TIER2_FULL_RETAIN: &[&str] = &[
     "multi_edit",
 ];
 
-/// Extra full-retain slots for `read_file` beyond the default `base_keep + 2`.
-const READ_FILE_FULL_RETAIN_BONUS: usize = 8;
-/// Preview-tier width for `read_file` before clearing (default FullRetain: 3).
-const READ_FILE_PREVIEW_WINDOW: usize = 6;
-/// Chars kept when a `read_file` result enters the faded tier (default: 300).
-const READ_FILE_FADE_PREVIEW_CHARS: usize = 2000;
+/// Agent iterations whose tool results are immune to microcompact / budget trim.
+const DEFAULT_PROTECTED_ITERATIONS: usize = 10;
+
+/// Extra full-retain slots beyond `base_keep` for standard FullRetain tools.
+const FULL_RETAIN_BASE_BONUS: usize = 8;
+/// Preview-tier width for standard FullRetain tools before clearing.
+const FULL_RETAIN_PREVIEW_WINDOW: usize = 10;
+/// Chars kept when a standard FullRetain result enters the faded tier.
+const FULL_RETAIN_FADE_PREVIEW_CHARS: usize = 800;
+
+/// Extra full-retain slots for `read_file` beyond the standard FullRetain window.
+const READ_FILE_FULL_RETAIN_BONUS: usize = 16;
+/// Preview-tier width for `read_file` before clearing.
+const READ_FILE_PREVIEW_WINDOW: usize = 14;
+/// Chars kept when a `read_file` result enters the faded tier.
+const READ_FILE_FADE_PREVIEW_CHARS: usize = 4000;
+
+/// Extra full-keep slots for Summarize-tier tools beyond `base_keep`.
+const SUMMARIZE_FULL_KEEP_BONUS: usize = 6;
+/// Max chars in a summarized tool result after compaction.
+pub(crate) const SUMMARIZE_MAX_CHARS: usize = 800;
+/// Summary budget when time-based microcompact hits FullRetain tools.
+pub(crate) const TIME_COMPACT_FULL_RETAIN_CHARS: usize = 1000;
+/// Summary budget when time-based microcompact hits read_file.
+pub(crate) const TIME_COMPACT_READ_FILE_CHARS: usize = 1000;
+/// Summary budget when token-budget trim fades recent FullRetain results.
+pub(crate) const BUDGET_RECENT_FULL_RETAIN_CHARS: usize = 1200;
+/// Summary budget when token-budget trim fades recent Summarize results.
+pub(crate) const BUDGET_RECENT_SUMMARIZE_CHARS: usize = 800;
+/// Summary budget when token-budget trim fades recent Ephemeral results.
+pub(crate) const BUDGET_RECENT_EPHEMERAL_CHARS: usize = 400;
+
+/// Most recent Ephemeral tool results kept in full before clearing.
+const EPHEMERAL_FULL_KEEP: usize = 5;
 
 /// FullRetain microcompact windows: `(full_keep, preview_tier_width, fade_max_chars)`.
 fn full_retain_tiers(tool_name: &str, base_keep: usize) -> (usize, usize, usize) {
     if tool_name.starts_with("read_file") {
         (
-            base_keep + 2 + READ_FILE_FULL_RETAIN_BONUS,
+            base_keep + FULL_RETAIN_BASE_BONUS + READ_FILE_FULL_RETAIN_BONUS,
             READ_FILE_PREVIEW_WINDOW,
             READ_FILE_FADE_PREVIEW_CHARS,
         )
     } else {
-        (base_keep + 2, 3, 300)
+        (
+            base_keep + FULL_RETAIN_BASE_BONUS,
+            FULL_RETAIN_PREVIEW_WINDOW,
+            FULL_RETAIN_FADE_PREVIEW_CHARS,
+        )
     }
 }
 
@@ -506,19 +547,9 @@ pub(crate) fn collect_eviction_manifest(
         }
         let current_text = messages[*idx].text_content().unwrap_or_default();
 
-        let was_evicted = current_text.starts_with(RECALL_HINT_MARKER)
-            || current_text.starts_with("[summarized]")
-            || current_text.starts_with(FADED_MARKER)
-            || current_text.starts_with(TIME_COMPACTED_MARKER)
-            || current_text == TOOL_RESULT_CLEARED_MESSAGE;
+        let was_evicted = is_already_compacted(&current_text);
 
-        if was_evicted
-            && !original_content.starts_with(RECALL_HINT_MARKER)
-            && !original_content.starts_with("[summarized]")
-            && !original_content.starts_with(FADED_MARKER)
-            && !original_content.starts_with(TIME_COMPACTED_MARKER)
-            && *original_content != TOOL_RESULT_CLEARED_MESSAGE
-        {
+        if was_evicted && !is_already_compacted(original_content) {
             manifest.record(tool_name, args.as_deref(), original_content);
         }
     }
@@ -625,7 +656,7 @@ fn fade_to_preview(content: &str, max_chars: usize) -> String {
     let remaining = content.len() - safe_end;
     let est_tokens = content.len() / 4;
     format!(
-        "{}…\n[{remaining} more chars faded. Original: {} chars / ~{est_tokens} tokens]",
+        "{}…\n[preview only — {remaining} more chars available via read_file. Original: {} chars / ~{est_tokens} tokens]",
         &content[..safe_end],
         content.len(),
     )
@@ -634,6 +665,28 @@ fn fade_to_preview(content: &str, max_chars: usize) -> String {
 const FADED_MARKER: &str = "[faded]";
 const ONELINER_MARKER: &str = "[oneliner]";
 const SEMANTIC_HEADER_MARKER: &str = "§";
+const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
+const SUMMARIZED_MARKER: &str = "[summarized]";
+const SUPERSEDED_MARKER_PREFIX: &str = "[superseded";
+
+/// Returns true if `text` already carries a compaction marker.
+///
+/// Such messages must be skipped by any further compaction pass: re-compacting
+/// them would produce nested markers like `[faded] [time-compacted] …` which
+/// the LLM tends to interpret as cascading data loss, triggering re-reads.
+///
+/// This is the single source of truth for the marker set. Mirrors exist in
+/// `xiaolin-context/src/engine.rs` (ContentFilterHook) as a copy with a
+/// pointer comment to avoid a reverse dependency.
+pub(crate) fn is_already_compacted(text: &str) -> bool {
+    text.starts_with(ONELINER_MARKER)
+        || text.starts_with(FADED_MARKER)
+        || text.starts_with(TIME_COMPACTED_MARKER)
+        || text.starts_with(SUMMARIZED_MARKER)
+        || text.starts_with(RECALL_HINT_MARKER)
+        || text.starts_with(SUPERSEDED_MARKER_PREFIX)
+        || text == TOOL_RESULT_CLEARED_MESSAGE
+}
 
 /// Build a semantic summary header from tool name, arguments, and output metadata.
 ///
@@ -738,14 +791,70 @@ fn truncate_str(s: &str, max: usize) -> String {
     }
 }
 
+/// Counters returned by [`microcompact_tool_results_with_protection`] for observability.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MicrocompactStats {
+    pub tool_results_total: usize,
+    pub protected_skipped: usize,
+    pub kept_full: usize,
+    pub faded: usize,
+    pub summarized: usize,
+    pub cleared: usize,
+}
+
+impl MicrocompactStats {
+    pub fn modified_total(&self) -> usize {
+        self.faded + self.summarized + self.cleared
+    }
+}
+
+/// Emit a structured log when microcompact actually changed tool results.
+pub(crate) fn log_microcompact_event(
+    source: &'static str,
+    stats: &MicrocompactStats,
+    tokens_before: usize,
+    tokens_after: usize,
+    agent_id: &str,
+    session_id: Option<&str>,
+    turn_id: Option<&str>,
+    iteration: u32,
+    keep_recent: usize,
+    protected_count: usize,
+) {
+    if stats.modified_total() == 0 {
+        return;
+    }
+    tracing::info!(
+        target: "agent.compaction",
+        source,
+        agent_id,
+        session_id = session_id.unwrap_or(""),
+        turn_id = turn_id.unwrap_or(""),
+        iteration,
+        keep_recent,
+        protected_count,
+        tool_results_total = stats.tool_results_total,
+        protected_skipped = stats.protected_skipped,
+        kept_full = stats.kept_full,
+        faded = stats.faded,
+        summarized = stats.summarized,
+        cleared = stats.cleared,
+        modified_total = stats.modified_total(),
+        tokens_before,
+        tokens_after,
+        tokens_saved = tokens_before.saturating_sub(tokens_after),
+        "microcompact applied"
+    );
+}
+
 /// Retention-aware progressive fading using per-tool retention tiers.
 ///
 /// Each tool result is classified into a `RetentionTier` (Ephemeral / Summarize
 /// / FullRetain). The compaction strategy varies by tier:
 ///
 /// - **FullRetain** tools (read_file, shell, edit_file, …):
-///   `read_file` keeps a wider window (`base_keep + 10` full, then 6 faded at 2K
-///   chars); other FullRetain tools use `base_keep + 2` full, 3 faded at 300 chars;
+///   `read_file` keeps a wider window (`base_keep + 24` full, then 14 faded at 4K
+///   chars); other FullRetain tools use `base_keep + 8` full, 10 faded at 800 chars;
 ///   oldest get a recall-enabled summary.
 /// - **Summarize** tools (grep, search, lsp, …):
 ///   Most recent `full_keep` kept in full, older ones get a compact summary.
@@ -758,9 +867,10 @@ pub(crate) fn microcompact_tool_results_with_protection(
     messages: &mut [xiaolin_core::types::ChatMessage],
     keep_recent: usize,
     protected: &std::collections::HashSet<usize>,
-) {
+) -> MicrocompactStats {
     use xiaolin_core::types::Role;
 
+    let mut stats = MicrocompactStats::default();
     let base_keep = keep_recent.max(1);
 
     // Collect (msg_index, tool_name) for all compactable tool results.
@@ -778,8 +888,10 @@ pub(crate) fn microcompact_tool_results_with_protection(
         })
         .collect();
 
+    stats.tool_results_total = tool_entries.len();
+
     if tool_entries.len() <= base_keep {
-        return;
+        return stats;
     }
 
     // Pre-collect arguments for each tool entry (avoids borrow conflict).
@@ -810,6 +922,7 @@ pub(crate) fn microcompact_tool_results_with_protection(
         })
     {
         if protected.contains(&idx) {
+            stats.protected_skipped += 1;
             continue;
         }
 
@@ -819,11 +932,7 @@ pub(crate) fn microcompact_tool_results_with_protection(
             None => continue,
         };
 
-        if text.starts_with(ONELINER_MARKER)
-            || text.starts_with(FADED_MARKER)
-            || text.starts_with(RECALL_HINT_MARKER)
-            || text == TOOL_RESULT_CLEARED_MESSAGE
-        {
+        if is_already_compacted(&text) {
             continue;
         }
         if is_error_tool_result(&text) {
@@ -838,34 +947,43 @@ pub(crate) fn microcompact_tool_results_with_protection(
                 let (full_window, preview_window, fade_chars) =
                     full_retain_tiers(tool_name, base_keep);
                 if rank_from_end < full_window {
-                    // Keep fully
+                    stats.kept_full += 1;
                 } else if rank_from_end < full_window + preview_window {
                     let faded = format!("{FADED_MARKER} {}", fade_to_preview(&text, fade_chars));
                     msg.content = Some(serde_json::Value::String(faded));
+                    stats.faded += 1;
                 } else {
                     let cleared = build_cleared_with_recall(tool_name, tier, &text, args_json);
                     msg.content = Some(serde_json::Value::String(cleared));
+                    stats.cleared += 1;
                 }
             }
             RetentionTier::Summarize => {
-                if rank_from_end < base_keep {
-                    // Keep fully
+                let summarize_full = base_keep + SUMMARIZE_FULL_KEEP_BONUS;
+                if rank_from_end < summarize_full {
+                    stats.kept_full += 1;
                 } else {
-                    let summary = summarize_tool_result(tool_name, &text, 400);
-                    let compacted = format!("[summarized] {summary}");
+                    let summary = summarize_tool_result(tool_name, &text, SUMMARIZE_MAX_CHARS);
+                    let compacted = format!(
+                        "{SUMMARIZED_MARKER} {summary}\n\
+                         [summary of older tool result — use read_file/grep to re-fetch if needed]"
+                    );
                     msg.content = Some(serde_json::Value::String(compacted));
+                    stats.summarized += 1;
                 }
             }
             RetentionTier::Ephemeral => {
-                if rank_from_end < 1 {
-                    // Keep most recent one
+                if rank_from_end < EPHEMERAL_FULL_KEEP {
+                    stats.kept_full += 1;
                 } else {
                     let cleared = build_cleared_with_recall(tool_name, tier, &text, args_json);
                     msg.content = Some(serde_json::Value::String(cleared));
+                    stats.cleared += 1;
                 }
             }
         }
     }
+    stats
 }
 
 /// Default cache window duration for time-based microcompact (5 minutes).
@@ -888,7 +1006,10 @@ pub(crate) fn cache_window_for_occupancy(
         o if o < 0.50 => std::time::Duration::from_secs(u64::MAX / 2), // effectively infinite
         o if o < 0.70 => std::time::Duration::from_secs(10 * 60),
         o if o < 0.90 => std::time::Duration::from_secs(5 * 60),
-        _ => std::time::Duration::from_secs(2 * 60),
+        // BUG-026: was 2 min, which is shorter than a typical LLM round-trip +
+        // tool execution. 5 min matches the <90% tier and prevents the protected
+        // window from being time-evicted mid-turn.
+        _ => std::time::Duration::from_secs(5 * 60),
     }
 }
 
@@ -899,11 +1020,11 @@ pub(crate) fn cache_window_for_occupancy(
 /// in full, while smaller windows need more aggressive compaction.
 pub(crate) fn keep_recent_for_context_window(context_window: u32) -> usize {
     match context_window {
-        0..=32_000 => 2,
-        32_001..=64_000 => 3,
-        64_001..=128_000 => 4,
-        128_001..=200_000 => 5,
-        _ => 6,
+        0..=32_000 => 6,
+        32_001..=64_000 => 8,
+        64_001..=128_000 => 10,
+        128_001..=200_000 => 12,
+        _ => 15,
     }
 }
 
@@ -919,7 +1040,7 @@ pub(crate) struct ProtectionWindowConfig {
 impl Default for ProtectionWindowConfig {
     fn default() -> Self {
         Self {
-            protected_iterations: 3,
+            protected_iterations: DEFAULT_PROTECTED_ITERATIONS,
         }
     }
 }
@@ -928,9 +1049,18 @@ impl Default for ProtectionWindowConfig {
 ///
 /// Protected messages are tool results that belong to one of the last N agent
 /// iterations (as delineated by `iteration_boundaries`).
+///
+/// **Anchor re-resolution (BUG-023)**: boundaries store `messages.len()` at
+/// the time they were pushed, but later compaction steps may delete messages
+/// and invalidate that index. We re-resolve each boundary's position by
+/// looking up its `tool_call_id` anchor in the current Vec; if the anchor is
+/// found we use its position, otherwise we fall back to the stored index
+/// clamped to the current Vec length. This guarantees the protected window is
+/// never smaller than what the stale-index logic would have produced, and is
+/// usually larger (correctly covering the last N iterations).
 pub(crate) fn compute_protected_indices(
     messages: &[xiaolin_core::types::ChatMessage],
-    iteration_boundaries: &[(usize, std::time::Instant)],
+    iteration_boundaries: &[super::query_state::IterationMsgBoundary],
     config: &ProtectionWindowConfig,
 ) -> std::collections::HashSet<usize> {
     use xiaolin_core::types::Role;
@@ -941,22 +1071,46 @@ pub(crate) fn compute_protected_indices(
         return protected;
     }
 
-    let protect_from_boundary = if iteration_boundaries.len() > config.protected_iterations {
-        iteration_boundaries[iteration_boundaries.len() - config.protected_iterations].0
+    let start_boundary_idx = if iteration_boundaries.len() > config.protected_iterations {
+        iteration_boundaries.len() - config.protected_iterations
     } else {
         0
     };
 
+    // Walk forward from the protect_from boundary. If its anchor has been
+    // evicted by compaction (e.g. LLM autocompact removed the tool message
+    // that the anchor points to), try the next boundary's anchor — that
+    // boundary marks a later iteration which is still inside the protected
+    // window. If no anchor resolves, fall back to the smallest clamped
+    // positional index across the walked boundaries. (BUG-023)
+    let mut start_idx: Option<usize> = None;
+    let mut positional_fallback = usize::MAX;
+    for boundary in &iteration_boundaries[start_boundary_idx..] {
+        let clamped = boundary.0.min(messages.len());
+        if clamped < positional_fallback {
+            positional_fallback = clamped;
+        }
+        if let Some(anchor_id) = boundary.2.as_deref() {
+            if !anchor_id.is_empty() {
+                if let Some(idx) = messages.iter().position(|m| {
+                    matches!(m.role, Role::Tool) && m.tool_call_id.as_deref() == Some(anchor_id)
+                }) {
+                    start_idx = Some(idx);
+                    break;
+                }
+            }
+        }
+    }
+    let start_idx = start_idx.unwrap_or(positional_fallback);
+
     for (i, msg) in messages.iter().enumerate() {
-        if i >= protect_from_boundary && matches!(msg.role, Role::Tool) {
+        if i >= start_idx && matches!(msg.role, Role::Tool) {
             protected.insert(i);
         }
     }
 
     protected
 }
-
-const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 
 /// Time-driven microcompact with tier awareness.
 ///
@@ -970,7 +1124,7 @@ const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 #[allow(dead_code)]
 pub(crate) fn time_based_microcompact(
     messages: &mut [xiaolin_core::types::ChatMessage],
-    iteration_boundaries: &[(usize, std::time::Instant)],
+    iteration_boundaries: &[super::query_state::IterationMsgBoundary],
     cache_window: std::time::Duration,
 ) -> usize {
     time_based_microcompact_with_protection(
@@ -984,7 +1138,7 @@ pub(crate) fn time_based_microcompact(
 /// Like [`time_based_microcompact`] but skips messages in the `protected` set.
 pub(crate) fn time_based_microcompact_with_protection(
     messages: &mut [xiaolin_core::types::ChatMessage],
-    iteration_boundaries: &[(usize, std::time::Instant)],
+    iteration_boundaries: &[super::query_state::IterationMsgBoundary],
     cache_window: std::time::Duration,
     protected: &std::collections::HashSet<usize>,
 ) -> usize {
@@ -1000,8 +1154,8 @@ pub(crate) fn time_based_microcompact_with_protection(
     let fresh_boundary_idx = iteration_boundaries
         .iter()
         .rev()
-        .find(|(_, time)| *time >= cutoff)
-        .map(|(idx, _)| *idx)
+        .find(|(_, time, _)| *time >= cutoff)
+        .map(|(idx, _, _)| *idx)
         .unwrap_or(messages.len());
 
     if fresh_boundary_idx == 0 {
@@ -1030,13 +1184,7 @@ pub(crate) fn time_based_microcompact_with_protection(
             None => continue,
         };
 
-        if text.starts_with(ONELINER_MARKER)
-            || text.starts_with(FADED_MARKER)
-            || text.starts_with(TIME_COMPACTED_MARKER)
-            || text.starts_with(RECALL_HINT_MARKER)
-            || text.starts_with("[summarized]")
-            || text == TOOL_RESULT_CLEARED_MESSAGE
-        {
+        if is_already_compacted(&text) {
             continue;
         }
 
@@ -1050,11 +1198,12 @@ pub(crate) fn time_based_microcompact_with_protection(
         } else {
             match tier {
                 RetentionTier::FullRetain => {
-                    let summary = summarize_tool_result(&tool_name, &text, 600);
+                    let summary =
+                        summarize_tool_result(&tool_name, &text, TIME_COMPACT_FULL_RETAIN_CHARS);
                     format!("{TIME_COMPACTED_MARKER} {summary}")
                 }
                 RetentionTier::Summarize => {
-                    let summary = summarize_tool_result(&tool_name, &text, 300);
+                    let summary = summarize_tool_result(&tool_name, &text, SUMMARIZE_MAX_CHARS);
                     format!("{TIME_COMPACTED_MARKER} {summary}")
                 }
                 RetentionTier::Ephemeral => {
@@ -1081,8 +1230,8 @@ fn time_compact_read_file(
     original_text: &str,
     _tier: RetentionTier,
 ) -> String {
-    use xiaolin_core::types::Role;
     use std::path::Path;
+    use xiaolin_core::types::Role;
 
     let line_count = original_text.lines().count();
     let char_count = original_text.len();
@@ -1106,7 +1255,8 @@ fn time_compact_read_file(
     let file_path = match file_path {
         Some(p) => p,
         None => {
-            let summary = summarize_tool_result("read_file", original_text, 600);
+            let summary =
+                summarize_tool_result("read_file", original_text, TIME_COMPACT_READ_FILE_CHARS);
             return format!("{TIME_COMPACTED_MARKER} {summary}");
         }
     };
@@ -1151,8 +1301,8 @@ struct DedupToolEntry {
 }
 
 pub(crate) fn dedup_repeated_tool_calls(messages: &mut [xiaolin_core::types::ChatMessage]) {
-    use xiaolin_core::types::Role;
     use std::collections::HashMap;
+    use xiaolin_core::types::Role;
 
     const DEDUP_TOOLS: &[&str] = &["read_file", "shell_exec", "shell", "run_command"];
 
@@ -1357,8 +1507,49 @@ fn dedup_overlapping_reads(
     }
 }
 
+/// Key for tool-call repetition detection.
+///
+/// `read_file` collapses to file path (offset/limit variants count together).
+/// Search tools collapse to pattern + path. Others use exact arguments.
+pub(crate) fn tool_repetition_key(tool_name: &str, arguments: &str) -> String {
+    if tool_name.starts_with("read_file") {
+        if let Some(path) = extract_target_key("read_file", arguments) {
+            return format!("read_file\0path:{path}");
+        }
+    }
+    if tool_name.starts_with("grep")
+        || tool_name.starts_with("ripgrep")
+        || tool_name.starts_with("search_in_files")
+    {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(arguments) {
+            let pattern = v
+                .get("pattern")
+                .or(v.get("query"))
+                .or(v.get("search_query"))
+                .and_then(|p| p.as_str())
+                .unwrap_or("");
+            let path = v
+                .get("path")
+                .or(v.get("directory"))
+                .or(v.get("file_path"))
+                .and_then(|p| p.as_str())
+                .unwrap_or(".");
+            return format!("{tool_name}\0pattern:{pattern}\0path:{path}");
+        }
+    }
+    if tool_name.starts_with("shell_exec")
+        || tool_name.starts_with("shell")
+        || tool_name.starts_with("run_command")
+    {
+        if let Some(cmd) = extract_target_key(tool_name, arguments) {
+            return format!("{tool_name}\0cmd:{cmd}");
+        }
+    }
+    format!("{tool_name}\0{arguments}")
+}
+
 /// Extract a target key from tool arguments for deduplication.
-fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
+pub(crate) fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(arguments).ok()?;
     match tool_name {
         "read_file" => v
@@ -1648,15 +1839,28 @@ mod sort_tests {
 
     #[test]
     fn sort_is_deterministic_and_alphabetical() {
-        let mut a = vec![td("read_file"), td("bash"), td("write_file"), td("apply_patch")];
-        let mut b = vec![td("write_file"), td("apply_patch"), td("read_file"), td("bash")];
+        let mut a = vec![
+            td("read_file"),
+            td("bash"),
+            td("write_file"),
+            td("apply_patch"),
+        ];
+        let mut b = vec![
+            td("write_file"),
+            td("apply_patch"),
+            td("read_file"),
+            td("bash"),
+        ];
         sort_tool_definitions_by_name(&mut a);
         sort_tool_definitions_by_name(&mut b);
         let names_a: Vec<&str> = a.iter().map(|t| t.function.name.as_str()).collect();
         let names_b: Vec<&str> = b.iter().map(|t| t.function.name.as_str()).collect();
         // Two different input orders converge to the same byte-stable order.
         assert_eq!(names_a, names_b);
-        assert_eq!(names_a, vec!["apply_patch", "bash", "read_file", "write_file"]);
+        assert_eq!(
+            names_a,
+            vec!["apply_patch", "bash", "read_file", "write_file"]
+        );
     }
 
     #[test]
@@ -1667,7 +1871,287 @@ mod sort_tests {
         assert!(read_full > shell_full);
         assert!(read_preview > shell_preview);
         assert!(read_fade > shell_fade);
-        assert_eq!(read_full, base_keep + 2 + 8);
+        assert_eq!(read_full, base_keep + 8 + 16);
     }
 }
 
+#[cfg(test)]
+mod repetition_tests {
+    use super::{tool_repetition_key, truncated_output_dir};
+
+    #[test]
+    fn read_file_repetition_key_ignores_offset() {
+        let a = tool_repetition_key(
+            "read_file",
+            r#"{"file_path":"src/a.ts","offset":1,"limit":50}"#,
+        );
+        let b = tool_repetition_key(
+            "read_file",
+            r#"{"file_path":"src/a.ts","offset":51,"limit":50}"#,
+        );
+        assert_eq!(a, b);
+        assert!(a.contains("src/a.ts"));
+    }
+
+    #[test]
+    fn truncated_output_dir_is_under_state_dir() {
+        let dir = truncated_output_dir().expect("state dir should resolve");
+        let state = xiaolin_core::paths::resolve_state_dir();
+        assert!(
+            dir.starts_with(&state),
+            "truncated dir {:?} must be under state dir {:?}",
+            dir,
+            state
+        );
+        assert!(
+            !dir.starts_with("/tmp"),
+            "must not use /tmp — read_file sandbox blocks it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod anchor_protection_tests {
+    use super::{
+        cache_window_for_occupancy, compute_protected_indices, fade_to_preview,
+        microcompact_tool_results_with_protection, ProtectionWindowConfig,
+    };
+    use crate::runtime::query_state::IterationMsgBoundary;
+    use xiaolin_core::types::{ChatMessage, Role};
+
+    fn tool_msg(call_id: &str, name: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Tool,
+            name: Some(name.to_string()),
+            tool_call_id: Some(call_id.to_string()),
+            content: Some(serde_json::Value::String(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    fn asst_with_tool_call(call_id: &str, name: &str, args: &str) -> ChatMessage {
+        use xiaolin_core::types::{FunctionCall, ToolCall};
+        ChatMessage {
+            role: Role::Assistant,
+            tool_calls: Some(vec![ToolCall {
+                id: call_id.to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: name.to_string(),
+                    arguments: args.to_string(),
+                },
+                output: None,
+                success: None,
+                duration_ms: None,
+            }]),
+            ..Default::default()
+        }
+    }
+
+    fn user_msg(text: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::User,
+            content: Some(serde_json::Value::String(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// T1: After compaction deletes earlier messages, compute_protected_indices
+    /// must still cover the last N iterations by re-resolving the boundary
+    /// anchor against the current Vec.
+    #[test]
+    fn compute_protected_indices_resolves_anchor_after_compaction() {
+        // Initial layout:
+        //   0 user
+        //   1 asst(tc1)
+        //   2 tool(tc1)        ← iteration 1
+        //   3 asst(tc2)
+        //   4 tool(tc2)        ← iteration 2
+        //   5 asst(tc3)
+        //   6 tool(tc3)        ← iteration 3
+        let mut messages = vec![
+            user_msg("hello"),
+            asst_with_tool_call("tc1", "read_file", r#"{"file_path":"a"}"#),
+            tool_msg("tc1", "read_file", "AAA"),
+            asst_with_tool_call("tc2", "read_file", r#"{"file_path":"b"}"#),
+            tool_msg("tc2", "read_file", "BBB"),
+            asst_with_tool_call("tc3", "read_file", r#"{"file_path":"c"}"#),
+            tool_msg("tc3", "read_file", "CCC"),
+        ];
+
+        let now = std::time::Instant::now();
+        // Boundaries pushed at iteration start: before iter 1 (idx 0), iter 2
+        // (idx 3), iter 3 (idx 5). The anchor captured at push time is the
+        // most recent Tool message then in the Vec.
+        let boundaries: Vec<IterationMsgBoundary> = vec![
+            (0, now, None),
+            (3, now, Some("tc1".to_string())),
+            (5, now, Some("tc2".to_string())),
+        ];
+
+        let cfg = ProtectionWindowConfig {
+            protected_iterations: 2,
+        };
+
+        // Pre-compaction: protected window starts at boundary for iter 2
+        // (anchor "tc1" → resolves to idx 2). Tool messages at idx >= 2 are
+        // protected → {2, 4, 6}.
+        let protected_before = compute_protected_indices(&messages, &boundaries, &cfg);
+        assert!(
+            protected_before.contains(&4) && protected_before.contains(&6),
+            "pre-compaction protected set should include tool(tc2) and tool(tc3), got {:?}",
+            protected_before
+        );
+
+        // Compaction deletes asst(tc1) + tool(tc1) (indices 1, 2).
+        // New layout:
+        //   0 user
+        //   1 asst(tc2)
+        //   2 tool(tc2)
+        //   3 asst(tc3)
+        //   4 tool(tc3)
+        messages.remove(2);
+        messages.remove(1);
+
+        // The stored indices in `boundaries` are now stale (3 → points at
+        // tool(tc2) now, 5 → out of range). Without anchor resolution, the
+        // protected set would be wrong.
+        let protected_after = compute_protected_indices(&messages, &boundaries, &cfg);
+        assert!(
+            protected_after.contains(&2) && protected_after.contains(&4),
+            "post-compaction protected set must still cover tool(tc2) and tool(tc3) \
+             via anchor re-resolution, got {:?}",
+            protected_after
+        );
+    }
+
+    /// T2: When the anchor itself has been evicted (e.g. LLM autocompact
+    /// removed tool(tc2)), fall back to the clamped positional index.
+    #[test]
+    fn compute_protected_indices_falls_back_when_anchor_evicted() {
+        let mut messages = vec![
+            user_msg("hello"),
+            asst_with_tool_call("tc1", "read_file", r#"{"file_path":"a"}"#),
+            tool_msg("tc1", "read_file", "AAA"),
+            asst_with_tool_call("tc2", "read_file", r#"{"file_path":"b"}"#),
+            tool_msg("tc2", "read_file", "BBB"),
+            asst_with_tool_call("tc3", "read_file", r#"{"file_path":"c"}"#),
+            tool_msg("tc3", "read_file", "CCC"),
+        ];
+
+        let now = std::time::Instant::now();
+        let boundaries: Vec<IterationMsgBoundary> = vec![
+            (0, now, None),
+            (3, now, Some("tc1".to_string())),
+            (5, now, Some("tc2".to_string())),
+        ];
+
+        let cfg = ProtectionWindowConfig {
+            protected_iterations: 2,
+        };
+
+        // LLM autocompact removes tool(tc2) and its assistant message
+        // (indices 3, 4). Layout becomes:
+        //   0 user
+        //   1 asst(tc1)
+        //   2 tool(tc1)
+        //   3 asst(tc3)
+        //   4 tool(tc3)
+        messages.remove(4);
+        messages.remove(3);
+
+        // protect_from is boundaries[1] (anchor "tc1" → resolves to idx 2).
+        // Tool messages at idx >= 2 are protected → {2, 4}.
+        let protected = compute_protected_indices(&messages, &boundaries, &cfg);
+        assert!(
+            protected.contains(&4),
+            "tool(tc3) must still be protected via anchor tc1 → idx 2, got {:?}",
+            protected
+        );
+    }
+
+    /// T3: microcompact_tool_results_with_protection skips messages that
+    /// already carry a compaction marker (BUG-025 / Gap E).
+    #[test]
+    fn microcompact_skips_time_compacted_and_summarized() {
+        let time_compacted = tool_msg(
+            "tc1",
+            "read_file",
+            "[time-compacted] [read_file: foo.rs — file exists on disk. Original: 10 lines]",
+        );
+        let summarized = tool_msg(
+            "tc2",
+            "grep",
+            "[summarized] 3 matches in foo.rs\n[summary of older tool result — use read_file/grep to re-fetch if needed]",
+        );
+
+        let mut messages = vec![
+            user_msg("hi"),
+            asst_with_tool_call("tc1", "read_file", r#"{"file_path":"foo.rs"}"#),
+            time_compacted,
+            asst_with_tool_call("tc2", "grep", r#"{"pattern":"x"}"#),
+            summarized,
+        ];
+
+        let before: Vec<String> = messages
+            .iter()
+            .map(|m| m.text_content().unwrap_or_default().to_string())
+            .collect();
+        let protected = std::collections::HashSet::new();
+        microcompact_tool_results_with_protection(&mut messages, 0, &protected);
+        let after: Vec<String> = messages
+            .iter()
+            .map(|m| m.text_content().unwrap_or_default().to_string())
+            .collect();
+
+        assert_eq!(
+            before, after,
+            "already-compacted messages must not be touched by microcompact"
+        );
+    }
+
+    /// T5: cache_window_for_occupancy returns 5 min (not 2 min) at ≥90%
+    /// occupancy (BUG-026 / Gap B1).
+    #[test]
+    fn cache_window_floor_is_5min_at_high_occupancy() {
+        let ctx = 128_000_u32;
+        // Exactly 90% — the ≥90% branch.
+        let win = cache_window_for_occupancy((ctx as f64 * 0.90) as usize, ctx);
+        assert_eq!(
+            win.as_secs(),
+            300,
+            "≥90% occupancy should return 5 min (300s), got {}s",
+            win.as_secs()
+        );
+
+        // Well above 90%.
+        let win = cache_window_for_occupancy(ctx as usize - 100, ctx);
+        assert_eq!(
+            win.as_secs(),
+            300,
+            "near-100% occupancy should also return 5 min, got {}s",
+            win.as_secs()
+        );
+
+        // Below 90% should still be 5 min (unchanged).
+        let win = cache_window_for_occupancy((ctx as f64 * 0.85) as usize, ctx);
+        assert_eq!(win.as_secs(), 300);
+    }
+
+    /// T6: fade_to_preview wording signals recoverability and avoids the
+    /// standalone word "faded" which the LLM tended to read as data loss
+    /// (BUG-024 / Gap D1).
+    #[test]
+    fn fade_to_preview_wording_mentions_recoverable() {
+        let content = "x".repeat(10_000);
+        let faded = fade_to_preview(&content, 1_000);
+        assert!(
+            faded.contains("available via read_file"),
+            "fade_to_preview should mention recovery via read_file, got: {faded}"
+        );
+        assert!(
+            !faded.contains("more chars faded."),
+            "fade_to_preview should not say 'more chars faded.' (implies loss), got: {faded}"
+        );
+    }
+}

@@ -13,7 +13,6 @@ pub(crate) fn memory_tool_suffix(agent_id: &str) -> String {
         .collect()
 }
 
-
 /// Information needed to dynamically inject sub-agent guidance into the system prompt.
 ///
 /// NOTE: active sub-agent status is intentionally NOT part of this struct. It is
@@ -190,7 +189,7 @@ TASK DESCRIPTION RULES:
     Some(block)
 }
 
-fn build_child_agent_block(ctx: &SubAgentPromptContext<'_>, remaining: u32) -> String {
+fn build_child_agent_block(ctx: &SubAgentPromptContext<'_>, _remaining: u32) -> String {
     let mut block = String::with_capacity(256);
     block.push_str("\n\n[Sub-Agent Context]\n");
     block.push_str(
@@ -198,13 +197,10 @@ fn build_child_agent_block(ctx: &SubAgentPromptContext<'_>, remaining: u32) -> S
          - Focus exclusively on your assigned task\n\
          - Return a concise, actionable result\n\
          - Do not engage in pleasantries or ask follow-up questions\n\
-         - If you cannot complete the task, explain why clearly\n",
+         - If you cannot complete the task, explain why clearly\n\
+         - You cannot spawn nested sub-agents; use your available tools directly, \
+         or return partial findings to the parent agent\n",
     );
-    if remaining > 0 {
-        block.push_str(&format!(
-            "You may further delegate via `spawn_subagent` (remaining depth: {remaining}).\n",
-        ));
-    }
     if let Some(budget) = ctx.policy.token_budget {
         block.push_str(&format!("Token budget: {budget}.\n"));
     }
@@ -300,7 +296,7 @@ mod tests {
         let c1 = build_active_runs_context(&[sample_run(1000, 1)]).unwrap();
         let c2 = build_active_runs_context(&[sample_run(9000, 5)]).unwrap();
         assert_ne!(c1, c2); // user-context block reflects fresh elapsed/progress
-        // ...but guidance is untouched (recomputing yields the same bytes).
+                            // ...but guidance is untouched (recomputing yields the same bytes).
         assert_eq!(
             guidance,
             build_subagent_prompt_block(&ctx).expect("guidance present")
