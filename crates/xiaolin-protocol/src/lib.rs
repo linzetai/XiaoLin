@@ -5,6 +5,7 @@ pub mod history;
 pub mod id;
 pub mod message;
 pub mod op;
+pub mod runtime_quality;
 pub mod search;
 pub mod tool_spec;
 pub mod usage;
@@ -22,15 +23,15 @@ pub use message::{
     AskQuestionOption, CompactTrigger, ContentPart, ExecutionMode, MessagePhase, MessageTarget,
     Role,
 };
-pub use search::{
-    SearchFilters, SearchIndexStatusResponse, SearchQueryRequest, SearchQueryResponse,
-    SearchResult,
-};
 #[allow(deprecated)]
 pub use op::{
     all_ws_method_names, ChatParams, ChatSteerMessage, ChatSubmitParams, ClientOp,
     ClientOpParseError, McpAddParams, SessionsListParams, SessionsNewParams, SkillsDeleteParams,
     SkillsListParams, SkillsReadParams, SkillsUpdateParams, ToolsListParams, ToolsUpdateParams,
+};
+pub use runtime_quality::{TurnQualityDiagnosisCode, TurnQualitySeverity, TurnQualitySummary};
+pub use search::{
+    SearchFilters, SearchIndexStatusResponse, SearchQueryRequest, SearchQueryResponse, SearchResult,
 };
 pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
 pub use usage::TokenUsage;

@@ -103,8 +103,8 @@ pub(super) async fn list_skills(
         .list()
         .into_iter()
         .map(|s| {
-            let enabled = s.frontmatter.enabled.unwrap_or(true)
-                && !deny_set.contains(s.id.as_str());
+            let enabled =
+                s.frontmatter.enabled.unwrap_or(true) && !deny_set.contains(s.id.as_str());
             let origin = s
                 .source
                 .as_ref()
@@ -163,12 +163,13 @@ async fn handle_non_stream(
     let result = match state
         .rt
         .runtime
-        .execute_with_subagent_prompt(
+        .execute_with_subagent_prompt_and_runtime_quality_store(
             &setup.agent_config,
             &setup.enriched_request,
             &state.rt.tool_registry,
             setup.llm_override.clone(),
             subagent_prompt,
+            Some(state.store.runtime_quality_store.clone()),
         )
         .await
     {
@@ -200,8 +201,7 @@ async fn handle_non_stream(
         // Dual-write: persist as HistoryItems alongside legacy messages
         {
             let turn_id = xiaolin_protocol::TurnId::generate();
-            let history_items =
-                xiaolin_core::history_compat::chat_message_to_history(msg, turn_id);
+            let history_items = xiaolin_core::history_compat::chat_message_to_history(msg, turn_id);
             if let Err(e) = state
                 .store
                 .session_store
@@ -349,8 +349,7 @@ async fn handle_stream(
             );
         } else {
             let turn_id = xiaolin_protocol::TurnId::generate();
-            let history_items =
-                xiaolin_core::history_compat::chat_message_to_history(msg, turn_id);
+            let history_items = xiaolin_core::history_compat::chat_message_to_history(msg, turn_id);
             if let Err(e) = state
                 .store
                 .session_store
@@ -379,10 +378,7 @@ async fn handle_stream(
     let session_handle = state
         .svc
         .session_manager
-        .get_or_create(
-            SessionId::new(&session_id),
-            &setup.agent_id,
-        )
+        .get_or_create(SessionId::new(&session_id), &setup.agent_id)
         .await;
 
     let (_sub_id, mut event_rx) = session_handle

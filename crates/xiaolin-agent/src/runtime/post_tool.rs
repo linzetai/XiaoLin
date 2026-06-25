@@ -5,6 +5,7 @@ use super::agent_step::{AgentStep, TurnEndReason};
 use super::goal_prompts;
 use super::llm_call::LlmStreamOutput;
 use super::query_state::{self, NoProgressStallAction};
+use super::runtime_quality;
 use super::stream_engine::send_step;
 use super::tool_executor;
 use super::tool_round::PreToolSnapshot;
@@ -63,6 +64,27 @@ pub(crate) async fn post_tool_processing(
             svc.stream_start,
             svc.context_window,
         );
+        if let Err(e) = runtime_quality::persist_runtime_quality_summary(
+            svc.runtime_quality_store.as_deref(),
+            svc.session_id.as_deref(),
+            &ms.runtime_quality,
+            &svc.turn_id,
+            &svc.config,
+            &svc.model,
+            svc.stream_start,
+            svc.context_window,
+            &ms.query_loop,
+            None,
+        )
+        .await
+        {
+            tracing::warn!(
+                error = %e,
+                session_id = ?svc.session_id,
+                turn_id = %svc.turn_id,
+                "failed to persist runtime quality summary"
+            );
+        }
         let _ = send_step(
             &svc.step_tx,
             AgentStep::TurnEnd {
@@ -113,6 +135,10 @@ pub(crate) async fn post_tool_processing(
         );
         tool_executor::dedup_repeated_tool_calls(&mut ms.messages);
         let post_tool_tokens = xiaolin_context::estimate_messages_tokens(&ms.messages);
+        if mc_stats.modified_total() > 0 && tokens_before > post_tool_tokens {
+            ms.runtime_quality
+                .record_compact(tokens_before, post_tool_tokens);
+        }
         tool_executor::log_microcompact_event(
             "post_tool",
             &mc_stats,

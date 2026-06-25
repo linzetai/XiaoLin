@@ -7,18 +7,18 @@ use xiaolin_protocol::{AgentEvent, ExecutionMode, TurnSummary, WarningCategory};
 
 use crate::llm::CompletionParams;
 
-use super::agent_step::AgentStep;
 use super::accumulator::{accumulate_tool_call, ToolCallAccumulator};
-use super::query_deps::QueryDeps;
+use super::agent_step::AgentStep;
 use super::cache_break_detection;
 use super::cost_tracker;
 use super::mode_attachments;
 use super::model_critic;
+use super::query_deps::QueryDeps;
 use super::query_state::{self, ESCALATED_MAX_TOKENS};
 use super::stream_engine::{send_step, send_stream_event};
 use super::streaming_tool_executor::{StreamingExecutorConfig, StreamingToolExecutor};
 use super::task_decomposer;
-use super::tool_executor::{filter_tool_definitions, demote_tools_for_plan_mode};
+use super::tool_executor::{demote_tools_for_plan_mode, filter_tool_definitions};
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::{
     apply_message_budget, classify_stream_error_code, inject_tool_recovery_guidance,
@@ -95,7 +95,11 @@ pub(crate) async fn perform_llm_call(
         let mut all_defs = svc.tool_registry.definitions_with_profile(&mode_profile);
         all_defs.extend(ms.extra_tool_defs.iter().cloned());
         ms.tool_defs = filter_tool_definitions(&all_defs, &svc.config);
-        if svc.mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
+        if svc
+            .mode_state
+            .as_ref()
+            .is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan)
+        {
             demote_tools_for_plan_mode(&mut ms.tool_defs);
         }
         ms.tool_defs_est_tokens = svc.tool_registry.estimated_json_chars(&ms.tool_defs) / 4;
@@ -142,10 +146,8 @@ pub(crate) async fn perform_llm_call(
     if let Some(ref mode_state) = svc.mode_state {
         if mode_state.current_mode() == ExecutionMode::Plan {
             let turn_count = mode_state.plan_turn_count();
-            let plan_path_str = svc.plan_file_path.as_ref()
-                .map(|p| p.display().to_string());
-            let plan_exists = svc.plan_file_path.as_ref()
-                .is_some_and(|p| p.exists());
+            let plan_path_str = svc.plan_file_path.as_ref().map(|p| p.display().to_string());
+            let plan_exists = svc.plan_file_path.as_ref().is_some_and(|p| p.exists());
             let attachment = mode_attachments::plan_mode_attachment(
                 plan_path_str.as_deref(),
                 plan_exists,
@@ -154,7 +156,9 @@ pub(crate) async fn perform_llm_call(
             if let Some(text) = attachment.text_for_turn(turn_count) {
                 let mut inject_text = String::new();
                 if turn_count == 0 && mode_state.has_exited_plan() {
-                    inject_text.push_str(&mode_attachments::plan_reentry_notice(svc.language_preference.as_deref()));
+                    inject_text.push_str(&mode_attachments::plan_reentry_notice(
+                        svc.language_preference.as_deref(),
+                    ));
                     inject_text.push('\n');
                 }
                 inject_text.push_str(text);
@@ -180,7 +184,9 @@ pub(crate) async fn perform_llm_call(
             if plan_exists {
                 let turn_count = mode_state.agent_turn_count();
                 if let Some(plan_path) = svc.plan_file_path.as_ref() {
-                    if turn_count > 0 && turn_count.is_multiple_of(mode_attachments::AGENT_REMINDER_INTERVAL) {
+                    if turn_count > 0
+                        && turn_count.is_multiple_of(mode_attachments::AGENT_REMINDER_INTERVAL)
+                    {
                         if let Ok(plan_content) = std::fs::read_to_string(plan_path) {
                             if let Some(reminder) = mode_attachments::agent_implementation_reminder(
                                 turn_count,
@@ -228,8 +234,14 @@ pub(crate) async fn perform_llm_call(
 
     // PlanArgInterceptor: extracts plan content deltas from write_file arguments
     let mut plan_interceptor = svc.plan_file_path.as_ref().and_then(|pfp| {
-        if svc.mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
-            Some(super::plan_arg_interceptor::PlanArgInterceptor::new(pfp.clone()))
+        if svc
+            .mode_state
+            .as_ref()
+            .is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan)
+        {
+            Some(super::plan_arg_interceptor::PlanArgInterceptor::new(
+                pfp.clone(),
+            ))
         } else {
             None
         }
@@ -386,11 +398,7 @@ pub(crate) async fn perform_llm_call(
             };
             let effective_timeout = idle_dur.min(remaining);
 
-            let maybe_result = tokio::time::timeout(
-                effective_timeout,
-                stream.next(),
-            )
-            .await;
+            let maybe_result = tokio::time::timeout(effective_timeout, stream.next()).await;
 
             let result = match maybe_result {
                 Ok(Some(r)) => r,
@@ -466,9 +474,7 @@ pub(crate) async fn perform_llm_call(
                             let partial = std::mem::take(&mut accumulated_content);
                             if !partial.is_empty() || !rc.is_empty() {
                                 if let Some(last) = ms.messages.last() {
-                                    if last.role == Role::Assistant
-                                        && last.tool_calls.is_none()
-                                    {
+                                    if last.role == Role::Assistant && last.tool_calls.is_none() {
                                         ms.messages.pop();
                                     }
                                 }
@@ -479,11 +485,7 @@ pub(crate) async fn perform_llm_call(
                                     } else {
                                         Some(serde_json::Value::String(partial))
                                     },
-                                    reasoning_content: if rc.is_empty() {
-                                        None
-                                    } else {
-                                        Some(rc)
-                                    },
+                                    reasoning_content: if rc.is_empty() { None } else { Some(rc) },
                                     ..Default::default()
                                 });
                             }
@@ -503,9 +505,7 @@ pub(crate) async fn perform_llm_call(
                         let partial = std::mem::take(&mut accumulated_content);
                         if !partial.is_empty() || !rc.is_empty() {
                             if let Some(last) = ms.messages.last() {
-                                if last.role == Role::Assistant
-                                    && last.tool_calls.is_none()
-                                {
+                                if last.role == Role::Assistant && last.tool_calls.is_none() {
                                     ms.messages.pop();
                                 }
                             }
@@ -516,11 +516,7 @@ pub(crate) async fn perform_llm_call(
                                 } else {
                                     Some(serde_json::Value::String(partial))
                                 },
-                                reasoning_content: if rc.is_empty() {
-                                    None
-                                } else {
-                                    Some(rc)
-                                },
+                                reasoning_content: if rc.is_empty() { None } else { Some(rc) },
                                 ..Default::default()
                             });
                         }
@@ -585,10 +581,20 @@ pub(crate) async fn perform_llm_call(
             }
 
             if let Some(choice) = delta.choices.first() {
+                ms.runtime_quality
+                    .mark_delta(svc.stream_start.elapsed().as_millis() as u64);
                 if let Some(ref content) = choice.delta.content {
+                    if !content.is_empty() {
+                        ms.runtime_quality
+                            .mark_content(svc.stream_start.elapsed().as_millis() as u64);
+                    }
                     accumulated_content.push_str(content);
                 }
                 if let Some(ref rc) = choice.delta.reasoning_content {
+                    if !rc.is_empty() {
+                        ms.runtime_quality
+                            .mark_reasoning(svc.stream_start.elapsed().as_millis() as u64);
+                    }
                     accumulated_reasoning.push_str(rc);
                     let _ = send_step(
                         &svc.step_tx,
@@ -609,8 +615,7 @@ pub(crate) async fn perform_llm_call(
                         // — they'll go through orchestrator after stream completes.
                         if let Some(ref mut executor) = streaming_executor {
                             let new_idx = tc_delta.index as usize;
-                            let submit_start =
-                                last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
+                            let submit_start = last_submitted_tool_idx.map(|i| i + 1).unwrap_or(0);
                             if new_idx > 0 && submit_start < new_idx {
                                 for si in submit_start..new_idx {
                                     if let Some(acc) = tool_call_accum.get(si) {
@@ -690,6 +695,9 @@ pub(crate) async fn perform_llm_call(
                         cache_read_tokens: u.effective_cache_read_tokens(),
                         cache_creation_tokens: u.effective_cache_creation_tokens(),
                     };
+                    let estimated_cost_usd =
+                        svc.services.estimate_llm_call_cost_usd(&call_usage).await;
+                    ms.runtime_quality.record_usage(u, estimated_cost_usd);
                     if let Some(alert) = svc.services.record_llm_usage(call_usage).await {
                         match alert {
                             cost_tracker::BudgetAlert::Warning => {
@@ -748,8 +756,9 @@ pub(crate) async fn perform_llm_call(
                         cache_read_tokens: u.effective_cache_read_tokens(),
                         cache_creation_tokens: u.effective_cache_creation_tokens(),
                     };
-                    if let Some(report) =
-                        ms.cache_detector.post_call_analyze(&pre_call_cache_snapshot, &cache_usage)
+                    if let Some(report) = ms
+                        .cache_detector
+                        .post_call_analyze(&pre_call_cache_snapshot, &cache_usage)
                     {
                         tracing::warn!(
                             cause = %report.summary(),
@@ -764,7 +773,10 @@ pub(crate) async fn perform_llm_call(
                                 cache_read_tokens = effective_cache,
                                 cache_creation_tokens = u.effective_cache_creation_tokens(),
                                 prompt_tokens = u.prompt_tokens,
-                                cache_hit_pct = format_args!("{:.1}%", effective_cache as f64 / u.prompt_tokens.max(1) as f64 * 100.0),
+                                cache_hit_pct = format_args!(
+                                    "{:.1}%",
+                                    effective_cache as f64 / u.prompt_tokens.max(1) as f64 * 100.0
+                                ),
                                 "cache_break_detection: prompt cache hit"
                             );
                         }
@@ -861,9 +873,7 @@ pub(crate) async fn perform_llm_call(
         svc.runtime
             .finalize_injected_skills(&ms.injected_skill_ids, false)
             .await;
-        return LlmCallOutcome::FatalError(anyhow::anyhow!(
-            "prompt_too_long: recovery failed"
-        ));
+        return LlmCallOutcome::FatalError(anyhow::anyhow!("prompt_too_long: recovery failed"));
     }
 
     if stream_errored {
@@ -915,11 +925,7 @@ pub(crate) async fn perform_llm_call(
                     } else {
                         Some(serde_json::Value::String(partial))
                     },
-                    reasoning_content: if rc.is_empty() {
-                        None
-                    } else {
-                        Some(rc)
-                    },
+                    reasoning_content: if rc.is_empty() { None } else { Some(rc) },
                     ..Default::default()
                 });
             }
@@ -957,8 +963,7 @@ pub(crate) async fn perform_llm_call(
                 && !accumulated_content.is_empty()
             {
                 let critic_provider = svc.runtime.provider();
-                let task_type =
-                    task_decomposer::TaskType::from_str_loose_pub(&svc.last_user_msg);
+                let task_type = task_decomposer::TaskType::from_str_loose_pub(&svc.last_user_msg);
                 if let Some(review) = model_critic::run_critic(
                     &critic_provider,
                     task_type,

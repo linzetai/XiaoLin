@@ -20,12 +20,13 @@ use super::observer::RuntimeObserver;
 use super::permissions::DenialTracker;
 use super::query_deps::ProductionDeps;
 use super::query_state::QueryLoopState;
+use super::runtime_quality::RuntimeQualityCollector;
 use super::runtime_services::RuntimeServices;
+use super::runtimes::RuntimeRegistry;
 use super::token_budget::BudgetTracker;
 use super::tool_result_storage::{ContentReplacementState, ToolResultStorage};
 use super::undo_engine::UndoEngine;
 use super::validation_pipeline::ValidationPipeline;
-use super::runtimes::RuntimeRegistry;
 use super::AgentRuntime;
 use crate::builtin_tools::{ExecutionModeState, GoalStore, TodoStore};
 use crate::message_queue::MessageQueue;
@@ -52,6 +53,7 @@ pub(crate) struct TurnMutableState {
     pub injected_skill_ids: Vec<String>,
     pub trajectory_steps: Vec<TrajectoryStep>,
     pub budget_tracker: Option<BudgetTracker>,
+    pub runtime_quality: RuntimeQualityCollector,
     /// Set to true when token budget was reached in this turn (for TurnEnd reason override).
     pub token_budget_reached: bool,
     /// Tool definitions sent to the LLM. Refreshed when the registry version changes
@@ -99,6 +101,7 @@ pub(crate) struct TurnServices {
     pub runtime_registry: Arc<RuntimeRegistry>,
     pub tool_registry: Arc<ToolRegistry>,
     pub session_store: Option<Arc<xiaolin_session::SessionStore>>,
+    pub runtime_quality_store: Option<Arc<xiaolin_session::RuntimeQualityStore>>,
     pub todo_store: Option<TodoStore>,
     pub goal_store: Option<Arc<GoalStore>>,
     pub plan_file_path: Option<std::path::PathBuf>,

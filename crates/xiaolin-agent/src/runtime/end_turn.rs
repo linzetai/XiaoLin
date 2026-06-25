@@ -1,10 +1,6 @@
-use xiaolin_core::types::{
-    ChatMessage, DeltaContent, Role, StreamChoice, StreamDelta,
-};
+use xiaolin_core::types::{ChatMessage, DeltaContent, Role, StreamChoice, StreamDelta};
 use xiaolin_evolution::TrajectoryOutcome;
-use xiaolin_protocol::{
-    ExecutionMode, TokenUsage, TurnSummary,
-};
+use xiaolin_protocol::{ExecutionMode, TokenUsage, TurnSummary};
 
 use crate::builtin_tools::GoalStatus;
 use crate::llm::CompletionParams;
@@ -13,6 +9,7 @@ use super::agent_step::{AgentStep, TurnEndReason};
 use super::llm_call::LlmStreamOutput;
 use super::make_turn_summary;
 use super::query_state::TerminalReason;
+use super::runtime_quality;
 use super::stop_hooks;
 use super::stream_engine::send_step;
 use super::token_budget;
@@ -208,12 +205,13 @@ pub(crate) async fn handle_end_turn(
             max_tokens: Some(2048),
             tools: None,
         };
-        if let Ok(resp) = svc.runtime.provider().chat_completion(&summary_params).await {
-            if let Some(text) = resp
-                .choices
-                .first()
-                .and_then(|c| c.message.text_content())
-            {
+        if let Ok(resp) = svc
+            .runtime
+            .provider()
+            .chat_completion(&summary_params)
+            .await
+        {
+            if let Some(text) = resp.choices.first().and_then(|c| c.message.text_content()) {
                 let summary_delta = StreamDelta {
                     id: String::new(),
                     object: "chat.completion.chunk".to_string(),
@@ -268,7 +266,9 @@ pub(crate) async fn handle_end_turn(
                     false,
                 )
                 .await;
-                if let (Some(sid), Some(path)) = (svc.session_id.as_ref(), svc.plan_file_path.as_ref()) {
+                if let (Some(sid), Some(path)) =
+                    (svc.session_id.as_ref(), svc.plan_file_path.as_ref())
+                {
                     let _ = send_step(
                         &svc.step_tx,
                         AgentStep::PlanFileUpdate {
@@ -282,7 +282,9 @@ pub(crate) async fn handle_end_turn(
                     )
                     .await;
                 }
-            } else if let (Some(sid), Some(path)) = (svc.session_id.as_ref(), svc.plan_file_path.as_ref()) {
+            } else if let (Some(sid), Some(path)) =
+                (svc.session_id.as_ref(), svc.plan_file_path.as_ref())
+            {
                 tracing::info!(
                     agent_id = %svc.config.agent_id,
                     path = %path.display(),
@@ -334,6 +336,27 @@ pub(crate) async fn handle_end_turn(
         svc.stream_start,
         svc.context_window,
     );
+    if let Err(e) = runtime_quality::persist_runtime_quality_summary(
+        svc.runtime_quality_store.as_deref(),
+        svc.session_id.as_deref(),
+        &ms.runtime_quality,
+        &svc.turn_id,
+        &svc.config,
+        &svc.model,
+        svc.stream_start,
+        svc.context_window,
+        &ms.query_loop,
+        None,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %e,
+            session_id = ?svc.session_id,
+            turn_id = %svc.turn_id,
+            "failed to persist runtime quality summary"
+        );
+    }
     let turn_end_reason = if ms.token_budget_reached {
         TurnEndReason::TokenBudgetReached
     } else {
@@ -362,11 +385,8 @@ pub(crate) async fn handle_end_turn(
     let _obs = svc.runtime_observer.summary().await;
     svc.runtime_observer
         .clone()
-        .finalize(TrajectoryOutcome::Success {
-            user_rating: None,
-        })
+        .finalize(TrajectoryOutcome::Success { user_rating: None })
         .await;
 
     EndTurnOutcome::Done(summary)
 }
-

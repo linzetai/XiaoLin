@@ -1,5 +1,5 @@
 use xiaolin_core::types::{ChatMessage, Role};
-use xiaolin_protocol::TurnSummary;
+use xiaolin_protocol::{TurnQualityDiagnosisCode, TurnQualitySeverity, TurnSummary};
 
 use super::agent_step::AgentStep;
 use super::end_turn::{self, EndTurnOutcome};
@@ -9,6 +9,7 @@ use super::llm_call::{self, LlmCallOutcome};
 use super::make_turn_summary;
 use super::post_tool::{self, PostToolOutcome};
 use super::query_state;
+use super::runtime_quality;
 use super::stream_engine::send_step;
 use super::tool_round::{self, ToolRoundOutcome};
 use super::turn_state::{TurnMutableState, TurnServices};
@@ -48,6 +49,12 @@ pub(crate) async fn run_turn_loop(
                 svc.runtime
                     .finalize_injected_skills(&ms.injected_skill_ids, false)
                     .await;
+                persist_runtime_quality_summary(
+                    ms,
+                    svc,
+                    Some((TurnQualityDiagnosisCode::Aborted, TurnQualitySeverity::Warn)),
+                )
+                .await;
                 return Ok(make_turn_summary(
                     &svc.turn_id,
                     &ms.query_loop,
@@ -62,8 +69,24 @@ pub(crate) async fn run_turn_loop(
         // ═══════════════════════════════════════════════════════════════════
         let estimated_tokens = match iteration_check::iteration_pre_check(ms, svc).await {
             PreCheckOutcome::Continue { estimated_tokens } => estimated_tokens,
-            PreCheckOutcome::EarlyFinish(summary) => return Ok(summary),
-            PreCheckOutcome::FatalError(e) => return Err(e),
+            PreCheckOutcome::EarlyFinish(summary) => {
+                persist_runtime_quality_summary(
+                    ms,
+                    svc,
+                    Some((TurnQualityDiagnosisCode::Error, TurnQualitySeverity::Error)),
+                )
+                .await;
+                return Ok(summary);
+            }
+            PreCheckOutcome::FatalError(e) => {
+                persist_runtime_quality_summary(
+                    ms,
+                    svc,
+                    Some((TurnQualityDiagnosisCode::Error, TurnQualitySeverity::Error)),
+                )
+                .await;
+                return Err(e);
+            }
         };
 
         // ═══════════════════════════════════════════════════════════════════
@@ -72,7 +95,15 @@ pub(crate) async fn run_turn_loop(
         let mut llm_output = match llm_call::perform_llm_call(ms, svc, estimated_tokens).await {
             LlmCallOutcome::Completed(output) => *output,
             LlmCallOutcome::RetryIteration => continue, // mode_turn_counted stays true → skip re-increment
-            LlmCallOutcome::FatalError(e) => return Err(e),
+            LlmCallOutcome::FatalError(e) => {
+                persist_runtime_quality_summary(
+                    ms,
+                    svc,
+                    Some((TurnQualityDiagnosisCode::Error, TurnQualitySeverity::Error)),
+                )
+                .await;
+                return Err(e);
+            }
             LlmCallOutcome::EarlyFinish(summary) => return Ok(summary),
         };
         // Reset after successful LLM call so the next iteration can count.
@@ -129,6 +160,34 @@ pub(crate) async fn run_turn_loop(
                 }
             }
         }
+    }
+}
+
+async fn persist_runtime_quality_summary(
+    ms: &TurnMutableState,
+    svc: &TurnServices,
+    diagnosis_override: Option<(TurnQualityDiagnosisCode, TurnQualitySeverity)>,
+) {
+    if let Err(e) = runtime_quality::persist_runtime_quality_summary(
+        svc.runtime_quality_store.as_deref(),
+        svc.session_id.as_deref(),
+        &ms.runtime_quality,
+        &svc.turn_id,
+        &svc.config,
+        &svc.model,
+        svc.stream_start,
+        svc.context_window,
+        &ms.query_loop,
+        diagnosis_override,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %e,
+            session_id = ?svc.session_id,
+            turn_id = %svc.turn_id,
+            "failed to persist runtime quality summary"
+        );
     }
 }
 

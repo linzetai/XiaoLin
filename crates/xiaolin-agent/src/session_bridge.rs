@@ -10,12 +10,12 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use xiaolin_core::agent_config::AgentConfig;
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::types::ChatRequest;
 use xiaolin_protocol::{AgentEvent, AgentId, SessionId, TurnId};
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 use xiaolin_session_actor::{InteractionHandle, TurnError, TurnExecutor, TurnParams, TurnResult};
 
@@ -31,7 +31,9 @@ fn derive_approval_strategy(
         return xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
     }
     if let Some(ref strategy) = behavior.approval_strategy {
-        if strategy.eq_ignore_ascii_case("auto_approve") || strategy.eq_ignore_ascii_case("autoapprove") {
+        if strategy.eq_ignore_ascii_case("auto_approve")
+            || strategy.eq_ignore_ascii_case("autoapprove")
+        {
             return xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
         }
     }
@@ -70,8 +72,7 @@ pub struct RuntimeTurnExecutor {
     pub todo_store: Option<crate::builtin_tools::TodoStore>,
     pub goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
     pub plan_file_store: Option<crate::builtin_tools::PlanFileStore>,
-    pub stream_event_tx:
-        Option<Arc<DashMap<String, mpsc::Sender<AgentEvent>>>>,
+    pub stream_event_tx: Option<Arc<DashMap<String, mpsc::Sender<AgentEvent>>>>,
     pub subagent_manager: Option<Arc<crate::SubAgentManager>>,
     pub tool_orchestrator: Option<Arc<crate::runtime::orchestrator::ToolOrchestrator>>,
     /// Per-session BehaviorConfig overrides (set via permission presets).
@@ -83,6 +84,8 @@ pub struct RuntimeTurnExecutor {
     pub live_agents: Option<Arc<ArcSwap<Vec<AgentConfig>>>>,
     /// Persistent cost store for SQLite-backed analytics.
     pub cost_store: Option<Arc<xiaolin_session::CostStore>>,
+    /// Persistent runtime-quality store for per-turn diagnostics.
+    pub runtime_quality_store: Option<Arc<xiaolin_session::RuntimeQualityStore>>,
     /// File artifact store for tracking agent file operations.
     pub artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
 }
@@ -119,25 +122,19 @@ impl RuntimeTurnExecutor {
             });
         };
 
-        let mut messages = std::sync::Arc::try_unwrap(
-            store
-                .load_chat_messages(&session_id)
-                .await
-                .map_err(|e| TurnError::Runtime {
+        let mut messages =
+            std::sync::Arc::try_unwrap(store.load_chat_messages(&session_id).await.map_err(
+                |e| TurnError::Runtime {
                     message: format!("failed to load messages: {e}"),
                     code: xiaolin_protocol::event::ErrorCode::Other,
-                })?,
-        )
-        .unwrap_or_else(|arc| (*arc).clone());
+                },
+            )?)
+            .unwrap_or_else(|arc| (*arc).clone());
 
         let pre_count = messages.len();
         let pre_tokens = xiaolin_context::compressor::estimate_messages_tokens(&messages);
 
-        let context_window = self
-            .config
-            .model
-            .context_window
-            .unwrap_or(128_000);
+        let context_window = self.config.model.context_window.unwrap_or(128_000);
 
         xiaolin_context::ContextEngine::fit_to_context_window(
             &mut messages,
@@ -181,11 +178,7 @@ impl RuntimeTurnExecutor {
     }
 
     /// Auto-compact if the current session's messages exceed a token threshold.
-    async fn maybe_auto_compact(
-        &self,
-        params: &TurnParams,
-        tx: &mpsc::Sender<AgentEvent>,
-    ) {
+    async fn maybe_auto_compact(&self, params: &TurnParams, tx: &mpsc::Sender<AgentEvent>) {
         let compact_t0 = std::time::Instant::now();
         let Some(ref store) = self.session_store else {
             tracing::info!(
@@ -194,11 +187,7 @@ impl RuntimeTurnExecutor {
             );
             return;
         };
-        let context_window = self
-            .config
-            .model
-            .context_window
-            .unwrap_or(128_000);
+        let context_window = self.config.model.context_window.unwrap_or(128_000);
 
         // Trigger auto-compact at 85% of context window.
         let threshold = (context_window as f64 * 0.85) as usize;
@@ -224,8 +213,8 @@ impl RuntimeTurnExecutor {
             return;
         }
 
-        let mut messages = std::sync::Arc::try_unwrap(messages_arc)
-            .unwrap_or_else(|arc| (*arc).clone());
+        let mut messages =
+            std::sync::Arc::try_unwrap(messages_arc).unwrap_or_else(|arc| (*arc).clone());
 
         tracing::info!(
             session_id = %session_id,
@@ -354,9 +343,10 @@ impl RuntimeTurnExecutor {
         cancel: &CancellationToken,
         approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
     ) -> anyhow::Result<xiaolin_protocol::TurnSummary> {
-        let mgr = self.subagent_manager.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("subagent manager required for reactive loop")
-        })?;
+        let mgr = self
+            .subagent_manager
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("subagent manager required for reactive loop"))?;
         let policy = &config.behavior.subagent;
         let batch_window = Duration::from_millis(policy.batch_window_ms);
         let max_reprompts = policy.max_reprompts_per_turn;
@@ -412,17 +402,14 @@ impl RuntimeTurnExecutor {
             let turn_id = TurnId::generate();
 
             // Emit notification event for frontend.
-            reactive_loop::emit_notification_event(
-                tx,
-                &turn_id,
-                &completions,
-                remaining_active,
-            )
-            .await;
+            reactive_loop::emit_notification_event(tx, &turn_id, &completions, remaining_active)
+                .await;
 
             // Build notification message and inject into conversation.
-            let notification_text =
-                reactive_loop::build_completion_notification(&completions, remaining_active as usize);
+            let notification_text = reactive_loop::build_completion_notification(
+                &completions,
+                remaining_active as usize,
+            );
 
             // Build a lightweight reprompt request: only clone the notification
             // message instead of the entire message history, and load from the
@@ -431,25 +418,33 @@ impl RuntimeTurnExecutor {
                 if let Some(ref sid) = request.session_id {
                     match store.load_chat_messages(&sid.to_string()).await {
                         Ok(arc) => {
-                            let mut messages = std::sync::Arc::try_unwrap(arc)
-                                .unwrap_or_else(|a| (*a).clone());
-                            messages.push(reactive_loop::notification_as_system_message(&notification_text));
+                            let mut messages =
+                                std::sync::Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone());
+                            messages.push(reactive_loop::notification_as_system_message(
+                                &notification_text,
+                            ));
                             messages
                         }
                         Err(_) => {
                             let mut msgs = request.messages.clone();
-                            msgs.push(reactive_loop::notification_as_system_message(&notification_text));
+                            msgs.push(reactive_loop::notification_as_system_message(
+                                &notification_text,
+                            ));
                             msgs
                         }
                     }
                 } else {
                     let mut msgs = request.messages.clone();
-                    msgs.push(reactive_loop::notification_as_system_message(&notification_text));
+                    msgs.push(reactive_loop::notification_as_system_message(
+                        &notification_text,
+                    ));
                     msgs
                 }
             } else {
                 let mut msgs = request.messages.clone();
-                msgs.push(reactive_loop::notification_as_system_message(&notification_text));
+                msgs.push(reactive_loop::notification_as_system_message(
+                    &notification_text,
+                ));
                 msgs
             };
 
@@ -480,7 +475,12 @@ impl RuntimeTurnExecutor {
             // re-prompt; injected into the user message, not the system prompt.
             let active_runs_context = self.build_active_runs_context(session_id);
 
-            let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified_with_cost_store(
+            let runtime_fut: std::pin::Pin<
+                Box<
+                    dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>>
+                        + Send,
+                >,
+            > = Box::pin(runtime.execute_unified_with_cost_store(
                 config,
                 &reprompt_request,
                 &tool_registry,
@@ -495,6 +495,7 @@ impl RuntimeTurnExecutor {
                 todo_store.clone(),
                 self.goal_store.clone(),
                 self.cost_store.clone(),
+                self.runtime_quality_store.clone(),
                 self.artifact_store.clone(),
                 self.behavior_overrides.clone(),
                 None,
@@ -504,18 +505,18 @@ impl RuntimeTurnExecutor {
             let reprompt_result = {
                 let session_id_for_scope = session_id.to_string();
                 let wrapped_fut = async move {
-                    let runtime_with_ih = crate::builtin_tools::with_interaction_handle(
-                        ih_for_tools,
-                        runtime_fut,
-                    );
-                    let runtime_with_session = crate::with_subagent_session_id(
-                        session_id_for_scope,
-                        runtime_with_ih,
-                    );
+                    let runtime_with_ih =
+                        crate::builtin_tools::with_interaction_handle(ih_for_tools, runtime_fut);
+                    let runtime_with_session =
+                        crate::with_subagent_session_id(session_id_for_scope, runtime_with_ih);
                     if let Some(ms) = mode_state_c {
                         crate::builtin_tools::with_stream_context(
                             stream_ctx_key_inner,
-                            crate::builtin_tools::with_session_mode(ms, plan_ctx_c, runtime_with_session),
+                            crate::builtin_tools::with_session_mode(
+                                ms,
+                                plan_ctx_c,
+                                runtime_with_session,
+                            ),
                         )
                         .await
                     } else {
@@ -541,10 +542,7 @@ impl RuntimeTurnExecutor {
                         && reactive_loop::is_intermediate_ack(&summary)
                         && !mgr.active_runs(session_id).is_empty()
                     {
-                        tracing::debug!(
-                            session_id,
-                            "reactive loop: suppressing intermediate ack"
-                        );
+                        tracing::debug!(session_id, "reactive loop: suppressing intermediate ack");
                     }
 
                     accumulated_result.tool_calls_made += summary.tool_calls_made;
@@ -597,35 +595,51 @@ impl TurnExecutor for RuntimeTurnExecutor {
 
         let (request, config, per_request_llm) = if let Some(ref td) = params.typed_data {
             if let Some(typed) = xiaolin_core::typed_turn_data::TypedTurnData::extract(td) {
-                let llm: Option<Arc<dyn LlmProvider>> = typed.llm_override.as_ref().and_then(|any| {
-                    let result = any.downcast_ref::<Arc<dyn LlmProvider>>().cloned();
-                    if result.is_none() {
-                        tracing::warn!(
-                            type_id = ?std::any::Any::type_id(any.as_ref()),
-                            expected_type_id = ?std::any::TypeId::of::<Arc<dyn LlmProvider>>(),
-                            "llm_override downcast failed — provider override will be lost"
-                        );
-                    }
-                    result
-                });
+                let llm: Option<Arc<dyn LlmProvider>> =
+                    typed.llm_override.as_ref().and_then(|any| {
+                        let result = any.downcast_ref::<Arc<dyn LlmProvider>>().cloned();
+                        if result.is_none() {
+                            tracing::warn!(
+                                type_id = ?std::any::Any::type_id(any.as_ref()),
+                                expected_type_id = ?std::any::TypeId::of::<Arc<dyn LlmProvider>>(),
+                                "llm_override downcast failed — provider override will be lost"
+                            );
+                        }
+                        result
+                    });
                 tracing::info!(
                     has_llm_override = typed.llm_override.is_some(),
                     downcast_ok = llm.is_some(),
                     request_model = ?typed.enriched_request.model,
                     "session_bridge: extracted TypedTurnData"
                 );
-                (typed.enriched_request.clone(), typed.agent_config.clone(), llm)
+                (
+                    typed.enriched_request.clone(),
+                    typed.agent_config.clone(),
+                    llm,
+                )
             } else {
-                (Self::request_from_extra(&params), Self::config_from_extra(&params, &self.config), None)
+                (
+                    Self::request_from_extra(&params),
+                    Self::config_from_extra(&params, &self.config),
+                    None,
+                )
             }
         } else {
-            (Self::request_from_extra(&params), Self::config_from_extra(&params, &self.config), None)
+            (
+                Self::request_from_extra(&params),
+                Self::config_from_extra(&params, &self.config),
+                None,
+            )
         };
 
         // Apply per-session permission preset overrides if any.
         let mut config = config;
         let sid = params.session_id.to_string();
-        let has_override = self.behavior_overrides.as_ref().map_or(false, |m| m.contains_key(&sid));
+        let has_override = self
+            .behavior_overrides
+            .as_ref()
+            .map_or(false, |m| m.contains_key(&sid));
         let effective_behavior = self.effective_behavior(&sid);
         let goal_mode_flag = params
             .extra
@@ -633,7 +647,8 @@ impl TurnExecutor for RuntimeTurnExecutor {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
             || request.goal_mode.unwrap_or(false);
-        let has_actionable_goal = session_has_actionable_goal(self.session_store.as_ref(), &sid).await;
+        let has_actionable_goal =
+            session_has_actionable_goal(self.session_store.as_ref(), &sid).await;
         let has_approved_plan = self
             .plan_file_store
             .as_ref()
@@ -667,9 +682,10 @@ impl TurnExecutor for RuntimeTurnExecutor {
             }
         }
 
-        let orchestrator = self.tool_orchestrator.clone().unwrap_or_else(|| {
-            Arc::new(crate::runtime::orchestrator::ToolOrchestrator::new())
-        });
+        let orchestrator = self
+            .tool_orchestrator
+            .clone()
+            .unwrap_or_else(|| Arc::new(crate::runtime::orchestrator::ToolOrchestrator::new()));
 
         // Wrap the outbound tx to inject session_id into interaction events.
         let session_id_str = params.session_id.to_string();
@@ -691,12 +707,13 @@ impl TurnExecutor for RuntimeTurnExecutor {
             .as_ref()
             .map(|r| r.get_or_create(&params.session_id.to_string()));
 
-        let plan_ctx = self.plan_file_store.as_ref().map(|store| {
-            crate::builtin_tools::PlanContext {
-                session_id: params.session_id.to_string(),
-                store: store.clone(),
-            }
-        });
+        let plan_ctx =
+            self.plan_file_store
+                .as_ref()
+                .map(|store| crate::builtin_tools::PlanContext {
+                    session_id: params.session_id.to_string(),
+                    store: store.clone(),
+                });
 
         if let Some(ref mgr) = self.subagent_manager {
             mgr.register_session_tx(&session_id_str, inner_tx.clone());
@@ -757,9 +774,15 @@ impl TurnExecutor for RuntimeTurnExecutor {
             let plan_ctx_for_loop = plan_ctx.clone();
 
             let cost_store_for_runtime = self.cost_store.clone();
+            let runtime_quality_store_for_runtime = self.runtime_quality_store.clone();
             let artifact_store_for_runtime = self.artifact_store.clone();
             let behavior_overrides_for_runtime = self.behavior_overrides.clone();
-            let runtime_fut: std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>> + Send>> = Box::pin(runtime.execute_unified_with_cost_store(
+            let runtime_fut: std::pin::Pin<
+                Box<
+                    dyn std::future::Future<Output = anyhow::Result<xiaolin_protocol::TurnSummary>>
+                        + Send,
+                >,
+            > = Box::pin(runtime.execute_unified_with_cost_store(
                 &config,
                 &request,
                 &tool_registry,
@@ -774,6 +797,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
                 todo_store.clone(),
                 goal_store,
                 cost_store_for_runtime,
+                runtime_quality_store_for_runtime,
                 artifact_store_for_runtime,
                 behavior_overrides_for_runtime,
                 None,
@@ -783,18 +807,12 @@ impl TurnExecutor for RuntimeTurnExecutor {
             let steer_inbox_inner = steer_inbox.clone();
             let session_id_for_scope = session_id_str.clone();
             let wrapped_fut = async move {
-                let runtime_with_ih = crate::builtin_tools::with_interaction_handle(
-                    ih_for_tools,
-                    runtime_fut,
-                );
-                let runtime_with_steer = crate::builtin_tools::with_steer_inbox(
-                    steer_inbox_inner,
-                    runtime_with_ih,
-                );
-                let runtime_with_session = crate::with_subagent_session_id(
-                    session_id_for_scope,
-                    runtime_with_steer,
-                );
+                let runtime_with_ih =
+                    crate::builtin_tools::with_interaction_handle(ih_for_tools, runtime_fut);
+                let runtime_with_steer =
+                    crate::builtin_tools::with_steer_inbox(steer_inbox_inner, runtime_with_ih);
+                let runtime_with_session =
+                    crate::with_subagent_session_id(session_id_for_scope, runtime_with_steer);
                 if let Some(ms) = mode_state {
                     crate::builtin_tools::with_stream_context(
                         stream_ctx_key_inner,
@@ -817,8 +835,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
 
             // ── Reactive Loop: check for active sub-agents and re-prompt ──
             let policy = &config.behavior.subagent;
-            let reactive_enabled = policy.reactive_loop_enabled
-                && self.subagent_manager.is_some();
+            let reactive_enabled = policy.reactive_loop_enabled && self.subagent_manager.is_some();
 
             if reactive_enabled {
                 self.run_reactive_loop(
@@ -883,10 +900,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
         // Wait for the injector to drain all buffered events before proceeding.
         // Without this, events (e.g. ContentDelta) buffered in the channel can be
         // lost if the injector task hasn't been scheduled yet (single-threaded runtime).
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            injector,
-        ).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), injector).await;
 
         drop(steer_inbox);
 
@@ -914,10 +928,12 @@ impl TurnExecutor for RuntimeTurnExecutor {
                                 )
                                 .await
                             {
-                                let _ = tx.send(AgentEvent::GoalUpdated {
-                                    turn_id: Default::default(),
-                                    goal: updated.to_goal_data(),
-                                }).await;
+                                let _ = tx
+                                    .send(AgentEvent::GoalUpdated {
+                                        turn_id: Default::default(),
+                                        goal: updated.to_goal_data(),
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -984,11 +1000,7 @@ mod tests {
     #[test]
     fn default_mode_returns_interactive() {
         let behavior = BehaviorConfig {
-            tools_ask: vec![
-                "write_file".into(),
-                "edit_file".into(),
-                "shell_exec".into(),
-            ],
+            tools_ask: vec!["write_file".into(), "edit_file".into(), "shell_exec".into()],
             require_confirmation_for: vec![
                 "write_file".into(),
                 "edit_file".into(),

@@ -15,18 +15,17 @@ use super::orchestrator;
 use super::permissions::DenialTracker;
 use super::query_deps::ProductionDeps;
 use super::query_state::QueryLoopState;
-use super::runtimes;
+use super::runtime_quality;
 use super::runtime_services;
+use super::runtimes;
 use super::session_memory;
 use super::task_decomposer;
 use super::token_budget;
-use super::tool_executor::{filter_tool_definitions, demote_tools_for_plan_mode};
+use super::tool_executor::{demote_tools_for_plan_mode, filter_tool_definitions};
 use super::turn_state::{TurnMutableState, TurnServices};
 use super::undo_engine;
 use super::validation_pipeline;
-use super::{
-    create_tool_result_storage, build_skip_tool_names, inject_user_context, AgentRuntime,
-};
+use super::{build_skip_tool_names, create_tool_result_storage, inject_user_context, AgentRuntime};
 use crate::llm::LlmProvider;
 
 /// Performs the one-time setup for an agent turn.
@@ -62,9 +61,13 @@ pub(crate) async fn setup_turn(
     );
 
     // --- Skill injection ---
-    let context_window = config.model.context_window.unwrap_or(
-        xiaolin_context::infer_context_window_from_model(&config.model.model),
-    );
+    let context_window =
+        config
+            .model
+            .context_window
+            .unwrap_or(xiaolin_context::infer_context_window_from_model(
+                &config.model.model,
+            ));
     let t0 = std::time::Instant::now();
     let mut injected_skill_ids: Vec<String> = Vec::new();
     if let Err(e) = runtime
@@ -104,10 +107,7 @@ pub(crate) async fn setup_turn(
         }
 
         if let Some(git_snap) = context_assembly::collect_git_snapshot(work_path) {
-            let git_block = format!(
-                "\n─── Git Context ───\n{}\n───────────────────\n",
-                git_snap
-            );
+            let git_block = format!("\n─── Git Context ───\n{}\n───────────────────\n", git_snap);
             inject_user_context(&mut messages, &git_block);
             tracing::info!(
                 chars = git_snap.len(),
@@ -133,8 +133,7 @@ pub(crate) async fn setup_turn(
             ..Default::default()
         };
         if let Some(decomp) =
-            task_decomposer::decompose_task(&decomp_provider, &last_user_msg, &decomp_config)
-                .await
+            task_decomposer::decompose_task(&decomp_provider, &last_user_msg, &decomp_config).await
         {
             if let Some(block) = task_decomposer::format_decomposition_for_prompt(&decomp) {
                 inject_user_context(&mut messages, &block);
@@ -156,15 +155,14 @@ pub(crate) async fn setup_turn(
             _ => ToolProfile::default(),
         })
         .unwrap_or_default();
-    let extra_tool_defs: Vec<ToolDefinition> = request
-        .tools
-        .as_deref()
-        .unwrap_or(&[])
-        .to_vec();
+    let extra_tool_defs: Vec<ToolDefinition> = request.tools.as_deref().unwrap_or(&[]).to_vec();
     let mut all_tool_defs = tool_registry.definitions_with_profile(&mode_profile);
     all_tool_defs.extend(extra_tool_defs.iter().cloned());
     let mut tool_defs = filter_tool_definitions(&all_tool_defs, config);
-    if mode_state.as_ref().is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan) {
+    if mode_state
+        .as_ref()
+        .is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan)
+    {
         demote_tools_for_plan_mode(&mut tool_defs);
     }
     tool_defs.sort_by(|a, b| a.function.name.cmp(&b.function.name));
@@ -187,7 +185,11 @@ pub(crate) async fn setup_turn(
         .to_string();
     let max_tokens = request.max_tokens.or(config.model.max_tokens).or_else(|| {
         let inferred = xiaolin_context::infer_output_limit_from_model(&model);
-        if inferred > 0 { Some(inferred) } else { None }
+        if inferred > 0 {
+            Some(inferred)
+        } else {
+            None
+        }
     });
 
     // --- QueryLoopState ---
@@ -309,11 +311,9 @@ pub(crate) async fn setup_turn(
     };
 
     // --- Assemble outputs ---
-    let budget_tracker = token_budget::resolve_turn_budget(
-        &last_user_msg,
-        request.session_id.as_deref(),
-    )
-    .map(token_budget::BudgetTracker::new);
+    let budget_tracker =
+        token_budget::resolve_turn_budget(&last_user_msg, request.session_id.as_deref())
+            .map(token_budget::BudgetTracker::new);
 
     if let Some(ref bt) = budget_tracker {
         let budget_block = format!(
@@ -348,6 +348,7 @@ pub(crate) async fn setup_turn(
         injected_skill_ids,
         trajectory_steps: Vec::new(),
         budget_tracker,
+        runtime_quality: runtime_quality::RuntimeQualityCollector::new(),
         token_budget_reached: false,
         tool_defs,
         tool_defs_est_tokens,
@@ -372,14 +373,21 @@ pub(crate) async fn setup_turn(
         runtime_registry,
         tool_registry: tool_registry.clone(),
         session_store: session_store.clone(),
+        runtime_quality_store: ctx.runtime_quality_store.clone(),
         todo_store: todo_store.clone(),
         goal_store: goal_store.clone(),
         plan_file_path: crate::builtin_tools::plan_mode::current_plan_context()
             .map(|pc| pc.store.plan_path(&pc.session_id))
             .or_else(|| ctx.plan_file_path.clone()),
         language_preference: request.response_language.clone(),
-        step_tx: ctx.step_tx.clone().expect("AgentContext.step_tx must be set for streaming execution"),
-        event_tx: ctx.event_tx.clone().expect("AgentContext.event_tx must be set for streaming execution"),
+        step_tx: ctx
+            .step_tx
+            .clone()
+            .expect("AgentContext.step_tx must be set for streaming execution"),
+        event_tx: ctx
+            .event_tx
+            .clone()
+            .expect("AgentContext.event_tx must be set for streaming execution"),
         approval_strategy: ctx.approval_strategy.clone(),
         interaction_handle: ctx.interaction_handle.clone(),
         behavior_overrides: ctx.behavior_overrides.clone(),

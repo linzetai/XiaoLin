@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+#[cfg(any(test, feature = "test-helpers"))]
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use xiaolin_agent::{
     create_provider, create_provider_with_credentials, process_channel::ProcessChannelPlugin,
     AgentRuntime, FallbackProvider,
@@ -15,19 +17,17 @@ use xiaolin_core::routing::RuntimeRouteBinding;
 use xiaolin_core::skill::SkillRegistry;
 use xiaolin_core::tool::Tool;
 use xiaolin_core::tool::ToolRegistry;
+use xiaolin_core::types::McpStatus;
 use xiaolin_core::workspace::AgentWorkspace;
 use xiaolin_core::Router as AgentRouter;
-use xiaolin_core::types::McpStatus;
 use xiaolin_cron::CronJobStore;
 use xiaolin_evolution::{
-    FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromptDistiller, PromotionConfig,
+    FeedbackStore, LlmExtractedPattern, LlmExtractionCallback, PromotionConfig, PromptDistiller,
     SkillExtractor, SkillParam, SkillStore, TrajectoryStore,
 };
 use xiaolin_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use xiaolin_model_router::BudgetTracker;
 use xiaolin_session::{EventLog, SearchIndex, SessionStore};
-#[cfg(any(test, feature = "test-helpers"))]
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::memory_scope::memory_tool_agent_suffix;
 use crate::scoped_tool::RenamedTool;
@@ -188,6 +188,7 @@ pub struct StorageState {
     pub skill_usage_store: Arc<xiaolin_core::skill_usage::SkillUsageStore>,
     pub context_engine: Arc<xiaolin_context::ContextEngine>,
     pub cost_store: Arc<xiaolin_session::CostStore>,
+    pub runtime_quality_store: Arc<xiaolin_session::RuntimeQualityStore>,
     pub artifact_store: Arc<dyn xiaolin_session::ArtifactStore>,
     pub search_index: Arc<SearchIndex>,
 }
@@ -216,7 +217,7 @@ impl LlmExtractionCallback for LlmSkillExtraction {
         let messages = vec![xiaolin_core::types::ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
+            ..Default::default()
         }];
         let params = xiaolin_agent::CompletionParams {
             model: &self.model,
@@ -349,9 +350,7 @@ pub struct ElicitationReply {
 /// Max pending MCP elicitations before evicting the oldest entry.
 const MAX_PENDING_ELICITATIONS: usize = 1000;
 
-fn evict_oldest_pending_elicitation(
-    pending_elicitations: &DashMap<String, PendingElicitation>,
-) {
+fn evict_oldest_pending_elicitation(pending_elicitations: &DashMap<String, PendingElicitation>) {
     let Some(oldest) = pending_elicitations
         .iter()
         .min_by_key(|entry| entry.value().created_at)
@@ -600,8 +599,8 @@ impl AppState {
         // Phase 2: connect with semaphore-limited concurrency, broadcasting
         // per-server status updates as each completes (connecting → connected/failed).
         {
-            use xiaolin_core::agent_config::McpTransportType;
             use futures::stream::{FuturesUnordered, StreamExt};
+            use xiaolin_core::agent_config::McpTransportType;
 
             // Set all servers to "connecting" and broadcast so the frontend shows progress.
             for (cfg, scope) in &to_reconnect {
@@ -651,8 +650,7 @@ impl AppState {
                                 );
                             }
                         };
-                        let result =
-                            xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
+                        let result = xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
                         (id, scope, transport, result)
                     }
                 })
@@ -764,7 +762,8 @@ impl AppState {
             all.into_iter().find(|c| c.id == server_id)
         };
 
-        let cfg = cfg.ok_or_else(|| anyhow::anyhow!("server '{}' not found in config", server_id))?;
+        let cfg =
+            cfg.ok_or_else(|| anyhow::anyhow!("server '{}' not found in config", server_id))?;
 
         let mut handles = self.ext.mcp_handles.lock().await;
         if handles.contains_key(server_id) {
@@ -778,12 +777,14 @@ impl AppState {
             let cwd = std::env::current_dir().unwrap_or_default();
             let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
             let project = xiaolin_core::agent_config::load_project_mcp_config(&ws_root);
-            if project.is_some_and(|p| p.to_mcp_server_configs().iter().any(|c| c.id == server_id)) {
+            if project.is_some_and(|p| p.to_mcp_server_configs().iter().any(|c| c.id == server_id))
+            {
                 "project"
             } else {
                 "global"
             }
-        }.to_string();
+        }
+        .to_string();
 
         let transport = cfg.transport.effective().to_string();
         let result = xiaolin_mcp::connect_mcp_server(&cfg, &self.rt.tool_registry).await;
@@ -912,7 +913,12 @@ impl AppState {
                     .first()
                     .and_then(|a| a.model.clone())
                     .or_else(|| {
-                        self.cfg.config.models.values().next().map(|m| m.model.clone())
+                        self.cfg
+                            .config
+                            .models
+                            .values()
+                            .next()
+                            .map(|m| m.model.clone())
                     })
                     .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string())
             });
@@ -947,7 +953,11 @@ impl AppState {
                         last_reset_day = today;
                     }
                     if daily_calls >= daily_limit {
-                        tracing::debug!(daily_calls, daily_limit, "skill extraction: daily limit reached, skipping");
+                        tracing::debug!(
+                            daily_calls,
+                            daily_limit,
+                            "skill extraction: daily limit reached, skipping"
+                        );
                         continue;
                     }
                     match trajectory_store_ex.get_recent_successful_global(200).await {
@@ -955,13 +965,18 @@ impl AppState {
                             // Skip if no new trajectories since last extraction
                             let current_ids: std::collections::HashSet<String> =
                                 trajs.iter().map(|t| t.id.clone()).collect();
-                            let new_count = current_ids.difference(&last_seen_trajectory_ids).count();
+                            let new_count =
+                                current_ids.difference(&last_seen_trajectory_ids).count();
                             if new_count == 0 {
                                 tracing::debug!("skill extraction: no new trajectories, skipping");
                                 continue;
                             }
                             if new_count < trigger_count {
-                                tracing::debug!(new_count, trigger_count, "skill extraction: below trigger threshold, skipping");
+                                tracing::debug!(
+                                    new_count,
+                                    trigger_count,
+                                    "skill extraction: below trigger threshold, skipping"
+                                );
                                 continue;
                             }
                             last_seen_trajectory_ids = current_ids;
@@ -1316,7 +1331,9 @@ impl AppState {
         }
 
         xiaolin_agent::builtin_tools::register_browser_tool(&tool_registry);
-        tracing::info!("registered browser tool (engine selected via XIAOLIN_BROWSER_ENGINE or bridge)");
+        tracing::info!(
+            "registered browser tool (engine selected via XIAOLIN_BROWSER_ENGINE or bridge)"
+        );
 
         if let Some(openai_key) = creds.get_api_key("openai") {
             let openai_base = creds
@@ -1363,16 +1380,15 @@ impl AppState {
             "register_mcp_and_subagent_tools: starting"
         );
 
-        let all_mcp_configs: Vec<(&xiaolin_core::agent_config::McpServerConfig, &str)> =
-            global_mcp
-                .iter()
-                .map(|c| (c, "global"))
-                .chain(
-                    agents
-                        .iter()
-                        .flat_map(|a| a.mcp_servers.iter().map(move |c| (c, a.agent_id.as_str()))),
-                )
-                .collect();
+        let all_mcp_configs: Vec<(&xiaolin_core::agent_config::McpServerConfig, &str)> = global_mcp
+            .iter()
+            .map(|c| (c, "global"))
+            .chain(
+                agents
+                    .iter()
+                    .flat_map(|a| a.mcp_servers.iter().map(move |c| (c, a.agent_id.as_str()))),
+            )
+            .collect();
 
         // Partition configs: disabled/duplicate/same-signature → immediate status; enabled → parallel connect.
         let mut to_connect = Vec::new();
@@ -1440,8 +1456,7 @@ impl AppState {
                             );
                         }
                     };
-                    let result =
-                        xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
+                    let result = xiaolin_mcp::connect_mcp_server(&cfg, &registry).await;
                     (id, scope, transport, result)
                 }
             })
@@ -1538,7 +1553,9 @@ impl AppState {
         handle: &xiaolin_mcp::SharedMcpClient,
         tool_registry: &ToolRegistry,
         handles_map: Option<
-            Arc<tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>>,
+            Arc<
+                tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>,
+            >,
         >,
         status_store: Option<
             Arc<ArcSwap<std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>>>,
@@ -1562,7 +1579,9 @@ impl AppState {
         handle: &xiaolin_mcp::SharedMcpClient,
         tool_registry: &ToolRegistry,
         handles_map: Option<
-            Arc<tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>>,
+            Arc<
+                tokio::sync::Mutex<std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>>,
+            >,
         >,
         status_store: Option<
             Arc<ArcSwap<std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>>>,
@@ -1593,13 +1612,13 @@ impl AppState {
                                 match client.fetch_tools().await {
                                     Ok(new_tools) => {
                                         let count = xiaolin_mcp::re_register_tools(
-                                            &new_tools,
-                                            &client,
-                                            &registry,
-                                            &prefix,
+                                            &new_tools, &client, &registry, &prefix,
                                         );
-                                        if registry.eager_definitions().len() > MCP_DEFER_TOOL_THRESHOLD {
-                                            let demoted = registry.demote_to_deferred_by_prefix(&prefix);
+                                        if registry.eager_definitions().len()
+                                            > MCP_DEFER_TOOL_THRESHOLD
+                                        {
+                                            let demoted =
+                                                registry.demote_to_deferred_by_prefix(&prefix);
                                             tracing::info!(
                                                 mcp_id = %id,
                                                 demoted,
@@ -1648,11 +1667,14 @@ impl AppState {
                                     }
                                 }
                                 if let Some(ref tx) = ws_broadcast {
-                                    let _ = tx.send(serde_json::json!({
-                                        "type": "event",
-                                        "event": "plugins.resources_changed",
-                                        "data": { "server": id }
-                                    }).to_string());
+                                    let _ = tx.send(
+                                        serde_json::json!({
+                                            "type": "event",
+                                            "event": "plugins.resources_changed",
+                                            "data": { "server": id }
+                                        })
+                                        .to_string(),
+                                    );
                                 }
                             }
                             "notifications/prompts/list_changed" => {
@@ -1679,11 +1701,14 @@ impl AppState {
                                     }
                                 }
                                 if let Some(ref tx) = ws_broadcast {
-                                    let _ = tx.send(serde_json::json!({
-                                        "type": "event",
-                                        "event": "plugins.prompts_changed",
-                                        "data": { "server": id }
-                                    }).to_string());
+                                    let _ = tx.send(
+                                        serde_json::json!({
+                                            "type": "event",
+                                            "event": "plugins.prompts_changed",
+                                            "data": { "server": id }
+                                        })
+                                        .to_string(),
+                                    );
                                 }
                             }
                             "notifications/message" => {
@@ -1708,14 +1733,16 @@ impl AppState {
                             }
                             "notifications/progress" => {
                                 if let Some(ref params) = notif.params {
-                                    let progress_token = params.get("progressToken")
-                                        .and_then(|v| v.as_str().map(String::from)
-                                            .or_else(|| v.as_i64().map(|n| n.to_string())));
-                                    let progress = params.get("progress")
-                                        .and_then(|v| v.as_f64());
-                                    let total = params.get("total")
-                                        .and_then(|v| v.as_f64());
-                                    let message = params.get("message")
+                                    let progress_token =
+                                        params.get("progressToken").and_then(|v| {
+                                            v.as_str()
+                                                .map(String::from)
+                                                .or_else(|| v.as_i64().map(|n| n.to_string()))
+                                        });
+                                    let progress = params.get("progress").and_then(|v| v.as_f64());
+                                    let total = params.get("total").and_then(|v| v.as_f64());
+                                    let message = params
+                                        .get("message")
                                         .and_then(|v| v.as_str())
                                         .map(String::from);
 
@@ -1726,17 +1753,20 @@ impl AppState {
                                     );
 
                                     if let Some(ref tx) = ws_broadcast {
-                                        let _ = tx.send(serde_json::json!({
-                                            "type": "event",
-                                            "event": "plugins.tool_progress",
-                                            "data": {
-                                                "server": id,
-                                                "progressToken": progress_token,
-                                                "progress": progress,
-                                                "total": total,
-                                                "message": message,
-                                            }
-                                        }).to_string());
+                                        let _ = tx.send(
+                                            serde_json::json!({
+                                                "type": "event",
+                                                "event": "plugins.tool_progress",
+                                                "data": {
+                                                    "server": id,
+                                                    "progressToken": progress_token,
+                                                    "progress": progress,
+                                                    "total": total,
+                                                    "message": message,
+                                                }
+                                            })
+                                            .to_string(),
+                                        );
                                     }
                                 }
                             }
@@ -1748,8 +1778,10 @@ impl AppState {
                                 tracing::warn!(mcp_id = %id, "transport disconnected, attempting reconnect");
                                 let mut reconnected = false;
                                 for attempt in 1u32..=5 {
-                                    let delay_ms = std::cmp::min(1000u64 * (1u64 << (attempt - 1)), 30_000);
-                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                                    let delay_ms =
+                                        std::cmp::min(1000u64 * (1u64 << (attempt - 1)), 30_000);
+                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms))
+                                        .await;
 
                                     if weak_client.upgrade().is_none() {
                                         tracing::debug!(mcp_id = %id, "client dropped during reconnect, stopping");
@@ -1761,14 +1793,18 @@ impl AppState {
                                         .upgrade()
                                         .map(|c| c.extra_headers())
                                         .unwrap_or_default();
-                                    let connect_fut = xiaolin_mcp::McpClient::connect_sse(url, reconnect_headers);
+                                    let connect_fut =
+                                        xiaolin_mcp::McpClient::connect_sse(url, reconnect_headers);
                                     let connect_result = tokio::time::timeout(
                                         std::time::Duration::from_secs(30),
                                         connect_fut,
-                                    ).await;
+                                    )
+                                    .await;
                                     let connect_result = match connect_result {
                                         Ok(inner) => inner,
-                                        Err(_) => Err(anyhow::anyhow!("reconnect timed out after 30s")),
+                                        Err(_) => {
+                                            Err(anyhow::anyhow!("reconnect timed out after 30s"))
+                                        }
                                     };
                                     match connect_result {
                                         Ok(new_client) => {
@@ -1776,7 +1812,10 @@ impl AppState {
                                                 std::sync::Arc::new(new_client);
                                             let new_tools = new_handle.tools();
                                             let count = xiaolin_mcp::re_register_tools(
-                                                new_tools, &new_handle, &registry, &prefix,
+                                                new_tools,
+                                                &new_handle,
+                                                &registry,
+                                                &prefix,
                                             );
                                             tracing::info!(
                                                 mcp_id = %id,
@@ -1785,7 +1824,9 @@ impl AppState {
                                                 "SSE reconnected, tools re-registered"
                                             );
                                             if let Some(ref hm) = handles_map {
-                                                hm.lock().await.insert(id.clone(), new_handle.clone());
+                                                hm.lock()
+                                                    .await
+                                                    .insert(id.clone(), new_handle.clone());
                                             }
                                             if let Some(ref ss) = status_store {
                                                 let mut map = (**ss.load()).clone();
@@ -1824,12 +1865,17 @@ impl AppState {
                                     );
                                     if let Some(ref ss) = status_store {
                                         let mut map = (**ss.load()).clone();
-                                        map.insert(id.clone(), xiaolin_core::types::McpServerStatus {
-                                            id: id.clone(),
-                                            status: xiaolin_core::types::McpStatus::Failed,
-                                            error: Some("all reconnect attempts exhausted".into()),
-                                            ..Default::default()
-                                        });
+                                        map.insert(
+                                            id.clone(),
+                                            xiaolin_core::types::McpServerStatus {
+                                                id: id.clone(),
+                                                status: xiaolin_core::types::McpStatus::Failed,
+                                                error: Some(
+                                                    "all reconnect attempts exhausted".into(),
+                                                ),
+                                                ..Default::default()
+                                            },
+                                        );
                                         ss.store(Arc::new(map));
                                     }
                                     break;
@@ -1884,12 +1930,16 @@ impl AppState {
                         match req.method.as_str() {
                             "elicitation/create" => {
                                 let elicitation_id = uuid::Uuid::new_v4().to_string();
-                                let message = req.params.as_ref()
+                                let message = req
+                                    .params
+                                    .as_ref()
                                     .and_then(|p| p.get("message"))
                                     .and_then(|m| m.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let requested_schema = req.params.as_ref()
+                                let requested_schema = req
+                                    .params
+                                    .as_ref()
                                     .and_then(|p| p.get("requestedSchema"))
                                     .cloned()
                                     .unwrap_or(serde_json::json!({}));
@@ -1898,13 +1948,16 @@ impl AppState {
                                 if pending_elicitations.len() >= MAX_PENDING_ELICITATIONS {
                                     evict_oldest_pending_elicitation(&pending_elicitations);
                                 }
-                                pending_elicitations.insert(elicitation_id.clone(), PendingElicitation {
-                                    server_id: id.clone(),
-                                    mcp_request_id: req.id.clone(),
-                                    client: client.clone(),
-                                    reply_tx,
-                                    created_at: std::time::Instant::now(),
-                                });
+                                pending_elicitations.insert(
+                                    elicitation_id.clone(),
+                                    PendingElicitation {
+                                        server_id: id.clone(),
+                                        mcp_request_id: req.id.clone(),
+                                        client: client.clone(),
+                                        reply_tx,
+                                        created_at: std::time::Instant::now(),
+                                    },
+                                );
 
                                 let server_name = client.server_name();
                                 let ws_event = serde_json::json!({
@@ -1934,17 +1987,21 @@ impl AppState {
                                     let reply = tokio::time::timeout(
                                         std::time::Duration::from_secs(300),
                                         reply_rx,
-                                    ).await;
+                                    )
+                                    .await;
 
                                     let (action, content) = match reply {
                                         Ok(Ok(r)) => (r.action, r.content),
                                         _ => {
                                             pe.remove(&eid);
-                                            let _ = ws_bc.send(serde_json::json!({
-                                                "type": "event",
-                                                "event": "mcp.elicitation.timeout",
-                                                "data": { "elicitationId": eid }
-                                            }).to_string());
+                                            let _ = ws_bc.send(
+                                                serde_json::json!({
+                                                    "type": "event",
+                                                    "event": "mcp.elicitation.timeout",
+                                                    "data": { "elicitationId": eid }
+                                                })
+                                                .to_string(),
+                                            );
                                             ("decline".to_string(), None)
                                         }
                                     };
@@ -1991,9 +2048,8 @@ impl AppState {
                                             .to_string(),
                                     }]
                                 });
-                                let response = xiaolin_mcp::JsonRpcResponse::success(
-                                    req.id, result,
-                                );
+                                let response =
+                                    xiaolin_mcp::JsonRpcResponse::success(req.id, result);
                                 let _ = client.send_response(response).await;
                             }
                             other => {
@@ -2003,7 +2059,9 @@ impl AppState {
                                     "unhandled server-initiated request, responding with method not found"
                                 );
                                 let response = xiaolin_mcp::JsonRpcResponse::error(
-                                    req.id, -32601, "Method not found",
+                                    req.id,
+                                    -32601,
+                                    "Method not found",
                                 );
                                 let _ = client.send_response(response).await;
                             }
@@ -2208,7 +2266,8 @@ impl AppState {
                 drop(registry);
 
                 let trimmed = text.trim();
-                let cancels_inflight = matches!(trimmed, "/stop" | "/new" | "/new session" | "/reset");
+                let cancels_inflight =
+                    matches!(trimmed, "/stop" | "/new" | "/new session" | "/reset");
                 let is_slash = trimmed.starts_with('/') && trimmed.len() > 1;
 
                 if cancels_inflight {
@@ -2219,10 +2278,18 @@ impl AppState {
                     let state_clone = state.clone();
                     tokio::spawn(async move {
                         if let Err(e) = crate::routes::handle_channel_message(
-                            state_clone, channel, &channel_id, &chat_id,
-                            &message_id, &text, account_id.as_deref(), &chat_type,
+                            state_clone,
+                            channel,
+                            &channel_id,
+                            &chat_id,
+                            &message_id,
+                            &text,
+                            account_id.as_deref(),
+                            &chat_type,
                             vec![],
-                        ).await {
+                        )
+                        .await
+                        {
                             tracing::debug!(error = %e, "command reply failed");
                         }
                     });
@@ -2233,10 +2300,18 @@ impl AppState {
                     let state_clone = state.clone();
                     tokio::spawn(async move {
                         if let Err(e) = crate::routes::handle_channel_message(
-                            state_clone, channel, &channel_id, &chat_id,
-                            &message_id, &text, account_id.as_deref(), &chat_type,
+                            state_clone,
+                            channel,
+                            &channel_id,
+                            &chat_id,
+                            &message_id,
+                            &text,
+                            account_id.as_deref(),
+                            &chat_type,
                             vec![],
-                        ).await {
+                        )
+                        .await
+                        {
                             tracing::error!(
                                 error = %e, channel = %channel_id, chat_id = %chat_id,
                                 "slash command handling failed"
@@ -2254,7 +2329,10 @@ impl AppState {
                     .clone();
 
                 let cancel = tokio_util::sync::CancellationToken::new();
-                state.ext.chat_cancels.insert(chat_id.clone(), cancel.clone());
+                state
+                    .ext
+                    .chat_cancels
+                    .insert(chat_id.clone(), cancel.clone());
 
                 let state_clone = state.clone();
                 let chat_id_for_cleanup = chat_id.clone();
@@ -2345,20 +2423,20 @@ impl AppState {
 
         // Clean chat_model_overrides
         let overrides_before = self.ext.chat_model_overrides.len();
-        self.ext.chat_model_overrides.retain(|k, _| {
-            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
-        });
+        self.ext
+            .chat_model_overrides
+            .retain(|k, _| active_ids.contains(k) || self.ext.chat_cancels.contains_key(k));
         let overrides_removed = overrides_before - self.ext.chat_model_overrides.len();
 
         // Clean session_behavior_overrides and session_preset_ids (permission presets)
         let behavior_before = self.ext.session_behavior_overrides.len();
-        self.ext.session_behavior_overrides.retain(|k, _| {
-            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
-        });
+        self.ext
+            .session_behavior_overrides
+            .retain(|k, _| active_ids.contains(k) || self.ext.chat_cancels.contains_key(k));
         let behavior_removed = behavior_before - self.ext.session_behavior_overrides.len();
-        self.ext.session_preset_ids.retain(|k, _| {
-            active_ids.contains(k) || self.ext.chat_cancels.contains_key(k)
-        });
+        self.ext
+            .session_preset_ids
+            .retain(|k, _| active_ids.contains(k) || self.ext.chat_cancels.contains_key(k));
 
         // Clean stream_event_tx (remove closed senders)
         let streams_before = self.strm.stream_event_tx.len();
@@ -2368,9 +2446,9 @@ impl AppState {
         // Clean chat_cancels: cancel tokens self-remove on task completion
         // (see inbound dispatcher), but GC any orphans.
         let cancels_before = self.ext.chat_cancels.len();
-        self.ext.chat_cancels.retain(|k, _| {
-            active_ids.contains(k) || self.ext.chat_locks.contains_key(k)
-        });
+        self.ext
+            .chat_cancels
+            .retain(|k, _| active_ids.contains(k) || self.ext.chat_locks.contains_key(k));
         let cancels_removed = cancels_before - self.ext.chat_cancels.len();
 
         // Unload session actors idle for more than 30 minutes.
@@ -2382,14 +2460,16 @@ impl AppState {
 
         // GC SubAgentManager: remove terminal runs older than 5 minutes and
         // prune completion channels for dead sessions.
-        self.strm.subagent_manager.gc(std::time::Duration::from_secs(300));
+        self.strm
+            .subagent_manager
+            .gc(std::time::Duration::from_secs(300));
 
         // GC pending MCP elicitations ignored by the frontend (TTL safety net).
         const ELICITATION_TTL: std::time::Duration = std::time::Duration::from_secs(300);
         let elicitations_before = self.strm.pending_elicitations.len();
-        self.strm.pending_elicitations.retain(|_, pe| {
-            pe.created_at.elapsed() < ELICITATION_TTL
-        });
+        self.strm
+            .pending_elicitations
+            .retain(|_, pe| pe.created_at.elapsed() < ELICITATION_TTL);
         let elicitations_removed = elicitations_before - self.strm.pending_elicitations.len();
 
         // GC plan-related stores: remove entries for sessions no longer active.
@@ -2402,7 +2482,14 @@ impl AppState {
         self.rt.session_modes.retain(|k| active_ids.contains(k));
         let modes_removed = modes_before - self.rt.session_modes.len();
 
-        let total_removed = locks_removed + overrides_removed + streams_removed + cancels_removed + behavior_removed + plan_steps_removed + modes_removed + elicitations_removed;
+        let total_removed = locks_removed
+            + overrides_removed
+            + streams_removed
+            + cancels_removed
+            + behavior_removed
+            + plan_steps_removed
+            + modes_removed
+            + elicitations_removed;
         if gc_stats.removed > 0 || total_removed > 0 || idle_unloaded > 0 {
             tracing::info!(
                 sessions_removed = gc_stats.removed,
@@ -2484,11 +2571,7 @@ impl AppState {
             .unfiltered_skill_registry
             .store(Arc::new(base.clone()));
 
-        let filtered_base = Arc::new(base.filtered(
-            &allow_list,
-            &deny_list,
-            None,
-        ));
+        let filtered_base = Arc::new(base.filtered(&allow_list, &deny_list, None));
 
         let resolved_agents = self.cfg.config.agents.resolved_list();
         let mut per_agent = std::collections::HashMap::new();
@@ -2507,11 +2590,7 @@ impl AppState {
                 .iter()
                 .find(|a| a.id == *agent_id)
                 .and_then(|a| a.skills.as_deref());
-            agent_reg = agent_reg.filtered(
-                &allow_list,
-                &deny_list,
-                agent_allow,
-            );
+            agent_reg = agent_reg.filtered(&allow_list, &deny_list, agent_allow);
             per_agent.insert(agent_id.clone(), Arc::new(agent_reg));
         }
 
@@ -2524,9 +2603,7 @@ impl AppState {
 
     /// Load skills from the extensions directory (if it exists).
     /// Scans both `extensions/*/SKILL.md` (top-level) and `extensions/*/skills/*/SKILL.md` (nested).
-    fn load_extension_skills(
-        paths_cfg: &xiaolin_core::config::PathsConfig,
-    ) -> SkillRegistry {
+    fn load_extension_skills(paths_cfg: &xiaolin_core::config::PathsConfig) -> SkillRegistry {
         use xiaolin_core::skill::{load_skills_from_dirs_with_layer, SkillLayer};
         let ext_dir = xiaolin_core::paths::resolve_extensions_dir_from(Some(paths_cfg));
         if !ext_dir.exists() {
@@ -2697,9 +2774,7 @@ impl AppState {
     /// parse into `SkillEntry`, and store in `mcp_skill_registry`. Then triggers
     /// `reload_skills()` to rebuild the full merge chain.
     pub async fn refresh_mcp_skills(&self) {
-        use xiaolin_core::skill::{
-            parse_skill_content, SkillLayer, SkillOrigin, SkillSource,
-        };
+        use xiaolin_core::skill::{parse_skill_content, SkillLayer, SkillOrigin, SkillSource};
 
         let servers: Vec<(String, xiaolin_mcp::SharedMcpClient)> = {
             let handles = self.ext.mcp_handles.lock().await;
@@ -2740,10 +2815,11 @@ impl AppState {
             );
 
             for resource in skill_resources {
-                let suffix = resource.uri.strip_prefix("skill://").unwrap_or(&resource.uri);
-                let skill_id = format!(
-                    "mcp__{}__{}", server_id, suffix.replace('/', "__")
-                );
+                let suffix = resource
+                    .uri
+                    .strip_prefix("skill://")
+                    .unwrap_or(&resource.uri);
+                let skill_id = format!("mcp__{}__{}", server_id, suffix.replace('/', "__"));
                 let contents = match client.read_resource(&resource.uri).await {
                     Ok(c) => c,
                     Err(e) => {
@@ -2797,9 +2873,7 @@ impl AppState {
         server_id: &str,
         client: &xiaolin_mcp::SharedMcpClient,
     ) {
-        use xiaolin_core::skill::{
-            parse_skill_content, SkillLayer, SkillOrigin, SkillSource,
-        };
+        use xiaolin_core::skill::{parse_skill_content, SkillLayer, SkillOrigin, SkillSource};
 
         if !client.has_resources() {
             return;
@@ -2827,10 +2901,11 @@ impl AppState {
 
         let mut added = 0usize;
         for resource in &skill_resources {
-            let suffix = resource.uri.strip_prefix("skill://").unwrap_or(&resource.uri);
-            let skill_id = format!(
-                "mcp__{}__{}", server_id, suffix.replace('/', "__")
-            );
+            let suffix = resource
+                .uri
+                .strip_prefix("skill://")
+                .unwrap_or(&resource.uri);
+            let skill_id = format!("mcp__{}__{}", server_id, suffix.replace('/', "__"));
             let contents = match client.read_resource(&resource.uri).await {
                 Ok(c) => c,
                 Err(e) => {
@@ -2856,12 +2931,8 @@ impl AppState {
                 layer: SkillLayer::Extension,
                 path: std::path::PathBuf::from(format!("mcp://{}/{}", server_id, suffix)),
             };
-            let entry = parse_skill_content(
-                &skill_id,
-                &raw_content,
-                SkillLayer::Extension,
-                Some(source),
-            );
+            let entry =
+                parse_skill_content(&skill_id, &raw_content, SkillLayer::Extension, Some(source));
             current.register(entry);
             added += 1;
         }
@@ -2879,7 +2950,6 @@ impl AppState {
         }
         self.spawn_skill_embedding_update();
     }
-
 
     /// Hot-reload agent configs from disk. Returns the number of agents loaded.
     /// Effective channel bindings: ephemeral API routes first, then config file rows.
@@ -3109,7 +3179,10 @@ impl AppState {
                 cfg.provider.as_str()
             };
             let base_url = cfg.base_url.as_deref();
-            let api_key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
+            let api_key = cfg
+                .api_key
+                .as_deref()
+                .filter(|s| !s.is_empty())
                 .or_else(|| credentials.get_api_key(key))
                 .or_else(|| credentials.get_api_key(provider_type));
             let base_url_resolved = base_url
@@ -3149,9 +3222,7 @@ impl AppState {
         let credentials = live
             .get("credentials")
             .cloned()
-            .and_then(|v| {
-                serde_json::from_value::<xiaolin_core::config::CredentialsConfig>(v).ok()
-            })
+            .and_then(|v| serde_json::from_value::<xiaolin_core::config::CredentialsConfig>(v).ok())
             .unwrap_or_else(|| self.cfg.config.credentials.clone());
 
         let models_value = live
@@ -3182,7 +3253,14 @@ impl AppState {
         let last_good_agents_init = agents.clone();
         let router = AgentRouter::new(agents.clone());
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store, skill_usage_store) = {
+        let (
+            feedback_store,
+            trajectory_store,
+            skill_store,
+            prompt_distiller,
+            skill_embedding_store,
+            skill_usage_store,
+        ) = {
             let target = tmp.join("evolution.db");
             let opts = SqliteConnectOptions::new()
                 .filename(&target)
@@ -3197,7 +3275,8 @@ impl AppState {
             let ts = Arc::new(TrajectoryStore::open(evo_pool.clone()).await?);
             let ss = Arc::new(SkillStore::open(evo_pool.clone()).await?);
             let pd = PromptDistiller::open(evo_pool.clone()).await?;
-            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(evo_pool.clone()).await?;
+            let ses =
+                xiaolin_core::skill_embedding::SkillEmbeddingStore::open(evo_pool.clone()).await?;
             let sus = xiaolin_core::skill_usage::SkillUsageStore::open(evo_pool).await?;
             (fs, ts, ss, pd, ses, sus)
         };
@@ -3330,8 +3409,7 @@ impl AppState {
 
         let (ws_broadcast, _) = tokio::sync::broadcast::channel::<String>(256);
 
-        let tool_orchestrator =
-            Arc::new(xiaolin_agent::ToolOrchestrator::new());
+        let tool_orchestrator = Arc::new(xiaolin_agent::ToolOrchestrator::new());
 
         let config_live_val = serde_json::to_value(&config).unwrap_or_default();
         let auth = Arc::new(xiaolin_security::ApiKeyAuth::new(
@@ -3370,6 +3448,7 @@ impl AppState {
                 behavior_overrides: None,
                 live_agents: None,
                 cost_store: None,
+                runtime_quality_store: None,
                 artifact_store: None,
             });
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(executor));
@@ -3421,8 +3500,9 @@ impl AppState {
                 skill_embedding_store: Arc::new(skill_embedding_store),
                 skill_usage_store: Arc::new(skill_usage_store),
                 context_engine: context_engine.clone(),
-                cost_store: Arc::new(
-                    xiaolin_session::CostStore::open(session_store.pool()).await?,
+                cost_store: Arc::new(xiaolin_session::CostStore::open(session_store.pool()).await?),
+                runtime_quality_store: Arc::new(
+                    xiaolin_session::RuntimeQualityStore::open(session_store.pool()).await?,
                 ),
                 artifact_store: Arc::new(
                     xiaolin_session::SqliteArtifactStore::open(session_store.pool()).await?,
@@ -3459,7 +3539,9 @@ impl AppState {
             strm: StreamState {
                 stream_event_tx: Arc::new(DashMap::new()),
                 tool_orchestrator,
-                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(ws_broadcast.clone())),
+                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(
+                    ws_broadcast.clone(),
+                )),
                 ws_broadcast,
                 subagent_manager,
                 session_manager: session_manager.clone(),
@@ -3508,7 +3590,7 @@ mod reload_tests {
                     message: ChatMessage {
                         role: Role::Assistant,
                         content: Some("ok".into()),
-                    ..Default::default()
+                        ..Default::default()
                     },
                     finish_reason: Some("stop".into()),
                 }],

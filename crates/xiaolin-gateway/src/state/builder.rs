@@ -54,8 +54,7 @@ struct BuildPhase4 {
     channel_inbound_tx: tokio::sync::mpsc::UnboundedSender<xiaolin_core::channel::InboundMessage>,
     inbound_rx: tokio::sync::mpsc::UnboundedReceiver<xiaolin_core::channel::InboundMessage>,
     base_skill_registry: Arc<SkillRegistry>,
-    stream_event_tx:
-        Arc<DashMap<String, tokio::sync::mpsc::Sender<xiaolin_protocol::AgentEvent>>>,
+    stream_event_tx: Arc<DashMap<String, tokio::sync::mpsc::Sender<xiaolin_protocol::AgentEvent>>>,
     tool_orchestrator: Arc<xiaolin_agent::ToolOrchestrator>,
     mcp_status_init: std::collections::HashMap<String, xiaolin_core::types::McpServerStatus>,
     mcp_handles_init: std::collections::HashMap<String, xiaolin_mcp::SharedMcpClient>,
@@ -97,11 +96,13 @@ pub(crate) struct StateBuilder;
 
 impl StateBuilder {
     /// Builtin default exec-policy embedded at compile time from `config/exec-policy.toml`.
-    const BUILTIN_EXEC_POLICY: &'static str =
-        include_str!("../../../../config/exec-policy.toml");
+    const BUILTIN_EXEC_POLICY: &'static str = include_str!("../../../../config/exec-policy.toml");
 
     /// Load execution policy from layered sources (project > user > builtin default).
-    fn load_exec_policy(engine: &mut xiaolin_execpolicy::PolicyEngine, config: &XiaoLinConfig) -> bool {
+    fn load_exec_policy(
+        engine: &mut xiaolin_execpolicy::PolicyEngine,
+        config: &XiaoLinConfig,
+    ) -> bool {
         let mut loaded = false;
 
         // User-specified policy path from config
@@ -113,7 +114,9 @@ impl StateBuilder {
                         tracing::info!(path = %path.display(), "loaded user exec-policy");
                         loaded = true;
                     }
-                    Err(e) => tracing::warn!(path = %path.display(), error = %e, "failed to load user exec-policy"),
+                    Err(e) => {
+                        tracing::warn!(path = %path.display(), error = %e, "failed to load user exec-policy")
+                    }
                 }
                 return loaded;
             }
@@ -131,7 +134,9 @@ impl StateBuilder {
                                 tracing::info!(path = %project_policy.display(), "loaded project exec-policy");
                                 loaded = true;
                             }
-                            Err(e) => tracing::warn!(path = %project_policy.display(), error = %e, "failed to load project exec-policy"),
+                            Err(e) => {
+                                tracing::warn!(path = %project_policy.display(), error = %e, "failed to load project exec-policy")
+                            }
                         }
                     }
                     break;
@@ -153,7 +158,9 @@ impl StateBuilder {
                         tracing::info!(path = %user_policy.display(), "loaded user-level exec-policy");
                         loaded = true;
                     }
-                    Err(e) => tracing::warn!(path = %user_policy.display(), error = %e, "failed to load user-level exec-policy"),
+                    Err(e) => {
+                        tracing::warn!(path = %user_policy.display(), error = %e, "failed to load user-level exec-policy")
+                    }
                 }
             }
         }
@@ -170,7 +177,10 @@ impl StateBuilder {
         }
 
         if loaded {
-            tracing::info!(rules = engine.rule_count(), "exec-policy engine initialized");
+            tracing::info!(
+                rules = engine.rule_count(),
+                "exec-policy engine initialized"
+            );
         }
         loaded
     }
@@ -502,10 +512,7 @@ impl StateBuilder {
         // Plan tools are registered with a default mode state; at runtime the
         // task-local `CURRENT_SESSION_MODE` provides the per-session state.
         let default_mode = xiaolin_agent::builtin_tools::ExecutionModeState::new();
-        xiaolin_agent::builtin_tools::register_plan_mode_tools(
-            &p3.tool_registry,
-            default_mode,
-        );
+        xiaolin_agent::builtin_tools::register_plan_mode_tools(&p3.tool_registry, default_mode);
         tracing::info!("registered plan mode tools (enter/exit_plan_mode)");
 
         // Structured plan step tracking (update_plan)
@@ -539,12 +546,21 @@ impl StateBuilder {
         let contributor_registry = ContributorRegistry::new();
         // (Future: contributors are registered via config or plugin discovery)
         let contributor_ctx = ContributorContext {
-            agent_id: p3.phase1.agents.first().map(|a| a.agent_id.to_string()).unwrap_or_default(),
+            agent_id: p3
+                .phase1
+                .agents
+                .first()
+                .map(|a| a.agent_id.to_string())
+                .unwrap_or_default(),
             channel_id: None,
         };
-        let contributor_tool_count = contributor_registry.apply_to_registry(&p3.tool_registry, &contributor_ctx);
+        let contributor_tool_count =
+            contributor_registry.apply_to_registry(&p3.tool_registry, &contributor_ctx);
         if contributor_tool_count > 0 {
-            tracing::info!(count = contributor_tool_count, "contributor tools registered");
+            tracing::info!(
+                count = contributor_tool_count,
+                "contributor tools registered"
+            );
         }
 
         Ok(BuildPhase4 {
@@ -592,13 +608,21 @@ impl StateBuilder {
             message_bus.clone(),
         );
 
-        let (feedback_store, trajectory_store, skill_store, prompt_distiller, skill_embedding_store, skill_usage_store) = {
+        let (
+            feedback_store,
+            trajectory_store,
+            skill_store,
+            prompt_distiller,
+            skill_embedding_store,
+            skill_usage_store,
+        ) = {
             let shared_pool = p4.phase3.phase1.pool.clone();
             let fs = FeedbackStore::open(shared_pool.clone()).await?;
             let ts = TrajectoryStore::open(shared_pool.clone()).await?;
             let ss = SkillStore::open(shared_pool.clone()).await?;
             let pd = PromptDistiller::open(shared_pool.clone()).await?;
-            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(shared_pool.clone()).await?;
+            let ses = xiaolin_core::skill_embedding::SkillEmbeddingStore::open(shared_pool.clone())
+                .await?;
             let sus = xiaolin_core::skill_usage::SkillUsageStore::open(shared_pool).await?;
             (fs, ts, ss, pd, ses, sus)
         };
@@ -744,9 +768,7 @@ impl StateBuilder {
     pub(crate) async fn build(config: XiaoLinConfig) -> anyhow::Result<AppState> {
         let mut ssrf_hosts = config.security.ssrf_allowed_hosts.clone();
         // In dev mode, auto-allow localhost so agents can verify local dev servers
-        if cfg!(debug_assertions)
-            || std::env::var("XIAOLIN_PROFILE").unwrap_or_default() == "dev"
-        {
+        if cfg!(debug_assertions) || std::env::var("XIAOLIN_PROFILE").unwrap_or_default() == "dev" {
             for host in ["localhost", "127.0.0.1", "[::1]"] {
                 let h = host.to_string();
                 if !ssrf_hosts.iter().any(|x| x.eq_ignore_ascii_case(&h)) {
@@ -818,11 +840,7 @@ impl StateBuilder {
 
         // All stores have created their tables; migrate legacy DBs if present.
         if let Some(parent) = p5.phase2.phase4.phase3.phase1.db_path.parent() {
-            helpers::migrate_legacy_databases(
-                &p5.phase2.phase4.phase3.phase1.pool,
-                parent,
-            )
-            .await?;
+            helpers::migrate_legacy_databases(&p5.phase2.phase4.phase3.phase1.pool, parent).await?;
         }
 
         // Backfill project_id for sessions that have work_dir but no project yet.
@@ -858,14 +876,15 @@ impl StateBuilder {
         let skill_store = Arc::new(p5.phase2.skill_store);
         let skill_usage_store_arc = Arc::new(p5.phase2.skill_usage_store);
         let cost_store = Arc::new(
-            xiaolin_session::CostStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
+            xiaolin_session::CostStore::open(p5.phase2.phase4.phase3.phase1.pool.clone()).await?,
+        );
+        let runtime_quality_store = Arc::new(
+            xiaolin_session::RuntimeQualityStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
                 .await?,
         );
         let artifact_store: Arc<dyn xiaolin_session::ArtifactStore> = Arc::new(
-            xiaolin_session::SqliteArtifactStore::open(
-                p5.phase2.phase4.phase3.phase1.pool.clone(),
-            )
-            .await?,
+            xiaolin_session::SqliteArtifactStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
+                .await?,
         );
         p5.phase2
             .phase4
@@ -922,8 +941,7 @@ impl StateBuilder {
         let mode_registry_for_executor = p5.phase2.phase4.session_modes.clone();
         let todo_store_for_executor = p5.phase2.phase4.phase3.todo_store.clone();
         let goal_store_for_executor = p5.phase2.phase4.goal_store.clone();
-        let plan_file_store =
-            xiaolin_agent::builtin_tools::PlanFileStore::default();
+        let plan_file_store = xiaolin_agent::builtin_tools::PlanFileStore::default();
         let tool_orchestrator_for_executor = p5.phase2.phase4.tool_orchestrator.clone();
 
         // Wrap the tool registry in Arc early so the same instance is shared
@@ -936,8 +954,9 @@ impl StateBuilder {
             reg
         };
 
-        let session_behavior_overrides: Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>> =
-            Arc::new(dashmap::DashMap::new());
+        let session_behavior_overrides: Arc<
+            dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>,
+        > = Arc::new(dashmap::DashMap::new());
         let permission_preset_registry =
             Arc::new(xiaolin_core::agent_config::PermissionPresetRegistry::default());
 
@@ -957,8 +976,8 @@ impl StateBuilder {
         subagent_manager.set_artifact_store(artifact_store.clone());
         let subagent_manager_shared = Arc::new(subagent_manager);
 
-        let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(
-            Arc::new(xiaolin_agent::RuntimeTurnExecutor {
+        let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(Arc::new(
+            xiaolin_agent::RuntimeTurnExecutor {
                 runtime: runtime_for_session.clone(),
                 config: default_agent_config,
                 tool_registry: shared_tool_registry.clone(),
@@ -974,9 +993,10 @@ impl StateBuilder {
                 behavior_overrides: Some(session_behavior_overrides.clone()),
                 live_agents: Some(live_agents_swap.clone()),
                 cost_store: Some(cost_store.clone()),
+                runtime_quality_store: Some(runtime_quality_store.clone()),
                 artifact_store: Some(artifact_store.clone()),
-            }),
-        ));
+            },
+        )));
         let mut state = AppState {
             cfg: super::ConfigState {
                 config: Arc::new(config),
@@ -1025,6 +1045,7 @@ impl StateBuilder {
                 skill_usage_store: skill_usage_store_arc.clone(),
                 context_engine: Arc::new(p5.phase2.context_engine),
                 cost_store: cost_store.clone(),
+                runtime_quality_store: runtime_quality_store.clone(),
                 artifact_store: artifact_store.clone(),
                 search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
             },
@@ -1060,7 +1081,9 @@ impl StateBuilder {
             strm: super::StreamState {
                 stream_event_tx: p5.phase2.phase4.stream_event_tx,
                 tool_orchestrator: p5.phase2.phase4.tool_orchestrator.clone(),
-                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(p5.ws_broadcast.clone())),
+                git_watcher_manager: Arc::new(crate::git_watcher::GitWatcherManager::new(
+                    p5.ws_broadcast.clone(),
+                )),
                 ws_broadcast: p5.ws_broadcast,
                 subagent_manager: subagent_manager_shared.clone(),
                 session_manager: session_manager.clone(),
@@ -1077,11 +1100,9 @@ impl StateBuilder {
                 tool_registry: shared_tool_registry,
                 session_store: session_store_for_session,
                 event_log: event_log_for_svc,
-                context_engine: Arc::new(
-                    xiaolin_context::ContextEngine::new(
-                        xiaolin_context::DEFAULT_COMPACTION_THRESHOLD,
-                    ),
-                ),
+                context_engine: Arc::new(xiaolin_context::ContextEngine::new(
+                    xiaolin_context::DEFAULT_COMPACTION_THRESHOLD,
+                )),
                 prompt_guard,
                 session_manager,
             },
@@ -1127,7 +1148,10 @@ impl StateBuilder {
                 );
             }
             if !handles.is_empty() {
-                tracing::info!(count = handles.len(), "spawned server request watchers for MCP clients");
+                tracing::info!(
+                    count = handles.len(),
+                    "spawned server request watchers for MCP clients"
+                );
             }
         }
 
@@ -1169,10 +1193,8 @@ impl StateBuilder {
         {
             let json_dir = PathBuf::from("config/sub-agents");
             let md_dir = PathBuf::from(".xiaolin/agents");
-            let mut subagent_defs = xiaolin_core::agent_config::load_all_subagent_defs(
-                Some(&json_dir),
-                Some(&md_dir),
-            );
+            let mut subagent_defs =
+                xiaolin_core::agent_config::load_all_subagent_defs(Some(&json_dir), Some(&md_dir));
 
             // Also load user-level sub-agent definitions from ~/.xiaolin/subagents/
             if let Some(home) = dirs::home_dir() {
@@ -1181,7 +1203,9 @@ impl StateBuilder {
                     match xiaolin_core::agent_config::load_subagent_defs_markdown(&user_md_dir) {
                         Ok(user_defs) => {
                             for d in user_defs {
-                                if let Some(existing) = subagent_defs.iter_mut().find(|e| e.id == d.id) {
+                                if let Some(existing) =
+                                    subagent_defs.iter_mut().find(|e| e.id == d.id)
+                                {
                                     tracing::info!(id = %d.id, "user sub-agent def overrides existing");
                                     *existing = d;
                                 } else {
@@ -1199,11 +1223,11 @@ impl StateBuilder {
             }
 
             let def_count = subagent_defs.len();
-            state
-                .strm
-                .subagent_manager
-                .set_subagent_defs(subagent_defs);
-            tracing::info!(count = def_count, "loaded sub-agent definitions (builtin + custom + user)");
+            state.strm.subagent_manager.set_subagent_defs(subagent_defs);
+            tracing::info!(
+                count = def_count,
+                "loaded sub-agent definitions (builtin + custom + user)"
+            );
 
             // Start hot-reload watcher for agent definition directories
             let mut watch_dirs = vec![json_dir, md_dir];
@@ -1378,8 +1402,7 @@ impl StateBuilder {
         {
             let gc_state = state.clone();
             tokio::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_secs(60));
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                 interval.tick().await; // skip first immediate tick
                 loop {
                     interval.tick().await;
@@ -1421,7 +1444,13 @@ impl StateBuilder {
                     .first()
                     .and_then(|a| a.model.clone())
                     .or_else(|| {
-                        state.cfg.config.models.values().next().map(|m| m.model.clone())
+                        state
+                            .cfg
+                            .config
+                            .models
+                            .values()
+                            .next()
+                            .map(|m| m.model.clone())
                     })
                     .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string()),
             });
@@ -1508,7 +1537,10 @@ impl StateBuilder {
                     interval.tick().await;
                     match usage_store.purge_old(90).await {
                         Ok(purged) if purged > 0 => {
-                            tracing::info!(purged, "skill usage data cleanup: removed old entries (>90 days)");
+                            tracing::info!(
+                                purged,
+                                "skill usage data cleanup: removed old entries (>90 days)"
+                            );
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "skill usage data cleanup failed");

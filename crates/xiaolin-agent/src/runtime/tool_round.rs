@@ -220,6 +220,8 @@ pub(crate) async fn execute_tool_round(
 
     // Emit ToolExecuting events for all tool calls first.
     for tc in &assembled_calls {
+        ms.runtime_quality
+            .mark_tool(svc.stream_start.elapsed().as_millis() as u64);
         let args_str = if tc.function.arguments.is_empty() {
             None
         } else {
@@ -483,6 +485,11 @@ pub(crate) async fn execute_tool_round(
                 &result.output.chars().take(200).collect::<String>(),
             )
             .await;
+        ms.runtime_quality.record_tool(
+            &tool_name,
+            result.success,
+            tool_duration.as_millis() as u64,
+        );
         svc.services
             .record_tool_call_stat(&tool_name, result.success, tool_duration.as_millis() as u64)
             .await;

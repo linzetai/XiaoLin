@@ -5,6 +5,7 @@ mod chat;
 pub mod common;
 mod cost;
 mod cron;
+mod diagnostics;
 mod dynamic_routes;
 mod error;
 mod evolution;
@@ -128,10 +129,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/routes/:id", put(dynamic_routes::update_route))
         .route("/webhook/:channel_id", post(channel::channel_webhook))
         .route("/api/v1/openapi.json", get(health::openapi_spec))
-        .route(
-            "/v1/audio/transcriptions",
-            post(stt::audio_transcriptions),
-        )
+        .route("/v1/audio/transcriptions", post(stt::audio_transcriptions))
         .route(
             "/api/v1/audio/transcriptions",
             post(stt::audio_transcriptions),
@@ -196,4 +194,17 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/cost/daily", get(cost::get_daily_tokens))
         .route("/api/v1/cost/tools", get(cost::get_tool_stats))
         .route("/api/v1/cost/sessions", get(cost::get_session_costs))
+        // Runtime diagnostics
+        .route(
+            "/api/v1/diagnostics/runtime-quality/turns",
+            get(diagnostics::list_runtime_quality_turns),
+        )
+        .route(
+            "/api/v1/diagnostics/runtime-quality/turns/:session_id/:turn_id",
+            get(diagnostics::get_runtime_quality_turn),
+        )
+        .route(
+            "/api/v1/diagnostics/runtime-quality/export",
+            get(diagnostics::export_runtime_quality_turns),
+        )
 }

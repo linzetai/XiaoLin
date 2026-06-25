@@ -22,8 +22,8 @@ pub struct SubAgentInheritedContext {
 }
 
 use crate::llm::LlmProvider;
-use crate::runtime::AgentRuntime;
 use crate::runtime::orchestrator::ToolOrchestrator;
+use crate::runtime::AgentRuntime;
 use crate::spawn_controller::{SlotEvent, SpawnController};
 
 /// Manages the lifecycle of all sub-agent runs: spawn, cancel, track, query.
@@ -82,7 +82,8 @@ impl SubAgentManager {
 
     /// Register a session's event sender so SubAgentTool can forward streaming events.
     pub fn register_session_tx(&self, session_id: &str, tx: mpsc::Sender<AgentEvent>) {
-        self.session_event_senders.insert(session_id.to_string(), tx);
+        self.session_event_senders
+            .insert(session_id.to_string(), tx);
     }
 
     /// Unregister a session's event sender (called when a turn ends).
@@ -92,7 +93,9 @@ impl SubAgentManager {
 
     /// Get the event sender for a session (used by SubAgentTool).
     pub fn get_session_tx(&self, session_id: &str) -> Option<mpsc::Sender<AgentEvent>> {
-        self.session_event_senders.get(session_id).map(|r| r.value().clone())
+        self.session_event_senders
+            .get(session_id)
+            .map(|r| r.value().clone())
     }
 
     /// Create a message queue for a run and return it.
@@ -179,7 +182,10 @@ impl SubAgentManager {
     /// Subscribe to completion notifications for a given session.
     /// The returned receiver will get a `CompletionSummary` each time a sub-agent
     /// in that session finishes (success, failure, or cancel).
-    pub fn subscribe_completions(&self, session_id: &str) -> broadcast::Receiver<CompletionSummary> {
+    pub fn subscribe_completions(
+        &self,
+        session_id: &str,
+    ) -> broadcast::Receiver<CompletionSummary> {
         let entry = self
             .completion_channels
             .entry(session_id.to_string())
@@ -363,8 +369,7 @@ impl SubAgentManager {
         let orchestrator = self.orchestrator.clone();
         let completion_channels = self.completion_channels.clone();
         let artifact_store = self.artifact_store.clone();
-        let result_char_limit = max_result_chars
-            .unwrap_or(crate::sidechain::MAX_RESULT_CHARS);
+        let result_char_limit = max_result_chars.unwrap_or(crate::sidechain::MAX_RESULT_CHARS);
 
         let timeout = Duration::from_secs(policy.timeout_seconds);
         let slot_timeout = controller.config().slot_acquire_timeout;
@@ -394,260 +399,256 @@ impl SubAgentManager {
             // Hard wall-clock timeout: ensures the entire spawned task (slot wait + execution)
             // cannot exceed wall_clock_limit, preventing indefinite hangs.
             let wall_clock_result = tokio::time::timeout(wall_clock_limit, async move {
-            let reservation = match controller
-                .reserve(&session_id_owned, &rid, concurrency_safe, slot_timeout)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    let error_msg = format!("slot acquisition failed: {e}");
-                    Self::fail_run(
-                        &runs,
-                        &cancel_tokens,
-                        &rid,
-                        &error_msg,
-                    );
-                    // Notify parent and completion channels so reactive loop doesn't hang
-                    let _ = parent_tx
-                        .send(AgentEvent::SubAgentComplete {
-                            turn_id: forward_turn_id.clone(),
-                            run_id: rid.clone(),
-                            status: "failed".into(),
-                            result: None,
-                            tool_calls_made: 0,
-                            iterations: 0,
-                            usage: None,
-                            elapsed_ms: 0,
-                        })
-                        .await;
-                    if let Some(tx) = completion_channels.get(&session_id_owned) {
-                        let _ = tx.send(CompletionSummary {
-                            run_id: rid.clone(),
-                            agent_id: agent_config.agent_id.to_string(),
-                            subagent_type: subagent_type.to_string(),
-                            task: task.clone(),
-                            status: "failed".into(),
-                            elapsed_ms: 0,
-                            tool_call_count: 0,
-                            result_preview: None,
-                            error: Some(error_msg),
-                        });
-                    }
-                    return;
-                }
-            };
-
-            reservation.session_pool().broadcast(SlotEvent::Acquired {
-                run_id: rid.clone(),
-                concurrency_safe,
-                def_id: String::new(),
-            });
-
-            if let Some(mut r) = runs.get_mut(&rid) {
-                r.status = SubAgentStatus::Running;
-            }
-
-            let t0 = std::time::Instant::now();
-            let complete_turn_id = forward_turn_id.clone();
-
-            let result: anyhow::Result<(String, u32, u32, Option<Usage>)> = tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    Err(anyhow::anyhow!("cancelled"))
-                }
-                _ = tokio::time::sleep(timeout) => {
-                    Err(anyhow::anyhow!("timeout after {}s", timeout.as_secs()))
-                }
-                res = Self::run_subagent(
-                    &runtime,
-                    &agent_config,
-                    &task,
-                    context.as_deref(),
-                    &subagent_type,
-                    current_depth + 1,
-                    max_depth,
-                    &tool_registry,
-                    parent_tx.clone(),
-                    &rid,
-                    forward_turn_id,
-                    llm_override,
-                    orchestrator.clone(),
-                    inherited_context.as_ref(),
-                    &session_id_owned,
-                    initial_msgs.as_deref(),
-                    Some(mq.clone()),
-                    approval_strat,
-                    artifact_store.clone(),
-                    runs.clone(),
-                ) => {
-                    res
-                }
-            };
-
-            let elapsed_ms = t0.elapsed().as_millis() as u64;
-
-            match result {
-                Ok((response_text, tool_calls_made, iterations, usage)) => {
-                    let truncated_result =
-                        crate::sidechain::truncate_result(&response_text, result_char_limit);
-                    let _ = parent_tx
-                        .send(AgentEvent::SubAgentComplete {
-                            turn_id: complete_turn_id.clone(),
-                            run_id: rid.clone(),
-                            status: "completed".into(),
-                            result: Some(truncated_result),
-                            tool_calls_made,
-                            iterations,
-                            usage: usage.clone().map(|u| TokenUsage {
-                                prompt_tokens: u.prompt_tokens,
-                                completion_tokens: u.completion_tokens,
-                                total_tokens: u.total_tokens,
-                                cached_input_tokens: u.effective_cache_read_tokens(),
-                            }),
-                            elapsed_ms,
-                        })
-                        .await;
-
-                    reservation.session_pool().broadcast(SlotEvent::Completed {
-                        run_id: rid.clone(),
-                        result: Some(response_text.clone()),
-                    });
-
-                    if let Some(mut r) = runs.get_mut(&rid) {
-                        r.status = SubAgentStatus::Completed;
-                        r.completed_at = Some(Self::now_ms());
-                        r.result = Some(response_text.clone());
-                        r.tool_calls_made = tool_calls_made;
-                        r.iterations = iterations;
-                        r.token_usage = usage;
-                        r.elapsed_ms = Some(elapsed_ms);
-                        r.current_tool = None;
-                    }
-
-                    let result_preview = if response_text.len() > 2000 {
-                        let end = response_text.floor_char_boundary(2000);
-                        Some(format!("{}…", &response_text[..end]))
-                    } else {
-                        Some(response_text)
-                    };
-                    if let Some(tx) = completion_channels.get(&session_id_owned) {
-                        let _ = tx.send(CompletionSummary {
-                            run_id: rid.clone(),
-                            agent_id: agent_config.agent_id.to_string(),
-                            subagent_type: subagent_type.to_string(),
-                            task: task.clone(),
-                            status: "completed".into(),
-                            elapsed_ms,
-                            tool_call_count: tool_calls_made,
-                            result_preview: result_preview.clone(),
-                            error: None,
-                        });
-                    }
-
-                    // Push completion notification to coordinator's queue if present
-                    if let Some(ref cq) = coordinator_queue {
-                        let notification = format!(
-                            "[Worker Completed] run_id={}, type={}, task=\"{}\", \
-                             elapsed={}ms, tools_used={}\nResult: {}",
-                            rid,
-                            subagent_type,
-                            if task.len() > 100 {
-                                let end = task.floor_char_boundary(100);
-                                format!("{}…", &task[..end])
-                            } else {
-                                task.clone()
-                            },
-                            elapsed_ms,
-                            tool_calls_made,
-                            result_preview.as_deref().unwrap_or("(no result)"),
-                        );
-                        cq.push(
-                            crate::message_queue::Priority::High,
-                            "system",
-                            &notification,
-                        );
-                    }
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    let status_str = if msg.contains("cancelled") {
-                        "cancelled"
-                    } else {
-                        "failed"
-                    };
-
-                    let _ = parent_tx
-                        .send(AgentEvent::SubAgentComplete {
-                            turn_id: complete_turn_id.clone(),
-                            run_id: rid.clone(),
-                            status: status_str.into(),
-                            result: None,
-                            tool_calls_made: 0,
-                            iterations: 0,
-                            usage: None,
-                            elapsed_ms,
-                        })
-                        .await;
-
-                    reservation.session_pool().broadcast(SlotEvent::Failed {
-                        run_id: rid.clone(),
-                        error: msg.clone(),
-                    });
-
-                    if let Some(mut r) = runs.get_mut(&rid) {
-                        if msg.contains("cancelled") {
-                            r.status = SubAgentStatus::Cancelled;
-                        } else {
-                            r.status = SubAgentStatus::Failed(msg.clone());
+                let reservation = match controller
+                    .reserve(&session_id_owned, &rid, concurrency_safe, slot_timeout)
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let error_msg = format!("slot acquisition failed: {e}");
+                        Self::fail_run(&runs, &cancel_tokens, &rid, &error_msg);
+                        // Notify parent and completion channels so reactive loop doesn't hang
+                        let _ = parent_tx
+                            .send(AgentEvent::SubAgentComplete {
+                                turn_id: forward_turn_id.clone(),
+                                run_id: rid.clone(),
+                                status: "failed".into(),
+                                result: None,
+                                tool_calls_made: 0,
+                                iterations: 0,
+                                usage: None,
+                                elapsed_ms: 0,
+                            })
+                            .await;
+                        if let Some(tx) = completion_channels.get(&session_id_owned) {
+                            let _ = tx.send(CompletionSummary {
+                                run_id: rid.clone(),
+                                agent_id: agent_config.agent_id.to_string(),
+                                subagent_type: subagent_type.to_string(),
+                                task: task.clone(),
+                                status: "failed".into(),
+                                elapsed_ms: 0,
+                                tool_call_count: 0,
+                                result_preview: None,
+                                error: Some(error_msg),
+                            });
                         }
-                        r.completed_at = Some(Self::now_ms());
-                        r.elapsed_ms = Some(elapsed_ms);
-                        // A worker that fails mid-tool has no matching ToolResult, so clear the
-                        // in-flight marker here to avoid a stale `current_tool` in get_run/list_runs.
-                        r.current_tool = None;
+                        return;
                     }
+                };
 
-                    if let Some(tx) = completion_channels.get(&session_id_owned) {
-                        let _ = tx.send(CompletionSummary {
+                reservation.session_pool().broadcast(SlotEvent::Acquired {
+                    run_id: rid.clone(),
+                    concurrency_safe,
+                    def_id: String::new(),
+                });
+
+                if let Some(mut r) = runs.get_mut(&rid) {
+                    r.status = SubAgentStatus::Running;
+                }
+
+                let t0 = std::time::Instant::now();
+                let complete_turn_id = forward_turn_id.clone();
+
+                let result: anyhow::Result<(String, u32, u32, Option<Usage>)> = tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        Err(anyhow::anyhow!("cancelled"))
+                    }
+                    _ = tokio::time::sleep(timeout) => {
+                        Err(anyhow::anyhow!("timeout after {}s", timeout.as_secs()))
+                    }
+                    res = Self::run_subagent(
+                        &runtime,
+                        &agent_config,
+                        &task,
+                        context.as_deref(),
+                        &subagent_type,
+                        current_depth + 1,
+                        max_depth,
+                        &tool_registry,
+                        parent_tx.clone(),
+                        &rid,
+                        forward_turn_id,
+                        llm_override,
+                        orchestrator.clone(),
+                        inherited_context.as_ref(),
+                        &session_id_owned,
+                        initial_msgs.as_deref(),
+                        Some(mq.clone()),
+                        approval_strat,
+                        artifact_store.clone(),
+                        runs.clone(),
+                    ) => {
+                        res
+                    }
+                };
+
+                let elapsed_ms = t0.elapsed().as_millis() as u64;
+
+                match result {
+                    Ok((response_text, tool_calls_made, iterations, usage)) => {
+                        let truncated_result =
+                            crate::sidechain::truncate_result(&response_text, result_char_limit);
+                        let _ = parent_tx
+                            .send(AgentEvent::SubAgentComplete {
+                                turn_id: complete_turn_id.clone(),
+                                run_id: rid.clone(),
+                                status: "completed".into(),
+                                result: Some(truncated_result),
+                                tool_calls_made,
+                                iterations,
+                                usage: usage.clone().map(|u| TokenUsage {
+                                    prompt_tokens: u.prompt_tokens,
+                                    completion_tokens: u.completion_tokens,
+                                    total_tokens: u.total_tokens,
+                                    cached_input_tokens: u.effective_cache_read_tokens(),
+                                }),
+                                elapsed_ms,
+                            })
+                            .await;
+
+                        reservation.session_pool().broadcast(SlotEvent::Completed {
                             run_id: rid.clone(),
-                            agent_id: agent_config.agent_id.to_string(),
-                            subagent_type: subagent_type.to_string(),
-                            task: task.clone(),
-                            status: status_str.into(),
-                            elapsed_ms,
-                            tool_call_count: 0,
-                            result_preview: None,
-                            error: Some(msg.clone()),
+                            result: Some(response_text.clone()),
                         });
-                    }
 
-                    // Push failure notification to coordinator's queue if present
-                    if let Some(ref cq) = coordinator_queue {
-                        let notification = format!(
-                            "[Worker {}] run_id={}, type={}, task=\"{}\", \
-                             elapsed={}ms\nError: {}",
-                            status_str,
-                            rid,
-                            subagent_type,
-                            if task.len() > 100 {
-                                let end = task.floor_char_boundary(100);
-                                format!("{}…", &task[..end])
+                        if let Some(mut r) = runs.get_mut(&rid) {
+                            r.status = SubAgentStatus::Completed;
+                            r.completed_at = Some(Self::now_ms());
+                            r.result = Some(response_text.clone());
+                            r.tool_calls_made = tool_calls_made;
+                            r.iterations = iterations;
+                            r.token_usage = usage;
+                            r.elapsed_ms = Some(elapsed_ms);
+                            r.current_tool = None;
+                        }
+
+                        let result_preview = if response_text.len() > 2000 {
+                            let end = response_text.floor_char_boundary(2000);
+                            Some(format!("{}…", &response_text[..end]))
+                        } else {
+                            Some(response_text)
+                        };
+                        if let Some(tx) = completion_channels.get(&session_id_owned) {
+                            let _ = tx.send(CompletionSummary {
+                                run_id: rid.clone(),
+                                agent_id: agent_config.agent_id.to_string(),
+                                subagent_type: subagent_type.to_string(),
+                                task: task.clone(),
+                                status: "completed".into(),
+                                elapsed_ms,
+                                tool_call_count: tool_calls_made,
+                                result_preview: result_preview.clone(),
+                                error: None,
+                            });
+                        }
+
+                        // Push completion notification to coordinator's queue if present
+                        if let Some(ref cq) = coordinator_queue {
+                            let notification = format!(
+                                "[Worker Completed] run_id={}, type={}, task=\"{}\", \
+                             elapsed={}ms, tools_used={}\nResult: {}",
+                                rid,
+                                subagent_type,
+                                if task.len() > 100 {
+                                    let end = task.floor_char_boundary(100);
+                                    format!("{}…", &task[..end])
+                                } else {
+                                    task.clone()
+                                },
+                                elapsed_ms,
+                                tool_calls_made,
+                                result_preview.as_deref().unwrap_or("(no result)"),
+                            );
+                            cq.push(
+                                crate::message_queue::Priority::High,
+                                "system",
+                                &notification,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        let status_str = if msg.contains("cancelled") {
+                            "cancelled"
+                        } else {
+                            "failed"
+                        };
+
+                        let _ = parent_tx
+                            .send(AgentEvent::SubAgentComplete {
+                                turn_id: complete_turn_id.clone(),
+                                run_id: rid.clone(),
+                                status: status_str.into(),
+                                result: None,
+                                tool_calls_made: 0,
+                                iterations: 0,
+                                usage: None,
+                                elapsed_ms,
+                            })
+                            .await;
+
+                        reservation.session_pool().broadcast(SlotEvent::Failed {
+                            run_id: rid.clone(),
+                            error: msg.clone(),
+                        });
+
+                        if let Some(mut r) = runs.get_mut(&rid) {
+                            if msg.contains("cancelled") {
+                                r.status = SubAgentStatus::Cancelled;
                             } else {
-                                task.clone()
-                            },
-                            elapsed_ms,
-                            msg,
-                        );
-                        cq.push(
-                            crate::message_queue::Priority::High,
-                            "system",
-                            &notification,
-                        );
+                                r.status = SubAgentStatus::Failed(msg.clone());
+                            }
+                            r.completed_at = Some(Self::now_ms());
+                            r.elapsed_ms = Some(elapsed_ms);
+                            // A worker that fails mid-tool has no matching ToolResult, so clear the
+                            // in-flight marker here to avoid a stale `current_tool` in get_run/list_runs.
+                            r.current_tool = None;
+                        }
+
+                        if let Some(tx) = completion_channels.get(&session_id_owned) {
+                            let _ = tx.send(CompletionSummary {
+                                run_id: rid.clone(),
+                                agent_id: agent_config.agent_id.to_string(),
+                                subagent_type: subagent_type.to_string(),
+                                task: task.clone(),
+                                status: status_str.into(),
+                                elapsed_ms,
+                                tool_call_count: 0,
+                                result_preview: None,
+                                error: Some(msg.clone()),
+                            });
+                        }
+
+                        // Push failure notification to coordinator's queue if present
+                        if let Some(ref cq) = coordinator_queue {
+                            let notification = format!(
+                                "[Worker {}] run_id={}, type={}, task=\"{}\", \
+                             elapsed={}ms\nError: {}",
+                                status_str,
+                                rid,
+                                subagent_type,
+                                if task.len() > 100 {
+                                    let end = task.floor_char_boundary(100);
+                                    format!("{}…", &task[..end])
+                                } else {
+                                    task.clone()
+                                },
+                                elapsed_ms,
+                                msg,
+                            );
+                            cq.push(
+                                crate::message_queue::Priority::High,
+                                "system",
+                                &notification,
+                            );
+                        }
                     }
                 }
-            }
 
-            drop(reservation);
-            }).await; // end of wall_clock_result async block
+                drop(reservation);
+            })
+            .await; // end of wall_clock_result async block
 
             // Handle wall-clock timeout (the entire task exceeded the limit)
             if wall_clock_result.is_err() {
@@ -897,7 +898,7 @@ impl SubAgentManager {
         messages.push(ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(task_content)),
-        ..Default::default()
+            ..Default::default()
         });
 
         let work_dir = inherited_context.and_then(|ic| ic.work_dir.clone());
@@ -909,7 +910,9 @@ impl SubAgentManager {
             temperature: None,
             max_tokens: None,
             agent_id: Some(config.agent_id.clone()),
-            session_id: Some(xiaolin_core::types::SessionId::from(parent_session_id.to_string())),
+            session_id: Some(xiaolin_core::types::SessionId::from(
+                parent_session_id.to_string(),
+            )),
             tools: None,
             slash_intent: None,
             work_dir,
@@ -1161,6 +1164,7 @@ impl SubAgentManager {
                 approval_strategy,
                 llm_override,
                 orchestrator,
+                None,
                 None,
                 None,
                 None,
@@ -1483,7 +1487,13 @@ mod tests {
         assert!(mgr.get_session_tx("s2").is_some());
 
         mgr.cleanup_session("s1");
-        assert!(mgr.get_session_tx("s1").is_none(), "s1 sender should be removed");
-        assert!(mgr.get_session_tx("s2").is_some(), "s2 sender should remain");
+        assert!(
+            mgr.get_session_tx("s1").is_none(),
+            "s1 sender should be removed"
+        );
+        assert!(
+            mgr.get_session_tx("s2").is_some(),
+            "s2 sender should remain"
+        );
     }
 }
