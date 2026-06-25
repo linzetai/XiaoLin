@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import i18n from "../../i18n";
 import { Copy, ClipboardText, Scissors, TextAa } from "@phosphor-icons/react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface MenuItem {
   label: string;
@@ -57,7 +58,6 @@ function buildMenuItems(target: HTMLElement): MenuEntry[] {
       shortcut: "Ctrl+V",
       action: async () => {
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
           const b64 = await invoke<string | null>("clipboard_read_image");
           if (b64) {
             const bin = atob(b64);

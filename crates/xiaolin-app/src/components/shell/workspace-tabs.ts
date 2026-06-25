@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import type { ComponentType } from "react";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface WorkspaceTab {
   id: string;
@@ -23,8 +25,6 @@ async function resizeWindowForPanel(opening: boolean, prePanelWidth: number | nu
   if (!isTauri) return null;
 
   try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const { currentMonitor } = await import("@tauri-apps/api/window");
     const win = getCurrentWindow();
 
     if (await win.isMaximized()) return null;
@@ -40,7 +40,7 @@ async function resizeWindowForPanel(opening: boolean, prePanelWidth: number | nu
         if (windowRight > availableRight) return null;
       }
       const savedWidth = size.width;
-      await win.setSize(new (await import("@tauri-apps/api/dpi")).LogicalSize(
+      await win.setSize(new LogicalSize(
         size.toLogical((await win.scaleFactor())).width + panelWidth,
         size.toLogical((await win.scaleFactor())).height,
       ));
@@ -49,7 +49,7 @@ async function resizeWindowForPanel(opening: boolean, prePanelWidth: number | nu
       if (prePanelWidth != null) {
         const scale = await win.scaleFactor();
         const logicalSize = size.toLogical(scale);
-        await win.setSize(new (await import("@tauri-apps/api/dpi")).LogicalSize(
+        await win.setSize(new LogicalSize(
           logicalSize.width - panelWidth,
           logicalSize.height,
         ));

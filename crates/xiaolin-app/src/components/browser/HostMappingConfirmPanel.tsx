@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { ShieldWarning, Check, X } from "@phosphor-icons/react";
 import { isTauri } from "../../lib/transport";
 import * as transport from "../../lib/transport";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export interface NetworkConfirmPayload {
   requestId: string;
@@ -37,7 +39,6 @@ function normalizePayload(raw: Record<string, unknown>): NetworkConfirmPayload {
 
 async function resolveConfirm(requestId: string, approved: boolean): Promise<void> {
   if (!isTauri) return;
-  const { invoke } = await import("@tauri-apps/api/core");
   await invoke("browser_network_confirm_resolve", { requestId, approved });
 }
 
@@ -214,7 +215,6 @@ export function useBrowserNetworkConfirmListener(): {
     }
 
     void (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
       const unlisten = await listen<Record<string, unknown>>(
         "browser-network-confirm-request",
         (ev) => enqueueConfirm(ev.payload),

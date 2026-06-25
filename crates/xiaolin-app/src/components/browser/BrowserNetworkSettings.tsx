@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash, FloppyDisk, X } from "@phosphor-icons/react";
 import { isTauri } from "../../lib/transport";
+import { invoke } from "@tauri-apps/api/core";
 
 export type BrowserProxyMode = "none" | "system" | "custom" | "xiaolin_proxy";
 
@@ -70,14 +71,12 @@ async function loadConfig(): Promise<BrowserNetworkConfig> {
       sessionHostMappings: [],
     };
   }
-  const { invoke } = await import("@tauri-apps/api/core");
   const raw = await invoke<string>("browser_get_network_config");
   return fromBackend(JSON.parse(raw) as Record<string, unknown>);
 }
 
 async function saveConfig(cfg: BrowserNetworkConfig): Promise<void> {
   if (!isTauri) return;
-  const { invoke } = await import("@tauri-apps/api/core");
   await invoke("browser_save_network_config", { config: toBackend(cfg) });
 }
 

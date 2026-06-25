@@ -128,7 +128,6 @@ fn headers_to_map(headers: &HeaderMap) -> BTreeMap<String, String> {
 /// Axum handler for Feishu event webhook endpoint.
 ///
 /// Mount at: `POST /webhook/feishu`
-#[deprecated(note = "Use FeishuPlugin as ChannelPlugin instead")]
 pub async fn feishu_webhook_handler(
     State(state): State<Arc<FeishuWebhookState>>,
     headers: HeaderMap,

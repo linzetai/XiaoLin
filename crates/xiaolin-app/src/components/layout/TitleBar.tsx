@@ -6,6 +6,7 @@ import { NotificationCenter } from "../notification/NotificationCenter";
 import { NotificationDetailPanel } from "../notification/NotificationDetailPanel";
 import { Minus, Square, ArrowsOut, X } from "@phosphor-icons/react";
 import type { AppNotification } from "../../lib/transport";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -13,13 +14,11 @@ const isTauri =
 
 async function onDragMouseDown(e: RME) {
   if (!isTauri || e.button !== 0) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   getCurrentWindow().startDragging();
 }
 
 async function onDragDoubleClick() {
   if (!isTauri) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   getCurrentWindow().toggleMaximize();
 }
 
@@ -31,7 +30,6 @@ function WindowControls() {
     let cancelled = false;
     let unlistenFn: (() => void) | undefined;
     (async () => {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       setIsMaximized(await win.isMaximized());
       unlistenFn = await win.onResized(async () => {
@@ -45,17 +43,14 @@ function WindowControls() {
   }, []);
 
   const minimize = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().minimize();
   }, []);
 
   const toggleMaximize = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().toggleMaximize();
   }, []);
 
   const close = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().close();
   }, []);
 

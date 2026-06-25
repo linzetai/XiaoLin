@@ -15,6 +15,7 @@ import type {
   CommitSummary,
   CommitResult,
 } from "../../../xiaolin-protocol/generated/protocol";
+import { invoke } from "@tauri-apps/api/core";
 
 export type { GitStatus, DiffHunk, Branch, CommitSummary, CommitResult };
 
@@ -22,18 +23,8 @@ export const isTauri =
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 
-let _invoke: typeof import("@tauri-apps/api/core").invoke | null = null;
-
-async function ensureTauriApi() {
-  if (!_invoke) {
-    const core = await import("@tauri-apps/api/core");
-    _invoke = core.invoke;
-  }
-}
-
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  await ensureTauriApi();
-  return _invoke!<T>(cmd, args);
+  return invoke<T>(cmd, args);
 }
 
 // ─── Gateway Info (IPC) ───

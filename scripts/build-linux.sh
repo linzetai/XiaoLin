@@ -60,16 +60,18 @@ for cmd in cargo pnpm node; do
   fi
 done
 
-if [ ! -f "$KEY_PATH" ]; then
-  err "签名私钥不存在: $KEY_PATH"
-  echo "  运行以下命令生成:"
-  echo "  npx @tauri-apps/cli@latest signer generate --write-keys $KEY_PATH --force -p \"\""
-  exit 1
-fi
+if [ "$RELEASE_MODE" = true ]; then
+  if [ ! -f "$KEY_PATH" ]; then
+    err "签名私钥不存在: $KEY_PATH"
+    echo "  运行以下命令生成:"
+    echo "  npx @tauri-apps/cli@latest signer generate --write-keys $KEY_PATH --force -p \"\""
+    exit 1
+  fi
 
-export TAURI_SIGNING_PRIVATE_KEY
-TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_PATH")"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+  export TAURI_SIGNING_PRIVATE_KEY
+  TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_PATH")"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+fi
 
 VERSION=$(grep '"version"' "$TAURI_DIR/tauri.conf.json" | head -1 | sed 's/.*: *"\(.*\)".*/\1/')
 ok "版本号: v$VERSION"
@@ -114,7 +116,12 @@ elif [ "${CI:-}" = "0" ]; then
   export CI=false
 fi
 
-(cd "$APP_DIR" && APPIMAGE_EXTRACT_AND_RUN=1 pnpm exec -- tauri build -- -j "$NPROC")
+TAURI_BUILD_ARGS=()
+if [ "$RELEASE_MODE" = false ]; then
+  TAURI_BUILD_ARGS+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+fi
+
+(cd "$APP_DIR" && APPIMAGE_EXTRACT_AND_RUN=1 pnpm exec -- tauri build "${TAURI_BUILD_ARGS[@]}" -- -j "$NPROC")
 ok "Tauri 构建完成"
 
 #── 收集产物 ──────────────────────────────────────────────────────────
@@ -126,7 +133,11 @@ mkdir -p "$DIST_DIR"
 # Tauri 2.10+ uses target/tauri/release/bundle/
 for BUNDLE_DIR in "$PROJECT_ROOT/target/tauri/release/bundle" "$PROJECT_ROOT/target/release/bundle"; do
   [ -d "$BUNDLE_DIR" ] || continue
-  for pattern in "*.AppImage" "*.AppImage.sig" "*.AppImage.tar.gz" "*.AppImage.tar.gz.sig" "*.deb" "*.deb.sig"; do
+  ARTIFACT_PATTERNS=("*.AppImage" "*.AppImage.tar.gz" "*.deb")
+  if [ "$RELEASE_MODE" = true ]; then
+    ARTIFACT_PATTERNS+=("*.AppImage.sig" "*.AppImage.tar.gz.sig" "*.deb.sig")
+  fi
+  for pattern in "${ARTIFACT_PATTERNS[@]}"; do
     find "$BUNDLE_DIR" -maxdepth 2 -name "$pattern" -exec cp {} "$DIST_DIR/" \; 2>/dev/null || true
   done
 done

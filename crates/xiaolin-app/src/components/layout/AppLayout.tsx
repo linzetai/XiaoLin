@@ -13,6 +13,7 @@ import { ClawIcon } from "./ClawIcon";
 import { UpdateBanner } from "./UpdateBanner";
 import { AppShell } from "../shell/AppShell";
 import * as api from "../../lib/api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -24,7 +25,6 @@ function WindowResizeHandles() {
   const start = useCallback(
     async (e: React.MouseEvent, direction: string) => {
       e.preventDefault();
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       type ResizeDirection =
         | "East"
         | "North"
@@ -185,7 +185,6 @@ export function AppLayout() {
     let cancelled = false;
     let unlistenFn: (() => void) | undefined;
     (async () => {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       if (!cancelled) setIsMaximized(await win.isMaximized());
       unlistenFn = await win.onResized(async () => {

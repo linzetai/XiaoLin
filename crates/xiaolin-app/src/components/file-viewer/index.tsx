@@ -1,11 +1,7 @@
 import { lazy, Suspense, type ComponentProps } from "react";
-import type { CodeViewer as CodeViewerComponent } from "./CodeViewer";
 import type { MarkdownViewer as MarkdownViewerComponent } from "./MarkdownViewer";
 import type { ImageViewer as ImageViewerComponent } from "./ImageViewer";
-
-const CodeViewerLazy = lazy(() =>
-  import("./CodeViewer").then((m) => ({ default: m.CodeViewer })),
-);
+export { CodeViewer } from "./CodeViewer";
 
 const MarkdownViewerLazy = lazy(() =>
   import("./MarkdownViewer").then((m) => ({ default: m.MarkdownViewer })),
@@ -21,14 +17,6 @@ function ViewerFallback() {
       className="animate-pulse rounded"
       style={{ background: "var(--bg-tertiary)", height: "100%", minHeight: 120 }}
     />
-  );
-}
-
-export function CodeViewer(props: ComponentProps<typeof CodeViewerComponent>) {
-  return (
-    <Suspense fallback={<ViewerFallback />}>
-      <CodeViewerLazy {...props} />
-    </Suspense>
   );
 }
 

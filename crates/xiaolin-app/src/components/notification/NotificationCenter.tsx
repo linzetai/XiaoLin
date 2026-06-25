@@ -9,6 +9,7 @@ import {
 import { Bell, Check, Checks, Trash, Clock, Warning, Info, Lightning } from "@phosphor-icons/react";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import * as transport from "../../lib/transport";
+import { listen } from "@tauri-apps/api/event";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -87,7 +88,7 @@ export function NotificationCenter({ onDetailOpen }: Props) {
 
     if (isTauri) {
       let cancelled = false;
-      import("@tauri-apps/api/event").then(({ listen }) => {
+      Promise.resolve().then(() => {
         if (cancelled) return;
 
         listen<{ unreadCount?: number }>("notification-new", (ev) => {

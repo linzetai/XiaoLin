@@ -6,6 +6,8 @@ import { useFileViewerStore } from "../../lib/stores/file-viewer-store";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
 import { isTauri } from "../../lib/transport";
 import { isImagePath } from "../../lib/file-utils";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { FileListSidebar } from "./FileListSidebar";
 import { FileTabBar } from "./FileTabBar";
 import { FileToolbar } from "./FileToolbar";
@@ -32,8 +34,6 @@ async function tryExpandPanelWidth(targetWidth: number): Promise<void> {
   }
 
   try {
-    const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
-    const { LogicalSize } = await import("@tauri-apps/api/dpi");
     const win = getCurrentWindow();
 
     if (await win.isMaximized()) {

@@ -20,6 +20,7 @@ import {
 } from "@floating-ui/react";
 import { File, Folder, Sparkle, MagnifyingGlass, Terminal } from "@phosphor-icons/react";
 import { fuzzyFilter, type FuzzyResult } from "../../lib/fuzzy";
+import { invoke } from "@tauri-apps/api/core";
 
 /* ─── Types ─── */
 export type MentionType = "file" | "dir" | "skill";
@@ -826,17 +827,15 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
                   : isAbsImgPath ? textToCheck : null;
 
                 if (filePathToRead) {
-                  import("@tauri-apps/api/core").then(({ invoke }) => {
-                    invoke<[string, string]>("read_image_file", { path: filePathToRead })
-                      .then(([b64, mime]) => {
-                        const arr = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-                        const blob = new Blob([arr], { type: mime });
-                        const name = filePathToRead.split("/").pop() ?? "image.png";
-                        const file = new (globalThis.File as unknown as new (p: BlobPart[], n: string, o: FilePropertyBag) => globalThis.File)([blob], name, { type: mime });
-                        onPasteFiles([file]);
-                      })
-                      .catch(() => {});
-                  });
+                  invoke<[string, string]>("read_image_file", { path: filePathToRead })
+                    .then(([b64, mime]) => {
+                      const arr = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+                      const blob = new Blob([arr], { type: mime });
+                      const name = filePathToRead.split("/").pop() ?? "image.png";
+                      const file = new (globalThis.File as unknown as new (p: BlobPart[], n: string, o: FilePropertyBag) => globalThis.File)([blob], name, { type: mime });
+                      onPasteFiles([file]);
+                    })
+                    .catch(() => {});
                   return;
                 }
               }
@@ -862,20 +861,18 @@ export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
 
               // 4) Tauri: 异步检查剪贴板是否有图片（截图场景）
               if (isTauri && onPasteFiles) {
-                import("@tauri-apps/api/core").then(({ invoke }) => {
-                  invoke<string | null>("clipboard_read_image")
-                    .then((b64) => {
-                      if (b64) {
-                        const arr = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-                        const blob = new Blob([arr], { type: "image/png" });
-                        const file = new (globalThis.File as unknown as new (p: BlobPart[], n: string, o: FilePropertyBag) => globalThis.File)(
-                          [blob], `screenshot-${Date.now()}.png`, { type: "image/png" }
-                        );
-                        onPasteFiles([file]);
-                      }
-                    })
-                    .catch(() => {});
-                });
+                invoke<string | null>("clipboard_read_image")
+                  .then((b64) => {
+                    if (b64) {
+                      const arr = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+                      const blob = new Blob([arr], { type: "image/png" });
+                      const file = new (globalThis.File as unknown as new (p: BlobPart[], n: string, o: FilePropertyBag) => globalThis.File)(
+                        [blob], `screenshot-${Date.now()}.png`, { type: "image/png" }
+                      );
+                      onPasteFiles([file]);
+                    }
+                  })
+                  .catch(() => {});
               }
             }}
             placeholder={placeholder}

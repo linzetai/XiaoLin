@@ -6,8 +6,12 @@ import { useProjectStore } from "./stores/project-store";
 import { initGitStore } from "./stores/git-store";
 import { initPermissionListener } from "./stores/permission-store";
 import { initAutomationListener } from "./stores/automation-store";
-import { initFileArtifactListener } from "./stores/file-viewer-store";
-import { initBrowserEvents } from "./stores/browser-store";
+import {
+  initFileArtifactListener,
+  reloadArtifactsForCurrentSession,
+  teardownFileArtifactListener,
+} from "./stores/file-viewer-store";
+import { initBrowserEvents, teardownBrowserEvents } from "./stores/browser-store";
 
 export interface GatewayInfo {
   port: number;
@@ -42,8 +46,8 @@ export function cleanupGatewayListeners(): void {
   reconnectedUnsub = null;
   sessionChangedUnsub = null;
   projectsChangedUnsub = null;
-  import("./stores/file-viewer-store").then((m) => m.teardownFileArtifactListener());
-  import("./stores/browser-store").then((m) => m.teardownBrowserEvents());
+  teardownFileArtifactListener();
+  teardownBrowserEvents();
 }
 
 if (import.meta.hot) {
@@ -128,7 +132,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         reconnectedUnsub = transport.onWsEvent("reconnected", () => {
           set({ connected: true });
           syncBackendData();
-          import("./stores/file-viewer-store").then((m) => m.reloadArtifactsForCurrentSession());
+          reloadArtifactsForCurrentSession();
         });
 
         try {
@@ -187,7 +191,7 @@ export const useGatewayStore = create<GatewayState>((set) => ({
         reconnectedUnsub = transport.onWsEvent("reconnected", () => {
           set({ connected: true });
           syncBackendData();
-          import("./stores/file-viewer-store").then((m) => m.reloadArtifactsForCurrentSession());
+          reloadArtifactsForCurrentSession();
         });
 
         try {

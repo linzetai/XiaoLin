@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import * as transport from "./transport";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 function mimeFromExt(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
@@ -19,7 +20,6 @@ async function resolveAvatarUrl(filePath: string): Promise<string | null> {
     return URL.createObjectURL(blob);
   } catch {
     try {
-      const { convertFileSrc } = await import("@tauri-apps/api/core");
       return convertFileSrc(filePath);
     } catch {
       return null;

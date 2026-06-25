@@ -1,5 +1,6 @@
 import { useGatewayStore } from "./store";
 import * as transport from "./transport";
+import { invoke as tauriCoreInvoke } from "@tauri-apps/api/core";
 
 function getHttpBase(): string {
   return useGatewayStore.getState().info?.httpUrl ?? "";
@@ -16,8 +17,7 @@ let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unkno
 async function getTauriInvoke() {
   if (tauriInvoke) return tauriInvoke;
   if (!transport.isTauri) return null;
-  const { invoke } = await import("@tauri-apps/api/core");
-  tauriInvoke = invoke;
+  tauriInvoke = tauriCoreInvoke;
   return tauriInvoke;
 }
 

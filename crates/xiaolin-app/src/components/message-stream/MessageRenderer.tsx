@@ -14,10 +14,12 @@ import {
 import { ReasoningBlock } from "./ReasoningBlock";
 import { PhaseIndicator, type Phase } from "./ThinkingIndicator";
 import { Warning } from "@phosphor-icons/react";
+import { emit } from "@tauri-apps/api/event";
 import { UserInput } from "./UserInput";
 import { BriefMessageCard } from "./BriefMessageCard";
 import { useFileChangeSummary } from "./useFileChangeSummary";
 import { FileChangesCard } from "./FileChangesCard";
+import { retryTurn, submitFeedback } from "../../lib/transport";
 
 
 const MarkdownContent = lazy(() =>
@@ -109,7 +111,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
     setLiked(next);
     if (disliked) setDisliked(false);
     if (next && sessionId && turnId) {
-      import("../../lib/transport").then((t) => t.submitFeedback(sessionId, turnId, "positive").catch(() => {}));
+      submitFeedback(sessionId, turnId, "positive").catch(() => {});
     }
   }, [liked, disliked, sessionId, turnId]);
 
@@ -118,7 +120,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
     setDisliked(next);
     if (liked) setLiked(false);
     if (next && sessionId && turnId) {
-      import("../../lib/transport").then((t) => t.submitFeedback(sessionId, turnId, "negative").catch(() => {}));
+      submitFeedback(sessionId, turnId, "negative").catch(() => {});
     }
   }, [liked, disliked, sessionId, turnId]);
 
@@ -152,7 +154,7 @@ const AiReactionBar = memo(function AiReactionBar({ content, sessionId, turnId }
       <button
         onClick={() => {
           if (sessionId && turnId) {
-            import("../../lib/transport").then((t) => t.retryTurn(sessionId, turnId).catch(() => {}));
+            retryTurn(sessionId, turnId).catch(() => {});
           }
         }}
         className={btnCls}
@@ -316,9 +318,7 @@ function SystemMsg({ msg }: { msg: ChatMessage }) {
   const isBudgetReached = msg.metadata?.action === "token_budget_reached";
 
   const handleContinue = useCallback((budget: string) => {
-    import("@tauri-apps/api/event").then(({ emit }) => {
-      emit("quick-action-send", { content: t("budgetContinueMessage", { budget }) });
-    });
+    emit("quick-action-send", { content: t("budgetContinueMessage", { budget }) });
   }, [t]);
 
   if (isBudgetReached) {

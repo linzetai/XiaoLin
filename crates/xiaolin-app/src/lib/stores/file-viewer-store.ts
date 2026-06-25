@@ -3,6 +3,7 @@ import * as transport from "../transport";
 import type { FileArtifact } from "../transport";
 import { languageFromPath, isImagePath, isSvgPath } from "../file-utils";
 import { useChatMetaStore } from "./chat-meta-store";
+import { useWorkspaceTabs } from "../../components/shell/workspace-tabs";
 
 const MAX_OPEN_FILES = 10;
 const MAX_ARTIFACTS_PER_SESSION = 500;
@@ -440,18 +441,16 @@ export function initFileArtifactListener(getActiveChatId: () => string): void {
       };
     });
 
-    void import("../../components/shell/workspace-tabs").then(({ useWorkspaceTabs }) => {
-      const tabState = useWorkspaceTabs.getState();
-      if (tabState.activeTabId !== "files") {
-        if (!tabState.filesClosedByUser && tabState.panelOpen) {
-          tabState.setActiveTab("files");
-        } else {
-          const existing = tabState.tabs.find((t) => t.id === "files")?.badge;
-          const count = typeof existing === "number" ? existing + 1 : 1;
-          tabState.setTabBadge("files", count);
-        }
+    const tabState = useWorkspaceTabs.getState();
+    if (tabState.activeTabId !== "files") {
+      if (!tabState.filesClosedByUser && tabState.panelOpen) {
+        tabState.setActiveTab("files");
+      } else {
+        const existing = tabState.tabs.find((t) => t.id === "files")?.badge;
+        const count = typeof existing === "number" ? existing + 1 : 1;
+        tabState.setTabBadge("files", count);
       }
-    }).catch((e) => { console.debug("[file-viewer] workspace-tabs not available:", e); });
+    }
   });
 }
 

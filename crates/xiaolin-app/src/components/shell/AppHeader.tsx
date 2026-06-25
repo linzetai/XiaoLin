@@ -12,6 +12,7 @@ import {
 import { useUIStore, useGitStore } from "../../lib/stores";
 import { useThemeStore } from "../../lib/theme";
 import { useWorkspaceTabs } from "./workspace-tabs";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -19,13 +20,11 @@ const isTauri =
 
 async function onDragMouseDown(e: RME) {
   if (!isTauri || e.button !== 0) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   getCurrentWindow().startDragging();
 }
 
 async function onDragDoubleClick() {
   if (!isTauri) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   getCurrentWindow().toggleMaximize();
 }
 
@@ -87,7 +86,6 @@ function WindowControls() {
     let cancelled = false;
     let unlistenFn: (() => void) | undefined;
     (async () => {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       if (!cancelled) setIsMaximized(await win.isMaximized());
       unlistenFn = await win.onResized(async () => {
@@ -98,17 +96,14 @@ function WindowControls() {
   }, []);
 
   const minimize = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().minimize();
   }, []);
 
   const toggleMaximize = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().toggleMaximize();
   }, []);
 
   const close = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().close();
   }, []);
 

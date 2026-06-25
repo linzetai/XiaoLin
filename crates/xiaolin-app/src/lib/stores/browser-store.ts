@@ -4,6 +4,8 @@ import i18n from "../../i18n";
 import { fillChatFromBrowserSelection } from "./composer-input-store";
 import { useChatMetaStore } from "./chat-meta-store";
 import type { MainView } from "./ui-store";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export const NEW_TAB_URL = "https://example.com";
 export const MAX_BROWSER_PAGES = 8;
@@ -57,7 +59,6 @@ interface BackendPageInfo {
 
 async function browserInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri) throw new Error("Browser features require Tauri");
-  const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
 
@@ -456,8 +457,6 @@ export async function initBrowserEvents(): Promise<void> {
   if (!isTauri) return;
   teardownBrowserEvents();
   await useBrowserStore.getState().syncFromBackend();
-
-  const { listen } = await import("@tauri-apps/api/event");
 
   eventUnlisteners.push(
     await listen<{ pageId: string; url: string }>("browser-page-created", (ev) => {
