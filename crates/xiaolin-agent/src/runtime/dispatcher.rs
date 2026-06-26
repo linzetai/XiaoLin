@@ -187,7 +187,7 @@ impl ToolDispatcher {
         }
 
         // 5. Truncate output if needed
-        let result = self.truncate_result(&tool_name, result);
+        let result = self.truncate_result(&tool_name, &arguments, result);
 
         (tool_name, call_id, arguments, result)
     }
@@ -326,7 +326,9 @@ impl ToolDispatcher {
                             }
                         }
 
-                        let result = Self::truncate_result_static(&tool_name, result);
+                        let result = Self::truncate_result_with_limit(
+                            &tool_name, &arguments, result, 100_000,
+                        );
                         (tool_name, call_id, arguments, result)
                     }
                 })
@@ -782,29 +784,34 @@ impl ToolDispatcher {
         }
     }
 
-    fn truncate_result(&self, tool_name: &str, result: ToolResult) -> ToolResult {
+    fn truncate_result(&self, tool_name: &str, arguments: &str, result: ToolResult) -> ToolResult {
         let char_limit = self
             .tool_registry
             .get(tool_name)
             .map(|t| t.max_result_size_chars())
             .unwrap_or(100_000);
-        Self::truncate_result_with_limit(tool_name, result, char_limit)
+        Self::truncate_result_with_limit(tool_name, arguments, result, char_limit)
     }
 
     pub fn truncate_result_static(tool_name: &str, result: ToolResult) -> ToolResult {
-        Self::truncate_result_with_limit(tool_name, result, 100_000)
+        Self::truncate_result_with_limit(tool_name, "", result, 100_000)
     }
 
     fn truncate_result_with_limit(
         tool_name: &str,
+        arguments: &str,
         mut result: ToolResult,
         char_limit: usize,
     ) -> ToolResult {
         if char_limit == usize::MAX {
             return result;
         }
-        let truncated =
-            truncate_tool_result_output_with_limit(&result.output, tool_name, Some(char_limit));
+        let truncated = truncate_tool_result_output_with_limit(
+            &result.output,
+            tool_name,
+            arguments,
+            Some(char_limit),
+        );
         if truncated.len() != result.output.len() {
             result.output = truncated;
         }

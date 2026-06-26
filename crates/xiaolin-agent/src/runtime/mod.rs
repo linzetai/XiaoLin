@@ -288,7 +288,12 @@ fn process_tool_output(
         Ok(None) => output.to_string(),
         Err(e) => {
             tracing::warn!(error = %e, tool = tool_name, "ToolResultStorage failed, falling back to truncation");
-            truncate_tool_result_output_with_limit(output, tool_name, Some(max_result_size_chars))
+            truncate_tool_result_output_with_limit(
+                output,
+                tool_name,
+                "",
+                Some(max_result_size_chars),
+            )
         }
     }
 }

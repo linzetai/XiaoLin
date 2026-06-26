@@ -81,6 +81,7 @@ fn save_truncated_output(tool_name: &str, output: &str) -> Option<String> {
 pub(crate) fn truncate_tool_result_output_with_limit(
     output: &str,
     tool_name: &str,
+    arguments: &str,
     char_limit_override: Option<usize>,
 ) -> String {
     let char_limit = char_limit_override.unwrap_or(MAX_TOOL_RESULT_CHARS);
@@ -148,16 +149,27 @@ pub(crate) fn truncate_tool_result_output_with_limit(
     );
 
     if let Some(saved_path) = save_truncated_output(tool_name, output) {
+        let is_read_only_shell_read = is_shell_read_only_file_read(tool_name, arguments);
         tracing::info!(
             target: "agent.compaction",
             tool = tool_name,
             path = %saved_path,
             output_chars = total_chars,
+            is_read_only_shell_read,
             "truncated tool output saved for read_file recovery"
         );
-        format!(
-            "{truncated_body}\n\n[Full output ({total_chars} chars) saved to: {saved_path} — use read_file to view if needed]"
-        )
+        let hint = if is_read_only_shell_read {
+            format!(
+                "[Truncated output from a file-read command — use read_file directly on \
+                 the original file with specific line ranges instead of reading {}]",
+                saved_path
+            )
+        } else {
+            format!(
+                "[Full output ({total_chars} chars) saved to: {saved_path} — use read_file to view if needed]",
+            )
+        };
+        format!("{truncated_body}\n\n{hint}")
     } else {
         truncated_body
     }
@@ -1542,10 +1554,89 @@ pub(crate) fn tool_repetition_key(tool_name: &str, arguments: &str) -> String {
         || tool_name.starts_with("run_command")
     {
         if let Some(cmd) = extract_target_key(tool_name, arguments) {
+            // Try semantic normalization first:
+            // shell_exec cat file.ts → same key as read_file file.ts
+            if let Some(normalized_key) = normalize_shell_read_to_repetition_key(&cmd) {
+                return normalized_key;
+            }
             return format!("{tool_name}\0cmd:{cmd}");
         }
     }
     format!("{tool_name}\0{arguments}")
+}
+
+/// For shell commands that are semantically equivalent to read_file or search,
+/// return a normalized repetition key that collides with the direct tool's key.
+/// This prevents the agent from cycling through different tool types
+/// (shell_exec cat → read_file → shell_exec head → read_file) to read
+/// the same file without triggering repetition detection.
+fn normalize_shell_read_to_repetition_key(command: &str) -> Option<String> {
+    let cmd = command.trim();
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    match parts[0] {
+        // cat/head/tail file → read_file key
+        "cat" | "head" | "tail" | "less" => {
+            let path = parts.iter().filter(|p| !p.starts_with('-')).last()?;
+            Some(format!("read_file\0path:{path}"))
+        }
+        // sed -n 'X,Yp' file → read_file (read-only sed)
+        // sed 's/a/b/' file or sed -i → mutation, not normalized
+        "sed" => {
+            if cmd.contains("-n") || cmd.contains("--quiet") || cmd.contains("--silent") {
+                let path = parts
+                    .iter()
+                    .filter(|p| !p.starts_with('-') && !p.starts_with('\'') && !p.starts_with('"'))
+                    .last()?;
+                Some(format!("read_file\0path:{path}"))
+            } else {
+                None
+            }
+        }
+        // grep/rg pattern file → search_in_files key
+        "grep" | "rg" | "egrep" | "fgrep" => {
+            let mut iter = parts.iter().skip(1);
+            let mut pattern = None;
+            let mut path = None;
+            while let Some(p) = iter.next() {
+                if p.starts_with('-') {
+                    // Skip flag; if flag takes a value, skip that too
+                    if [
+                        "-e",
+                        "-f",
+                        "--regexp",
+                        "--file",
+                        "-m",
+                        "--max-count",
+                        "-A",
+                        "-B",
+                        "-C",
+                        "--after-context",
+                        "--before-context",
+                        "--context",
+                    ]
+                    .contains(p)
+                    {
+                        iter.next();
+                    }
+                    continue;
+                }
+                if pattern.is_none() {
+                    pattern = Some(*p);
+                } else {
+                    path = Some(*p);
+                    break;
+                }
+            }
+            let pattern = pattern?;
+            let path = path.unwrap_or(".");
+            Some(format!("search_in_files\0pattern:{pattern}\0path:{path}"))
+        }
+        _ => None,
+    }
 }
 
 /// Extract a target key from tool arguments for deduplication.
@@ -1564,6 +1655,29 @@ pub(crate) fn extract_target_key(tool_name: &str, arguments: &str) -> Option<Str
             .map(|s| s.to_string()),
         _ => None,
     }
+}
+
+/// Returns true when a shell_exec command is a read-only file read that
+/// should not have its truncated output saved for the agent to read back.
+/// Reuses `normalize_shell_read_to_repetition_key` — if that function
+/// returns `Some`, the command is a read-only file read.
+fn is_shell_read_only_file_read(tool_name: &str, arguments: &str) -> bool {
+    if !tool_name.starts_with("shell_exec")
+        && !tool_name.starts_with("shell")
+        && !tool_name.starts_with("run_command")
+    {
+        return false;
+    }
+    let cmd = serde_json::from_str::<serde_json::Value>(arguments)
+        .ok()
+        .and_then(|v| {
+            v.get("command")
+                .or(v.get("cmd"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+    normalize_shell_read_to_repetition_key(&cmd).is_some()
 }
 
 // ── cache_edits API Microcompact (6E-03) ─────────────────────────────
@@ -2153,5 +2267,78 @@ mod anchor_protection_tests {
             !faded.contains("more chars faded."),
             "fade_to_preview should not say 'more chars faded.' (implies loss), got: {faded}"
         );
+    }
+}
+
+#[cfg(test)]
+mod repetition_key_tests {
+    use super::*;
+
+    #[test]
+    fn shell_cat_normalizes_to_read_file_key() {
+        let key = tool_repetition_key("shell_exec", r#"{"command":"cat src/main.rs"}"#);
+        assert_eq!(key, "read_file\0path:src/main.rs");
+    }
+
+    #[test]
+    fn shell_head_normalizes_to_same_read_file_key() {
+        let key1 = tool_repetition_key("shell_exec", r#"{"command":"head -100 src/main.rs"}"#);
+        let key2 = tool_repetition_key("read_file", r#"{"path":"src/main.rs"}"#);
+        // Both should collide — head and read_file on the same path share the key
+        assert_eq!(key1, "read_file\0path:src/main.rs");
+        assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn shell_tail_normalizes_to_read_file_key() {
+        let key = tool_repetition_key("shell_exec", r#"{"command":"tail -20 app.log"}"#);
+        assert_eq!(key, "read_file\0path:app.log");
+    }
+
+    #[test]
+    fn shell_grep_normalizes_to_search_key() {
+        let key = tool_repetition_key("shell_exec", r#"{"command":"grep todo src/main.rs"}"#);
+        assert!(
+            key.starts_with("search_in_files\0pattern:todo\0path:src/main.rs"),
+            "got: {key}"
+        );
+    }
+
+    #[test]
+    fn shell_npm_install_keeps_own_key() {
+        let key = tool_repetition_key("shell_exec", r#"{"command":"npm install express"}"#);
+        // Not a read command, should keep its own shell_exec key
+        assert!(key.starts_with("shell_exec\0cmd:npm install"));
+    }
+
+    #[test]
+    fn shell_cargo_build_keeps_own_key() {
+        let key = tool_repetition_key("shell_exec", r#"{"command":"cargo build --release"}"#);
+        assert!(key.starts_with("shell_exec\0cmd:cargo build"));
+    }
+
+    #[test]
+    fn cat_and_read_file_accumulate_together() {
+        // Simulate tool call counting: 2x cat + 3x read_file on same file = 5
+        let cat_key = tool_repetition_key("shell_exec", r#"{"command":"cat x.ts"}"#);
+        let read_key = tool_repetition_key("read_file", r#"{"path":"x.ts"}"#);
+        assert_eq!(
+            cat_key, read_key,
+            "cat and read_file should share the same key"
+        );
+    }
+
+    #[test]
+    fn shell_sed_substitution_not_normalized() {
+        // sed 's/a/b/' is a mutation, not a read
+        let key = tool_repetition_key("shell_exec", r#"{"command":"sed 's/old/new/' file.txt"}"#);
+        assert!(key.starts_with("shell_exec\0cmd:sed"));
+    }
+
+    #[test]
+    fn shell_sed_read_only_normalized() {
+        // sed -n '1,10p' is a read
+        let key = tool_repetition_key("shell_exec", r#"{"command":"sed -n '1,10p' file.txt"}"#);
+        assert_eq!(key, "read_file\0path:file.txt");
     }
 }
