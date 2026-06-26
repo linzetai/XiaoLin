@@ -424,6 +424,10 @@ mod tests {
 
     #[tokio::test]
     async fn shell_hook_success_returns_allow() {
+        let _ = xiaolin_security::dangerous_ops::set_dangerous_ops_config(
+            xiaolin_core::config::DangerousOpsPolicy::Allow,
+            &[],
+        );
         let result = run_shell_hook("echo '{}'", None, &make_pre_tool_event("test")).await;
         assert!(!result.is_blocked());
     }

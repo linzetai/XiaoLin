@@ -386,9 +386,12 @@ fn build_terminal_diagnosis(
             Some(DiagnosisSeverity::Error),
             Some("Budget exceeded; turn stopped.".to_string()),
         ),
-        (TurnEndReason::MaxTurns
-        | TurnEndReason::ConsecutiveErrors
-        | TurnEndReason::DiminishingReturns, _) => {
+        (
+            TurnEndReason::MaxTurns
+            | TurnEndReason::ConsecutiveErrors
+            | TurnEndReason::DiminishingReturns,
+            _,
+        ) => {
             // These are tool-loop / no-progress style reasons.
             (
                 EndReason::ToolLoop,
@@ -411,4 +414,3 @@ fn build_terminal_diagnosis(
         evidence,
     }
 }
-

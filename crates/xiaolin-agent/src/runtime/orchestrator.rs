@@ -1024,6 +1024,9 @@ mod tests {
 [[rules]]
 pattern = ["ls"]
 decision = "allow"
+
+[defaults]
+fallback = "prompt"
 "#,
                 "test",
             )

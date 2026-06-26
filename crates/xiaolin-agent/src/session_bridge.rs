@@ -762,7 +762,9 @@ impl TurnExecutor for RuntimeTurnExecutor {
         let result = {
             let runtime = self.runtime.clone();
             let tool_registry = self.tool_registry.clone();
-            let llm = per_request_llm.clone().or_else(|| self.llm_override.clone());
+            let llm = per_request_llm
+                .clone()
+                .or_else(|| self.llm_override.clone());
             let session_store = self.session_store.clone();
             let todo_store = self.todo_store.clone();
             let goal_store = self.goal_store.clone();

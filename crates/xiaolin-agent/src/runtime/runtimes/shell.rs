@@ -488,6 +488,10 @@ mod tests {
 
     #[test]
     fn safe_command_needs_approval() {
+        let _ = xiaolin_security::dangerous_ops::set_dangerous_ops_config(
+            xiaolin_core::config::DangerousOpsPolicy::Allow,
+            &[],
+        );
         let rt = ShellRuntime;
         let args = serde_json::json!({"command": "ls -la"});
         let req = rt.exec_requirement(&args, Path::new("/tmp"));

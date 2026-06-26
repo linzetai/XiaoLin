@@ -855,23 +855,24 @@ fn classify_shell_command(command: &str) -> ShellCommandClass {
 
     // ── Read-only commands ──
     let read_only: &[&str] = &[
-        "cat", "head", "tail", "less", "more",
-        "grep", "rg", "egrep", "fgrep",
-        "ls", "dir", "find", "locate",
-        "wc", "file", "stat", "du", "df",
-        "echo", "printf",
-        "pwd", "which", "type", "whereis",
-        "env", "printenv", "whoami", "uname", "hostname", "date",
-        "sort", "uniq", "cut", "tr", "awk", "sed",
-        "diff", "cmp", "comm",
-        "readlink", "realpath", "basename", "dirname",
+        "cat", "head", "tail", "less", "more", "grep", "rg", "egrep", "fgrep", "ls", "dir", "find",
+        "locate", "wc", "file", "stat", "du", "df", "echo", "printf", "pwd", "which", "type",
+        "whereis", "env", "printenv", "whoami", "uname", "hostname", "date", "sort", "uniq", "cut",
+        "tr", "awk", "sed", "diff", "cmp", "comm", "readlink", "realpath", "basename", "dirname",
     ];
 
     // Multi-word read-only commands
     let read_only_multi: &[&str] = &[
-        "git log", "git show", "git diff", "git status", "git branch",
-        "git stash list", "git tag", "git remote",
-        "cargo doc", "cargo readme",
+        "git log",
+        "git show",
+        "git diff",
+        "git status",
+        "git branch",
+        "git stash list",
+        "git tag",
+        "git remote",
+        "cargo doc",
+        "cargo readme",
     ];
 
     let is_read_only = read_only.iter().any(|&ro| first_word == ro)
@@ -883,15 +884,36 @@ fn classify_shell_command(command: &str) -> ShellCommandClass {
 
     // ── Verification commands (run tests, build, check, lint) ──
     let verification: &[&str] = &[
-        "cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt",
-        "npm test", "npm run test", "npx jest", "npx vitest", "npx playwright",
-        "pnpm test", "pnpm run test", "pnpm build",
-        "yarn test", "yarn build",
-        "go test", "go build", "go vet", "go lint",
-        "pytest", "python -m pytest", "tox",
-        "make test", "make check", "cmake --build",
-        "rustc --check", "rustfmt",
-        "eslint", "prettier", "tsc",
+        "cargo test",
+        "cargo build",
+        "cargo check",
+        "cargo clippy",
+        "cargo fmt",
+        "npm test",
+        "npm run test",
+        "npx jest",
+        "npx vitest",
+        "npx playwright",
+        "pnpm test",
+        "pnpm run test",
+        "pnpm build",
+        "yarn test",
+        "yarn build",
+        "go test",
+        "go build",
+        "go vet",
+        "go lint",
+        "pytest",
+        "python -m pytest",
+        "tox",
+        "make test",
+        "make check",
+        "cmake --build",
+        "rustc --check",
+        "rustfmt",
+        "eslint",
+        "prettier",
+        "tsc",
     ];
 
     let is_verification = verification.iter().any(|&v| cmd.starts_with(v));
@@ -909,60 +931,138 @@ mod shell_classifier_tests {
 
     #[test]
     fn read_only_cat_head_tail() {
-        assert!(matches!(classify_shell_command("cat file.ts"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("head -100 file.ts"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("tail -20 app.log"), ShellCommandClass::ReadOnly));
+        assert!(matches!(
+            classify_shell_command("cat file.ts"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("head -100 file.ts"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("tail -20 app.log"),
+            ShellCommandClass::ReadOnly
+        ));
     }
 
     #[test]
     fn read_only_grep_ls_find() {
-        assert!(matches!(classify_shell_command("grep pattern file.ts"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("ls -la"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("find . -name '*.rs'"), ShellCommandClass::ReadOnly));
+        assert!(matches!(
+            classify_shell_command("grep pattern file.ts"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("ls -la"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("find . -name '*.rs'"),
+            ShellCommandClass::ReadOnly
+        ));
     }
 
     #[test]
     fn read_only_git_log_status() {
-        assert!(matches!(classify_shell_command("git log --oneline"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("git status"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("git diff HEAD~1"), ShellCommandClass::ReadOnly));
+        assert!(matches!(
+            classify_shell_command("git log --oneline"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("git status"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("git diff HEAD~1"),
+            ShellCommandClass::ReadOnly
+        ));
     }
 
     #[test]
     fn read_only_echo_date_wc() {
-        assert!(matches!(classify_shell_command("echo hello"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("date"), ShellCommandClass::ReadOnly));
-        assert!(matches!(classify_shell_command("wc -l file.ts"), ShellCommandClass::ReadOnly));
+        assert!(matches!(
+            classify_shell_command("echo hello"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("date"),
+            ShellCommandClass::ReadOnly
+        ));
+        assert!(matches!(
+            classify_shell_command("wc -l file.ts"),
+            ShellCommandClass::ReadOnly
+        ));
     }
 
     #[test]
     fn verification_cargo_npm() {
-        assert!(matches!(classify_shell_command("cargo test"), ShellCommandClass::Verification));
-        assert!(matches!(classify_shell_command("cargo build --release"), ShellCommandClass::Verification));
-        assert!(matches!(classify_shell_command("cargo check"), ShellCommandClass::Verification));
-        assert!(matches!(classify_shell_command("npm test"), ShellCommandClass::Verification));
-        assert!(matches!(classify_shell_command("pnpm test"), ShellCommandClass::Verification));
+        assert!(matches!(
+            classify_shell_command("cargo test"),
+            ShellCommandClass::Verification
+        ));
+        assert!(matches!(
+            classify_shell_command("cargo build --release"),
+            ShellCommandClass::Verification
+        ));
+        assert!(matches!(
+            classify_shell_command("cargo check"),
+            ShellCommandClass::Verification
+        ));
+        assert!(matches!(
+            classify_shell_command("npm test"),
+            ShellCommandClass::Verification
+        ));
+        assert!(matches!(
+            classify_shell_command("pnpm test"),
+            ShellCommandClass::Verification
+        ));
     }
 
     #[test]
     fn verification_go_python() {
-        assert!(matches!(classify_shell_command("go test ./..."), ShellCommandClass::Verification));
-        assert!(matches!(classify_shell_command("pytest"), ShellCommandClass::Verification));
+        assert!(matches!(
+            classify_shell_command("go test ./..."),
+            ShellCommandClass::Verification
+        ));
+        assert!(matches!(
+            classify_shell_command("pytest"),
+            ShellCommandClass::Verification
+        ));
     }
 
     #[test]
     fn mutation_install_edit_git() {
-        assert!(matches!(classify_shell_command("npm install"), ShellCommandClass::Mutation));
-        assert!(matches!(classify_shell_command("cargo add serde"), ShellCommandClass::Mutation));
-        assert!(matches!(classify_shell_command("git commit -m 'msg'"), ShellCommandClass::Mutation));
-        assert!(matches!(classify_shell_command("git add ."), ShellCommandClass::Mutation));
-        assert!(matches!(classify_shell_command("mkdir newdir"), ShellCommandClass::Mutation));
-        assert!(matches!(classify_shell_command("rm file.txt"), ShellCommandClass::Mutation));
+        assert!(matches!(
+            classify_shell_command("npm install"),
+            ShellCommandClass::Mutation
+        ));
+        assert!(matches!(
+            classify_shell_command("cargo add serde"),
+            ShellCommandClass::Mutation
+        ));
+        assert!(matches!(
+            classify_shell_command("git commit -m 'msg'"),
+            ShellCommandClass::Mutation
+        ));
+        assert!(matches!(
+            classify_shell_command("git add ."),
+            ShellCommandClass::Mutation
+        ));
+        assert!(matches!(
+            classify_shell_command("mkdir newdir"),
+            ShellCommandClass::Mutation
+        ));
+        assert!(matches!(
+            classify_shell_command("rm file.txt"),
+            ShellCommandClass::Mutation
+        ));
     }
 
     #[test]
     fn unknown_defaults_to_mutation() {
         // Any command not in the known lists defaults to Mutation (safe fallback)
-        assert!(matches!(classify_shell_command("some_unknown_tool"), ShellCommandClass::Mutation));
+        assert!(matches!(
+            classify_shell_command("some_unknown_tool"),
+            ShellCommandClass::Mutation
+        ));
     }
 }

@@ -676,9 +676,7 @@ Coordinator mode always forces background.\n\n\
             .try_with(|s| s.clone())
             .unwrap_or_else(|_| self.parent_session_id.clone());
 
-        let llm_override = CURRENT_LLM_OVERRIDE
-            .try_with(|o| o.clone())
-            .unwrap_or(None);
+        let llm_override = CURRENT_LLM_OVERRIDE.try_with(|o| o.clone()).unwrap_or(None);
 
         let parent_tx = match &self.parent_tx {
             Some(tx) => tx.clone(),

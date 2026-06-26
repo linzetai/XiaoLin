@@ -33,11 +33,7 @@ impl BrowserWebviewLayout {
         {
             return Err("invalid layout coordinates".into());
         }
-        if self.width < 0.0
-            || self.height < 0.0
-            || self.width > 10000.0
-            || self.height > 10000.0
-        {
+        if self.width < 0.0 || self.height < 0.0 || self.width > 10000.0 || self.height > 10000.0 {
             return Err("invalid layout size".into());
         }
         Ok(())

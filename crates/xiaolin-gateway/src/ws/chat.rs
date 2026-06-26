@@ -1240,10 +1240,7 @@ pub async fn spawn_chat(
                             plan_approval_pending,
                             plan_question_asked,
                         );
-                        data.insert(
-                            "planOutcome".into(),
-                            json!(format!("{plan_outcome}")),
-                        );
+                        data.insert("planOutcome".into(), json!(format!("{plan_outcome}")));
                         // If Plan mode ended without any valid outcome, mark as plan_failed.
                         if matches!(plan_outcome, PlanOutcome::PlanFailed) {
                             data.insert(

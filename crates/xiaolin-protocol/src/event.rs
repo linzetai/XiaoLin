@@ -999,7 +999,9 @@ mod tests {
 
         let back: AgentEvent = serde_json::from_value(json).unwrap();
         if let AgentEvent::TurnEnd {
-            diagnosis, plan_outcome, ..
+            diagnosis,
+            plan_outcome,
+            ..
         } = back
         {
             assert_eq!(diagnosis.unwrap().end_reason, EndReason::ToolLoop);
@@ -1048,8 +1050,14 @@ mod tests {
             ..
         } = evt
         {
-            assert!(diagnosis.is_none(), "diagnosis should be None when absent from JSON");
-            assert!(plan_outcome.is_none(), "plan_outcome should be None when absent from JSON");
+            assert!(
+                diagnosis.is_none(),
+                "diagnosis should be None when absent from JSON"
+            );
+            assert!(
+                plan_outcome.is_none(),
+                "plan_outcome should be None when absent from JSON"
+            );
         } else {
             panic!("wrong variant");
         }

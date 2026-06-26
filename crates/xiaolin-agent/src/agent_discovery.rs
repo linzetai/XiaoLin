@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(info["id"], "explore");
         assert_eq!(info["name"], "Explorer");
         assert_eq!(info["concurrency_safe"], true);
-        assert_eq!(info["background"], false);
+        assert_eq!(info["background"], true); // explore runs in background by default
     }
 
     #[tokio::test]

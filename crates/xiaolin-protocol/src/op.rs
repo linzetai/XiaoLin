@@ -1810,8 +1810,7 @@ mod tests {
 
     #[test]
     fn chat_params_execution_mode_absent() {
-        let params: ChatParams =
-            serde_json::from_value(json!({"messages": []})).unwrap();
+        let params: ChatParams = serde_json::from_value(json!({"messages": []})).unwrap();
         assert_eq!(params.execution_mode, None);
     }
 

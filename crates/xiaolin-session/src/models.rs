@@ -117,7 +117,9 @@ impl From<SubAgentRunRow> for xiaolin_core::types::SubAgentRun {
             "failed" => {
                 xiaolin_core::types::SubAgentStatus::Failed(r.result.clone().unwrap_or_default())
             }
-            other => xiaolin_core::types::SubAgentStatus::Failed(format!("unknown status: {other}")),
+            other => {
+                xiaolin_core::types::SubAgentStatus::Failed(format!("unknown status: {other}"))
+            }
         };
         let token_usage: Option<xiaolin_core::types::Usage> =
             r.token_usage_json.as_ref().and_then(|j| {
@@ -130,10 +132,14 @@ impl From<SubAgentRunRow> for xiaolin_core::types::SubAgentRun {
                 })
             });
         // Restore truncated flag that was encoded into token_usage_json by build_db_row.
-        let truncated = r.token_usage_json.as_ref().and_then(|j| {
-            let v: serde_json::Value = serde_json::from_str(j).ok()?;
-            v.get("truncated")?.as_bool()
-        }).unwrap_or(false);
+        let truncated = r
+            .token_usage_json
+            .as_ref()
+            .and_then(|j| {
+                let v: serde_json::Value = serde_json::from_str(j).ok()?;
+                v.get("truncated")?.as_bool()
+            })
+            .unwrap_or(false);
         let created_at_ms = chrono::DateTime::parse_from_rfc3339(&r.created_at)
             .map(|dt| dt.timestamp_millis() as u64)
             .unwrap_or(0);

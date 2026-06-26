@@ -1277,10 +1277,8 @@ impl SubAgentManager {
                             })
                             .await;
                         // Also accumulate as content so it appears in the final result
-                        accumulated_content.push_str(&format!(
-                            "\n[Sub-agent error: {}]\n",
-                            message
-                        ));
+                        accumulated_content
+                            .push_str(&format!("\n[Sub-agent error: {}]\n", message));
                     }
                     _ => {}
                 }
