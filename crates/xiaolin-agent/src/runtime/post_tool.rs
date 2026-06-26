@@ -92,6 +92,8 @@ pub(crate) async fn post_tool_processing(
                 reason: TurnEndReason::PlanApprovalPending,
                 summary: summary.clone(),
                 session_id: svc.session_id.clone(),
+                quality_diagnosis_code: None,
+                evidence: None,
             },
             false,
         )

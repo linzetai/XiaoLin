@@ -1148,6 +1148,8 @@ mod tests {
             session_id: Some("sess-123".into()),
             final_tool_calls: None,
             reason: None,
+            diagnosis: None,
+            plan_outcome: None,
         };
         let resp = forward_event(&event, &Some("r2".into()));
         assert_eq!(resp.msg_type, "turn_end");

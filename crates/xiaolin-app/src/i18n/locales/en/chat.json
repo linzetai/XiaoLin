@@ -196,6 +196,7 @@
   "plan_collapse": "Collapse plan",
   "plan_viewContent": "View plan",
   "plan_loading": "Loading plan...",
+  "planFailed": "Plan mode ended without producing a plan. Try refining your request or switching to Agent mode.",
   "plan_startImplementation": "Start implementation",
   "plan_continuePlanning": "Continue planning",
   "plan_chooseNext": "Choose next step",

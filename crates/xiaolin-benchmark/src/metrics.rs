@@ -355,6 +355,8 @@ mod tests {
             session_id: None,
             final_tool_calls: None,
             reason: None,
+            diagnosis: None,
+            plan_outcome: None,
         });
 
         let result = collector.finalize();

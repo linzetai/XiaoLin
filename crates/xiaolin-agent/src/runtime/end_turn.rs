@@ -1,6 +1,6 @@
 use xiaolin_core::types::{ChatMessage, DeltaContent, Role, StreamChoice, StreamDelta};
 use xiaolin_evolution::TrajectoryOutcome;
-use xiaolin_protocol::{ExecutionMode, TokenUsage, TurnSummary};
+use xiaolin_protocol::{DiagnosisEvidence, ExecutionMode, TokenUsage, TurnSummary};
 
 use crate::builtin_tools::GoalStatus;
 use crate::llm::CompletionParams;
@@ -362,6 +362,17 @@ pub(crate) async fn handle_end_turn(
     } else {
         TurnEndReason::from(terminal_reason.clone())
     };
+    // Build evidence counters from runtime quality data.
+    let (repeated_warn, repeated_force) = ms.query_loop.repetition_stats();
+    let evidence = DiagnosisEvidence {
+        iterations: Some(ms.query_loop.iteration),
+        tool_calls: Some(ms.query_loop.total_tool_calls),
+        repeated_force_stops: Some(repeated_force),
+        repeated_warns: Some(repeated_warn),
+        no_progress_count: None,
+        plan_path: None,
+        plan_exists: None,
+    };
     let _ = send_step(
         &svc.step_tx,
         AgentStep::TurnEnd {
@@ -369,6 +380,8 @@ pub(crate) async fn handle_end_turn(
             reason: turn_end_reason,
             summary: summary.clone(),
             session_id: svc.session_id.clone(),
+            quality_diagnosis_code: None, // The gateway/runtime quality infra applies this
+            evidence: Some(evidence),
         },
         false,
     )

@@ -13,8 +13,9 @@ pub mod usage;
 pub use approval::{ApprovalDecision, PendingAction};
 pub use envelope::Envelope;
 pub use event::{
-    AbortReason, AgentEvent, CompletionSummary, ContextWarningLevel, ErrorCode, GuardianOutcome,
-    PlanStep, PlanStepStatus, RiskLevel, ToolCallData, ToolCallFunction, TurnContextItem,
+    AbortReason, AgentEvent, CompletionSummary, ContextWarningLevel, DiagnosisEvidence,
+    DiagnosisSeverity, EndReason, ErrorCode, GuardianOutcome, ModeSource, PlanOutcome, PlanStep,
+    PlanStepStatus, RiskLevel, TerminalDiagnosis, ToolCallData, ToolCallFunction, TurnContextItem,
     TurnSummary, WarningCategory,
 };
 pub use history::HistoryItem;

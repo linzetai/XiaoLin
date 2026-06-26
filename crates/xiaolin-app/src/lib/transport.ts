@@ -710,6 +710,9 @@ export interface ChatStreamParams {
   workDir?: string;
   responseLanguage?: string | null;
   goalMode?: boolean;
+  executionMode?: string;
+  requestedExecutionMode?: string;
+  modeSource?: string;
 }
 
 const CHAT_EVENT_TYPES = [
@@ -781,6 +784,7 @@ export function chatStream(
       ...(params.workDir ? { workDir: params.workDir } : {}),
       ...(params.responseLanguage ? { responseLanguage: params.responseLanguage } : {}),
       ...(params.goalMode ? { goalMode: true } : {}),
+      ...(params.executionMode ? { executionMode: params.executionMode } : {}),
     })
     .then(() => {})
     .catch(() => {

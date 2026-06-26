@@ -122,6 +122,9 @@ mod tests {
             msg: AgentEvent::TurnStart {
                 turn_id: TurnId::new("t-1"),
                 session_id: Some("sess-1".into()),
+                execution_mode: None,
+                requested_execution_mode: None,
+                mode_source: None,
             },
         }
     }

@@ -10,7 +10,7 @@ use crate::chat_pipeline::{
 };
 use crate::state::AppState;
 use xiaolin_core::types::{AgentId, ChatMessage, ChatRequest, ExecutionMode};
-use xiaolin_protocol::{AgentEvent, ChatParams};
+use xiaolin_protocol::{AgentEvent, ChatParams, ModeSource, PlanOutcome};
 use xiaolin_session_actor::SessionOp;
 
 use super::send_resp;
@@ -485,6 +485,11 @@ pub async fn spawn_chat(
             .get("goalMode")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+
+        // Parse requested execution mode from the chat request early,
+        // but defer applying it until after setup resolves the session id.
+        let requested_execution_mode: Option<ExecutionMode> = params.execution_mode;
+
         if goal_mode {
             if let Some(session_id) = params.session_id.as_deref() {
                 let (from, to) = state
@@ -655,6 +660,54 @@ pub async fn spawn_chat(
             }
         }
 
+        // ── Apply requested execution mode to resolved session ────────
+        // Determine effective execution mode, mode source, and apply to registry.
+        let (effective_mode, mode_source) = if goal_mode {
+            // Goal mode forces Agent regardless of request or registry.
+            let session_id = &setup.session_id;
+            let (from, to) = state
+                .rt
+                .session_modes
+                .transition(session_id, ExecutionMode::Agent);
+            if from != to {
+                tracing::info!(
+                    session_id = %session_id,
+                    ?from,
+                    ?to,
+                    "goal mode: transition applied for effective mode"
+                );
+            }
+            (ExecutionMode::Agent, ModeSource::Request)
+        } else if let Some(req_mode) = requested_execution_mode {
+            // Request carries an explicit mode — apply it to the resolved session.
+            let session_id = &setup.session_id;
+            let (from, to) = state.rt.session_modes.transition(session_id, req_mode);
+            if from != to {
+                tracing::info!(
+                    session_id = %session_id,
+                    ?from,
+                    ?to,
+                    "applied requested execution mode to resolved session"
+                );
+            }
+            (req_mode, ModeSource::Request)
+        } else {
+            // Backward compatibility: use existing registry mode or default to Agent.
+            // Agent is the system-wide default; any other mode (Plan, Coordinator) must
+            // have been explicitly set via a previous request and is sourced as Registry.
+            let session_id = &setup.session_id;
+            let registry_mode = state
+                .rt
+                .session_modes
+                .get_or_create(session_id)
+                .current_mode();
+            if registry_mode != ExecutionMode::Agent {
+                (registry_mode, ModeSource::Registry)
+            } else {
+                (ExecutionMode::Agent, ModeSource::Default)
+            }
+        };
+
         let turn_cancel = CancellationToken::new();
         {
             let turn_cancel2 = turn_cancel.clone();
@@ -709,13 +762,18 @@ pub async fn spawn_chat(
             .clone()
             .unwrap_or_else(|| agent_config.model.model.clone());
 
-        // chat.start
+        // chat.start — enriched with resolved execution context
         let mut start_payload = json!({
             "model": start_model,
             "sessionId": &session_id,
             "resolvedAgent": &agent_id,
             "resolveReason": resolve_reason,
+            "executionMode": format!("{effective_mode}"),
+            "modeSource": format!("{mode_source}"),
         });
+        if let Some(req_mode) = requested_execution_mode {
+            start_payload["requestedExecutionMode"] = json!(format!("{req_mode}"));
+        }
         if budget_degraded {
             start_payload["budgetDegraded"] = json!(true);
         }
@@ -812,6 +870,12 @@ pub async fn spawn_chat(
             .get_or_create(&session_id)
             .current_mode();
 
+        // Plan-mode observation trackers for outcome classification.
+        let is_plan_mode = mode_at_start == ExecutionMode::Plan;
+        let mut plan_file_updated = false;
+        let mut plan_approval_pending = false;
+        let mut plan_question_asked = false;
+
         const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024; // 2MB safety cap
                                                           // No artificial time deadline — turns are bounded by:
                                                           // 1. Stop hooks: idle detection (no tool calls for N rounds → pause)
@@ -866,6 +930,18 @@ pub async fn spawn_chat(
             };
             if let AgentEvent::TurnStart { turn_id, .. } = &event {
                 current_turn_id = Some(turn_id.clone());
+            }
+            // Track Plan-mode observations for terminal outcome classification.
+            if is_plan_mode {
+                match &event {
+                    AgentEvent::PlanFileUpdate { .. } | AgentEvent::PlanUpdate { .. } => {
+                        plan_file_updated = true;
+                    }
+                    AgentEvent::AskQuestion { .. } => {
+                        plan_question_asked = true;
+                    }
+                    _ => {}
+                }
             }
             // Skip TurnAborted events from a previous turn that was replaced by
             // our submission. The subscriber is registered before the actor
@@ -1146,6 +1222,39 @@ pub async fn spawn_chat(
                                 "to": format!("{mode_now}"),
                             }),
                         );
+                    }
+
+                    // Plan-mode outcome classification.
+                    if is_plan_mode {
+                        // Detect plan_approval_pending from the reason string.
+                        // This string is emitted by the agent runtime when
+                        // exit_plan_mode returns approval metadata.
+                        const PLAN_APPROVAL_PENDING_REASON: &str = "plan_approval_pending";
+                        if let Some(r) = data.get("reason") {
+                            if r.as_str() == Some(PLAN_APPROVAL_PENDING_REASON) {
+                                plan_approval_pending = true;
+                            }
+                        }
+                        let plan_outcome = classify_plan_outcome(
+                            plan_file_updated,
+                            plan_approval_pending,
+                            plan_question_asked,
+                        );
+                        data.insert(
+                            "planOutcome".into(),
+                            json!(format!("{plan_outcome}")),
+                        );
+                        // If Plan mode ended without any valid outcome, mark as plan_failed.
+                        if matches!(plan_outcome, PlanOutcome::PlanFailed) {
+                            data.insert(
+                                "diagnosis".into(),
+                                json!({
+                                    "end_reason": "plan_failed",
+                                    "severity": "error",
+                                    "user_message": "Plan mode ended without producing a plan. Try refining your request or switching to Agent mode."
+                                }),
+                            );
+                        }
                     }
                 }
             }
@@ -1533,5 +1642,25 @@ pub fn forward_event(event: &AgentEvent, req_id: &Option<String>) -> WsResponse 
         msg_type,
         data: Some(data),
         error,
+    }
+}
+
+/// Classify the Plan-mode terminal outcome based on observations made
+/// during the turn stream.
+///
+/// Priority: approval_pending > question_asked > plan_file_updated > failed
+fn classify_plan_outcome(
+    plan_file_updated: bool,
+    plan_approval_pending: bool,
+    plan_question_asked: bool,
+) -> PlanOutcome {
+    if plan_approval_pending {
+        PlanOutcome::PlanApprovalPending
+    } else if plan_question_asked {
+        PlanOutcome::NeedsInput
+    } else if plan_file_updated {
+        PlanOutcome::PlanArtifactUpdated
+    } else {
+        PlanOutcome::PlanFailed
     }
 }

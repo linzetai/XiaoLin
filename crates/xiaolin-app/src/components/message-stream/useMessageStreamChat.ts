@@ -379,6 +379,7 @@ export function useMessageStreamChat({
     }
 
     const resolvedLang = useLocaleStore.getState().resolvedResponseLang();
+    const chatExecutionMode = currentActiveChat?.executionMode ?? "agent";
     const { promise: chatPromise, cleanup } = transport.chatStream(
       {
         messages: [{ role: "user", content: messageContent }],
@@ -388,6 +389,7 @@ export function useMessageStreamChat({
         workDir: currentActiveChat?.workDir ?? undefined,
         responseLanguage: resolvedLang,
         goalMode: options?.goalMode,
+        executionMode: options?.goalMode ? undefined : chatExecutionMode,
       },
       (event) => {
         switch (event.type) {
@@ -399,6 +401,12 @@ export function useMessageStreamChat({
             const startSid = event.data?.session_id as string | undefined;
             if (startSid && capturedChatId !== startSid) {
               updateChatBackendId(capturedChatId, startSid);
+            }
+            // Reconcile execution mode from authoritative turn_start event.
+            const startExecMode = event.data?.executionMode as string | undefined;
+            if (startExecMode && (startExecMode === "agent" || startExecMode === "plan")) {
+              const resolvedId = startSid ?? capturedChatId;
+              setChatExecutionMode(resolvedId, startExecMode);
             }
             setChatPlanApprovalPending(capturedChatId, false);
             break;
@@ -560,6 +568,27 @@ export function useMessageStreamChat({
                 metadata: {
                   action: "token_budget_reached",
                   completionTokens,
+                  sessionId: sid ?? capturedChatId,
+                },
+              }, capturedChatId);
+            }
+            // Render abnormal terminal states from live diagnosis.
+            const diagnosis = d?.diagnosis as {
+              end_reason?: string;
+              diagnosis_code?: string;
+              severity?: string;
+              user_message?: string;
+              evidence?: Record<string, unknown>;
+            } | undefined;
+            if (diagnosis && (diagnosis.severity === "error" || diagnosis.end_reason === "tool_loop" || diagnosis.end_reason === "plan_failed")) {
+              const msg = diagnosis.end_reason === "plan_failed" ? t("planFailed") : (diagnosis.user_message ?? t("turnAborted", { reason: diagnosis.end_reason ?? "unknown" }));
+              addMessage({
+                role: "system",
+                content: msg,
+                timestamp: new Date(),
+                metadata: {
+                  action: diagnosis.end_reason ?? "abnormal_end",
+                  diagnosisCode: diagnosis.diagnosis_code,
                   sessionId: sid ?? capturedChatId,
                 },
               }, capturedChatId);

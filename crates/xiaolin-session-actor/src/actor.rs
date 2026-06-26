@@ -295,6 +295,9 @@ impl SessionActor {
             AgentEvent::TurnStart {
                 turn_id: turn_id.clone(),
                 session_id: Some(self.session_id.to_string()),
+                execution_mode: None,
+                requested_execution_mode: None,
+                mode_source: None,
             },
         )
         .await;
@@ -394,6 +397,8 @@ impl SessionActor {
                             session_id: Some(task_session_id.to_string()),
                             final_tool_calls: None,
                             reason: None,
+                            diagnosis: None,
+                            plan_outcome: None,
                         })
                         .await;
                 }
@@ -428,6 +433,8 @@ impl SessionActor {
                             session_id: Some(task_session_id.to_string()),
                             final_tool_calls: None,
                             reason: None,
+                            diagnosis: None,
+                            plan_outcome: None,
                         })
                         .await;
                 }

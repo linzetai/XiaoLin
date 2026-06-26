@@ -202,6 +202,9 @@ impl FeishuMessageHandler for FeishuChannel {
             let turn_start = AgentEvent::TurnStart {
                 turn_id: turn_id.clone(),
                 session_id: Some(session.id.clone()),
+                execution_mode: None,
+                requested_execution_mode: None,
+                mode_source: None,
             };
             let turn_end = AgentEvent::TurnEnd {
                 turn_id: turn_id.clone(),
@@ -217,6 +220,8 @@ impl FeishuMessageHandler for FeishuChannel {
                 session_id: Some(session.id.clone()),
                 final_tool_calls: None,
                 reason: None,
+                diagnosis: None,
+                plan_outcome: None,
             };
             for event in [turn_start, turn_end] {
                 self.event_log.append(&session.id, &event);

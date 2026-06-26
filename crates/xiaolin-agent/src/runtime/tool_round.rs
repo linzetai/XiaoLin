@@ -189,6 +189,8 @@ pub(crate) async fn execute_tool_round(
                 reason: TurnEndReason::Completed,
                 summary: summary.clone(),
                 session_id: svc.session_id.clone(),
+                quality_diagnosis_code: None,
+                evidence: None,
             },
             false,
         )

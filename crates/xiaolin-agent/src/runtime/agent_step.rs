@@ -1,6 +1,7 @@
 use xiaolin_protocol::event::GoalData;
 use xiaolin_protocol::{
-    AgentEvent, ContextWarningLevel, ErrorCode, ExecutionMode, TurnId, TurnSummary,
+    AgentEvent, ContextWarningLevel, DiagnosisEvidence, DiagnosisSeverity, EndReason, ErrorCode,
+    ExecutionMode, TerminalDiagnosis, TurnId, TurnSummary,
 };
 
 use super::query_state::TerminalReason;
@@ -109,6 +110,10 @@ pub enum AgentStep {
         reason: TurnEndReason,
         summary: TurnSummary,
         session_id: Option<String>,
+        /// Optional quality diagnosis code from runtime rules.
+        quality_diagnosis_code: Option<String>,
+        /// Optional evidence counters.
+        evidence: Option<DiagnosisEvidence>,
     },
 
     Error {
@@ -162,6 +167,9 @@ impl AgentStep {
                 vec![AgentEvent::TurnStart {
                     turn_id,
                     session_id,
+                    execution_mode: None,
+                    requested_execution_mode: None,
+                    mode_source: None,
                 }]
             }
 
@@ -284,6 +292,8 @@ impl AgentStep {
                 reason,
                 summary,
                 session_id,
+                quality_diagnosis_code,
+                evidence,
             } => {
                 let reason_str = match &reason {
                     TurnEndReason::TokenBudgetReached => Some("token_budget_reached".to_string()),
@@ -297,12 +307,19 @@ impl AgentStep {
                     TurnEndReason::PlanApprovalPending => Some("plan_approval_pending".to_string()),
                     TurnEndReason::Error(e) => Some(format!("error: {e}")),
                 };
+                // Map TurnEndReason + quality diagnosis to EndReason + TerminalDiagnosis.
+                let diagnosis =
+                    build_terminal_diagnosis(&reason, quality_diagnosis_code.as_deref(), evidence);
+                // Plan outcome is classified by the gateway based on turn-level observations.
+                let plan_outcome = None;
                 vec![AgentEvent::TurnEnd {
                     turn_id,
                     summary,
                     session_id,
                     final_tool_calls: None,
                     reason: reason_str,
+                    diagnosis: Some(diagnosis),
+                    plan_outcome,
                 }]
             }
 
@@ -334,3 +351,57 @@ impl AgentStep {
         )
     }
 }
+
+// ── Terminal diagnosis helpers ─────────────────────────────────────
+
+/// Build a `TerminalDiagnosis` from the runtime TurnEndReason and
+/// optional quality diagnosis code.
+fn build_terminal_diagnosis(
+    reason: &TurnEndReason,
+    quality_diagnosis_code: Option<&str>,
+    evidence: Option<DiagnosisEvidence>,
+) -> TerminalDiagnosis {
+    let (end_reason, severity, user_message) = match reason {
+        TurnEndReason::Completed => (EndReason::Completed, None, None),
+        TurnEndReason::PlanApprovalPending => (EndReason::PlanApprovalPending, None, None),
+        TurnEndReason::Cancelled => (
+            EndReason::Cancelled,
+            Some(DiagnosisSeverity::Info),
+            Some("Turn was cancelled.".to_string()),
+        ),
+        TurnEndReason::ContextLimit => (
+            EndReason::ContextLimit,
+            Some(DiagnosisSeverity::Error),
+            Some("Context window limit reached; turn stopped.".to_string()),
+        ),
+        TurnEndReason::BudgetExceeded | TurnEndReason::TokenBudgetReached => (
+            EndReason::BudgetExceeded,
+            Some(DiagnosisSeverity::Error),
+            Some("Budget exceeded; turn stopped.".to_string()),
+        ),
+        TurnEndReason::MaxTurns
+        | TurnEndReason::ConsecutiveErrors
+        | TurnEndReason::DiminishingReturns => {
+            // These are tool-loop / no-progress style reasons.
+            (
+                EndReason::ToolLoop,
+                Some(DiagnosisSeverity::Error),
+                Some("Turn stopped by runtime protection (tool loop or no progress).".to_string()),
+            )
+        }
+        TurnEndReason::Error(_) => (
+            EndReason::Error,
+            Some(DiagnosisSeverity::Error),
+            Some("An unexpected error terminated the turn.".to_string()),
+        ),
+    };
+
+    TerminalDiagnosis {
+        end_reason,
+        diagnosis_code: quality_diagnosis_code.map(|s| s.to_string()),
+        severity,
+        user_message,
+        evidence,
+    }
+}
+

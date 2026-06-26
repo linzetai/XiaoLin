@@ -123,6 +123,8 @@ export interface ChatUsage {
 
 export type ExecutionMode = "agent" | "plan";
 
+export type ModeSource = "request" | "registry" | "default";
+
 export type PlanStepStatus = "pending" | "in_progress" | "completed";
 
 export interface PlanStep {

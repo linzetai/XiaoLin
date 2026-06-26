@@ -36,6 +36,14 @@ pub struct ChatParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub response_language: Option<String>,
+    /// Requested execution mode for this turn (optional).
+    /// When absent, the gateway uses the current registry mode or defaults to Agent.
+    #[serde(
+        default,
+        alias = "executionMode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub execution_mode: Option<ExecutionMode>,
     /// Catch-all for forward compatibility
     #[serde(flatten)]
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
@@ -1783,5 +1791,37 @@ mod tests {
             op,
             ClientOp::ArtifactsList { session_id } if session_id == "sess-abc"
         ));
+    }
+
+    #[test]
+    fn chat_params_execution_mode_roundtrip() {
+        // Verify execution_mode serializes/deserializes via ChatParams.
+        let params: ChatParams = serde_json::from_value(json!({
+            "messages": [],
+            "executionMode": "plan"
+        }))
+        .unwrap();
+        assert_eq!(params.execution_mode, Some(ExecutionMode::Plan));
+
+        let roundtrip = serde_json::to_value(&params).unwrap();
+        // Key is preserved as snake_case (the Rust field name).
+        assert_eq!(roundtrip["execution_mode"], "plan");
+    }
+
+    #[test]
+    fn chat_params_execution_mode_absent() {
+        let params: ChatParams =
+            serde_json::from_value(json!({"messages": []})).unwrap();
+        assert_eq!(params.execution_mode, None);
+    }
+
+    #[test]
+    fn chat_params_execution_mode_agent() {
+        let params: ChatParams = serde_json::from_value(json!({
+            "messages": [],
+            "executionMode": "agent"
+        }))
+        .unwrap();
+        assert_eq!(params.execution_mode, Some(ExecutionMode::Agent));
     }
 }
