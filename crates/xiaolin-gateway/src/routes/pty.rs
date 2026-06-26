@@ -65,24 +65,27 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
         source: "user".to_string(),
     };
 
-    let (session_id, mut broadcast_rx) =
-        match state.strm.pty_manager.create_session_with_subscriber(config) {
-            Ok(pair) => pair,
-            Err(e) => {
-                let (mut sender, _) = socket.split();
-                let resp = PtyControlResponse {
-                    msg_type: "error".into(),
-                    session_id: None,
-                    error: Some(e),
-                    exit_code: None,
-                    cwd: None,
-                };
-                if let Some(text) = pty_response_text(&resp) {
-                    let _ = sender.send(Message::Text(text)).await;
-                }
-                return;
+    let (session_id, mut broadcast_rx) = match state
+        .strm
+        .pty_manager
+        .create_session_with_subscriber(config)
+    {
+        Ok(pair) => pair,
+        Err(e) => {
+            let (mut sender, _) = socket.split();
+            let resp = PtyControlResponse {
+                msg_type: "error".into(),
+                session_id: None,
+                error: Some(e),
+                exit_code: None,
+                cwd: None,
+            };
+            if let Some(text) = pty_response_text(&resp) {
+                let _ = sender.send(Message::Text(text)).await;
             }
-        };
+            return;
+        }
+    };
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
@@ -219,7 +222,9 @@ async fn handle_pty_socket(socket: WebSocket, state: AppState, params: PtyQueryP
         }
     }
 
-    let exit_code = pty_mgr_close.get_session(&sid_close, |s| s.exit_code()).flatten();
+    let exit_code = pty_mgr_close
+        .get_session(&sid_close, |s| s.exit_code())
+        .flatten();
     let resp = PtyControlResponse {
         msg_type: "session_closed".into(),
         session_id: Some(sid_close.clone()),

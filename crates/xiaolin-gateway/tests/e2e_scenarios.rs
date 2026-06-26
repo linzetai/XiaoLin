@@ -8,6 +8,8 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use serde_json::{json, Value};
+use tokio::net::TcpListener;
 use xiaolin_agent::{CompletionParams, LlmProvider};
 use xiaolin_core::types::{
     ChatChoice, ChatMessage, ChatResponse, DeltaContent, FunctionCall, Role, StreamChoice,
@@ -15,8 +17,6 @@ use xiaolin_core::types::{
 };
 use xiaolin_gateway::{build_app, AppState};
 use xiaolin_security::{ApiKeyAuth, AuthConfig};
-use serde_json::{json, Value};
-use tokio::net::TcpListener;
 
 // ---------------------------------------------------------------------------
 // ScriptedProvider — programmable mock LLM that returns queued responses
@@ -74,7 +74,7 @@ impl LlmProvider for ScriptedProvider {
                     role: Role::Assistant,
                     content,
                     tool_calls,
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],

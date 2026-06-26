@@ -88,10 +88,16 @@ fn resolve_pinned_model_provider(
             if providers_compatible(&agent_config.model.provider, cfg_provider_type) {
                 return None;
             }
-            let api_key = cfg.get("apiKey").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+            let api_key = cfg
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
                 .or_else(|| live_credentials.get_api_key(key))
                 .or_else(|| live_credentials.get_api_key(cfg_provider_type));
-            let base_url = cfg.get("baseUrl").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+            let base_url = cfg
+                .get("baseUrl")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
                 .or_else(|| live_credentials.get_base_url(key))
                 .or_else(|| live_credentials.get_base_url(cfg_provider_type));
 

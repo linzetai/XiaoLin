@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use xiaolin_core::agent_config::{self, AgentConfig, AgentModelConfig};
 use xiaolin_core::config::XiaoLinConfig;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 pub(crate) fn merge_model_base_urls_into_credentials(
     credentials: &xiaolin_core::config::CredentialsConfig,
@@ -115,10 +115,7 @@ pub(crate) async fn migrate_legacy_databases(
                 "prompt_candidates",
             ],
         ),
-        (
-            "cron.db",
-            &["cron_jobs", "cron_job_runs", "notifications"],
-        ),
+        ("cron.db", &["cron_jobs", "cron_job_runs", "notifications"]),
     ];
 
     let mut conn = pool.acquire().await?;

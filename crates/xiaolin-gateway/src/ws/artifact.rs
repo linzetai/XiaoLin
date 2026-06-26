@@ -49,7 +49,12 @@ pub async fn handle_artifacts_list(
         }
     }
 
-    match state.store.artifact_store.get_session_artifacts(session_id).await {
+    match state
+        .store
+        .artifact_store
+        .get_session_artifacts(session_id)
+        .await
+    {
         Ok(artifacts) => {
             send_resp(
                 sender,

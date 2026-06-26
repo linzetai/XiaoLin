@@ -10,14 +10,14 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use xiaolin_agent::LlmPluginRegistry;
-use xiaolin_core::llm_plugin::LlmPluginConfig;
-use xiaolin_gateway::{build_app, AppState};
-use xiaolin_security::{ApiKeyAuth, AuthConfig};
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use xiaolin_agent::LlmPluginRegistry;
+use xiaolin_core::llm_plugin::LlmPluginConfig;
+use xiaolin_gateway::{build_app, AppState};
+use xiaolin_security::{ApiKeyAuth, AuthConfig};
 
 // ===========================================================================
 // Metrics
@@ -43,15 +43,51 @@ impl std::fmt::Display for ScenarioMetrics {
         writeln!(f, "╔══════════════════════════════════════════════╗")?;
         writeln!(f, "║         SCENARIO METRICS REPORT              ║")?;
         writeln!(f, "╠══════════════════════════════════════════════╣")?;
-        writeln!(f, "║ Tool calls made:       {:>6}                ║", self.tool_calls_made)?;
-        writeln!(f, "║ Iterations:            {:>6}                ║", self.iterations)?;
-        writeln!(f, "║ Tool starts observed:  {:>6}                ║", self.tool_starts)?;
-        writeln!(f, "║ Tool errors:           {:>6}                ║", self.tool_errors)?;
-        writeln!(f, "║ Compact triggered:     {:>6}                ║", self.compact_triggered)?;
-        writeln!(f, "║ Context usage events:  {:>6}                ║", self.context_usage_events)?;
-        writeln!(f, "║ Final tokens:     {:>6}/{:<6}             ║", self.final_used_tokens, self.final_limit_tokens)?;
-        writeln!(f, "║ Elapsed:           {:>6.1}s                  ║", self.elapsed.as_secs_f64())?;
-        writeln!(f, "║ Completed normally:    {:>6}                ║", self.completed_normally)?;
+        writeln!(
+            f,
+            "║ Tool calls made:       {:>6}                ║",
+            self.tool_calls_made
+        )?;
+        writeln!(
+            f,
+            "║ Iterations:            {:>6}                ║",
+            self.iterations
+        )?;
+        writeln!(
+            f,
+            "║ Tool starts observed:  {:>6}                ║",
+            self.tool_starts
+        )?;
+        writeln!(
+            f,
+            "║ Tool errors:           {:>6}                ║",
+            self.tool_errors
+        )?;
+        writeln!(
+            f,
+            "║ Compact triggered:     {:>6}                ║",
+            self.compact_triggered
+        )?;
+        writeln!(
+            f,
+            "║ Context usage events:  {:>6}                ║",
+            self.context_usage_events
+        )?;
+        writeln!(
+            f,
+            "║ Final tokens:     {:>6}/{:<6}             ║",
+            self.final_used_tokens, self.final_limit_tokens
+        )?;
+        writeln!(
+            f,
+            "║ Elapsed:           {:>6.1}s                  ║",
+            self.elapsed.as_secs_f64()
+        )?;
+        writeln!(
+            f,
+            "║ Completed normally:    {:>6}                ║",
+            self.completed_normally
+        )?;
         writeln!(f, "╚══════════════════════════════════════════════╝")?;
         if !self.final_text.is_empty() {
             let preview: String = self.final_text.chars().take(200).collect();
@@ -82,8 +118,7 @@ impl RealLlmServer {
             "wps-llm plugin config not found at {}",
             plugin_config_path.display()
         );
-        let config_str =
-            std::fs::read_to_string(&plugin_config_path).expect("read plugin config");
+        let config_str = std::fs::read_to_string(&plugin_config_path).expect("read plugin config");
         let plugin_config: LlmPluginConfig =
             serde_json::from_str(&config_str).expect("parse plugin config");
 
@@ -216,7 +251,9 @@ async fn ws_chat_collect(
                 }
             }
             "content_delta" => {
-                if let Some(content) = msg["data"]["delta"]["choices"][0]["delta"]["content"].as_str() {
+                if let Some(content) =
+                    msg["data"]["delta"]["choices"][0]["delta"]["content"].as_str()
+                {
                     accumulated_text.push_str(content);
                 }
             }
@@ -443,7 +480,9 @@ fn seed_logic_bug(work_dir: &Path) -> SeedInfo {
         file,
         original,
         mutated,
-        description: "Flipped (threshold - 0.10) to (threshold + 0.10) in compute_compression_threshold".into(),
+        description:
+            "Flipped (threshold - 0.10) to (threshold + 0.10) in compute_compression_threshold"
+                .into(),
     }
 }
 
@@ -542,7 +581,10 @@ async fn scenario_1_bugfix_compile_error() {
         if fixed_ok { "PASS" } else { "FAIL" }
     );
     if !fixed_ok {
-        eprintln!("[verify] Remaining errors:\n{}", &fix_stderr[..fix_stderr.len().min(1000)]);
+        eprintln!(
+            "[verify] Remaining errors:\n{}",
+            &fix_stderr[..fix_stderr.len().min(1000)]
+        );
     }
 
     eprintln!(
@@ -620,10 +662,7 @@ async fn scenario_2_add_new_tool() {
     // Verify file was created
     let checksum_file = work_dir.join("crates/xiaolin-agent/src/builtin_tools/checksum.rs");
     let file_exists = checksum_file.exists();
-    eprintln!(
-        "[verify] checksum.rs exists: {}",
-        file_exists
-    );
+    eprintln!("[verify] checksum.rs exists: {}", file_exists);
 
     if file_exists {
         let content = std::fs::read_to_string(&checksum_file).unwrap_or_default();
@@ -730,7 +769,8 @@ async fn scenario_3_refactor_extract_module() {
     eprintln!("[verify] autofix/diagnostics.rs exists: {}", diag_exists);
 
     if diag_exists {
-        let content = std::fs::read_to_string(autofix_dir.join("diagnostics.rs")).unwrap_or_default();
+        let content =
+            std::fs::read_to_string(autofix_dir.join("diagnostics.rs")).unwrap_or_default();
         let has_diagnostic = content.contains("CompilerDiagnostic");
         eprintln!(
             "[verify] diagnostics.rs contains CompilerDiagnostic: {}",
@@ -841,8 +881,8 @@ async fn scenario_4_debug_failing_test() {
 
     // Verify the fix
     let fixed_content = std::fs::read_to_string(&seed.file).unwrap_or_default();
-    let has_correct_subtraction = fixed_content.contains("threshold - 0.10")
-        || fixed_content.contains("threshold - 0.1");
+    let has_correct_subtraction =
+        fixed_content.contains("threshold - 0.10") || fixed_content.contains("threshold - 0.1");
     eprintln!(
         "[verify] File contains correct subtraction: {}",
         has_correct_subtraction
@@ -956,7 +996,10 @@ async fn scenario_5_endurance_multi_turn() {
                 total_metrics.final_text = turn_metrics.final_text;
 
                 if !turn_metrics.completed_normally {
-                    eprintln!("  [WARN] Turn {} did not complete normally, stopping", i + 1);
+                    eprintln!(
+                        "  [WARN] Turn {} did not complete normally, stopping",
+                        i + 1
+                    );
                     break;
                 }
             }

@@ -88,15 +88,7 @@ impl SearchIndex {
         }
 
         let mut tx = self.pool.begin().await?;
-        Self::upsert_row_in_tx(
-            &mut tx,
-            session_id,
-            turn_id,
-            role,
-            content,
-            message_id,
-        )
-        .await?;
+        Self::upsert_row_in_tx(&mut tx, session_id, turn_id, role, content, message_id).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -105,17 +97,14 @@ impl SearchIndex {
     pub async fn needs_backfill(&self) -> anyhow::Result<bool> {
         let (event_cursor, message_cursor) = self.get_cursor().await?;
 
-        let max_event_log_id: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(id), 0) FROM event_log",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let max_event_log_id: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(id), 0) FROM event_log")
+                .fetch_one(&self.pool)
+                .await?;
 
-        let max_message_id: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(id), 0) FROM messages",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let max_message_id: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(id), 0) FROM messages")
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(event_cursor < max_event_log_id as u64 || message_cursor < max_message_id as u64)
     }
@@ -302,13 +291,11 @@ impl SearchIndex {
             .execute(&self.pool)
             .await?;
 
-        sqlx::query(
-            "DELETE FROM search_index_meta WHERE key IN (?, ?)",
-        )
-        .bind(META_LAST_EVENT_LOG_ID)
-        .bind(META_LAST_MESSAGE_ID)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM search_index_meta WHERE key IN (?, ?)")
+            .bind(META_LAST_EVENT_LOG_ID)
+            .bind(META_LAST_MESSAGE_ID)
+            .execute(&self.pool)
+            .await?;
 
         let _ = sqlx::query("INSERT INTO messages_fts(messages_fts) VALUES('optimize')")
             .execute(&self.pool)
@@ -332,10 +319,9 @@ impl SearchIndex {
 
     /// Return indexed row count, estimated total, and whether bulk indexing is active.
     pub async fn index_status(&self) -> anyhow::Result<IndexStatus> {
-        let indexed_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM messages_fts")
-                .fetch_one(&self.pool)
-                .await?;
+        let indexed_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages_fts")
+            .fetch_one(&self.pool)
+            .await?;
 
         let total_count = self.count_searchable_sources().await?;
 
@@ -385,18 +371,15 @@ impl SearchIndex {
             let event_type: String = row.get("event_type");
             let event_json: String = row.get("event_json");
 
-            if let Some((role, content)) =
-                extract_searchable_from_event(&event_type, &event_json, &mut delta_accum, &session_id, &turn_id)
-            {
-                Self::upsert_row_in_tx(
-                    &mut tx,
-                    &session_id,
-                    &turn_id,
-                    &role,
-                    &content,
-                    None,
-                )
-                .await?;
+            if let Some((role, content)) = extract_searchable_from_event(
+                &event_type,
+                &event_json,
+                &mut delta_accum,
+                &session_id,
+                &turn_id,
+            ) {
+                Self::upsert_row_in_tx(&mut tx, &session_id, &turn_id, &role, &content, None)
+                    .await?;
                 pending_commits += 1;
             }
 
@@ -483,16 +466,13 @@ impl SearchIndex {
     }
 
     async fn get_meta_u64(&self, key: &str) -> anyhow::Result<u64> {
-        let value: Option<String> = sqlx::query_scalar(
-            "SELECT value FROM search_index_meta WHERE key = ?",
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await?;
+        let value: Option<String> =
+            sqlx::query_scalar("SELECT value FROM search_index_meta WHERE key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await?;
 
-        Ok(value
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0))
+        Ok(value.and_then(|v| v.parse().ok()).unwrap_or(0))
     }
 
     async fn set_meta_u64(&self, key: &str, value: u64) -> anyhow::Result<()> {
@@ -546,14 +526,12 @@ impl SearchIndex {
             return Ok(());
         }
 
-        sqlx::query(
-            "DELETE FROM messages_fts WHERE session_id = ? AND turn_id = ? AND role = ?",
-        )
-        .bind(session_id)
-        .bind(turn_id)
-        .bind(role)
-        .execute(&mut **tx)
-        .await?;
+        sqlx::query("DELETE FROM messages_fts WHERE session_id = ? AND turn_id = ? AND role = ?")
+            .bind(session_id)
+            .bind(turn_id)
+            .bind(role)
+            .execute(&mut **tx)
+            .await?;
 
         sqlx::query(
             "INSERT INTO messages_fts (content, session_id, turn_id, role, message_id)
@@ -807,20 +785,18 @@ mod tests {
             .await
             .unwrap();
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messages_fts WHERE session_id = 's1'",
-        )
-        .fetch_one(&index.pool)
-        .await
-        .unwrap();
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM messages_fts WHERE session_id = 's1'")
+                .fetch_one(&index.pool)
+                .await
+                .unwrap();
         assert_eq!(count, 1);
 
-        let content: String = sqlx::query_scalar(
-            "SELECT content FROM messages_fts WHERE session_id = 's1'",
-        )
-        .fetch_one(&index.pool)
-        .await
-        .unwrap();
+        let content: String =
+            sqlx::query_scalar("SELECT content FROM messages_fts WHERE session_id = 's1'")
+                .fetch_one(&index.pool)
+                .await
+                .unwrap();
         assert_eq!(content, "hello world");
     }
 
@@ -885,13 +861,11 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::query(
-            "INSERT INTO messages (session_id, role, content) VALUES ('s1', 'user', ?)",
-        )
-        .bind(serde_json::to_string(&serde_json::json!("find me")).unwrap())
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO messages (session_id, role, content) VALUES ('s1', 'user', ?)")
+            .bind(serde_json::to_string(&serde_json::json!("find me")).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
 
         index.bulk_index_history(None).await.unwrap();
 
@@ -899,10 +873,16 @@ mod tests {
         assert_eq!(event_cursor, 2);
         assert_eq!(message_cursor, 1);
 
-        let assistant_hits = index.search("world", &SearchFilters::default(), 10, 0).await.unwrap();
+        let assistant_hits = index
+            .search("world", &SearchFilters::default(), 10, 0)
+            .await
+            .unwrap();
         assert_eq!(assistant_hits.len(), 1);
 
-        let user_hits = index.search("find", &SearchFilters::default(), 10, 0).await.unwrap();
+        let user_hits = index
+            .search("find", &SearchFilters::default(), 10, 0)
+            .await
+            .unwrap();
         assert_eq!(user_hits.len(), 1);
     }
 
@@ -934,7 +914,10 @@ mod tests {
             .search("成本", &SearchFilters::default(), 10, 0)
             .await
             .unwrap();
-        assert!(results.len() >= 1, "should find CJK results via LIKE fallback");
+        assert!(
+            results.len() >= 1,
+            "should find CJK results via LIKE fallback"
+        );
         assert!(results[0].snippet.contains("<b>成本</b>"));
 
         let results2 = index

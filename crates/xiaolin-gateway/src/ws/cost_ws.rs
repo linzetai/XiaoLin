@@ -131,7 +131,12 @@ pub async fn handle_cost_sessions(
     req_id: Option<String>,
     limit: Option<i64>,
 ) {
-    match state.store.cost_store.query_sessions(limit.unwrap_or(50)).await {
+    match state
+        .store
+        .cost_store
+        .query_sessions(limit.unwrap_or(50))
+        .await
+    {
         Ok(rows) => {
             send_resp(
                 sender,

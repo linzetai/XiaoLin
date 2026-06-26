@@ -21,7 +21,9 @@ pub async fn handle_execution_set_mode(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": -32602, "message": "mode required ('agent' or 'plan')"})),
+                error: Some(
+                    json!({"code": -32602, "message": "mode required ('agent' or 'plan')"}),
+                ),
             },
         )
         .await;
@@ -65,7 +67,12 @@ pub async fn handle_execution_set_mode(
             content: Some(serde_json::Value::String(synthetic.to_string())),
             ..Default::default()
         };
-        if let Err(e) = state.store.session_store.append_message(session_id, &msg).await {
+        if let Err(e) = state
+            .store
+            .session_store
+            .append_message(session_id, &msg)
+            .await
+        {
             tracing::warn!(error = %e, session_id, "failed to inject synthetic mode switch message");
         }
     }
@@ -171,14 +178,28 @@ pub async fn handle_execution_approve_plan(
             content: Some(serde_json::Value::String(text.to_string())),
             ..Default::default()
         };
-        if let Err(e) = state.store.session_store.append_message(session_id, &msg).await {
+        if let Err(e) = state
+            .store
+            .session_store
+            .append_message(session_id, &msg)
+            .await
+        {
             tracing::warn!(error = %e, session_id, "failed to inject approval feedback");
         }
     }
 
     if clear_context {
-        let old_session = state.store.session_store.get_session(session_id).await.ok().flatten();
-        let agent_id = old_session.as_ref().map(|s| s.agent_id.as_str()).unwrap_or("main");
+        let old_session = state
+            .store
+            .session_store
+            .get_session(session_id)
+            .await
+            .ok()
+            .flatten();
+        let agent_id = old_session
+            .as_ref()
+            .map(|s| s.agent_id.as_str())
+            .unwrap_or("main");
         let work_dir = old_session.as_ref().and_then(|s| s.work_dir.as_deref());
 
         let new_id = uuid::Uuid::new_v4().to_string();
@@ -201,7 +222,11 @@ pub async fn handle_execution_approve_plan(
                         content: Some(serde_json::Value::String(context_msg)),
                         ..Default::default()
                     };
-                    let _ = state.store.session_store.append_message(&new_id, &plan_msg).await;
+                    let _ = state
+                        .store
+                        .session_store
+                        .append_message(&new_id, &plan_msg)
+                        .await;
                 }
 
                 {
@@ -233,7 +258,9 @@ pub async fn handle_execution_approve_plan(
                         id: req_id,
                         msg_type: "error".into(),
                         data: None,
-                        error: Some(json!({"message": format!("Failed to create new session: {e}")})),
+                        error: Some(
+                            json!({"message": format!("Failed to create new session: {e}")}),
+                        ),
                     },
                 )
                 .await;
@@ -252,7 +279,12 @@ pub async fn handle_execution_approve_plan(
                 content: Some(serde_json::Value::String(guidance)),
                 ..Default::default()
             };
-            if let Err(e) = state.store.session_store.append_message(session_id, &msg).await {
+            if let Err(e) = state
+                .store
+                .session_store
+                .append_message(session_id, &msg)
+                .await
+            {
                 tracing::warn!(error = %e, session_id, "failed to inject approval guidance");
             }
         }
@@ -318,7 +350,11 @@ pub async fn handle_execution_get_plan(
     let (path_str, exists, content) = match plan_store.plan_path_if_exists(session_id) {
         Some(path) => {
             let e = path.exists();
-            let c = if e { std::fs::read_to_string(&path).ok() } else { None };
+            let c = if e {
+                std::fs::read_to_string(&path).ok()
+            } else {
+                None
+            };
             (path.to_string_lossy().to_string(), e, c)
         }
         None => (String::new(), false, None),
@@ -362,12 +398,15 @@ pub async fn handle_execution_reject_plan(
     if let Some(text) = feedback {
         let msg = xiaolin_core::types::ChatMessage {
             role: xiaolin_core::types::Role::User,
-            content: Some(serde_json::Value::String(format!(
-                "[Plan Feedback] {text}"
-            ))),
+            content: Some(serde_json::Value::String(format!("[Plan Feedback] {text}"))),
             ..Default::default()
         };
-        match state.store.session_store.append_message(session_id, &msg).await {
+        match state
+            .store
+            .session_store
+            .append_message(session_id, &msg)
+            .await
+        {
             Ok(()) => {
                 feedback_injected = true;
                 tracing::info!(session_id, "plan rejected with feedback injected");

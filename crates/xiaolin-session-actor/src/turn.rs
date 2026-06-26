@@ -77,10 +77,7 @@ pub enum TurnError {
     /// `Error` event is needed.
     Cancelled,
     /// Runtime error with classification for client-side handling.
-    Runtime {
-        message: String,
-        code: ErrorCode,
-    },
+    Runtime { message: String, code: ErrorCode },
 }
 
 impl TurnError {

@@ -197,7 +197,7 @@ pub(super) async fn test_plugin(
             content: Some(serde_json::Value::String(
                 "Say hello in one word.".to_string(),
             )),
-        ..Default::default()
+            ..Default::default()
         }],
         temperature: 0.0,
         max_tokens: Some(16),

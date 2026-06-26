@@ -87,20 +87,20 @@ pub async fn handle_mcp_add(
             Ok(t) => t,
             Err(_) => {
                 send_resp(
-                    sender,
-                    &WsResponse {
-                        id: req_id,
-                        msg_type: "error".into(),
-                        data: None,
-                        error: Some(json!({
-                            "message": format!(
-                                "invalid transport '{}': expected stdio, sse, streamable_http, or http",
-                                params.transport
-                            )
-                        })),
-                    },
-                )
-                .await;
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({
+                        "message": format!(
+                            "invalid transport '{}': expected stdio, sse, streamable_http, or http",
+                            params.transport
+                        )
+                    })),
+                },
+            )
+            .await;
                 return;
             }
         };
@@ -280,9 +280,7 @@ pub async fn handle_mcp_detail(
         (cfg, "user")
     } else if let Ok(cwd) = std::env::current_dir() {
         let ws_root = xiaolin_core::workspace::detect_workspace_root(&cwd);
-        if let Some(project_mcp) =
-            xiaolin_core::agent_config::load_project_mcp_config(&ws_root)
-        {
+        if let Some(project_mcp) = xiaolin_core::agent_config::load_project_mcp_config(&ws_root) {
             let cfgs = project_mcp.to_mcp_server_configs();
             if let Some(c) = cfgs.into_iter().find(|c| c.id == server_id) {
                 (serde_json::to_value(&c).unwrap_or_default(), "project")

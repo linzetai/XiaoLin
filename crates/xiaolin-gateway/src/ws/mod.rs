@@ -410,14 +410,14 @@ async fn dispatch(
             .await
         }
         ClientOp::ChatCancel { .. } => {
-            chat::handle_chat_cancel(sender, state, id, req.params, active_chat_sessions.clone()).await
+            chat::handle_chat_cancel(sender, state, id, req.params, active_chat_sessions.clone())
+                .await
         }
         ClientOp::ChatAnswer { .. } | ClientOp::ToolsSubmitAnswer { .. } => {
             chat::handle_chat_answer(sender, state, id, req.params).await
         }
         ClientOp::ChatSetMode { .. } => {
-            chat::handle_chat_set_mode(sender, state, id, req.params, &Some(bg_tx.clone()))
-                .await
+            chat::handle_chat_set_mode(sender, state, id, req.params, &Some(bg_tx.clone())).await
         }
         ClientOp::SessionsList { params } => {
             session::handle_sessions_list(sender, state, id, params).await
@@ -478,18 +478,12 @@ async fn dispatch(
         }
         ClientOp::McpStatus => mcp::handle_mcp_status(sender, state, id).await,
         ClientOp::McpReload => mcp::handle_mcp_reload(sender, state, id).await,
-        ClientOp::McpAdd { params } => {
-            mcp::handle_mcp_add(sender, state, id, params).await
-        }
-        ClientOp::McpRemove { .. } => {
-            mcp::handle_mcp_remove(sender, state, id, req.params).await
-        }
+        ClientOp::McpAdd { params } => mcp::handle_mcp_add(sender, state, id, params).await,
+        ClientOp::McpRemove { .. } => mcp::handle_mcp_remove(sender, state, id, req.params).await,
         ClientOp::McpDetail { id: server_id } => {
             mcp::handle_mcp_detail(sender, state, id, &server_id).await
         }
-        ClientOp::PluginsList => {
-            plugins::handle_plugins_list(sender, state, id).await
-        }
+        ClientOp::PluginsList => plugins::handle_plugins_list(sender, state, id).await,
         ClientOp::PluginsEnable { id: plugin_id } => {
             plugins::handle_plugins_enable(sender, state, id, &plugin_id).await
         }
@@ -514,16 +508,19 @@ async fn dispatch(
         ClientOp::PluginsResources { server_name } => {
             plugins::handle_plugins_resources(sender, state, id, &server_name).await
         }
-        ClientOp::PluginsPrompts => {
-            plugins::handle_plugins_prompts(sender, state, id).await
-        }
+        ClientOp::PluginsPrompts => plugins::handle_plugins_prompts(sender, state, id).await,
         ClientOp::PluginsGetPrompt {
             server_name,
             prompt_name,
             arguments,
         } => {
             plugins::handle_plugins_get_prompt(
-                sender, state, id, &server_name, &prompt_name, arguments,
+                sender,
+                state,
+                id,
+                &server_name,
+                &prompt_name,
+                arguments,
             )
             .await
         }
@@ -533,7 +530,12 @@ async fn dispatch(
             content,
         } => {
             plugins::handle_plugins_elicitation_reply(
-                sender, state, id, &elicitation_id, &action, content,
+                sender,
+                state,
+                id,
+                &elicitation_id,
+                &action,
+                content,
             )
             .await
         }
@@ -568,9 +570,7 @@ async fn dispatch(
             skills::handle_skills_delete(sender, state, id, params).await
         }
         ClientOp::SkillsRefresh => skills::handle_skills_refresh(sender, state, id).await,
-        ClientOp::EvolutionList => {
-            skills::handle_evolution_list(sender, state, id).await
-        }
+        ClientOp::EvolutionList => skills::handle_evolution_list(sender, state, id).await,
         ClientOp::EvolutionPromote { skill_id } => {
             skills::handle_evolution_promote(sender, state, id, &skill_id).await
         }
@@ -676,7 +676,10 @@ async fn dispatch(
         ClientOp::ChannelsConnect { id: channel_id } => {
             channels::handle_channels_connect(sender, state, id, &channel_id).await;
         }
-        ClientOp::ChannelsUpdate { id: channel_id, config } => {
+        ClientOp::ChannelsUpdate {
+            id: channel_id,
+            config,
+        } => {
             channels::handle_channels_update(sender, state, id, &channel_id, config).await;
         }
         ClientOp::ChannelsRestore { id: channel_id } => {
@@ -691,8 +694,18 @@ async fn dispatch(
         ClientOp::ChannelsWechatVerify { session_key, code } => {
             channels::handle_wechat_verify(sender, state, id, &session_key, &code).await;
         }
-        ClientOp::ChannelsDisconnect { channel_id, account_id } => {
-            channels::handle_channels_disconnect(sender, state, id, &channel_id, account_id.as_deref()).await;
+        ClientOp::ChannelsDisconnect {
+            channel_id,
+            account_id,
+        } => {
+            channels::handle_channels_disconnect(
+                sender,
+                state,
+                id,
+                &channel_id,
+                account_id.as_deref(),
+            )
+            .await;
         }
         ClientOp::PermissionsGetPresets => {
             let presets = state.rt.permission_preset_registry.list();
@@ -718,7 +731,10 @@ async fn dispatch(
                 .get(&session_id)
                 .map(|v| v.value().clone())
                 .unwrap_or_default();
-            let has_override = state.ext.session_behavior_overrides.contains_key(&session_id);
+            let has_override = state
+                .ext
+                .session_behavior_overrides
+                .contains_key(&session_id);
             send_resp(
                 sender,
                 &WsResponse {
@@ -742,7 +758,10 @@ async fn dispatch(
             if let Some(preset) = registry.get(&preset_id) {
                 let base_behavior = {
                     let agents = state.cfg.last_good_agents.read().await;
-                    agents.first().map(|a| a.behavior.clone()).unwrap_or_default()
+                    agents
+                        .first()
+                        .map(|a| a.behavior.clone())
+                        .unwrap_or_default()
                 };
                 let resolved = preset.resolve_behavior(&base_behavior);
                 state
@@ -910,8 +929,17 @@ async fn dispatch(
             pinned,
             archived,
         } => {
-            project::handle_projects_update(sender, state, id, &project_id, name, color, pinned, archived)
-                .await;
+            project::handle_projects_update(
+                sender,
+                state,
+                id,
+                &project_id,
+                name,
+                color,
+                pinned,
+                archived,
+            )
+            .await;
         }
         ClientOp::ProjectsDelete { id: project_id } => {
             project::handle_projects_delete(sender, state, id, &project_id).await;
@@ -922,7 +950,11 @@ async fn dispatch(
         ClientOp::GitStatus { project_id } => {
             git::handle_git_status(sender, state, id, &project_id).await;
         }
-        ClientOp::GitDiff { project_id, path, staged } => {
+        ClientOp::GitDiff {
+            project_id,
+            path,
+            staged,
+        } => {
             git::handle_git_diff(sender, state, id, &project_id, &path, staged).await;
         }
         ClientOp::GitBranches { project_id } => {
@@ -937,7 +969,10 @@ async fn dispatch(
         ClientOp::GitUnstage { project_id, files } => {
             git::handle_git_unstage(sender, state, id, &project_id, &files).await;
         }
-        ClientOp::GitCommit { project_id, message } => {
+        ClientOp::GitCommit {
+            project_id,
+            message,
+        } => {
             git::handle_git_commit(sender, state, id, &project_id, &message).await;
         }
         ClientOp::GitRevert { project_id, files } => {
@@ -960,23 +995,12 @@ async fn dispatch(
             description,
         } => {
             let params = serde_json::json!({"description": description});
-            chat::handle_goal_action(sender, state, id, &session_id, "edit", Some(&params))
-                .await;
+            chat::handle_goal_action(sender, state, id, &session_id, "edit", Some(&params)).await;
         }
-        ClientOp::GoalAddBudget {
-            session_id,
-            amount,
-        } => {
+        ClientOp::GoalAddBudget { session_id, amount } => {
             let params = serde_json::json!({"amount": amount});
-            chat::handle_goal_action(
-                sender,
-                state,
-                id,
-                &session_id,
-                "add_budget",
-                Some(&params),
-            )
-            .await;
+            chat::handle_goal_action(sender, state, id, &session_id, "add_budget", Some(&params))
+                .await;
         }
         ClientOp::ArtifactsList { session_id } => {
             artifact::handle_artifacts_list(sender, state, owned_sessions, id, &session_id).await;
@@ -987,12 +1011,12 @@ async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::chat::forward_event;
+    use serde_json::json;
     use xiaolin_core::config_access::{
         filter_config_for_read, mask_secret_values, navigate_config, set_nested_key,
         CONFIG_READABLE_KEYS, CONFIG_WRITABLE_KEYS,
     };
     use xiaolin_protocol::{AgentEvent, AskQuestionOption, TurnId, TurnSummary};
-    use serde_json::json;
 
     #[test]
     fn set_nested_key_simple() {

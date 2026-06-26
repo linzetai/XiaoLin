@@ -81,7 +81,11 @@ pub fn is_mcp_tool(name: &str) -> bool {
 pub fn parse_server_id_from_prefix(prefix: &str) -> Option<&str> {
     let rest = prefix.strip_prefix("mcp__")?;
     let id = rest.strip_suffix("__")?;
-    if id.is_empty() { None } else { Some(id) }
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
 }
 
 #[cfg(test)]
@@ -106,7 +110,10 @@ mod tests {
 
     #[test]
     fn mcp_server_prefix_format() {
-        assert_eq!(mcp_server_prefix("chrome-devtools"), "mcp__chrome-devtools__");
+        assert_eq!(
+            mcp_server_prefix("chrome-devtools"),
+            "mcp__chrome-devtools__"
+        );
         assert_eq!(mcp_server_prefix("my.server"), "mcp__my_server__");
     }
 
@@ -121,10 +128,7 @@ mod tests {
     #[test]
     fn sanitize_server_id_collapses_double_underscore() {
         assert_eq!(sanitize_server_id("my__server"), "my_server");
-        assert_eq!(
-            mcp_server_prefix("my__server"),
-            "mcp__my_server__"
-        );
+        assert_eq!(mcp_server_prefix("my__server"), "mcp__my_server__");
     }
 
     #[test]

@@ -51,8 +51,18 @@ pub async fn handle_channels_list(
     drop(registry);
 
     let known_types = [
-        ("wechat", "WeChat", "微信消息通道 — 通过扫码连接", "longpoll"),
-        ("feishu", "飞书 / Lark", "飞书消息通道 — 需配置应用凭证", "websocket"),
+        (
+            "wechat",
+            "WeChat",
+            "微信消息通道 — 通过扫码连接",
+            "longpoll",
+        ),
+        (
+            "feishu",
+            "飞书 / Lark",
+            "飞书消息通道 — 需配置应用凭证",
+            "websocket",
+        ),
     ];
 
     for (id, name, desc, mode) in &known_types {
@@ -151,8 +161,18 @@ pub async fn handle_channels_detail(
     drop(registry);
 
     let known_types = [
-        ("wechat", "WeChat", "微信消息通道 — 通过扫码连接", "longpoll"),
-        ("feishu", "飞书 / Lark", "飞书消息通道 — 需配置应用凭证", "websocket"),
+        (
+            "wechat",
+            "WeChat",
+            "微信消息通道 — 通过扫码连接",
+            "longpoll",
+        ),
+        (
+            "feishu",
+            "飞书 / Lark",
+            "飞书消息通道 — 需配置应用凭证",
+            "websocket",
+        ),
     ];
 
     if let Some((id, name, desc, mode)) = known_types.iter().find(|(kid, ..)| *kid == channel_id) {
@@ -197,9 +217,7 @@ pub async fn handle_channels_detail(
 
 fn build_masked_channel_config(state: &AppState, channel_id: &str) -> serde_json::Value {
     let live = state.cfg.config_live.load();
-    let ch_val = live
-        .get("channels")
-        .and_then(|c| c.get(channel_id));
+    let ch_val = live.get("channels").and_then(|c| c.get(channel_id));
 
     let ch_val = match ch_val {
         Some(v) => v,
@@ -231,7 +249,14 @@ fn build_masked_channel_config(state: &AppState, channel_id: &str) -> serde_json
     let obj = ch_val.as_object();
     let mut result = serde_json::Map::new();
 
-    let sensitive_keys = ["appSecret", "app_secret", "verificationToken", "verification_token", "encryptKey", "encrypt_key"];
+    let sensitive_keys = [
+        "appSecret",
+        "app_secret",
+        "verificationToken",
+        "verification_token",
+        "encryptKey",
+        "encrypt_key",
+    ];
 
     if let Some(obj) = obj {
         for (k, v) in obj {
@@ -381,8 +406,7 @@ pub async fn handle_wechat_poll(
             base_url,
             user_id,
         } => {
-            let normalized_id =
-                xiaolin_wechat::auth::credential::normalize_account_id(&account_id);
+            let normalized_id = xiaolin_wechat::auth::credential::normalize_account_id(&account_id);
             let cred = xiaolin_wechat::auth::credential::WechatCredential {
                 token: bot_token,
                 base_url,
@@ -425,18 +449,19 @@ pub async fn handle_wechat_poll(
                 &WsResponse {
                     id: req_id,
                     msg_type: "channels.wechat_poll".into(),
-                    data: Some(json!({"status": "already_connected", "message": "已连接过此 XiaoLin"})),
+                    data: Some(
+                        json!({"status": "already_connected", "message": "已连接过此 XiaoLin"}),
+                    ),
                     error: None,
                 },
             )
             .await;
         }
         LoginStatus::Expired => {
-            let existing_tokens: Vec<String> =
-                xiaolin_wechat::auth::credential::list_credentials()
-                    .into_iter()
-                    .map(|(_, c)| c.token)
-                    .collect();
+            let existing_tokens: Vec<String> = xiaolin_wechat::auth::credential::list_credentials()
+                .into_iter()
+                .map(|(_, c)| c.token)
+                .collect();
             let refresh_result =
                 xiaolin_wechat::auth::qr_login::refresh_qr(&mut entry, &existing_tokens).await;
             match refresh_result {
@@ -479,7 +504,9 @@ pub async fn handle_wechat_poll(
                 &WsResponse {
                     id: req_id,
                     msg_type: "channels.wechat_poll".into(),
-                    data: Some(json!({"status": "verify_blocked", "message": "验证码被拒绝，请重试"})),
+                    data: Some(
+                        json!({"status": "verify_blocked", "message": "验证码被拒绝，请重试"}),
+                    ),
                     error: None,
                 },
             )
@@ -692,7 +719,9 @@ pub async fn handle_channels_restore(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"message": format!("no backup found for channel '{channel_id}'")})),
+                    error: Some(
+                        json!({"message": format!("no backup found for channel '{channel_id}'")}),
+                    ),
                 },
             )
             .await;

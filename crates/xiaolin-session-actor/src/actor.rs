@@ -175,8 +175,10 @@ impl SessionActor {
                 extra,
                 typed_data,
             } => {
-                self.handle_user_turn(sub.id, messages, agent_id, model, work_dir, extra, typed_data)
-                    .await;
+                self.handle_user_turn(
+                    sub.id, messages, agent_id, model, work_dir, extra, typed_data,
+                )
+                .await;
                 false
             }
             SessionOp::Interrupt => {
@@ -191,7 +193,10 @@ impl SessionActor {
                 if let Some(ref mut reg) = self.registrar {
                     reg.drain_into(&mut self.interaction_port);
                 }
-                if !self.interaction_port.resolve_approval(&interaction_id, decision) {
+                if !self
+                    .interaction_port
+                    .resolve_approval(&interaction_id, decision)
+                {
                     warn!(interaction_id, "no pending approval found");
                 }
                 false
@@ -203,7 +208,10 @@ impl SessionActor {
                 if let Some(ref mut reg) = self.registrar {
                     reg.drain_into(&mut self.interaction_port);
                 }
-                if !self.interaction_port.resolve_answer(&interaction_id, answer) {
+                if !self
+                    .interaction_port
+                    .resolve_answer(&interaction_id, answer)
+                {
                     warn!(interaction_id, "no pending answer found");
                 }
                 false
@@ -301,8 +309,7 @@ impl SessionActor {
 
         let task_turn_id = turn_id.clone();
         let task_session_id = self.session_id.clone();
-        let task_agent_id = agent_id
-            .unwrap_or_else(|| self.agent_id.clone());
+        let task_agent_id = agent_id.unwrap_or_else(|| self.agent_id.clone());
         let executor = Arc::clone(&self.turn_executor);
         let task_done = Arc::clone(&done);
         let task_cancel = cancel_token.clone();
@@ -512,16 +519,8 @@ impl SessionActor {
         let mut extra = serde_json::Map::new();
         extra.insert("_compact".into(), serde_json::Value::Bool(true));
 
-        self.handle_user_turn(
-            sub_id,
-            serde_json::json!([]),
-            None,
-            None,
-            None,
-            extra,
-            None,
-        )
-        .await;
+        self.handle_user_turn(sub_id, serde_json::json!([]), None, None, None, extra, None)
+            .await;
     }
 
     async fn handle_interrupt(&mut self, sub_id: SubmissionId) {
@@ -605,7 +604,6 @@ impl SessionActor {
             f.gc();
         }
     }
-
 }
 
 #[cfg(test)]

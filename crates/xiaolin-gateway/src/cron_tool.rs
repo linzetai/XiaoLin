@@ -381,7 +381,10 @@ impl ManageCronTool {
             run_count: 0,
             error_count: 0,
             last_error: None,
-            work_dir: args.get("work_dir").and_then(|v| v.as_str()).map(String::from),
+            work_dir: args
+                .get("work_dir")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             notify_channels,
         };
 

@@ -20,10 +20,7 @@ pub async fn handle_search_query(
     params: SearchQueryRequest,
 ) {
     let page = params.page.unwrap_or(0).max(0);
-    let limit = params
-        .limit
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(1, MAX_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = page * limit;
 
     let query = params.q.trim();
@@ -50,10 +47,9 @@ pub async fn handle_search_query(
     let filters = params.filters;
     let q = query.to_string();
 
-    let search_result = tokio::time::timeout(
-        SEARCH_TIMEOUT,
-        async move { search_index.search(&q, &filters, limit, offset).await },
-    )
+    let search_result = tokio::time::timeout(SEARCH_TIMEOUT, async move {
+        search_index.search(&q, &filters, limit, offset).await
+    })
     .await;
 
     match search_result {

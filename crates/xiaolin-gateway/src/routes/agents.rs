@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use axum::extract::{Path, State};
 use axum::Json;
-use xiaolin_core::agent_config::AgentConfig;
 use serde::Deserialize;
 use serde_json::json;
+use xiaolin_core::agent_config::AgentConfig;
 
 use crate::extract::AppJson;
 use crate::state::AppState;
@@ -103,7 +103,10 @@ pub fn rebuild_behavior_tool_lists(
     }
 }
 
-pub async fn write_agent_config_file(state: &AppState, config: &AgentConfig) -> Result<(), AppError> {
+pub async fn write_agent_config_file(
+    state: &AppState,
+    config: &AgentConfig,
+) -> Result<(), AppError> {
     let dir = agents_dir(state);
     tokio::fs::create_dir_all(&dir)
         .await

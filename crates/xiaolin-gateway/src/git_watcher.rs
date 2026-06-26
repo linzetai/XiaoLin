@@ -22,10 +22,11 @@ impl GitWatcher {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
         let notify_tx = tx.clone();
-        let mut watcher = notify::recommended_watcher(move |_res: notify::Result<notify::Event>| {
-            let _ = notify_tx.try_send(());
-        })
-        .map_err(|e| format!("failed to create watcher: {e}"))?;
+        let mut watcher =
+            notify::recommended_watcher(move |_res: notify::Result<notify::Event>| {
+                let _ = notify_tx.try_send(());
+            })
+            .map_err(|e| format!("failed to create watcher: {e}"))?;
 
         // Watch .git/HEAD, .git/index, .git/refs/heads/
         let head_path = git_dir.join("HEAD");

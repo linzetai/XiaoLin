@@ -165,8 +165,7 @@ mod tests {
     use super::*;
 
     async fn open_memory_store() -> SqliteArtifactStore {
-        let options = sqlx::sqlite::SqliteConnectOptions::new()
-            .create_if_missing(true);
+        let options = sqlx::sqlite::SqliteConnectOptions::new().create_if_missing(true);
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
@@ -179,11 +178,25 @@ mod tests {
     async fn record_and_list_artifacts() {
         let store = open_memory_store().await;
         store
-            .record_artifact("s1", "src/main.rs", "modified", "call-1", 1024, 1_700_000_000_000)
+            .record_artifact(
+                "s1",
+                "src/main.rs",
+                "modified",
+                "call-1",
+                1024,
+                1_700_000_000_000,
+            )
             .await
             .unwrap();
         store
-            .record_artifact("s1", "src/lib.rs", "created", "call-2", 512, 1_700_000_000_001)
+            .record_artifact(
+                "s1",
+                "src/lib.rs",
+                "created",
+                "call-2",
+                512,
+                1_700_000_000_001,
+            )
             .await
             .unwrap();
 

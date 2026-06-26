@@ -263,13 +263,17 @@ pub struct McpPromptMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum McpPromptContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         data: String,
         #[serde(alias = "mime_type", rename = "mimeType")]
         mime_type: String,
     },
-    Resource { resource: McpResourceContent },
+    Resource {
+        resource: McpResourceContent,
+    },
 }
 
 type McpResourceFuture =
@@ -640,14 +644,16 @@ enum McpTransport {
         listener_task: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     },
     WebSocket {
-        ws_write: Arc<tokio::sync::Mutex<
-            futures::stream::SplitSink<
-                tokio_tungstenite::WebSocketStream<
-                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        ws_write: Arc<
+            tokio::sync::Mutex<
+                futures::stream::SplitSink<
+                    tokio_tungstenite::WebSocketStream<
+                        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                    >,
+                    tokio_tungstenite::tungstenite::Message,
                 >,
-                tokio_tungstenite::tungstenite::Message,
             >,
-        >>,
+        >,
         pending:
             Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
         reader_task: tokio::task::JoinHandle<()>,
@@ -948,12 +954,21 @@ impl McpClient {
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
-            .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
-            .header("Host", reqwest::Url::parse(url)
-                .map_or_else(|_| "localhost".to_string(), |u| u.host_str().unwrap_or("localhost").to_string()))
+            .header(
+                "Sec-WebSocket-Key",
+                tungstenite::handshake::client::generate_key(),
+            )
+            .header(
+                "Host",
+                reqwest::Url::parse(url).map_or_else(
+                    |_| "localhost".to_string(),
+                    |u| u.host_str().unwrap_or("localhost").to_string(),
+                ),
+            )
             .body(())?;
 
-        let (ws_stream, _) = tokio_tungstenite::connect_async(request).await
+        let (ws_stream, _) = tokio_tungstenite::connect_async(request)
+            .await
             .map_err(|e| anyhow::anyhow!("WebSocket connection failed: {e}"))?;
 
         let (write, read) = ws_stream.split();
@@ -1205,9 +1220,14 @@ impl McpClient {
         notification_tx: tokio::sync::broadcast::Sender<McpNotification>,
         server_request_tx: tokio::sync::broadcast::Sender<McpServerRequest>,
     ) -> anyhow::Result<()> {
-        let result =
-            Self::sse_reader_loop_inner(client, sse_url, pending, &notification_tx, &server_request_tx)
-                .await;
+        let result = Self::sse_reader_loop_inner(
+            client,
+            sse_url,
+            pending,
+            &notification_tx,
+            &server_request_tx,
+        )
+        .await;
 
         match &result {
             Ok(()) => tracing::warn!("SSE stream ended normally, signaling disconnection"),
@@ -1295,7 +1315,10 @@ impl McpClient {
         transport_label: &str,
     ) {
         let has_id = value.get("id").is_some();
-        let method_str = value.get("method").and_then(|m| m.as_str()).map(String::from);
+        let method_str = value
+            .get("method")
+            .and_then(|m| m.as_str())
+            .map(String::from);
 
         match (has_id, method_str) {
             (true, Some(method)) => {
@@ -1315,10 +1338,7 @@ impl McpClient {
             (false, Some(method)) => {
                 let params = value.get("params").cloned();
                 tracing::debug!(method = %method, %transport_label, "MCP notification received");
-                let _ = notification_tx.send(McpNotification {
-                    method,
-                    params,
-                });
+                let _ = notification_tx.send(McpNotification { method, params });
             }
             (false, None) => {
                 tracing::debug!(%transport_label, "MCP: ignoring JSON message without id or method");
@@ -1340,7 +1360,9 @@ impl McpClient {
                 stdin_guard.write_all(b"\n").await?;
                 stdin_guard.flush().await?;
             }
-            McpTransport::Sse { client, post_url, .. } => {
+            McpTransport::Sse {
+                client, post_url, ..
+            } => {
                 let resp = client
                     .post(post_url.as_str())
                     .header("Content-Type", "application/json")
@@ -1487,7 +1509,8 @@ impl McpClient {
                                     delay_ms
                                 );
                                 last_err = Some(e);
-                                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                                tokio::time::sleep(std::time::Duration::from_millis(delay_ms))
+                                    .await;
                             }
                             Err(e) => return Err(e.into()),
                         }
@@ -1505,9 +1528,7 @@ impl McpClient {
 
                 let status = response.status();
                 if status == reqwest::StatusCode::NOT_FOUND {
-                    return Err(
-                        SessionExpired(format!("HTTP 404 from {endpoint_url}")).into(),
-                    );
+                    return Err(SessionExpired(format!("HTTP 404 from {endpoint_url}")).into());
                 }
                 if !status.is_success() && status != reqwest::StatusCode::ACCEPTED {
                     anyhow::bail!(
@@ -1702,8 +1723,7 @@ impl McpClient {
                     *self
                         .server_instructions
                         .write()
-                        .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? =
-                        info.instructions;
+                        .map_err(|e| anyhow::anyhow!("lock poisoned: {e}"))? = info.instructions;
                 }
             }
         }
@@ -1942,18 +1962,14 @@ impl McpClient {
     ///
     /// Returns a broadcast receiver. Callers that fall behind by more than 64
     /// buffered messages will see `RecvError::Lagged`.
-    pub fn subscribe_notifications(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<McpNotification> {
+    pub fn subscribe_notifications(&self) -> tokio::sync::broadcast::Receiver<McpNotification> {
         self.notification_tx.subscribe()
     }
 
     /// Subscribe to server-initiated requests (JSON-RPC messages with both `id`
     /// and `method`, e.g. `elicitation/create`). The consumer is responsible for
     /// sending a response via [`send_response`](Self::send_response).
-    pub fn subscribe_server_requests(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<McpServerRequest> {
+    pub fn subscribe_server_requests(&self) -> tokio::sync::broadcast::Receiver<McpServerRequest> {
         self.server_request_tx.subscribe()
     }
 
@@ -2221,16 +2237,18 @@ impl McpClient {
         }
     }
 
-    fn close_websocket_sync(ws_write: &Arc<
-        tokio::sync::Mutex<
-            futures::stream::SplitSink<
-                tokio_tungstenite::WebSocketStream<
-                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    fn close_websocket_sync(
+        ws_write: &Arc<
+            tokio::sync::Mutex<
+                futures::stream::SplitSink<
+                    tokio_tungstenite::WebSocketStream<
+                        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                    >,
+                    tokio_tungstenite::tungstenite::Message,
                 >,
-                tokio_tungstenite::tungstenite::Message,
             >,
         >,
-    >) {
+    ) {
         use futures::SinkExt;
         let ws_write = ws_write.clone();
         let close = async move {
@@ -2264,9 +2282,7 @@ impl Drop for McpClient {
             McpTransport::Sse { reader_task, .. } => {
                 reader_task.abort();
             }
-            McpTransport::StreamableHttp {
-                listener_task, ..
-            } => {
+            McpTransport::StreamableHttp { listener_task, .. } => {
                 if let Some(task) = listener_task.take() {
                     task.abort();
                 }
@@ -2365,7 +2381,10 @@ impl McpToolBridge {
             raw_desc.clone()
         };
         Self {
-            tool_name: format!("{server_prefix}{}", naming::sanitize_for_api(&mcp_tool.name)),
+            tool_name: format!(
+                "{server_prefix}{}",
+                naming::sanitize_for_api(&mcp_tool.name)
+            ),
             hint: format!("{} {}", mcp_tool.name, raw_desc),
             keep_eager: mcp_tool.always_load(),
             description: desc,
@@ -2481,7 +2500,11 @@ pub struct NeedsOAuth {
 
 impl std::fmt::Display for NeedsOAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MCP server '{}' needs OAuth: {}", self.server_id, self.message)
+        write!(
+            f,
+            "MCP server '{}' needs OAuth: {}",
+            self.server_id, self.message
+        )
     }
 }
 
@@ -2611,9 +2634,7 @@ async fn try_oauth_recovery(
                             .as_secs();
                         let stored_token = oauth::StoredToken {
                             access_token: new_token.access_token.clone(),
-                            refresh_token: new_token
-                                .refresh_token
-                                .or(Some(refresh.clone())),
+                            refresh_token: new_token.refresh_token.or(Some(refresh.clone())),
                             expires_at: new_token.expires_in.map(|e| now_secs + e),
                             server_url: url.to_string(),
                         };
@@ -2637,10 +2658,7 @@ async fn try_oauth_recovery(
                                     .await?
                             }
                         };
-                        registry.set_mcp_instructions(
-                            &cfg.id,
-                            client.instructions().as_deref(),
-                        );
+                        registry.set_mcp_instructions(&cfg.id, client.instructions().as_deref());
                         tracing::info!(server = %cfg.id, "OAuth token refreshed, reconnected");
                         return Ok(client);
                     }
@@ -3043,7 +3061,10 @@ mod tests {
         let headers = resolve_mcp_http_headers(&cfg).unwrap();
         assert_eq!(headers.get("X-Static").unwrap(), "hello");
         assert_eq!(headers.get("X-Dynamic").unwrap(), "resolved_value");
-        assert!(headers.get("X-Missing").is_none(), "missing env var should be skipped");
+        assert!(
+            headers.get("X-Missing").is_none(),
+            "missing env var should be skipped"
+        );
         std::env::remove_var(&unique_var);
     }
 
@@ -3266,7 +3287,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let url = format!("http://127.0.0.1:{}/mcp/sse", addr.port());
-        let client = McpClient::connect_sse(&url, Default::default()).await.expect("sse connect");
+        let client = McpClient::connect_sse(&url, Default::default())
+            .await
+            .expect("sse connect");
         assert_eq!(client.server_name(), "mock-sse");
         assert_eq!(client.tools().len(), 1);
         assert_eq!(client.tools()[0].name, "t1");
@@ -3672,7 +3695,9 @@ mod tests {
                         serde_json::to_value(InitializeResult {
                             protocol_version: "2025-06-18".into(),
                             capabilities: ServerCapabilities {
-                                tools: Some(ToolCapability { list_changed: false }),
+                                tools: Some(ToolCapability {
+                                    list_changed: false,
+                                }),
                                 resources: None,
                                 prompts: None,
                             },
@@ -3774,7 +3799,9 @@ mod tests {
                         serde_json::to_value(InitializeResult {
                             protocol_version: "2025-06-18".into(),
                             capabilities: ServerCapabilities {
-                                tools: Some(ToolCapability { list_changed: false }),
+                                tools: Some(ToolCapability {
+                                    list_changed: false,
+                                }),
                                 resources: None,
                                 prompts: None,
                             },
@@ -3866,7 +3893,9 @@ mod tests {
             }
         }
 
-        let notif = notification_rx.try_recv().expect("should have received notification");
+        let notif = notification_rx
+            .try_recv()
+            .expect("should have received notification");
         assert_eq!(notif.method, "notifications/tools/list_changed");
         assert!(notif.params.is_some());
 
@@ -3976,7 +4005,9 @@ mod tests {
                         serde_json::to_value(InitializeResult {
                             protocol_version: "2025-06-18".into(),
                             capabilities: ServerCapabilities {
-                                tools: Some(ToolCapability { list_changed: false }),
+                                tools: Some(ToolCapability {
+                                    list_changed: false,
+                                }),
                                 resources: None,
                                 prompts: None,
                             },
@@ -4093,7 +4124,9 @@ mod tests {
                         serde_json::to_value(InitializeResult {
                             protocol_version: "2025-06-18".into(),
                             capabilities: ServerCapabilities {
-                                tools: Some(ToolCapability { list_changed: false }),
+                                tools: Some(ToolCapability {
+                                    list_changed: false,
+                                }),
                                 resources: None,
                                 prompts: None,
                             },
@@ -4289,7 +4322,9 @@ mod tests {
                 description: Some("file a".into()),
                 mime_type: Some("text/plain".into()),
             },
-            |_| async { Ok(serde_json::json!({"contents": [{"uri":"file:///a.txt","text":"hi"}]})) },
+            |_| async {
+                Ok(serde_json::json!({"contents": [{"uri":"file:///a.txt","text":"hi"}]}))
+            },
         );
 
         let resp = server
@@ -4586,7 +4621,9 @@ mod tests {
 
         McpClient::dispatch_incoming(progress_notif, &pending, &ntx, &srtx, "test-server").await;
 
-        let notif = nrx.try_recv().expect("should receive progress notification");
+        let notif = nrx
+            .try_recv()
+            .expect("should receive progress notification");
         assert_eq!(notif.method, "notifications/progress");
         let params = notif.params.unwrap();
         assert_eq!(params["progressToken"], "tok-42");
@@ -4633,7 +4670,9 @@ mod tests {
                         serde_json::to_value(InitializeResult {
                             protocol_version: "2025-06-18".into(),
                             capabilities: ServerCapabilities {
-                                tools: Some(ToolCapability { list_changed: false }),
+                                tools: Some(ToolCapability {
+                                    list_changed: false,
+                                }),
                                 resources: None,
                                 prompts: None,
                             },
@@ -4714,7 +4753,11 @@ mod tests {
             .expect("connect");
 
         let result = client
-            .call_tool_with_progress("slow_op", serde_json::json!({"input": "x"}), Some("my-token"))
+            .call_tool_with_progress(
+                "slow_op",
+                serde_json::json!({"input": "x"}),
+                Some("my-token"),
+            )
             .await
             .expect("tool call should succeed");
         match &result.content[0] {
@@ -4723,7 +4766,9 @@ mod tests {
         }
 
         let meta = check.lock().await;
-        let meta = meta.as_ref().expect("_meta should have been captured by server");
+        let meta = meta
+            .as_ref()
+            .expect("_meta should have been captured by server");
         assert_eq!(meta["progressToken"], "my-token");
     }
 
@@ -4785,7 +4830,9 @@ mod tests {
         });
         McpClient::dispatch_incoming(roots_request, &pending, &ntx, &srtx, "test").await;
 
-        let req = srrx.try_recv().expect("should receive roots/list as server request");
+        let req = srrx
+            .try_recv()
+            .expect("should receive roots/list as server request");
         assert_eq!(req.method, "roots/list");
         assert_eq!(req.id, serde_json::json!(77));
     }
@@ -4794,15 +4841,19 @@ mod tests {
 
     #[tokio::test]
     async fn create_xiaolin_mcp_server_filters_mcp_prefix() {
-        use xiaolin_core::tool::{ToolRegistry, ToolParameterSchema, Tool, ToolResult};
-        use std::sync::Arc;
         use async_trait::async_trait;
+        use std::sync::Arc;
+        use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 
         struct DummyTool(String);
         #[async_trait]
         impl Tool for DummyTool {
-            fn name(&self) -> &str { &self.0 }
-            fn description(&self) -> &str { "dummy" }
+            fn name(&self) -> &str {
+                &self.0
+            }
+            fn description(&self) -> &str {
+                "dummy"
+            }
             fn parameters_schema(&self) -> ToolParameterSchema {
                 ToolParameterSchema {
                     schema_type: "object".into(),
@@ -4840,21 +4891,28 @@ mod tests {
         let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(tool_names.contains(&"read_file"));
         assert!(tool_names.contains(&"write_file"));
-        assert!(!tool_names.iter().any(|n| n.starts_with("mcp__")),
-            "mcp__ prefixed tools should be filtered out, but found: {:?}", tool_names);
+        assert!(
+            !tool_names.iter().any(|n| n.starts_with("mcp__")),
+            "mcp__ prefixed tools should be filtered out, but found: {:?}",
+            tool_names
+        );
     }
 
     #[tokio::test]
     async fn create_xiaolin_mcp_server_tool_call_works() {
-        use xiaolin_core::tool::{ToolRegistry, ToolParameterSchema, Tool, ToolResult};
-        use std::sync::Arc;
         use async_trait::async_trait;
+        use std::sync::Arc;
+        use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 
         struct EchoTool;
         #[async_trait]
         impl Tool for EchoTool {
-            fn name(&self) -> &str { "echo" }
-            fn description(&self) -> &str { "Echo back the input" }
+            fn name(&self) -> &str {
+                "echo"
+            }
+            fn description(&self) -> &str {
+                "Echo back the input"
+            }
             fn parameters_schema(&self) -> ToolParameterSchema {
                 ToolParameterSchema {
                     schema_type: "object".into(),
@@ -4887,7 +4945,11 @@ mod tests {
                 Some(serde_json::json!({"name": "echo", "arguments": {"msg": "hello"}})),
             ))
             .await;
-        assert!(resp.error.is_none(), "tool call should succeed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "tool call should succeed: {:?}",
+            resp.error
+        );
         let result = resp.result.unwrap();
         assert_eq!(result["content"][0]["text"], "Echo: hello");
         assert_eq!(result["is_error"], false);
@@ -4904,10 +4966,8 @@ mod tests {
             if let Some(protos) = req.headers().get("Sec-WebSocket-Protocol") {
                 let val = protos.to_str().unwrap_or("");
                 if val.contains("mcp") {
-                    resp.headers_mut().insert(
-                        "Sec-WebSocket-Protocol",
-                        "mcp".parse().unwrap(),
-                    );
+                    resp.headers_mut()
+                        .insert("Sec-WebSocket-Protocol", "mcp".parse().unwrap());
                 }
             }
             Ok(resp)
@@ -4995,7 +5055,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let url = format!("ws://127.0.0.1:{}", addr.port());
-        let client = McpClient::connect_websocket(&url).await.expect("WS connect should succeed");
+        let client = McpClient::connect_websocket(&url)
+            .await
+            .expect("WS connect should succeed");
 
         assert_eq!(client.server_name(), "mock-ws");
         assert_eq!(client.tools().len(), 2);
@@ -5038,7 +5100,9 @@ mod tests {
                             serde_json::to_value(InitializeResult {
                                 protocol_version: "2025-06-18".into(),
                                 capabilities: ServerCapabilities {
-                                    tools: Some(ToolCapability { list_changed: false }),
+                                    tools: Some(ToolCapability {
+                                        list_changed: false,
+                                    }),
                                     resources: None,
                                     prompts: None,
                                 },
@@ -5089,7 +5153,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let url = format!("ws://127.0.0.1:{}", addr.port());
-        let client = McpClient::connect_websocket(&url).await.expect("WS connect");
+        let client = McpClient::connect_websocket(&url)
+            .await
+            .expect("WS connect");
 
         let result = client
             .call_tool("add", serde_json::json!({"a": 17, "b": 25}))
@@ -5128,7 +5194,9 @@ mod tests {
                     "method": "notifications/tools/list_changed",
                     "params": {}
                 });
-                let _ = write_clone.lock().await
+                let _ = write_clone
+                    .lock()
+                    .await
                     .send(Message::Text(serde_json::to_string(&notif).unwrap().into()))
                     .await;
             });
@@ -5173,7 +5241,11 @@ mod tests {
                         _ => JsonRpcResponse::error(req.id.clone(), -32601, "unknown"),
                     };
                     let resp_text = serde_json::to_string(&resp).unwrap();
-                    let _ = write.lock().await.send(Message::Text(resp_text.into())).await;
+                    let _ = write
+                        .lock()
+                        .await
+                        .send(Message::Text(resp_text.into()))
+                        .await;
                 }
             }
         });
@@ -5181,7 +5253,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let url = format!("ws://127.0.0.1:{}", addr.port());
-        let client = McpClient::connect_websocket(&url).await.expect("WS connect");
+        let client = McpClient::connect_websocket(&url)
+            .await
+            .expect("WS connect");
         let mut rx = client.subscribe_notifications();
 
         let _ = trigger_tx.send(()).await;

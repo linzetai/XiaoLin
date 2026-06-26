@@ -178,7 +178,8 @@ impl SessionHandle {
 
     /// Update the last-activity timestamp to now.
     fn touch(&self) {
-        self.last_activity_ms.store(epoch_ms_now(), Ordering::Relaxed);
+        self.last_activity_ms
+            .store(epoch_ms_now(), Ordering::Relaxed);
     }
 
     /// How long this session has been idle (no submit calls).

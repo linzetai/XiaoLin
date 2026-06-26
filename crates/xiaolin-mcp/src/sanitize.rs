@@ -96,12 +96,11 @@ mod tests {
             }
         });
         sanitize_json_schema_descriptions(&mut schema);
+        assert_eq!(schema["description"].as_str().unwrap(), "outer rtl desc");
         assert_eq!(
-            schema["description"].as_str().unwrap(),
-            "outer rtl desc"
-        );
-        assert_eq!(
-            schema["properties"]["field"]["description"].as_str().unwrap(),
+            schema["properties"]["field"]["description"]
+                .as_str()
+                .unwrap(),
             "inner zwsp"
         );
     }

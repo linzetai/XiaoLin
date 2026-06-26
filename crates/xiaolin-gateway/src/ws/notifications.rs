@@ -83,7 +83,12 @@ pub async fn handle_mark_read(
     req_id: Option<String>,
     notification_id: &str,
 ) {
-    match state.store.notification_store.mark_read(notification_id).await {
+    match state
+        .store
+        .notification_store
+        .mark_read(notification_id)
+        .await
+    {
         Ok(_) => {}
         Err(e) => {
             send_resp(

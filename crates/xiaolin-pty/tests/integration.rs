@@ -77,11 +77,8 @@ fn session_manager_max_sessions() {
 
 #[test]
 fn session_resize() {
-    let mut session = PtySession::spawn(
-        "test-resize".to_string(),
-        PtySessionConfig::default(),
-    )
-    .unwrap();
+    let mut session =
+        PtySession::spawn("test-resize".to_string(), PtySessionConfig::default()).unwrap();
 
     assert_eq!(session.cols(), 80);
     assert_eq!(session.rows(), 24);
@@ -134,9 +131,7 @@ fn count_by_source() {
             ..Default::default()
         })
         .unwrap();
-    let _id3 = mgr
-        .create_session(PtySessionConfig::default())
-        .unwrap();
+    let _id3 = mgr.create_session(PtySessionConfig::default()).unwrap();
 
     assert_eq!(mgr.count_by_source("agent"), 2);
     assert_eq!(mgr.count_by_source("user"), 1);

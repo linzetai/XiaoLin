@@ -13,10 +13,7 @@ pub struct AgentDefWatcher {
 impl AgentDefWatcher {
     /// Start watching the given directories for `.md` and `.json` agent definition changes.
     /// On any change, reloads all definitions and updates the `SubAgentManager`.
-    pub fn start(
-        dirs: Vec<PathBuf>,
-        manager: Arc<SubAgentManager>,
-    ) -> Result<Self, String> {
+    pub fn start(dirs: Vec<PathBuf>, manager: Arc<SubAgentManager>) -> Result<Self, String> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
         let notify_tx = tx.clone();
@@ -73,7 +70,9 @@ impl AgentDefWatcher {
 
 /// Reload all agent definitions from the given directories and apply to the manager.
 fn reload_agent_defs(dirs: &[PathBuf], manager: &SubAgentManager) {
-    use xiaolin_core::agent_config::{builtin_subagent_defs, load_subagent_defs_json, load_subagent_defs_markdown};
+    use xiaolin_core::agent_config::{
+        builtin_subagent_defs, load_subagent_defs_json, load_subagent_defs_markdown,
+    };
     use xiaolin_core::agent_markdown::merge_subagent_defs;
 
     let builtin = builtin_subagent_defs();

@@ -11,10 +11,7 @@ pub struct SkillWatcher {
 }
 
 impl SkillWatcher {
-    pub fn start(
-        dirs: Vec<PathBuf>,
-        state: AppState,
-    ) -> Result<Self, String> {
+    pub fn start(dirs: Vec<PathBuf>, state: AppState) -> Result<Self, String> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {

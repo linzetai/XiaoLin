@@ -166,7 +166,7 @@ async fn run_consolidation(
     let messages = vec![ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String(prompt_text)),
-    ..Default::default()
+        ..Default::default()
     }];
 
     let params = CompletionParams {

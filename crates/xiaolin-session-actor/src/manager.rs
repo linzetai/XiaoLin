@@ -62,11 +62,7 @@ impl SessionManager {
     }
 
     /// Get an existing session or create a new one.
-    pub async fn get_or_create(
-        &self,
-        session_id: SessionId,
-        agent_id: &str,
-    ) -> Arc<SessionHandle> {
+    pub async fn get_or_create(&self, session_id: SessionId, agent_id: &str) -> Arc<SessionHandle> {
         // Fast path: read lock.
         {
             let sessions = self.state.sessions.read().await;
@@ -108,10 +104,7 @@ impl SessionManager {
     /// Get an existing session handle, if it exists and is alive.
     pub async fn get(&self, session_id: &SessionId) -> Option<Arc<SessionHandle>> {
         let sessions = self.state.sessions.read().await;
-        sessions
-            .get(session_id)
-            .filter(|h| h.is_alive())
-            .cloned()
+        sessions.get(session_id).filter(|h| h.is_alive()).cloned()
     }
 
     /// Submit an operation to a specific session. Creates the session if needed.
@@ -236,7 +229,11 @@ impl SessionManager {
             let _ = handle.submit(SessionOp::Shutdown).await;
             debug!(session_id = %id, "idle session unloaded");
         }
-        info!(unloaded = count, max_idle_secs = max_idle.as_secs(), "idle session GC completed");
+        info!(
+            unloaded = count,
+            max_idle_secs = max_idle.as_secs(),
+            "idle session GC completed"
+        );
         count
     }
 
@@ -281,12 +278,8 @@ mod tests {
     #[tokio::test]
     async fn get_or_create_returns_same_handle() {
         let (mgr, _) = test_manager();
-        let h1 = mgr
-            .get_or_create(SessionId::new("s1"), "agent")
-            .await;
-        let h2 = mgr
-            .get_or_create(SessionId::new("s1"), "agent")
-            .await;
+        let h1 = mgr.get_or_create(SessionId::new("s1"), "agent").await;
+        let h2 = mgr.get_or_create(SessionId::new("s1"), "agent").await;
         // Same Arc — pointer equality.
         assert!(Arc::ptr_eq(&h1, &h2));
     }
@@ -294,12 +287,8 @@ mod tests {
     #[tokio::test]
     async fn different_sessions_get_different_handles() {
         let (mgr, _) = test_manager();
-        let h1 = mgr
-            .get_or_create(SessionId::new("s1"), "agent")
-            .await;
-        let h2 = mgr
-            .get_or_create(SessionId::new("s2"), "agent")
-            .await;
+        let h1 = mgr.get_or_create(SessionId::new("s1"), "agent").await;
+        let h2 = mgr.get_or_create(SessionId::new("s2"), "agent").await;
         assert!(!Arc::ptr_eq(&h1, &h2));
     }
 

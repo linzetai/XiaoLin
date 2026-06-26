@@ -121,9 +121,7 @@ pub fn build_app(state: AppState, auth: ApiKeyAuth) -> Router {
         .layer(middleware::from_fn(
             xiaolin_security::rate_limit::rate_limit_middleware,
         ))
-        .layer(middleware::from_fn(
-            xiaolin_security::auth::auth_middleware,
-        ))
+        .layer(middleware::from_fn(xiaolin_security::auth::auth_middleware))
         .layer(Extension(auth))
         .layer(Extension(rate_limiter))
         .layer(TraceLayer::new_for_http())
@@ -303,7 +301,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let user_msg = xiaolin_core::types::ChatMessage {
                 role: xiaolin_core::types::Role::User,
                 content: Some(serde_json::Value::String(message.to_string())),
-            ..Default::default()
+                ..Default::default()
             };
             let _ = self
                 .state
@@ -393,7 +391,7 @@ fn spawn_cron_scheduler(state: AppState) {
             let assistant_msg = xiaolin_core::types::ChatMessage {
                 role: xiaolin_core::types::Role::Assistant,
                 content: Some(serde_json::Value::String(reply.clone())),
-            ..Default::default()
+                ..Default::default()
             };
             let _ = self
                 .state
@@ -403,10 +401,8 @@ fn spawn_cron_scheduler(state: AppState) {
                 .await;
             {
                 let turn_id = xiaolin_protocol::TurnId::generate();
-                let history_items = xiaolin_core::history_compat::chat_message_to_history(
-                    &assistant_msg,
-                    turn_id,
-                );
+                let history_items =
+                    xiaolin_core::history_compat::chat_message_to_history(&assistant_msg, turn_id);
                 if let Err(e) = self
                     .state
                     .store

@@ -185,7 +185,11 @@ async fn handle_slash_command(
     }
 
     if trimmed == "/model" || trimmed == "/model list" {
-        let current_override = state.ext.chat_model_overrides.get(chat_id).map(|v| v.clone());
+        let current_override = state
+            .ext
+            .chat_model_overrides
+            .get(chat_id)
+            .map(|v| v.clone());
         let agent_id_local = "main";
         let default_model = state
             .cfg
@@ -204,7 +208,10 @@ async fn handle_slash_command(
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_else(|| state.cfg.config.models.keys().cloned().collect());
 
-        let mut buf = format!("🤖 当前模型: **{}**\n", current_override.as_deref().unwrap_or(&default_model));
+        let mut buf = format!(
+            "🤖 当前模型: **{}**\n",
+            current_override.as_deref().unwrap_or(&default_model)
+        );
         if current_override.is_some() {
             buf.push_str(&format!("   (默认: {})\n", default_model));
         }
@@ -279,7 +286,9 @@ async fn handle_slash_command(
                 return Some(format!("📂 当前工作区: `{wd}`"));
             }
         }
-        return Some("📂 当前没有设置工作区。\n\n用法: `/workspace /path/to/project` 设置工作区".to_string());
+        return Some(
+            "📂 当前没有设置工作区。\n\n用法: `/workspace /path/to/project` 设置工作区".to_string(),
+        );
     }
 
     if let Some(rest) = trimmed.strip_prefix("/workspace ") {
@@ -305,7 +314,11 @@ async fn handle_slash_command(
         let session_key = xiaolin_core::routing::build_session_key(
             &dm_scope, agent_id, channel_id, account_id, chat_id, chat_type,
         );
-        let _ = state.store.session_store.update_work_dir(&session_key, Some(&ws_str)).await;
+        let _ = state
+            .store
+            .session_store
+            .update_work_dir(&session_key, Some(&ws_str))
+            .await;
         let _ = state.strm.ws_broadcast.send(
             serde_json::json!({"type":"event","event":"sessions.changed","data":{"sessionId": &session_key}}).to_string(),
         );
@@ -318,7 +331,11 @@ async fn handle_slash_command(
             std::env::current_dir().ok()
         } else {
             let p = std::path::PathBuf::from(path);
-            if p.exists() { Some(p) } else { None }
+            if p.exists() {
+                Some(p)
+            } else {
+                None
+            }
         };
         let Some(target) = target else {
             return Some(format!("❌ 路径不存在: `{path}`"));
@@ -337,10 +354,16 @@ async fn handle_slash_command(
             let cfg = serde_json::json!({
                 "// XiaoLin project-level configuration": "Override user/global settings for this project.",
             });
-            std::fs::write(xiaolin_dir.join("config.json"), serde_json::to_string_pretty(&cfg)? + "\n")?;
+            std::fs::write(
+                xiaolin_dir.join("config.json"),
+                serde_json::to_string_pretty(&cfg)? + "\n",
+            )?;
             created.push(".xiaolin/config.json".into());
             let mcp = serde_json::json!({ "mcpServers": {} });
-            std::fs::write(xiaolin_dir.join("mcp.json"), serde_json::to_string_pretty(&mcp)? + "\n")?;
+            std::fs::write(
+                xiaolin_dir.join("mcp.json"),
+                serde_json::to_string_pretty(&mcp)? + "\n",
+            )?;
             created.push(".xiaolin/mcp.json".into());
             Ok(created)
         })();
@@ -348,7 +371,11 @@ async fn handle_slash_command(
             Ok(created) => Some(format!(
                 "✅ 已在 `{}` 初始化 .xiaolin/\n\n创建:\n{}",
                 ws_root.display(),
-                created.iter().map(|f| format!("• `{f}`")).collect::<Vec<_>>().join("\n")
+                created
+                    .iter()
+                    .map(|f| format!("• `{f}`"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             )),
             Err(e) => Some(format!("❌ 初始化失败: {e}")),
         };
@@ -504,7 +531,7 @@ pub(crate) async fn handle_channel_message(
     let user_msg = ChatMessage {
         role: Role::User,
         content: Some(user_content),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store
@@ -606,7 +633,7 @@ pub(crate) async fn handle_channel_message(
         let assistant_msg = ChatMessage {
             role: Role::Assistant,
             content: Some(serde_json::Value::String(reply_text.clone())),
-        ..Default::default()
+            ..Default::default()
         };
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -646,7 +673,7 @@ pub(crate) async fn handle_channel_message(
             .unwrap_or(ChatMessage {
                 role: Role::Assistant,
                 content: Some(serde_json::Value::String(reply_text.clone())),
-            ..Default::default()
+                ..Default::default()
             });
         chat_pipeline::after_chat(&state, &setup, &assistant_msg, true)
             .await
@@ -703,7 +730,7 @@ fn inject_channel_context(
         ChatMessage {
             role: Role::System,
             content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
+            ..Default::default()
         },
     );
 }
@@ -851,7 +878,9 @@ fn friendly_tool_name(tool_name: &str) -> &'static str {
         "calculator" => "计算器",
         "get_current_time" => "获取时间",
         "todo_write" | "todo_read" => "待办事项",
-        "task_create" | "task_list" | "task_get" | "background_task_stop" | "task_update" => "任务管理",
+        "task_create" | "task_list" | "task_get" | "background_task_stop" | "task_update" => {
+            "任务管理"
+        }
         "task_stop" => "编排协调",
         "confirm" => "确认操作",
         "workspace_symbols" => "符号搜索",
@@ -893,66 +922,67 @@ fn tool_args_summary(tool_name: &str, args: Option<&str>) -> String {
         Err(_) => return String::new(),
     };
 
-    let summary = match tool_name {
-        "web_search" => parsed
-            .get(TOOL_ARG_KEY_QUERY)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "web_fetch" | "http_fetch" => parsed
-            .get(TOOL_ARG_KEY_URL)
-            .and_then(|v| v.as_str())
-            .map(|u| {
-                if u.len() > 50 {
-                    let end = u.floor_char_boundary(47);
-                    format!("{}...", &u[..end])
-                } else {
-                    u.to_string()
-                }
-            }),
-        "read_file" => parsed
-            .get(TOOL_ARG_KEY_PATH)
-            .and_then(|v| v.as_str())
-            .map(short_path),
-        "write_file" | "edit_file" | "multi_edit" | "apply_patch" => parsed
-            .get(TOOL_ARG_KEY_PATH)
-            .and_then(|v| v.as_str())
-            .map(short_path),
-        "search_in_files" | "glob" => parsed
-            .get(TOOL_ARG_KEY_PATTERN)
-            .or_else(|| parsed.get(TOOL_ARG_KEY_QUERY))
-            .or_else(|| parsed.get(TOOL_ARG_KEY_GLOB))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "list_directory" => parsed
-            .get(TOOL_ARG_KEY_PATH)
-            .and_then(|v| v.as_str())
-            .map(short_path),
-        "shell_exec" => parsed
-            .get(TOOL_ARG_KEY_COMMAND)
-            .and_then(|v| v.as_str())
-            .map(|c| {
-                if c.len() > 60 {
-                    let end = c.floor_char_boundary(57);
-                    format!("{}...", &c[..end])
-                } else {
-                    c.to_string()
-                }
-            }),
-        "git" => parsed
-            .get(TOOL_ARG_KEY_COMMAND)
-            .or_else(|| parsed.get(TOOL_ARG_KEY_ACTION))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "memory_search" => parsed
-            .get(TOOL_ARG_KEY_QUERY)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "browser" => parsed
-            .get(TOOL_ARG_KEY_ACTION)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        _ => None,
-    };
+    let summary =
+        match tool_name {
+            "web_search" => parsed
+                .get(TOOL_ARG_KEY_QUERY)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            "web_fetch" | "http_fetch" => parsed
+                .get(TOOL_ARG_KEY_URL)
+                .and_then(|v| v.as_str())
+                .map(|u| {
+                    if u.len() > 50 {
+                        let end = u.floor_char_boundary(47);
+                        format!("{}...", &u[..end])
+                    } else {
+                        u.to_string()
+                    }
+                }),
+            "read_file" => parsed
+                .get(TOOL_ARG_KEY_PATH)
+                .and_then(|v| v.as_str())
+                .map(short_path),
+            "write_file" | "edit_file" | "multi_edit" | "apply_patch" => parsed
+                .get(TOOL_ARG_KEY_PATH)
+                .and_then(|v| v.as_str())
+                .map(short_path),
+            "search_in_files" | "glob" => parsed
+                .get(TOOL_ARG_KEY_PATTERN)
+                .or_else(|| parsed.get(TOOL_ARG_KEY_QUERY))
+                .or_else(|| parsed.get(TOOL_ARG_KEY_GLOB))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            "list_directory" => parsed
+                .get(TOOL_ARG_KEY_PATH)
+                .and_then(|v| v.as_str())
+                .map(short_path),
+            "shell_exec" => parsed
+                .get(TOOL_ARG_KEY_COMMAND)
+                .and_then(|v| v.as_str())
+                .map(|c| {
+                    if c.len() > 60 {
+                        let end = c.floor_char_boundary(57);
+                        format!("{}...", &c[..end])
+                    } else {
+                        c.to_string()
+                    }
+                }),
+            "git" => parsed
+                .get(TOOL_ARG_KEY_COMMAND)
+                .or_else(|| parsed.get(TOOL_ARG_KEY_ACTION))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            "memory_search" => parsed
+                .get(TOOL_ARG_KEY_QUERY)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            "browser" => parsed
+                .get(TOOL_ARG_KEY_ACTION)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            _ => None,
+        };
 
     summary.unwrap_or_default()
 }
@@ -1202,7 +1232,8 @@ async fn handle_channel_streaming(
                                     Some(ChannelSegment::Thinking(ref mut t)) => {
                                         t.push_str(reasoning)
                                     }
-                                    _ => segments.push(ChannelSegment::Thinking(reasoning.to_string())),
+                                    _ => segments
+                                        .push(ChannelSegment::Thinking(reasoning.to_string())),
                                 }
                                 segments_dirty = true;
                             }
@@ -1396,7 +1427,8 @@ async fn handle_channel_streaming(
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "streaming: failed to send ask_question card, answering with fallback");
-                            let fallback_answer = options.first().map(|o| o.id.clone()).unwrap_or_default();
+                            let fallback_answer =
+                                options.first().map(|o| o.id.clone()).unwrap_or_default();
                             let _ = session_handle
                                 .submit(xiaolin_session_actor::SessionOp::ResolveAnswer {
                                     interaction_id: request_id.clone(),
@@ -1416,7 +1448,10 @@ async fn handle_channel_streaming(
                         .await;
                 }
             }
-            AgentEvent::TurnStart { session_id: Some(sid), .. } => {
+            AgentEvent::TurnStart {
+                session_id: Some(sid),
+                ..
+            } => {
                 tracing::debug!(session_id = %sid, "channel streaming: turn started");
             }
             AgentEvent::TurnStart { .. } => {}
@@ -1430,7 +1465,11 @@ async fn handle_channel_streaming(
                 );
                 break;
             }
-            AgentEvent::StreamError { message, retry_attempt, .. } => {
+            AgentEvent::StreamError {
+                message,
+                retry_attempt,
+                ..
+            } => {
                 if retry_attempt > 0 {
                     tracing::warn!(retry = retry_attempt, error = %message, "streaming: stream error (retrying)");
                 } else {
@@ -1708,12 +1747,7 @@ mod tests {
                 Some(200),
             ),
             text("I found two approaches."),
-            tool(
-                "shell_exec",
-                Some("npm install OK"),
-                Some(true),
-                Some(1500),
-            ),
+            tool("shell_exec", Some("npm install OK"), Some(true), Some(1500)),
             text("Done!"),
         ];
         let out = render_segments(&segs, false, &default_fmt());
@@ -1820,12 +1854,7 @@ mod tests {
 
     #[test]
     fn render_unknown_tool_uses_raw_name() {
-        let segs = vec![tool(
-            "custom_tool_xyz",
-            Some("ok"),
-            Some(true),
-            Some(50),
-        )];
+        let segs = vec![tool("custom_tool_xyz", Some("ok"), Some(true), Some(50))];
         let out = render_segments(&segs, false, &default_fmt());
         assert!(
             out.contains("custom_tool_xyz"),

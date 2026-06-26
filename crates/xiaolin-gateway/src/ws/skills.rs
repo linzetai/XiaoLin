@@ -5,7 +5,9 @@ use serde_json::json;
 
 use crate::state::AppState;
 use xiaolin_core::skill::SkillOrigin;
-use xiaolin_protocol::{SkillsDeleteParams, SkillsListParams, SkillsReadParams, SkillsUpdateParams};
+use xiaolin_protocol::{
+    SkillsDeleteParams, SkillsListParams, SkillsReadParams, SkillsUpdateParams,
+};
 
 use super::send_resp;
 use super::types::WsResponse;
@@ -59,8 +61,8 @@ pub async fn handle_skills_list(
         .list()
         .into_iter()
         .map(|s| {
-            let enabled = s.frontmatter.enabled.unwrap_or(true)
-                && !deny_set.contains(s.id.as_str());
+            let enabled =
+                s.frontmatter.enabled.unwrap_or(true) && !deny_set.contains(s.id.as_str());
             let origin = s
                 .source
                 .as_ref()
@@ -121,8 +123,8 @@ pub async fn handle_skills_read(
                 .as_ref()
                 .map(|src| origin_str(src.origin))
                 .unwrap_or("xiaolin");
-            let enabled = skill.frontmatter.enabled.unwrap_or(true)
-                && !deny_set.contains(skill.id.as_str());
+            let enabled =
+                skill.frontmatter.enabled.unwrap_or(true) && !deny_set.contains(skill.id.as_str());
             send_resp(
                 sender,
                 &WsResponse {
@@ -201,7 +203,9 @@ pub async fn handle_skills_update(
                 id: req_id,
                 msg_type: "skills.update".into(),
                 data: None,
-                error: Some(json!({"code": 403, "message": "cannot update skills owned by another tool"})),
+                error: Some(
+                    json!({"code": 403, "message": "cannot update skills owned by another tool"}),
+                ),
             },
         )
         .await;
@@ -230,7 +234,9 @@ pub async fn handle_skills_update(
                     id: req_id,
                     msg_type: "skills.update".into(),
                     data: None,
-                    error: Some(json!({"code": 500, "message": format!("failed to write skill: {}", e)})),
+                    error: Some(
+                        json!({"code": 500, "message": format!("failed to write skill: {}", e)}),
+                    ),
                 },
             )
             .await;
@@ -277,7 +283,9 @@ pub async fn handle_skills_delete(
                 id: req_id,
                 msg_type: "skills.delete".into(),
                 data: None,
-                error: Some(json!({"code": 403, "message": "cannot delete skills owned by another tool"})),
+                error: Some(
+                    json!({"code": 403, "message": "cannot delete skills owned by another tool"}),
+                ),
             },
         )
         .await;
@@ -285,10 +293,7 @@ pub async fn handle_skills_delete(
     }
 
     // Delete the entire skill directory (parent of SKILL.md)
-    let skill_dir = skill
-        .source_path
-        .parent()
-        .unwrap_or(&skill.source_path);
+    let skill_dir = skill.source_path.parent().unwrap_or(&skill.source_path);
 
     match std::fs::remove_dir_all(skill_dir) {
         Ok(()) => {
@@ -311,7 +316,9 @@ pub async fn handle_skills_delete(
                     id: req_id,
                     msg_type: "skills.delete".into(),
                     data: None,
-                    error: Some(json!({"code": 500, "message": format!("failed to delete skill: {}", e)})),
+                    error: Some(
+                        json!({"code": 500, "message": format!("failed to delete skill: {}", e)}),
+                    ),
                 },
             )
             .await;
@@ -345,7 +352,9 @@ pub async fn handle_skills_refresh(
                     id: req_id,
                     msg_type: "skills.refresh".into(),
                     data: Some(json!({"refreshed": false, "count": 0})),
-                    error: Some(json!({"code": 500, "message": format!("failed to reload skills: {}", e)})),
+                    error: Some(
+                        json!({"code": 500, "message": format!("failed to reload skills: {}", e)}),
+                    ),
                 },
             )
             .await;
@@ -408,12 +417,7 @@ pub async fn handle_evolution_list(
 
 /// Patterns in evolution skill strategy that indicate potentially unsafe content.
 /// Presence of these triggers a warning during `evolution.promote`.
-const UNSAFE_STRATEGY_PATTERNS: &[&str] = &[
-    "shell:",
-    "hooks:",
-    "shell_exec",
-    "execute_command",
-];
+const UNSAFE_STRATEGY_PATTERNS: &[&str] = &["shell:", "hooks:", "shell_exec", "execute_command"];
 
 /// Promote an evolution skill to a static SKILL.md file.
 pub async fn handle_evolution_promote(
@@ -446,7 +450,9 @@ pub async fn handle_evolution_promote(
                     id: req_id,
                     msg_type: "evolution.promote".into(),
                     data: None,
-                    error: Some(json!({"code": 500, "message": format!("failed to fetch skill: {}", e)})),
+                    error: Some(
+                        json!({"code": 500, "message": format!("failed to fetch skill: {}", e)}),
+                    ),
                 },
             )
             .await;
@@ -457,7 +463,13 @@ pub async fn handle_evolution_promote(
     let sanitized_name = skill
         .name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .to_lowercase();
     let skill_dir_name = if sanitized_name.is_empty() {

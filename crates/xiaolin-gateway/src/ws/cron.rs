@@ -72,7 +72,9 @@ pub async fn handle_cron_get_job(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": -32602, "message": format!("cron job not found: {job_id}")})),
+                    error: Some(
+                        json!({"code": -32602, "message": format!("cron job not found: {job_id}")}),
+                    ),
                 },
             )
             .await;
@@ -192,7 +194,12 @@ pub async fn handle_cron_list_runs(
     job_id: &str,
     limit: Option<i64>,
 ) {
-    match state.store.cron_store.list_runs(job_id, limit.unwrap_or(20)).await {
+    match state
+        .store
+        .cron_store
+        .list_runs(job_id, limit.unwrap_or(20))
+        .await
+    {
         Ok(runs) => {
             send_resp(
                 sender,

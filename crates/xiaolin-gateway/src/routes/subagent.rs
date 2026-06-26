@@ -86,9 +86,7 @@ pub fn subagent_def_to_json(d: &xiaolin_core::agent_config::SubAgentDef) -> serd
 }
 
 /// GET /api/v1/subagents/defs — list all sub-agent definitions
-pub async fn list_subagent_defs(
-    State(state): State<AppState>,
-) -> Json<serde_json::Value> {
+pub async fn list_subagent_defs(State(state): State<AppState>) -> Json<serde_json::Value> {
     let defs = state.strm.subagent_manager.subagent_defs();
     let agents: Vec<serde_json::Value> = defs.iter().map(subagent_def_to_json).collect();
     Json(serde_json::json!({ "agents": agents }))

@@ -54,10 +54,7 @@ pub enum HistoryItem {
     },
 
     /// Usage statistics for a turn.
-    TurnUsage {
-        turn_id: TurnId,
-        usage: TokenUsage,
-    },
+    TurnUsage { turn_id: TurnId, usage: TokenUsage },
 }
 
 impl HistoryItem {

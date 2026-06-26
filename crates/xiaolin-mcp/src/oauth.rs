@@ -1,5 +1,3 @@
-
-
 use base64::Engine;
 use sha2::Digest;
 
@@ -55,7 +53,8 @@ impl PkceChallenge {
         use rand::Rng;
         let mut rng = rand::rng();
         let verifier_bytes: Vec<u8> = (0..64).map(|_| rng.random::<u8>()).collect();
-        let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&verifier_bytes);
+        let code_verifier =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&verifier_bytes);
 
         let mut hasher = sha2::Sha256::new();
         hasher.update(code_verifier.as_bytes());
@@ -228,10 +227,9 @@ impl McpOAuthClient {
             .metadata
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("OAuth metadata not discovered yet"))?;
-        let endpoint = meta
-            .registration_endpoint
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("server does not support dynamic client registration"))?;
+        let endpoint = meta.registration_endpoint.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("server does not support dynamic client registration")
+        })?;
 
         let body = serde_json::json!({
             "client_name": "XiaoLin",
@@ -293,10 +291,8 @@ pub struct ClientRegistration {
 /// Returns `(redirect_uri, code_receiver)` where:
 /// - `redirect_uri` is `http://127.0.0.1:<port>/callback`
 /// - `code_receiver` is a oneshot receiver that yields `(code, state)` when the callback arrives
-pub async fn start_callback_server() -> anyhow::Result<(
-    String,
-    tokio::sync::oneshot::Receiver<(String, String)>,
-)> {
+pub async fn start_callback_server(
+) -> anyhow::Result<(String, tokio::sync::oneshot::Receiver<(String, String)>)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
@@ -347,9 +343,8 @@ async fn handle_callback_connection(
     let path = first_line.split_whitespace().nth(1).unwrap_or("");
 
     let fake_base = format!("http://localhost{path}");
-    let parsed = reqwest::Url::parse(&fake_base).unwrap_or_else(|_| {
-        reqwest::Url::parse("http://localhost/?code=&state=").unwrap()
-    });
+    let parsed = reqwest::Url::parse(&fake_base)
+        .unwrap_or_else(|_| reqwest::Url::parse("http://localhost/?code=&state=").unwrap());
     let mut code = String::new();
     let mut state = String::new();
     for (k, v) in parsed.query_pairs() {
@@ -500,9 +495,14 @@ mod tests {
             "response_types_supported": ["code"]
         }"#;
         let meta: OAuthMetadata = serde_json::from_str(json).unwrap();
-        assert_eq!(meta.authorization_endpoint, "https://auth.example.com/authorize");
+        assert_eq!(
+            meta.authorization_endpoint,
+            "https://auth.example.com/authorize"
+        );
         assert_eq!(meta.token_endpoint, "https://auth.example.com/token");
-        assert!(meta.code_challenge_methods_supported.contains(&"S256".to_string()));
+        assert!(meta
+            .code_challenge_methods_supported
+            .contains(&"S256".to_string()));
     }
 
     #[test]
@@ -625,7 +625,10 @@ mod tests {
         use axum::Router;
 
         async fn handle_register(_body: Bytes) -> (StatusCode, String) {
-            (StatusCode::BAD_REQUEST, r#"{"error":"invalid_client_metadata"}"#.into())
+            (
+                StatusCode::BAD_REQUEST,
+                r#"{"error":"invalid_client_metadata"}"#.into(),
+            )
         }
 
         let app = Router::new().route("/register", post(handle_register));
@@ -652,7 +655,10 @@ mod tests {
             .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("DCR failed") || err.contains("400"), "unexpected error: {err}");
+        assert!(
+            err.contains("DCR failed") || err.contains("400"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -705,7 +711,12 @@ mod tests {
         assert!(url.contains("client_id="));
 
         let url_explicit = client
-            .build_authorization_url(&pkce, "http://127.0.0.1:9999/callback", "test_state", Some("my-app"))
+            .build_authorization_url(
+                &pkce,
+                "http://127.0.0.1:9999/callback",
+                "test_state",
+                Some("my-app"),
+            )
             .unwrap();
         assert!(url_explicit.contains("client_id=my-app"));
     }

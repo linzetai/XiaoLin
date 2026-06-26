@@ -1,5 +1,5 @@
-mod session;
 mod manager;
+mod session;
 
-pub use session::{PtySession, PtySessionConfig, TrackedBroadcastReceiver};
 pub use manager::{PtySessionManager, SessionInfo};
+pub use session::{PtySession, PtySessionConfig, TrackedBroadcastReceiver};

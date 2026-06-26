@@ -69,7 +69,9 @@ pub async fn handle_agents_get(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 404, "message": format!("agent not found: {}", agent_id)})),
+                error: Some(
+                    json!({"code": 404, "message": format!("agent not found: {}", agent_id)}),
+                ),
             },
         )
         .await;
@@ -139,7 +141,9 @@ pub async fn handle_agents_create(
         return;
     };
 
-    let Ok(config) = serde_json::from_value::<xiaolin_core::agent_config::AgentConfig>(config_val.clone()) else {
+    let Ok(config) =
+        serde_json::from_value::<xiaolin_core::agent_config::AgentConfig>(config_val.clone())
+    else {
         send_resp(
             sender,
             &WsResponse {
@@ -180,7 +184,9 @@ pub async fn handle_agents_create(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 500, "message": format!("failed to write config: {}", e)})),
+                error: Some(
+                    json!({"code": 500, "message": format!("failed to write config: {}", e)}),
+                ),
             },
         )
         .await;
@@ -236,7 +242,9 @@ pub async fn handle_agents_update(
         return;
     };
 
-    let Ok(mut config) = serde_json::from_value::<xiaolin_core::agent_config::AgentConfig>(config_val.clone()) else {
+    let Ok(mut config) =
+        serde_json::from_value::<xiaolin_core::agent_config::AgentConfig>(config_val.clone())
+    else {
         send_resp(
             sender,
             &WsResponse {
@@ -263,7 +271,9 @@ pub async fn handle_agents_update(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": 404, "message": format!("agent not found: {}", agent_id)})),
+                    error: Some(
+                        json!({"code": 404, "message": format!("agent not found: {}", agent_id)}),
+                    ),
                 },
             )
             .await;
@@ -278,7 +288,9 @@ pub async fn handle_agents_update(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 500, "message": format!("failed to write config: {}", e)})),
+                error: Some(
+                    json!({"code": 500, "message": format!("failed to write config: {}", e)}),
+                ),
             },
         )
         .await;
@@ -332,7 +344,9 @@ pub async fn handle_agents_delete(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 400, "message": "refusing to delete the last remaining agent"})),
+                error: Some(
+                    json!({"code": 400, "message": "refusing to delete the last remaining agent"}),
+                ),
             },
         )
         .await;
@@ -340,8 +354,7 @@ pub async fn handle_agents_delete(
     }
 
     // Find the config file
-    let agents_dir =
-        xiaolin_core::paths::resolve_agents_dir_from(Some(&state.cfg.config.paths));
+    let agents_dir = xiaolin_core::paths::resolve_agents_dir_from(Some(&state.cfg.config.paths));
     let path = agents_dir.join(format!("{agent_id}.json"));
 
     if !path.exists() {
@@ -365,7 +378,9 @@ pub async fn handle_agents_delete(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 500, "message": format!("failed to remove config: {}", e)})),
+                error: Some(
+                    json!({"code": 500, "message": format!("failed to remove config: {}", e)}),
+                ),
             },
         )
         .await;
@@ -423,7 +438,9 @@ pub async fn handle_tools_list(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 404, "message": format!("agent not found: {}", agent_id)})),
+                error: Some(
+                    json!({"code": 404, "message": format!("agent not found: {}", agent_id)}),
+                ),
             },
         )
         .await;
@@ -548,7 +565,9 @@ pub async fn handle_tools_update(
                 id: req_id,
                 msg_type: "error".into(),
                 data: None,
-                error: Some(json!({"code": 500, "message": format!("failed to write config: {}", e)})),
+                error: Some(
+                    json!({"code": 500, "message": format!("failed to write config: {}", e)}),
+                ),
             },
         )
         .await;

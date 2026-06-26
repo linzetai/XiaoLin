@@ -130,7 +130,9 @@ pub async fn handle_automations_update(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": -32602, "message": format!("job not found: {job_id}")})),
+                    error: Some(
+                        json!({"code": -32602, "message": format!("job not found: {job_id}")}),
+                    ),
                 },
             )
             .await;
@@ -167,7 +169,9 @@ pub async fn handle_automations_update(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": -32602, "message": format!("invalid merged job: {e}")})),
+                    error: Some(
+                        json!({"code": -32602, "message": format!("invalid merged job: {e}")}),
+                    ),
                 },
             )
             .await;
@@ -255,7 +259,9 @@ pub async fn handle_automations_run_now(
                     id: req_id,
                     msg_type: "error".into(),
                     data: None,
-                    error: Some(json!({"code": -32602, "message": format!("job not found: {job_id}")})),
+                    error: Some(
+                        json!({"code": -32602, "message": format!("job not found: {job_id}")}),
+                    ),
                 },
             )
             .await;

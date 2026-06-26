@@ -99,12 +99,7 @@ impl EventFanout {
     }
 
     fn next_id(&self) -> u64 {
-        self.subscribers
-            .iter()
-            .map(|s| s.id)
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.subscribers.iter().map(|s| s.id).max().unwrap_or(0) + 1
     }
 }
 

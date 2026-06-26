@@ -50,7 +50,10 @@ pub enum ApprovalDecision {
 #[serde(tag = "action_type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PendingAction {
-    ShellCommand { command: String, cwd: String },
+    ShellCommand {
+        command: String,
+        cwd: String,
+    },
     FileWrite {
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,7 +64,10 @@ pub enum PendingAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
     },
-    NetworkAccess { host: String, port: u16 },
+    NetworkAccess {
+        host: String,
+        port: u16,
+    },
     McpToolCall {
         server_id: String,
         tool_name: String,

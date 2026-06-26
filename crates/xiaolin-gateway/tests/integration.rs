@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 
+use serde_json::{json, Value};
+use tokio::net::TcpListener;
 use xiaolin_agent::{CompletionParams, LlmProvider};
 use xiaolin_core::types::{ChatChoice, ChatResponse, DeltaContent, StreamChoice, StreamDelta};
 use xiaolin_gateway::{build_app, AppState};
 use xiaolin_security::{ApiKeyAuth, AuthConfig};
-use serde_json::{json, Value};
-use tokio::net::TcpListener;
 
 // ---------------------------------------------------------------------------
 // Mock LLM provider that returns a fixed response without network access
@@ -29,7 +29,7 @@ impl LlmProvider for MockProvider {
                 message: xiaolin_core::types::ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some("Hello from mock".into()),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -972,8 +972,8 @@ async fn feishu_plugin_ignores_non_text_messages() {
 
 #[tokio::test]
 async fn feishu_plugin_rejects_bad_token() {
-    use xiaolin_core::channel::ChannelPlugin;
     use std::collections::BTreeMap;
+    use xiaolin_core::channel::ChannelPlugin;
 
     let plugin = xiaolin_feishu::FeishuPlugin::new(xiaolin_feishu::FeishuPluginConfig {
         app_id: "cli_test".into(),
@@ -1170,8 +1170,8 @@ async fn feishu_messaging_inbound_parse() {
 
 #[tokio::test]
 async fn feishu_messaging_dedup() {
-    use xiaolin_feishu::messaging::inbound::MessageDedup;
     use std::time::Duration;
+    use xiaolin_feishu::messaging::inbound::MessageDedup;
 
     let mut dedup = MessageDedup::new(Duration::from_secs(5));
     assert!(dedup.check("om_1"), "first occurrence should be new");

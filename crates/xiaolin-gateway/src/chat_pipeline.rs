@@ -95,9 +95,7 @@ pub async fn setup_chat(
             .agent_by_id("main")
             .or_else(|| router.list_agents().into_iter().next())
             .cloned()
-            .ok_or_else(|| {
-                map_router_resolve_err(anyhow::anyhow!("no main agent configured"))
-            })?
+            .ok_or_else(|| map_router_resolve_err(anyhow::anyhow!("no main agent configured")))?
     };
     let agent_id = agent_config.agent_id.clone();
     tracing::info!(
@@ -149,7 +147,11 @@ pub async fn setup_chat(
             let _ = state.strm.ws_broadcast.send(
                 serde_json::json!({"type":"event","event":"sessions.changed","data":{"sessionId": &session_id}}).to_string(),
             );
-            state.strm.git_watcher_manager.ensure_watcher(&project.id, &std::path::PathBuf::from(wd)).await;
+            state
+                .strm
+                .git_watcher_manager
+                .ensure_watcher(&project.id, &std::path::PathBuf::from(wd))
+                .await;
         }
     }
 
@@ -251,14 +253,14 @@ pub async fn setup_chat(
                  The compression pipeline will force-compress regardless of threshold."
                     .to_string(),
             )),
-        ..Default::default()
+            ..Default::default()
         });
     }
 
     // Detect /skillify in user message text.
-    let is_skillify_request = user_messages.iter().any(|m| {
-        m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/skillify")
-    });
+    let is_skillify_request = user_messages
+        .iter()
+        .any(|m| m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/skillify"));
     if is_skillify_request {
         if let Some(last_user) = enriched_request.messages.iter_mut().rev().find(|m| {
             m.role == Role::User && m.text_content().is_some_and(|t| t.trim() == "/skillify")
@@ -435,10 +437,17 @@ pub async fn setup_chat(
             // Intersect: keep only tools in both lists
             let skill_set: std::collections::HashSet<&str> =
                 allowed_tools.iter().map(|s| s.as_str()).collect();
-            agent_config.behavior.tools_allow.retain(|t| skill_set.contains(t.as_str()));
+            agent_config
+                .behavior
+                .tools_allow
+                .retain(|t| skill_set.contains(t.as_str()));
         }
         // Always allow the skill tool itself so agent can read other skills
-        if !agent_config.behavior.tools_allow.contains(&"skill".to_string()) {
+        if !agent_config
+            .behavior
+            .tools_allow
+            .contains(&"skill".to_string())
+        {
             agent_config.behavior.tools_allow.push("skill".to_string());
         }
         tracing::info!(
@@ -680,12 +689,13 @@ async fn inject_skills_prompt(
             .workspaces
             .get(agent_id)
             .map(|ws| ws.root.clone())
-            .unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or(state_dir)
-            });
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or(state_dir));
         let ws_files = xiaolin_core::skill::scan_workspace_top_files(&ws_root, 50);
         if !ws_files.is_empty() {
-            tracing::debug!(count = ws_files.len(), "first-turn workspace file scan for conditional skills");
+            tracing::debug!(
+                count = ws_files.len(),
+                "first-turn workspace file scan for conditional skills"
+            );
         }
         touched = ws_files;
     }
@@ -702,7 +712,11 @@ async fn inject_skills_prompt(
         );
         tracing::debug!(
             total = agent_skill_reg.count(),
-            unconditional = agent_skill_reg.list().iter().filter(|s| !s.is_conditional()).count(),
+            unconditional = agent_skill_reg
+                .list()
+                .iter()
+                .filter(|s| !s.is_conditional())
+                .count(),
             conditional_activated,
             touched_paths = touched.len(),
             "conditional skill activation applied"
@@ -1002,7 +1016,7 @@ fn spawn_trace_write(state: &AppState, setup: &ChatSetup, assistant: &ChatMessag
     let user_msg = setup.user_messages.last().cloned().unwrap_or(ChatMessage {
         role: Role::User,
         content: None,
-    ..Default::default()
+        ..Default::default()
     });
     let assistant_msg = assistant.clone();
 
@@ -1096,14 +1110,14 @@ pub async fn generate_smart_title(
                  Reply with ONLY the title, no quotes, no explanation."
                     .to_string(),
             )),
-        ..Default::default()
+            ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(format!(
                 "User: {user_preview}\nAssistant: {assistant_preview}"
             ))),
-        ..Default::default()
+            ..Default::default()
         },
     ];
 

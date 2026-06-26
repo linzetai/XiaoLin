@@ -361,7 +361,10 @@ pub fn broadcast_status_changed(state: &AppState) {
     let mut seen = std::collections::HashSet::new();
     let mut plugins: Vec<serde_json::Value> = status_map
         .iter()
-        .map(|(id, st)| { seen.insert(id.clone()); enrich_status(id, st, &project_ids) })
+        .map(|(id, st)| {
+            seen.insert(id.clone());
+            enrich_status(id, st, &project_ids)
+        })
         .collect();
 
     let live = state.cfg.config_live.load();
@@ -469,7 +472,10 @@ pub async fn handle_plugins_oauth_login(
     let state_param = format!("xiaolin_{}", chrono::Utc::now().timestamp_millis());
 
     let dcr_client_id: Option<String> = if oauth_client.supports_dcr() {
-        match oauth_client.register_client(std::slice::from_ref(&redirect_uri)).await {
+        match oauth_client
+            .register_client(std::slice::from_ref(&redirect_uri))
+            .await
+        {
             Ok(reg) => {
                 tracing::info!(
                     server = %plugin_id, client_id = %reg.client_id,
@@ -498,15 +504,15 @@ pub async fn handle_plugins_oauth_login(
         None
     };
 
-    let auth_url = match oauth_client.build_authorization_url(&pkce, &redirect_uri, &state_param, dcr_client_id.as_deref()) {
+    let auth_url = match oauth_client.build_authorization_url(
+        &pkce,
+        &redirect_uri,
+        &state_param,
+        dcr_client_id.as_deref(),
+    ) {
         Ok(u) => u,
         Err(e) => {
-            send_error(
-                sender,
-                req_id,
-                &format!("failed to build auth URL: {e}"),
-            )
-            .await;
+            send_error(sender, req_id, &format!("failed to build auth URL: {e}")).await;
             return;
         }
     };

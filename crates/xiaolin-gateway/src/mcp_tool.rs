@@ -267,8 +267,7 @@ impl ManageMcpServerTool {
             }
 
             let tc_before = self.tool_registry.len();
-            let connect_result =
-                xiaolin_mcp::connect_mcp_server(cfg, &self.tool_registry).await;
+            let connect_result = xiaolin_mcp::connect_mcp_server(cfg, &self.tool_registry).await;
             match connect_result {
                 Ok(handle) => {
                     let tool_count = self.tool_registry.len() - tc_before;

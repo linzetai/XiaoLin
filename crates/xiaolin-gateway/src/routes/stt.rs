@@ -224,13 +224,11 @@ fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResponse, String> 
 }
 
 fn extract_boundary(content_type: &str) -> Option<String> {
-    content_type
-        .split(';')
-        .find_map(|part| {
-            let part = part.trim();
-            part.strip_prefix("boundary=")
-                .map(|s| s.trim_matches('"').to_string())
-        })
+    content_type.split(';').find_map(|part| {
+        let part = part.trim();
+        part.strip_prefix("boundary=")
+            .map(|s| s.trim_matches('"').to_string())
+    })
 }
 
 fn extract_file_part(body: &[u8], boundary: &str) -> Option<Vec<u8>> {

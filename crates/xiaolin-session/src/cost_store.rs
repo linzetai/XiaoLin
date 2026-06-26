@@ -232,10 +232,7 @@ impl CostStore {
         Ok(rows)
     }
 
-    pub async fn query_sessions(
-        &self,
-        limit: i64,
-    ) -> anyhow::Result<Vec<SessionCostSummary>> {
+    pub async fn query_sessions(&self, limit: i64) -> anyhow::Result<Vec<SessionCostSummary>> {
         let rows = sqlx::query_as::<_, SessionCostSummary>(
             "SELECT session_id, started_at, ended_at, total_cost_usd, total_input_tokens, total_output_tokens, turn_count, model_breakdown
              FROM session_cost_summary
@@ -251,11 +248,10 @@ impl CostStore {
     pub async fn query_summary(&self, budget_limit: Option<f64>) -> anyhow::Result<CostSummary> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-        let total: (f64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(cost_usd), 0.0) FROM token_usage_daily",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let total: (f64,) =
+            sqlx::query_as("SELECT COALESCE(SUM(cost_usd), 0.0) FROM token_usage_daily")
+                .fetch_one(&self.pool)
+                .await?;
 
         let today_cost: (f64,) = sqlx::query_as(
             "SELECT COALESCE(SUM(cost_usd), 0.0) FROM token_usage_daily WHERE date = ?1",

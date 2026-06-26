@@ -6,7 +6,7 @@ use sqlx::sqlite::SqlitePool;
 use tokio::sync::mpsc;
 use xiaolin_protocol::AgentEvent;
 
-use crate::search_index::{SearchIndex, try_index_event};
+use crate::search_index::{try_index_event, SearchIndex};
 
 const BATCH_CAPACITY: usize = 2048;
 const BATCH_SIZE: usize = 64;
@@ -99,7 +99,9 @@ impl EventLog {
                         match tokio::time::timeout(ENQUEUE_TIMEOUT, tx.send(entry)).await {
                             Ok(Ok(())) => {}
                             Ok(Err(_)) => {
-                                tracing::warn!("event_log: channel closed while waiting to enqueue");
+                                tracing::warn!(
+                                    "event_log: channel closed while waiting to enqueue"
+                                );
                             }
                             Err(_) => {
                                 tracing::warn!("event_log: timed out waiting to enqueue event");
@@ -150,16 +152,12 @@ impl EventLog {
             .collect()
     }
 
-    pub async fn events_for_session(
-        &self,
-        session_id: &str,
-    ) -> anyhow::Result<Vec<AgentEvent>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT event_json FROM event_log WHERE session_id = ? ORDER BY id",
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn events_for_session(&self, session_id: &str) -> anyhow::Result<Vec<AgentEvent>> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT event_json FROM event_log WHERE session_id = ? ORDER BY id")
+                .bind(session_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         rows.iter()
             .map(|(json,)| serde_json::from_str(json).map_err(Into::into))
@@ -293,13 +291,7 @@ async fn flush_batch(
                         &entry.turn_id,
                     ) {
                         if let Err(e) = index
-                            .index_row(
-                                &entry.session_id,
-                                &entry.turn_id,
-                                &role,
-                                &content,
-                                None,
-                            )
+                            .index_row(&entry.session_id, &entry.turn_id, &role, &content, None)
                             .await
                         {
                             tracing::warn!(

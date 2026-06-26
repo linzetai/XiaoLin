@@ -66,7 +66,9 @@ pub enum SessionOp {
     },
 
     /// Inject input into an in-flight turn (mid-turn steering).
-    SteerInput { messages: Vec<crate::turn::SteerMessage> },
+    SteerInput {
+        messages: Vec<crate::turn::SteerMessage>,
+    },
 
     /// Trigger context compaction.
     Compact,
