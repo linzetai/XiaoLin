@@ -39,7 +39,6 @@ impl ModelStats {
         }
         self.total_cache_read_tokens as f64 / self.total_prompt_tokens as f64
     }
-
 }
 
 #[cfg(test)]
@@ -79,94 +78,309 @@ impl ModelCostRate {
         };
 
         // DeepSeek V4 — cache hit reduced to 2% of input on 2026-04-26
-        add(&mut m, &["deepseek-v4-flash", "deepseek/deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"], ModelCostRate {
-            input_per_1m: 0.14, output_per_1m: 0.28, cache_read_per_1m: 0.0028, cache_write_per_1m: 0.14,
-        });
-        add(&mut m, &["deepseek-v4-pro", "deepseek/deepseek-v4-pro"], ModelCostRate {
-            input_per_1m: 0.435, output_per_1m: 0.87, cache_read_per_1m: 0.003625, cache_write_per_1m: 0.435,
-        });
+        add(
+            &mut m,
+            &[
+                "deepseek-v4-flash",
+                "deepseek/deepseek-v4-flash",
+                "deepseek-chat",
+                "deepseek-reasoner",
+            ],
+            ModelCostRate {
+                input_per_1m: 0.14,
+                output_per_1m: 0.28,
+                cache_read_per_1m: 0.0028,
+                cache_write_per_1m: 0.14,
+            },
+        );
+        add(
+            &mut m,
+            &["deepseek-v4-pro", "deepseek/deepseek-v4-pro"],
+            ModelCostRate {
+                input_per_1m: 0.435,
+                output_per_1m: 0.87,
+                cache_read_per_1m: 0.003625,
+                cache_write_per_1m: 0.435,
+            },
+        );
         // Anthropic Claude — cache read = 10% of input, 5-min write = 125% of input
-        add(&mut m, &["claude-sonnet-4-6", "claude-sonnet-4-6-20250514", "claude-sonnet-4-5", "claude-sonnet-4-20250514", "anthropic/claude-sonnet-4-6"], ModelCostRate {
-            input_per_1m: 3.0, output_per_1m: 15.0, cache_read_per_1m: 0.30, cache_write_per_1m: 3.75,
-        });
-        add(&mut m, &["claude-opus-4-7", "claude-opus-4-8", "claude-opus-4-6", "anthropic/claude-opus-4-7"], ModelCostRate {
-            input_per_1m: 5.0, output_per_1m: 25.0, cache_read_per_1m: 0.50, cache_write_per_1m: 6.25,
-        });
-        add(&mut m, &["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-3-5-haiku-20241022"], ModelCostRate {
-            input_per_1m: 1.0, output_per_1m: 5.0, cache_read_per_1m: 0.10, cache_write_per_1m: 1.25,
-        });
+        add(
+            &mut m,
+            &[
+                "claude-sonnet-4-6",
+                "claude-sonnet-4-6-20250514",
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-20250514",
+                "anthropic/claude-sonnet-4-6",
+            ],
+            ModelCostRate {
+                input_per_1m: 3.0,
+                output_per_1m: 15.0,
+                cache_read_per_1m: 0.30,
+                cache_write_per_1m: 3.75,
+            },
+        );
+        add(
+            &mut m,
+            &[
+                "claude-opus-4-7",
+                "claude-opus-4-8",
+                "claude-opus-4-6",
+                "anthropic/claude-opus-4-7",
+            ],
+            ModelCostRate {
+                input_per_1m: 5.0,
+                output_per_1m: 25.0,
+                cache_read_per_1m: 0.50,
+                cache_write_per_1m: 6.25,
+            },
+        );
+        add(
+            &mut m,
+            &[
+                "claude-haiku-4-5",
+                "claude-haiku-4-5-20251001",
+                "claude-3-5-haiku-20241022",
+            ],
+            ModelCostRate {
+                input_per_1m: 1.0,
+                output_per_1m: 5.0,
+                cache_read_per_1m: 0.10,
+                cache_write_per_1m: 1.25,
+            },
+        );
         // OpenAI — cache read = 50% of input (GPT-4o/mini), 75-90% off (newer models)
-        add(&mut m, &["gpt-4o", "openai/gpt-4o"], ModelCostRate {
-            input_per_1m: 2.50, output_per_1m: 10.0, cache_read_per_1m: 1.25, cache_write_per_1m: 2.50,
-        });
-        add(&mut m, &["gpt-4o-mini", "openai/gpt-4o-mini"], ModelCostRate {
-            input_per_1m: 0.15, output_per_1m: 0.60, cache_read_per_1m: 0.075, cache_write_per_1m: 0.15,
-        });
-        add(&mut m, &["gpt-4.1", "openai/gpt-4.1"], ModelCostRate {
-            input_per_1m: 2.0, output_per_1m: 8.0, cache_read_per_1m: 0.50, cache_write_per_1m: 2.0,
-        });
-        add(&mut m, &["gpt-4.1-mini", "openai/gpt-4.1-mini"], ModelCostRate {
-            input_per_1m: 0.40, output_per_1m: 1.60, cache_read_per_1m: 0.10, cache_write_per_1m: 0.40,
-        });
-        add(&mut m, &["gpt-4.1-nano", "openai/gpt-4.1-nano"], ModelCostRate {
-            input_per_1m: 0.10, output_per_1m: 0.40, cache_read_per_1m: 0.025, cache_write_per_1m: 0.10,
-        });
-        add(&mut m, &["gpt-5", "openai/gpt-5"], ModelCostRate {
-            input_per_1m: 1.25, output_per_1m: 10.0, cache_read_per_1m: 0.125, cache_write_per_1m: 1.25,
-        });
-        add(&mut m, &["gpt-5-mini", "openai/gpt-5-mini"], ModelCostRate {
-            input_per_1m: 0.25, output_per_1m: 2.0, cache_read_per_1m: 0.025, cache_write_per_1m: 0.25,
-        });
-        add(&mut m, &["gpt-5.5", "openai/gpt-5.5"], ModelCostRate {
-            input_per_1m: 5.0, output_per_1m: 30.0, cache_read_per_1m: 0.50, cache_write_per_1m: 5.0,
-        });
-        add(&mut m, &["gpt-5.4", "openai/gpt-5.4"], ModelCostRate {
-            input_per_1m: 2.50, output_per_1m: 15.0, cache_read_per_1m: 0.25, cache_write_per_1m: 2.50,
-        });
+        add(
+            &mut m,
+            &["gpt-4o", "openai/gpt-4o"],
+            ModelCostRate {
+                input_per_1m: 2.50,
+                output_per_1m: 10.0,
+                cache_read_per_1m: 1.25,
+                cache_write_per_1m: 2.50,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-4o-mini", "openai/gpt-4o-mini"],
+            ModelCostRate {
+                input_per_1m: 0.15,
+                output_per_1m: 0.60,
+                cache_read_per_1m: 0.075,
+                cache_write_per_1m: 0.15,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-4.1", "openai/gpt-4.1"],
+            ModelCostRate {
+                input_per_1m: 2.0,
+                output_per_1m: 8.0,
+                cache_read_per_1m: 0.50,
+                cache_write_per_1m: 2.0,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-4.1-mini", "openai/gpt-4.1-mini"],
+            ModelCostRate {
+                input_per_1m: 0.40,
+                output_per_1m: 1.60,
+                cache_read_per_1m: 0.10,
+                cache_write_per_1m: 0.40,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-4.1-nano", "openai/gpt-4.1-nano"],
+            ModelCostRate {
+                input_per_1m: 0.10,
+                output_per_1m: 0.40,
+                cache_read_per_1m: 0.025,
+                cache_write_per_1m: 0.10,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-5", "openai/gpt-5"],
+            ModelCostRate {
+                input_per_1m: 1.25,
+                output_per_1m: 10.0,
+                cache_read_per_1m: 0.125,
+                cache_write_per_1m: 1.25,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-5-mini", "openai/gpt-5-mini"],
+            ModelCostRate {
+                input_per_1m: 0.25,
+                output_per_1m: 2.0,
+                cache_read_per_1m: 0.025,
+                cache_write_per_1m: 0.25,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-5.5", "openai/gpt-5.5"],
+            ModelCostRate {
+                input_per_1m: 5.0,
+                output_per_1m: 30.0,
+                cache_read_per_1m: 0.50,
+                cache_write_per_1m: 5.0,
+            },
+        );
+        add(
+            &mut m,
+            &["gpt-5.4", "openai/gpt-5.4"],
+            ModelCostRate {
+                input_per_1m: 2.50,
+                output_per_1m: 15.0,
+                cache_read_per_1m: 0.25,
+                cache_write_per_1m: 2.50,
+            },
+        );
         // Alibaba Qwen — cache hit = 10% of input (prices in USD converted from CNY at ~7.2)
-        add(&mut m, &["qwen3-max", "qwen3.7-max", "ali/qwen3-max", "alibaba/qwen3-max", "ali/qwen3.7-max"], ModelCostRate {
-            input_per_1m: 0.35, output_per_1m: 1.39, cache_read_per_1m: 0.035, cache_write_per_1m: 0.44,
-        });
-        add(&mut m, &["qwen3.5-plus", "ali/qwen3.5-plus", "alibaba/qwen3.5-plus"], ModelCostRate {
-            input_per_1m: 0.11, output_per_1m: 0.67, cache_read_per_1m: 0.011, cache_write_per_1m: 0.14,
-        });
+        add(
+            &mut m,
+            &[
+                "qwen3-max",
+                "qwen3.7-max",
+                "ali/qwen3-max",
+                "alibaba/qwen3-max",
+                "ali/qwen3.7-max",
+            ],
+            ModelCostRate {
+                input_per_1m: 0.35,
+                output_per_1m: 1.39,
+                cache_read_per_1m: 0.035,
+                cache_write_per_1m: 0.44,
+            },
+        );
+        add(
+            &mut m,
+            &["qwen3.5-plus", "ali/qwen3.5-plus", "alibaba/qwen3.5-plus"],
+            ModelCostRate {
+                input_per_1m: 0.11,
+                output_per_1m: 0.67,
+                cache_read_per_1m: 0.011,
+                cache_write_per_1m: 0.14,
+            },
+        );
         // Zhipu GLM — cache read ~20% of input, storage free (limited time)
-        add(&mut m, &["glm-5.1", "zhipu/glm-5.1"], ModelCostRate {
-            input_per_1m: 1.40, output_per_1m: 4.40, cache_read_per_1m: 0.26, cache_write_per_1m: 1.40,
-        });
-        add(&mut m, &["glm-5", "zhipu/glm-5"], ModelCostRate {
-            input_per_1m: 1.00, output_per_1m: 3.20, cache_read_per_1m: 0.20, cache_write_per_1m: 1.00,
-        });
-        add(&mut m, &["glm-4.7", "zhipu/glm-4.7"], ModelCostRate {
-            input_per_1m: 0.60, output_per_1m: 2.20, cache_read_per_1m: 0.11, cache_write_per_1m: 0.60,
-        });
-        add(&mut m, &["glm-4.7-flash", "zhipu/glm-4.7-flash"], ModelCostRate {
-            input_per_1m: 0.0, output_per_1m: 0.0, cache_read_per_1m: 0.0, cache_write_per_1m: 0.0,
-        });
+        add(
+            &mut m,
+            &["glm-5.1", "zhipu/glm-5.1"],
+            ModelCostRate {
+                input_per_1m: 1.40,
+                output_per_1m: 4.40,
+                cache_read_per_1m: 0.26,
+                cache_write_per_1m: 1.40,
+            },
+        );
+        add(
+            &mut m,
+            &["glm-5", "zhipu/glm-5"],
+            ModelCostRate {
+                input_per_1m: 1.00,
+                output_per_1m: 3.20,
+                cache_read_per_1m: 0.20,
+                cache_write_per_1m: 1.00,
+            },
+        );
+        add(
+            &mut m,
+            &["glm-4.7", "zhipu/glm-4.7"],
+            ModelCostRate {
+                input_per_1m: 0.60,
+                output_per_1m: 2.20,
+                cache_read_per_1m: 0.11,
+                cache_write_per_1m: 0.60,
+            },
+        );
+        add(
+            &mut m,
+            &["glm-4.7-flash", "zhipu/glm-4.7-flash"],
+            ModelCostRate {
+                input_per_1m: 0.0,
+                output_per_1m: 0.0,
+                cache_read_per_1m: 0.0,
+                cache_write_per_1m: 0.0,
+            },
+        );
         // ByteDance Doubao/Seed — cache hit = 20% of input (via Volcano Ark, CNY/7.1)
-        add(&mut m, &["doubao-seed-2.0-pro", "bytedance/doubao-seed-2.0-pro"], ModelCostRate {
-            input_per_1m: 0.45, output_per_1m: 2.25, cache_read_per_1m: 0.09, cache_write_per_1m: 0.45,
-        });
-        add(&mut m, &["doubao-seed-2.0-lite", "bytedance/doubao-seed-2.0-lite"], ModelCostRate {
-            input_per_1m: 0.085, output_per_1m: 0.51, cache_read_per_1m: 0.017, cache_write_per_1m: 0.085,
-        });
-        add(&mut m, &["doubao-seed-1.6", "bytedance/doubao-seed-1.6"], ModelCostRate {
-            input_per_1m: 0.113, output_per_1m: 1.13, cache_read_per_1m: 0.023, cache_write_per_1m: 0.113,
-        });
-        add(&mut m, &["doubao-seed-1.6-flash", "bytedance/doubao-seed-1.6-flash"], ModelCostRate {
-            input_per_1m: 0.022, output_per_1m: 0.22, cache_read_per_1m: 0.004, cache_write_per_1m: 0.022,
-        });
+        add(
+            &mut m,
+            &["doubao-seed-2.0-pro", "bytedance/doubao-seed-2.0-pro"],
+            ModelCostRate {
+                input_per_1m: 0.45,
+                output_per_1m: 2.25,
+                cache_read_per_1m: 0.09,
+                cache_write_per_1m: 0.45,
+            },
+        );
+        add(
+            &mut m,
+            &["doubao-seed-2.0-lite", "bytedance/doubao-seed-2.0-lite"],
+            ModelCostRate {
+                input_per_1m: 0.085,
+                output_per_1m: 0.51,
+                cache_read_per_1m: 0.017,
+                cache_write_per_1m: 0.085,
+            },
+        );
+        add(
+            &mut m,
+            &["doubao-seed-1.6", "bytedance/doubao-seed-1.6"],
+            ModelCostRate {
+                input_per_1m: 0.113,
+                output_per_1m: 1.13,
+                cache_read_per_1m: 0.023,
+                cache_write_per_1m: 0.113,
+            },
+        );
+        add(
+            &mut m,
+            &["doubao-seed-1.6-flash", "bytedance/doubao-seed-1.6-flash"],
+            ModelCostRate {
+                input_per_1m: 0.022,
+                output_per_1m: 0.22,
+                cache_read_per_1m: 0.004,
+                cache_write_per_1m: 0.022,
+            },
+        );
         // Moonshot Kimi
-        add(&mut m, &["kimi-k2", "moonshot/kimi-k2"], ModelCostRate {
-            input_per_1m: 0.60, output_per_1m: 2.40, cache_read_per_1m: 0.12, cache_write_per_1m: 0.60,
-        });
+        add(
+            &mut m,
+            &["kimi-k2", "moonshot/kimi-k2"],
+            ModelCostRate {
+                input_per_1m: 0.60,
+                output_per_1m: 2.40,
+                cache_read_per_1m: 0.12,
+                cache_write_per_1m: 0.60,
+            },
+        );
         // Google Gemini
-        add(&mut m, &["gemini-2.5-pro", "google/gemini-2.5-pro"], ModelCostRate {
-            input_per_1m: 1.25, output_per_1m: 10.0, cache_read_per_1m: 0.315, cache_write_per_1m: 1.25,
-        });
-        add(&mut m, &["gemini-2.5-flash", "google/gemini-2.5-flash"], ModelCostRate {
-            input_per_1m: 0.15, output_per_1m: 0.60, cache_read_per_1m: 0.03, cache_write_per_1m: 0.15,
-        });
+        add(
+            &mut m,
+            &["gemini-2.5-pro", "google/gemini-2.5-pro"],
+            ModelCostRate {
+                input_per_1m: 1.25,
+                output_per_1m: 10.0,
+                cache_read_per_1m: 0.315,
+                cache_write_per_1m: 1.25,
+            },
+        );
+        add(
+            &mut m,
+            &["gemini-2.5-flash", "google/gemini-2.5-flash"],
+            ModelCostRate {
+                input_per_1m: 0.15,
+                output_per_1m: 0.60,
+                cache_read_per_1m: 0.03,
+                cache_write_per_1m: 0.15,
+            },
+        );
 
         m
     }

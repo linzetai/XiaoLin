@@ -23,6 +23,7 @@ pub mod protected_metadata;
 pub mod routing;
 
 pub use routing::Router;
+pub mod history_compat;
 pub mod migration;
 pub mod rules;
 pub mod skill;
@@ -30,9 +31,8 @@ pub mod skill_embedding;
 pub mod skill_usage;
 pub mod tool;
 pub mod tool_runtime;
-pub mod types;
-pub mod history_compat;
 pub mod typed_turn_data;
+pub mod types;
 pub mod workspace;
 
 /// Re-export all protocol types so downstream crates can keep using

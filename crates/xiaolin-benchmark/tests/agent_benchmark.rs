@@ -37,8 +37,8 @@ async fn benchmark_pipeline_smoke_test() {
     assert_eq!(lines.len(), tasks.len());
 
     for line in &lines {
-        let _: serde_json::Value = serde_json::from_str(line)
-            .expect("Each line should be valid JSON");
+        let _: serde_json::Value =
+            serde_json::from_str(line).expect("Each line should be valid JSON");
     }
 }
 
@@ -114,6 +114,11 @@ async fn replay_executor_with_fixture() {
     let report = runner.run(&[task], &executor, tmp.path()).await;
 
     assert_eq!(report.total(), 1);
-    assert_eq!(report.passed(), 1, "Task should pass; graders: {:?}", report.tasks[0].graders);
+    assert_eq!(
+        report.passed(),
+        1,
+        "Task should pass; graders: {:?}",
+        report.tasks[0].graders
+    );
     assert!(report.tasks[0].pass);
 }

@@ -71,15 +71,13 @@ impl PlanArgInterceptor {
                         return Vec::new();
                     }
                 }
-                JsonEvent::ContentDelta(text) => {
-                    match self.state {
-                        InterceptState::Extracting => deltas.push(text),
-                        InterceptState::AwaitingPath => {
-                            self.json_parser.buffer_content(text);
-                        }
-                        _ => {}
+                JsonEvent::ContentDelta(text) => match self.state {
+                    InterceptState::Extracting => deltas.push(text),
+                    InterceptState::AwaitingPath => {
+                        self.json_parser.buffer_content(text);
                     }
-                }
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -106,9 +104,7 @@ impl PlanArgInterceptor {
             if plan_name == cand_name {
                 let plan_str = self.plan_file_path.to_string_lossy();
                 let cand_str = candidate.to_string_lossy();
-                if plan_str.ends_with(cand_str.as_ref())
-                    || cand_str.ends_with(plan_str.as_ref())
-                {
+                if plan_str.ends_with(cand_str.as_ref()) || cand_str.ends_with(plan_str.as_ref()) {
                     return true;
                 }
             }
@@ -495,7 +491,10 @@ mod tests {
         let json = r#"{"content": "should be discarded", "file_path": "/tmp/other.md"}"#;
         let deltas = interceptor.feed(json);
 
-        assert!(deltas.is_empty(), "non-matching path should discard buffered content");
+        assert!(
+            deltas.is_empty(),
+            "non-matching path should discard buffered content"
+        );
     }
 
     #[test]

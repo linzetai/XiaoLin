@@ -71,10 +71,7 @@ impl RunMetrics {
         if self.iterations == 0 {
             return 0.0;
         }
-        let total = self
-            .token_usage
-            .as_ref()
-            .map_or(0, |u| u.total_tokens);
+        let total = self.token_usage.as_ref().map_or(0, |u| u.total_tokens);
         f64::from(total) / f64::from(self.iterations)
     }
 }

@@ -12,8 +12,8 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use xiaolin_core::types::{ChatMessage, Role};
 use serde_json::json;
+use xiaolin_core::types::{ChatMessage, Role};
 
 /// Maximum number of recent files to restore after compaction.
 /// Matches Claude-Code's POST_COMPACT_MAX_FILES_TO_RESTORE.
@@ -132,7 +132,8 @@ impl RestorationState {
     /// Record a deferred tool activation so it can be restored after compaction.
     pub fn record_tool_activation(&mut self, name: String, description: String) {
         if !self.activated_tools.iter().any(|t| t.name == name) {
-            self.activated_tools.push(ActivatedTool { name, description });
+            self.activated_tools
+                .push(ActivatedTool { name, description });
         }
     }
 
@@ -334,7 +335,10 @@ pub fn parse_plan_progress(content: &str) -> Option<PlanProgress> {
 
     for line in content.lines() {
         let trimmed = line.trim_start_matches(['-', ' ', '*']);
-        if let Some(rest) = trimmed.strip_prefix("[x] ").or_else(|| trimmed.strip_prefix("[X] ")) {
+        if let Some(rest) = trimmed
+            .strip_prefix("[x] ")
+            .or_else(|| trimmed.strip_prefix("[X] "))
+        {
             total += 1;
             completed += 1;
             let _ = rest;

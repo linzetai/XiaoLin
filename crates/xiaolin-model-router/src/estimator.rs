@@ -226,10 +226,7 @@ impl CostEstimator {
                             .and_then(|v| v.as_str())
                             .map(|s| (s.len(), s.chars().count()))
                             .unwrap_or((0, 0));
-                        (
-                            text_len.0 + url_len.0,
-                            text_len.1 + url_len.1,
-                        )
+                        (text_len.0 + url_len.0, text_len.1 + url_len.1)
                     }
                     serde_json::Value::String(s) => (s.len(), s.chars().count()),
                     other => {
@@ -261,9 +258,7 @@ impl CostEstimator {
                 char_count += chars;
             }
         }
-        let input_tokens = (total_chars as u32)
-            .div_ceil(4)
-            .max(char_count as u32);
+        let input_tokens = (total_chars as u32).div_ceil(4).max(char_count as u32);
         let estimated_output = (input_tokens / 3).max(100);
         let est = TokenEstimate {
             input_tokens,
@@ -333,7 +328,7 @@ mod tests {
         let msgs = vec![ChatMessage {
             role: Role::User,
             content: Some("a".repeat(400).into()),
-        ..Default::default()
+            ..Default::default()
         }];
         let t0 = CostEstimator::estimate_chat_complexity_tokens(&msgs, 0);
         let t5 = CostEstimator::estimate_chat_complexity_tokens(&msgs, 5);

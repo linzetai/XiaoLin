@@ -80,7 +80,10 @@ impl ReadSkillTool {
         }
     }
 
-    pub fn with_usage_store(mut self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) -> Self {
+    pub fn with_usage_store(
+        mut self,
+        store: Arc<xiaolin_core::skill_usage::SkillUsageStore>,
+    ) -> Self {
         self.usage_store = Some(store);
         self
     }
@@ -359,7 +362,10 @@ impl UnifiedSkillTool {
         self
     }
 
-    pub fn with_usage_store(mut self, store: Arc<xiaolin_core::skill_usage::SkillUsageStore>) -> Self {
+    pub fn with_usage_store(
+        mut self,
+        store: Arc<xiaolin_core::skill_usage::SkillUsageStore>,
+    ) -> Self {
         self.read = self.read.with_usage_store(store);
         self
     }
@@ -661,11 +667,17 @@ impl SearchSkillTool {
             return keyword_results;
         }
 
-        let semantic_map: std::collections::HashMap<&str, f32> =
-            semantic_scores.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+        let semantic_map: std::collections::HashMap<&str, f32> = semantic_scores
+            .iter()
+            .map(|(id, s)| (id.as_str(), *s))
+            .collect();
 
         let registry_entries: std::collections::HashMap<&str, &xiaolin_core::skill::SkillEntry> =
-            self.registry.list().iter().map(|s| (s.id.as_str(), *s)).collect();
+            self.registry
+                .list()
+                .iter()
+                .map(|s| (s.id.as_str(), *s))
+                .collect();
 
         let mut combined: std::collections::HashMap<String, SkillSearchResult> =
             std::collections::HashMap::new();
@@ -695,7 +707,12 @@ impl SearchSkillTool {
                     continue;
                 }
                 if let Some(tag) = tag_filter {
-                    if !entry.frontmatter.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                    if !entry
+                        .frontmatter
+                        .tags
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(tag))
+                    {
                         continue;
                     }
                 }
@@ -713,7 +730,9 @@ impl SearchSkillTool {
 
         let mut results: Vec<SkillSearchResult> = combined.into_values().collect();
         results.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         results.truncate(10);
         results
@@ -721,7 +740,8 @@ impl SearchSkillTool {
 
     /// Vector similarity search via embedding store.
     async fn semantic_search(&self, query: &str, limit: usize) -> Vec<(String, f32)> {
-        let (Some(store), Some(provider)) = (&self.embedding_store, &self.embedding_provider) else {
+        let (Some(store), Some(provider)) = (&self.embedding_store, &self.embedding_provider)
+        else {
             return Vec::new();
         };
         let query_vec = match provider.embed(query).await {
@@ -763,7 +783,12 @@ fn compute_relevance(
             fallback = xiaolin_core::skill::CachedLowercase {
                 name: skill.name.to_lowercase(),
                 description: skill.description.as_deref().unwrap_or("").to_lowercase(),
-                when_to_use: skill.frontmatter.when_to_use.as_deref().unwrap_or("").to_lowercase(),
+                when_to_use: skill
+                    .frontmatter
+                    .when_to_use
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase(),
                 content: skill.content.to_lowercase(),
             };
             &fallback
@@ -866,9 +891,9 @@ impl Tool for SearchSkillTool {
 mod skill_tool_tests {
     use super::*;
     use crate::builtin_tools::{register_skill_tools, register_skill_tools_full};
+    use std::path::PathBuf;
     use xiaolin_core::skill::{SkillEntry, SkillFrontmatter, SkillLayer, SkillRegistry};
     use xiaolin_core::tool::ToolRegistry;
-    use std::path::PathBuf;
 
     fn build_registry() -> Arc<SkillRegistry> {
         let mut reg = SkillRegistry::new();
@@ -1278,10 +1303,18 @@ mod skill_tool_tests {
             .busy_timeout(std::time::Duration::from_secs(5));
         let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
         let store = Arc::new(
-            xiaolin_core::skill_embedding::SkillEmbeddingStore::open(pool).await.unwrap(),
+            xiaolin_core::skill_embedding::SkillEmbeddingStore::open(pool)
+                .await
+                .unwrap(),
         );
-        store.upsert("ci-pipeline", "h1", &[0.9, 0.1, 0.0]).await.unwrap();
-        store.upsert("deploy-app", "h2", &[0.1, 0.9, 0.0]).await.unwrap();
+        store
+            .upsert("ci-pipeline", "h1", &[0.9, 0.1, 0.0])
+            .await
+            .unwrap();
+        store
+            .upsert("deploy-app", "h2", &[0.1, 0.9, 0.0])
+            .await
+            .unwrap();
 
         struct FakeEmbedder;
         #[async_trait]
@@ -1289,15 +1322,22 @@ mod skill_tool_tests {
             async fn embed_batch(&self, _texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
                 Ok(vec![vec![0.85, 0.15, 0.0]])
             }
-            fn dimensions(&self) -> usize { 3 }
-            fn name(&self) -> &str { "fake" }
+            fn dimensions(&self) -> usize {
+                3
+            }
+            fn name(&self) -> &str {
+                "fake"
+            }
         }
 
-        let tool = SearchSkillTool::new(Arc::new(registry))
-            .with_semantic(store, Arc::new(FakeEmbedder));
+        let tool =
+            SearchSkillTool::new(Arc::new(registry)).with_semantic(store, Arc::new(FakeEmbedder));
 
         let results = tool.hybrid_search("continuous integration", None).await;
         assert!(!results.is_empty());
-        assert_eq!(results[0].id, "ci-pipeline", "semantic match should rank first");
+        assert_eq!(
+            results[0].id, "ci-pipeline",
+            "semantic match should rank first"
+        );
     }
 }

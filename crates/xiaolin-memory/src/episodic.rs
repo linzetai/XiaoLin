@@ -108,7 +108,9 @@ impl EpisodicMemory {
         {
             Ok(_) => {}
             Err(e) if e.to_string().contains("duplicate") => {}
-            Err(e) => tracing::warn!(error = %e, "failed to migrate episodes table: add embedding column"),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to migrate episodes table: add embedding column")
+            }
         }
         match sqlx::query("ALTER TABLE episodes ADD COLUMN embedding_norm REAL")
             .execute(&pool)
@@ -132,7 +134,9 @@ impl EpisodicMemory {
         {
             Ok(_) => {}
             Err(e) if e.to_string().contains("duplicate") => {}
-            Err(e) => tracing::warn!(error = %e, "failed to migrate episodes table: add dreamed_at column"),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to migrate episodes table: add dreamed_at column")
+            }
         }
 
         Ok(Self { pool })
@@ -568,7 +572,9 @@ impl EpisodicMemory {
         for ep in &eps {
             out.push_str(&format!(
                 "- [{}] (importance={:.1}) {}\n",
-                &ep.created_at[..ep.created_at.floor_char_boundary(10.min(ep.created_at.len()))],
+                &ep.created_at[..ep
+                    .created_at
+                    .floor_char_boundary(10.min(ep.created_at.len()))],
                 ep.importance,
                 ep.summary
             ));

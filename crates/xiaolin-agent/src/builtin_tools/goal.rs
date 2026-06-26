@@ -197,7 +197,9 @@ impl GoalStore {
     /// Check and clear the objective-updated flag.
     pub async fn take_objective_updated(&self) -> bool {
         match self.current_state().await {
-            Some(st) => st.objective_updated.swap(false, std::sync::atomic::Ordering::Relaxed),
+            Some(st) => st
+                .objective_updated
+                .swap(false, std::sync::atomic::Ordering::Relaxed),
             None => false,
         }
     }
@@ -205,13 +207,19 @@ impl GoalStore {
     pub async fn set_session_id(&self, session_id: String) {
         *self.session_id.lock().await = Some(session_id.clone());
         let st = self.get_state(&session_id);
-        st.last_accounted_tokens.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.last_accounted_time_secs.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.budget_warning_sent.store(false, std::sync::atomic::Ordering::Relaxed);
-        st.idle_rounds.store(0, std::sync::atomic::Ordering::Relaxed);
+        st.last_accounted_tokens
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.last_accounted_time_secs
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.budget_warning_sent
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        st.idle_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         if let Ok(Some(goal)) = self.session_store.get_actionable_goal(&session_id).await {
-            st.continuation_rounds
-                .store(goal.continuation_rounds as u32, std::sync::atomic::Ordering::Relaxed);
+            st.continuation_rounds.store(
+                goal.continuation_rounds as u32,
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
     }
 
@@ -253,7 +261,11 @@ impl GoalStore {
             .is_some()
     }
 
-    pub async fn create(&self, description: String, token_budget: Option<u64>) -> Result<Goal, String> {
+    pub async fn create(
+        &self,
+        description: String,
+        token_budget: Option<u64>,
+    ) -> Result<Goal, String> {
         let description = validate_goal_description(&description)?;
         let sid = self.sid().await.ok_or("no active session")?;
         if let Some(budget) = token_budget {
@@ -269,11 +281,16 @@ impl GoalStore {
             ));
         }
         let st = self.get_state(&sid);
-        st.continuation_rounds.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.idle_rounds.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.last_accounted_tokens.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.last_accounted_time_secs.store(0, std::sync::atomic::Ordering::Relaxed);
-        st.budget_warning_sent.store(false, std::sync::atomic::Ordering::Relaxed);
+        st.continuation_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.idle_rounds
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.last_accounted_tokens
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.last_accounted_time_secs
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        st.budget_warning_sent
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -292,7 +309,10 @@ impl GoalStore {
             created_at: now as i64,
             updated_at: now as i64,
         };
-        self.session_store.insert_goal(&row).await.map_err(|e| format!("failed to insert goal: {e}"))?;
+        self.session_store
+            .insert_goal(&row)
+            .await
+            .map_err(|e| format!("failed to insert goal: {e}"))?;
         Ok(Goal::from_row(row))
     }
 
@@ -316,7 +336,11 @@ impl GoalStore {
     }
 
     /// Update goal description (for goal editing).
-    pub async fn update_description(&self, goal_id: &str, description: &str) -> Result<Goal, String> {
+    pub async fn update_description(
+        &self,
+        goal_id: &str,
+        description: &str,
+    ) -> Result<Goal, String> {
         let description = validate_goal_description(description)?;
         self.session_store
             .update_goal_description(goal_id, &description)
@@ -364,14 +388,22 @@ impl GoalStore {
 
     /// Incremental token accounting: only adds the delta since the last call.
     /// Returns (delta_added, over_budget) where over_budget is true if budget exceeded.
-    pub async fn account_tokens(&self, goal_id: &str, cumulative_tokens: u64) -> Option<(u64, bool)> {
+    pub async fn account_tokens(
+        &self,
+        goal_id: &str,
+        cumulative_tokens: u64,
+    ) -> Option<(u64, bool)> {
         let st = self.current_state().await?;
-        let prev = st.last_accounted_tokens.swap(cumulative_tokens, std::sync::atomic::Ordering::Relaxed);
+        let prev = st
+            .last_accounted_tokens
+            .swap(cumulative_tokens, std::sync::atomic::Ordering::Relaxed);
         let delta = cumulative_tokens.saturating_sub(prev);
         if delta == 0 {
             return Some((0, false));
         }
-        self.add_tokens(goal_id, delta).await.map(|over| (delta, over))
+        self.add_tokens(goal_id, delta)
+            .await
+            .map(|over| (delta, over))
     }
 
     /// Incremental time accounting: only adds the delta since the last call.
@@ -380,7 +412,9 @@ impl GoalStore {
             Some(s) => s,
             None => return,
         };
-        let prev = st.last_accounted_time_secs.swap(cumulative_secs, std::sync::atomic::Ordering::Relaxed);
+        let prev = st
+            .last_accounted_time_secs
+            .swap(cumulative_secs, std::sync::atomic::Ordering::Relaxed);
         let delta = cumulative_secs.saturating_sub(prev);
         if delta > 0 {
             self.add_time(goal_id, delta).await;
@@ -400,7 +434,9 @@ impl GoalStore {
         };
         let threshold = budget * 80 / 100;
         if goal.tokens_used >= threshold
-            && !st.budget_warning_sent.swap(true, std::sync::atomic::Ordering::Relaxed)
+            && !st
+                .budget_warning_sent
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             return true;
         }
@@ -448,7 +484,9 @@ impl GoalStore {
 
     pub async fn current_rounds(&self) -> u32 {
         match self.current_state().await {
-            Some(st) => st.continuation_rounds.load(std::sync::atomic::Ordering::Relaxed),
+            Some(st) => st
+                .continuation_rounds
+                .load(std::sync::atomic::Ordering::Relaxed),
             None => 0,
         }
     }
@@ -540,7 +578,9 @@ impl Tool for GetGoalTool {
     async fn execute(&self, _arguments: &str) -> ToolResult {
         match self.store.get_current().await {
             Some(goal) => {
-                let remaining = goal.token_budget.map(|b| b.saturating_sub(goal.tokens_used));
+                let remaining = goal
+                    .token_budget
+                    .map(|b| b.saturating_sub(goal.tokens_used));
                 let resp = serde_json::json!({
                     "goal": goal,
                     "remaining_tokens": remaining,
@@ -622,9 +662,7 @@ impl Tool for CreateGoalTool {
             }
         }
         match self.store.create(description, token_budget).await {
-            Ok(goal) => {
-                ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default())
-            }
+            Ok(goal) => ToolResult::ok(serde_json::to_string_pretty(&goal).unwrap_or_default()),
             Err(e) => ToolResult::err(e),
         }
     }

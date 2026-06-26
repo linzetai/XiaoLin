@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 use xiaolin_core::agent_config::AgentConfig;
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::types::{ChatMessage, ChatRequest, Role, Usage};
 use xiaolin_protocol::AgentEvent;
-use tokio::sync::{mpsc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 use super::AgentRuntime;
 use crate::LlmProvider;
@@ -129,7 +129,7 @@ impl QueryEngine {
         let user_msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!(user_text)),
-        ..Default::default()
+            ..Default::default()
         };
 
         let request = {
@@ -179,52 +179,52 @@ impl QueryEngine {
 
             loop {
                 tokio::select! {
-                        _ = cancel.cancelled() => {
+                    _ = cancel.cancelled() => {
+                        break;
+                    }
+                    event = internal_rx.recv() => {
+                        let Some(event) = event else { break };
+                        match &event {
+                            AgentEvent::ContentDelta { delta, .. } => {
+                                if let Some(content) = delta
+                                    .get("choices")
+                                    .and_then(|c| c.get(0))
+                                    .and_then(|c| c.get("delta"))
+                                    .and_then(|d| d.get("content"))
+                                    .and_then(|c| c.as_str())
+                                {
+                                    assistant_text.push_str(content);
+                                }
+                            }
+                            AgentEvent::TurnEnd {
+                                session_id,
+                                summary,
+                                ..
+                            } => {
+                                let mut s = state.lock().await;
+                                if let Some(sid) = session_id {
+                                    s.session_id = Some(sid.clone());
+                                }
+                                if let Some(u) = &summary.usage {
+                                    s.total_usage.prompt_tokens += u.prompt_tokens;
+                                    s.total_usage.completion_tokens += u.completion_tokens;
+                                    s.total_usage.total_tokens += u.total_tokens;
+                                }
+                                if !assistant_text.is_empty() {
+                                    s.messages.push(ChatMessage {
+                                        role: Role::Assistant,
+                                        content: Some(serde_json::json!(assistant_text)),
+                                    ..Default::default()
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                        if out_tx.send(event).await.is_err() {
                             break;
                         }
-                        event = internal_rx.recv() => {
-                            let Some(event) = event else { break };
-                            match &event {
-                                AgentEvent::ContentDelta { delta, .. } => {
-                                    if let Some(content) = delta
-                                        .get("choices")
-                                        .and_then(|c| c.get(0))
-                                        .and_then(|c| c.get("delta"))
-                                        .and_then(|d| d.get("content"))
-                                        .and_then(|c| c.as_str())
-                                    {
-                                        assistant_text.push_str(content);
-                                    }
-                                }
-                                AgentEvent::TurnEnd {
-                                    session_id,
-                                    summary,
-                                    ..
-                                } => {
-                                    let mut s = state.lock().await;
-                                    if let Some(sid) = session_id {
-                                        s.session_id = Some(sid.clone());
-                                    }
-                                    if let Some(u) = &summary.usage {
-                                        s.total_usage.prompt_tokens += u.prompt_tokens;
-                                        s.total_usage.completion_tokens += u.completion_tokens;
-                                        s.total_usage.total_tokens += u.total_tokens;
-                                    }
-                                    if !assistant_text.is_empty() {
-                                        s.messages.push(ChatMessage {
-                                            role: Role::Assistant,
-                                            content: Some(serde_json::json!(assistant_text)),
-                                        ..Default::default()
-                                        });
-                                    }
-                                }
-                                _ => {}
-                            }
-                            if out_tx.send(event).await.is_err() {
-                                break;
-                            }
-                        }
                     }
+                }
             }
         });
 
@@ -237,9 +237,9 @@ mod tests {
     use super::*;
     use crate::CompletionParams;
     use async_trait::async_trait;
+    use futures::stream;
     use xiaolin_core::agent_config::{AgentModelConfig, BehaviorConfig};
     use xiaolin_core::types::{ChatResponse, DeltaContent, StreamChoice, StreamDelta};
-    use futures::stream;
 
     fn test_agent_config() -> AgentConfig {
         AgentConfig {
@@ -585,7 +585,7 @@ mod tests {
         let msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::json!(text)),
-        ..Default::default()
+            ..Default::default()
         };
         assert_eq!(msg.role, Role::User);
         assert_eq!(msg.text_content().as_deref(), Some(text));

@@ -15,7 +15,6 @@ pub enum HookMatcher {
     ToolPattern { pattern: String },
 }
 
-
 /// A single hook specification loaded from configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookSpec {
@@ -81,7 +80,6 @@ impl HookConfig {
     pub fn is_empty(&self) -> bool {
         self.pre_tool_use.is_empty() && self.post_tool_use.is_empty() && self.stop.is_empty()
     }
-
 }
 
 #[cfg(test)]

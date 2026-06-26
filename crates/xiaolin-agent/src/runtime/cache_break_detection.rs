@@ -60,10 +60,7 @@ pub enum BreakCause {
     /// Conversation history prefix diverged (compaction / micro-compact / snip /
     /// editing of already-sent messages). Expected when compaction ran; a real
     /// concern only if it happens without an intentional compaction (§11.3/§11.4).
-    HistoryChanged {
-        prev_len: usize,
-        curr_len: usize,
-    },
+    HistoryChanged { prev_len: usize, curr_len: usize },
     /// Multiple causes detected simultaneously.
     Multiple(Vec<BreakCause>),
     /// Could not determine the specific cause.

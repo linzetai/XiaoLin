@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt, SandboxBackend, SandboxPreference,
-    Sandboxable, ToolExecContext, ToolProgressEvent, ToolRuntime, ToolRuntimeError,
-    ToolRunOutput,
+    Sandboxable, ToolExecContext, ToolProgressEvent, ToolRunOutput, ToolRuntime, ToolRuntimeError,
 };
 use xiaolin_protocol::approval::PendingAction;
 use xiaolin_sandbox::SandboxManager;
@@ -23,10 +22,7 @@ pub struct ShellRuntime;
 
 impl Approvable for ShellRuntime {
     fn approval_keys(&self, args: &serde_json::Value) -> Vec<String> {
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
         let cwd = args
             .get("working_dir")
             .and_then(|v| v.as_str())
@@ -35,15 +31,8 @@ impl Approvable for ShellRuntime {
         vec![format!("shell:{}:{}", cwd, command)]
     }
 
-    fn exec_requirement(
-        &self,
-        args: &serde_json::Value,
-        _cwd: &Path,
-    ) -> ExecApprovalRequirement {
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    fn exec_requirement(&self, args: &serde_json::Value, _cwd: &Path) -> ExecApprovalRequirement {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
         match dangerous_ops::check_dangerous_command(command) {
             Ok(()) => ExecApprovalRequirement::NeedsApproval {
@@ -129,9 +118,7 @@ impl ToolRuntime for ShellRuntime {
         let mut without_sandbox_isolation = false;
 
         let mut cmd = match effective_sandbox {
-            SandboxBackend::None => {
-                build_plain_command(command, &cwd)
-            }
+            SandboxBackend::None => build_plain_command(command, &cwd),
             _ => {
                 let sandbox_type = map_backend_to_sandbox_type(effective_sandbox);
                 let mgr = SandboxManager::with_type(sandbox_type);
@@ -214,11 +201,13 @@ impl ToolRuntime for ShellRuntime {
                     if let Some(pipe) = stdout_pipe {
                         let mut reader = BufReader::new(pipe).lines();
                         while let Ok(Some(line)) = reader.next_line().await {
-                            let _ = tx.send(ToolProgressEvent {
-                                message: String::new(),
-                                partial_output: Some(format!("{line}\n")),
-                                progress: None,
-                            }).await;
+                            let _ = tx
+                                .send(ToolProgressEvent {
+                                    message: String::new(),
+                                    partial_output: Some(format!("{line}\n")),
+                                    progress: None,
+                                })
+                                .await;
                             lines.push(line);
                         }
                     }
@@ -233,11 +222,13 @@ impl ToolRuntime for ShellRuntime {
                     if let Some(pipe) = stderr_pipe {
                         let mut reader = BufReader::new(pipe).lines();
                         while let Ok(Some(line)) = reader.next_line().await {
-                            let _ = tx.send(ToolProgressEvent {
-                                message: String::new(),
-                                partial_output: Some(format!("{line}\n")),
-                                progress: None,
-                            }).await;
+                            let _ = tx
+                                .send(ToolProgressEvent {
+                                    message: String::new(),
+                                    partial_output: Some(format!("{line}\n")),
+                                    progress: None,
+                                })
+                                .await;
                             lines.push(line);
                         }
                     }
@@ -262,14 +253,20 @@ impl ToolRuntime for ShellRuntime {
                     let _ = child.kill().await;
                     stdout_task.abort();
                     stderr_task.abort();
-                    return Err(ToolRuntimeError::Timeout { elapsed_ms: timeout_ms });
+                    return Err(ToolRuntimeError::Timeout {
+                        elapsed_ms: timeout_ms,
+                    });
                 }
             };
 
             let stdout_lines = stdout_task.await.unwrap_or_default();
             let stderr_lines = stderr_task.await.unwrap_or_default();
 
-            (stdout_lines.join("\n"), stderr_lines.join("\n"), exit_status)
+            (
+                stdout_lines.join("\n"),
+                stderr_lines.join("\n"),
+                exit_status,
+            )
         } else {
             // Batch mode: capture PID for kill-on-timeout, then wait_with_output
             let child_id = child.id();
@@ -299,7 +296,9 @@ impl ToolRuntime for ShellRuntime {
                                 .output();
                         }
                     }
-                    return Err(ToolRuntimeError::Timeout { elapsed_ms: timeout_ms });
+                    return Err(ToolRuntimeError::Timeout {
+                        elapsed_ms: timeout_ms,
+                    });
                 }
             }
         };
@@ -394,9 +393,8 @@ fn preferred_shell() -> &'static str {
 fn is_dev_server_command(command: &str) -> bool {
     let lower = command.to_lowercase();
 
-    let has_background = command.trim().ends_with('&')
-        || lower.contains("nohup")
-        || lower.contains("> /dev/null");
+    let has_background =
+        command.trim().ends_with('&') || lower.contains("nohup") || lower.contains("> /dev/null");
     if has_background {
         return false;
     }
@@ -413,11 +411,26 @@ fn is_dev_server_command(command: &str) -> bool {
     }
 
     let patterns = [
-        "vite", "next dev", "next start", "webpack serve", "webpack-dev-server",
-        "ng serve", "npm start", "npm run dev", "npm run serve",
-        "yarn dev", "yarn start", "pnpm dev", "pnpm start",
-        "flask run", "uvicorn", "gunicorn", "python -m http.server",
-        "live-server", "http-server", "nodemon",
+        "vite",
+        "next dev",
+        "next start",
+        "webpack serve",
+        "webpack-dev-server",
+        "ng serve",
+        "npm start",
+        "npm run dev",
+        "npm run serve",
+        "yarn dev",
+        "yarn start",
+        "pnpm dev",
+        "pnpm start",
+        "flask run",
+        "uvicorn",
+        "gunicorn",
+        "python -m http.server",
+        "live-server",
+        "http-server",
+        "nodemon",
     ];
     patterns.iter().any(|p| lower.contains(p))
 }
@@ -435,22 +448,19 @@ fn map_backend_to_sandbox_type(backend: SandboxBackend) -> xiaolin_sandbox::Sand
 fn build_fs_policy(cwd: &Path) -> xiaolin_security::FileSystemSandboxPolicy {
     use std::convert::TryFrom;
     use xiaolin_security::{
-        FileSystemAccessMode, FileSystemSandboxEntry, FileSystemSandboxKind,
-        FileSystemSandboxPolicy, FileSystemPath, FileSystemSpecialPath,
+        FileSystemAccessMode, FileSystemPath, FileSystemSandboxEntry, FileSystemSandboxKind,
+        FileSystemSandboxPolicy, FileSystemSpecialPath,
     };
 
-    let abs_cwd = std::fs::canonicalize(cwd)
-        .unwrap_or_else(|_| cwd.to_path_buf());
+    let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let temp_dir = std::env::temp_dir();
 
-    let mut entries = vec![
-        FileSystemSandboxEntry {
-            path: FileSystemPath::Special {
-                value: FileSystemSpecialPath::Root,
-            },
-            access: FileSystemAccessMode::Read,
+    let mut entries = vec![FileSystemSandboxEntry {
+        path: FileSystemPath::Special {
+            value: FileSystemSpecialPath::Root,
         },
-    ];
+        access: FileSystemAccessMode::Read,
+    }];
 
     if let Ok(p) = xiaolin_core::path::AbsolutePathBuf::try_from(abs_cwd) {
         entries.push(FileSystemSandboxEntry {

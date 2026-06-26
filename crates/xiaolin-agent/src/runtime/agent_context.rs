@@ -58,6 +58,7 @@ pub struct AgentContext {
     pub todo_store: Option<TodoStore>,
     pub goal_store: Option<Arc<GoalStore>>,
     pub cost_store: Option<Arc<xiaolin_session::CostStore>>,
+    pub runtime_quality_store: Option<Arc<xiaolin_session::RuntimeQualityStore>>,
     pub artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
 
     // === Optional - Message Queue (for steering injection) ===
@@ -72,7 +73,11 @@ pub struct AgentContext {
 
 impl AgentContext {
     /// Minimal context for SubAgent spawning or testing.
-    pub fn minimal(config: AgentConfig, request: ChatRequest, tool_registry: Arc<ToolRegistry>) -> Self {
+    pub fn minimal(
+        config: AgentConfig,
+        request: ChatRequest,
+        tool_registry: Arc<ToolRegistry>,
+    ) -> Self {
         Self {
             config,
             request,
@@ -92,6 +97,7 @@ impl AgentContext {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            runtime_quality_store: None,
             artifact_store: None,
             plan_file_path: None,
             message_queue: None,

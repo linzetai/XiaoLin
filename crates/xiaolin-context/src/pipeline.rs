@@ -352,8 +352,8 @@ impl ContextPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::types::Role;
     use serde_json::json;
+    use xiaolin_core::types::Role;
 
     fn sys(text: &str) -> ChatMessage {
         ChatMessage {

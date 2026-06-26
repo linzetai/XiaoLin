@@ -106,11 +106,9 @@ impl ReactiveCompactor {
             .iter()
             .filter(|m| m.role == Role::System)
             .collect();
-        let all_present = original_system.iter().all(|orig| {
-            existing_sys
-                .iter()
-                .any(|ex| ex.content == orig.content)
-        });
+        let all_present = original_system
+            .iter()
+            .all(|orig| existing_sys.iter().any(|ex| ex.content == orig.content));
         if all_present {
             return compacted.to_vec();
         }

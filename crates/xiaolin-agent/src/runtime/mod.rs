@@ -5,83 +5,81 @@ use arc_swap::ArcSwap;
 use xiaolin_core::agent_config::AgentConfig;
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::types::{ChatMessage, ChatRequest, ChatResponse, Role};
-use xiaolin_protocol::{
-    AgentEvent, ErrorCode, ExecutionMode,
-    TokenUsage, TurnId, TurnSummary,
-};
+use xiaolin_protocol::{AgentEvent, ErrorCode, ExecutionMode, TokenUsage, TurnId, TurnSummary};
 
-use xiaolin_evolution::{
-    format_candidate_skills_for_prompt, format_skills_for_prompt, SkillStatus,
-    SkillStore, TrajectoryStore,
-};
-#[cfg(feature = "self-iter")]
-use xiaolin_self_iter::{SelfIterEngine, ToolCallTrace};
 use prompt_engine::{PromptContext, PromptEngine, PromptSection};
 #[cfg(not(feature = "self-iter"))]
 use stream_engine::ToolCallTrace;
+use xiaolin_evolution::{
+    format_candidate_skills_for_prompt, format_skills_for_prompt, SkillStatus, SkillStore,
+    TrajectoryStore,
+};
+#[cfg(feature = "self-iter")]
+use xiaolin_self_iter::{SelfIterEngine, ToolCallTrace};
 
 use crate::llm::LlmProvider;
 use base64::Engine as _;
 
 mod accumulator;
-pub(crate) mod plan_arg_interceptor;
 pub mod agent_context;
 pub mod agent_step;
 pub mod api_errors;
-pub(crate) mod end_turn;
-pub(crate) mod iteration_check;
-pub(crate) mod llm_call;
-pub(crate) mod post_tool;
-mod stream_loop;
-pub(crate) mod tool_round;
-pub(crate) mod turn_loop;
-pub(crate) mod turn_state;
-pub(crate) mod turn_setup;
 pub mod approval_cache;
-pub mod runtimes;
 pub mod cache_break_detection;
 #[allow(dead_code)] // TODO(integrate): assemble related files at query start
 pub mod context_assembly;
 pub(crate) mod context_budget;
 pub(crate) mod context_compressor;
 pub mod cost_tracker;
+pub(crate) mod end_turn;
 pub mod file_persistence;
+pub(crate) mod iteration_check;
+pub(crate) mod llm_call;
+pub(crate) mod plan_arg_interceptor;
+pub(crate) mod post_tool;
+pub mod runtimes;
+mod stream_loop;
+pub(crate) mod tool_round;
+pub(crate) mod turn_loop;
+pub(crate) mod turn_setup;
+pub(crate) mod turn_state;
 pub use xiaolin_tools_fs::file_state_cache;
+pub mod dispatcher;
+pub(crate) mod goal_prompts;
 pub mod hook_config;
 pub mod hook_events;
 pub mod hook_executor;
 #[allow(dead_code)]
 pub mod lsp_actions;
 pub mod magic_docs;
-pub mod mode_attachments;
 #[allow(dead_code)]
 pub mod memory_selection;
+pub mod message_injection;
+pub mod mode_attachments;
 pub mod model_critic;
 pub(crate) mod observer;
-pub mod dispatcher;
 pub mod orchestrator;
 pub mod permissions;
 pub mod post_compact_restore;
 mod prompt_builder;
 pub mod prompt_engine;
 pub mod prompt_sections;
-pub mod message_injection;
 #[allow(dead_code)] // TODO(integrate): wire into AgentEvent::Suggestions
 pub mod prompt_suggestion;
 pub(crate) mod query_deps;
 pub mod query_engine;
 mod query_state;
 pub mod retry;
+pub(crate) mod runtime_quality;
 pub(crate) mod runtime_services;
 mod session_memory;
 #[allow(dead_code)] // TODO(integrate): side-query tool handle for auxiliary LLM calls
 pub mod side_query;
-pub(crate) mod goal_prompts;
 mod stop_hooks;
 mod stream_engine;
-pub(crate) mod token_budget;
 pub mod streaming_tool_executor;
 pub mod task_decomposer;
+pub(crate) mod token_budget;
 mod tool_executor;
 pub mod tool_result_storage;
 mod trajectory;
@@ -90,12 +88,12 @@ mod unified_compact;
 #[allow(dead_code)]
 pub mod validation_pipeline;
 
-pub use prompt_builder::{
-    build_active_runs_context, build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext,
-};
 pub use message_injection::{
     append_to_tier2_system, inject_user_context, merge_leading_system_into_tier2,
     push_tier2_system_prefix,
+};
+pub use prompt_builder::{
+    build_active_runs_context, build_subagent_prompt_block, ActiveRunSummary, SubAgentPromptContext,
 };
 
 use prompt_builder::SKILL_MANAGEMENT_GUIDANCE;
@@ -382,7 +380,6 @@ pub struct ExecutionResult {
     pub iterations: u32,
 }
 
-
 fn make_turn_summary(
     turn_id: &TurnId,
     state: &QueryLoopState,
@@ -497,9 +494,7 @@ pub(crate) fn extract_file_paths_from_args(
                     .collect()
             })
             .unwrap_or_default(),
-        _ => extract_file_path_from_args(arguments)
-            .into_iter()
-            .collect(),
+        _ => extract_file_path_from_args(arguments).into_iter().collect(),
     }
 }
 
@@ -736,13 +731,32 @@ impl AgentRuntime {
         llm_override: Option<Arc<dyn LlmProvider>>,
         subagent_prompt: Option<String>,
     ) -> anyhow::Result<ExecutionResult> {
+        self.execute_with_subagent_prompt_and_runtime_quality_store(
+            config,
+            request,
+            tool_registry,
+            llm_override,
+            subagent_prompt,
+            None,
+        )
+        .await
+    }
+
+    pub async fn execute_with_subagent_prompt_and_runtime_quality_store(
+        &self,
+        config: &AgentConfig,
+        request: &ChatRequest,
+        tool_registry: &Arc<ToolRegistry>,
+        llm_override: Option<Arc<dyn LlmProvider>>,
+        subagent_prompt: Option<String>,
+        runtime_quality_store: Option<Arc<xiaolin_session::RuntimeQualityStore>>,
+    ) -> anyhow::Result<ExecutionResult> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(512);
         let orchestrator = Arc::new(orchestrator::ToolOrchestrator::new());
-        let approval_strategy =
-            xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
+        let approval_strategy = xiaolin_core::tool_runtime::ApprovalStrategy::AutoApprove;
 
         let summary = self
-            .execute_unified(
+            .execute_unified_with_cost_store(
                 config,
                 request,
                 tool_registry,
@@ -752,6 +766,12 @@ impl AgentRuntime {
                 orchestrator,
                 None,
                 subagent_prompt,
+                None,
+                None,
+                None,
+                None,
+                None,
+                runtime_quality_store,
                 None,
                 None,
                 None,
@@ -779,13 +799,11 @@ impl AgentRuntime {
             .model
             .clone()
             .unwrap_or_else(|| config.model.model.clone());
-        let usage = summary.usage.map(|u| {
-            xiaolin_core::types::Usage {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                total_tokens: u.total_tokens,
-                ..Default::default()
-            }
+        let usage = summary.usage.map(|u| xiaolin_core::types::Usage {
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens,
+            ..Default::default()
         });
         let response = ChatResponse {
             id: summary.turn_id.to_string(),
@@ -801,7 +819,7 @@ impl AgentRuntime {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::Value::String(text)),
-                ..Default::default()
+                    ..Default::default()
                 },
             }],
             usage,
@@ -849,6 +867,7 @@ impl AgentRuntime {
             todo_store: None,
             goal_store: None,
             cost_store: None,
+            runtime_quality_store: None,
             artifact_store: None,
             plan_file_path: None,
             message_queue: None,
@@ -856,7 +875,6 @@ impl AgentRuntime {
         };
         Self::run_stream_to_completion(self.arc_self(), ctx, tx).await
     }
-
 
     /// Unified execution entry point for all callers.
     ///
@@ -882,10 +900,27 @@ impl AgentRuntime {
         goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
     ) -> anyhow::Result<TurnSummary> {
         self.execute_unified_with_cost_store(
-            config, request, tool_registry, tx, approval_strategy,
-            llm_override, orchestrator, interaction_handle, subagent_prompt,
-            mode_state, session_store, todo_store, goal_store, None, None, None, None, None,
-        ).await
+            config,
+            request,
+            tool_registry,
+            tx,
+            approval_strategy,
+            llm_override,
+            orchestrator,
+            interaction_handle,
+            subagent_prompt,
+            mode_state,
+            session_store,
+            todo_store,
+            goal_store,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -905,8 +940,11 @@ impl AgentRuntime {
         todo_store: Option<crate::builtin_tools::TodoStore>,
         goal_store: Option<Arc<crate::builtin_tools::GoalStore>>,
         cost_store: Option<Arc<xiaolin_session::CostStore>>,
+        runtime_quality_store: Option<Arc<xiaolin_session::RuntimeQualityStore>>,
         artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
-        behavior_overrides: Option<std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>>,
+        behavior_overrides: Option<
+            std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>,
+        >,
         message_queue: Option<Arc<crate::message_queue::MessageQueue>>,
         active_runs_context: Option<String>,
     ) -> anyhow::Result<TurnSummary> {
@@ -929,6 +967,7 @@ impl AgentRuntime {
             todo_store,
             goal_store,
             cost_store,
+            runtime_quality_store,
             artifact_store,
             plan_file_path: crate::builtin_tools::plan_mode::current_plan_context()
                 .map(|pc| pc.store.plan_path(&pc.session_id)),
@@ -1052,7 +1091,6 @@ impl AgentRuntime {
         }
     }
 
-
     async fn inject_relevant_skills(
         &self,
         messages: &mut Vec<ChatMessage>,
@@ -1146,7 +1184,10 @@ impl AgentRuntime {
             let sess = request.session_id.clone();
             tokio::spawn(async move {
                 let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-                if let Err(e) = usage_store.record_injections(&id_refs, sess.as_deref()).await {
+                if let Err(e) = usage_store
+                    .record_injections(&id_refs, sess.as_deref())
+                    .await
+                {
                     tracing::warn!(error = %e, "failed to record skill injection events");
                 }
             });
@@ -1229,7 +1270,7 @@ impl AgentRuntime {
                             ChatMessage {
                                 role: Role::System,
                                 content: Some(serde_json::Value::String(reminder)),
-                            ..Default::default()
+                                ..Default::default()
                             },
                         );
                     }
@@ -1254,16 +1295,10 @@ impl AgentRuntime {
             if !req_model.is_empty() {
                 req_model.clone()
             } else {
-                format!(
-                    "{}/{}",
-                    ctx.config.model.provider, ctx.config.model.model
-                )
+                format!("{}/{}", ctx.config.model.provider, ctx.config.model.model)
             }
         } else {
-            format!(
-                "{}/{}",
-                ctx.config.model.provider, ctx.config.model.model
-            )
+            format!("{}/{}", ctx.config.model.provider, ctx.config.model.model)
         };
 
         let cwd = ctx
@@ -1278,10 +1313,7 @@ impl AgentRuntime {
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let pending_todo_summary = if mode == ExecutionMode::Agent {
-            ctx
-                .todo_store
-                .as_ref()
-                .and_then(|ts| ts.pending_summary())
+            ctx.todo_store.as_ref().and_then(|ts| ts.pending_summary())
         } else {
             None
         };
@@ -1420,14 +1452,14 @@ mod stream_resume_tests {
     use std::sync::Arc;
 
     use super::*;
-    use async_trait::async_trait;
     use crate::llm::CompletionParams;
+    use async_trait::async_trait;
+    use futures::stream::{self, StreamExt};
     use xiaolin_core::agent_config::{AgentConfig, AgentModelConfig, BehaviorConfig};
     use xiaolin_core::tool::ToolRegistry;
     use xiaolin_core::types::{
         ChatMessage, ChatRequest, ChatResponse, DeltaContent, Role, StreamChoice, StreamDelta,
     };
-    use futures::stream::{self, StreamExt};
 
     fn test_agent_config() -> AgentConfig {
         AgentConfig {
@@ -1550,7 +1582,7 @@ mod stream_resume_tests {
             messages: vec![ChatMessage {
                 role: Role::User,
                 content: Some("hi".into()),
-            ..Default::default()
+                ..Default::default()
             }],
             agent_id: None,
             session_id: None,

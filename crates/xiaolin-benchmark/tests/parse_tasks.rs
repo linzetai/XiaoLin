@@ -11,7 +11,10 @@ fn all_benchmark_tasks_parse() {
         .join("benchmarks/tasks");
 
     if !tasks_dir.exists() {
-        panic!("benchmarks/tasks directory not found at {}", tasks_dir.display());
+        panic!(
+            "benchmarks/tasks directory not found at {}",
+            tasks_dir.display()
+        );
     }
 
     let tasks = BenchmarkTask::load_dir(&tasks_dir).expect("Failed to load task directory");

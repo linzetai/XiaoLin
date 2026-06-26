@@ -1,7 +1,9 @@
-use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
-pub use xiaolin_protocol::{AgentId, AskQuestionOption, CompactTrigger, ExecutionMode, Role, SessionId};
+pub use xiaolin_protocol::{
+    AgentId, AskQuestionOption, CompactTrigger, ExecutionMode, Role, SessionId,
+};
 
 pub type ThreadId = String;
 pub type MessageId = String;

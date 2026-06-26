@@ -172,7 +172,7 @@ Guidelines:\n\
                     content: Some(serde_json::Value::String(format!(
                         "[{snipped_count} message(s) snipped: {reason}]"
                     ))),
-                ..Default::default()
+                    ..Default::default()
                 },
             );
         }

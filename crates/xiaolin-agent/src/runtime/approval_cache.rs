@@ -116,7 +116,10 @@ mod tests {
         let mut cache = ApprovalCache::new();
         let keys = vec!["shell:ls:/tmp".to_string()];
         cache.store(&keys, ApprovalDecision::ApprovedForSession);
-        assert_eq!(cache.check(&keys), Some(ApprovalDecision::ApprovedForSession));
+        assert_eq!(
+            cache.check(&keys),
+            Some(ApprovalDecision::ApprovedForSession)
+        );
     }
 
     #[test]
@@ -133,13 +136,19 @@ mod tests {
         cache.store(&["cmd:a".to_string()], ApprovalDecision::ApprovedForSession);
         // After approving "cmd:a", all "cmd:*" keys are covered by tool-level key
         let keys = vec!["cmd:b".to_string()];
-        assert_eq!(cache.check(&keys), Some(ApprovalDecision::ApprovedForSession));
+        assert_eq!(
+            cache.check(&keys),
+            Some(ApprovalDecision::ApprovedForSession)
+        );
     }
 
     #[test]
     fn different_tool_types_not_covered() {
         let mut cache = ApprovalCache::new();
-        cache.store(&["shell:ls".to_string()], ApprovalDecision::ApprovedForSession);
+        cache.store(
+            &["shell:ls".to_string()],
+            ApprovalDecision::ApprovedForSession,
+        );
         // "file_write:..." has a different tool type and should NOT be covered
         let keys = vec!["file_write:/tmp/foo".to_string()];
         assert_eq!(cache.check(&keys), None);
@@ -161,7 +170,10 @@ mod tests {
     #[test]
     fn global_approved_covers_all_tool_types() {
         let mut cache = ApprovalCache::new();
-        cache.store(&["shell:ls".to_string()], ApprovalDecision::ApprovedAllForSession);
+        cache.store(
+            &["shell:ls".to_string()],
+            ApprovalDecision::ApprovedAllForSession,
+        );
         // Global flag set — any tool type should pass
         assert_eq!(
             cache.check(&["file_write:/tmp/foo".to_string()]),

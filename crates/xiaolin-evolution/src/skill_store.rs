@@ -245,10 +245,9 @@ impl SkillStore {
 
     /// Evict oldest retired skills (then oldest rows) when the table exceeds [`MAX_EXTRACTED_SKILLS`].
     async fn enforce_capacity(&self) -> Result<()> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM extracted_skills")
-                .fetch_one(&self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM extracted_skills")
+            .fetch_one(&self.pool)
+            .await?;
         if count < MAX_EXTRACTED_SKILLS {
             return Ok(());
         }
@@ -391,24 +390,30 @@ impl SkillStore {
              LIMIT ?"
         );
 
-        let mut query = sqlx::query_as::<_, (
-            String,
-            String,
-            String,
-            String,
-            String,
-            f64,
-            i64,
-            i64,
-            String,
-            String,
-            i64,
-            Option<String>,
-        )>(&sql);
+        let mut query = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                f64,
+                i64,
+                i64,
+                String,
+                String,
+                i64,
+                Option<String>,
+            ),
+        >(&sql);
 
         for t in &tokens {
             let pattern = format!("%{t}%");
-            query = query.bind(pattern.clone()).bind(pattern.clone()).bind(pattern);
+            query = query
+                .bind(pattern.clone())
+                .bind(pattern.clone())
+                .bind(pattern);
         }
         query = query.bind(CANDIDATE_LIMIT);
 
@@ -811,10 +816,7 @@ impl SkillStore {
         let params_by_skill = self.fetch_skill_parameters_batch(&skill_ids).await?;
         rows.into_iter()
             .map(|row| {
-                let parameters = params_by_skill
-                    .get(&row.0)
-                    .cloned()
-                    .unwrap_or_default();
+                let parameters = params_by_skill.get(&row.0).cloned().unwrap_or_default();
                 skill_from_row(row, parameters)
             })
             .collect()

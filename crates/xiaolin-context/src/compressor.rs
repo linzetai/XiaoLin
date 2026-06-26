@@ -1,5 +1,5 @@
-use xiaolin_core::types::{ChatMessage, Role};
 use serde_json;
+use xiaolin_core::types::{ChatMessage, Role};
 
 /// Tunings for tiered (recent / summary / archive) compression.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +70,13 @@ fn estimate_single_message_tokens(msg: &ChatMessage) -> usize {
 fn value_char_count(v: &serde_json::Value) -> usize {
     match v {
         serde_json::Value::Null => 4,
-        serde_json::Value::Bool(b) => if *b { 4 } else { 5 },
+        serde_json::Value::Bool(b) => {
+            if *b {
+                4
+            } else {
+                5
+            }
+        }
         serde_json::Value::Number(n) => {
             // Approximate: integer digits + potential decimal
             let n_f = n.as_f64().unwrap_or(0.0);
@@ -84,7 +90,8 @@ fn value_char_count(v: &serde_json::Value) -> usize {
             obj.iter()
                 .map(|(k, v)| k.len() + 2 + 1 + value_char_count(v)) // key quotes + colon
                 .sum::<usize>()
-                + obj.len() + 1 // commas + braces
+                + obj.len()
+                + 1 // commas + braces
         }
     }
 }

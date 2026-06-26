@@ -6,11 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use xiaolin_core::tool::{
-    Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint,
-};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
+use xiaolin_core::tool::{
+    no_retry_recovery_hint, Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult,
+};
 
 fn task_invalid_args(e: impl std::fmt::Display) -> ToolResult {
     ToolResult::err_with_recovery(
@@ -174,16 +174,12 @@ impl TaskManager {
     fn gc_completed_tasks(&self) {
         let now = Self::now_ms();
         let max_age_ms = TASK_GC_MAX_AGE_SECS * 1000;
-        self.tasks.retain(|_, handle| {
-            match handle.info.status {
-                TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => {
-                    handle
-                        .info
-                        .finished_at
-                        .is_some_and(|finished| now.saturating_sub(finished) <= max_age_ms)
-                }
-                _ => true,
-            }
+        self.tasks.retain(|_, handle| match handle.info.status {
+            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => handle
+                .info
+                .finished_at
+                .is_some_and(|finished| now.saturating_sub(finished) <= max_age_ms),
+            _ => true,
         });
     }
 
@@ -1072,7 +1068,7 @@ pub async fn summarize_agent_output(
         messages: vec![ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(user_msg)),
-        ..Default::default()
+            ..Default::default()
         }],
         max_tokens: Some(config.max_summary_tokens),
         temperature: 0.0,

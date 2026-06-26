@@ -31,9 +31,7 @@ async fn risk3_blocking_fs_in_async_context_blocks_runtime() {
     });
 
     // Task 2: should run concurrently but may be delayed by blocking I/O
-    let waiter = tokio::spawn(async move {
-        rx.recv().await
-    });
+    let waiter = tokio::spawn(async move { rx.recv().await });
 
     let _ = tokio::join!(blocker, waiter);
     let elapsed = t0.elapsed();
@@ -172,19 +170,16 @@ async fn risk8_wait_only_polls_first_receiver() {
     let mut receivers: Vec<tokio::sync::broadcast::Receiver<&str>> = vec![rx1, rx2];
 
     // Pattern from subagent.rs WaitAgentTool: only first_mut() is polled
-    let result = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
-        async {
-            // This is the actual code pattern from the wait loop:
-            if let Some(rx) = receivers.first_mut() {
-                let _ = rx.recv().await;
-                "got_from_first"
-            } else {
-                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                "timeout"
-            }
-        },
-    );
+    let result = tokio::time::timeout(std::time::Duration::from_millis(200), async {
+        // This is the actual code pattern from the wait loop:
+        if let Some(rx) = receivers.first_mut() {
+            let _ = rx.recv().await;
+            "got_from_first"
+        } else {
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            "timeout"
+        }
+    });
 
     // Send event to the SECOND channel (different session pool)
     tokio::spawn(async move {

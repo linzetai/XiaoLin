@@ -77,11 +77,10 @@ impl RuntimeServices {
         turn_id: &TurnId,
         artifact: FileArtifact,
     ) {
-        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-            artifact.timestamp_ms as i64,
-        )
-        .unwrap_or_else(chrono::Utc::now)
-        .to_rfc3339();
+        let timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(artifact.timestamp_ms as i64)
+                .unwrap_or_else(chrono::Utc::now)
+                .to_rfc3339();
         let operation = artifact.operation_str().to_string();
         let path_str = artifact.path.display().to_string();
 
@@ -210,7 +209,15 @@ impl RuntimeServices {
             let date = chrono::Local::now().format("%Y-%m-%d").to_string();
             tokio::spawn(async move {
                 if let Err(e) = store
-                    .record_token_usage(&date, &model, prompt, completion, cached, cache_creation, cost_usd)
+                    .record_token_usage(
+                        &date,
+                        &model,
+                        prompt,
+                        completion,
+                        cached,
+                        cache_creation,
+                        cost_usd,
+                    )
                     .await
                 {
                     tracing::warn!(error = %e, "failed to persist token usage");
@@ -234,7 +241,10 @@ impl RuntimeServices {
             let tool = tool_name.to_string();
             let date = chrono::Local::now().format("%Y-%m-%d").to_string();
             tokio::spawn(async move {
-                if let Err(e) = store.record_tool_call(&date, &tool, success, duration_ms as i64).await {
+                if let Err(e) = store
+                    .record_tool_call(&date, &tool, success, duration_ms as i64)
+                    .await
+                {
                     tracing::warn!(error = %e, "failed to persist tool call stat");
                 }
             });
@@ -247,6 +257,12 @@ impl RuntimeServices {
             Some(tracker) => tracker.lock().await.accumulated_cost_usd(),
             None => 0.0,
         }
+    }
+
+    /// Estimate one LLM call's cost with the same model rates used by the tracker.
+    pub async fn estimate_llm_call_cost_usd(&self, usage: &CallUsage) -> Option<f64> {
+        let tracker = self.cost_tracker.as_ref()?;
+        Some(tracker.lock().await.compute_call_cost(usage))
     }
 
     // ── Magic docs ────────────────────────────────────────────────────────

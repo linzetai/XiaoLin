@@ -12,16 +12,16 @@ pub use distiller::{
 };
 pub use evaluator::{StrategyEvaluator, StrategyReport};
 pub use feedback::{Feedback, FeedbackKind, FeedbackStore, InteractionSignal};
+pub use promotion::{run_pipeline, PipelineResult, PromotionConfig};
 pub use skill_extractor::{
-    ExtractedSkill, LlmExtractedPattern, LlmExtractionCallback, PatternObservation, PatternTracker,
-    QualityVerdict, SkillExtractor, SkillParam, SkillQualityValidator, SkillStatus,
-    cluster_fingerprint,
+    cluster_fingerprint, ExtractedSkill, LlmExtractedPattern, LlmExtractionCallback,
+    PatternObservation, PatternTracker, QualityVerdict, SkillExtractor, SkillParam,
+    SkillQualityValidator, SkillStatus,
 };
+pub use skill_gap::{detect_gaps, GapRecommendation, GapReport, SkillGap};
 pub use skill_store::{
     format_candidate_skills_for_prompt, format_skills_for_prompt, MaintenanceReport, SkillStore,
 };
-pub use promotion::{run_pipeline, PipelineResult, PromotionConfig};
-pub use skill_gap::{detect_gaps, GapRecommendation, GapReport, SkillGap};
 pub use trajectory::{
     infer_task_type, Trajectory, TrajectoryOutcome, TrajectoryStep, TrajectoryStore,
 };

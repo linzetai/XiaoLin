@@ -48,10 +48,7 @@ impl BenchmarkRunner {
     }
 
     pub fn generate() -> Self {
-        let id = format!(
-            "bench-{}",
-            chrono::Utc::now().format("%Y%m%d-%H%M%S")
-        );
+        let id = format!("bench-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
         Self { run_id: id }
     }
 
@@ -217,9 +214,7 @@ mod tests {
         }];
 
         let runner = BenchmarkRunner::new("test-run");
-        let report = runner
-            .run(&tasks, &executor, Path::new("/tmp"))
-            .await;
+        let report = runner.run(&tasks, &executor, Path::new("/tmp")).await;
 
         assert_eq!(report.total(), 1);
         assert_eq!(report.passed(), 1);
@@ -257,6 +252,8 @@ mod tests {
         assert_eq!(report.total(), 1);
         assert_eq!(report.failed(), 1);
         assert!(!report.tasks[0].pass);
-        assert!(report.tasks[0].graders[0].reason.contains("connection refused"));
+        assert!(report.tasks[0].graders[0]
+            .reason
+            .contains("connection refused"));
     }
 }

@@ -330,10 +330,7 @@ mod tests {
         let ctx = make_ctx();
         let parts = engine.build_system_prompt(&ctx);
 
-        assert_eq!(
-            parts,
-            vec![CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY]
-        );
+        assert_eq!(parts, vec![CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY]);
     }
 
     #[test]
@@ -778,7 +775,9 @@ mod integration_tests {
         }];
         let prompt_still_cached = engine.build_system_prompt(&ctx);
         assert!(
-            !prompt_still_cached.iter().any(|s| s.contains("test-server")),
+            !prompt_still_cached
+                .iter()
+                .any(|s| s.contains("test-server")),
             "memoized MCP section must NOT change without invalidation (prefix stability)"
         );
 

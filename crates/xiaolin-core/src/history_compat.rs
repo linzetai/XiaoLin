@@ -363,7 +363,7 @@ mod tests {
         let msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String("hello".into())),
-        ..Default::default()
+            ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id.clone());
@@ -380,7 +380,7 @@ mod tests {
             role: Role::Assistant,
             content: Some(serde_json::Value::String("answer".into())),
             reasoning_content: Some("thinking...".into()),
-        ..Default::default()
+            ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -399,7 +399,7 @@ mod tests {
                 {"type": "text", "text": "look at this"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
             ])),
-        ..Default::default()
+            ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -428,7 +428,7 @@ mod tests {
                 success: Some(true),
                 duration_ms: Some(42),
             }]),
-        ..Default::default()
+            ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);
@@ -462,7 +462,7 @@ mod tests {
                 pre_compact_token_count: 100_000,
                 post_compact_token_count: 20_000,
             }),
-        ..Default::default()
+            ..Default::default()
         };
 
         let items = chat_message_to_history(&msg, turn_id);

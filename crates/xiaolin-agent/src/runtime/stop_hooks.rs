@@ -281,7 +281,18 @@ mod tests {
 
     #[tokio::test]
     async fn stop_when_no_hooks_fire() {
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &[], None, None, false, false, RecoveryState::default()).await;
+        let result = evaluate_stop_hooks(
+            "done",
+            Some("stop"),
+            None,
+            &[],
+            None,
+            None,
+            false,
+            false,
+            RecoveryState::default(),
+        )
+        .await;
         assert!(!result.should_continue);
         assert!(result.continuation_message.is_none());
         assert_eq!(result.reason, "none");
@@ -316,8 +327,18 @@ mod tests {
             ])
             .await;
 
-        let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false, RecoveryState::default()).await;
+        let result = evaluate_stop_hooks(
+            "done",
+            Some("stop"),
+            Some(&store),
+            &[],
+            None,
+            None,
+            false,
+            false,
+            RecoveryState::default(),
+        )
+        .await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "incomplete_todos");
         let msg = result.continuation_message.unwrap();
@@ -340,15 +361,35 @@ mod tests {
             }])
             .await;
 
-        let result =
-            evaluate_stop_hooks("done", Some("stop"), Some(&store), &[], None, None, false, false, RecoveryState::default()).await;
+        let result = evaluate_stop_hooks(
+            "done",
+            Some("stop"),
+            Some(&store),
+            &[],
+            None,
+            None,
+            false,
+            false,
+            RecoveryState::default(),
+        )
+        .await;
         assert!(!result.should_continue);
     }
 
     #[tokio::test]
     async fn continue_on_output_truncation() {
-        let result =
-            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false, RecoveryState::default()).await;
+        let result = evaluate_stop_hooks(
+            "partial output...",
+            Some("length"),
+            None,
+            &[],
+            None,
+            None,
+            false,
+            false,
+            RecoveryState::default(),
+        )
+        .await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "output_truncated");
         assert!(result.continuation_message.unwrap().contains("cut short"));
@@ -359,15 +400,39 @@ mod tests {
         let recovery = RecoveryState {
             max_output_recovery_exhausted: true,
         };
-        let result =
-            evaluate_stop_hooks("partial output...", Some("length"), None, &[], None, None, false, false, recovery).await;
-        assert!(!result.should_continue, "should stop when recovery exhausted");
+        let result = evaluate_stop_hooks(
+            "partial output...",
+            Some("length"),
+            None,
+            &[],
+            None,
+            None,
+            false,
+            false,
+            recovery,
+        )
+        .await;
+        assert!(
+            !result.should_continue,
+            "should stop when recovery exhausted"
+        );
     }
 
     #[tokio::test]
     async fn continue_on_queued_slash_commands() {
         let commands = vec!["/compact".to_string(), "/help".to_string()];
-        let result = evaluate_stop_hooks("done", Some("stop"), None, &commands, None, None, false, false, RecoveryState::default()).await;
+        let result = evaluate_stop_hooks(
+            "done",
+            Some("stop"),
+            None,
+            &commands,
+            None,
+            None,
+            false,
+            false,
+            RecoveryState::default(),
+        )
+        .await;
         assert!(result.should_continue);
         assert_eq!(result.reason, "queued_commands");
         let msg = result.continuation_message.unwrap();

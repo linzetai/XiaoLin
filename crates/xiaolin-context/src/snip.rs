@@ -216,8 +216,8 @@ fn round_contains_error(round: &ApiRound) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::types::ChatMessage;
     use serde_json::json;
+    use xiaolin_core::types::ChatMessage;
 
     fn sys(text: &str) -> ChatMessage {
         ChatMessage {

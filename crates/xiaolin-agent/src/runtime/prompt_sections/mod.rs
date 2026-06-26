@@ -1029,11 +1029,11 @@ fn output_efficiency_zh() -> String {
 mod tests {
     use super::*;
     use crate::runtime::prompt_engine::PromptContext;
-    use xiaolin_core::agent_config::AgentConfig;
-    use xiaolin_core::types::ExecutionMode;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use xiaolin_core::agent_config::AgentConfig;
+    use xiaolin_core::types::ExecutionMode;
 
     fn make_ctx(lang: Option<&str>, deferred: usize) -> PromptContext {
         PromptContext {
@@ -1097,8 +1097,7 @@ mod tests {
     fn intro_uses_system_base_prompt_when_available() {
         let section = intro_section();
         let mut ctx = make_ctx(None, 0);
-        ctx.system_base_prompt =
-            Some("You are XiaoLin, a personal AI assistant.".to_string());
+        ctx.system_base_prompt = Some("You are XiaoLin, a personal AI assistant.".to_string());
         let text = (section.compute)(&ctx).unwrap();
         assert!(
             text.contains("XiaoLin"),
@@ -1118,8 +1117,7 @@ mod tests {
     fn intro_uses_system_base_prompt_zh_with_zh_security() {
         let section = intro_section();
         let mut ctx = make_ctx(Some("zh"), 0);
-        ctx.system_base_prompt =
-            Some("你是 XiaoLin，一个个人 AI 助手。".to_string());
+        ctx.system_base_prompt = Some("你是 XiaoLin，一个个人 AI 助手。".to_string());
         let text = (section.compute)(&ctx).unwrap();
         assert!(text.contains("XiaoLin"));
         assert!(text.contains("提示注入"));

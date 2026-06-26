@@ -37,9 +37,7 @@ impl SpawnConfig {
         }
     }
 
-    pub fn from_concurrency_config(
-        cc: &xiaolin_core::agent_config::ConcurrencyConfig,
-    ) -> Self {
+    pub fn from_concurrency_config(cc: &xiaolin_core::agent_config::ConcurrencyConfig) -> Self {
         Self {
             max_global: cc.max_global,
             max_per_session: cc.max_per_session,
@@ -58,9 +56,7 @@ pub enum SpawnControllerError {
     #[error("global slot limit reached ({max}), timed out after {elapsed_ms}ms")]
     GlobalLimitTimeout { max: usize, elapsed_ms: u64 },
 
-    #[error(
-        "session '{session_id}' slot limit reached ({max}), timed out after {elapsed_ms}ms"
-    )]
+    #[error("session '{session_id}' slot limit reached ({max}), timed out after {elapsed_ms}ms")]
     SessionLimitTimeout {
         session_id: String,
         max: usize,
@@ -307,7 +303,12 @@ impl SessionSlotPool {
         let rw_state = if rw_val == 0 {
             RwState::Idle
         } else if rw_val == RW_WRITER_SENTINEL {
-            let writer = self.rw_writer_id.lock().unwrap().clone().unwrap_or_default();
+            let writer = self
+                .rw_writer_id
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_default();
             RwState::Writing(writer)
         } else {
             RwState::Reading(rw_val)
@@ -470,7 +471,10 @@ impl SpawnController {
                     Err(_) => {
                         session_pool.release(run_id);
                         self.global_pool.release();
-                        tracing::warn!(run_id, "spawn_controller: read lock timeout (writer holding)");
+                        tracing::warn!(
+                            run_id,
+                            "spawn_controller: read lock timeout (writer holding)"
+                        );
                         return Err(SpawnControllerError::RwGateTimeout {
                             session_id: session_id.to_string(),
                             safe: concurrency_safe,
@@ -482,13 +486,20 @@ impl SpawnController {
                 match tokio::time::timeout(remaining, gate.write_owned()).await {
                     Ok(guard) => {
                         session_pool.track_writer_acquired(run_id);
-                        tracing::info!(run_id, session_id, "spawn_controller: write lock acquired (exclusive)");
+                        tracing::info!(
+                            run_id,
+                            session_id,
+                            "spawn_controller: write lock acquired (exclusive)"
+                        );
                         RwGuardKind::Write(guard)
                     }
                     Err(_) => {
                         session_pool.release(run_id);
                         self.global_pool.release();
-                        tracing::warn!(run_id, "spawn_controller: write lock timeout (readers/writer holding)");
+                        tracing::warn!(
+                            run_id,
+                            "spawn_controller: write lock timeout (readers/writer holding)"
+                        );
                         return Err(SpawnControllerError::RwGateTimeout {
                             session_id: session_id.to_string(),
                             safe: concurrency_safe,
@@ -597,9 +608,7 @@ mod tests {
 
         drop(_r1);
         tokio::task::yield_now().await;
-        let r3 = ctrl
-            .reserve("s1", "run3", true, default_timeout())
-            .await;
+        let r3 = ctrl.reserve("s1", "run3", true, default_timeout()).await;
         assert!(r3.is_ok());
     }
 
@@ -818,9 +827,18 @@ mod tests {
             max_per_session: 3,
             ..Default::default()
         });
-        let _r1 = ctrl.reserve("s1", "a1", true, default_timeout()).await.unwrap();
-        let _r2 = ctrl.reserve("s1", "a2", true, default_timeout()).await.unwrap();
-        let _r3 = ctrl.reserve("s1", "a3", true, default_timeout()).await.unwrap();
+        let _r1 = ctrl
+            .reserve("s1", "a1", true, default_timeout())
+            .await
+            .unwrap();
+        let _r2 = ctrl
+            .reserve("s1", "a2", true, default_timeout())
+            .await
+            .unwrap();
+        let _r3 = ctrl
+            .reserve("s1", "a3", true, default_timeout())
+            .await
+            .unwrap();
 
         let r4 = ctrl.reserve("s1", "a4", true, short_timeout()).await;
         assert!(r4.is_err(), "4th spawn should be blocked");
@@ -864,7 +882,10 @@ mod tests {
         }));
         let ctrl2 = ctrl.clone();
         let handle = tokio::spawn(async move {
-            let _r = ctrl2.reserve("s1", "a1", true, default_timeout()).await.unwrap();
+            let _r = ctrl2
+                .reserve("s1", "a1", true, default_timeout())
+                .await
+                .unwrap();
             tokio::time::sleep(Duration::from_secs(60)).await;
         });
 
@@ -885,11 +906,20 @@ mod tests {
             ..Default::default()
         }));
 
-        let _e1 = ctrl.reserve("s1", "explore1", true, default_timeout()).await.unwrap();
-        let _e2 = ctrl.reserve("s1", "explore2", true, default_timeout()).await.unwrap();
+        let _e1 = ctrl
+            .reserve("s1", "explore1", true, default_timeout())
+            .await
+            .unwrap();
+        let _e2 = ctrl
+            .reserve("s1", "explore2", true, default_timeout())
+            .await
+            .unwrap();
 
         let code = ctrl.reserve("s1", "code1", false, short_timeout()).await;
-        assert!(code.is_err(), "code (writer) should block while explore (readers) hold");
+        assert!(
+            code.is_err(),
+            "code (writer) should block while explore (readers) hold"
+        );
     }
 
     // --- 6.5 concurrency_safe flag from def ---
@@ -900,7 +930,10 @@ mod tests {
             ..Default::default()
         });
 
-        let _r1 = ctrl.reserve("s1", "r1", true, default_timeout()).await.unwrap();
+        let _r1 = ctrl
+            .reserve("s1", "r1", true, default_timeout())
+            .await
+            .unwrap();
         let snap = ctrl.snapshot();
         let session = &snap.sessions[0];
         let agent = session.agents.iter().find(|a| a.run_id == "r1").unwrap();

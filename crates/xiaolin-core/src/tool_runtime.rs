@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use xiaolin_protocol::approval::{ApprovalDecision, PendingAction};
 use xiaolin_protocol::id::{SessionId, TurnId};
-use serde::{Deserialize, Serialize};
 
 /// What the orchestrator should do regarding approval for a particular tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +105,7 @@ pub enum ToolRuntimeError {
 impl ToolRuntimeError {
     /// Convert a runtime execution failure into a structured [`crate::tool::ToolResult`].
     pub fn to_tool_result(&self) -> crate::tool::ToolResult {
-        use crate::tool::{ToolErrorType, ToolResult, no_retry_recovery_hint};
+        use crate::tool::{no_retry_recovery_hint, ToolErrorType, ToolResult};
 
         match self {
             Self::Rejected { reason } => ToolResult::err_with_recovery(
@@ -354,18 +354,10 @@ pub trait Approvable {
     fn approval_keys(&self, args: &serde_json::Value) -> Vec<String>;
 
     /// Determine what approval is needed for this specific invocation.
-    fn exec_requirement(
-        &self,
-        args: &serde_json::Value,
-        cwd: &Path,
-    ) -> ExecApprovalRequirement;
+    fn exec_requirement(&self, args: &serde_json::Value, cwd: &Path) -> ExecApprovalRequirement;
 
     /// Map this tool call to a `PendingAction` for the approval UI.
-    fn to_pending_action(
-        &self,
-        args: &serde_json::Value,
-        cwd: &Path,
-    ) -> PendingAction;
+    fn to_pending_action(&self, args: &serde_json::Value, cwd: &Path) -> PendingAction;
 }
 
 /// Trait for tools that can be sandboxed.

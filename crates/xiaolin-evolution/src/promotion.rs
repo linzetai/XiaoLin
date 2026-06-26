@@ -67,9 +67,7 @@ pub async fn run_pipeline(
     config: &PromotionConfig,
 ) -> Result<PipelineResult> {
     // Step 1: Load recent trajectories
-    let trajectories = trajectory_store
-        .list_by_agent(agent_id, 200)
-        .await?;
+    let trajectories = trajectory_store.list_by_agent(agent_id, 200).await?;
     let trajectories_analyzed = trajectories.len();
 
     // Step 2: Extract new candidate skills

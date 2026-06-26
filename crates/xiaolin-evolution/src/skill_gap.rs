@@ -76,11 +76,8 @@ pub fn detect_gaps(agent_id: &str, trajectories: &[Trajectory]) -> GapReport {
             .unwrap_or_else(|| "unknown".to_string());
 
         let failing_tools = extract_failing_tool_sequence(group);
-        let avg_depth = group
-            .iter()
-            .map(|t| failure_depth(t) as f64)
-            .sum::<f64>()
-            / group.len() as f64;
+        let avg_depth =
+            group.iter().map(|t| failure_depth(t) as f64).sum::<f64>() / group.len() as f64;
 
         let recommendation = suggest_recommendation(&failing_tools, &task_type, key);
 

@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use xiaolin_core::config::ImportanceScoringConfig;
 use xiaolin_core::types::{ChatMessage, Role};
-use serde::{Deserialize, Serialize};
 
 /// Configurable weights for the importance scoring heuristic.
 ///

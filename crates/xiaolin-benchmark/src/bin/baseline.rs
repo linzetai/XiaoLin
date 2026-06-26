@@ -8,7 +8,7 @@ use xiaolin_benchmark::live::LiveExecutor;
 use xiaolin_benchmark::runner::BenchmarkRunner;
 use xiaolin_benchmark::task::BenchmarkTask;
 use xiaolin_core::agent_config::{AgentConfig, AgentModelConfig, BehaviorConfig};
-use xiaolin_core::config::{ConfigMode, load_config};
+use xiaolin_core::config::{load_config, ConfigMode};
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_protocol::AgentId;
 

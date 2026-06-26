@@ -1,5 +1,5 @@
-use xiaolin_core::types::ChatMessage;
 use std::collections::VecDeque;
+use xiaolin_core::types::ChatMessage;
 
 /// Short-term context window for the current conversation turn.
 ///

@@ -25,7 +25,8 @@ impl PlanStepStore {
     }
 
     pub fn update(&self, session_id: &str, explanation: Option<String>, steps: Vec<PlanStep>) {
-        self.sessions.insert(session_id.to_string(), (explanation, steps));
+        self.sessions
+            .insert(session_id.to_string(), (explanation, steps));
     }
 
     pub fn snapshot(&self, session_id: &str) -> (Option<String>, Vec<PlanStep>) {
@@ -169,16 +170,18 @@ impl Tool for UpdatePlanTool {
         let stream_key = match ASK_QUESTION_STREAM_KEY.try_with(|k| k.clone()) {
             Ok(k) => k,
             Err(_) => {
-                return ToolResult::err(
-                    "update_plan not available outside chat stream context",
-                );
+                return ToolResult::err("update_plan not available outside chat stream context");
             }
         };
 
         self.store
             .update(&stream_key, input.explanation.clone(), plan_steps.clone());
 
-        if let Some(tx) = self.stream_event_txs.get(&stream_key).map(|r| r.value().clone()) {
+        if let Some(tx) = self
+            .stream_event_txs
+            .get(&stream_key)
+            .map(|r| r.value().clone())
+        {
             let _ = tx
                 .send(AgentEvent::PlanUpdate {
                     turn_id: TurnId::new("builtin"),
@@ -205,7 +208,11 @@ impl Tool for UpdatePlanTool {
             }
             if let Err(e) = pc.store.write_plan(&pc.session_id, &md) {
                 tracing::warn!(error = %e, "failed to persist plan file");
-            } else if let Some(tx) = self.stream_event_txs.get(&stream_key).map(|r| r.value().clone()) {
+            } else if let Some(tx) = self
+                .stream_event_txs
+                .get(&stream_key)
+                .map(|r| r.value().clone())
+            {
                 let path = pc.store.plan_path(&pc.session_id);
                 let _ = tx
                     .send(AgentEvent::PlanFileUpdate {

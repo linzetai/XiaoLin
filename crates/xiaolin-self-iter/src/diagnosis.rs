@@ -196,8 +196,7 @@ impl Diagnostician {
                     kind: DiagnosisKind::OutputQualityLow,
                     description: format!(
                         "Output too short ({} chars, minimum: {})",
-                        output_len,
-                        self.thresholds.min_output_length
+                        output_len, self.thresholds.min_output_length
                     ),
                     severity: Severity::Warning,
                     suggested_fix: Some(

@@ -9,6 +9,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use futures::stream::BoxStream;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use xiaolin_core::llm_plugin::{
     AuthConfig, LlmPluginConfig, LlmPluginType, LlmProtocol, MiddlewareConfig, ProcessPluginConfig,
 };
@@ -16,10 +20,6 @@ use xiaolin_core::types::{
     ChatChoice, ChatMessage, ChatResponse, DeltaContent, StreamChoice, StreamDelta,
     StreamFunctionDelta, StreamToolCallDelta, Usage,
 };
-use futures::stream::BoxStream;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 use crate::llm::{classify_llm_error, CompletionParams, LlmProvider, RetryConfig};
 
@@ -2031,7 +2031,7 @@ mod tests {
                 message: ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String("Hello!".to_string())),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".to_string()),
             }],
@@ -2082,7 +2082,7 @@ mod tests {
                         success: None,
                         duration_ms: None,
                     }]),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("tool_calls".to_string()),
             }],

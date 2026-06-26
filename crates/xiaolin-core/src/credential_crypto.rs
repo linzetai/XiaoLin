@@ -181,7 +181,9 @@ pub fn decrypt_config_secrets(val: &serde_json::Value) -> Result<serde_json::Val
             Ok(serde_json::Value::Object(out))
         }
         serde_json::Value::Array(arr) => Ok(serde_json::Value::Array(
-            arr.iter().map(decrypt_config_secrets).collect::<Result<Vec<_>>>()?,
+            arr.iter()
+                .map(decrypt_config_secrets)
+                .collect::<Result<Vec<_>>>()?,
         )),
         other => Ok(other.clone()),
     }
@@ -255,11 +257,15 @@ mod tests {
 
         let decrypted = decrypt_config_secrets(&encrypted).expect("decrypt");
         assert_eq!(
-            decrypted["credentials"]["openai"]["apiKey"].as_str().unwrap(),
+            decrypted["credentials"]["openai"]["apiKey"]
+                .as_str()
+                .unwrap(),
             "sk-secret"
         );
         assert_eq!(
-            decrypted["channels"]["feishu"]["appSecret"].as_str().unwrap(),
+            decrypted["channels"]["feishu"]["appSecret"]
+                .as_str()
+                .unwrap(),
             "feishu-secret"
         );
     }

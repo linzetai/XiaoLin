@@ -441,9 +441,7 @@ impl MetricsCollector {
             }
         }
 
-        out.push_str(
-            "# HELP xiaolin_provider_latency_ms Provider latency by provider and model\n",
-        );
+        out.push_str("# HELP xiaolin_provider_latency_ms Provider latency by provider and model\n");
         out.push_str("# TYPE xiaolin_provider_latency_ms summary\n");
         for e in self.histograms.iter() {
             let key = e.key();
@@ -621,7 +619,9 @@ mod tests {
             "missing tool failure metric:\n{text}"
         );
         assert!(
-            text.contains("xiaolin_tool_failures_total{tool=\"shell_exec\",error_type=\"unknown\"} 1"),
+            text.contains(
+                "xiaolin_tool_failures_total{tool=\"shell_exec\",error_type=\"unknown\"} 1"
+            ),
             "missing shell_exec failure metric:\n{text}"
         );
     }

@@ -28,7 +28,9 @@ use super::runtimes::RuntimeRegistry;
 use super::tool_executor::truncate_tool_result_output_with_limit;
 use crate::builtin_tools::ExecutionModeState;
 use xiaolin_core::agent_config::FileAccessMode;
-use xiaolin_tools_fs::filesystem::{with_additional_allowed_paths, with_file_access_mode, with_work_dir};
+use xiaolin_tools_fs::filesystem::{
+    with_additional_allowed_paths, with_file_access_mode, with_work_dir,
+};
 
 /// Result tuple returned by dispatch: (tool_name, call_id, arguments, result).
 pub type DispatchResult = (String, String, String, ToolResult);
@@ -74,8 +76,9 @@ pub struct DispatchContext<'a> {
     pub denial_tracker: &'a mut DenialTracker,
     pub agent_id: &'a str,
     pub session_id: Option<&'a str>,
-    pub behavior_overrides:
-        Option<&'a std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>>,
+    pub behavior_overrides: Option<
+        &'a std::sync::Arc<dashmap::DashMap<String, xiaolin_core::agent_config::BehaviorConfig>>,
+    >,
 }
 
 /// Unified tool dispatcher that routes all tool calls through a consistent
@@ -227,8 +230,7 @@ impl ToolDispatcher {
                     let tool_registry = Arc::clone(&self.tool_registry);
                     let behavior = ctx.behavior.clone();
                     let work_dir = ctx.work_dir.clone();
-                    let mode_state_current =
-                        ctx.mode_state.map(|ms| ms.current_mode());
+                    let mode_state_current = ctx.mode_state.map(|ms| ms.current_mode());
                     let plan_fp = ctx.plan_file_path.clone();
                     let sid = session_id_for_concurrent.clone();
                     let hooks = hooks.clone();
@@ -242,7 +244,8 @@ impl ToolDispatcher {
                         let effective_tc = if hooks.is_empty() {
                             tc.clone()
                         } else {
-                            let tool_kind = tool_registry.get(&tool_name)
+                            let tool_kind = tool_registry
+                                .get(&tool_name)
                                 .map(|t| t.kind())
                                 .unwrap_or(ToolKind::Read);
                             let hook_ctx = ToolHookContext {
@@ -272,7 +275,12 @@ impl ToolDispatcher {
                                     rewritten
                                 }
                                 PreHookOutcome::Block(reason) => {
-                                    return (tool_name, call_id, arguments, ToolResult::err(reason));
+                                    return (
+                                        tool_name,
+                                        call_id,
+                                        arguments,
+                                        ToolResult::err(reason),
+                                    );
                                 }
                             }
                         };
@@ -287,7 +295,9 @@ impl ToolDispatcher {
                             plan_fp.as_ref(),
                         );
                         let result = if let Some(s) = sid {
-                            crate::subagent::SUBAGENT_SESSION_ID.scope(s, tool_fut).await
+                            crate::subagent::SUBAGENT_SESSION_ID
+                                .scope(s, tool_fut)
+                                .await
                         } else {
                             tool_fut.await
                         };
@@ -295,7 +305,8 @@ impl ToolDispatcher {
 
                         // Run post-hooks
                         if !hooks.is_empty() {
-                            let tool_kind = tool_registry.get(&tool_name)
+                            let tool_kind = tool_registry
+                                .get(&tool_name)
                                 .map(|t| t.kind())
                                 .unwrap_or(ToolKind::Read);
                             let hook_ctx = ToolHookContext {
@@ -419,7 +430,10 @@ impl ToolDispatcher {
                 tool_name.clone(),
                 call_id.clone(),
                 arguments.clone(),
-                ToolResult::err(format!("Tool '{}' is not in the allowed tool list.", tool_name)),
+                ToolResult::err(format!(
+                    "Tool '{}' is not in the allowed tool list.",
+                    tool_name
+                )),
             ));
         }
 
@@ -499,11 +513,7 @@ impl ToolDispatcher {
         None
     }
 
-    async fn execute_guarded(
-        &self,
-        tc: &ToolCall,
-        ctx: &mut DispatchContext<'_>,
-    ) -> ToolResult {
+    async fn execute_guarded(&self, tc: &ToolCall, ctx: &mut DispatchContext<'_>) -> ToolResult {
         let tool_name = &tc.function.name;
         let args: serde_json::Value = match serde_json::from_str(&tc.function.arguments) {
             Ok(v) => v,
@@ -526,11 +536,13 @@ impl ToolDispatcher {
         if skip_sandbox {
             // Plan file writes in plan mode are pre-authorized by the dispatcher;
             // skip the orchestrator approval pipeline so the user isn't prompted.
-            let is_plan_file = ctx.mode_state.is_some_and(|ms|
-                ms.current_mode() == xiaolin_core::types::ExecutionMode::Plan
-            ) && ctx.plan_file_path.as_ref().is_some_and(|pfp|
-                is_plan_file_write(tool_name, &tc.function.arguments, pfp)
-            );
+            let is_plan_file = ctx
+                .mode_state
+                .is_some_and(|ms| ms.current_mode() == xiaolin_core::types::ExecutionMode::Plan)
+                && ctx
+                    .plan_file_path
+                    .as_ref()
+                    .is_some_and(|pfp| is_plan_file_write(tool_name, &tc.function.arguments, pfp));
             if is_plan_file {
                 tracing::info!(tool = %tool_name, "plan file write: skipping approval");
                 let mut result = self.execute_with_full_access(tc, ctx).await;
@@ -538,7 +550,7 @@ impl ToolDispatcher {
                     result.output.push_str(
                         "\n\n[SYSTEM] Plan file written successfully. \
                          You MUST now call exit_plan_mode to present the plan for user approval. \
-                         Do NOT end your turn without calling exit_plan_mode."
+                         Do NOT end your turn without calling exit_plan_mode.",
                     );
                 }
                 return result;
@@ -562,7 +574,11 @@ impl ToolDispatcher {
                 session_id: ctx.session_id,
             };
 
-            if let Err(e) = self.orchestrator.authorize(rt.as_ref(), &args, &mut orch_ctx).await {
+            if let Err(e) = self
+                .orchestrator
+                .authorize(rt.as_ref(), &args, &mut orch_ctx)
+                .await
+            {
                 return e.to_tool_result();
             }
 
@@ -585,10 +601,13 @@ impl ToolDispatcher {
             session_id: ctx.session_id,
         };
 
-        match self.orchestrator.run(rt.as_ref(), &args, &mut orch_ctx).await {
+        match self
+            .orchestrator
+            .run(rt.as_ref(), &args, &mut orch_ctx)
+            .await
+        {
             Ok(orch_result) => {
-                let mut result =
-                    shell_nonzero_exit_as_error(tool_name, orch_result.output);
+                let mut result = shell_nonzero_exit_as_error(tool_name, orch_result.output);
                 result.metadata = orch_result.metadata;
                 result
             }
@@ -596,13 +615,8 @@ impl ToolDispatcher {
         }
     }
 
-    async fn execute_unguarded(
-        &self,
-        tc: &ToolCall,
-        ctx: &DispatchContext<'_>,
-    ) -> ToolResult {
-        let extra_paths =
-            resolve_additional_allowed_paths(&ctx.behavior.additional_allowed_paths);
+    async fn execute_unguarded(&self, tc: &ToolCall, ctx: &DispatchContext<'_>) -> ToolResult {
+        let extra_paths = resolve_additional_allowed_paths(&ctx.behavior.additional_allowed_paths);
         let work_dir_path = ctx.work_dir.as_ref().map(PathBuf::from);
 
         match self.tool_registry.get(&tc.function.name) {
@@ -676,8 +690,7 @@ impl ToolDispatcher {
         tc: &ToolCall,
         ctx: &DispatchContext<'_>,
     ) -> ToolResult {
-        let extra_paths =
-            resolve_additional_allowed_paths(&ctx.behavior.additional_allowed_paths);
+        let extra_paths = resolve_additional_allowed_paths(&ctx.behavior.additional_allowed_paths);
         let work_dir_path = ctx.work_dir.as_ref().map(PathBuf::from);
 
         match self.tool_registry.get(&tc.function.name) {
@@ -735,9 +748,9 @@ impl ToolDispatcher {
                         }
                     }
                 } else if matches!(kind, ToolKind::Edit | ToolKind::Execute) {
-                    let allowed = plan_file_path.is_some_and(|pfp|
+                    let allowed = plan_file_path.is_some_and(|pfp| {
                         is_plan_file_write(tool_name, &tc.function.arguments, pfp)
-                    );
+                    });
                     if !allowed {
                         return ToolResult::typed_err(
                             xiaolin_core::tool::ToolErrorType::ExecutionDenied,
@@ -782,11 +795,16 @@ impl ToolDispatcher {
         Self::truncate_result_with_limit(tool_name, result, 100_000)
     }
 
-    fn truncate_result_with_limit(tool_name: &str, mut result: ToolResult, char_limit: usize) -> ToolResult {
+    fn truncate_result_with_limit(
+        tool_name: &str,
+        mut result: ToolResult,
+        char_limit: usize,
+    ) -> ToolResult {
         if char_limit == usize::MAX {
             return result;
         }
-        let truncated = truncate_tool_result_output_with_limit(&result.output, tool_name, Some(char_limit));
+        let truncated =
+            truncate_tool_result_output_with_limit(&result.output, tool_name, Some(char_limit));
         if truncated.len() != result.output.len() {
             result.output = truncated;
         }
@@ -915,10 +933,7 @@ fn normalize_path_for_comparison(path: &std::path::Path) -> PathBuf {
     if let Some(parent) = absolute.parent() {
         if parent.exists() {
             if let Ok(canon_parent) = parent.canonicalize() {
-                let filename = absolute
-                    .file_name()
-                    .map(PathBuf::from)
-                    .unwrap_or_default();
+                let filename = absolute.file_name().map(PathBuf::from).unwrap_or_default();
                 return canon_parent.join(filename);
             }
         }
@@ -965,10 +980,7 @@ fn extract_target_key(tool_name: &str, arguments: &str) -> Option<String> {
     }
 }
 
-fn validate_tool_arguments(
-    tool: &dyn xiaolin_core::tool::Tool,
-    arguments: &str,
-) -> Option<String> {
+fn validate_tool_arguments(tool: &dyn xiaolin_core::tool::Tool, arguments: &str) -> Option<String> {
     let schema = tool.parameters_schema();
     if schema.required.is_empty() {
         return None;
@@ -1038,7 +1050,9 @@ mod tests {
         assert_eq!(result.error_type, Some(ToolErrorType::ShellExecuteError));
         assert!(result.output.contains("exit_code=1"));
         assert!(result.output.contains("What to do next:"));
-        assert!(result.output.contains("do not repeat the same failing command"));
+        assert!(result
+            .output
+            .contains("do not repeat the same failing command"));
     }
 
     #[test]

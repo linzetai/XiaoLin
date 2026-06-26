@@ -1,6 +1,4 @@
-use xiaolin_context::compressor::{
-    estimate_messages_tokens, CompactionStrategy, ContextCompactor,
-};
+use xiaolin_context::compressor::{estimate_messages_tokens, CompactionStrategy, ContextCompactor};
 use xiaolin_context::engine::ContextEngine;
 use xiaolin_core::types::{ChatMessage, Role};
 

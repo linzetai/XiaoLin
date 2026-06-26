@@ -1,5 +1,7 @@
 use xiaolin_protocol::event::GoalData;
-use xiaolin_protocol::{AgentEvent, ContextWarningLevel, ErrorCode, ExecutionMode, TurnId, TurnSummary};
+use xiaolin_protocol::{
+    AgentEvent, ContextWarningLevel, ErrorCode, ExecutionMode, TurnId, TurnSummary,
+};
 
 use super::query_state::TerminalReason;
 
@@ -153,23 +155,55 @@ impl AgentStep {
     /// Most steps produce exactly one event; `Delta` with reasoning may produce two.
     pub fn into_agent_events(self) -> Vec<AgentEvent> {
         match self {
-            Self::TurnStart { turn_id, session_id } => {
-                vec![AgentEvent::TurnStart { turn_id, session_id }]
+            Self::TurnStart {
+                turn_id,
+                session_id,
+            } => {
+                vec![AgentEvent::TurnStart {
+                    turn_id,
+                    session_id,
+                }]
             }
 
-            Self::Delta { turn_id, delta, raw_bytes } => {
-                vec![AgentEvent::ContentDelta { turn_id, delta, raw_bytes }]
+            Self::Delta {
+                turn_id,
+                delta,
+                raw_bytes,
+            } => {
+                vec![AgentEvent::ContentDelta {
+                    turn_id,
+                    delta,
+                    raw_bytes,
+                }]
             }
 
             Self::ReasoningDelta { turn_id, content } => {
                 vec![AgentEvent::ReasoningDelta { turn_id, content }]
             }
 
-            Self::ToolExecuting { turn_id, call_id, tool_name, args } => {
-                vec![AgentEvent::ToolExecuting { turn_id, tool_name, call_id, args }]
+            Self::ToolExecuting {
+                turn_id,
+                call_id,
+                tool_name,
+                args,
+            } => {
+                vec![AgentEvent::ToolExecuting {
+                    turn_id,
+                    tool_name,
+                    call_id,
+                    args,
+                }]
             }
 
-            Self::ToolResult { turn_id, call_id, tool_name, output, display_output, success, metadata } => {
+            Self::ToolResult {
+                turn_id,
+                call_id,
+                tool_name,
+                output,
+                display_output,
+                success,
+                metadata,
+            } => {
                 vec![AgentEvent::ToolResult {
                     turn_id,
                     tool_name,
@@ -181,7 +215,13 @@ impl AgentStep {
                 }]
             }
 
-            Self::ContextUsage { turn_id, used_tokens, limit_tokens, compressed, tokens_saved } => {
+            Self::ContextUsage {
+                turn_id,
+                used_tokens,
+                limit_tokens,
+                compressed,
+                tokens_saved,
+            } => {
                 vec![AgentEvent::ContextUsageUpdate {
                     turn_id,
                     used_tokens,
@@ -191,7 +231,13 @@ impl AgentStep {
                 }]
             }
 
-            Self::ContextWarning { turn_id, level, used_tokens, limit_tokens, message } => {
+            Self::ContextWarning {
+                turn_id,
+                level,
+                used_tokens,
+                limit_tokens,
+                message,
+            } => {
                 vec![AgentEvent::ContextWarning {
                     turn_id,
                     level,
@@ -205,8 +251,20 @@ impl AgentStep {
                 vec![AgentEvent::ModeChange { turn_id, from, to }]
             }
 
-            Self::PlanFileUpdate { turn_id, session_id, path, exists, content } => {
-                vec![AgentEvent::PlanFileUpdate { turn_id, session_id, path, exists, content }]
+            Self::PlanFileUpdate {
+                turn_id,
+                session_id,
+                path,
+                exists,
+                content,
+            } => {
+                vec![AgentEvent::PlanFileUpdate {
+                    turn_id,
+                    session_id,
+                    path,
+                    exists,
+                    content,
+                }]
             }
 
             Self::PlanDelta { turn_id, delta } => {
@@ -221,7 +279,12 @@ impl AgentStep {
                 vec![AgentEvent::GoalCleared { turn_id, goal_id }]
             }
 
-            Self::TurnEnd { turn_id, reason, summary, session_id } => {
+            Self::TurnEnd {
+                turn_id,
+                reason,
+                summary,
+                session_id,
+            } => {
                 let reason_str = match &reason {
                     TurnEndReason::TokenBudgetReached => Some("token_budget_reached".to_string()),
                     TurnEndReason::Completed => None,
@@ -243,8 +306,17 @@ impl AgentStep {
                 }]
             }
 
-            Self::Error { turn_id, message, error_code, .. } => {
-                vec![AgentEvent::Error { turn_id, message, error_code }]
+            Self::Error {
+                turn_id,
+                message,
+                error_code,
+                ..
+            } => {
+                vec![AgentEvent::Error {
+                    turn_id,
+                    message,
+                    error_code,
+                }]
             }
 
             Self::ToolRoundBoundary { turn_id, iteration } => {
@@ -256,7 +328,9 @@ impl AgentStep {
 
     /// Whether this step can be dropped when the channel is full.
     pub fn is_lossy(&self) -> bool {
-        matches!(self, Self::ContextUsage { .. } | Self::ContextWarning { .. })
+        matches!(
+            self,
+            Self::ContextUsage { .. } | Self::ContextWarning { .. }
+        )
     }
-
 }

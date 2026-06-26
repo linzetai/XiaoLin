@@ -86,10 +86,13 @@ fn run_budget_test(
     percent: u8,
 ) -> BudgetResult {
     let budget = calc_budget(context_window, percent);
-    let (output, _info, ids) =
-        reg.format_with_budget_ordered(mode, Some(budget), None);
+    let (output, _info, ids) = reg.format_with_budget_ordered(mode, Some(budget), None);
 
-    let total = reg.list().iter().filter(|s| s.frontmatter.enabled.unwrap_or(true)).count();
+    let total = reg
+        .list()
+        .iter()
+        .filter(|s| s.frontmatter.enabled.unwrap_or(true))
+        .count();
     let included = ids.len();
     let omitted = total.saturating_sub(included);
     let retention = if total > 0 {
@@ -126,11 +129,7 @@ fn main() {
     println!();
 
     let skill_counts = [50, 107, 150];
-    let context_windows: &[(u32, &str)] = &[
-        (32_000, " 32K"),
-        (128_000, "128K"),
-        (200_000, "200K"),
-    ];
+    let context_windows: &[(u32, &str)] = &[(32_000, " 32K"), (128_000, "128K"), (200_000, "200K")];
     let percents = [2u8, 5, 10];
     let modes: &[(&SkillPromptMode, &str)] = &[
         (&SkillPromptMode::Full, "Full"),

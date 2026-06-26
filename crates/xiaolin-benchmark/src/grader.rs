@@ -45,19 +45,29 @@ fn evaluate_one(
             must_include,
             must_not_include,
             allowed_shell_patterns,
-        } => grade_tool_trace(must_include, must_not_include, allowed_shell_patterns, &result.tool_names_used),
+        } => grade_tool_trace(
+            must_include,
+            must_not_include,
+            allowed_shell_patterns,
+            &result.tool_names_used,
+        ),
         GraderConfig::TokenBudget { max_total_tokens } => {
             grade_token_budget(*max_total_tokens, &result.metrics)
         }
-        GraderConfig::TurnLimit { max_turns } => {
-            grade_turn_limit(*max_turns, &result.metrics)
-        }
+        GraderConfig::TurnLimit { max_turns } => grade_turn_limit(*max_turns, &result.metrics),
         GraderConfig::FilesystemCheck {
             must_exist,
             must_not_exist,
             unchanged,
             files,
-        } => grade_filesystem(must_exist, must_not_exist, unchanged, files, workspace_dir, pre_run_files),
+        } => grade_filesystem(
+            must_exist,
+            must_not_exist,
+            unchanged,
+            files,
+            workspace_dir,
+            pre_run_files,
+        ),
     }
 }
 
@@ -296,10 +306,7 @@ fn grade_filesystem(
                 return GradeResult {
                     grader_type: "filesystem_check".into(),
                     pass: false,
-                    reason: format!(
-                        "File '{}' does not contain '{pattern}'",
-                        check.path
-                    ),
+                    reason: format!("File '{}' does not contain '{pattern}'", check.path),
                 };
             }
         }
@@ -308,10 +315,7 @@ fn grade_filesystem(
                 return GradeResult {
                     grader_type: "filesystem_check".into(),
                     pass: false,
-                    reason: format!(
-                        "File '{}' contains forbidden '{pattern}'",
-                        check.path
-                    ),
+                    reason: format!("File '{}' contains forbidden '{pattern}'", check.path),
                 };
             }
         }
@@ -380,12 +384,7 @@ mod tests {
     #[test]
     fn tool_trace_fail_missing() {
         let result = mock_result("ok", &["shell_exec"], 100, 1);
-        let grade = grade_tool_trace(
-            &["read_file".into()],
-            &[],
-            &[],
-            &result.tool_names_used,
-        );
+        let grade = grade_tool_trace(&["read_file".into()], &[], &[], &result.tool_names_used);
         assert!(!grade.pass);
         assert!(grade.reason.contains("read_file"));
     }
@@ -393,12 +392,7 @@ mod tests {
     #[test]
     fn tool_trace_fail_forbidden() {
         let result = mock_result("ok", &["read_file", "shell_exec"], 100, 1);
-        let grade = grade_tool_trace(
-            &[],
-            &["shell_exec".into()],
-            &[],
-            &result.tool_names_used,
-        );
+        let grade = grade_tool_trace(&[], &["shell_exec".into()], &[], &result.tool_names_used);
         assert!(!grade.pass);
         assert!(grade.reason.contains("shell_exec"));
     }
@@ -412,7 +406,10 @@ mod tests {
             &["cargo".into()],
             &result.tool_names_used,
         );
-        assert!(grade.pass, "shell_exec should be allowed when allowed_shell_patterns is non-empty");
+        assert!(
+            grade.pass,
+            "shell_exec should be allowed when allowed_shell_patterns is non-empty"
+        );
     }
 
     #[test]

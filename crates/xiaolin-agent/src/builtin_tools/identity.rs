@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde_json::json;
 use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use xiaolin_core::workspace::AgentWorkspace;
-use serde_json::json;
 
 pub struct GetIdentityTool {
     workspace: Arc<AgentWorkspace>,
@@ -46,10 +46,12 @@ impl Tool for GetIdentityTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!(
-                "get_identity: arguments are not valid JSON: {e}. \
+            Err(e) => {
+                return ToolResult::err(format!(
+                    "get_identity: arguments are not valid JSON: {e}. \
                  Pass e.g. {{\"file\": \"all\"}} or {{\"file\": \"identity\"}}, then retry."
-            )),
+                ))
+            }
         };
         let file = args.get("file").and_then(|v| v.as_str()).unwrap_or("all");
 
@@ -140,9 +142,7 @@ impl Tool for SetIdentityTool {
             "identity" | "soul" | "agents" => "IDENTITY.md",
             "user" => "USER.md",
             other => {
-                return ToolResult::err(format!(
-                    "Unknown file '{other}'. Use identity or user."
-                ))
+                return ToolResult::err(format!("Unknown file '{other}'. Use identity or user."))
             }
         };
 

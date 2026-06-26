@@ -309,7 +309,9 @@ impl SemanticMemory {
         {
             Ok(_) => {}
             Err(e) if e.to_string().contains("duplicate") => {}
-            Err(e) => tracing::warn!(error = %e, "failed to migrate facts table: add embedding column"),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to migrate facts table: add embedding column")
+            }
         }
         match sqlx::query("ALTER TABLE facts ADD COLUMN embedding_norm REAL")
             .execute(&pool)

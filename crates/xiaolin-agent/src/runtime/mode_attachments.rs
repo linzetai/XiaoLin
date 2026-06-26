@@ -265,9 +265,7 @@ pub fn agent_implementation_reminder(
     let is_zh = matches!(lang, Some("zh" | "zh-CN" | "zh-TW"));
 
     let msg = if is_zh {
-        let mut s = String::from(
-            "<implementation_reminder>\n实施进度提醒：你正在按照方案执行。\n",
-        );
+        let mut s = String::from("<implementation_reminder>\n实施进度提醒：你正在按照方案执行。\n");
         if let Some(ref p) = progress {
             s.push_str(&format!(
                 "进度: {}/{} 已完成, {} 进行中, {} 待办\n",
@@ -277,7 +275,9 @@ pub fn agent_implementation_reminder(
                 s.push_str(&format!("下一步: {next}\n"));
             }
         }
-        s.push_str("请用 update_plan 更新步骤状态。完成所有步骤后运行验证。\n</implementation_reminder>");
+        s.push_str(
+            "请用 update_plan 更新步骤状态。完成所有步骤后运行验证。\n</implementation_reminder>",
+        );
         s
     } else {
         let mut s = String::from(
@@ -441,7 +441,10 @@ mod tests {
     fn agent_reminder_skips_non_interval() {
         let plan = "- [x] Done\n- [ ] Todo";
         for t in 1..5 {
-            assert!(agent_implementation_reminder(t, plan, None).is_none(), "turn {t}");
+            assert!(
+                agent_implementation_reminder(t, plan, None).is_none(),
+                "turn {t}"
+            );
         }
     }
 

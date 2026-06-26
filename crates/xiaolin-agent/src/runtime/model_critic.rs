@@ -112,7 +112,7 @@ pub async fn run_critic(
         messages: vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(user_msg)),
-        ..Default::default()
+            ..Default::default()
         }],
         max_tokens: Some(config.max_tokens),
         temperature: 0.2,

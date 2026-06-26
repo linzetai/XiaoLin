@@ -103,7 +103,7 @@ pub async fn select_relevant_memories(
         messages: vec![xiaolin_core::types::ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(prompt)),
-        ..Default::default()
+            ..Default::default()
         }],
         max_tokens: Some(100),
         temperature: 0.0,

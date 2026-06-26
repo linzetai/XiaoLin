@@ -3,14 +3,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use rand::Rng;
+use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use xiaolin_core::tool::ToolDefinition;
 use xiaolin_core::types::{
     ChatChoice, ChatMessage, ChatResponse, DeltaContent, StreamChoice, StreamDelta,
     StreamFunctionDelta, StreamToolCallDelta, Usage,
 };
-use rand::Rng;
-use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 
 /// Parameters for a single LLM call.
 pub struct CompletionParams<'a> {
@@ -386,10 +386,7 @@ impl OpenAiProvider {
         } else {
             None
         };
-        let temperature = self
-            .quirks
-            .force_temperature
-            .unwrap_or(params.temperature);
+        let temperature = self.quirks.force_temperature.unwrap_or(params.temperature);
         OpenAiRequest {
             model: params.model,
             messages: params.messages,
@@ -1860,8 +1857,8 @@ pub fn patch_agent_context_windows(
 #[cfg(test)]
 mod semaphore_tests {
     use super::*;
-    use xiaolin_core::config::{CredentialsConfig, ProviderCredential};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use xiaolin_core::config::{CredentialsConfig, ProviderCredential};
 
     #[tokio::test]
     async fn acquire_llm_semaphore_permit_limits_parallelism() {

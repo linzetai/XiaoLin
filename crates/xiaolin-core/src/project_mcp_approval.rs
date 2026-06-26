@@ -91,14 +91,12 @@ mod tests {
     #[test]
     fn round_trip_serde() {
         let mut approvals = ProjectMcpApprovals::default();
-        approvals.approvals.insert(
-            "/ws::server-a".to_string(),
-            ProjectMcpApproval::Approved,
-        );
-        approvals.approvals.insert(
-            "/ws::server-b".to_string(),
-            ProjectMcpApproval::Rejected,
-        );
+        approvals
+            .approvals
+            .insert("/ws::server-a".to_string(), ProjectMcpApproval::Approved);
+        approvals
+            .approvals
+            .insert("/ws::server-b".to_string(), ProjectMcpApproval::Rejected);
 
         let json = serde_json::to_string_pretty(&approvals).unwrap();
         let parsed: ProjectMcpApprovals = serde_json::from_str(&json).unwrap();

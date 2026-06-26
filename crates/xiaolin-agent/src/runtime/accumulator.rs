@@ -89,8 +89,7 @@ fn try_merge_json_objects(objects: &[String]) -> MergeResult {
     let mut merged = serde_json::Map::new();
 
     for obj_str in objects {
-        let Ok(serde_json::Value::Object(map)) =
-            serde_json::from_str::<serde_json::Value>(obj_str)
+        let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(obj_str)
         else {
             return MergeResult::Split(objects.to_vec());
         };
@@ -377,8 +376,7 @@ mod tests {
         let calls = acc.to_tool_calls();
         assert_eq!(calls.len(), 1, "distinct keys → merge into single call");
         assert_eq!(calls[0].id, "call_789");
-        let args: serde_json::Value =
-            serde_json::from_str(&calls[0].function.arguments).unwrap();
+        let args: serde_json::Value = serde_json::from_str(&calls[0].function.arguments).unwrap();
         assert_eq!(args["file_path"], "/tmp/test.md");
         assert_eq!(args["content"].as_str().unwrap(), "# Hello");
     }
@@ -393,8 +391,7 @@ mod tests {
         };
         let calls = acc.to_tool_calls();
         assert_eq!(calls.len(), 1, "three distinct-key fragments → merge");
-        let args: serde_json::Value =
-            serde_json::from_str(&calls[0].function.arguments).unwrap();
+        let args: serde_json::Value = serde_json::from_str(&calls[0].function.arguments).unwrap();
         assert_eq!(args["file_path"], "/tmp/x");
         assert_eq!(args["content"], "data");
         assert_eq!(args["description"], "test");

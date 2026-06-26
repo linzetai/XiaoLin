@@ -18,7 +18,11 @@ fn content_fingerprint(msg: &ChatMessage) -> u64 {
         content.push_str(name);
     }
     let hash = blake3::hash(content.as_bytes());
-    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
+    u64::from_le_bytes(
+        hash.as_bytes()[..8]
+            .try_into()
+            .expect("blake3 hash is 32 bytes"),
+    )
 }
 
 /// Entry in the cached microcompact store.
@@ -147,8 +151,7 @@ impl CachedMicrocompactor {
                         estimate_messages_tokens(std::slice::from_ref(&messages[idx]));
                     tokens_freed += before_tokens.saturating_sub(after_tokens);
                     cache_hits += 1;
-                    self.last_referenced
-                        .insert(cache_key, self.pass_count);
+                    self.last_referenced.insert(cache_key, self.pass_count);
                     continue;
                 }
             }
@@ -211,7 +214,10 @@ impl CachedMicrocompactor {
             .map(|(k, pass)| (k.clone(), *pass))
             .collect();
         keys.sort_by_key(|(_, pass)| *pass);
-        let remove_count = self.cache.len().saturating_sub(MAX_CACHED_MICROCOMPACT_ENTRIES / 2);
+        let remove_count = self
+            .cache
+            .len()
+            .saturating_sub(MAX_CACHED_MICROCOMPACT_ENTRIES / 2);
         for (key, _) in keys.into_iter().take(remove_count) {
             self.cache.remove(&key);
             self.last_referenced.remove(&key);
@@ -397,8 +403,8 @@ mod tests {
         let mut msgs = vec![
             tool_msg("read_file", &big),
             tool_msg("grep", &big),
-            tool_msg("read_file", &big),   // recent window
-            tool_msg("list_dir", &big),    // recent window
+            tool_msg("read_file", &big), // recent window
+            tool_msg("list_dir", &big),  // recent window
         ];
         let result = compactor.compact(&mut msgs);
         assert_eq!(result.new_compressions, 2); // only first 2

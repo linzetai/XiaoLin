@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Mutex;
 use xiaolin_core::types::{ChatMessage, ChatResponse, Role};
 use xiaolin_protocol::{GuardianOutcome, RiskLevel};
-use tokio::sync::Mutex;
 
 use crate::llm::{CompletionParams, LlmProvider};
 
@@ -264,7 +264,7 @@ mod tests {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some(serde_json::Value::String(content.to_string())),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -274,7 +274,8 @@ mod tests {
 
     #[test]
     fn parse_guardian_response_valid_json() {
-        let json_str = r#"{"risk_level": "low", "outcome": "allow", "rationale": "Safe read operation"}"#;
+        let json_str =
+            r#"{"risk_level": "low", "outcome": "allow", "rationale": "Safe read operation"}"#;
         let response = make_test_response(json_str);
         let assessment = parse_guardian_response("r1", &response);
         assert_eq!(assessment.risk_level, RiskLevel::Low);

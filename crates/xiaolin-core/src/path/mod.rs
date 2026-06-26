@@ -306,8 +306,8 @@ pub mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_support::test_path_buf;
+    use super::*;
     use std::fs;
     use tempfile::tempdir;
 
@@ -371,10 +371,7 @@ mod tests {
         let abs_path_buf =
             AbsolutePathBuf::from_absolute_path_checked(test_path_buf("/tmp/one/two"))
                 .expect("absolute path");
-        let ancestors: Vec<_> = abs_path_buf
-            .ancestors()
-            .map(|p| p.to_path_buf())
-            .collect();
+        let ancestors: Vec<_> = abs_path_buf.ancestors().map(|p| p.to_path_buf()).collect();
         let expected = vec![
             test_path_buf("/tmp/one/two"),
             test_path_buf("/tmp/one"),
@@ -484,15 +481,14 @@ mod tests {
         let from_path: AbsolutePathBuf = Path::new("/tmp").try_into().expect("from &Path");
         assert_eq!(from_path.as_path(), Path::new("/tmp"));
 
-        let from_pathbuf: AbsolutePathBuf =
-            PathBuf::from("/tmp").try_into().expect("from PathBuf");
+        let from_pathbuf: AbsolutePathBuf = PathBuf::from("/tmp").try_into().expect("from PathBuf");
         assert_eq!(from_pathbuf.as_path(), Path::new("/tmp"));
     }
 
     #[test]
     fn into_pathbuf_conversion() {
-        let abs = AbsolutePathBuf::from_absolute_path_checked(test_path_buf("/tmp"))
-            .expect("abs path");
+        let abs =
+            AbsolutePathBuf::from_absolute_path_checked(test_path_buf("/tmp")).expect("abs path");
         let pb: PathBuf = abs.into();
         assert_eq!(pb, test_path_buf("/tmp"));
     }

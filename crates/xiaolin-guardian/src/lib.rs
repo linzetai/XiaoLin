@@ -36,7 +36,11 @@ impl Default for GuardianConfig {
 
 impl GuardianConfig {
     /// Config successfully loaded with Guardian enabled.
-    pub fn enabled_from_config(timeout: Duration, model: String, max_transcript_tokens: usize) -> Self {
+    pub fn enabled_from_config(
+        timeout: Duration,
+        model: String,
+        max_transcript_tokens: usize,
+    ) -> Self {
         Self {
             enabled: true,
             explicitly_disabled: false,
@@ -398,8 +402,10 @@ fn parse_validated_assessment(json_str: &str) -> Option<GuardianAssessment> {
             return None;
         }
     };
-    val.as_object_mut()?
-        .insert("decision".to_string(), serde_json::Value::String(normalized));
+    val.as_object_mut()?.insert(
+        "decision".to_string(),
+        serde_json::Value::String(normalized),
+    );
     serde_json::from_value(val).ok()
 }
 
@@ -649,7 +655,10 @@ mod tests {
         let result = guardian.review(&test_operation(), &test_context()).await;
         assert!(result.is_allowed());
         assert_eq!(result.risk_level, GuardianRiskLevel::Low);
-        assert_eq!(result.user_authorization, GuardianUserAuthorization::Unknown);
+        assert_eq!(
+            result.user_authorization,
+            GuardianUserAuthorization::Unknown
+        );
     }
 
     #[tokio::test]

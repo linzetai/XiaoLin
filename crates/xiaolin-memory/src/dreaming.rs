@@ -265,10 +265,10 @@ fn extract_facts(text: &str) -> Vec<(String, String, String)> {
 
     let prefers_re = PREFERS_RE
         .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+prefers?\s+({ent})")).expect("regex"));
-    let likes_re =
-        LIKES_RE.get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+likes?\s+({ent})")).expect("regex"));
-    let wants_re =
-        WANTS_RE.get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+wants?\s+({ent})")).expect("regex"));
+    let likes_re = LIKES_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+likes?\s+({ent})")).expect("regex"));
+    let wants_re = WANTS_RE
+        .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+wants?\s+({ent})")).expect("regex"));
     let chose_re = CHOSE_RE
         .get_or_init(|| Regex::new(&format!(r"(?i)({ent})\s+chose\s+({ent})")).expect("regex"));
     let selected_re = SELECTED_RE

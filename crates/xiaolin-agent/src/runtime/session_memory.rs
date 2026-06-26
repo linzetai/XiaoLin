@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use xiaolin_core::types::{ChatMessage, Role};
 use serde::{Deserialize, Serialize};
+use xiaolin_core::types::{ChatMessage, Role};
 
 use crate::llm::{CompletionParams, LlmProvider};
 
@@ -159,12 +159,12 @@ pub(crate) async fn extract_session_memory(
             content: Some(serde_json::Value::String(
                 EXTRACTION_SYSTEM_PROMPT.to_string(),
             )),
-        ..Default::default()
+            ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(conversation_text)),
-        ..Default::default()
+            ..Default::default()
         },
     ];
 
@@ -324,12 +324,12 @@ pub(crate) async fn extract_incremental(
             content: Some(serde_json::Value::String(
                 EXTRACTION_SYSTEM_PROMPT.to_string(),
             )),
-        ..Default::default()
+            ..Default::default()
         },
         ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(conversation_text)),
-        ..Default::default()
+            ..Default::default()
         },
     ];
 
@@ -525,7 +525,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(long_content)),
-        ..Default::default()
+            ..Default::default()
         }];
 
         let summary = build_conversation_summary(&messages);

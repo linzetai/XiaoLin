@@ -35,24 +35,14 @@ use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::workspace::AgentWorkspace;
 use xiaolin_session::SessionStore;
 
-pub use ask_question::{with_interaction_handle, with_steer_inbox, with_stream_context, AskQuestionTool, SteerInbox, STEER_INBOX};
+pub use ask_question::{
+    with_interaction_handle, with_steer_inbox, with_stream_context, AskQuestionTool, SteerInbox,
+    STEER_INBOX,
+};
 pub(crate) use ask_question::{ASK_QUESTION_STREAM_KEY, TASK_INTERACTION_HANDLE};
 pub use brief::BriefTool;
-pub use xiaolin_tools_code::code_intel::{
-    CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
-    WorkspaceSymbolsTool,
-};
 pub use clipboard::{register_clipboard_tools, ClipboardReadTool, ClipboardWriteTool};
 pub use confirm::ConfirmTool;
-pub use xiaolin_tools_fs::filesystem::{
-    get_effective_work_dir, get_file_state_cache, set_code_graph_hook,
-    with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir,
-};
-pub use xiaolin_tools_fs::filesystem::{
-    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
-    SearchInFilesTool, WriteFileTool,
-};
-pub use xiaolin_tools_fs::ReadFilesTool;
 pub use goal::{
     ContinuationActivityResult, CreateGoalTool, GetGoalTool, Goal, GoalStatus, GoalStore,
     UpdateGoalTool,
@@ -60,12 +50,6 @@ pub use goal::{
 pub use identity::{GetIdentityTool, SetIdentityTool, UnifiedIdentityTool};
 pub use media::{ImageGenerateTool, TtsTool};
 pub use memory::{MemorySearchTool, MemoryStoreTool, UnifiedMemoryTool};
-pub use xiaolin_tools_network::{
-    engine_by_id, BaiduEngine, BingEngine, BuiltinMetaEngine, GoogleEngine, HttpFetchTool,
-    Search360Engine, SearchEngine, SearchResult, SearxngEngine, SogouEngine, TavilyEngine,
-    WebFetchTool, WebSearchBackend, WebSearchTool, BUILTIN_ENGINE_IDS,
-};
-pub use xiaolin_tools_code::notebook::NotebookEditTool;
 pub use plan_file::PlanFileStore;
 pub use plan_mode::{
     current_plan_context, current_session_mode, with_session_mode, EnterPlanModeTool,
@@ -74,25 +58,46 @@ pub use plan_mode::{
 pub use request_permissions::RequestPermissionsTool;
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};
 pub use session::{session_inbox_topic, SessionsSendTool, SessionsSpawnTool};
-pub use xiaolin_tools_fs::shell::{
-    has_binary_hijack_prefix, parse_sed_edit, sed_to_edit_suggestion, strip_safe_wrappers,
-    validate_command_paths, validate_readonly_command, PermissionRule, SedEditInfo,
-    ShellDefinitionStub,
-};
 pub use skill::{ListSkillsTool, ReadSkillTool, UnifiedSkillTool, WriteSkillTool};
 pub use snip::SnipTool;
 pub use task::{
-    NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo, TaskListTool, TaskManager,
-    TaskManagerError, TaskStatus, BackgroundTaskStopTool, TaskUpdateTool, TaskWorkFactory,
+    BackgroundTaskStopTool, NoopTaskWorkFactory, TaskCreateTool, TaskGetTool, TaskInfo,
+    TaskListTool, TaskManager, TaskManagerError, TaskStatus, TaskUpdateTool, TaskWorkFactory,
 };
-pub use xiaolin_tools_fs::terminal::TerminalCaptureTool;
+pub use terminal::{
+    register_terminal_tools, TerminalCloseTool, TerminalInputTool, TerminalOpenTool,
+};
 pub use todo::{TodoItem, TodoReadTool, TodoStatus, TodoStore, TodoWriteTool};
 pub use tool_search::ToolSearchTool;
 pub use update_plan::{PlanStepStore, UpdatePlanTool};
 pub use utility::{CurrentTimeTool, SleepTool};
 pub use workflow::{WorkflowDefinition, WorkflowRun, WorkflowStatus, WorkflowStore, WorkflowTool};
+pub use xiaolin_tools_code::code_intel::{
+    CodeSectionsTool, FileOutlineTool, FindReferencesTool, GoToDefinitionTool, UnifiedLspTool,
+    WorkspaceSymbolsTool,
+};
+pub use xiaolin_tools_code::notebook::NotebookEditTool;
+pub use xiaolin_tools_fs::filesystem::{
+    get_effective_work_dir, get_file_state_cache, set_code_graph_hook,
+    with_additional_allowed_paths, with_file_access_mode, with_file_state_cache, with_work_dir,
+};
+pub use xiaolin_tools_fs::filesystem::{
+    ApplyPatchTool, EditFileTool, GlobTool, ListDirectoryTool, MultiEditTool, ReadFileTool,
+    SearchInFilesTool, WriteFileTool,
+};
+pub use xiaolin_tools_fs::shell::{
+    has_binary_hijack_prefix, parse_sed_edit, sed_to_edit_suggestion, strip_safe_wrappers,
+    validate_command_paths, validate_readonly_command, PermissionRule, SedEditInfo,
+    ShellDefinitionStub,
+};
+pub use xiaolin_tools_fs::terminal::TerminalCaptureTool;
 pub use xiaolin_tools_fs::worktree::{EnterWorktreeTool, ExitWorktreeTool, WorktreeState};
-pub use terminal::{register_terminal_tools, TerminalCloseTool, TerminalInputTool, TerminalOpenTool};
+pub use xiaolin_tools_fs::ReadFilesTool;
+pub use xiaolin_tools_network::{
+    engine_by_id, BaiduEngine, BingEngine, BuiltinMetaEngine, GoogleEngine, HttpFetchTool,
+    Search360Engine, SearchEngine, SearchResult, SearxngEngine, SogouEngine, TavilyEngine,
+    WebFetchTool, WebSearchBackend, WebSearchTool, BUILTIN_ENGINE_IDS,
+};
 
 pub use xiaolin_tools_fs::exec_command;
 pub use xiaolin_tools_fs::file_state_cache;
@@ -103,8 +108,8 @@ pub use xiaolin_tools_fs::shell_security;
 
 #[cfg(feature = "browser")]
 pub use browser::{
-    register_browser_tool, register_browser_tool_with_engine, set_browser_bridge, BrowserBridge,
-    BrowserEngine, BrowserTool, CdpEngine, TauriWebViewEngine, browser_context_for_prompt,
+    browser_context_for_prompt, register_browser_tool, register_browser_tool_with_engine,
+    set_browser_bridge, BrowserBridge, BrowserEngine, BrowserTool, CdpEngine, TauriWebViewEngine,
 };
 
 /// Register all built-in tools into a registry.

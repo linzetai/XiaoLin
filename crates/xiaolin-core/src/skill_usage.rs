@@ -52,14 +52,12 @@ impl SkillUsageStore {
         event_type: UsageEventType,
         session_id: Option<&str>,
     ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO skill_usage (skill_id, event_type, session_id) VALUES (?, ?, ?)",
-        )
-        .bind(skill_id)
-        .bind(event_type.as_str())
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("INSERT INTO skill_usage (skill_id, event_type, session_id) VALUES (?, ?, ?)")
+            .bind(skill_id)
+            .bind(event_type.as_str())
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -96,20 +94,16 @@ impl SkillUsageStore {
         .bind(-(days as i64))
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(id, cnt)| (id, cnt as u64))
-            .collect())
+        Ok(rows.into_iter().map(|(id, cnt)| (id, cnt as u64)).collect())
     }
 
     /// Delete events older than N days.
     pub async fn purge_old(&self, retention_days: u32) -> Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM skill_usage WHERE timestamp < datetime('now', ? || ' days')",
-        )
-        .bind(-(retention_days as i64))
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM skill_usage WHERE timestamp < datetime('now', ? || ' days')")
+                .bind(-(retention_days as i64))
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected())
     }
 }
@@ -171,10 +165,7 @@ mod tests {
         let pool = test_pool().await;
         let store = SkillUsageStore::open(pool.clone()).await.unwrap();
 
-        store
-            .record("a", UsageEventType::Read, None)
-            .await
-            .unwrap();
+        store.record("a", UsageEventType::Read, None).await.unwrap();
 
         // Insert a backdated row directly
         sqlx::query(

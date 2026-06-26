@@ -190,7 +190,10 @@ impl Tool for TerminalInputTool {
             .unwrap_or(DEFAULT_WAIT_MS)
             .min(MAX_WAIT_MS);
 
-        let wait_for = args.get("wait_for").and_then(|v| v.as_str()).map(String::from);
+        let wait_for = args
+            .get("wait_for")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let mut rx = match self.pty_manager.subscribe(session_id) {
             Some(rx) => rx,
@@ -287,7 +290,10 @@ impl Tool for TerminalCloseTool {
     }
 }
 
-pub fn register_terminal_tools(registry: &xiaolin_core::tool::ToolRegistry, pty_manager: Arc<PtySessionManager>) {
+pub fn register_terminal_tools(
+    registry: &xiaolin_core::tool::ToolRegistry,
+    pty_manager: Arc<PtySessionManager>,
+) {
     registry.register(Arc::new(TerminalOpenTool::new(pty_manager.clone())));
     registry.register(Arc::new(TerminalInputTool::new(pty_manager.clone())));
     registry.register(Arc::new(TerminalCloseTool::new(pty_manager)));
@@ -381,7 +387,9 @@ mod tests {
 
     #[test]
     fn detect_bash_prompt() {
-        assert!(ends_with_shell_prompt("file1.txt  file2.txt\nuser@host:~/project$ "));
+        assert!(ends_with_shell_prompt(
+            "file1.txt  file2.txt\nuser@host:~/project$ "
+        ));
         assert!(ends_with_shell_prompt("output\n$ "));
         assert!(ends_with_shell_prompt("output\n$"));
     }

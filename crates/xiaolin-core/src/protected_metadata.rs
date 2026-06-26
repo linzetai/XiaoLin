@@ -4,10 +4,4 @@
 /// modified by untrusted tools (e.g. `.git`, VCS dirs, agent state).
 ///
 /// Keep this list in sync anywhere workspace write policies are enforced.
-pub const PROTECTED_METADATA_PATH_NAMES: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    ".agents",
-    ".xiaolin",
-];
+pub const PROTECTED_METADATA_PATH_NAMES: &[&str] = &[".git", ".hg", ".svn", ".agents", ".xiaolin"];

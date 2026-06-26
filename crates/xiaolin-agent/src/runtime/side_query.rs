@@ -12,8 +12,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use xiaolin_core::types::ChatMessage;
 use tokio_util::sync::CancellationToken;
+use xiaolin_core::types::ChatMessage;
 
 use super::retry::{with_retry, QuerySource, RetryConfig};
 use crate::llm::{CompletionParams, LlmProvider};
@@ -143,7 +143,7 @@ impl SideQueryHandle {
         let msgs = vec![ChatMessage {
             role: xiaolin_core::types::Role::User,
             content: Some(serde_json::Value::String(question.to_string())),
-        ..Default::default()
+            ..Default::default()
         }];
         match self.query(system, msgs).await {
             Ok(Some(r)) => Some(r.content),
@@ -247,8 +247,8 @@ pub async fn side_query(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use xiaolin_core::types::{ChatChoice, ChatResponse, Role, StreamDelta, Usage};
     use std::sync::atomic::{AtomicU32, Ordering};
+    use xiaolin_core::types::{ChatChoice, ChatResponse, Role, StreamDelta, Usage};
 
     struct MockProvider {
         response: Option<String>,
@@ -277,7 +277,7 @@ mod tests {
                     message: ChatMessage {
                         role: Role::Assistant,
                         content: Some(serde_json::Value::String(content)),
-                    ..Default::default()
+                        ..Default::default()
                     },
                     finish_reason: Some("stop".into()),
                 }],
@@ -315,7 +315,7 @@ mod tests {
             messages: vec![ChatMessage {
                 role: Role::User,
                 content: Some(serde_json::Value::String("test".into())),
-            ..Default::default()
+                ..Default::default()
             }],
             ..Default::default()
         }

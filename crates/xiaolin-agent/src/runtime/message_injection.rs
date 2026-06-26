@@ -81,10 +81,7 @@ pub fn merge_leading_system_into_tier2(messages: &mut Vec<ChatMessage>) {
 }
 
 fn tier2_system_index(messages: &[ChatMessage]) -> Option<usize> {
-    if messages.len() >= 2
-        && messages[0].role == Role::System
-        && messages[1].role == Role::System
-    {
+    if messages.len() >= 2 && messages[0].role == Role::System && messages[1].role == Role::System {
         Some(1)
     } else if messages.first().is_some_and(|m| m.role == Role::System) {
         Some(0)
@@ -144,6 +141,9 @@ mod tests {
         ];
         merge_leading_system_into_tier2(&mut messages);
         assert_eq!(messages.len(), 3);
-        assert!(messages[1].text_content().unwrap_or_default().contains("gateway skills"));
+        assert!(messages[1]
+            .text_content()
+            .unwrap_or_default()
+            .contains("gateway skills"));
     }
 }

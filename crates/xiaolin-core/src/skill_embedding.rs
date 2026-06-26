@@ -99,9 +99,7 @@ impl SkillEmbeddingStore {
 
         Ok(rows
             .into_iter()
-            .filter_map(|(id, blob)| {
-                blob_to_embedding(&blob).map(|emb| (id, emb))
-            })
+            .filter_map(|(id, blob)| blob_to_embedding(&blob).map(|emb| (id, emb)))
             .collect())
     }
 
@@ -163,9 +161,7 @@ impl SkillEmbeddingStore {
             .map(|_| "?")
             .collect::<Vec<_>>()
             .join(",");
-        let sql = format!(
-            "DELETE FROM skill_embeddings WHERE skill_id NOT IN ({placeholders})"
-        );
+        let sql = format!("DELETE FROM skill_embeddings WHERE skill_id NOT IN ({placeholders})");
         let mut query = sqlx::query(&sql);
         for id in active_skill_ids {
             query = query.bind(*id);
@@ -251,10 +247,7 @@ mod tests {
             .await
             .unwrap();
 
-        let results = store
-            .search_by_vector(&[0.9, 0.1, 0.0], 10)
-            .await
-            .unwrap();
+        let results = store.search_by_vector(&[0.9, 0.1, 0.0], 10).await.unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, "skill-a");
         assert!(results[0].1 > results[1].1);
@@ -264,10 +257,7 @@ mod tests {
     async fn cached_hashes_returns_stored() {
         let pool = test_pool().await;
         let store = SkillEmbeddingStore::open(pool).await.unwrap();
-        store
-            .upsert("s1", "abc", &[1.0, 0.0])
-            .await
-            .unwrap();
+        store.upsert("s1", "abc", &[1.0, 0.0]).await.unwrap();
 
         let hashes = store.cached_hashes(&["s1", "s2"]).await.unwrap();
         assert_eq!(hashes.get("s1").map(|s| s.as_str()), Some("abc"));

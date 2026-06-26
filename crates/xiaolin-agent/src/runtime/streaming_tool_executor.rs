@@ -7,11 +7,11 @@
 
 use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
 
+use tokio::sync::RwLock as TokioRwLock;
+use tokio_util::sync::CancellationToken;
 use xiaolin_core::agent_config::BehaviorConfig;
 use xiaolin_core::tool::{ToolRegistry, ToolResult};
 use xiaolin_core::types::{ExecutionMode, ToolCall};
-use tokio::sync::RwLock as TokioRwLock;
-use tokio_util::sync::CancellationToken;
 
 /// State of a tracked tool through its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,7 +115,10 @@ impl StreamingToolExecutor {
     pub fn add_tool(&mut self, call: ToolCall) {
         let tool_name = &call.function.name;
         let tool_ref = self.registry.get(tool_name);
-        let is_parallel = tool_ref.as_ref().map(|t| t.supports_parallel()).unwrap_or(false);
+        let is_parallel = tool_ref
+            .as_ref()
+            .map(|t| t.supports_parallel())
+            .unwrap_or(false);
 
         let index = {
             let mut tools = lock_or_recover(&self.tools);
@@ -197,7 +200,14 @@ impl StreamingToolExecutor {
             // - SUBAGENT_SESSION_ID: so SubAgentTool can route events
             // - CURRENT_SESSION_MODE + PLAN_CONTEXT: so plan mode tools
             //   (exit_plan_mode) can access the per-session mode state and plan file
-            let tool_fut = execute_single_tool_with_context(&call, &registry, &behavior, &work_dir, execution_mode, plan_file_path.as_ref());
+            let tool_fut = execute_single_tool_with_context(
+                &call,
+                &registry,
+                &behavior,
+                &work_dir,
+                execution_mode,
+                plan_file_path.as_ref(),
+            );
             let result = tokio::select! {
                 _ = cancel.cancelled() => {
                     let mut tools = lock_or_recover(&tools_ref);
@@ -351,11 +361,11 @@ async fn execute_single_tool_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
-    use xiaolin_core::types::{FunctionCall, ToolCall};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
+    use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+    use xiaolin_core::types::{FunctionCall, ToolCall};
 
     fn empty_schema() -> ToolParameterSchema {
         ToolParameterSchema {
@@ -789,10 +799,18 @@ mod tests {
     struct PanicTool;
     #[async_trait::async_trait]
     impl Tool for PanicTool {
-        fn name(&self) -> &str { "panic_tool" }
-        fn description(&self) -> &str { "Panics on execute" }
-        fn parameters_schema(&self) -> ToolParameterSchema { empty_schema() }
-        fn kind(&self) -> ToolKind { ToolKind::Read }
+        fn name(&self) -> &str {
+            "panic_tool"
+        }
+        fn description(&self) -> &str {
+            "Panics on execute"
+        }
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            empty_schema()
+        }
+        fn kind(&self) -> ToolKind {
+            ToolKind::Read
+        }
         async fn execute(&self, _args: &str) -> ToolResult {
             panic!("deliberate panic inside tool execution");
         }
@@ -808,10 +826,7 @@ mod tests {
     /// the tool as failed, subsequent tools still complete.
     #[tokio::test]
     async fn risk1_mutex_poison_cascade_on_tool_panic() {
-        let registry = build_registry(vec![
-            Arc::new(PanicTool),
-            Arc::new(MockReadTool),
-        ]);
+        let registry = build_registry(vec![Arc::new(PanicTool), Arc::new(MockReadTool)]);
         let config = StreamingExecutorConfig {
             sibling_cancel_on_error: false,
             ..Default::default()

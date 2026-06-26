@@ -205,7 +205,12 @@ impl SkillExtractor {
         llm: &dyn LlmExtractionCallback,
     ) -> Result<Vec<ExtractedSkill>> {
         let (skills, _, _) = self
-            .extract_skills_with_llm_budgeted(trajectories, llm, u32::MAX, &std::collections::HashSet::new())
+            .extract_skills_with_llm_budgeted(
+                trajectories,
+                llm,
+                u32::MAX,
+                &std::collections::HashSet::new(),
+            )
             .await?;
         Ok(skills)
     }
@@ -397,7 +402,11 @@ pub fn cluster_fingerprint(trajectory_ids: &[String]) -> u64 {
     sorted.sort();
     let joined = sorted.join("\0");
     let hash = blake3::hash(joined.as_bytes());
-    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
+    u64::from_le_bytes(
+        hash.as_bytes()[..8]
+            .try_into()
+            .expect("blake3 hash is 32 bytes"),
+    )
 }
 
 fn lcs_len(a: &[String], b: &[String]) -> usize {

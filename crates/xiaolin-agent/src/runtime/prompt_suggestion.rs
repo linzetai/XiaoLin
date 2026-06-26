@@ -67,7 +67,7 @@ pub async fn generate_suggestions(
         messages: vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(user_msg)),
-        ..Default::default()
+            ..Default::default()
         }],
         max_tokens: Some(256),
         temperature: 0.7,
@@ -150,8 +150,8 @@ mod tests {
     async fn disabled_config_returns_empty() {
         use crate::llm::CompletionParams;
         use async_trait::async_trait;
-        use xiaolin_core::types::ChatResponse;
         use std::sync::Arc;
+        use xiaolin_core::types::ChatResponse;
 
         struct NoopProvider;
         #[async_trait]

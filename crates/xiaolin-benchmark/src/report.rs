@@ -138,8 +138,14 @@ impl RunReport {
 
         println!("  Total tokens:      {total_tokens} (prompt: {total_prompt_tokens}, completion: {total_completion_tokens})");
         println!("  Avg tokens/iter:   {avg_tokens_per_iter:.0}");
-        println!("  Tool calls:        {total_tools} ({total_tool_fails} failed, {:.0}% error rate)",
-            if total_tools > 0 { f64::from(total_tool_fails) / f64::from(total_tools) * 100.0 } else { 0.0 });
+        println!(
+            "  Tool calls:        {total_tools} ({total_tool_fails} failed, {:.0}% error rate)",
+            if total_tools > 0 {
+                f64::from(total_tool_fails) / f64::from(total_tools) * 100.0
+            } else {
+                0.0
+            }
+        );
         println!("  Total time:        {:.1}s", total_time as f64 / 1000.0);
         println!("{sep}");
 
@@ -158,25 +164,43 @@ impl RunReport {
         for task in &self.tasks {
             let status = if task.pass { "PASS" } else { "FAIL" };
             println!("\n  [{status}] {}", task.task_id);
-            println!("  Suite: {}  |  Turns: {}  |  Duration: {:.1}s",
-                task.suite, task.metrics.iterations, task.metrics.duration_ms as f64 / 1000.0);
+            println!(
+                "  Suite: {}  |  Turns: {}  |  Duration: {:.1}s",
+                task.suite,
+                task.metrics.iterations,
+                task.metrics.duration_ms as f64 / 1000.0
+            );
 
             if let Some(usage) = &task.metrics.token_usage {
-                println!("  Tokens: {} total (prompt: {}, completion: {}, cached: {})",
-                    usage.total_tokens, usage.prompt_tokens, usage.completion_tokens, usage.cached_input_tokens);
-                println!("  Avg tokens/iter: {:.0}", task.metrics.avg_tokens_per_iteration());
+                println!(
+                    "  Tokens: {} total (prompt: {}, completion: {}, cached: {})",
+                    usage.total_tokens,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.cached_input_tokens
+                );
+                println!(
+                    "  Avg tokens/iter: {:.0}",
+                    task.metrics.avg_tokens_per_iteration()
+                );
             }
 
-            println!("  Tool calls: {} total ({} ok, {} failed) — error rate: {:.0}%",
-                task.metrics.tool_calls_total, task.metrics.tool_calls_success, task.metrics.tool_calls_failed,
-                task.metrics.tool_error_rate() * 100.0);
+            println!(
+                "  Tool calls: {} total ({} ok, {} failed) — error rate: {:.0}%",
+                task.metrics.tool_calls_total,
+                task.metrics.tool_calls_success,
+                task.metrics.tool_calls_failed,
+                task.metrics.tool_error_rate() * 100.0
+            );
 
             if !task.metrics.tool_calls_by_name.is_empty() {
                 print!("  Tools used: ");
                 let mut entries: Vec<_> = task.metrics.tool_calls_by_name.iter().collect();
                 entries.sort_by(|(a, _), (b, _)| a.cmp(b));
                 for (i, (name, stats)) in entries.iter().enumerate() {
-                    if i > 0 { print!(", "); }
+                    if i > 0 {
+                        print!(", ");
+                    }
                     if stats.failed > 0 {
                         print!("{name} ({}/{}ok)", stats.total, stats.success);
                     } else {
@@ -204,13 +228,18 @@ impl RunReport {
                             .collect::<Vec<_>>()
                             .join(", ")
                     };
-                    println!("    iter {}: cumul_tokens={} ctx={}/{} {}{}",
+                    println!(
+                        "    iter {}: cumul_tokens={} ctx={}/{} {}{}",
                         iter.iteration,
                         iter.cumulative_total_tokens,
                         iter.context_used_tokens,
                         iter.context_limit_tokens,
                         tools_str,
-                        if iter.context_compressed { " [COMPACT]" } else { "" },
+                        if iter.context_compressed {
+                            " [COMPACT]"
+                        } else {
+                            ""
+                        },
                     );
                 }
             }

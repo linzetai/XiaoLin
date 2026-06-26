@@ -542,11 +542,11 @@ short summary markers.\n\
 mod tests {
     use super::*;
     use crate::runtime::prompt_engine::{McpServerInfo, PromptContext};
-    use xiaolin_core::agent_config::AgentConfig;
-    use xiaolin_core::types::ExecutionMode;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use xiaolin_core::agent_config::AgentConfig;
+    use xiaolin_core::types::ExecutionMode;
 
     fn base_ctx(lang: Option<&str>) -> PromptContext {
         PromptContext {

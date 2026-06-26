@@ -257,4 +257,3 @@ async fn execute_job(store: &CronJobStore, trigger: &dyn JobTrigger, job: CronJo
         }
     }
 }
-

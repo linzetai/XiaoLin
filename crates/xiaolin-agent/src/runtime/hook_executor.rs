@@ -454,5 +454,4 @@ mod tests {
         let event = make_pre_tool_event("shell_exec");
         assert!(!filter.matches(&event));
     }
-
 }

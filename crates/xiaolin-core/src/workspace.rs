@@ -38,16 +38,10 @@ pub const EMBEDDED_TOOL_USAGE_GUIDE: &str = include_str!("../../../prompts/tool-
 /// Canonical name for the tool usage guide text (embedded, or read from [`PROMPTS_REPO_TOOL_USAGE_GUIDE`]).
 pub const DEFAULT_TOOL_USAGE_GUIDE: &str = EMBEDDED_TOOL_USAGE_GUIDE;
 
-const WORKSPACE_FILES: &[&str] = &[
-    DEFAULT_IDENTITY_FILENAME,
-    DEFAULT_USER_FILENAME,
-];
+const WORKSPACE_FILES: &[&str] = &[DEFAULT_IDENTITY_FILENAME, DEFAULT_USER_FILENAME];
 
 /// Prompt context ordering — lower numbers appear first in the system prompt.
-const CONTEXT_FILE_ORDER: &[(&str, u32)] = &[
-    ("identity.md", 10),
-    ("user.md", 20),
-];
+const CONTEXT_FILE_ORDER: &[(&str, u32)] = &[("identity.md", 10), ("user.md", 20)];
 
 /// Loaded workspace identity files for an agent.
 #[derive(Debug, Clone, Default)]
@@ -474,9 +468,7 @@ const ROOT_MARKERS_LANG: &[&str] = &[
 /// Priority: `.xiaolin/` > `.git/` > language manifests.
 /// If nothing is found, returns `start` unchanged.
 pub fn detect_workspace_root(start: &Path) -> PathBuf {
-    let start = start
-        .canonicalize()
-        .unwrap_or_else(|_| start.to_path_buf());
+    let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
 
     let mut best: Option<(PathBuf, u8)> = None; // (path, priority) — lower is higher
 
@@ -528,7 +520,10 @@ pub fn write_project_skill(
     content: &str,
 ) -> anyhow::Result<PathBuf> {
     validate_skill_id(skill_id)?;
-    let skill_dir = workspace_root.join(".xiaolin").join("skills").join(skill_id);
+    let skill_dir = workspace_root
+        .join(".xiaolin")
+        .join("skills")
+        .join(skill_id);
     std::fs::create_dir_all(&skill_dir)?;
     let path = skill_dir.join("SKILL.md");
     std::fs::write(&path, content)?;
@@ -610,8 +605,7 @@ mod tests {
         assert!(!tmp.path().join("TOOLS.md").exists());
         assert!(!tmp.path().join("SYSTEM_BASE.md").exists());
 
-        let identity =
-            std::fs::read_to_string(tmp.path().join(DEFAULT_IDENTITY_FILENAME)).unwrap();
+        let identity = std::fs::read_to_string(tmp.path().join(DEFAULT_IDENTITY_FILENAME)).unwrap();
         let user = std::fs::read_to_string(tmp.path().join(DEFAULT_USER_FILENAME)).unwrap();
         assert!(!identity.trim().is_empty());
         assert!(!user.trim().is_empty());
@@ -636,7 +630,10 @@ mod tests {
         std::fs::create_dir_all(sub.join(".git")).unwrap();
 
         let result = detect_workspace_root(&sub);
-        assert_eq!(result, sub, "bare .xiaolin/ (no config files) should NOT be highest priority; .git should win");
+        assert_eq!(
+            result, sub,
+            "bare .xiaolin/ (no config files) should NOT be highest priority; .git should win"
+        );
     }
 
     #[test]

@@ -62,14 +62,21 @@ struct ToolsSection {
 ///
 /// The body (everything after the closing `---`) becomes the `system_prompt`.
 pub fn parse_agent_markdown(content: &str, path: &Path) -> Result<SubAgentDef, String> {
-    let (frontmatter_str, body) = split_frontmatter(content)
-        .ok_or_else(|| format!("missing YAML frontmatter delimiters (---) in {}", path.display()))?;
+    let (frontmatter_str, body) = split_frontmatter(content).ok_or_else(|| {
+        format!(
+            "missing YAML frontmatter delimiters (---) in {}",
+            path.display()
+        )
+    })?;
 
     let fm: AgentFrontmatter = serde_yaml_ng::from_str(frontmatter_str)
         .map_err(|e| format!("invalid frontmatter in {}: {e}", path.display()))?;
 
     if fm.id.is_empty() {
-        return Err(format!("frontmatter `id` must be non-empty in {}", path.display()));
+        return Err(format!(
+            "frontmatter `id` must be non-empty in {}",
+            path.display()
+        ));
     }
 
     let system_prompt = {
@@ -266,12 +273,19 @@ You are a test agent. Follow instructions carefully.
     #[test]
     fn merge_layers_preserve_order() {
         let builtin = vec![
-            SubAgentDef { id: "a".into(), ..Default::default() },
-            SubAgentDef { id: "b".into(), ..Default::default() },
+            SubAgentDef {
+                id: "a".into(),
+                ..Default::default()
+            },
+            SubAgentDef {
+                id: "b".into(),
+                ..Default::default()
+            },
         ];
-        let user = vec![
-            SubAgentDef { id: "c".into(), ..Default::default() },
-        ];
+        let user = vec![SubAgentDef {
+            id: "c".into(),
+            ..Default::default()
+        }];
         let merged = merge_subagent_defs(vec![builtin, user]);
         let ids: Vec<&str> = merged.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, vec!["a", "b", "c"]);

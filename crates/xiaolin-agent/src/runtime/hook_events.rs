@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use xiaolin_core::types::ChatMessage;
 use serde::{Deserialize, Serialize};
+use xiaolin_core::types::ChatMessage;
 
 /// Comprehensive hook event types for the agent lifecycle.
 /// These extend beyond the core `ToolHook` trait to cover agent-level events.

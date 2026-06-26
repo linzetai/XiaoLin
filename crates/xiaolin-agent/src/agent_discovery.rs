@@ -80,7 +80,10 @@ impl Tool for ListAgentsTool {
                 id: d.id.clone(),
                 name: d.name.clone(),
                 description: d.description.clone(),
-                model: d.model.as_ref().map(|m| format!("{}/{}", m.provider, m.model)),
+                model: d
+                    .model
+                    .as_ref()
+                    .map(|m| format!("{}/{}", m.provider, m.model)),
                 background: d.background,
                 concurrency_safe: d.concurrency_safe,
                 has_system_prompt: d.system_prompt.is_some(),
@@ -188,7 +191,10 @@ impl Tool for GetAgentInfoTool {
             id: def.id.clone(),
             name: def.name.clone(),
             description: def.description.clone(),
-            model: def.model.as_ref().map(|m| format!("{}/{}", m.provider, m.model)),
+            model: def
+                .model
+                .as_ref()
+                .map(|m| format!("{}/{}", m.provider, m.model)),
             system_prompt_preview: def.system_prompt.as_ref().map(|p| {
                 let preview: String = p.chars().take(200).collect();
                 if p.len() > 200 {
@@ -213,7 +219,7 @@ impl Tool for GetAgentInfoTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::agent_config::{SubAgentPolicy, builtin_subagent_defs};
+    use xiaolin_core::agent_config::{builtin_subagent_defs, SubAgentPolicy};
 
     fn make_manager() -> Arc<SubAgentManager> {
         let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(

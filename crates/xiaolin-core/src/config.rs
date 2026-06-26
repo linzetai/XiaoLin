@@ -1,9 +1,9 @@
+use crate::error::{XiaoLinError, XiaoLinResult};
+use crate::types::ModelCapabilities;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use crate::error::{XiaoLinError, XiaoLinResult};
-use crate::types::ModelCapabilities;
 
 /// Selects which state directory and config search paths to use.
 #[derive(Debug, Clone, PartialEq, Eq)]

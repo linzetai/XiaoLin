@@ -174,7 +174,6 @@ impl ApiErrorClassifier {
 
         (None, None)
     }
-
 }
 
 #[cfg(test)]

@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use xiaolin_core::tool::{
-    Tool, ToolKind, ToolParameterSchema, ToolResult, format_soft_failure_error,
-    no_retry_recovery_hint,
+    format_soft_failure_error, no_retry_recovery_hint, Tool, ToolKind, ToolParameterSchema,
+    ToolResult,
 };
 
 /// Whether a memory search error looks like a backend/I/O failure rather than a query issue.
@@ -203,8 +203,7 @@ impl Tool for MemorySearchTool {
                     result["episodes"] = serde_json::json!(items);
                 }
                 Err(e) => {
-                    result["episodes_error"] =
-                        serde_json::json!(episodes_search_error_field(e));
+                    result["episodes_error"] = serde_json::json!(episodes_search_error_field(e));
                 }
             }
         }

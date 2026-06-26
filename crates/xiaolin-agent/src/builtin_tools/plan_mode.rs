@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -399,9 +399,7 @@ Do NOT ask about approval in text.\n\n\
             String::new()
         };
 
-        ToolResult::ok(format!(
-            "已进入 Plan 模式 (read-only){plan_hint}"
-        ))
+        ToolResult::ok(format!("已进入 Plan 模式 (read-only){plan_hint}"))
     }
 }
 
@@ -561,34 +559,31 @@ decisions are explicit in the plan file.\n\
             String::new()
         };
 
-        let (plan_path_str, plan_exists, plan_preview) =
-            if let Some(pc) = current_plan_context() {
-                let path = pc.store.plan_path(&pc.session_id);
-                let exists = pc.store.plan_exists(&pc.session_id);
-                let preview = if exists {
-                    let content = pc.store.read_plan(&pc.session_id).unwrap_or_default();
-                    if content.len() > 500 {
-                        let end = content.floor_char_boundary(500);
-                        format!(
-                            "{}...\n(truncated, read full file for details)",
-                            &content[..end]
-                        )
-                    } else {
-                        content
-                    }
+        let (plan_path_str, plan_exists, plan_preview) = if let Some(pc) = current_plan_context() {
+            let path = pc.store.plan_path(&pc.session_id);
+            let exists = pc.store.plan_exists(&pc.session_id);
+            let preview = if exists {
+                let content = pc.store.read_plan(&pc.session_id).unwrap_or_default();
+                if content.len() > 500 {
+                    let end = content.floor_char_boundary(500);
+                    format!(
+                        "{}...\n(truncated, read full file for details)",
+                        &content[..end]
+                    )
                 } else {
-                    String::new()
-                };
-                (path.display().to_string(), exists, preview)
+                    content
+                }
             } else {
-                (String::new(), false, String::new())
+                String::new()
             };
+            (path.display().to_string(), exists, preview)
+        } else {
+            (String::new(), false, String::new())
+        };
 
         if !plan_exists {
             ms.transition(ExecutionMode::Agent);
-            return ToolResult::ok(format!(
-                "已退出 Plan 模式 → Agent 模式{verify_msg}"
-            ));
+            return ToolResult::ok(format!("已退出 Plan 模式 → Agent 模式{verify_msg}"));
         }
 
         let plan_ref = if !plan_path_str.is_empty() {
@@ -878,7 +873,9 @@ mod tests {
 
         let msg_with_path = ExecutionModeState::blocked_message(
             "write_file",
-            Some(std::path::Path::new("/home/user/.xiaolin/plans/brave-lion.md")),
+            Some(std::path::Path::new(
+                "/home/user/.xiaolin/plans/brave-lion.md",
+            )),
         );
         assert!(msg_with_path.contains("/home/user/.xiaolin/plans/brave-lion.md"));
         assert!(msg_with_path.contains("Only the plan file"));

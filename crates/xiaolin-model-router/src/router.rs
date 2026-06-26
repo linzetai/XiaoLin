@@ -1,5 +1,5 @@
-use xiaolin_core::complexity::ComplexityTier;
 use serde::{Deserialize, Serialize};
+use xiaolin_core::complexity::ComplexityTier;
 
 use crate::budget::BudgetTracker;
 use crate::estimator::{CostEstimator, ModelPricing, TokenEstimate};
@@ -78,11 +78,7 @@ fn filter_candidates_by_tier(
         .cloned()
         .collect();
     if filtered.is_empty() {
-        tracing::warn!(
-            ?need,
-            ?cap,
-            "model router: no models in tier window"
-        );
+        tracing::warn!(?need, ?cap, "model router: no models in tier window");
         anyhow::bail!("no models available in tier window {need:?}..{cap:?}");
     }
     Ok(filtered)
@@ -185,10 +181,7 @@ impl ModelRouter {
             RoutingStrategy::Fixed => {
                 let first_model = candidates.first().map(|c| c.model.as_str()).unwrap_or("");
                 let model_name = preferred_model.unwrap_or(first_model);
-                let selected = candidates
-                    .iter()
-                    .find(|c| c.model == model_name)
-                    .cloned();
+                let selected = candidates.iter().find(|c| c.model == model_name).cloned();
                 if preferred_model.is_some() && selected.is_none() {
                     tracing::warn!(
                         preferred = preferred_model.unwrap(),

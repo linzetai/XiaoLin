@@ -113,12 +113,18 @@ impl MessageQueue {
 
     /// Check if the queue has any pending messages.
     pub fn is_empty(&self) -> bool {
-        self.inner.lock().expect("message queue lock poisoned").is_empty()
+        self.inner
+            .lock()
+            .expect("message queue lock poisoned")
+            .is_empty()
     }
 
     /// Number of pending messages.
     pub fn len(&self) -> usize {
-        self.inner.lock().expect("message queue lock poisoned").len()
+        self.inner
+            .lock()
+            .expect("message queue lock poisoned")
+            .len()
     }
 }
 

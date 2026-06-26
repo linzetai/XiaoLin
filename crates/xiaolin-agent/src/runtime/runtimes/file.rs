@@ -3,7 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use xiaolin_core::tool_runtime::{
     Approvable, ExecApprovalRequirement, SandboxAttempt, SandboxPreference, Sandboxable,
-    ToolExecContext, ToolRuntime, ToolRuntimeError, ToolRunOutput,
+    ToolExecContext, ToolRunOutput, ToolRuntime, ToolRuntimeError,
 };
 use xiaolin_protocol::approval::PendingAction;
 
@@ -80,11 +80,7 @@ impl Approvable for FileWriteRuntime {
         vec![format!("file_write:{path}")]
     }
 
-    fn exec_requirement(
-        &self,
-        args: &serde_json::Value,
-        cwd: &Path,
-    ) -> ExecApprovalRequirement {
+    fn exec_requirement(&self, args: &serde_json::Value, cwd: &Path) -> ExecApprovalRequirement {
         let path_str = Self::extract_path(args).unwrap_or("unknown");
         let path = Path::new(path_str);
 
@@ -128,10 +124,7 @@ impl ToolRuntime for FileWriteRuntime {
         let path_str = Self::extract_path(args).ok_or_else(|| ToolRuntimeError::Internal {
             message: "missing 'file_path' (or 'path') argument".into(),
         })?;
-        let content = args
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
         let path = if Path::new(path_str).is_absolute() {
             std::path::PathBuf::from(path_str)
@@ -156,7 +149,10 @@ impl ToolRuntime for FileWriteRuntime {
         if let Some(pc) = crate::builtin_tools::current_plan_context() {
             let plan_path = pc.store.plan_path(&pc.session_id);
             let is_plan = path == plan_path
-                || path.canonicalize().ok().zip(plan_path.canonicalize().ok())
+                || path
+                    .canonicalize()
+                    .ok()
+                    .zip(plan_path.canonicalize().ok())
                     .is_some_and(|(a, b)| a == b);
             if is_plan {
                 return Ok(ToolRunOutput::plain(format!(
@@ -195,11 +191,7 @@ impl Approvable for FileEditRuntime {
         vec![format!("file_edit:{path}")]
     }
 
-    fn exec_requirement(
-        &self,
-        args: &serde_json::Value,
-        cwd: &Path,
-    ) -> ExecApprovalRequirement {
+    fn exec_requirement(&self, args: &serde_json::Value, cwd: &Path) -> ExecApprovalRequirement {
         let path_str = Self::extract_path(args).unwrap_or("unknown");
         let path = Path::new(path_str);
 
@@ -240,10 +232,9 @@ impl ToolRuntime for FileEditRuntime {
         _sandbox: &SandboxAttempt,
         ctx: &ToolExecContext,
     ) -> Result<ToolRunOutput, ToolRuntimeError> {
-        let path_str =
-            Self::extract_path(args).ok_or_else(|| ToolRuntimeError::Internal {
-                message: "missing 'file_path' (or 'path') argument".into(),
-            })?;
+        let path_str = Self::extract_path(args).ok_or_else(|| ToolRuntimeError::Internal {
+            message: "missing 'file_path' (or 'path') argument".into(),
+        })?;
         let old_string = args
             .get("old_string")
             .and_then(|v| v.as_str())
@@ -261,18 +252,16 @@ impl ToolRuntime for FileEditRuntime {
             ctx.cwd.join(path_str)
         };
 
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .map_err(|e| ToolRuntimeError::Internal {
-                message: format!("failed to read file: {e}"),
-            })?;
+        let content =
+            tokio::fs::read_to_string(&path)
+                .await
+                .map_err(|e| ToolRuntimeError::Internal {
+                    message: format!("failed to read file: {e}"),
+                })?;
 
         if !content.contains(old_string) {
             return Err(ToolRuntimeError::Internal {
-                message: format!(
-                    "old_string not found in {}",
-                    path.display()
-                ),
+                message: format!("old_string not found in {}", path.display()),
             });
         }
 

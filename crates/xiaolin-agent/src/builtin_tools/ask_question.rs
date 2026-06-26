@@ -7,7 +7,11 @@ use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use xiaolin_protocol::{AgentEvent, AskQuestionOption, TurnId};
 use xiaolin_session_actor::InteractionHandle;
 
-pub type SteerInbox = std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<xiaolin_session_actor::turn::SteerMessage>>>;
+pub type SteerInbox = std::sync::Arc<
+    tokio::sync::Mutex<
+        tokio::sync::mpsc::UnboundedReceiver<xiaolin_session_actor::turn::SteerMessage>,
+    >,
+>;
 
 tokio::task_local! {
     pub(crate) static ASK_QUESTION_STREAM_KEY: String;

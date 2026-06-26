@@ -333,7 +333,10 @@ pub fn format_recovery_output(message: &str, hint: &str) -> String {
 }
 
 /// Format a soft-failure `*_error` field embedded in a success=true tool result.
-pub fn format_soft_failure_error(message: impl std::fmt::Display, hint: impl Into<String>) -> String {
+pub fn format_soft_failure_error(
+    message: impl std::fmt::Display,
+    hint: impl Into<String>,
+) -> String {
     format_recovery_output(&message.to_string(), &hint.into())
 }
 
@@ -636,10 +639,8 @@ impl ToolRegistry {
     /// Get a snapshot of all MCP server instructions. Sorted by key.
     pub fn mcp_instructions_snapshot(&self) -> Vec<(String, String)> {
         let guard = self.mcp_instructions.read();
-        let mut pairs: Vec<(String, String)> = guard
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let mut pairs: Vec<(String, String)> =
+            guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         pairs
     }
@@ -852,7 +853,10 @@ impl ToolRegistry {
             .map(|&qw| {
                 haystacks
                     .iter()
-                    .filter(|h| h.contains(qw) || (qw.len() >= 3 && h.split_whitespace().any(|w| w.starts_with(qw))))
+                    .filter(|h| {
+                        h.contains(qw)
+                            || (qw.len() >= 3 && h.split_whitespace().any(|w| w.starts_with(qw)))
+                    })
                     .count() as f64
             })
             .collect();
@@ -1236,18 +1240,18 @@ impl Tool for DynamicTool {
             .parameters_schema
             .get("properties")
             .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect()
-            })
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
         let required = self
             .spec
             .parameters_schema
             .get("required")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         ToolParameterSchema {
             schema_type: "object".to_string(),
@@ -1267,13 +1271,17 @@ impl Tool for DynamicTool {
     async fn execute(&self, arguments: &str) -> ToolResult {
         match &self.spec.executor {
             DynamicExecutor::Mcp { server_id } => {
-                self.backend.execute_mcp(server_id, &self.spec.name, arguments).await
+                self.backend
+                    .execute_mcp(server_id, &self.spec.name, arguments)
+                    .await
             }
             DynamicExecutor::Http { url, method } => {
                 self.backend.execute_http(url, method, arguments).await
             }
             DynamicExecutor::Event { channel } => {
-                self.backend.execute_event(channel, &self.spec.name, arguments).await
+                self.backend
+                    .execute_event(channel, &self.spec.name, arguments)
+                    .await
             }
         }
     }
@@ -1335,7 +1343,10 @@ mod tests {
             "backend down",
             "What to do next: stop looping and report to the operator.",
         );
-        assert_eq!(out, "backend down What to do next: stop looping and report to the operator.");
+        assert_eq!(
+            out,
+            "backend down What to do next: stop looping and report to the operator."
+        );
     }
 
     #[test]
@@ -1497,18 +1508,29 @@ mod tests {
     fn definitions_with_profile_promotes_deferred_tool() {
         let reg = ToolRegistry::new();
         reg.register(make_tool("read_file", ""));
-        let deferred: Arc<dyn Tool> = Arc::new(FakeDeferredTool { name: "exit_plan_mode" });
+        let deferred: Arc<dyn Tool> = Arc::new(FakeDeferredTool {
+            name: "exit_plan_mode",
+        });
         reg.register(deferred);
 
         let default_defs = reg.definitions_with_profile(&ToolProfile::default());
-        let names: Vec<_> = default_defs.iter().map(|d| d.function.name.as_str()).collect();
+        let names: Vec<_> = default_defs
+            .iter()
+            .map(|d| d.function.name.as_str())
+            .collect();
         assert!(names.contains(&"read_file"));
-        assert!(!names.contains(&"exit_plan_mode"), "deferred should be hidden by default");
+        assert!(
+            !names.contains(&"exit_plan_mode"),
+            "deferred should be hidden by default"
+        );
 
         let plan_defs = reg.definitions_with_profile(&ToolProfile::plan_mode());
         let names: Vec<_> = plan_defs.iter().map(|d| d.function.name.as_str()).collect();
         assert!(names.contains(&"read_file"));
-        assert!(names.contains(&"exit_plan_mode"), "promote should make deferred visible");
+        assert!(
+            names.contains(&"exit_plan_mode"),
+            "promote should make deferred visible"
+        );
     }
 
     #[test]
@@ -1586,6 +1608,9 @@ mod tests {
         let plan_defs = reg.definitions_with_profile(&ToolProfile::plan_mode());
         let names: Vec<_> = plan_defs.iter().map(|d| d.function.name.as_str()).collect();
         assert!(names.contains(&"read_file"));
-        assert!(!names.contains(&"enter_plan_mode"), "demote should hide direct tool");
+        assert!(
+            !names.contains(&"enter_plan_mode"),
+            "demote should hide direct tool"
+        );
     }
 }

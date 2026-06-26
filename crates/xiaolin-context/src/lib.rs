@@ -10,6 +10,9 @@ pub mod reactive;
 pub mod snip;
 
 pub use budget::{BudgetDecision, StopReason, TokenBudgetTracker};
+pub use cached_microcompact::{
+    CachedMicrocompactConfig, CachedMicrocompactResult, CachedMicrocompactor,
+};
 pub use collapse::{
     project as project_collapses, CollapseEngine, CollapseEngineConfig, CollapseMode,
     CollapseOverlapError, CollapseResult, CollapseSpan, CollapseStore, CollapseSummarizer,
@@ -36,9 +39,6 @@ pub use model_context::{
 };
 pub use pipeline::{
     AutoCompactCircuitBreaker, CompactTracking, CompactionMetadata, ContextPipeline, PipelineConfig,
-};
-pub use cached_microcompact::{
-    CachedMicrocompactConfig, CachedMicrocompactResult, CachedMicrocompactor,
 };
 pub use reactive::{ReactiveCompactResult, ReactiveCompactor, ReactiveCompactorConfig};
 pub use snip::{group_by_api_round, ApiRound, SnipCompactor, SnipCompactorConfig, SnipResult};

@@ -13,9 +13,9 @@
 
 use std::collections::BTreeMap;
 
-use xiaolin_core::types::{ChatMessage, Role};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use xiaolin_core::types::{ChatMessage, Role};
 
 use crate::compressor::estimate_messages_tokens;
 use crate::snip::{group_by_api_round, ApiRound};
@@ -402,8 +402,8 @@ pub fn project(messages: &[ChatMessage], store: &CollapseStore) -> Vec<ChatMessa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::types::Role;
     use serde_json::json;
+    use xiaolin_core::types::Role;
 
     fn now_millis() -> u64 {
         std::time::SystemTime::now()

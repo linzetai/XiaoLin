@@ -234,10 +234,7 @@ impl SelfIterEngine {
             if feedback_history.len() > MAX_FEEDBACK_ROUNDS {
                 feedback_history.remove(0);
             }
-            let candidate = format!(
-                "{base_prompt}\n\n{}",
-                feedback_history.join("\n\n")
-            );
+            let candidate = format!("{base_prompt}\n\n{}", feedback_history.join("\n\n"));
             if candidate.len() > MAX_PROMPT_CHARS {
                 tracing::warn!(
                     agent = agent_id,

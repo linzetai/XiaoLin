@@ -236,7 +236,12 @@ impl SkillRegistry {
         let cached = CachedLowercase {
             name: skill.name.to_lowercase(),
             description: skill.description.as_deref().unwrap_or("").to_lowercase(),
-            when_to_use: skill.frontmatter.when_to_use.as_deref().unwrap_or("").to_lowercase(),
+            when_to_use: skill
+                .frontmatter
+                .when_to_use
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase(),
             content: skill.content.to_lowercase(),
         };
         self.lowercase_cache.insert(skill.id.clone(), cached);
@@ -314,7 +319,8 @@ impl SkillRegistry {
 
         let deny_set: HashSet<&str> = global_deny.iter().map(|s| s.as_str()).collect();
         let allow_set: HashSet<&str> = global_allow.iter().map(|s| s.as_str()).collect();
-        let agent_set: Option<HashSet<&str>> = agent_allow.map(|list| list.iter().map(|s| s.as_str()).collect());
+        let agent_set: Option<HashSet<&str>> =
+            agent_allow.map(|list| list.iter().map(|s| s.as_str()).collect());
 
         let mut out = SkillRegistry::new();
         for (id, skill) in &self.skills {
@@ -481,7 +487,10 @@ impl SkillRegistry {
         let per_skill_sizes: Vec<usize> = if is_lazy {
             enabled.iter().map(|s| s.id.len() + 2).collect() // ", " separator
         } else {
-            enabled.iter().map(|s| self.format_compact_truncated_one(s).len()).collect()
+            enabled
+                .iter()
+                .map(|s| self.format_compact_truncated_one(s).len())
+                .collect()
         };
 
         let header_overhead = if is_lazy {
@@ -594,7 +603,8 @@ impl SkillRegistry {
         "## Skills\n\nYou have ".len()
             + count_str.len()
             + " skills available. Use the `list_skills` tool to see them, \
-               and `read_skill` tool with a skill ID to get detailed instructions.\n\nSkill IDs: ".len()
+               and `read_skill` tool with a skill ID to get detailed instructions.\n\nSkill IDs: "
+                .len()
             + "\n\n".len()
     }
 
@@ -853,9 +863,7 @@ pub fn register_builtin_skills(registry: &mut SkillRegistry) {
         source_path: PathBuf::from("(builtin)"),
         frontmatter: SkillFrontmatter {
             name: Some("XiaoLin Config Manager".to_string()),
-            description: Some(
-                "Manage .xiaolin/ project configuration".to_string(),
-            ),
+            description: Some("Manage .xiaolin/ project configuration".to_string()),
             ..Default::default()
         },
         layer: SkillLayer::Extension,
@@ -1261,9 +1269,13 @@ mod tests {
 
     #[test]
     fn parse_frontmatter_with_when_to_use() {
-        let raw = "---\nname: Deploy\nwhen_to_use: Use when deploying backend services\n---\n# Body";
+        let raw =
+            "---\nname: Deploy\nwhen_to_use: Use when deploying backend services\n---\n# Body";
         let (fm, _body) = parse_frontmatter(raw);
-        assert_eq!(fm.when_to_use.as_deref(), Some("Use when deploying backend services"));
+        assert_eq!(
+            fm.when_to_use.as_deref(),
+            Some("Use when deploying backend services")
+        );
     }
 
     #[test]
@@ -1691,12 +1703,7 @@ mod tests {
 
     // ── format_with_budget ─────────────────────────────────────────
 
-    fn make_skill_with_layer(
-        id: &str,
-        name: &str,
-        desc: &str,
-        layer: SkillLayer,
-    ) -> SkillEntry {
+    fn make_skill_with_layer(id: &str, name: &str, desc: &str, layer: SkillLayer) -> SkillEntry {
         SkillEntry {
             id: id.into(),
             name: name.into(),
@@ -1749,7 +1756,12 @@ mod tests {
     fn budget_triggers_description_shortening() {
         let mut reg = SkillRegistry::new();
         let long_desc = "A very long description that goes on and on. ".repeat(5);
-        reg.register(make_skill_with_layer("a", "Alpha", &long_desc, SkillLayer::Project));
+        reg.register(make_skill_with_layer(
+            "a",
+            "Alpha",
+            &long_desc,
+            SkillLayer::Project,
+        ));
 
         let full_output = reg.format_for_prompt_mode(&SkillPromptMode::Compact);
         // Budget just under the full compact output forces Stage 1 truncation
@@ -1767,13 +1779,22 @@ mod tests {
     fn budget_triggers_skill_omission() {
         let mut reg = SkillRegistry::new();
         reg.register(make_skill_with_layer(
-            "ext", "Extension Skill", "Low priority", SkillLayer::Extension,
+            "ext",
+            "Extension Skill",
+            "Low priority",
+            SkillLayer::Extension,
         ));
         reg.register(make_skill_with_layer(
-            "proj", "Project Skill", "Medium priority", SkillLayer::Project,
+            "proj",
+            "Project Skill",
+            "Medium priority",
+            SkillLayer::Project,
         ));
         reg.register(make_skill_with_layer(
-            "ws", "Workspace Skill", "High priority", SkillLayer::AgentWorkspace,
+            "ws",
+            "Workspace Skill",
+            "High priority",
+            SkillLayer::AgentWorkspace,
         ));
 
         // Very tight budget — only room for 1-2 skills
@@ -1789,16 +1810,21 @@ mod tests {
     fn budget_ordered_returns_injected_ids() {
         let mut reg = SkillRegistry::new();
         reg.register(make_skill_with_layer(
-            "ext", "Extension Skill", "Low priority", SkillLayer::Extension,
+            "ext",
+            "Extension Skill",
+            "Low priority",
+            SkillLayer::Extension,
         ));
         reg.register(make_skill_with_layer(
-            "ws", "Workspace Skill", "High priority", SkillLayer::AgentWorkspace,
+            "ws",
+            "Workspace Skill",
+            "High priority",
+            SkillLayer::AgentWorkspace,
         ));
 
         // Tight budget: only room for 1 skill
-        let (output, info, ids) = reg.format_with_budget_ordered(
-            &SkillPromptMode::Compact, Some(200), None,
-        );
+        let (output, info, ids) =
+            reg.format_with_budget_ordered(&SkillPromptMode::Compact, Some(200), None);
         let info = info.expect("should have truncation");
         assert!(info.omitted_skills > 0);
         assert!(output.contains("Workspace Skill"));
@@ -1812,9 +1838,8 @@ mod tests {
         reg.register(make_skill("a", "Alpha", None));
         reg.register(make_skill("b", "Beta", None));
 
-        let (_output, info, ids) = reg.format_with_budget_ordered(
-            &SkillPromptMode::Compact, None, None,
-        );
+        let (_output, info, ids) =
+            reg.format_with_budget_ordered(&SkillPromptMode::Compact, None, None);
         assert!(info.is_none());
         assert_eq!(ids.len(), 2);
     }
@@ -1938,7 +1963,11 @@ mod tests {
     #[test]
     fn filter_paths_multiple_globs() {
         let mut reg = SkillRegistry::new();
-        reg.register(make_conditional_skill("web", "Web", vec!["*.tsx", "*.css", "*.html"]));
+        reg.register(make_conditional_skill(
+            "web",
+            "Web",
+            vec!["*.tsx", "*.css", "*.html"],
+        ));
 
         assert_eq!(reg.filter_for_paths(&["app.tsx"]).count(), 1);
         assert_eq!(reg.filter_for_paths(&["style.css"]).count(), 1);
@@ -1949,7 +1978,11 @@ mod tests {
     #[test]
     fn filter_paths_directory_glob() {
         let mut reg = SkillRegistry::new();
-        reg.register(make_conditional_skill("tests", "Test", vec!["tests/**", "**/*_test.rs"]));
+        reg.register(make_conditional_skill(
+            "tests",
+            "Test",
+            vec!["tests/**", "**/*_test.rs"],
+        ));
 
         assert_eq!(reg.filter_for_paths(&["tests/unit.rs"]).count(), 1);
         assert_eq!(reg.filter_for_paths(&["src/foo_test.rs"]).count(), 1);
@@ -2105,7 +2138,11 @@ mod tests {
             }),
         };
         let warnings = scan_skill_safety(&skill);
-        assert!(warnings.len() >= 3, "expected >= 3 warnings, got {}", warnings.len());
+        assert!(
+            warnings.len() >= 3,
+            "expected >= 3 warnings, got {}",
+            warnings.len()
+        );
         let patterns: Vec<&str> = warnings.iter().map(|w| w.pattern).collect();
         assert!(patterns.contains(&"destructive shell command"));
         assert!(patterns.contains(&"elevated privilege command"));

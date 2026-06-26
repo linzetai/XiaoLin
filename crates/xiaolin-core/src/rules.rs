@@ -60,10 +60,7 @@ impl RuleRegistry {
                 if r.frontmatter.globs.is_empty() {
                     return false;
                 }
-                r.frontmatter
-                    .globs
-                    .iter()
-                    .any(|g| glob_match(g, file_path))
+                r.frontmatter.globs.iter().any(|g| glob_match(g, file_path))
             })
             .collect()
     }
@@ -76,11 +73,7 @@ impl RuleRegistry {
         }
         let mut buf = String::from("\n<project_rules>\n");
         for rule in &rules {
-            let name = rule
-                .frontmatter
-                .name
-                .as_deref()
-                .unwrap_or(&rule.id);
+            let name = rule.frontmatter.name.as_deref().unwrap_or(&rule.id);
             buf.push_str(&format!(
                 "\n<rule name=\"{}\">\n{}\n</rule>\n",
                 name, rule.content
@@ -161,10 +154,7 @@ pub fn load_rules_from_dir(dir: &Path) -> RuleRegistry {
                 if !path.is_file() {
                     continue;
                 }
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if ext != "md" && ext != "mdc" {
                     continue;
                 }
