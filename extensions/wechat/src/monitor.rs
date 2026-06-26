@@ -186,9 +186,13 @@ impl WechatMonitor {
                                 buf.inbound.attachments.extend(inbound.attachments);
                                 let count = buf.inbound.attachments.len();
                                 pending.insert(cid.clone(), buf);
-                                self.send_hint(&cid, &format!(
-                                    "📎 已收到 {count} 个附件，请发送描述文字后一起处理～"
-                                )).await;
+                                self.send_hint(
+                                    &cid,
+                                    &format!(
+                                        "📎 已收到 {count} 个附件，请发送描述文字后一起处理～"
+                                    ),
+                                )
+                                .await;
                             } else {
                                 // Text arrived! Merge with buffered media.
                                 buf.inbound.attachments.extend(inbound.attachments);
@@ -209,10 +213,13 @@ impl WechatMonitor {
                             } else {
                                 format!("📎 已收到 {count} 个附件，请发送描述文字后一起处理～")
                             };
-                            pending.insert(cid.clone(), PendingMedia {
-                                inbound,
-                                buffered_at: Instant::now(),
-                            });
+                            pending.insert(
+                                cid.clone(),
+                                PendingMedia {
+                                    inbound,
+                                    buffered_at: Instant::now(),
+                                },
+                            );
                             self.send_hint(&cid, &hint).await;
                         } else {
                             to_send.push(inbound);
@@ -302,17 +309,12 @@ impl WechatMonitor {
 
     /// Process a batch of raw WeChat messages: convert, enrich media,
     /// and merge consecutive messages from the same chat_id into one.
-    async fn process_and_merge_batch(
-        &self,
-        msgs: Vec<WeixinMessage>,
-    ) -> Vec<InboundMessage> {
+    async fn process_and_merge_batch(&self, msgs: Vec<WeixinMessage>) -> Vec<InboundMessage> {
         let mut per_chat: HashMap<String, Vec<InboundMessage>> = HashMap::new();
         let mut chat_order: Vec<String> = Vec::new();
 
         for msg in msgs {
-            if let Some(mut inbound) =
-                weixin_to_inbound(&msg, "wechat", Some(&self.account_id))
-            {
+            if let Some(mut inbound) = weixin_to_inbound(&msg, "wechat", Some(&self.account_id)) {
                 if !self.dedup.accept(&inbound.message_id) {
                     tracing::debug!(
                         message_id = %inbound.message_id,
@@ -331,8 +333,7 @@ impl WechatMonitor {
                 self.reply_cache
                     .insert(&inbound.message_id, &inbound.chat_id, ctx_token);
 
-                let has_media =
-                    matches!(inbound.msg_type.as_str(), "image" | "file" | "video");
+                let has_media = matches!(inbound.msg_type.as_str(), "image" | "file" | "video");
                 if has_media {
                     enrich_inbound_media(&mut inbound, &msg, &self.cdn_base_url).await;
                 }

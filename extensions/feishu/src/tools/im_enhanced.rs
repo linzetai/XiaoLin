@@ -1,8 +1,8 @@
 use crate::client::FeishuClient;
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 // ---------------------------------------------------------------------------
 // feishu_send_rich_text

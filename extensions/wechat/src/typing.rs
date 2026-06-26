@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 
 use crate::api::client::WechatApiClient;
-use crate::api::types::{SendTypingReq, BaseInfo, TYPING_STATUS_TYPING, TYPING_STATUS_CANCEL};
+use crate::api::types::{BaseInfo, SendTypingReq, TYPING_STATUS_CANCEL, TYPING_STATUS_TYPING};
 
 const TICKET_TTL: Duration = Duration::from_secs(600);
 

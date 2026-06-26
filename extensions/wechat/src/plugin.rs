@@ -10,8 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use xiaolin_core::channel::{
-    ChannelCapabilities, ChannelMeta, ChannelPlugin, InboundMessage, OutboundMessage,
-    WebhookResult,
+    ChannelCapabilities, ChannelMeta, ChannelPlugin, InboundMessage, OutboundMessage, WebhookResult,
 };
 use xiaolin_core::tool::Tool;
 
@@ -87,12 +86,9 @@ impl ReplyCache {
     }
 
     pub fn get(&self, message_id: &str) -> Option<(String, Option<String>)> {
-        self.entries.get(message_id).map(|v| {
-            (
-                v.chat_id.clone(),
-                v.context_token.clone(),
-            )
-        })
+        self.entries
+            .get(message_id)
+            .map(|v| (v.chat_id.clone(), v.context_token.clone()))
     }
 
     pub fn remove(&self, message_id: &str) {
@@ -167,13 +163,14 @@ impl ContextTokenCache {
         let total = map.len();
         let mut count = 0usize;
         for (peer_id, token) in map {
-            if !self.tokens.contains_key(&(account_id.to_string(), peer_id.clone()))
+            if !self
+                .tokens
+                .contains_key(&(account_id.to_string(), peer_id.clone()))
                 && self.tokens.len() >= MAX_CONTEXT_TOKEN_ENTRIES
             {
                 break;
             }
-            self.tokens
-                .insert((account_id.to_string(), peer_id), token);
+            self.tokens.insert((account_id.to_string(), peer_id), token);
             count += 1;
         }
         if total > count {
@@ -303,17 +300,11 @@ impl ChannelPlugin for WechatPlugin {
         Ok(())
     }
 
-    async fn handle_webhook(
-        &self,
-        _payload: serde_json::Value,
-    ) -> anyhow::Result<WebhookResult> {
+    async fn handle_webhook(&self, _payload: serde_json::Value) -> anyhow::Result<WebhookResult> {
         Ok(WebhookResult::Ignored)
     }
 
-    async fn start(
-        &self,
-        inbound_tx: mpsc::UnboundedSender<InboundMessage>,
-    ) -> anyhow::Result<()> {
+    async fn start(&self, inbound_tx: mpsc::UnboundedSender<InboundMessage>) -> anyhow::Result<()> {
         match cleanup_old_media(Duration::from_secs(24 * 3600)).await {
             Ok(n) if n > 0 => tracing::info!(count = n, "cleaned up old wechat media files"),
             Err(e) => tracing::debug!(error = %e, "media cleanup skipped"),
@@ -488,14 +479,11 @@ impl ChannelPlugin for WechatPlugin {
         message_id: &str,
         text: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        let (chat_id, context_token) = self
-            .reply_cache
-            .get(message_id)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no reply cache entry for message_id={message_id}, cannot determine recipient"
-                )
-            })?;
+        let (chat_id, context_token) = self.reply_cache.get(message_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no reply cache entry for message_id={message_id}, cannot determine recipient"
+            )
+        })?;
 
         tracing::info!(
             message_id,

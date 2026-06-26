@@ -1,9 +1,9 @@
 use crate::client::FeishuClient;
 use crate::oauth::OAuthConfig;
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 fn missing_oauth_tool_result() -> ToolResult {
     ToolResult::err(OAuthConfig::missing_user_token_message().to_string())

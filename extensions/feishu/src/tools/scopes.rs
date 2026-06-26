@@ -1,9 +1,9 @@
 use crate::client::FeishuClient;
 use crate::oauth::OAuthConfig;
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 /// List the app's authorized scopes (permissions). Helps the LLM
 /// understand which APIs the bot has access to.

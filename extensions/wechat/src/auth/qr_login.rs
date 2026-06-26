@@ -59,42 +59,42 @@ pub async fn poll_login(session: &mut QrLoginSession) -> LoginStatus {
     )
     .await
     {
-        Ok(resp) => {
-            match resp.status.as_str() {
-                "wait" => LoginStatus::Waiting,
-                "scaned" => {
-                    session.pending_verify_code = None;
-                    LoginStatus::Scanned
-                }
-                "confirmed" => {
-                    if let (Some(token), Some(bot_id)) = (resp.bot_token, resp.ilink_bot_id) {
-                        LoginStatus::Confirmed {
-                            bot_token: token,
-                            account_id: bot_id,
-                            base_url: resp.baseurl.unwrap_or_else(|| session.current_base_url.clone()),
-                            user_id: resp.ilink_user_id,
-                        }
-                    } else {
-                        LoginStatus::Error("confirmed but missing bot_token or bot_id".into())
-                    }
-                }
-                "expired" => LoginStatus::Expired,
-                "need_verifycode" => LoginStatus::NeedVerifyCode,
-                "verify_code_blocked" => {
-                    session.pending_verify_code = None;
-                    LoginStatus::VerifyCodeBlocked
-                }
-                "binded_redirect" => LoginStatus::AlreadyConnected,
-                "scaned_but_redirect" => {
-                    if let Some(host) = resp.redirect_host {
-                        session.current_base_url = format!("https://{host}");
-                        tracing::info!(new_host = %host, "IDC redirect during QR login");
-                    }
-                    LoginStatus::Scanned
-                }
-                other => LoginStatus::Error(format!("unknown QR status: {other}")),
+        Ok(resp) => match resp.status.as_str() {
+            "wait" => LoginStatus::Waiting,
+            "scaned" => {
+                session.pending_verify_code = None;
+                LoginStatus::Scanned
             }
-        }
+            "confirmed" => {
+                if let (Some(token), Some(bot_id)) = (resp.bot_token, resp.ilink_bot_id) {
+                    LoginStatus::Confirmed {
+                        bot_token: token,
+                        account_id: bot_id,
+                        base_url: resp
+                            .baseurl
+                            .unwrap_or_else(|| session.current_base_url.clone()),
+                        user_id: resp.ilink_user_id,
+                    }
+                } else {
+                    LoginStatus::Error("confirmed but missing bot_token or bot_id".into())
+                }
+            }
+            "expired" => LoginStatus::Expired,
+            "need_verifycode" => LoginStatus::NeedVerifyCode,
+            "verify_code_blocked" => {
+                session.pending_verify_code = None;
+                LoginStatus::VerifyCodeBlocked
+            }
+            "binded_redirect" => LoginStatus::AlreadyConnected,
+            "scaned_but_redirect" => {
+                if let Some(host) = resp.redirect_host {
+                    session.current_base_url = format!("https://{host}");
+                    tracing::info!(new_host = %host, "IDC redirect during QR login");
+                }
+                LoginStatus::Scanned
+            }
+            other => LoginStatus::Error(format!("unknown QR status: {other}")),
+        },
         Err(e) => LoginStatus::Error(format!("poll error: {e}")),
     }
 }
@@ -215,7 +215,8 @@ pub fn display_qr_terminal(url: &str) {
     use qrcode::QrCode;
     match QrCode::new(url) {
         Ok(code) => {
-            let matrix = code.render::<char>()
+            let matrix = code
+                .render::<char>()
                 .quiet_zone(true)
                 .module_dimensions(2, 1)
                 .dark_color('█')

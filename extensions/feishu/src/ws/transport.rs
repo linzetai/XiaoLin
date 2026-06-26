@@ -11,7 +11,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use xiaolin_core::channel::InboundMessage;
 
-use crate::messaging::inbound::{extract_inbound_text, MessageDedup, parse_im_mentions_from_message};
+use crate::messaging::inbound::{
+    extract_inbound_text, parse_im_mentions_from_message, MessageDedup,
+};
 
 use super::client::{EventReceiver, WsEvent};
 
@@ -218,14 +220,16 @@ fn parse_event_payload(evt: &WsEvent, bot_open_id: Option<&str>) -> Option<Inbou
         .unwrap_or("")
         .to_string();
 
-    let content_str = message.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
+    let content_str = message
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
     let text = extract_inbound_text(msg_type, content_str);
     if text.is_empty() && msg_type == "text" {
         return None;
     }
 
-    let (bot_mentioned, text) =
-        parse_im_mentions_from_message(message, text, bot_open_id);
+    let (bot_mentioned, text) = parse_im_mentions_from_message(message, text, bot_open_id);
     if text.is_empty() {
         return None;
     }

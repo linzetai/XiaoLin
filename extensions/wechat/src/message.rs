@@ -1,12 +1,14 @@
 use std::path::Path;
 
-use xiaolin_core::channel::{Attachment, InboundMessage, OutboundMessage};
 use serde_json::json;
+use xiaolin_core::channel::{Attachment, InboundMessage, OutboundMessage};
 
 use crate::api::client::WechatApiClient;
 use crate::api::types::*;
 use crate::media::download::{download_media, media_temp_dir, sanitize_download_filename};
-use crate::media::upload::{build_message_item, media_type_from_mime, mime_from_extension, upload_to_cdn};
+use crate::media::upload::{
+    build_message_item, media_type_from_mime, mime_from_extension, upload_to_cdn,
+};
 
 /// Convert a WeChat inbound message to XiaoLin's InboundMessage.
 pub fn weixin_to_inbound(
@@ -141,10 +143,7 @@ pub async fn enrich_inbound_media(
             Some(MSG_ITEM_TYPE_FILE) => {
                 if let Some(ref file) = item.file_item {
                     if let Some(ref media) = file.media {
-                        let name = file
-                            .file_name
-                            .as_deref()
-                            .unwrap_or("file");
+                        let name = file.file_name.as_deref().unwrap_or("file");
                         let safe_name = match sanitize_download_filename(name) {
                             Ok(n) => n,
                             Err(e) => {
@@ -179,10 +178,7 @@ pub async fn enrich_inbound_media(
 }
 
 /// Convert a XiaoLin OutboundMessage to a WeChat WeixinMessage (text only).
-pub fn outbound_to_weixin(
-    msg: &OutboundMessage,
-    context_token: Option<&str>,
-) -> WeixinMessage {
+pub fn outbound_to_weixin(msg: &OutboundMessage, context_token: Option<&str>) -> WeixinMessage {
     let mut items = Vec::new();
 
     if !msg.text.is_empty() {
@@ -264,9 +260,13 @@ pub async fn outbound_to_weixin_with_media(
                         ..Default::default()
                     });
                 }
-                Err(e) => tracing::warn!(error = %e, path = %attachment.file_path, "failed to build media item"),
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %attachment.file_path, "failed to build media item")
+                }
             },
-            Err(e) => tracing::warn!(error = %e, path = %attachment.file_path, "failed to upload attachment to CDN"),
+            Err(e) => {
+                tracing::warn!(error = %e, path = %attachment.file_path, "failed to upload attachment to CDN")
+            }
         }
     }
 

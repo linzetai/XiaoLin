@@ -1,9 +1,9 @@
 use crate::client::FeishuClient;
 use crate::oauth::OAuthConfig;
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolResult};
 
 /// Tool: feishu_bitable_list_records — List records from a Feishu Bitable.
 pub struct FeishuBitableListRecordsTool {

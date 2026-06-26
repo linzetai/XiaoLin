@@ -318,9 +318,7 @@ impl FeishuClient {
         }
         if let Some(len) = resp.content_length() {
             if len > MAX_MEDIA_SIZE {
-                anyhow::bail!(
-                    "download resource too large: {len} bytes (max {MAX_MEDIA_SIZE})"
-                );
+                anyhow::bail!("download resource too large: {len} bytes (max {MAX_MEDIA_SIZE})");
             }
         }
         let mut stream = resp.bytes_stream();

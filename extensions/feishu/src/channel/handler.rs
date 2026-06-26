@@ -37,9 +37,8 @@ impl FeishuChannel {
     ) -> Self {
         let event_log = Arc::new(xiaolin_session::EventLog::new(session_store.pool()));
         let client = Arc::new(FeishuClient::new(&config.app_id, &config.app_secret));
-        let tool_orchestrator = Arc::new(
-            xiaolin_agent::runtime::orchestrator::ToolOrchestrator::new(),
-        );
+        let tool_orchestrator =
+            Arc::new(xiaolin_agent::runtime::orchestrator::ToolOrchestrator::new());
         Self {
             client,
             config,
@@ -93,15 +92,14 @@ impl FeishuMessageHandler for FeishuChannel {
         let user_msg = ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String(text.to_string())),
-        ..Default::default()
+            ..Default::default()
         };
         self.session_store
             .append_message(&session.id, &user_msg)
             .await?;
         {
             let turn_id = xiaolin_protocol::TurnId::generate();
-            let items =
-                xiaolin_core::history_compat::chat_message_to_history(&user_msg, turn_id);
+            let items = xiaolin_core::history_compat::chat_message_to_history(&user_msg, turn_id);
             if let Err(e) = self
                 .session_store
                 .append_history_items(&session.id, &items)
@@ -179,7 +177,7 @@ impl FeishuMessageHandler for FeishuChannel {
         let assistant_msg = ChatMessage {
             role: Role::Assistant,
             content: Some(serde_json::Value::String(reply.clone())),
-        ..Default::default()
+            ..Default::default()
         };
         self.session_store
             .append_message(&session.id, &assistant_msg)

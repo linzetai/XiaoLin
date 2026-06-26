@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use md5::{Digest, Md5};
 use rand::RngCore;
 
@@ -21,10 +21,12 @@ pub struct UploadedFileInfo {
 
 fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
-    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
 }
 
 /// Upload a local file to WeChat CDN and return the CDNMedia reference
@@ -177,7 +179,12 @@ pub fn build_message_item(
             let name = file_path
                 .file_name()
                 .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
-            Ok(build_file_item(cdn_media, &name, info.raw_size, &info.raw_md5))
+            Ok(build_file_item(
+                cdn_media,
+                &name,
+                info.raw_size,
+                &info.raw_md5,
+            ))
         }
         UPLOAD_MEDIA_TYPE_VIDEO => Ok(MessageItem {
             item_type: Some(MSG_ITEM_TYPE_VIDEO),

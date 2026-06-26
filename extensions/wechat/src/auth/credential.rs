@@ -61,7 +61,10 @@ pub fn list_credentials() -> Vec<(String, WechatCredential)> {
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(id) = name.strip_prefix("wechat-").and_then(|s| s.strip_suffix(".json")) {
+            if let Some(id) = name
+                .strip_prefix("wechat-")
+                .and_then(|s| s.strip_suffix(".json"))
+            {
                 if let Some(cred) = load_credential(id) {
                     results.push((id.to_string(), cred));
                 }

@@ -283,7 +283,10 @@ async fn dispatch_inbound_message(
             tracing::error!(error = %e, message_id = %msg.message_id, "Feishu message handler error");
             let _ = state
                 .client
-                .reply_message(&msg.message_id, "Sorry, something went wrong processing your message.")
+                .reply_message(
+                    &msg.message_id,
+                    "Sorry, something went wrong processing your message.",
+                )
                 .await;
         }
     }

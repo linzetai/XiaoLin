@@ -84,7 +84,11 @@ pub fn decrypt_event_body(encrypt_key: &str, encrypted_b64: &str) -> anyhow::Res
         .copied()
         .filter(|&b| b > 0 && (b as usize) <= decrypted.len())
         .unwrap_or(0);
-    if pad == 0 || !decrypted[decrypted.len() - pad as usize..].iter().all(|&b| b == pad) {
+    if pad == 0
+        || !decrypted[decrypted.len() - pad as usize..]
+            .iter()
+            .all(|&b| b == pad)
+    {
         return Ok(decrypted.to_vec());
     }
     Ok(decrypted[..decrypted.len() - pad as usize].to_vec())
@@ -162,8 +166,20 @@ mod tests {
         hasher.update(encrypt_key.as_bytes());
         hasher.update(body);
         let sig = hex::encode(hasher.finalize());
-        assert!(verify_lark_signature(timestamp, nonce, encrypt_key, body, &sig));
-        assert!(!verify_lark_signature(timestamp, nonce, encrypt_key, body, "deadbeef"));
+        assert!(verify_lark_signature(
+            timestamp,
+            nonce,
+            encrypt_key,
+            body,
+            &sig
+        ));
+        assert!(!verify_lark_signature(
+            timestamp,
+            nonce,
+            encrypt_key,
+            body,
+            "deadbeef"
+        ));
     }
 
     #[test]

@@ -11,9 +11,9 @@ pub mod messaging;
 pub mod tools;
 pub mod ws;
 
-pub use channel::{FeishuPlugin, FeishuPluginConfig};
 #[deprecated(note = "Use FeishuPlugin / FeishuPluginConfig instead")]
 pub use channel::{FeishuChannel, FeishuChannelConfig};
+pub use channel::{FeishuPlugin, FeishuPluginConfig};
 pub use client::FeishuClient;
 pub use oauth::OAuthConfig;
 #[deprecated(note = "Use FeishuPlugin::llm_tools() instead")]

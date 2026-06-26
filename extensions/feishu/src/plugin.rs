@@ -13,8 +13,8 @@ use xiaolin_core::channel::{
 use xiaolin_core::tool::Tool;
 
 use crate::client::FeishuClient;
-use crate::messaging::inbound::{MessageDedup, parse_im_mentions_from_message};
 use crate::messaging::inbound::parse::extract_inbound_text;
+use crate::messaging::inbound::{parse_im_mentions_from_message, MessageDedup};
 #[cfg(test)]
 use crate::tools::{FeishuGetChatMessagesTool, FeishuReplyMessageTool, FeishuSendMessageTool};
 use crate::ws;
@@ -94,7 +94,10 @@ impl FeishuPluginConfig {
         Some(Self {
             app_id,
             app_secret,
-            verification_token: Self::decrypt_optional_secret(&cfg.verification_token, "verification_token"),
+            verification_token: Self::decrypt_optional_secret(
+                &cfg.verification_token,
+                "verification_token",
+            ),
             encrypt_key: Self::decrypt_optional_secret(&cfg.encrypt_key, "encrypt_key"),
             agent_id: cfg.agent_id.clone().unwrap_or_else(|| "main".to_string()),
             connection_mode: cfg
@@ -109,7 +112,10 @@ impl FeishuPluginConfig {
                 .reply_mode
                 .clone()
                 .unwrap_or_else(|| "mention_only".to_string()),
-            user_access_token: Self::decrypt_optional_secret(&cfg.user_access_token, "user_access_token"),
+            user_access_token: Self::decrypt_optional_secret(
+                &cfg.user_access_token,
+                "user_access_token",
+            ),
             allow_insecure_webhook: cfg.allow_insecure_webhook.unwrap_or(false),
         })
     }
@@ -511,10 +517,7 @@ impl ChannelPlugin for FeishuPlugin {
             .unwrap_or("p2p")
             .to_string();
 
-        if chat_type == "group"
-            && self.config.reply_mode == "mention_only"
-            && !bot_mentioned
-        {
+        if chat_type == "group" && self.config.reply_mode == "mention_only" && !bot_mentioned {
             tracing::debug!(
                 chat_id = %chat_id,
                 message_id = %message_id,
@@ -718,10 +721,7 @@ impl ChannelPlugin for FeishuPlugin {
     }
 
     fn parse_webhook_payload(&self, raw_body: &[u8]) -> anyhow::Result<serde_json::Value> {
-        crate::webhook_security::parse_webhook_payload(
-            self.config.encrypt_key.as_deref(),
-            raw_body,
-        )
+        crate::webhook_security::parse_webhook_payload(self.config.encrypt_key.as_deref(), raw_body)
     }
 }
 

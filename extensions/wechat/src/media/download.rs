@@ -1,8 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 
 use crate::api::types::CDNMedia;
 use crate::media::crypto::aes128_ecb_decrypt;
@@ -17,10 +17,12 @@ pub fn sanitize_download_filename(name: &str) -> anyhow::Result<String> {
     if basename.contains("..") {
         anyhow::bail!("file name contains forbidden '..' sequence");
     }
-    if Path::new(basename)
-        .components()
-        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-    {
+    if Path::new(basename).components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         anyhow::bail!("file name contains forbidden path component");
     }
     Ok(basename.to_string())
@@ -95,7 +97,10 @@ fn extract_aes_key(cdn_media: &CDNMedia) -> anyhow::Result<[u8; 16]> {
                     .map_err(|_| anyhow::anyhow!("AES key hex must decode to 16 bytes"));
             }
         }
-        anyhow::bail!("AES key is neither valid base64 nor hex (len={})", key_str.len());
+        anyhow::bail!(
+            "AES key is neither valid base64 nor hex (len={})",
+            key_str.len()
+        );
     }
     anyhow::bail!("no AES key available for decryption")
 }
@@ -142,10 +147,7 @@ mod tests {
 
     #[test]
     fn sanitize_strips_directory_components() {
-        assert_eq!(
-            sanitize_download_filename("/etc/passwd").unwrap(),
-            "passwd"
-        );
+        assert_eq!(sanitize_download_filename("/etc/passwd").unwrap(), "passwd");
         assert_eq!(
             sanitize_download_filename("../../etc/passwd").unwrap(),
             "passwd"

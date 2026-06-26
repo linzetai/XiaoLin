@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use rand::Rng;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use tokio_util::sync::CancellationToken;
@@ -280,9 +280,7 @@ impl WechatApiClient {
 
     // ── QR Login APIs ─────────────────────────────────────────────────────
 
-    pub async fn fetch_qr_code(
-        existing_tokens: &[String],
-    ) -> anyhow::Result<QrCodeResponse> {
+    pub async fn fetch_qr_code(existing_tokens: &[String]) -> anyhow::Result<QrCodeResponse> {
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_API_TIMEOUT)
             .build()?;
@@ -291,7 +289,8 @@ impl WechatApiClient {
             local_token_list: existing_tokens.to_vec(),
         })?;
 
-        let url = format!("{QR_LOGIN_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type={DEFAULT_BOT_TYPE}");
+        let url =
+            format!("{QR_LOGIN_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type={DEFAULT_BOT_TYPE}");
 
         let resp = client
             .post(&url)
@@ -370,7 +369,10 @@ fn sanitize_bot_agent(raw: &str) -> String {
     }
 
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    let accepted: Vec<&str> = tokens.into_iter().filter(|t| PRODUCT_RE.is_match(t)).collect();
+    let accepted: Vec<&str> = tokens
+        .into_iter()
+        .filter(|t| PRODUCT_RE.is_match(t))
+        .collect();
 
     if accepted.is_empty() {
         DEFAULT_BOT_AGENT.to_string()
