@@ -11,7 +11,7 @@ use xiaolin_core::tool::{
     no_retry_recovery_hint, Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema,
     ToolRegistry, ToolResult,
 };
-use xiaolin_core::types::{SubAgentStatus, SubAgentType};
+use xiaolin_core::types::{ExecutionMode, SubAgentStatus, SubAgentType};
 use xiaolin_protocol::AgentEvent;
 
 use xiaolin_core::types::ChatMessage;
@@ -105,6 +105,13 @@ tokio::task_local! {
     /// Session ID available to SubAgentTool during execution.
     /// Set by session_bridge before running the agent loop.
     pub static SUBAGENT_SESSION_ID: String;
+
+    /// Per-turn LLM override available to SubAgentTool during execution.
+    /// Set by session_bridge before running the agent loop, so subagents
+    /// inherit the parent turn's per-request model override instead of
+    /// falling back to the agent config's default provider (which may
+    /// have exhausted quota).
+    pub static CURRENT_LLM_OVERRIDE: Option<Arc<dyn crate::LlmProvider>>;
 }
 
 /// Scope a future with the current session ID for SubAgentTool event routing.
@@ -268,6 +275,33 @@ fn parse_subagent_type(s: Option<&str>) -> SubAgentType {
         Some("general") | None => SubAgentType::General,
         Some(other) => SubAgentType::Custom(other.to_string()),
     }
+}
+
+fn is_plan_mode_active() -> bool {
+    crate::builtin_tools::current_session_mode()
+        .is_some_and(|ms| ms.current_mode() == ExecutionMode::Plan)
+}
+
+fn is_plan_safe_subagent_type(type_id: &str, subagent_type: &SubAgentType) -> bool {
+    type_id == "explore" && matches!(subagent_type, SubAgentType::Explore)
+}
+
+fn validate_plan_safe_child_registry(registry: &ToolRegistry) -> Result<(), String> {
+    for name in registry.tool_names() {
+        let Some(tool) = registry.get(&name) else {
+            continue;
+        };
+        let kind = tool.kind();
+        if !matches!(
+            kind,
+            ToolKind::Read | ToolKind::Search | ToolKind::Fetch | ToolKind::Think
+        ) {
+            return Err(format!(
+                "tool '{name}' has kind {kind:?}, which is not allowed for Plan mode sub-agents"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Build a child tool registry filtered by sub-agent type.
@@ -538,6 +572,18 @@ Coordinator mode always forces background.\n\n\
 
         let def = self.manager.resolve_subagent_def(type_id);
         let subagent_type = parse_subagent_type(Some(type_id));
+        let in_plan_mode = is_plan_mode_active();
+
+        if in_plan_mode && !is_plan_safe_subagent_type(type_id, &subagent_type) {
+            return subagent_denied(
+                format!(
+                    "sub-agent type '{type_id}' is blocked in Plan mode; only read-only 'explore' sub-agents are allowed"
+                ),
+                no_retry_recovery_hint(
+                    "Use type='explore' for read-only investigation, or exit Plan mode before spawning implementation/shell/browser sub-agents.",
+                ),
+            );
+        }
 
         let (child_registry, use_background) = if let Some(ref def) = def {
             let registry =
@@ -549,6 +595,17 @@ Coordinator mode always forces background.\n\n\
             let bg = params.background.unwrap_or(true);
             (registry, bg)
         };
+
+        if in_plan_mode {
+            if let Err(reason) = validate_plan_safe_child_registry(&child_registry) {
+                return subagent_denied(
+                    format!("explore sub-agent is not safe to spawn in Plan mode: {reason}"),
+                    no_retry_recovery_hint(
+                        "Remove non-read-only tools from the explore sub-agent definition, or exit Plan mode before spawning this sub-agent.",
+                    ),
+                );
+            }
+        }
 
         // Coordinator mode forces all worker spawns to background
         let use_background = if self.coordinator_mode {
@@ -618,6 +675,10 @@ Coordinator mode always forces background.\n\n\
         let effective_session_id = SUBAGENT_SESSION_ID
             .try_with(|s| s.clone())
             .unwrap_or_else(|_| self.parent_session_id.clone());
+
+        let llm_override = CURRENT_LLM_OVERRIDE
+            .try_with(|o| o.clone())
+            .unwrap_or(None);
 
         let parent_tx = match &self.parent_tx {
             Some(tx) => tx.clone(),
@@ -696,7 +757,7 @@ Coordinator mode always forces background.\n\n\
                     &effective_policy,
                     child_registry,
                     parent_tx,
-                    None,
+                    llm_override.clone(),
                     concurrency_safe,
                     inherited_ctx,
                     initial_messages,
@@ -736,7 +797,7 @@ Coordinator mode always forces background.\n\n\
                     &effective_policy,
                     child_registry,
                     parent_tx,
-                    None,
+                    llm_override,
                     concurrency_safe,
                     inherited_ctx,
                     initial_messages,
@@ -904,11 +965,23 @@ fn classify_result_kind(result: Option<&str>) -> &'static str {
     }
     // Process stream indicators: first-person narration, exploratory language
     let process_indicators = [
-        "I'll ", "Let me ", "I will ", "First, ", "Now let me ",
-        "I found ", "I can see ", "Looking at ", "Let me try",
-        "I need to ", "I should ", "I'm going to ",
+        "I'll ",
+        "Let me ",
+        "I will ",
+        "First, ",
+        "Now let me ",
+        "I found ",
+        "I can see ",
+        "Looking at ",
+        "Let me try",
+        "I need to ",
+        "I should ",
+        "I'm going to ",
     ];
-    if process_indicators.iter().any(|p| text.starts_with(p) || text.contains(p)) {
+    if process_indicators
+        .iter()
+        .any(|p| text.starts_with(p) || text.contains(p))
+    {
         return "process_stream";
     }
     if text.ends_with("…") || text.ends_with("...") {
@@ -1962,6 +2035,88 @@ mod tests {
         }
     }
 
+    struct DummyTool {
+        name: &'static str,
+        kind: ToolKind,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for DummyTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "dummy test tool"
+        }
+
+        fn parameters_schema(&self) -> ToolParameterSchema {
+            ToolParameterSchema {
+                schema_type: "object".to_string(),
+                properties: HashMap::new(),
+                required: vec![],
+            }
+        }
+
+        fn kind(&self) -> ToolKind {
+            self.kind
+        }
+
+        async fn execute(&self, _arguments: &str) -> ToolResult {
+            ToolResult::ok("{}")
+        }
+    }
+
+    #[test]
+    fn plan_safe_subagent_type_allows_only_explore() {
+        assert!(is_plan_safe_subagent_type(
+            "explore",
+            &SubAgentType::Explore
+        ));
+        assert!(!is_plan_safe_subagent_type(
+            "code",
+            &SubAgentType::Custom("code".into())
+        ));
+        assert!(!is_plan_safe_subagent_type(
+            "general",
+            &SubAgentType::General
+        ));
+        assert!(!is_plan_safe_subagent_type(
+            "research",
+            &SubAgentType::Custom("research".into())
+        ));
+    }
+
+    #[test]
+    fn plan_safe_registry_rejects_non_readonly_tools() {
+        let safe = ToolRegistry::new();
+        safe.register(Arc::new(DummyTool {
+            name: "read_file",
+            kind: ToolKind::Read,
+        }));
+        safe.register(Arc::new(DummyTool {
+            name: "web_search",
+            kind: ToolKind::Fetch,
+        }));
+        assert!(validate_plan_safe_child_registry(&safe).is_ok());
+
+        let unsafe_registry = ToolRegistry::new();
+        unsafe_registry.register(Arc::new(DummyTool {
+            name: "shell_exec",
+            kind: ToolKind::Execute,
+        }));
+        let err = validate_plan_safe_child_registry(&unsafe_registry).unwrap_err();
+        assert!(err.contains("shell_exec"));
+
+        let unknown_registry = ToolRegistry::new();
+        unknown_registry.register(Arc::new(DummyTool {
+            name: "mcp__unknown__tool",
+            kind: ToolKind::Other,
+        }));
+        let err = validate_plan_safe_child_registry(&unknown_registry).unwrap_err();
+        assert!(err.contains("mcp__unknown__tool"));
+    }
+
     // ===== WaitAgentTool tests =====
 
     use xiaolin_core::types::SubAgentRun;
@@ -2109,11 +2264,18 @@ mod tests {
     // --- recovery field assertions ---
 
     fn make_subagent_tool(policy: SubAgentPolicy, depth: u32) -> SubAgentTool {
+        make_subagent_tool_with_registry(policy, depth, ToolRegistry::new())
+    }
+
+    fn make_subagent_tool_with_registry(
+        policy: SubAgentPolicy,
+        depth: u32,
+        tool_reg: ToolRegistry,
+    ) -> SubAgentTool {
         let runtime = Arc::new(crate::AgentRuntime::new(Arc::from(
             crate::OpenAiProvider::new("http://example.com", "fake"),
         )));
         runtime.init_self_arc();
-        let tool_reg = Arc::new(ToolRegistry::new());
         let controller = Arc::new(crate::spawn_controller::SpawnController::new(
             crate::spawn_controller::SpawnConfig::default(),
         ));
@@ -2123,7 +2285,7 @@ mod tests {
             policy.clone(),
             controller,
         ));
-        SubAgentTool::new(manager, tool_reg, policy).with_depth(depth)
+        SubAgentTool::new(manager, Arc::new(tool_reg), policy).with_depth(depth)
     }
 
     #[tokio::test]
@@ -2170,6 +2332,49 @@ mod tests {
         assert!(result.output.contains("depth limit"));
         assert!(result.output.contains("What to do next:"));
         assert!(result.output.contains("Stop retrying"));
+    }
+
+    #[tokio::test]
+    async fn plan_mode_blocks_non_explore_subagent_spawn() {
+        let policy = SubAgentPolicy::default();
+        let tool = make_subagent_tool(policy, 0);
+        let mode = crate::builtin_tools::ExecutionModeState::new();
+        mode.transition(ExecutionMode::Plan);
+
+        let result = crate::builtin_tools::with_session_mode(
+            mode,
+            None,
+            tool.execute(r#"{"task": "implement this", "type": "code"}"#),
+        )
+        .await;
+
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("only read-only 'explore'"));
+    }
+
+    #[tokio::test]
+    async fn plan_mode_rejects_explore_with_non_readonly_child_tool() {
+        let policy = SubAgentPolicy::default();
+        let parent_registry = ToolRegistry::new();
+        parent_registry.register(Arc::new(DummyTool {
+            name: "mcp__dangerous__tool",
+            kind: ToolKind::Other,
+        }));
+        let tool = make_subagent_tool_with_registry(policy, 0, parent_registry);
+        let mode = crate::builtin_tools::ExecutionModeState::new();
+        mode.transition(ExecutionMode::Plan);
+
+        let result = crate::builtin_tools::with_session_mode(
+            mode,
+            None,
+            tool.execute(r#"{"task": "inspect safely", "type": "explore"}"#),
+        )
+        .await;
+
+        assert!(!result.success);
+        assert_eq!(result.error_type, Some(ToolErrorType::ExecutionDenied));
+        assert!(result.output.contains("mcp__dangerous__tool"));
     }
 
     #[tokio::test]

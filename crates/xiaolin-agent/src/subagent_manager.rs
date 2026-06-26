@@ -88,13 +88,11 @@ impl SubAgentManager {
     /// Build a `SubAgentRunRow` from an in-memory `SubAgentRun`, including the
     /// sidechain transcript path for post-mortem inspection.
     pub(crate) fn build_db_row(run: &SubAgentRun) -> SubAgentRunRow {
-        let transcript_path = crate::sidechain::resolve_sidechain_path(
-            &run.parent_session_id,
-            &run.run_id,
-        );
-        let transcript_json = transcript_path.exists().then(|| {
-            transcript_path.to_string_lossy().to_string()
-        });
+        let transcript_path =
+            crate::sidechain::resolve_sidechain_path(&run.parent_session_id, &run.run_id);
+        let transcript_json = transcript_path
+            .exists()
+            .then(|| transcript_path.to_string_lossy().to_string());
         SubAgentRunRow {
             run_id: run.run_id.clone(),
             parent_session_id: run.parent_session_id.clone(),
@@ -118,16 +116,29 @@ impl SubAgentManager {
             token_usage_json: {
                 let mut json = serde_json::Map::new();
                 if let Some(ref u) = run.token_usage {
-                    json.insert("prompt_tokens".to_string(), serde_json::json!(u.prompt_tokens));
-                    json.insert("completion_tokens".to_string(), serde_json::json!(u.completion_tokens));
-                    json.insert("total_tokens".to_string(), serde_json::json!(u.total_tokens));
+                    json.insert(
+                        "prompt_tokens".to_string(),
+                        serde_json::json!(u.prompt_tokens),
+                    );
+                    json.insert(
+                        "completion_tokens".to_string(),
+                        serde_json::json!(u.completion_tokens),
+                    );
+                    json.insert(
+                        "total_tokens".to_string(),
+                        serde_json::json!(u.total_tokens),
+                    );
                 }
                 // Encode truncated flag into the usage JSON so it survives DB round-trip
                 // without a schema migration.
                 if run.truncated {
                     json.insert("truncated".to_string(), serde_json::json!(true));
                 }
-                if json.is_empty() { None } else { Some(serde_json::Value::Object(json).to_string()) }
+                if json.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::Object(json).to_string())
+                }
             },
             depth: run.depth as i64,
             elapsed_ms: run.elapsed_ms.map(|e| e as i64),
@@ -135,8 +146,7 @@ impl SubAgentManager {
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default(),
             completed_at: run.completed_at.and_then(|t| {
-                chrono::DateTime::from_timestamp_millis(t as i64)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(t as i64).map(|dt| dt.to_rfc3339())
             }),
             transcript_json,
         }
@@ -1222,6 +1232,56 @@ impl SubAgentManager {
                     AgentEvent::FileArtifact { .. } => {
                         let _ = parent_tx_clone.send(event).await;
                     }
+                    AgentEvent::Error {
+                        ref message,
+                        ref error_code,
+                        ..
+                    } => {
+                        // Write error to sidechain
+                        if let Some(ref mut w) = writer {
+                            let msg = SidechainMessage {
+                                role: "system".to_string(),
+                                content: format!(
+                                    "Sub-agent error: {}{}",
+                                    message,
+                                    error_code
+                                        .as_ref()
+                                        .map(|c| format!(" (code: {:?})", c))
+                                        .unwrap_or_default()
+                                ),
+                                tool_calls_json: None,
+                                tool_call_id: None,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                                agent_id: agent_id_for_sidechain.clone(),
+                            };
+                            if let Err(e) = w.append(&msg).await {
+                                tracing::warn!(error = %e, "sidechain: failed to write error");
+                            }
+                        }
+                        // Forward error content to parent so it knows what went wrong
+                        let _ = parent_tx_clone
+                            .send(AgentEvent::SubAgentDelta {
+                                turn_id: forward_turn_id.clone(),
+                                run_id: run_id_owned.clone(),
+                                content: format!(
+                                    "[Sub-agent error: {}{}]",
+                                    message,
+                                    error_code
+                                        .as_ref()
+                                        .map(|c| format!(" (code: {:?})", c))
+                                        .unwrap_or_default()
+                                ),
+                            })
+                            .await;
+                        // Also accumulate as content so it appears in the final result
+                        accumulated_content.push_str(&format!(
+                            "\n[Sub-agent error: {}]\n",
+                            message
+                        ));
+                    }
                     _ => {}
                 }
             }
@@ -1364,10 +1424,7 @@ impl SubAgentManager {
 
     /// List all runs with DB fallback, merging in-memory runs with persisted records.
     /// Safe on current-thread runtimes (uses async .await, not block_in_place).
-    pub async fn list_runs_async(
-        &self,
-        parent_session_id: Option<&str>,
-    ) -> Vec<SubAgentRun> {
+    pub async fn list_runs_async(&self, parent_session_id: Option<&str>) -> Vec<SubAgentRun> {
         let mut runs: Vec<SubAgentRun> = self.list_runs(parent_session_id);
 
         // DB fallback: merge persisted runs not already in memory
@@ -1713,7 +1770,10 @@ mod tests {
         };
         let row = SubAgentManager::build_db_row(&run);
         let restored: SubAgentRun = row.into();
-        assert!(restored.truncated, "truncated flag must survive DB round-trip");
+        assert!(
+            restored.truncated,
+            "truncated flag must survive DB round-trip"
+        );
     }
 
     #[test]

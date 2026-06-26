@@ -762,7 +762,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
         let result = {
             let runtime = self.runtime.clone();
             let tool_registry = self.tool_registry.clone();
-            let llm = per_request_llm.or_else(|| self.llm_override.clone());
+            let llm = per_request_llm.clone().or_else(|| self.llm_override.clone());
             let session_store = self.session_store.clone();
             let todo_store = self.todo_store.clone();
             let goal_store = self.goal_store.clone();
@@ -806,6 +806,7 @@ impl TurnExecutor for RuntimeTurnExecutor {
 
             let steer_inbox_inner = steer_inbox.clone();
             let session_id_for_scope = session_id_str.clone();
+            let llm_for_subagents = per_request_llm.clone(); // captured before .or_else() consumes it
             let wrapped_fut = async move {
                 let runtime_with_ih =
                     crate::builtin_tools::with_interaction_handle(ih_for_tools, runtime_fut);
@@ -813,16 +814,18 @@ impl TurnExecutor for RuntimeTurnExecutor {
                     crate::builtin_tools::with_steer_inbox(steer_inbox_inner, runtime_with_ih);
                 let runtime_with_session =
                     crate::with_subagent_session_id(session_id_for_scope, runtime_with_steer);
+                let runtime_with_llm = crate::subagent::CURRENT_LLM_OVERRIDE
+                    .scope(llm_for_subagents, runtime_with_session);
                 if let Some(ms) = mode_state {
                     crate::builtin_tools::with_stream_context(
                         stream_ctx_key_inner,
-                        crate::builtin_tools::with_session_mode(ms, plan_ctx, runtime_with_session),
+                        crate::builtin_tools::with_session_mode(ms, plan_ctx, runtime_with_llm),
                     )
                     .await
                 } else {
                     crate::builtin_tools::with_stream_context(
                         stream_ctx_key_inner,
-                        runtime_with_session,
+                        runtime_with_llm,
                     )
                     .await
                 }

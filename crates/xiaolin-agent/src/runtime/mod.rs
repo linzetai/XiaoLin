@@ -988,8 +988,14 @@ impl AgentRuntime {
 
         let mut stream = std::pin::pin!(Self::execute_as_stream(runtime, ctx));
         let mut turn_summary: Option<TurnSummary> = None;
+        let mut first_error: Option<String> = None;
 
         while let Some(step) = stream.next().await {
+            if let agent_step::AgentStep::Error { ref message, .. } = step {
+                if first_error.is_none() {
+                    first_error = Some(message.clone());
+                }
+            }
             if let agent_step::AgentStep::TurnEnd { ref summary, .. } = step {
                 turn_summary = Some(summary.clone());
             }
@@ -998,7 +1004,12 @@ impl AgentRuntime {
             }
         }
 
-        turn_summary.ok_or_else(|| anyhow::anyhow!("agent stream ended without TurnEnd"))
+        turn_summary.ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                first_error.unwrap_or_else(|| "agent stream ended without TurnEnd".to_string())
+            )
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
