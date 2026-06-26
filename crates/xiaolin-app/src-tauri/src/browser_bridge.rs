@@ -29,7 +29,10 @@ impl TauriBrowserBridge {
         }
     }
 
-    fn with_manager<T>(&self, f: impl FnOnce(&mut BrowserPanelManager) -> Result<T, String>) -> Result<T, String> {
+    fn with_manager<T>(
+        &self,
+        f: impl FnOnce(&mut BrowserPanelManager) -> Result<T, String>,
+    ) -> Result<T, String> {
         let state = self.app.state::<BrowserPanelState>();
         let mut guard = state
             .0
@@ -66,7 +69,12 @@ impl TauriBrowserBridge {
             .ok_or_else(|| "browser webview not found".to_string())
     }
 
-    fn eval_js_with_result(&self, page_id: Option<&str>, js: &str, await_promise: bool) -> Result<String, String> {
+    fn eval_js_with_result(
+        &self,
+        page_id: Option<&str>,
+        js: &str,
+        await_promise: bool,
+    ) -> Result<String, String> {
         validate_js_payload(js)?;
         let page_id = self.resolve_page_id(page_id)?;
         let label = self.webview_label_for_page(&page_id)?;
@@ -229,7 +237,9 @@ impl BrowserBridge for TauriBrowserBridge {
         let resolved = self.resolve_page_id(page_id)?;
         let uid = None::<&str>;
         let full_page = false;
-        let uid_j = uid.map(|u| serde_json::to_string(u).unwrap_or_default()).unwrap_or_else(|| "null".to_string());
+        let uid_j = uid
+            .map(|u| serde_json::to_string(u).unwrap_or_default())
+            .unwrap_or_else(|| "null".to_string());
         let js = format!(
             r#"(async function(){{
   var uid={uid_j};

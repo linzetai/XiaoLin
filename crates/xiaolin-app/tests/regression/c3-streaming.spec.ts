@@ -65,6 +65,79 @@ test.describe("C3: 发消息 streaming 正确", () => {
     expect(content).toBeTruthy();
   });
 
+  test("长历史消息滚动保持响应", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await page.addInitScript(() => {
+      const messages = [];
+      for (let i = 0; i < 1200; i += 1) {
+        const n = String(i).padStart(4, "0");
+        messages.push({
+          id: i * 2 + 1,
+          role: "user",
+          content: `LONG_HISTORY_USER_${n}`,
+          name: null,
+          toolCallId: null,
+          toolCallsJson: null,
+          createdAt: `2026-04-30T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`,
+        });
+        messages.push({
+          id: i * 2 + 2,
+          role: "assistant",
+          content: `LONG_HISTORY_ASSISTANT_${n}`,
+          name: null,
+          toolCallId: null,
+          toolCallsJson: null,
+          reasoningContent: `LONG_HISTORY_REASONING_${n}`,
+          segmentOrder: ["reasoning", "text"],
+          createdAt: `2026-04-30T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`,
+        });
+      }
+      (window as any).__MOCK_MESSAGES_OVERRIDE__ = messages;
+    });
+
+    await waitForAppReady(page);
+    await page.getByText("测试对话").click();
+
+    const scroller = page.getByTestId("message-scroll-container");
+    await expect(scroller).toBeVisible();
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect(page.getByText("LONG_HISTORY_USER_0000")).toBeVisible({ timeout: 5_000 });
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect(page.getByText("LONG_HISTORY_ASSISTANT_1199")).toBeVisible({ timeout: 5_000 });
+
+    const scrollProbe = await scroller.evaluate(async (el) => {
+      const start = performance.now();
+      for (let i = 0; i < 20; i += 1) {
+        el.scrollTop = i % 2 === 0 ? 0 : el.scrollHeight;
+        el.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      return {
+        elapsedMs: performance.now() - start,
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+      };
+    });
+
+    expect(scrollProbe.scrollHeight).toBeGreaterThan(0);
+    expect(scrollProbe.elapsedMs).toBeLessThan(5_000);
+
+    const textarea = page.locator("textarea").first();
+    await textarea.fill("still responsive after long history scroll");
+    await expect(textarea).toHaveValue("still responsive after long history scroll");
+    expect(errors).toEqual([]);
+  });
+
   test("Markdown 内容正确渲染 (代码块、链接)", async ({ page }) => {
     await waitForAppReady(page);
 

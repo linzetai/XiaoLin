@@ -7,12 +7,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{Mutex, RwLock, oneshot};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use uuid::Uuid;
 use xiaolin_network_proxy::{
-    BrowserNetworkConfig, BrowserProxyMode, HostMapping, NetworkMode, NetworkProxy,
-    NetworkProxyBuilder, NetworkProxyHandle, NetworkProxySettings, NetworkProxyState, load_config,
-    save_config,
+    load_config, save_config, BrowserNetworkConfig, BrowserProxyMode, HostMapping, NetworkMode,
+    NetworkProxy, NetworkProxyBuilder, NetworkProxyHandle, NetworkProxySettings, NetworkProxyState,
 };
 
 use crate::browser_panel::BrowserPanelState;
@@ -126,7 +125,10 @@ impl BrowserNetworkManager {
     }
 
     pub fn webview_proxy_url_sync(&self) -> Option<String> {
-        self.cached_webview_proxy.read().ok().and_then(|g| g.clone())
+        self.cached_webview_proxy
+            .read()
+            .ok()
+            .and_then(|g| g.clone())
     }
 
     pub(crate) fn webview_proxy_setting_sync(&self) -> WebviewProxySetting {
@@ -143,8 +145,7 @@ impl BrowserNetworkManager {
 
     pub async fn get_config_json(&self) -> Result<String, String> {
         let cfg = self.config.read().await;
-        serde_json::to_string(&*cfg)
-            .map_err(|e| format!("failed to serialize network config: {e}"))
+        serde_json::to_string(&*cfg).map_err(|e| format!("failed to serialize network config: {e}"))
     }
 
     pub async fn save_user_config(&self, config: BrowserNetworkConfig) -> Result<(), String> {
@@ -204,11 +205,11 @@ impl BrowserNetworkManager {
 
         self.emit_confirm_request(&request);
 
-        let approved = match tokio::time::timeout(Duration::from_secs(CONFIRM_TIMEOUT_SECS), rx).await
-        {
-            Ok(Ok(v)) => v,
-            _ => false,
-        };
+        let approved =
+            match tokio::time::timeout(Duration::from_secs(CONFIRM_TIMEOUT_SECS), rx).await {
+                Ok(Ok(v)) => v,
+                _ => false,
+            };
 
         self.pending.lock().await.remove(&request_id);
         approved
@@ -263,9 +264,7 @@ fn webview_proxy_setting(cfg: &BrowserNetworkConfig, xiaolin_url: &str) -> Webvi
             .clone()
             .map(WebviewProxySetting::Custom)
             .unwrap_or(WebviewProxySetting::Direct),
-        BrowserProxyMode::XiaolinProxy => {
-            WebviewProxySetting::Custom(xiaolin_url.to_string())
-        }
+        BrowserProxyMode::XiaolinProxy => WebviewProxySetting::Custom(xiaolin_url.to_string()),
     }
 }
 

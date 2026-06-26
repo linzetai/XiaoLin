@@ -22,6 +22,7 @@ import { listen } from "@tauri-apps/api/event";
 
 let _notifPermission: boolean | null = null;
 async function notifyIfBackground(title: string, body: string) {
+  if (!transport.isTauri) return;
   if (document.hasFocus()) return;
   if (_notifPermission === null) {
     _notifPermission = await isPermissionGranted();
@@ -1203,10 +1204,12 @@ export function useMessageStreamChat({
   }, [streaming, detachedStreams]);
 
   useEffect(() => {
+    if (!transport.isTauri) return;
     getCurrentWindow().emit("tray-pending-update", pendingQuestion != null).catch(() => {});
   }, [pendingQuestion]);
 
   useEffect(() => {
+    if (!transport.isTauri) return;
     const unlisten = listen<{ content: string }>("quick-action-send", (event) => {
       const { content } = event.payload;
       if (content) handleMentionSend(content, []);

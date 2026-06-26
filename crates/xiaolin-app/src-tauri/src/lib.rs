@@ -41,7 +41,10 @@ pub struct AppData {
 /// - "prod" / "production" → Production
 /// - anything else → Profile(name)
 fn resolve_config_mode() -> xiaolin_core::config::ConfigMode {
-    match std::env::var("XIAOLIN_PROFILE").ok().filter(|s| !s.is_empty()) {
+    match std::env::var("XIAOLIN_PROFILE")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         None => {
             if cfg!(debug_assertions) {
                 xiaolin_core::config::ConfigMode::Development
@@ -209,9 +212,9 @@ pub fn run() {
                 startup_watch: watch_rx,
             });
 
-            app.manage(commands::clipboard::ClipboardState(
-                std::sync::Mutex::new(None),
-            ));
+            app.manage(commands::clipboard::ClipboardState(std::sync::Mutex::new(
+                None,
+            )));
 
             app.manage(commands::audio_capture::AudioCaptureState::new());
 
@@ -279,7 +282,8 @@ pub fn run() {
 
             let handle_for_network = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = browser_network::install_browser_network(&handle_for_network).await {
+                if let Err(e) = browser_network::install_browser_network(&handle_for_network).await
+                {
                     tracing::error!(error = %e, "failed to install browser network");
                 }
             });

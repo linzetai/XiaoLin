@@ -190,7 +190,10 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 ));
             }
             let Some(enclosed) = f.enclosed_name() else {
-                tracing::warn!(entry_name = f.name(), "zip contains unsafe path traversal entry");
+                tracing::warn!(
+                    entry_name = f.name(),
+                    "zip contains unsafe path traversal entry"
+                );
                 return Err("zip contains unsafe path".into());
             };
             if enclosed
@@ -234,7 +237,10 @@ pub async fn upload_skill(source_path: String) -> Result<serde_json::Value, Stri
                 String::from("failed to read zip entry")
             })?;
             let Some(enclosed) = f.enclosed_name().map(|p| p.to_path_buf()) else {
-                tracing::warn!(entry_name = f.name(), "zip contains unsafe path traversal entry");
+                tracing::warn!(
+                    entry_name = f.name(),
+                    "zip contains unsafe path traversal entry"
+                );
                 return Err("zip contains unsafe path".into());
             };
             let out_path = extract_to.join(enclosed);

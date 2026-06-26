@@ -262,7 +262,25 @@ export interface SessionMessage {
   content: unknown;
   name: string | null;
   toolCallId: string | null;
+  toolCallsJson?: Array<{
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+    output?: string;
+    display_output?: string;
+    success?: boolean;
+    duration_ms?: number;
+    metadata?: Record<string, unknown>;
+    truncated?: boolean;
+    full_length?: number;
+  }> | null;
   createdAt: string;
+  reasoningContent?: string | null;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  elapsedMs?: number;
+  segmentOrder?: string[] | null;
 }
 
 export interface SessionMessagesPage {

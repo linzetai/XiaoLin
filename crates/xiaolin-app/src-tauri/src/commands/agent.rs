@@ -56,20 +56,16 @@ pub async fn upload_agent_avatar(
 
     let sd = state_dir();
     let avatars_dir = sd.join("avatars");
-    tokio::fs::create_dir_all(&avatars_dir)
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "upload_agent_avatar: failed to create avatars directory");
-            String::from("operation failed")
-        })?;
+    tokio::fs::create_dir_all(&avatars_dir).await.map_err(|e| {
+        tracing::warn!(error = %e, "upload_agent_avatar: failed to create avatars directory");
+        String::from("operation failed")
+    })?;
 
     let dest = avatars_dir.join(format!("{agent_id}.{ext}"));
-    tokio::fs::copy(src, &dest)
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "upload_agent_avatar: failed to copy avatar");
-            String::from("operation failed")
-        })?;
+    tokio::fs::copy(src, &dest).await.map_err(|e| {
+        tracing::warn!(error = %e, "upload_agent_avatar: failed to copy avatar");
+        String::from("operation failed")
+    })?;
 
     let dest_str = dest.to_string_lossy().to_string();
 
@@ -77,28 +73,23 @@ pub async fn upload_agent_avatar(
     let agents_dir = sd.join("config/agents");
     let cfg_path = agents_dir.join(format!("{agent_id}.json"));
     if cfg_path.exists() {
-        let bytes = tokio::fs::read(&cfg_path)
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "upload_agent_avatar: failed to read agent config");
-                String::from("operation failed")
-            })?;
-        let mut val = serde_json::from_slice::<serde_json::Value>(&bytes)
-            .map_err(|e| {
-                tracing::warn!(error = %e, "upload_agent_avatar: failed to parse agent config");
-                String::from("operation failed")
-            })?;
+        let bytes = tokio::fs::read(&cfg_path).await.map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to read agent config");
+            String::from("operation failed")
+        })?;
+        let mut val = serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to parse agent config");
+            String::from("operation failed")
+        })?;
         val["avatar"] = json!(dest_str);
         let out = serde_json::to_vec_pretty(&val).map_err(|e| {
             tracing::warn!(error = %e, "upload_agent_avatar: failed to serialize agent config");
             String::from("operation failed")
         })?;
-        tokio::fs::write(&cfg_path, out)
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "upload_agent_avatar: failed to write agent config");
-                String::from("operation failed")
-            })?;
+        tokio::fs::write(&cfg_path, out).await.map_err(|e| {
+            tracing::warn!(error = %e, "upload_agent_avatar: failed to write agent config");
+            String::from("operation failed")
+        })?;
     }
 
     Ok(json!({ "ok": true, "path": dest_str }))

@@ -30,8 +30,7 @@ pub async fn export_session_content(
     let path = std::path::Path::new(&path_str);
 
     // Write content to file using std::fs
-    std::fs::write(path, &content)
-        .map_err(|e| format!("failed to write file: {e}"))?;
+    std::fs::write(path, &content).map_err(|e| format!("failed to write file: {e}"))?;
 
     Ok(json!({
         "success": true,

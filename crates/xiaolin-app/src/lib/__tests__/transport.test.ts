@@ -8,9 +8,9 @@ vi.mock("../ws-client", () => ({
   isConnected: vi.fn(() => false),
 }));
 
-vi.mock("@tauri-apps/api/core", () => {
-  throw new Error("not in tauri");
-});
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() => Promise.reject(new Error("not in tauri"))),
+}));
 
 import * as transport from "../transport";
 import * as wsClient from "../ws-client";

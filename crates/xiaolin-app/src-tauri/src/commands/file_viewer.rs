@@ -7,9 +7,7 @@ const MAX_TEXT_FILE_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_BINARY_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const BINARY_PROBE_BYTES: usize = 8192;
 
-const BLOCKED_DIR_NAMES: &[&str] = &[
-    "node_modules", "target", ".git", "dist", "build", ".next",
-];
+const BLOCKED_DIR_NAMES: &[&str] = &["node_modules", "target", ".git", "dist", "build", ".next"];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,10 +193,7 @@ pub fn list_directory(path: String, work_dir: String) -> Result<Vec<DirEntry>, S
         let size = if file_type.is_dir() {
             0
         } else {
-            entry
-                .metadata()
-                .map(|m| m.len())
-                .unwrap_or(0)
+            entry.metadata().map(|m| m.len()).unwrap_or(0)
         };
 
         entries.push(DirEntry {
@@ -234,9 +229,5 @@ pub fn read_binary_for_viewer(path: String, work_dir: String) -> Result<BinaryFi
     let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let mime = mime_from_extension(&canonical);
 
-    Ok(BinaryFileResult {
-        base64,
-        mime,
-        size,
-    })
+    Ok(BinaryFileResult { base64, mime, size })
 }

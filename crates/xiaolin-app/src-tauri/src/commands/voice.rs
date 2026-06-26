@@ -21,11 +21,9 @@ pub async fn transcribe_audio(
     if audio_base64.len() > MAX_AUDIO_BASE64_LEN {
         return Err("Audio data too large (max 25MB)".to_string());
     }
-    let audio_data = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &audio_base64,
-    )
-    .map_err(|e| format!("Invalid base64 audio data: {e}"))?;
+    let audio_data =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &audio_base64)
+            .map_err(|e| format!("Invalid base64 audio data: {e}"))?;
 
     // Try gateway API first (proxies to configured LLM provider)
     if let Some(result) = try_gateway_stt(&state, &audio_data, &mime_type).await {
@@ -104,9 +102,7 @@ async fn try_local_whisper(audio_data: &[u8], mime_type: &str) -> Result<SttResu
 
 async fn run_whisper_cli(audio_path: &std::path::Path) -> Result<SttResult, String> {
     const WHISPER_TIMEOUT: Duration = Duration::from_secs(300);
-    let output_dir = audio_path
-        .parent()
-        .unwrap_or(std::path::Path::new("/tmp"));
+    let output_dir = audio_path.parent().unwrap_or(std::path::Path::new("/tmp"));
 
     // Try whisper (pip install openai-whisper) or whisper.cpp CLI
     for cmd in &["whisper", "whisper-cpp"] {
@@ -207,8 +203,10 @@ fn mime_ext(mime_type: &str) -> &str {
 pub fn stt_available(state: tauri::State<'_, crate::AppData>) -> bool {
     // STT is always "available" — we have local whisper fallback
     // The actual availability is checked at transcription time
-    let gateway_up =
-        matches!(&*state.startup_watch.borrow(), crate::GatewayStartupState::Running { .. });
+    let gateway_up = matches!(
+        &*state.startup_watch.borrow(),
+        crate::GatewayStartupState::Running { .. }
+    );
     if gateway_up {
         return true;
     }

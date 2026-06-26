@@ -107,9 +107,9 @@ function buildStreamItems(chatId: string, messages: BackendMessage[]): StreamIte
     });
 }
 
-/** Reconstruct the segment list (text/tool/reasoning ordering) for the last assistant message. */
-function buildLastSegments(chatId: string, messages: BackendMessage[]): Record<string, ChatStreamSegment[]> {
-  const result: Record<string, ChatStreamSegment[]> = {};
+/** Reconstruct per-message segment lists for restored assistant history. */
+function buildMessageSegments(chatId: string, messages: BackendMessage[]): Record<number, ChatStreamSegment[]> {
+  const result: Record<number, ChatStreamSegment[]> = {};
   const toolResultMap = new Map<string, { content: string; success: boolean }>();
   for (const m of messages) {
     if (m.role === "tool" && m.toolCallId) {
@@ -117,69 +117,86 @@ function buildLastSegments(chatId: string, messages: BackendMessage[]): Record<s
       toolResultMap.set(m.toolCallId, { content, success: true });
     }
   }
-  const assistantMessages = messages.filter((m) => m.role === "assistant");
-  const lastAssistant = assistantMessages[assistantMessages.length - 1];
-  if (!lastAssistant) return result;
 
-  const toolCallMap = new Map<string, ChatStreamSegment>();
-  if (lastAssistant.toolCallsJson && Array.isArray(lastAssistant.toolCallsJson)) {
-    for (const tc of lastAssistant.toolCallsJson) {
-      const toolCall = mapToolCall(tc, lastAssistant.id, chatId, toolResultMap);
-      toolCallMap.set(tc.id, {
-        id: `tool-${tc.id}`,
-        type: "tool",
-        toolCall,
-      });
-    }
-  }
-  let textContent: string;
-  if (Array.isArray(lastAssistant.content)) {
-    textContent = (lastAssistant.content as Array<Record<string, unknown>>)
-      .filter((p) => p.type === "text" && typeof p.text === "string")
-      .map((p) => p.text as string)
-      .join("\n");
-  } else {
-    textContent = typeof lastAssistant.content === "string"
-      ? lastAssistant.content
-      : JSON.stringify(lastAssistant.content ?? "");
-  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
 
-  const segments: ChatStreamSegment[] = [];
-  const order = lastAssistant.segmentOrder;
-  if (order && Array.isArray(order) && order.length > 0) {
-    const usedToolIds = new Set<string>();
-    for (const entry of order) {
-      if (entry === "reasoning" && lastAssistant.reasoningContent) {
-        segments.push({ id: `reasoning-restored`, type: "reasoning", content: lastAssistant.reasoningContent });
-      } else if (entry === "text" && textContent) {
-        segments.push({ id: `text-restored-${segments.length}`, type: "text", content: textContent });
-        textContent = "";
-      } else if (entry.startsWith("tool:")) {
-        const callId = entry.slice(5);
-        const seg = toolCallMap.get(callId);
-        if (seg) {
-          segments.push(seg);
-          usedToolIds.add(callId);
-        }
+    const toolCallMap = new Map<string, ChatStreamSegment>();
+    if (message.toolCallsJson && Array.isArray(message.toolCallsJson)) {
+      for (const tc of message.toolCallsJson) {
+        const toolCall = mapToolCall(tc, message.id, chatId, toolResultMap);
+        toolCallMap.set(tc.id, {
+          id: `msg-${message.id}-tool-${tc.id}`,
+          type: "tool",
+          toolCall,
+        });
       }
     }
-    for (const [id, seg] of toolCallMap) {
-      if (!usedToolIds.has(id)) segments.push(seg);
+
+    let textContent: string;
+    if (Array.isArray(message.content)) {
+      textContent = (message.content as Array<Record<string, unknown>>)
+        .filter((p) => p.type === "text" && typeof p.text === "string")
+        .map((p) => p.text as string)
+        .join("\n");
+    } else {
+      textContent = typeof message.content === "string"
+        ? message.content
+        : JSON.stringify(message.content ?? "");
     }
-  } else {
-    if (lastAssistant.reasoningContent) {
-      segments.push({ id: `reasoning-restored`, type: "reasoning", content: lastAssistant.reasoningContent });
+
+    const hasReasoning = !!message.reasoningContent;
+    const hasTools = toolCallMap.size > 0;
+    const order = message.segmentOrder;
+    if (!hasReasoning && !hasTools && (!order || order.length === 0)) continue;
+
+    const segments: ChatStreamSegment[] = [];
+    const usedToolIds = new Set<string>();
+    let reasoningUsed = false;
+
+    if (order && Array.isArray(order) && order.length > 0) {
+      for (const entry of order) {
+        if (entry === "reasoning" && message.reasoningContent && !reasoningUsed) {
+          segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
+          reasoningUsed = true;
+        } else if (entry === "text" && textContent) {
+          segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: textContent });
+          textContent = "";
+        } else if (entry.startsWith("tool:")) {
+          const callId = entry.slice(5);
+          const seg = toolCallMap.get(callId);
+          if (seg) {
+            segments.push(seg);
+            usedToolIds.add(callId);
+          }
+        }
+      }
+      if (message.reasoningContent && !reasoningUsed) {
+        segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
+      }
+      for (const [id, seg] of toolCallMap) {
+        if (!usedToolIds.has(id)) segments.push(seg);
+      }
+      if (textContent) {
+        segments.push({ id: `msg-${message.id}-text-restored`, type: "text", content: textContent });
+      }
+    } else {
+      if (message.reasoningContent) {
+        segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
+      }
+      for (const seg of toolCallMap.values()) {
+        segments.push(seg);
+      }
+      if (textContent) {
+        segments.push({ id: `msg-${message.id}-text-restored`, type: "text", content: textContent });
+      }
     }
-    for (const seg of toolCallMap.values()) {
-      segments.push(seg);
-    }
-    if (textContent) {
-      segments.push({ id: `text-restored`, type: "text", content: textContent });
+
+    if (segments.length > 0) {
+      result[message.id] = segments;
     }
   }
-  if (segments.length > 0) {
-    result[chatId] = segments;
-  }
+
   return result;
 }
 
@@ -191,6 +208,7 @@ export interface StreamState {
   streams: Record<string, StreamItem[]>;
   usage: Record<string, ChatUsage>;
   lastSegments: Record<string, ChatStreamSegment[]>;
+  messageSegments: Record<string, Record<number, ChatStreamSegment[]>>;
   subAgentRuns: Record<string, Record<string, SubAgentRunUI>>;
   toolProgress: Record<string, { progress?: number; message?: string }>;
   hasMore: Record<string, boolean>;
@@ -221,6 +239,7 @@ export const useStreamStore = create<StreamState>((set) => ({
   streams: {},
   usage: {},
   lastSegments: {},
+  messageSegments: {},
   subAgentRuns: {},
   toolProgress: {},
   hasMore: {},
@@ -237,30 +256,33 @@ export const useStreamStore = create<StreamState>((set) => ({
       const { [chatId]: _s, ...streams } = state.streams;
       const { [chatId]: _u, ...usage } = state.usage;
       const { [chatId]: _l, ...lastSegments } = state.lastSegments;
+      const { [chatId]: _m, ...messageSegments } = state.messageSegments;
       const { [chatId]: _r, ...subAgentRuns } = state.subAgentRuns;
       const { [chatId]: _h, ...hasMore } = state.hasMore;
-      return { streams, usage, lastSegments, subAgentRuns, hasMore };
+      return { streams, usage, lastSegments, messageSegments, subAgentRuns, hasMore };
     });
   },
 
   updateStreamKey: (oldId, newId) => {
     set((state) => {
-      if (!state.streams[oldId] && !state.usage[oldId] && !state.lastSegments[oldId] && !state.subAgentRuns[oldId] && state.hasMore[oldId] === undefined) {
+      if (!state.streams[oldId] && !state.usage[oldId] && !state.lastSegments[oldId] && !state.messageSegments[oldId] && !state.subAgentRuns[oldId] && state.hasMore[oldId] === undefined) {
         return state;
       }
       const streams = { ...state.streams };
       const usage = { ...state.usage };
       const lastSegments = { ...state.lastSegments };
+      const messageSegments = { ...state.messageSegments };
       const subAgentRuns = { ...state.subAgentRuns };
       const hasMore = { ...state.hasMore };
 
       if (streams[oldId]) { streams[newId] = streams[oldId]; delete streams[oldId]; }
       if (usage[oldId]) { usage[newId] = usage[oldId]; delete usage[oldId]; }
       if (lastSegments[oldId]) { lastSegments[newId] = lastSegments[oldId]; delete lastSegments[oldId]; }
+      if (messageSegments[oldId]) { messageSegments[newId] = messageSegments[oldId]; delete messageSegments[oldId]; }
       if (subAgentRuns[oldId]) { subAgentRuns[newId] = subAgentRuns[oldId]; delete subAgentRuns[oldId]; }
       if (state.hasMore[oldId] !== undefined) { hasMore[newId] = state.hasMore[oldId]; delete hasMore[oldId]; }
 
-      return { streams, usage, lastSegments, subAgentRuns, hasMore };
+      return { streams, usage, lastSegments, messageSegments, subAgentRuns, hasMore };
     });
   },
 
@@ -351,14 +373,14 @@ export const useStreamStore = create<StreamState>((set) => ({
 
   loadChatStream: (chatId, messages, hasMore) => {
     const items = buildStreamItems(chatId, messages);
-    const lastSegmentsMap = buildLastSegments(chatId, messages);
+    const messageSegments = buildMessageSegments(chatId, messages);
 
     set((state) => {
       const existing = state.streams[chatId];
       if (existing && existing.length > 0) return state;
       const newStreams = { ...state.streams, [chatId]: items };
       const newUsage = { ...state.usage };
-      const newLastSegs = { ...state.lastSegments, ...lastSegmentsMap };
+      const newMessageSegments = { ...state.messageSegments, [chatId]: messageSegments };
       const newSubRuns = { ...state.subAgentRuns };
       const newHasMore = { ...state.hasMore, [chatId]: hasMore ?? false };
 
@@ -369,7 +391,7 @@ export const useStreamStore = create<StreamState>((set) => ({
         for (const k of toEvict) {
           delete newStreams[k];
           delete newUsage[k];
-          delete newLastSegs[k];
+          delete newMessageSegments[k];
           delete newSubRuns[k];
           delete newHasMore[k];
         }
@@ -377,7 +399,7 @@ export const useStreamStore = create<StreamState>((set) => ({
       return {
         streams: newStreams,
         usage: newUsage,
-        lastSegments: newLastSegs,
+        messageSegments: newMessageSegments,
         subAgentRuns: newSubRuns,
         hasMore: newHasMore,
       };
@@ -386,11 +408,17 @@ export const useStreamStore = create<StreamState>((set) => ({
 
   prependChatStream: (chatId, messages, hasMore) => {
     const items = buildStreamItems(chatId, messages);
+    const restoredSegments = buildMessageSegments(chatId, messages);
     set((state) => {
       const existing = state.streams[chatId] ?? [];
       const newStreams = { ...state.streams, [chatId]: [...items, ...existing] };
+      const currentSegments = state.messageSegments[chatId] ?? {};
+      const newMessageSegments = {
+        ...state.messageSegments,
+        [chatId]: { ...restoredSegments, ...currentSegments },
+      };
       const newHasMore = { ...state.hasMore, [chatId]: hasMore ?? false };
-      return { streams: newStreams, hasMore: newHasMore };
+      return { streams: newStreams, messageSegments: newMessageSegments, hasMore: newHasMore };
     });
   },
 

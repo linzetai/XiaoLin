@@ -1,5 +1,5 @@
 export const MOCK_AGENTS = [
-  { agentId: "assistant", name: "Assistant", model: "gpt-4o", avatar: null },
+  { agentId: "main", name: "Assistant", model: "gpt-4o", avatar: null },
   { agentId: "coder", name: "Coder", model: "claude-sonnet-4-20250514", avatar: null },
   { agentId: "writer", name: "Writer", model: "gpt-4o-mini", avatar: null },
 ];
@@ -7,7 +7,7 @@ export const MOCK_AGENTS = [
 export const MOCK_SESSIONS = [
   {
     id: "sess-001",
-    agentId: "assistant",
+    agentId: "main",
     title: "测试对话",
     workDir: null,
     messageCount: 2,

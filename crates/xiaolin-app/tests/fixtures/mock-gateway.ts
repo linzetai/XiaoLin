@@ -42,7 +42,7 @@ function buildRpcHandlers(): string {
           return { id, type: "sessions.get", data: __MOCK_SESSIONS__.find(s => s.id === params.sessionId) || null };
 
         case "sessions.messages":
-          return { id, type: "sessions.messages", data: { messages: __MOCK_MESSAGES__ } };
+          return { id, type: "sessions.messages", data: { messages: window.__MOCK_MESSAGES_OVERRIDE__ || __MOCK_MESSAGES__ } };
 
         case "config.get":
           if (params.key === "onboarding") {

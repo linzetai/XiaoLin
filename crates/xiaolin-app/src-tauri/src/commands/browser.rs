@@ -1,18 +1,19 @@
 use crate::browser_network::BrowserNetworkState;
+#[cfg(target_os = "macos")]
+use crate::browser_panel::browser_data_store_identifier;
 use crate::browser_panel::{
     browser_data_directory, default_download_directory, sanitize_download_filename,
     validate_browser_url, validate_js_payload, validate_page_id, BrowserPage, BrowserPanelManager,
     BrowserPanelState, PageLoadState, PageVisibility, BROWSER_INIT_SCRIPT, BROWSER_WEBVIEW_PREFIX,
     FAVICON_EXTRACT_JS, OFFSCREEN_POSITION,
 };
-#[cfg(target_os = "macos")]
-use crate::browser_panel::browser_data_store_identifier;
-use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
-use tauri::utils::config::WebviewUrl;
 use serde::Deserialize;
+use tauri::utils::config::WebviewUrl;
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Wry};
 use uuid::Uuid;
 use xiaolin_tools_browser::{CONTENT_EXTRACT_JS, SELECTION_TOOLBAR_JS};
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserWebviewLayout {
@@ -42,7 +43,6 @@ impl BrowserWebviewLayout {
         Ok(())
     }
 }
-
 
 fn with_manager<T>(
     state: &State<'_, BrowserPanelState>,
@@ -113,7 +113,11 @@ fn apply_webview_layouts_gtk_batch(
         return Ok(());
     }
 
-    let sf = if scale_factor > 0.0 { scale_factor } else { 1.0 };
+    let sf = if scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
 
     let positions: Vec<(String, i32, i32, i32, i32, bool)> = pages
         .iter()
@@ -121,10 +125,26 @@ fn apply_webview_layouts_gtk_batch(
             let visible = page.visibility == PageVisibility::Active
                 && page.layout_width > 0.0
                 && page.layout_height > 0.0;
-            let x = if visible { (page.layout_x * sf) as i32 } else { -9999 };
-            let y = if visible { (page.layout_y * sf) as i32 } else { -9999 };
-            let w = if visible { (page.layout_width * sf).ceil() as i32 } else { 1 };
-            let h = if visible { (page.layout_height * sf).ceil() as i32 } else { 1 };
+            let x = if visible {
+                (page.layout_x * sf) as i32
+            } else {
+                -9999
+            };
+            let y = if visible {
+                (page.layout_y * sf) as i32
+            } else {
+                -9999
+            };
+            let w = if visible {
+                (page.layout_width * sf).ceil() as i32
+            } else {
+                1
+            };
+            let h = if visible {
+                (page.layout_height * sf).ceil() as i32
+            } else {
+                1
+            };
             (page.webview_label.clone(), x, y, w, h, visible)
         })
         .collect();
@@ -372,14 +392,8 @@ pub(crate) fn create_browser_page(
 
     with_manager(state, |manager| manager.add_page(page))?;
 
-    let create_result = create_browser_webview_inner(
-        app,
-        state,
-        &page_id,
-        &webview_label,
-        &parsed_url,
-        url,
-    );
+    let create_result =
+        create_browser_webview_inner(app, state, &page_id, &webview_label, &parsed_url, url);
 
     if let Err(e) = create_result {
         let _ = with_manager(state, |manager| {

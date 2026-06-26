@@ -411,10 +411,7 @@ pub fn handle_xiaolin_internal_protocol(
         }
     };
 
-    let msg_type = payload
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let msg_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     if !ALLOWED_INTERNAL_MESSAGE_TYPES.contains(&msg_type) {
         tracing::warn!(
@@ -468,10 +465,7 @@ pub fn handle_xiaolin_internal_protocol(
             };
             crate::browser_eval::complete_eval(id, outcome);
         }
-        responder.respond(http_response(
-            StatusCode::OK,
-            br#"{"ok":true}"#,
-        ));
+        responder.respond(http_response(StatusCode::OK, br#"{"ok":true}"#));
         return;
     }
 
@@ -485,10 +479,7 @@ pub fn handle_xiaolin_internal_protocol(
         if let Err(e) = app.emit("browser-favicon-changed", emit_payload) {
             tracing::warn!(error = %e, "failed to emit browser-favicon-changed");
         }
-        responder.respond(http_response(
-            StatusCode::OK,
-            br#"{"ok":true}"#,
-        ));
+        responder.respond(http_response(StatusCode::OK, br#"{"ok":true}"#));
         return;
     }
 
@@ -513,10 +504,7 @@ pub fn handle_xiaolin_internal_protocol(
         tracing::warn!(error = %e, event = event_name, "failed to emit browser internal event");
     }
 
-    responder.respond(http_response(
-        StatusCode::OK,
-        br#"{"ok":true}"#,
-    ));
+    responder.respond(http_response(StatusCode::OK, br#"{"ok":true}"#));
 }
 
 pub fn default_download_directory() -> PathBuf {
@@ -537,7 +525,12 @@ pub fn sanitize_download_filename(raw: &str) -> String {
         .unwrap_or("download");
     let sanitized: String = name
         .chars()
-        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'))
+        .filter(|c| {
+            !matches!(
+                c,
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'
+            )
+        })
         .collect();
     if sanitized.is_empty() {
         "download".to_string()

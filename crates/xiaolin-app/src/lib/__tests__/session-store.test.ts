@@ -33,7 +33,9 @@ function resetStores() {
     streams: { [initChat.id]: [] },
     usage: {},
     lastSegments: {},
+    messageSegments: {},
     subAgentRuns: {},
+    toolProgress: {},
     hasMore: {},
   });
 }
@@ -158,6 +160,99 @@ describe("store integration (new multi-store)", () => {
         expect(item.data.id).not.toBe(4242);
         expect(item.data.backendId).toBe(4242);
       }
+    });
+
+    it("restores per-message assistant segments from session history", () => {
+      const chatId = useChatMetaStore.getState().activeChatId;
+
+      useStreamStore.getState().loadChatStream(chatId, [
+        {
+          id: 10,
+          role: "assistant",
+          content: "first answer",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: [
+            {
+              id: "tc-1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"a"}' },
+              output: "file a",
+              success: true,
+            },
+          ],
+          createdAt: "2024-01-01 00:00:00",
+          reasoningContent: "thinking first",
+          segmentOrder: ["reasoning", "tool:tc-1", "text"],
+        },
+        {
+          id: 11,
+          role: "assistant",
+          content: "second answer",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: [
+            {
+              id: "tc-2",
+              type: "function",
+              function: { name: "shell_exec", arguments: '{"command":"pwd"}' },
+              output: "/tmp",
+              success: true,
+            },
+          ],
+          createdAt: "2024-01-01 00:01:00",
+          reasoningContent: "thinking second",
+          segmentOrder: ["text", "tool:tc-2", "reasoning"],
+        },
+      ]);
+
+      const segments = useStreamStore.getState().messageSegments[chatId];
+      expect(segments[10].map((s) => s.type)).toEqual(["reasoning", "tool", "text"]);
+      expect(segments[10][0].content).toBe("thinking first");
+      expect(segments[10][1].toolCall?.id).toBe("tc-1");
+      expect(segments[10][2].content).toBe("first answer");
+
+      expect(segments[11].map((s) => s.type)).toEqual(["text", "tool", "reasoning"]);
+      expect(segments[11][0].content).toBe("second answer");
+      expect(segments[11][1].toolCall?.id).toBe("tc-2");
+      expect(segments[11][2].content).toBe("thinking second");
+    });
+
+    it("merges restored segments when prepending older history", () => {
+      const chatId = useChatMetaStore.getState().activeChatId;
+
+      useStreamStore.getState().loadChatStream(chatId, [
+        {
+          id: 20,
+          role: "assistant",
+          content: "newer",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: null,
+          createdAt: "2024-01-01 00:02:00",
+          reasoningContent: "newer reasoning",
+          segmentOrder: ["reasoning", "text"],
+        },
+      ], true);
+
+      useStreamStore.getState().prependChatStream(chatId, [
+        {
+          id: 19,
+          role: "assistant",
+          content: "older",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: null,
+          createdAt: "2024-01-01 00:01:00",
+          reasoningContent: "older reasoning",
+          segmentOrder: ["reasoning", "text"],
+        },
+      ], false);
+
+      const state = useStreamStore.getState();
+      expect(state.streams[chatId].map((item) => item.type === "message" ? item.data.backendId : null)).toEqual([19, 20]);
+      expect(state.messageSegments[chatId][19].map((s) => s.content)).toEqual(["older reasoning", "older"]);
+      expect(state.messageSegments[chatId][20].map((s) => s.content)).toEqual(["newer reasoning", "newer"]);
     });
   });
 

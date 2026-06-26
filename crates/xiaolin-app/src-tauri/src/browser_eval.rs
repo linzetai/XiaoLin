@@ -35,7 +35,9 @@ fn evict_oldest_pending_eval(map: &DashMap<String, PendingEvalEntry>) {
 }
 
 /// Register a pending eval callback and return its receiver.
-pub fn register_eval(id: String) -> Result<std::sync::mpsc::Receiver<Result<String, String>>, String> {
+pub fn register_eval(
+    id: String,
+) -> Result<std::sync::mpsc::Receiver<Result<String, String>>, String> {
     let map = pending_evals();
     if map.len() >= MAX_PENDING_EVALS {
         evict_oldest_pending_eval(map);
@@ -90,10 +92,7 @@ mod tests {
 
     #[test]
     fn normalize_string_value() {
-        assert_eq!(
-            normalize_eval_result(r#""hello""#).unwrap(),
-            "hello"
-        );
+        assert_eq!(normalize_eval_result(r#""hello""#).unwrap(), "hello");
     }
 
     #[test]

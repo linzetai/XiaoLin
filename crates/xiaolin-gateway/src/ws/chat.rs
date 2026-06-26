@@ -67,7 +67,12 @@ pub async fn handle_chat_cancel(
 
     let mut cancelled = false;
     if let Some(sid) = &session_id_for_cancel {
-        if let Some(handle) = state.svc.session_manager.get(&xiaolin_protocol::SessionId::new(sid)).await {
+        if let Some(handle) = state
+            .svc
+            .session_manager
+            .get(&xiaolin_protocol::SessionId::new(sid))
+            .await
+        {
             let _ = handle.submit(SessionOp::Interrupt).await;
             cancelled = true;
             tracing::info!(session_id = %sid, "chat_cancel: interrupted session");
@@ -174,10 +179,7 @@ pub async fn handle_chat_compact(
         return;
     };
 
-    match handle
-        .submit_and_subscribe(SessionOp::Compact, 16)
-        .await
-    {
+    match handle.submit_and_subscribe(SessionOp::Compact, 16).await {
         Ok((_sub_id, mut event_rx)) => {
             send_resp(
                 sender,
@@ -450,7 +452,10 @@ pub async fn spawn_chat(
             Ok(m) => {
                 for msg in m.iter() {
                     if let Some(serde_json::Value::Array(parts)) = &msg.content {
-                        let image_count = parts.iter().filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url")).count();
+                        let image_count = parts
+                            .iter()
+                            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url"))
+                            .count();
                         if image_count > 0 {
                             tracing::info!(image_count, role = ?msg.role, "received multimodal message with images");
                         }
@@ -482,7 +487,10 @@ pub async fn spawn_chat(
             .unwrap_or(false);
         if goal_mode {
             if let Some(session_id) = params.session_id.as_deref() {
-                let (from, to) = state.rt.session_modes.transition(session_id, ExecutionMode::Agent);
+                let (from, to) = state
+                    .rt
+                    .session_modes
+                    .transition(session_id, ExecutionMode::Agent);
                 if from != to {
                     tracing::info!(
                         session_id,
@@ -505,13 +513,16 @@ pub async fn spawn_chat(
             None
         };
         if goal_mode {
-            let objective_block = user_goal_text.as_deref().map(|desc| {
-                let escaped = desc
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;");
-                format!("\n<objective>{escaped}</objective>\n")
-            }).unwrap_or_default();
+            let objective_block = user_goal_text
+                .as_deref()
+                .map(|desc| {
+                    let escaped = desc
+                        .replace('&', "&amp;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;");
+                    format!("\n<objective>{escaped}</objective>\n")
+                })
+                .unwrap_or_default();
             let goal_text = format!(
                 "<goal_context>\n\
                  [GOAL MODE]\n\n\
@@ -719,13 +730,15 @@ pub async fn spawn_chat(
 
         let after_turn_messages = setup.enriched_request.messages.clone();
 
-        let typed_data = Some(xiaolin_core::typed_turn_data::TypedTurnData::wrap_with_llm_override(
-            setup.enriched_request.clone(),
-            agent_config.clone(),
-            setup.llm_override.clone().map(|p| {
-                std::sync::Arc::new(p) as std::sync::Arc<dyn std::any::Any + Send + Sync>
-            }),
-        ));
+        let typed_data = Some(
+            xiaolin_core::typed_turn_data::TypedTurnData::wrap_with_llm_override(
+                setup.enriched_request.clone(),
+                agent_config.clone(),
+                setup.llm_override.clone().map(|p| {
+                    std::sync::Arc::new(p) as std::sync::Arc<dyn std::any::Any + Send + Sync>
+                }),
+            ),
+        );
 
         let mut op_extra = serde_json::Map::new();
         op_extra.insert(
@@ -737,10 +750,7 @@ pub async fn spawn_chat(
         let session_handle = state
             .svc
             .session_manager
-            .get_or_create(
-                xiaolin_protocol::SessionId::new(&session_id),
-                &agent_id,
-            )
+            .get_or_create(xiaolin_protocol::SessionId::new(&session_id), &agent_id)
             .await;
 
         // Register requestId → session_id for cancel routing.
@@ -803,22 +813,21 @@ pub async fn spawn_chat(
             .current_mode();
 
         const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024; // 2MB safety cap
-        // No artificial time deadline — turns are bounded by:
-        // 1. Stop hooks: idle detection (no tool calls for N rounds → pause)
-        // 2. Stop hooks: max continuation rounds → pause
-        // 3. Budget: budget_limit_usd on the session
-        // 4. Context: autocompact + blocking limit when context window fills
-        // 5. Safety: max_tool_calls_per_turn config (default: unlimited for goal mode)
-        // A generous deadline is kept only as a last-resort circuit breaker
-        // against truly pathological cases (e.g., LLM API hanging).
+                                                          // No artificial time deadline — turns are bounded by:
+                                                          // 1. Stop hooks: idle detection (no tool calls for N rounds → pause)
+                                                          // 2. Stop hooks: max continuation rounds → pause
+                                                          // 3. Budget: budget_limit_usd on the session
+                                                          // 4. Context: autocompact + blocking limit when context window fills
+                                                          // 5. Safety: max_tool_calls_per_turn config (default: unlimited for goal mode)
+                                                          // A generous deadline is kept only as a last-resort circuit breaker
+                                                          // against truly pathological cases (e.g., LLM API hanging).
         let turn_deadline_secs: u64 = if goal_mode { 7200 } else { 1800 }; // 2h goal, 30min normal
-        let turn_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(turn_deadline_secs);
+        let turn_deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(turn_deadline_secs);
 
         loop {
             let event = match tokio::time::timeout_at(turn_deadline, event_rx.recv()).await {
-                Ok(Some(se)) => {
-                    se.msg
-                }
+                Ok(Some(se)) => se.msg,
                 Ok(None) => break,
                 Err(_elapsed) => {
                     tracing::error!(
@@ -877,10 +886,19 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
-                    let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
+                    let seg_order = if segment_order.is_empty() {
+                        None
+                    } else {
+                        Some(segment_order.clone())
+                    };
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
+                        reasoning_content: if assistant_reasoning.is_empty() {
+                            None
+                        } else {
+                            Some(assistant_reasoning.clone())
+                        },
                         enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
                         segment_order: seg_order,
                         ..Default::default()
@@ -892,7 +910,13 @@ pub async fn spawn_chat(
             }
             state.store.event_log.append(&session_id, &event);
             // Capture tool events for enriched persistence
-            if let AgentEvent::ToolExecuting { ref call_id, ref tool_name, ref args, .. } = event {
+            if let AgentEvent::ToolExecuting {
+                ref call_id,
+                ref tool_name,
+                ref args,
+                ..
+            } = event
+            {
                 segment_order.push(format!("tool:{}", call_id));
                 last_segment_type = "tool";
                 tracked_tools.push(TrackedToolCallData {
@@ -907,7 +931,15 @@ pub async fn spawn_chat(
                     duration_ms: None,
                 });
             }
-            if let AgentEvent::ToolResult { ref call_id, ref output, ref display_output, success, ref metadata, .. } = event {
+            if let AgentEvent::ToolResult {
+                ref call_id,
+                ref output,
+                ref display_output,
+                success,
+                ref metadata,
+                ..
+            } = event
+            {
                 if let Some(tc) = tracked_tools.iter_mut().find(|t| t.id == *call_id) {
                     tc.output = Some(output.clone());
                     tc.display_output = display_output.clone();
@@ -917,18 +949,25 @@ pub async fn spawn_chat(
 
                     if success {
                         let should_refresh = match tc.name.as_str() {
-                            "edit_file" | "write_file" | "create_file" | "apply_patch" | "str_replace_editor" => true,
-                            "shell_exec" | "execute_command" => {
-                                tc.args.as_deref()
-                                    .and_then(|a| serde_json::from_str::<serde_json::Value>(a).ok())
-                                    .map(|a| {
-                                        let cmd = a.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                                        cmd.contains("git add") || cmd.contains("git commit")
-                                            || cmd.contains("git checkout") || cmd.contains("git reset")
-                                            || cmd.contains("git stash") || cmd.contains("git merge")
-                                            || cmd.contains("git rebase") || cmd.contains("git rm")
-                                    }).unwrap_or(false)
-                            }
+                            "edit_file" | "write_file" | "create_file" | "apply_patch"
+                            | "str_replace_editor" => true,
+                            "shell_exec" | "execute_command" => tc
+                                .args
+                                .as_deref()
+                                .and_then(|a| serde_json::from_str::<serde_json::Value>(a).ok())
+                                .map(|a| {
+                                    let cmd =
+                                        a.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                    cmd.contains("git add")
+                                        || cmd.contains("git commit")
+                                        || cmd.contains("git checkout")
+                                        || cmd.contains("git reset")
+                                        || cmd.contains("git stash")
+                                        || cmd.contains("git merge")
+                                        || cmd.contains("git rebase")
+                                        || cmd.contains("git rm")
+                                })
+                                .unwrap_or(false),
                             _ => false,
                         };
                         if should_refresh {
@@ -955,7 +994,11 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
-                    let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
+                    let seg_order = if segment_order.is_empty() {
+                        None
+                    } else {
+                        Some(segment_order.clone())
+                    };
                     let assistant_msg = ChatMessage {
                         role: xiaolin_core::types::Role::Assistant,
                         content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -1019,7 +1062,11 @@ pub async fn spawn_chat(
                 );
             }
             if is_done && !after_chat_called && !assistant_content.is_empty() {
-                let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
+                let seg_order = if segment_order.is_empty() {
+                    None
+                } else {
+                    Some(segment_order.clone())
+                };
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
@@ -1036,14 +1083,14 @@ pub async fn spawn_chat(
                 after_chat_called = true;
             }
             // Persist per-message and session-level usage on Done
-            if let AgentEvent::TurnEnd {
-                ref summary,
-                ..
-            } = event
-            {
+            if let AgentEvent::TurnEnd { ref summary, .. } = event {
                 let wall_ms = chat_start.elapsed().as_millis() as u64;
                 let pt = summary.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0);
-                let ct = summary.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+                let ct = summary
+                    .usage
+                    .as_ref()
+                    .map(|u| u.completion_tokens)
+                    .unwrap_or(0);
                 let tt = summary.usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
                 let ems = if wall_ms > 0 {
                     wall_ms
@@ -1092,10 +1139,13 @@ pub async fn spawn_chat(
                             to = ?mode_now,
                             "auto mode change detected — embedding in turn_end"
                         );
-                        data.insert("modeChange".into(), json!({
-                            "from": format!("{mode_at_start}"),
-                            "to": format!("{mode_now}"),
-                        }));
+                        data.insert(
+                            "modeChange".into(),
+                            json!({
+                                "from": format!("{mode_at_start}"),
+                                "to": format!("{mode_now}"),
+                            }),
+                        );
                     }
                 }
             }
@@ -1105,7 +1155,10 @@ pub async fn spawn_chat(
             if is_done {
                 break;
             }
-            if matches!(&event, AgentEvent::TurnAborted { .. } | AgentEvent::Error { .. }) {
+            if matches!(
+                &event,
+                AgentEvent::TurnAborted { .. } | AgentEvent::Error { .. }
+            ) {
                 break;
             }
         }
@@ -1113,9 +1166,9 @@ pub async fn spawn_chat(
         // After TurnEnd/TurnAborted, drain any trailing SubAgentComplete events
         // that the relay task may still be forwarding (race with emit_sync).
         {
-            let drain_deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
-            while let Ok(Some(se)) =
-                tokio::time::timeout_at(drain_deadline, event_rx.recv()).await
+            let drain_deadline =
+                tokio::time::Instant::now() + std::time::Duration::from_millis(300);
+            while let Ok(Some(se)) = tokio::time::timeout_at(drain_deadline, event_rx.recv()).await
             {
                 if matches!(
                     &se.msg,
@@ -1153,10 +1206,19 @@ pub async fn spawn_chat(
                 if turn_cancel.is_cancelled() {
                     assistant_content.push_str("\n\n[此回复因超时被截断]");
                 }
-                let seg_order = if segment_order.is_empty() { None } else { Some(segment_order.clone()) };
+                let seg_order = if segment_order.is_empty() {
+                    None
+                } else {
+                    Some(segment_order.clone())
+                };
                 let assistant_msg = ChatMessage {
                     role: xiaolin_core::types::Role::Assistant,
                     content: Some(serde_json::Value::String(assistant_content.clone())),
+                    reasoning_content: if assistant_reasoning.is_empty() {
+                        None
+                    } else {
+                        Some(assistant_reasoning.clone())
+                    },
                     enriched_tool_calls_json: build_enriched_tool_calls_json(&tracked_tools),
                     segment_order: seg_order,
                     ..Default::default()
@@ -1188,9 +1250,7 @@ pub async fn spawn_chat(
 /// not present on the `ToolCall` struct. The extra fields are silently
 /// ignored by `serde_json::from_str::<Vec<ToolCall>>` on the LLM load
 /// path, keeping the LLM context clean.
-fn build_enriched_tool_calls_json(
-    tracked: &[TrackedToolCallData],
-) -> Option<String> {
+fn build_enriched_tool_calls_json(tracked: &[TrackedToolCallData]) -> Option<String> {
     if tracked.is_empty() {
         return None;
     }
@@ -1266,12 +1326,10 @@ pub async fn handle_goal_action(
                         ok = updated.is_some(),
                         "goal paused by user"
                     );
-                    let event = updated
-                        .as_ref()
-                        .map(|g| AgentEvent::GoalUpdated {
-                            turn_id: Default::default(),
-                            goal: g.to_goal_data(),
-                        });
+                    let event = updated.as_ref().map(|g| AgentEvent::GoalUpdated {
+                        turn_id: Default::default(),
+                        goal: g.to_goal_data(),
+                    });
                     (updated.map(|g| json!(g)), event)
                 } else {
                     tracing::warn!(
@@ -1288,9 +1346,7 @@ pub async fn handle_goal_action(
         }
         "resume" => {
             if let Some(goal) = goal_store.get_current().await {
-                if goal.status == GoalStatus::Paused
-                    || goal.status == GoalStatus::BudgetLimited
-                {
+                if goal.status == GoalStatus::Paused || goal.status == GoalStatus::BudgetLimited {
                     goal_store.reset_rounds(&goal.id).await;
                     let updated = goal_store
                         .update_status(&goal.id, GoalStatus::Active, None)
@@ -1301,12 +1357,10 @@ pub async fn handle_goal_action(
                         ok = updated.is_some(),
                         "goal resumed by user"
                     );
-                    let event = updated
-                        .as_ref()
-                        .map(|g| AgentEvent::GoalUpdated {
-                            turn_id: Default::default(),
-                            goal: g.to_goal_data(),
-                        });
+                    let event = updated.as_ref().map(|g| AgentEvent::GoalUpdated {
+                        turn_id: Default::default(),
+                        goal: g.to_goal_data(),
+                    });
                     (updated.map(|g| json!(g)), event)
                 } else {
                     tracing::warn!(
@@ -1415,12 +1469,10 @@ pub async fn handle_goal_action(
                             ok = updated.is_some(),
                             "goal budget added"
                         );
-                        let event = updated
-                            .as_ref()
-                            .map(|g| AgentEvent::GoalUpdated {
-                                turn_id: Default::default(),
-                                goal: g.to_goal_data(),
-                            });
+                        let event = updated.as_ref().map(|g| AgentEvent::GoalUpdated {
+                            turn_id: Default::default(),
+                            goal: g.to_goal_data(),
+                        });
                         (updated.map(|g| json!(g)), event)
                     }
                 } else {

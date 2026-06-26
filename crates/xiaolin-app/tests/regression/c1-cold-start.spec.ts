@@ -22,11 +22,10 @@ test.describe("C1: 冷启动无白屏 / crash", () => {
     }
   });
 
-  test("AgentList sidebar 渲染且包含至少 1 个 agent", async ({ page }) => {
+  test("Agent selector 渲染且包含当前 agent", async ({ page }) => {
     await waitForAppReady(page);
 
-    const agentNames = page.locator('span.truncate').filter({ hasText: /Assistant|Coder|Writer/ });
-    await expect(agentNames.first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: /main/i })).toBeVisible({ timeout: 5_000 });
   });
 
   test("主消息区域可见", async ({ page }) => {

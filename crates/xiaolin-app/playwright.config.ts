@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
+import { existsSync } from "node:fs";
 
 const CI = !!process.env.CI;
+const SYSTEM_CHROME = "/usr/bin/google-chrome-stable";
+const chromeExecutablePath =
+  process.env.PW_CHROME_EXECUTABLE_PATH ||
+  (!CI && existsSync(SYSTEM_CHROME) ? SYSTEM_CHROME : undefined);
 
 export default defineConfig({
   testDir: "./tests",
@@ -18,6 +23,7 @@ export default defineConfig({
     video: CI ? "retain-on-failure" : "off",
     launchOptions: {
       args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+      executablePath: chromeExecutablePath,
     },
   },
 

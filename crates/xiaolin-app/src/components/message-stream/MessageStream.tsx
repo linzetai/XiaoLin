@@ -11,6 +11,7 @@ import {
   useActiveStream,
   useActiveSubAgentRuns,
   useChatLastSegments,
+  useChatMessageSegments,
   useChatUsage,
   useActiveGoal,
 } from "../../lib/stores/selectors";
@@ -21,7 +22,7 @@ import { MessageRendererRow } from "./MessageRenderer";
 import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
 import { PlanApprovalCard } from "./PlanApprovalCard";
-import { useStreamScroll, STREAM_PAGE_SIZE } from "./useStreamScroll";
+import { useStreamScroll } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
 import { X, CaretUp, CaretDown, UploadSimple, MagnifyingGlass, ArrowDown } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
@@ -47,6 +48,7 @@ export function MessageStream(_props: MessageStreamProps) {
   const stream = useActiveStream();
   const subAgentRuns = useActiveSubAgentRuns();
   const lastSegments = useChatLastSegments(activeChatId);
+  const messageSegments = useChatMessageSegments(activeChatId);
   const usage = useChatUsage(activeChatId);
   const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
@@ -412,9 +414,9 @@ export function MessageStream(_props: MessageStreamProps) {
   const firstVisibleIndexRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [visibleCount, setVisibleCount] = useState(STREAM_PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(Number.MAX_SAFE_INTEGER);
   useEffect(() => {
-    setVisibleCount(STREAM_PAGE_SIZE);
+    setVisibleCount(Number.MAX_SAFE_INTEGER);
   }, [chatKey]);
 
   useEffect(() => {
@@ -434,10 +436,10 @@ export function MessageStream(_props: MessageStreamProps) {
     prevAgentChatKey.current = key;
   }, [chatKey]);
 
-  const hasMore = stream.length > visibleCount;
-  const paginationOffset = hasMore ? stream.length - visibleCount : 0;
+  const hasMore = false;
+  const paginationOffset = 0;
   paginationOffsetRef.current = paginationOffset;
-  const visibleStream = hasMore ? stream.slice(paginationOffset) : stream;
+  const visibleStream = stream;
 
   const displayData = useMemo(() => {
     if (streaming) {
@@ -681,6 +683,20 @@ export function MessageStream(_props: MessageStreamProps) {
     }
     return -1;
   }, [displayData]);
+
+  const getSavedSegments = useCallback((displayIndex: number) => {
+    const item = displayData[displayIndex];
+    if (item && "type" in item && item.type === "message") {
+      const backendId = (item.data as { backendId?: number }).backendId;
+      if (typeof backendId === "number") {
+        const restored = messageSegments[backendId];
+        if (restored) return restored as import("./types").StreamSegment[];
+      }
+    }
+    return displayIndex === lastAssistantDisplayIdx
+      ? lastSegments as import("./types").StreamSegment[]
+      : undefined;
+  }, [displayData, lastAssistantDisplayIdx, lastSegments, messageSegments]);
 
   const todoProgress = useMemo<TodoSummary | null>(() => {
     // Check current streaming segments first (most recent data)
@@ -950,6 +966,7 @@ export function MessageStream(_props: MessageStreamProps) {
           )}
           <div
             ref={scrollContainerRef}
+            data-testid="message-scroll-container"
             key={chatKey}
             className="min-w-0 flex-1"
             style={{ overflowX: "hidden", overflowY: "auto" }}
@@ -995,7 +1012,7 @@ export function MessageStream(_props: MessageStreamProps) {
                     streamSegments={streamSegments}
                     subAgentRuns={subAgentRuns}
                     bottomRef={bottomRef}
-                    lastSegments={virtualItem.index === lastAssistantDisplayIdx ? lastSegments as import("./types").StreamSegment[] | undefined : undefined}
+                    lastSegments={getSavedSegments(virtualItem.index)}
                     highlightTurnId={highlightTurnId}
                     executionMode={executionMode}
                   />

@@ -60,9 +60,7 @@ pub fn native_audio_available() -> bool {
 }
 
 #[tauri::command]
-pub fn start_native_recording(
-    state: tauri::State<'_, AudioCaptureState>,
-) -> Result<(), String> {
+pub fn start_native_recording(state: tauri::State<'_, AudioCaptureState>) -> Result<(), String> {
     if state.recording.load(Ordering::SeqCst) {
         return Err("already recording".into());
     }
@@ -178,9 +176,7 @@ pub fn start_native_recording(
 }
 
 #[tauri::command]
-pub fn stop_native_recording(
-    state: tauri::State<'_, AudioCaptureState>,
-) -> Result<String, String> {
+pub fn stop_native_recording(state: tauri::State<'_, AudioCaptureState>) -> Result<String, String> {
     if !state.recording.load(Ordering::SeqCst) {
         return Err("not recording".into());
     }
@@ -194,28 +190,16 @@ pub fn stop_native_recording(
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let samples = state
-        .samples
-        .lock()
-        .map_err(|_| "samples lock poisoned")?;
-    let sample_rate = *state
-        .sample_rate
-        .lock()
-        .map_err(|_| "lock poisoned")?;
-    let channels = *state
-        .channels
-        .lock()
-        .map_err(|_| "lock poisoned")?;
+    let samples = state.samples.lock().map_err(|_| "samples lock poisoned")?;
+    let sample_rate = *state.sample_rate.lock().map_err(|_| "lock poisoned")?;
+    let channels = *state.channels.lock().map_err(|_| "lock poisoned")?;
 
     if samples.is_empty() {
         return Err("no audio captured".into());
     }
 
     let wav_data = encode_wav(&samples, sample_rate, channels)?;
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &wav_data,
-    );
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav_data);
     Ok(b64)
 }
 

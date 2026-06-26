@@ -12,11 +12,11 @@
 //! All public functions in this module MUST be called from the GTK main thread
 //! (e.g., inside a `window.run_on_main_thread()` closure).
 
+use gtk::glib::object::ObjectExt;
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-use gtk::glib::object::ObjectExt;
 
 use crate::browser_network::WebviewProxySetting;
 
@@ -361,9 +361,8 @@ mod ffi_webkit {
     use std::os::raw::c_char;
 
     extern "C" {
-        pub fn webkit_web_view_get_context(
-            webview: *mut std::ffi::c_void,
-        ) -> *mut std::ffi::c_void;
+        pub fn webkit_web_view_get_context(webview: *mut std::ffi::c_void)
+            -> *mut std::ffi::c_void;
 
         pub fn webkit_web_context_get_cookie_manager(
             context: *mut std::ffi::c_void,
@@ -395,9 +394,7 @@ mod ffi_webkit {
             proxy_settings: *mut std::ffi::c_void,
         );
 
-        pub fn webkit_network_proxy_settings_free(
-            settings: *mut std::ffi::c_void,
-        );
+        pub fn webkit_network_proxy_settings_free(settings: *mut std::ffi::c_void);
 
         pub fn webkit_web_context_get_security_manager(
             context: *mut std::ffi::c_void,

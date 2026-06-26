@@ -4,13 +4,13 @@
 //! functions perform, without needing a Tauri runtime. Each test creates a real
 //! `AppState::for_test` backed by temp-dir SQLite databases and a mock LLM provider.
 
+use serde_json::json;
 use xiaolin_agent::{CompletionParams, LlmProvider};
 use xiaolin_core::types::{
     ChatChoice, ChatMessage, ChatRequest, ChatResponse, DeltaContent, Role, StreamChoice,
     StreamDelta,
 };
 use xiaolin_gateway::AppState;
-use serde_json::json;
 
 // ═══════════════════════════════════════════════════════════════════
 // Mock LLM provider
@@ -34,7 +34,7 @@ impl LlmProvider for MockProvider {
                 message: ChatMessage {
                     role: Role::Assistant,
                     content: Some("Hello from mock".into()),
-                ..Default::default()
+                    ..Default::default()
                 },
                 finish_reason: Some("stop".into()),
             }],
@@ -365,7 +365,7 @@ async fn append_and_load_messages() {
     let user_msg = ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String("Hello".into())),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store
@@ -377,7 +377,7 @@ async fn append_and_load_messages() {
     let assistant_msg = ChatMessage {
         role: Role::Assistant,
         content: Some(serde_json::Value::String("Hi there!".into())),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store
@@ -424,7 +424,7 @@ async fn load_messages_preserves_content() {
             "Test content with émojis 🎉".into(),
         )),
         name: Some("test-user".into()),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store
@@ -523,7 +523,7 @@ async fn stream_chat_produces_events() {
         messages: vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String("Hello".into())),
-        ..Default::default()
+            ..Default::default()
         }],
         model: None,
         stream: true,
@@ -603,7 +603,7 @@ async fn stream_chat_delta_content_accumulates() {
         messages: vec![ChatMessage {
             role: Role::User,
             content: Some(serde_json::Value::String("Test accumulation".into())),
-        ..Default::default()
+            ..Default::default()
         }],
         model: None,
         stream: true,
@@ -668,7 +668,7 @@ async fn full_session_lifecycle() {
     let user_msg = ChatMessage {
         role: Role::User,
         content: Some(serde_json::Value::String("What is 2+2?".into())),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store
@@ -680,7 +680,7 @@ async fn full_session_lifecycle() {
     let asst_msg = ChatMessage {
         role: Role::Assistant,
         content: Some(serde_json::Value::String("4".into())),
-    ..Default::default()
+        ..Default::default()
     };
     state
         .store

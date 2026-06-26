@@ -40,7 +40,9 @@ impl GatewayProcess {
         tokio::spawn(async move {
             match xiaolin_gateway::AppState::new(config).await {
                 Ok(state) => {
-                    xiaolin_tools_browser::set_network_ws_broadcast(state.strm.ws_broadcast.clone());
+                    xiaolin_tools_browser::set_network_ws_broadcast(
+                        state.strm.ws_broadcast.clone(),
+                    );
                     if let Err(e) =
                         xiaolin_gateway::serve_with_state(state, listener, shutdown_rx).await
                     {

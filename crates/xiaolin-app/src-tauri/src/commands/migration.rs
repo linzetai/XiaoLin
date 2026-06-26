@@ -1,5 +1,5 @@
-use xiaolin_core::migration::{self, ExportOptions, ImportOptions};
 use serde::{Deserialize, Serialize};
+use xiaolin_core::migration::{self, ExportOptions, ImportOptions};
 
 /// Maximum import blob size accepted via IPC (512 MiB).
 const MAX_IMPORT_BYTES: usize = 512 * 1024 * 1024;
@@ -60,11 +60,10 @@ pub async fn export_data(options: ExportOptionsDto) -> Result<Vec<u8>, String> {
             "Export failed".to_string()
         })?;
 
-    migration::serialize_migration_data(&data)
-        .map_err(|e| {
-            tracing::warn!(error = %e, "serialize_migration_data failed");
-            "Export failed".to_string()
-        })
+    migration::serialize_migration_data(&data).map_err(|e| {
+        tracing::warn!(error = %e, "serialize_migration_data failed");
+        "Export failed".to_string()
+    })
 }
 
 /// Import data from a binary blob.
@@ -76,11 +75,10 @@ pub async fn import_data(data: Vec<u8>, options: ImportOptionsDto) -> Result<(),
         return Err("Import file too large (max 512MB)".to_string());
     }
     let mode = config_mode();
-    let migration_data = migration::deserialize_migration_data(&data)
-        .map_err(|e| {
-            tracing::warn!(error = %e, "deserialize_migration_data failed");
-            "Import failed".to_string()
-        })?;
+    let migration_data = migration::deserialize_migration_data(&data).map_err(|e| {
+        tracing::warn!(error = %e, "deserialize_migration_data failed");
+        "Import failed".to_string()
+    })?;
 
     let import_options = ImportOptions::from(options);
 

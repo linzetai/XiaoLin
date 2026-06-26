@@ -11,6 +11,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     setupFiles: ["./src/test-setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+    exclude: ["tests/**", "node_modules/**", "dist/**", "src-tauri/**"],
   },
   build: {
     rollupOptions: {
